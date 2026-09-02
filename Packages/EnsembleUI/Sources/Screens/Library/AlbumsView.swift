@@ -294,6 +294,7 @@ public struct AlbumDetailView: View {
     let nowPlayingVM: NowPlayingViewModel
     @State private var isBioExpanded = false
     @State private var albumPendingDeletion: Album?
+    @State private var favoriteOverrides: [String: Bool] = [:]
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
@@ -370,6 +371,10 @@ public struct AlbumDetailView: View {
             hiddenIdentity: displayAlbum.isMerged ? nil : HiddenMediaIdentity(album),
             includesHidden: includesHidden,
             albumMenuActions: AlbumDetailMenuActions(
+                favoriteAvailability: .combined(
+                    displayAlbum.albums.map { $0.actionAvailability(for: .favorite) }
+                ),
+                isFavorite: isFavorite(album),
                 downloadAvailability: .combined(displayAlbum.albums.map {
                     resolvedDownloadMenuAvailability(
                         isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled($0),
@@ -383,6 +388,24 @@ public struct AlbumDetailView: View {
                 deleteAvailability: .combined(
                     displayAlbum.albums.map { $0.actionAvailability(for: .delete) }
                 ),
+                onToggleFavorite: {
+                    sourceMutationAction(
+                        title: "Update Album Favorite",
+                        items: displayAlbum.albums,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        availability: { $0.actionAvailability(for: .favorite) },
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { selectedAlbum in
+                        setFavorite(!isFavorite(selectedAlbum), for: selectedAlbum)
+                    }?()
+                },
+                onFavorite: {
+                    guard !isFavorite(album) else { return }
+                    setFavorite(true, for: album)
+                },
                 onToggleDownload: {
                     Task {
                         await deps.downloadMutationWorkflow.toggleDownloads(for: displayAlbum.albums)
@@ -496,6 +519,22 @@ public struct AlbumDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This permanently deletes \"\(albumPendingDeletion?.title ?? album.title)\" from its source and removes its local cache.")
+        }
+    }
+
+    private func isFavorite(_ album: Album) -> Bool {
+        favoriteOverrides[album.sourceScopedID] ?? album.isFavorite
+    }
+
+    private func setFavorite(_ isFavorite: Bool, for album: Album) {
+        let previous = self.isFavorite(album)
+        favoriteOverrides[album.sourceScopedID] = isFavorite
+        Task {
+            do {
+                try await deps.collectionFavoriteMutationWorkflow.setFavorite(isFavorite, for: album)
+            } catch {
+                favoriteOverrides[album.sourceScopedID] = previous
+            }
         }
     }
 

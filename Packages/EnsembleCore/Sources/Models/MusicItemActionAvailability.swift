@@ -111,7 +111,12 @@ public extension Album {
             return capabilities.supportsTrackDeletion
                 ? .available
                 : .unavailable(reason: "\(capabilities.displayName) albums cannot be deleted in Ensemble.")
-        case .favorite, .rename, .reorder:
+        case .favorite:
+            return sourceActionAvailability(
+                isSupported: capabilities.supportsCollectionRatings,
+                unavailableReason: "\(capabilities.displayName) albums cannot be favorited in Ensemble."
+            )
+        case .rename, .reorder:
             return .unavailable(reason: "This action is not available for albums.")
         }
     }
@@ -172,7 +177,12 @@ public extension Playlist {
                 isSupported: sourceCapabilities.supportsOfflineDownloads,
                 unavailableReason: "\(sourceCapabilities.displayName) playlists cannot be downloaded in Ensemble."
             )
-        case .favorite, .editMetadata:
+        case .favorite:
+            return sourceActionAvailability(
+                isSupported: sourceCapabilities.supportsCollectionRatings,
+                unavailableReason: "\(sourceCapabilities.displayName) playlists cannot be favorited in Ensemble."
+            )
+        case .editMetadata:
             return .unavailable(reason: "This action is not available for playlists.")
         }
     }

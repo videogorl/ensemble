@@ -266,6 +266,17 @@ public struct ControlsCard: View {
     private func artworkView(cornerRadius: CGFloat) -> some View {
         ResolvedArtworkImageView(image: artworkProjection.artworkImage)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .favoriteArtworkFeedback(isEnabled: canFavoriteArtwork) {
+                guard let track = playbackProjection.currentTrack,
+                      !viewModel.isTrackFavorited(track) else { return }
+                Task { await viewModel.setTrackFavorite(true, for: track) }
+            }
+    }
+
+    private var canFavoriteArtwork: Bool {
+        guard let track = playbackProjection.currentTrack else { return false }
+        return viewModel.isTrackFavorited(track)
+            || track.actionAvailability(for: .favorite, isFavorited: false).isAvailable
     }
 
     // MARK: - Track Metadata

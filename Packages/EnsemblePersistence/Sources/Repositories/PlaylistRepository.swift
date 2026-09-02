@@ -37,6 +37,8 @@ public struct PlaylistUpsertInput: Sendable, Equatable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let lastPlayed: Date?
+    public let lastRatedAt: Date?
+    public let rating: Int?
     public let actionCapabilities: PlaylistActionCapabilities?
 
     public init(
@@ -51,6 +53,8 @@ public struct PlaylistUpsertInput: Sendable, Equatable {
         dateAdded: Date?,
         dateModified: Date?,
         lastPlayed: Date?,
+        lastRatedAt: Date? = nil,
+        rating: Int? = nil,
         actionCapabilities: PlaylistActionCapabilities? = nil
     ) {
         self.ratingKey = ratingKey
@@ -64,6 +68,8 @@ public struct PlaylistUpsertInput: Sendable, Equatable {
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.lastPlayed = lastPlayed
+        self.lastRatedAt = lastRatedAt
+        self.rating = rating
         self.actionCapabilities = actionCapabilities
     }
 }
@@ -83,6 +89,8 @@ public struct PlaylistSyncState: Sendable, Equatable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let lastPlayed: Date?
+    public let lastRatedAt: Date?
+    public let rating: Int
     public let actionCapabilities: PlaylistActionCapabilities?
     public let membershipSnapshots: [PlaylistTrackSnapshot]
 
@@ -104,6 +112,8 @@ public struct PlaylistSyncState: Sendable, Equatable {
         dateAdded: Date?,
         dateModified: Date?,
         lastPlayed: Date?,
+        lastRatedAt: Date? = nil,
+        rating: Int = 0,
         actionCapabilities: PlaylistActionCapabilities?,
         membershipRatingKeys: [String] = [],
         membershipSnapshots: [PlaylistTrackSnapshot]? = nil
@@ -121,6 +131,8 @@ public struct PlaylistSyncState: Sendable, Equatable {
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.lastPlayed = lastPlayed
+        self.lastRatedAt = lastRatedAt
+        self.rating = rating
         self.actionCapabilities = actionCapabilities
         self.membershipSnapshots = membershipSnapshots
             ?? membershipRatingKeys.map { PlaylistTrackSnapshot(ratingKey: $0) }
@@ -138,6 +150,8 @@ public struct PlaylistSyncState: Sendable, Equatable {
             !(dateAdded == nil && input.dateAdded != nil) &&
             dateModified == input.dateModified &&
             lastPlayed == input.lastPlayed &&
+            lastRatedAt == input.lastRatedAt &&
+            rating == (input.rating ?? 0) &&
             (input.actionCapabilities == nil || actionCapabilities == input.actionCapabilities)
     }
 }
@@ -381,6 +395,8 @@ public extension PlaylistRepositoryProtocol {
                 dateAdded: playlist.dateAdded,
                 dateModified: playlist.dateModified,
                 lastPlayed: playlist.lastPlayed,
+                lastRatedAt: playlist.lastRatedAt,
+                rating: Int(playlist.rating),
                 actionCapabilities: playlist.persistedActionCapabilities,
                 membershipSnapshots: memberships.compactMap { membership in
                     guard let ratingKey = membership.trackRatingKey ?? membership.track?.ratingKey else {
@@ -729,6 +745,8 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     dateAdded: playlist.dateAdded,
                     dateModified: playlist.dateModified,
                     lastPlayed: playlist.lastPlayed,
+                    lastRatedAt: playlist.lastRatedAt,
+                    rating: Int(playlist.rating),
                     actionCapabilities: playlist.persistedActionCapabilities,
                     membershipSnapshots: membershipSnapshotsByPlaylist[playlist.ratingKey] ?? []
                 )
@@ -1002,6 +1020,8 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     }
                     playlist.dateModified = input.dateModified
                     playlist.lastPlayed = input.lastPlayed
+                    playlist.lastRatedAt = input.lastRatedAt
+                    playlist.rating = Int16(input.rating ?? 0)
                     if let capabilities = input.actionCapabilities {
                         playlist.canAddItems = NSNumber(value: capabilities.canAddItems)
                         playlist.canRename = NSNumber(value: capabilities.canRename)

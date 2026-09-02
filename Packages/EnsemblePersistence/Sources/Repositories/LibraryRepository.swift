@@ -105,6 +105,7 @@ public struct AlbumSyncMetadata: Sendable, Equatable {
     public let trackCount: Int
     public let dateAdded: Date?
     public let dateModified: Date?
+    public let lastRatedAt: Date?
     public let rating: Int
     public let genreNames: String?
     public let releaseFormat: String?
@@ -123,6 +124,7 @@ public struct AlbumSyncMetadata: Sendable, Equatable {
         trackCount: Int,
         dateAdded: Date?,
         dateModified: Date?,
+        lastRatedAt: Date?,
         rating: Int,
         genreNames: String?,
         releaseFormat: String?,
@@ -140,6 +142,7 @@ public struct AlbumSyncMetadata: Sendable, Equatable {
         self.trackCount = trackCount
         self.dateAdded = dateAdded
         self.dateModified = dateModified
+        self.lastRatedAt = lastRatedAt
         self.rating = rating
         self.genreNames = genreNames
         self.releaseFormat = releaseFormat
@@ -160,6 +163,7 @@ public struct AlbumSyncMetadata: Sendable, Equatable {
             trackCount: input.trackCount ?? 0,
             dateAdded: input.dateAdded,
             dateModified: input.dateModified,
+            lastRatedAt: input.lastRatedAt,
             rating: input.rating ?? 0,
             genreNames: input.genreNames,
             releaseFormat: input.updatesReleaseFormat ? input.releaseFormat : nil,
@@ -183,6 +187,7 @@ public struct AlbumSyncMetadata: Sendable, Equatable {
                 ? dateAdded == input.dateAdded
                 : !(dateAdded == nil && input.dateAdded != nil)) &&
             dateModified == input.dateModified &&
+            lastRatedAt == input.lastRatedAt &&
             rating == (input.rating ?? 0) &&
             genreNames == input.genreNames &&
             (!input.updatesReleaseFormat || releaseFormat == input.releaseFormat) &&
@@ -205,6 +210,7 @@ public struct AlbumUpsertInput: Sendable {
     public let trackCount: Int?
     public let dateAdded: Date?
     public let dateModified: Date?
+    public let lastRatedAt: Date?
     public let rating: Int?
     public let genreNames: String?
     public let releaseFormat: String?
@@ -214,7 +220,7 @@ public struct AlbumUpsertInput: Sendable {
     /// an encoded empty capability set clears them.
     public let actionCapabilitiesData: Data?
 
-    public init(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, genreNames: String? = nil, releaseFormat: String? = nil, updatesReleaseFormat: Bool = false, updatesDateAdded: Bool = false, actionCapabilitiesData: Data? = nil) {
+    public init(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastRatedAt: Date? = nil, rating: Int?, genreNames: String? = nil, releaseFormat: String? = nil, updatesReleaseFormat: Bool = false, updatesDateAdded: Bool = false, actionCapabilitiesData: Data? = nil) {
         self.ratingKey = ratingKey
         self.key = key
         self.title = title
@@ -228,6 +234,7 @@ public struct AlbumUpsertInput: Sendable {
         self.trackCount = trackCount
         self.dateAdded = dateAdded
         self.dateModified = dateModified
+        self.lastRatedAt = lastRatedAt
         self.rating = rating
         self.genreNames = genreNames
         self.releaseFormat = releaseFormat

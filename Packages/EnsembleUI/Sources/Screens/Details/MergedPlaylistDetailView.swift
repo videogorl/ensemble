@@ -14,6 +14,7 @@ public struct MergedPlaylistDetailView: View {
     @State private var renameTargets: [Playlist] = []
     @State private var deleteTarget: Playlist?
     @State private var editTarget: Playlist?
+    @State private var favoriteOverrides: [String: Bool] = [:]
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
@@ -42,6 +43,10 @@ public struct MergedPlaylistDetailView: View {
             actionTracks: viewModel.preferredFilteredTracks,
             hiddenCandidates: playlists.compactMap { $0.hiddenCandidate(deps: deps) },
             playlistMenuActions: PlaylistDetailMenuActions(
+                favoriteAvailability: .combined(
+                    playlists.map { $0.actionAvailability(for: .favorite) }
+                ),
+                isFavorite: isFavorite(viewModel.displayPlaylist.primaryPlaylist),
                 downloadAvailability: resolvedMergedDownloadMenuAvailability(
                     isAnyDownloaded: downloadState.enabledCount > 0,
                     sourceAvailabilities: downloadAvailabilities
@@ -56,6 +61,25 @@ public struct MergedPlaylistDetailView: View {
                 deleteAvailability: .combined(
                     playlists.map { $0.actionAvailability(for: .delete) }
                 ),
+                onToggleFavorite: {
+                    sourceMutationAction(
+                        title: "Update Playlist Favorite",
+                        items: playlists,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        availability: { $0.actionAvailability(for: .favorite) },
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { playlist in
+                        setFavorite(!isFavorite(playlist), for: playlist)
+                    }?()
+                },
+                onFavorite: {
+                    let playlist = viewModel.displayPlaylist.primaryPlaylist
+                    guard !isFavorite(playlist) else { return }
+                    setFavorite(true, for: playlist)
+                },
                 onToggleDownload: {
                     Task {
                         await deps.downloadMutationWorkflow.toggleDownloads(for: playlists)
@@ -164,6 +188,22 @@ public struct MergedPlaylistDetailView: View {
     }
 
     // MARK: - Header
+
+    private func isFavorite(_ playlist: Playlist) -> Bool {
+        favoriteOverrides[playlist.sourceScopedID] ?? playlist.isFavorite
+    }
+
+    private func setFavorite(_ isFavorite: Bool, for playlist: Playlist) {
+        let previous = self.isFavorite(playlist)
+        favoriteOverrides[playlist.sourceScopedID] = isFavorite
+        Task {
+            do {
+                try await deps.collectionFavoriteMutationWorkflow.setFavorite(isFavorite, for: playlist)
+            } catch {
+                favoriteOverrides[playlist.sourceScopedID] = previous
+            }
+        }
+    }
 
     private func renamePlaylistFromPrompt() {
         let playlists = renameTargets

@@ -80,11 +80,15 @@ func mediaDetailTrackSourceLabels(
 }
 
 public struct PlaylistDetailMenuActions {
+    let favoriteAvailability: MusicItemActionAvailability
+    let isFavorite: Bool
     let downloadAvailability: MusicItemActionAvailability
     let isDownloaded: Bool
     let renameAvailability: MusicItemActionAvailability
     let editAvailability: MusicItemActionAvailability
     let deleteAvailability: MusicItemActionAvailability
+    let onToggleFavorite: () -> Void
+    let onFavorite: () -> Void
     let onToggleDownload: () -> Void
     let onRename: () -> Void
     let onEdit: () -> Void
@@ -94,10 +98,14 @@ public struct PlaylistDetailMenuActions {
 }
 
 public struct AlbumDetailMenuActions {
+    let favoriteAvailability: MusicItemActionAvailability
+    let isFavorite: Bool
     let downloadAvailability: MusicItemActionAvailability
     let isDownloaded: Bool
     let editMetadataAvailability: MusicItemActionAvailability
     let deleteAvailability: MusicItemActionAvailability
+    let onToggleFavorite: () -> Void
+    let onFavorite: () -> Void
     let onToggleDownload: () -> Void
     let onAddToPlaylist: (@escaping ([Track], String) -> Void) -> Void
     let onEditMetadata: () -> Void
@@ -566,6 +574,17 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
                     Divider()
 
+                    Button {
+                        albumMenuActions.onToggleFavorite()
+                    } label: {
+                        MediaActionLabel(kind: .favorite(
+                            isFavorited: albumMenuActions.isFavorite,
+                            usesFilledIcon: false
+                        ))
+                    }
+                    .disabled(!albumMenuActions.favoriteAvailability.isAvailable)
+                    .accessibilityHint(albumMenuActions.favoriteAvailability.reason ?? "")
+
                     let album = Album(
                         id: ratingKey,
                         key: headerData.ratingKey ?? ratingKey,
@@ -774,6 +793,17 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .disabled(resolvedActionTracks.isEmpty)
 
                 Divider()
+
+                Button {
+                    playlistMenuActions.onToggleFavorite()
+                } label: {
+                    MediaActionLabel(kind: .favorite(
+                        isFavorited: playlistMenuActions.isFavorite,
+                        usesFilledIcon: false
+                    ))
+                }
+                .disabled(!playlistMenuActions.favoriteAvailability.isAvailable)
+                .accessibilityHint(playlistMenuActions.favoriteAvailability.reason ?? "")
 
                 let playlist = Playlist(
                     id: ratingKey,
@@ -1236,12 +1266,33 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var headerArtwork: some View {
         let artworkCornerRadius = ArtworkCornerRadius.square(for: ArtworkSize.medium)
 
-        if let artworkImage {
-            platformHeaderArtwork(artworkImage)
-                .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+        Group {
+            if let artworkImage {
+                platformHeaderArtwork(artworkImage)
+                    .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+            } else {
+                headerArtworkPlaceholder
+                    .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+            }
+        }
+        .favoriteArtworkFeedback(isEnabled: canFavoriteHeaderArtwork, onFavorite: favoriteHeaderArtwork)
+    }
+
+    private var canFavoriteHeaderArtwork: Bool {
+        if let albumMenuActions {
+            return albumMenuActions.isFavorite || albumMenuActions.favoriteAvailability.isAvailable
+        }
+        if let playlistMenuActions {
+            return playlistMenuActions.isFavorite || playlistMenuActions.favoriteAvailability.isAvailable
+        }
+        return false
+    }
+
+    private func favoriteHeaderArtwork() {
+        if let albumMenuActions {
+            albumMenuActions.onFavorite()
         } else {
-            headerArtworkPlaceholder
-            .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+            playlistMenuActions?.onFavorite()
         }
     }
 

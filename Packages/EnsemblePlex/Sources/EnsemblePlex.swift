@@ -742,7 +742,7 @@ public actor EnsemblePlexCatalogService {
         guard let library = Self.library(for: track.sourceKey, in: libraries) else {
             throw EnsemblePlexPlaylistMutationError.noCompatibleSource
         }
-        try await EnsemblePlexDiscoveryService.client(for: library).rateTrack(
+        try await EnsemblePlexDiscoveryService.client(for: library).rateItem(
             ratingKey: track.id,
             rating: rating
         )

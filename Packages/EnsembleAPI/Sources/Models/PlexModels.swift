@@ -230,6 +230,8 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
     public let originallyAvailableAt: String?
     public let addedAt: Int?
     public let updatedAt: Int?
+    public let lastRatedAt: Int?
+    public let userRating: Double?
     public let leafCount: Int?  // Track count
     public let viewedLeafCount: Int?
     public let media: [PlexMedia]?
@@ -249,6 +251,8 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         case originallyAvailableAt
         case addedAt
         case updatedAt
+        case lastRatedAt
+        case userRating
         case leafCount
         case viewedLeafCount
         case media = "Media"
@@ -282,6 +286,8 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         originallyAvailableAt = try container.decodeIfPresent(String.self, forKey: .originallyAvailableAt)
         addedAt = try container.decodeIfPresent(Int.self, forKey: .addedAt)
         updatedAt = try container.decodeIfPresent(Int.self, forKey: .updatedAt)
+        lastRatedAt = try container.decodeIfPresent(Int.self, forKey: .lastRatedAt)
+        userRating = try container.decodeIfPresent(Double.self, forKey: .userRating)
         leafCount = try container.decodeIfPresent(Int.self, forKey: .leafCount)
         viewedLeafCount = try container.decodeIfPresent(Int.self, forKey: .viewedLeafCount)
     }
@@ -729,6 +735,8 @@ public struct PlexPlaylist: Codable, Sendable, Identifiable {
     public let addedAt: Int?
     public let updatedAt: Int?
     public let lastViewedAt: Int?
+    public let lastRatedAt: Int?
+    public let userRating: Double?
 
     public var id: String { ratingKey }
 

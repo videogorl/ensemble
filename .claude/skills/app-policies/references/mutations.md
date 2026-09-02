@@ -45,6 +45,8 @@
 - Ratings/favorites and scrobbles remain source-exact. Apple favorites use the
   provider's binary truth; unsupported removal/dislike operations stay visibly
   unavailable rather than simulated.
+- Artwork double-tap is an idempotent favorite shortcut: it may add or replay
+  feedback, but removal remains an explicit menu action.
 - Pins and source-visibility preferences are local reversible mutations.
   Focus-based overrides are temporary and restore the saved preference when
   Focus ends; they do not discard already queued mutations.

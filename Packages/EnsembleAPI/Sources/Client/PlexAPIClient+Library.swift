@@ -415,9 +415,9 @@ extension PlexAPIClient {
         )
     }
 
-    /// Rate a track (0 = no rating, 2 = 1 star, 4 = 2 stars, ..., 10 = 5 stars)
+    /// Rate a metadata item (0 = no rating, 2 = 1 star, 4 = 2 stars, ..., 10 = 5 stars)
     /// Pass nil or 0 to remove rating
-    public func rateTrack(ratingKey: String, rating: Int?) async throws {
+    public func rateItem(ratingKey: String, rating: Int?) async throws {
         let ratingValue = rating ?? 0
         guard ratingValue >= 0 && ratingValue <= 10 else {
             throw PlexAPIError.invalidURL

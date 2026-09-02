@@ -68,6 +68,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let mutationCoordinator: MutationCoordinator
     public let playlistMutationWorkflow: PlaylistMutationWorkflow
     public let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
+    public let collectionFavoriteMutationWorkflow: CollectionFavoriteMutationWorkflow
     public let metadataMutationService: MetadataMutationService
     public let metadataMutationWorkflow: MetadataMutationWorkflow
     public let songLinkService: SongLinkService
@@ -177,6 +178,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let mutationCoordinator: MutationCoordinator
         let playlistMutationWorkflow: PlaylistMutationWorkflow
         let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
+        let collectionFavoriteMutationWorkflow: CollectionFavoriteMutationWorkflow
         let metadataMutationService: MetadataMutationService
         let metadataMutationWorkflow: MetadataMutationWorkflow
     }
@@ -336,6 +338,7 @@ public final class DependencyContainer: @unchecked Sendable {
         mutationCoordinator = mutation.mutationCoordinator
         playlistMutationWorkflow = mutation.playlistMutationWorkflow
         trackRatingMutationWorkflow = mutation.trackRatingMutationWorkflow
+        collectionFavoriteMutationWorkflow = mutation.collectionFavoriteMutationWorkflow
         metadataMutationService = mutation.metadataMutationService
         metadataMutationWorkflow = mutation.metadataMutationWorkflow
 
@@ -594,6 +597,13 @@ public final class DependencyContainer: @unchecked Sendable {
         let trackRatingMutationWorkflow = MainActor.assumeIsolated {
             TrackRatingMutationWorkflow(mutator: mutationCoordinator)
         }
+        let collectionFavoriteMutationWorkflow = MainActor.assumeIsolated {
+            CollectionFavoriteMutationWorkflow(
+                mutationCoordinator: mutationCoordinator,
+                coreDataStack: core.coreDataStack,
+                toastCenter: core.toastCenter
+            )
+        }
         let metadataMutationService = MainActor.assumeIsolated {
             MetadataMutationService(
                 libraryRepository: core.libraryRepository,
@@ -633,6 +643,7 @@ public final class DependencyContainer: @unchecked Sendable {
             mutationCoordinator: mutationCoordinator,
             playlistMutationWorkflow: playlistMutationWorkflow,
             trackRatingMutationWorkflow: trackRatingMutationWorkflow,
+            collectionFavoriteMutationWorkflow: collectionFavoriteMutationWorkflow,
             metadataMutationService: metadataMutationService,
             metadataMutationWorkflow: metadataMutationWorkflow
         )

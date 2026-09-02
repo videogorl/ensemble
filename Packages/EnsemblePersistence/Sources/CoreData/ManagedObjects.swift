@@ -116,6 +116,7 @@ public class CDAlbum: NSManagedObject {
     @NSManaged public var trackCount: Int32
     @NSManaged public var dateAdded: Date?
     @NSManaged public var dateModified: Date?
+    @NSManaged public var lastRatedAt: Date?
     @NSManaged public var rating: Int16
     @NSManaged public var updatedAt: Date?
     @NSManaged public var genreNames: String?
@@ -214,6 +215,8 @@ public class CDPlaylist: NSManagedObject {
     @NSManaged public var dateAdded: Date?
     @NSManaged public var dateModified: Date?
     @NSManaged public var lastPlayed: Date?
+    @NSManaged public var lastRatedAt: Date?
+    @NSManaged public var rating: Int16
     @NSManaged public var updatedAt: Date?
     @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var source: CDMusicSource?
@@ -531,6 +534,7 @@ extension CDPendingMutation {
 
     public enum MutationType: String, Sendable {
         case trackRating
+        case collectionRating
         case playlistAdd
         case playlistRemove
         case playlistRename

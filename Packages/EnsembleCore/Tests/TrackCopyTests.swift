@@ -138,6 +138,8 @@ final class TrackCopyTests: XCTestCase {
             fallbackArtworkPath: "/fallback-art",
             fallbackArtworkRatingKey: "album",
             fallbackArtworkSourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+            lastRatedAt: Date(timeIntervalSince1970: 4),
+            rating: 10,
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
             actionCapabilities: capabilities
         )
@@ -151,6 +153,8 @@ final class TrackCopyTests: XCTestCase {
         XCTAssertEqual(updated.fallbackArtworkPath, playlist.fallbackArtworkPath)
         XCTAssertEqual(updated.fallbackArtworkRatingKey, playlist.fallbackArtworkRatingKey)
         XCTAssertEqual(updated.fallbackArtworkSourceCompositeKey, playlist.fallbackArtworkSourceCompositeKey)
+        XCTAssertEqual(updated.lastRatedAt, playlist.lastRatedAt)
+        XCTAssertEqual(updated.rating, playlist.rating)
         XCTAssertEqual(updated.actionCapabilities, capabilities)
     }
 }

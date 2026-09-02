@@ -1868,6 +1868,21 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         let plexOutcome = try await mutationCoordinator.rateTrack(makeTrack(id: "plex-track"), rating: 10)
         XCTAssertEqual(plexOutcome, .queued)
+        let albumOutcome = try await mutationCoordinator.rateAlbum(
+            Album(
+                id: "plex-album",
+                key: "/library/metadata/plex-album",
+                title: "Album",
+                sourceCompositeKey: "plex:account-1:server-1:lib-1"
+            ),
+            rating: 10
+        )
+        let playlistOutcome = try await mutationCoordinator.ratePlaylist(
+            makePlaylist(id: "plex-playlist"),
+            rating: nil
+        )
+        XCTAssertEqual(albumOutcome, .queued)
+        XCTAssertEqual(playlistOutcome, .queued)
 
         let appleTrack = makeTrack(
             id: "apple-track",
@@ -1880,7 +1895,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             XCTAssertEqual(error.code, .notConnectedToInternet)
         }
 
-        XCTAssertEqual(repository.enqueued.map(\.type), [.trackRating])
+        XCTAssertEqual(
+            repository.enqueued.map(\.type),
+            [.trackRating, .collectionRating, .collectionRating]
+        )
     }
 
     func testRatingProviderReceivesNormalizedTrackIdentity() async throws {

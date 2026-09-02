@@ -41,6 +41,18 @@ public struct TrackRatingMutationPayload: Codable, Sendable {
     }
 }
 
+enum CollectionRatingKind: String, Codable, Sendable {
+    case album
+    case playlist
+}
+
+struct CollectionRatingMutationPayload: Codable, Sendable {
+    let ratingKey: String
+    let sourceCompositeKey: String
+    let kind: CollectionRatingKind
+    let rating: Int?
+}
+
 /// Payload for a playlist add/remove mutation
 public struct PlaylistMutationPayload: Codable, Sendable {
     public let playlistRatingKey: String
@@ -194,6 +206,79 @@ public final class MutationCoordinator: ObservableObject {
             )
             guard await enqueueMutation(type: .trackRating, payload: payload, sourceCompositeKey: sourceKey) else {
                 throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceKey)
+            }
+            return .queued
+        }
+    }
+
+    @discardableResult
+    public func rateAlbum(_ album: Album, rating: Int?) async throws -> MutationOutcome {
+        try await rateCollection(
+            ratingKey: album.id,
+            sourceCompositeKey: album.sourceCompositeKey,
+            kind: .album,
+            rating: rating
+        )
+    }
+
+    @discardableResult
+    public func ratePlaylist(_ playlist: Playlist, rating: Int?) async throws -> MutationOutcome {
+        try await rateCollection(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey,
+            kind: .playlist,
+            rating: rating
+        )
+    }
+
+    private func rateCollection(
+        ratingKey: String,
+        sourceCompositeKey: String?,
+        kind: CollectionRatingKind,
+        rating: Int?
+    ) async throws -> MutationOutcome {
+        guard let sourceCompositeKey,
+              let sourceIdentity = MediaSourceIdentity.parse(sourceCompositeKey) else {
+            throw MusicSourceRoutingError.invalidSourceKey(sourceCompositeKey)
+        }
+        guard sourceIdentity.sourceType.capabilities.supportsCollectionRatings else {
+            throw MusicSourceRoutingError.capabilityUnavailable(
+                sourceKey: sourceCompositeKey,
+                capability: "collection ratings"
+            )
+        }
+
+        let payload = CollectionRatingMutationPayload(
+            ratingKey: ratingKey,
+            sourceCompositeKey: sourceCompositeKey,
+            kind: kind,
+            rating: rating
+        )
+        if syncCoordinator.isOffline {
+            guard await enqueueMutation(
+                type: .collectionRating,
+                payload: payload,
+                sourceCompositeKey: sourceCompositeKey
+            ) else {
+                throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceCompositeKey)
+            }
+            return .queued
+        }
+
+        do {
+            try await syncCoordinator.rateCollection(
+                ratingKey: ratingKey,
+                sourceCompositeKey: sourceCompositeKey,
+                rating: rating
+            )
+            return .completed
+        } catch where isConnectionFailure(error) {
+            guard await enqueueMutation(
+                type: .collectionRating,
+                payload: payload,
+                sourceCompositeKey: sourceCompositeKey
+            ) else {
+                throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceCompositeKey)
             }
             return .queued
         }
@@ -646,12 +731,13 @@ public final class MutationCoordinator: ObservableObject {
         }
     }
 
-    /// Remove any queued playlist mutations (add, rename, remove) for a playlist being deleted
+    /// Remove queued mutations targeting a playlist being deleted.
     private func purgePlaylistMutations(playlistRatingKey: String, playlistSourceCompositeKey: String) async {
         let playlistTypes: Set<CDPendingMutation.MutationType> = [
             .playlistAdd,
             .playlistRemove,
             .playlistRename,
+            .collectionRating,
         ]
         do {
             let pending = try await repository.fetchPendingMutationRecords()
@@ -689,6 +775,12 @@ public final class MutationCoordinator: ObservableObject {
                 return payload.playlistRatingKey == playlistRatingKey &&
                     payload.playlistSourceCompositeKey == playlistSourceCompositeKey
             }
+        case .collectionRating:
+            if let payload = try? JSONDecoder().decode(CollectionRatingMutationPayload.self, from: mutation.payload) {
+                return payload.kind == .playlist &&
+                    payload.ratingKey == playlistRatingKey &&
+                    payload.sourceCompositeKey == playlistSourceCompositeKey
+            }
         case .trackRating, .playlistDelete, .scrobble:
             break
         }
@@ -702,6 +794,13 @@ public final class MutationCoordinator: ObservableObject {
             guard let payload = try? JSONDecoder().decode(TrackRatingMutationPayload.self, from: mutation.payload),
                   payload.sourceCompositeKey == ownerKey,
                   MusicSourceIdentifier(compositeKey: ownerKey) != nil else {
+                return nil
+            }
+            return [ownerKey]
+        case .collectionRating:
+            guard let payload = try? JSONDecoder().decode(CollectionRatingMutationPayload.self, from: mutation.payload),
+                  payload.sourceCompositeKey == ownerKey,
+                  MediaSourceIdentity.parse(ownerKey) != nil else {
                 return nil
             }
             return [ownerKey]
@@ -766,6 +865,8 @@ public final class MutationCoordinator: ObservableObject {
         switch mutation.mutationType {
         case .trackRating:
             return await replayTrackRating(mutation)
+        case .collectionRating:
+            return await replayCollectionRating(mutation)
         case .playlistAdd:
             return await replayPlaylistAdd(mutation)
         case .playlistRemove:
@@ -798,6 +899,26 @@ public final class MutationCoordinator: ObservableObject {
             return true
         } catch {
             EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying trackRating: \(error)")
+            return false
+        }
+    }
+
+    private func replayCollectionRating(_ mutation: PendingMutationRecord) async -> Bool {
+        guard let payload = try? JSONDecoder().decode(
+            CollectionRatingMutationPayload.self,
+            from: mutation.payload
+        ) else {
+            return false
+        }
+        do {
+            try await syncCoordinator.rateCollection(
+                ratingKey: payload.ratingKey,
+                sourceCompositeKey: payload.sourceCompositeKey,
+                rating: payload.rating
+            )
+            return true
+        } catch {
+            EnsembleLogger.debug("MutationCoordinator: Failed replaying collection rating: \(error)")
             return false
         }
     }

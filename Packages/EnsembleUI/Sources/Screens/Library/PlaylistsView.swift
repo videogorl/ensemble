@@ -873,6 +873,7 @@ public struct PlaylistDetailView: View {
     @State private var isSavingPlaylistEdits = false
     @State private var isDeletingPlaylist = false
     @State private var deletingToastID: UUID?
+    @State private var favoriteOverride: Bool?
     /// When true, Cancel in edit mode dismisses the sheet instead of just toggling edit off
     private let startedInEditMode: Bool
     private let initialArtworkImage: PlatformImage?
@@ -933,6 +934,8 @@ public struct PlaylistDetailView: View {
                     hiddenCandidates: viewModel.playlist.hiddenCandidate(deps: deps).map { [$0] } ?? [],
                     hiddenIdentity: HiddenMediaIdentity(viewModel.playlist),
                     playlistMenuActions: PlaylistDetailMenuActions(
+                        favoriteAvailability: viewModel.playlist.actionAvailability(for: .favorite),
+                        isFavorite: isFavorite,
                         downloadAvailability: resolvedDownloadMenuAvailability(
                             isDownloaded: isDownloaded,
                             sourceAvailability: viewModel.playlist.actionAvailability(for: .download)
@@ -945,6 +948,13 @@ public struct PlaylistDetailView: View {
                             unavailableReason: "Playlist contents are not available to edit."
                         ),
                         deleteAvailability: viewModel.playlist.actionAvailability(for: .delete),
+                        onToggleFavorite: {
+                            setFavorite(!isFavorite)
+                        },
+                        onFavorite: {
+                            guard !isFavorite else { return }
+                            setFavorite(true)
+                        },
                         onToggleDownload: {
                             Task {
                                 await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
@@ -1123,6 +1133,23 @@ public struct PlaylistDetailView: View {
         #if os(iOS)
         .navigationBarBackButtonHidden(isEditingPlaylist)
         #endif
+    }
+
+    private var isFavorite: Bool {
+        favoriteOverride ?? viewModel.playlist.isFavorite
+    }
+
+    private func setFavorite(_ isFavorite: Bool) {
+        let playlist = viewModel.playlist
+        let previous = self.isFavorite
+        favoriteOverride = isFavorite
+        Task {
+            do {
+                try await deps.collectionFavoriteMutationWorkflow.setFavorite(isFavorite, for: playlist)
+            } catch {
+                favoriteOverride = previous
+            }
+        }
     }
     
     private func renamePlaylistFromPrompt() {

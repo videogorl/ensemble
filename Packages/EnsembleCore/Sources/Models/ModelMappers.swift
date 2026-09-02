@@ -218,7 +218,8 @@ public extension Album {
             artPath: plex.art,
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            rating: 0,
+            lastRatedAt: plex.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            rating: Int(plex.userRating ?? 0),
             genres: plex.genreNames,
             sourceCompositeKey: sourceKey,
             releaseFormat: releaseFormat ?? AlbumReleaseFormat(plexTag: plex.format?.first?.tag)
@@ -243,6 +244,7 @@ public extension Album {
             artPath: cd.artPath,
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
+            lastRatedAt: cd.lastRatedAt,
             rating: Int(cd.rating),
             genres: cd.genreNames?.components(separatedBy: ", ").filter { !$0.isEmpty } ?? [],
             sourceCompositeKey: cd.sourceCompositeKey,
@@ -349,7 +351,9 @@ public extension Playlist {
             compositePath: plex.composite,
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            lastPlayed: plex.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+            lastPlayed: plex.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastRatedAt: plex.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            rating: plex.userRating.map(Int.init)
         )
     }
 
@@ -369,6 +373,8 @@ public extension Playlist {
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
             lastPlayed: cd.lastPlayed,
+            lastRatedAt: cd.lastRatedAt,
+            rating: Int(cd.rating),
             sourceCompositeKey: cd.sourceCompositeKey,
             actionCapabilities: cd.persistedActionCapabilities
         )

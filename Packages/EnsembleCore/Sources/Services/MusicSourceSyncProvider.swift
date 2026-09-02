@@ -124,6 +124,11 @@ public protocol MusicSourceRatingMutating: Sendable {
     func rateTrack(_ track: Track, rating: Int?) async throws -> MusicSourceRatingMutationEffects
 }
 
+/// Applies ratings to source-owned collections.
+public protocol MusicSourceCollectionRatingMutating: Sendable {
+    func rateCollection(ratingKey: String, rating: Int?) async throws
+}
+
 /// Applies provider-owned playlist mutations after shared source and permission validation.
 public protocol MusicSourcePlaylistMutating: Sendable {
     func createPlaylist(title: String, tracks: [Track]) async throws -> Playlist?

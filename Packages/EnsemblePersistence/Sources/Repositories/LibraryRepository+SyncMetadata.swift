@@ -328,6 +328,7 @@ extension LibraryRepository {
                     trackCount: Int(album.trackCount),
                     dateAdded: album.dateAdded,
                     dateModified: album.dateModified,
+                    lastRatedAt: album.lastRatedAt,
                     rating: Int(album.rating),
                     genreNames: album.genreNames,
                     releaseFormat: album.releaseFormat,
@@ -608,6 +609,7 @@ extension LibraryRepository {
                     album.dateAdded = added
                 }
                 album.dateModified = input.dateModified
+                album.lastRatedAt = input.lastRatedAt
                 album.rating = Int16(input.rating ?? 0)
                 if let actionCapabilitiesData = input.actionCapabilitiesData {
                     album.actionCapabilitiesData = actionCapabilitiesData

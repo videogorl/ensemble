@@ -3,6 +3,48 @@ import XCTest
 @testable import EnsemblePersistence
 
 final class CoreDataMigrationTests: XCTestCase {
+    func testEnsemble10StoreMigratesToEnsemble11WithCollectionRatings() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ensemble-v10-v11-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let storeURL = directory.appendingPathComponent("Legacy.sqlite")
+        let modelDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/CoreData/Compiled/SwiftPMEnsemble.momd", isDirectory: true)
+        let version10 = try XCTUnwrap(NSManagedObjectModel(
+            contentsOf: modelDirectory.appendingPathComponent("Ensemble 10.mom")
+        ))
+        let version11 = try XCTUnwrap(NSManagedObjectModel(
+            contentsOf: modelDirectory.appendingPathComponent("Ensemble 11.mom")
+        ))
+
+        let legacyContainer = try await loadContainer(model: version10, storeURL: storeURL)
+        let legacyContext = legacyContainer.viewContext
+        let album = NSEntityDescription.insertNewObject(forEntityName: "CDAlbum", into: legacyContext)
+        album.setValue("album-1", forKey: "ratingKey")
+        album.setValue("/library/metadata/album-1", forKey: "key")
+        album.setValue("Legacy Album", forKey: "title")
+        album.setValue(10, forKey: "rating")
+        let playlist = NSEntityDescription.insertNewObject(forEntityName: "CDPlaylist", into: legacyContext)
+        playlist.setValue("playlist-1", forKey: "ratingKey")
+        playlist.setValue("/playlists/playlist-1", forKey: "key")
+        playlist.setValue("Legacy Playlist", forKey: "title")
+        try legacyContext.save()
+        try detachStores(from: legacyContainer)
+
+        let migratedContainer = try await loadContainer(model: version11, storeURL: storeURL)
+        let context = migratedContainer.viewContext
+        let migratedAlbum = try XCTUnwrap(try context.fetch(fetchRequest("CDAlbum")).first)
+        let migratedPlaylist = try XCTUnwrap(try context.fetch(fetchRequest("CDPlaylist")).first)
+        XCTAssertEqual(migratedAlbum.value(forKey: "rating") as? Int16, 10)
+        XCTAssertNil(migratedAlbum.value(forKey: "lastRatedAt"))
+        XCTAssertEqual(migratedPlaylist.value(forKey: "rating") as? Int16, 0)
+        XCTAssertNil(migratedPlaylist.value(forKey: "lastRatedAt"))
+    }
+
     func testEnsemble9StoreMigratesToEnsemble10WithItemCapabilitiesUnset() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ensemble-v9-v10-\(UUID().uuidString)", isDirectory: true)

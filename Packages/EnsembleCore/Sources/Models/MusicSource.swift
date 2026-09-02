@@ -42,6 +42,7 @@ public struct MusicSourceCapabilities: Sendable, Equatable {
     public let supportsMetadataEditing: Bool
     public let supportsTrackDeletion: Bool
     public let supportsFavoriteRemoval: Bool
+    public let supportsCollectionRatings: Bool
     public let supportsCatalogLibraryAdds: Bool
     /// Whether rating mutations can be persisted and replayed after connectivity returns.
     public let supportsQueuedRatingMutations: Bool
@@ -71,6 +72,7 @@ public struct MusicSourceCapabilities: Sendable, Equatable {
         supportsMetadataEditing: false,
         supportsTrackDeletion: false,
         supportsFavoriteRemoval: false,
+        supportsCollectionRatings: false,
         supportsCatalogLibraryAdds: false,
         supportsQueuedRatingMutations: false,
         supportsQueuedPlaylistMutations: false,
@@ -102,6 +104,7 @@ public extension MusicSourceType {
                 supportsMetadataEditing: true,
                 supportsTrackDeletion: true,
                 supportsFavoriteRemoval: true,
+                supportsCollectionRatings: true,
                 supportsCatalogLibraryAdds: false,
                 supportsQueuedRatingMutations: true,
                 supportsQueuedPlaylistMutations: true,
@@ -128,6 +131,7 @@ public extension MusicSourceType {
                 supportsMetadataEditing: false,
                 supportsTrackDeletion: false,
                 supportsFavoriteRemoval: false,
+                supportsCollectionRatings: false,
                 supportsCatalogLibraryAdds: true,
                 supportsQueuedRatingMutations: false,
                 supportsQueuedPlaylistMutations: false,

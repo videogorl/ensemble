@@ -118,6 +118,8 @@ public final class PendingMutationsViewModel: ObservableObject {
         switch mutation.mutationType {
         case .trackRating:
             return await describeTrackRating(mutation)
+        case .collectionRating:
+            return await describeCollectionRating(mutation)
         case .playlistAdd:
             return await describePlaylistAdd(mutation)
         case .playlistRemove:
@@ -151,6 +153,17 @@ public final class PendingMutationsViewModel: ObservableObject {
         } else {
             return "Removed rating from \(trackTitle)"
         }
+    }
+
+    private func describeCollectionRating(_ mutation: CDPendingMutation) async -> String {
+        guard let payload = try? JSONDecoder().decode(
+            CollectionRatingMutationPayload.self,
+            from: mutation.payload
+        ) else {
+            return "Update favorite"
+        }
+        let action = (payload.rating ?? 0) >= 8 ? "Favorite" : "Unfavorite"
+        return "\(action) \(payload.kind.rawValue) \(payload.ratingKey)"
     }
 
     private func describePlaylistAdd(_ mutation: CDPendingMutation) async -> String {

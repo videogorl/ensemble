@@ -363,6 +363,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
     public let artPath: String?
     public let dateAdded: Date?
     public let dateModified: Date?
+    public let lastRatedAt: Date?
     public let rating: Int
     public let genres: [String]
     public let sourceCompositeKey: String?
@@ -382,6 +383,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         artPath: String? = nil,
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
+        lastRatedAt: Date? = nil,
         rating: Int = 0,
         genres: [String] = [],
         sourceCompositeKey: String? = nil,
@@ -400,6 +402,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         self.artPath = artPath
         self.dateAdded = dateAdded
         self.dateModified = dateModified
+        self.lastRatedAt = lastRatedAt
         self.rating = rating
         self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
@@ -423,6 +426,8 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
     }
 
+    public var isFavorite: Bool { rating >= 8 }
+
     /// Includes browse metadata because equal IDs can move between source-scoped/date-sorted views.
     public static func == (lhs: Album, rhs: Album) -> Bool {
         lhs.sourceScopedID == rhs.sourceScopedID &&
@@ -437,6 +442,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
             lhs.artPath == rhs.artPath &&
             lhs.dateAdded == rhs.dateAdded &&
             lhs.dateModified == rhs.dateModified &&
+            lhs.lastRatedAt == rhs.lastRatedAt &&
             lhs.rating == rhs.rating &&
             lhs.genres == rhs.genres &&
             lhs.releaseFormat == rhs.releaseFormat &&
@@ -788,6 +794,8 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let lastPlayed: Date?
+    public let lastRatedAt: Date?
+    public let rating: Int?
     public let sourceCompositeKey: String?
     public let actionCapabilities: PlaylistActionCapabilities?
 
@@ -806,6 +814,8 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
         lastPlayed: Date? = nil,
+        lastRatedAt: Date? = nil,
+        rating: Int? = nil,
         sourceCompositeKey: String? = nil,
         actionCapabilities: PlaylistActionCapabilities? = nil
     ) {
@@ -823,6 +833,8 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.lastPlayed = lastPlayed
+        self.lastRatedAt = lastRatedAt
+        self.rating = rating
         self.sourceCompositeKey = sourceCompositeKey
         self.actionCapabilities = actionCapabilities
     }
@@ -844,10 +856,14 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
             dateAdded: dateAdded,
             dateModified: dateModified ?? self.dateModified,
             lastPlayed: lastPlayed,
+            lastRatedAt: lastRatedAt,
+            rating: rating,
             sourceCompositeKey: sourceCompositeKey,
             actionCapabilities: actionCapabilities
         )
     }
+
+    public var isFavorite: Bool { (rating ?? 0) >= 8 }
 
     /// Returns a copy with updated track-derived metadata while preserving source metadata.
     public func withTracks(_ tracks: [Track], dateModified: Date = Date()) -> Playlist {
@@ -866,6 +882,8 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
             dateAdded: dateAdded,
             dateModified: dateModified,
             lastPlayed: lastPlayed,
+            lastRatedAt: lastRatedAt,
+            rating: rating,
             sourceCompositeKey: sourceCompositeKey,
             actionCapabilities: actionCapabilities
         )

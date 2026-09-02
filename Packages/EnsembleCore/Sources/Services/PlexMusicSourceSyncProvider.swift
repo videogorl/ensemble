@@ -7,6 +7,7 @@ public final class PlexMusicSourceSyncProvider:
     MusicSourceSyncProvider,
     MusicSourceTwoPhasePlaybackResolving,
     MusicSourceRatingMutating,
+    MusicSourceCollectionRatingMutating,
     MusicSourcePlaylistMutating,
     MusicSourcePlaybackReporting,
     MusicSourceDetailProviding,
@@ -840,7 +841,8 @@ public final class PlexMusicSourceSyncProvider:
             trackCount: trackCount ?? album.leafCount,
             dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            rating: 0,
+            lastRatedAt: album.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            rating: Int(album.userRating ?? 0),
             genreNames: album.genreNames.isEmpty ? nil : album.genreNames.joined(separator: ", "),
             releaseFormat: releaseFormat?.rawValue,
             updatesReleaseFormat: updatesReleaseFormat
@@ -1340,6 +1342,8 @@ public final class PlexMusicSourceSyncProvider:
                 dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastRatedAt: playlist.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                rating: Int(playlist.userRating ?? 0),
                 actionCapabilities: PlaylistActionCapabilities(
                     canAddItems: !isSmart,
                     canRename: !isSmart,
@@ -1482,8 +1486,12 @@ public func getStreamURL(
         _ track: Track,
         rating: Int?
     ) async throws -> MusicSourceRatingMutationEffects {
-        try await apiClient.rateTrack(ratingKey: track.id, rating: rating)
+        try await apiClient.rateItem(ratingKey: track.id, rating: rating)
         return .refreshPlaylistsAndFavoriteDownloads
+    }
+
+    public func rateCollection(ratingKey: String, rating: Int?) async throws {
+        try await apiClient.rateItem(ratingKey: ratingKey, rating: rating)
     }
 
     public func reportTimeline(ratingKey: String, key: String, state: String, time: Int, duration: Int) async throws {
