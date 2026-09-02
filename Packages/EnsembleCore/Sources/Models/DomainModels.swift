@@ -1140,7 +1140,7 @@ public extension String {
         return self
     }
 
-    /// Returns the first character for indexing, handling "The" prefix and ignoring common punctuation
+    /// Returns an A-Z index letter or #, ignoring articles, punctuation, diacritics, and width differences.
     var indexingLetter: String {
         let key = sortingKey
 
@@ -1160,13 +1160,13 @@ public extension String {
             cleanedKey = key
         }
 
-        let firstChar = cleanedKey.prefix(1).uppercased()
+        let letter = cleanedKey
+            .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
+            .prefix(1)
+            .uppercased()
 
-        // Return # for non-alphabetic characters (includes numbers)
-        if firstChar.rangeOfCharacter(from: .letters) == nil {
-            return "#"
-        }
-        return firstChar
+        guard letter.count == 1, ("A"..."Z").contains(letter) else { return "#" }
+        return letter
     }
 
     /// Returns a display-friendly possessive form for names and labels.

@@ -3,6 +3,19 @@ import XCTest
 
 @MainActor
 final class NormalizedBrowseSortingTests: XCTestCase {
+    func testBrowseIndexFoldsLatinDiacriticsAndCollapsesOtherCharacters() {
+        let cases = [
+            ("Éric Serra", "E"),
+            ("Óscar Araujo", "O"),
+            ("野間久美子", "#"),
+            ("2Pac", "#")
+        ]
+
+        for (name, expectedLetter) in cases {
+            XCTAssertEqual(name.indexingLetter, expectedLetter)
+        }
+    }
+
     func testOptionalDateSortsMissingValuesLastInBothDirectionsWithStableTies() {
         let date = Date(timeIntervalSince1970: 1_000)
         let tracks = [

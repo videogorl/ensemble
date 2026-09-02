@@ -15,6 +15,9 @@
 - Cached browse/detail content remains mounted and interactive during refresh.
   Loading, error, offline, and true-empty decisions use shared scaffolds and do
   not replace last-good content with transient blank state.
+- Alphabetic browse indexes stay bounded to A-Z plus `#`. Latin diacritics fold
+  to their base letter; other scripts, numbers, and symbols share `#`, while
+  displayed titles remain unchanged.
 - Shared menus/swipes use centralized action availability and retain unavailable
   actions with a reason where the context provides a handler. Views do not infer
   provider capabilities or source ownership.
