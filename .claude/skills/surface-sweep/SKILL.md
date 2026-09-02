@@ -25,7 +25,8 @@ Out of scope unless the user explicitly asks:
 ## Preflight
 
 1. Start with `git status --short` and preserve unrelated changes.
-2. Create an artifact root outside the repo:
+2. Assign an exact UUID and unique DerivedData path to each simulator runner,
+   then create an artifact root outside the repo:
 
 ```bash
 RUN_ID="$(date +%Y%m%d-%H%M%S)"
@@ -34,15 +35,16 @@ mkdir -p "$ARTIFACT_ROOT"/{iphone,ipad,macos,logs}
 ```
 
 3. Confirm the app has usable local state and record every enabled source type. If there are no accounts or enabled libraries, still sweep onboarding/empty states, but mark library-dependent coverage as blocked. If provider-aware behavior is in scope, record whether live credentials, a subscription, and a physical device are available.
-4. Build before touching UI:
+4. Build before touching UI. Resolve current UUIDs first and never target a
+   device name or `booted` during a multi-runner sweep:
 
 ```bash
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' build
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,id=<iphone-uuid>' -derivedDataPath /tmp/ensemble-derived-iphone build
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,id=<ipad-uuid>' -derivedDataPath /tmp/ensemble-derived-ipad build
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=macOS,arch=arm64' build
 ```
 
-If a destination name is unavailable, run `xcodebuild -showdestinations -workspace Ensemble.xcworkspace -scheme Ensemble` and choose the closest current iPhone, iPad, or macOS destination.
+If a destination is unavailable, run `xcodebuild -showdestinations -workspace Ensemble.xcworkspace -scheme Ensemble`, choose the current device class, and copy its exact UUID into the runner assignment.
 
 ## Agent-Orchestrated Run
 
@@ -57,7 +59,13 @@ Keep runners read-only against source files. They may create artifacts under the
 
 ## Execution Rules
 
-- Use the iOS Simulator MCP/XcodeBuildMCP for iPhone and iPad: launch, `ui_describe_all`, tap/type/swipe, and capture screenshots.
+- Use Ensemble automation routes for setup, then XcodeBuildMCP snapshots,
+  low-level touch down/up, verified swipes, and screenshots on each runner's
+  assigned simulator UUID. Do not use a successful input acknowledgement as
+  evidence without a resulting UI or log change.
+- Serialize Device Hub, Simulator.app Computer Use, and iPhone Mirroring behind
+  one GUI owner. Standalone device windows aid observation but do not isolate
+  focus, input, or process restarts.
 - Use Computer Use for macOS visible interaction when no narrower macOS UI tool is available. Follow the Computer Use confirmation policy for risky UI actions.
 - For each screen, capture at least one screenshot plus either an accessibility dump, visible UI description, or concise notes. For suspected issues, capture the before/after state, exact navigation path, and nearby logs.
 - Touch every command path that is safe: toolbar buttons, search, sort/filter sheets, row context menus, mini-player actions, Now Playing panels, profile/download/settings drill-downs, and non-destructive alerts.

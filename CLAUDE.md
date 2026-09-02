@@ -70,8 +70,23 @@ residual risk instead of overstating verification.
 Before accepting runtime or UI evidence, prove the installed and running app is
 the build just produced. On macOS launch the explicit built `.app`, then verify
 the PID executable path and build version; display-name launches can select
-stale artifacts. Use installed-version/process evidence on devices. Restart
-Device Hub if its frames or input become stale.
+stale artifacts. Use installed-version/process evidence on devices.
+
+For simulator work, give each runner an exact UUID and unique DerivedData path.
+Use Ensemble's automation launch options, debug routes, stable accessibility
+identifiers, and journey logs before synthesizing input; extend those shared
+hooks when repeated setup would otherwise require fragile gestures. Never use
+`booted`, a device name, or a persisted MCP profile as the target when multiple
+simulators may run. Prefer XcodeBuildMCP snapshots plus low-level touch down/up,
+and verify the resulting UI or logs because an input command can succeed without
+being delivered. See `simulator-test` and
+`docs/reference/agent-runtime-testing.md`.
+
+Device Hub, Simulator.app Computer Use, and iPhone Mirroring compete for global
+Mac focus, and each app's windows share one process. Only one agent may drive
+them at a time. A stale device view does not authorize restarting Device Hub
+while another runner is active; verify the device independently, reopen only
+that view, or coordinate a global restart.
 
 For Plex streaming or transport changes, load `plex-api` and test the exact PMS
 endpoint with `.env` credentials. Direct file streams and universal transcode

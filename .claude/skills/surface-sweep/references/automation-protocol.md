@@ -55,10 +55,21 @@ Runner rules:
 
 Before coordinate-based tapping, use Ensemble's built-in automation hooks:
 - Launch with `-EnsembleAutomationMode YES -EnsembleAutomationStartSurface <surface>` for a clean entry point.
-- Use `xcrun simctl openurl booted 'ensemble://debug/open?surface=<surface>'` to switch surfaces while preserving `USER_JOURNEY` navigation logs.
+- Use `xcrun simctl openurl <runner-udid> 'ensemble://debug/open?surface=<surface>'` to switch surfaces while preserving `USER_JOURNEY` navigation logs.
 - Prefer stable accessibility identifiers such as `sidebar.library.albums`, `sidebar.library.playlists`, `sidebar.toolbar.downloads`, `sidebar.toolbar.profile`, `profile.storage.clearArtworkCache`, `profile.storage.clearAllLibraryData`, and `profile.reset.removeAllAccounts`.
 - Dynamic sidebar rows are exposed as `sidebar.playlist.<playlist-id>.source.<source-key>`, `sidebar.smartPlaylist.<playlist-id>.source.<source-key>`, `sidebar.mergedPlaylist.<playlist-id>.source.<source-key>`, or `sidebar.pin.<type>.<id>.source.<source-key>` with non-alphanumeric characters replaced by `_`.
 - Save filtered log excerpts for `USER_JOURNEY context=automation` next to navigation findings so fixing agents can replay the exact route.
+- Use each hook only to establish nearby state. Exercise the actual tap, scroll,
+  animation, or transition when that interaction is the behavior under test.
+- When several runs need the same fragile setup, propose the smallest shared
+  route, identifier, or structured log at the owning Ensemble code path.
+
+Each concurrent iOS/iPadOS runner owns one exact simulator UUID and one unique
+DerivedData path. Configure XcodeBuildMCP with non-persisted UUID-only defaults.
+Use `snapshot_ui`, low-level touch down/up, and verified swipes; do not accept an
+input command's success response without a changed hierarchy, screenshot, or
+correlated app log. Device Hub and Computer Use are a serialized GUI lane, not
+per-runner transports. See `docs/reference/agent-runtime-testing.md`.
 
 Supported automation surfaces: `home`, `songs`, `artists`, `albums`, `genres`, `playlists`, `favorites`, `search`, `downloads`, `settings`, `profile`, `profile-storage`.
 

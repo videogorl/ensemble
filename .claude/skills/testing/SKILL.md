@@ -54,6 +54,20 @@ Use `simulator-test` for runtime mechanics and `surface-sweep` only for an actua
 surface sweep. Navigate to and exercise the changed state; an app launch or an
 unrelated screenshot is not proof. Verify the installed/running artifact first.
 
+Treat Ensemble's debug framework as the runtime control plane. Use its launch
+surfaces and deep links to establish nearby state, stable identifiers to find
+controls, and `USER_JOURNEY` logs to confirm accepted commands. Then exercise the
+actual behavior under test: a debug route does not prove its corresponding tap,
+scroll, animation, or transition. Add the smallest shared automation hook when
+future agents would otherwise repeat fragile setup; do not add one-off shortcuts
+that bypass the contract being verified.
+
+Concurrent simulator runners require a dedicated UUID and DerivedData path per
+runner. Never target `booted` or switch the global Xcode selection. Serialize
+Device Hub, Simulator.app Computer Use, and iPhone Mirroring. Follow
+`simulator-test` and `docs/reference/agent-runtime-testing.md` for the current
+input and recovery protocol.
+
 Apple Music authorization/DRM, system Now Playing, AirPlay, background/locked
 handoffs, and live provider mutations require physical-device evidence when
 those contracts change. Report an unavailable environment as residual risk.

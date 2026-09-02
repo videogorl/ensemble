@@ -1,6 +1,6 @@
 ---
 name: simulator-test
-description: "Build, launch, and capture debug logs from the iOS simulator. Use when you need to verify runtime behavior, measure timing, or diagnose issues without asking the user to manually capture logs."
+description: "Build, launch, interact with, and capture evidence from an exact Ensemble simulator or physical device. Use for runtime verification, concurrent simulator runners, timing diagnosis, or Device Hub input recovery."
 ---
 
 # Simulator Test — Build, Launch & Log Capture
@@ -9,7 +9,8 @@ Use this skill when the `testing` skill calls for runtime proof in the running a
 
 1. Build the app.
 2. Install and launch it in Simulator.
-3. Drive the relevant UI with the iOS Simulator MCP server.
+3. Establish state with Ensemble's debug framework, then drive only the behavior
+   under test with UUID-pinned simulator tools.
 4. Capture screenshots, accessibility output, and logs as evidence.
 
 This skill exists so the agent can iterate without asking the user to manually operate the app.
@@ -23,6 +24,14 @@ For repeatable cold-launch baselines, prefer `scripts/capture_runtime_baseline.s
 ## Ensemble Automation Hooks
 
 Use these hooks before falling back to coordinate tapping. They route through `NavigationCoordinator`, so ordinary `USER_JOURNEY` navigation/profile/download breadcrumbs still appear.
+
+Use a hook to establish nearby state, not to bypass the behavior under test. A
+debug route plus its journey log proves that Ensemble accepted navigation; a
+settled accessibility snapshot or screenshot proves that it rendered. If agents
+repeatedly need the same fragile setup, extend the shared automation surface,
+identifier catalog, or structured logging at the owning code path instead of
+adding tool-specific timing workarounds. See
+`docs/reference/agent-runtime-testing.md`.
 
 Launch arguments:
 
@@ -97,20 +106,26 @@ sidebar.pin.<artist|album|playlist>.<id>.source.<source-key>
 
 ---
 
-## MCP-First Workflow
+## Reliable Simulator Control
 
-Use the iOS Simulator MCP server for interaction and state inspection:
+Prefer XcodeBuildMCP for accessibility snapshots and input. Configure the
+current agent's session with `persist: false`, the exact `simulatorId`, and a
+unique `derivedDataPath`. Use `snapshot_ui` to resolve an `elementRef`, then use
+low-level `touch` with `down: true`, `up: true`, and a short delay for taps.
+Use `swipe` or `gesture` for movement. Immediately verify the expected state
+with a fresh snapshot, screenshot, journey log, or app log.
 
-- `open_simulator` opens the Simulator app.
-- `get_booted_sim_id` returns the active device identifier.
-- `install_app` installs a built `.app` or `.ipa`.
-- `launch_app` launches the app by bundle identifier.
-- `ui_describe_all` dumps the accessibility tree so you can find tappable elements and current labels.
-- `ui_tap`, `ui_type`, and `ui_swipe` drive the UI directly.
-- `ui_view` gives a compressed screenshot-like view of the current screen.
-- `screenshot` saves a real screenshot when you need visual proof.
+On the current toolchain, high-level `tap` and `ios-simulator-mcp` `ui_tap` can
+report success without changing the UI. Do not retry those blindly or classify
+the app as unresponsive. The iOS Simulator MCP remains useful for screenshots
+and accessibility inspection only when every call includes the exact `udid`;
+never call `get_booted_sim_id` or omit `udid` when another simulator may be
+running.
 
-Use shell commands for build/log work, and MCP tools for interaction. That split keeps the iteration loop fast and agent-driven.
+Do not use Device Hub, Simulator.app Computer Use, or iPhone Mirroring for
+concurrent simulator control. They share foreground focus and process state.
+Use them only under the GUI lease described in
+`docs/reference/agent-runtime-testing.md`.
 
 ### Pin The Exact Simulator
 
@@ -121,13 +136,18 @@ xcrun simctl list devices available
 ENSEMBLE_SIMULATOR_UDID=<ios-26.5-uuid>
 xcrun simctl boot "$ENSEMBLE_SIMULATOR_UDID"
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
-  -destination "platform=iOS Simulator,id=$ENSEMBLE_SIMULATOR_UDID" build
+  -destination "platform=iOS Simulator,id=$ENSEMBLE_SIMULATOR_UDID" \
+  -derivedDataPath "/tmp/ensemble-derived-<runner-id>" build
 xcrun simctl install "$ENSEMBLE_SIMULATOR_UDID" <path-to-Ensemble.app>
 xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
 xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" launchctl list | rg 'com\.videogorl\.ensemble'
 ```
 
-Use an ID-only session profile. After every tool-driven build or launch, compare the returned destination/launch target with the requested UUID. Reject UI evidence until the fresh app was explicitly installed on that UUID and the running Ensemble process is proven there.
+Use an ID-only, non-persisted session. Do not change global `xcode-select`; pin a
+consistent toolchain with per-command `DEVELOPER_DIR` when necessary. After
+every tool-driven build or launch, compare the returned target with the requested
+UUID. Reject UI evidence until the fresh app was explicitly installed on that
+UUID and the running Ensemble process is proven there.
 
 ## Physical Device Screenshots Via iPhone Mirroring
 
@@ -163,7 +183,7 @@ xcrun devicectl device info apps --device <device-udid>
 Physical-device rules:
 
 - Record the device, OS, source commit, built app path, and installed version. A visible app launch does not rule out a stale installation.
-- Treat mirrored input as untrusted until the phone UI or fresh Ensemble logs confirm the action. If Device Hub stops accepting input, restart it and re-check the device lock state before repeating the gesture.
+- Treat mirrored input as untrusted until the phone UI or fresh Ensemble logs confirm the action. If Device Hub stops accepting input, verify the device and lock state independently, refresh or reopen only that device view, and use a narrow physical XCUITest when possible. Restart Device Hub only after coordinating with every active runner because the process and its windows are shared.
 - Establish an audio baseline with a known Plex track before diagnosing Apple Music silence. Confirm audible output when the transport exposes it, and also inspect elapsed progress/system Now Playing in Lock Screen or Control Center. If UI state advances but mirrored audio is silent, distinguish an app failure from a Device Hub/iPhone Mirroring transport limitation by changing only the mirror connection.
 - Capture the exact interaction and a focused log window together. For MusicKit work, include preparation, queue replacement, playback state, unresolved IDs, interruption, autoplay/station, and background-transition messages.
 - For provider mutations, correlate the user action, provider acceptance, optimistic local write, targeted reconciliation attempts, remote result, and final local state. A successful request alone does not prove convergence, and a later stale refresh must not erase the optimistic result.
@@ -203,11 +223,9 @@ LOG_PID=$!
 xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
 xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" launchctl list | rg 'com\.videogorl\.ensemble'
 
-# 6. Use the MCP server to inspect and drive the UI
-# ui_describe_all()
-# ui_tap(...)
-# ui_type(...)
-# screenshot(...)
+# 6. Route with Ensemble automation, inspect with snapshot_ui, and drive the
+# remaining interaction with touch down/up or swipe. Pass the exact UUID to
+# every tool and verify the resulting state.
 
 # 7. Wait for the phase you're testing (adjust as needed)
 sleep 1
@@ -238,7 +256,8 @@ ENSEMBLE_SIMULATOR_UDID=<target-simulator-uuid>
 xcrun simctl boot "$ENSEMBLE_SIMULATOR_UDID"
 ```
 
-Use the UUID with every `simctl` and build-tool command. Use the MCP `open_simulator` and `get_booted_sim_id` tools once the device is up, and reject the session if the returned ID differs.
+Use the UUID with every `simctl` and build-tool command. Do not call
+`get_booted_sim_id`; multiple booted simulators make that selection ambiguous.
 
 ### 2. Build the App
 
@@ -252,15 +271,16 @@ Omit `-sdk iphonesimulator` for the full app scheme so Xcode can build its embed
 
 Check for `BUILD SUCCEEDED`. If the build fails, fix errors before proceeding.
 
-### 3. Install And Launch Through MCP
+### 3. Install, Launch, And Pin The Tool Session
 
-After building, explicitly install the generated `.app` bundle on `$ENSEMBLE_SIMULATOR_UDID`. If using `install_app` and `launch_app`, first configure an ID-only session and confirm each returned target matches that UUID. Prove the Ensemble process is running on that simulator before accepting UI evidence.
+After building, explicitly install the generated `.app` bundle on `$ENSEMBLE_SIMULATOR_UDID`. Configure an ID-only, non-persisted session and confirm each returned target matches that UUID. Prove the Ensemble process is running on that simulator before accepting UI evidence.
 
 Once the app is running:
 
-- Use `ui_describe_all` to understand the current screen.
-- Use `ui_tap`, `ui_type`, and `ui_swipe` to navigate the target flow.
-- Use `ui_view` or `screenshot` to confirm the visible state.
+- Use Ensemble launch surfaces or debug deep links to establish the starting state.
+- Use `snapshot_ui` to understand the current screen and resolve element references.
+- Use low-level `touch` down/up, `swipe`, or `gesture` for the behavior under test.
+- Use a fresh snapshot or screenshot plus relevant logs to confirm delivery.
 
 This is the default validation path for bug fixes and UI work.
 
@@ -393,7 +413,7 @@ echo "=== Captured $(wc -l < /tmp/ensemble-test-log.txt) lines ==="
 Capture enough evidence to support the claim:
 
 - A passing package test run for the affected package, if the change is non-trivial.
-- Simulator confirmation of the relevant flow using MCP-driven interaction.
+- Simulator confirmation of the relevant flow using UUID-pinned, state-verified interaction.
 - A screenshot, accessibility dump, or log excerpt when the result would otherwise be ambiguous.
 
 If the app cannot be fully validated because login, network state, or an external service is unavailable, stop short of "done" and report the blocker precisely.

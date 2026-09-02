@@ -260,4 +260,9 @@ The sweep passes only when:
 - Instruments shows no unexplained app-owned hang, sustained post-queue work, or playback starvation;
 - the temporary UI runner is removed, settings are restored, playback is paused, and the phone is locked with lock state verified independently.
 
-If Device Hub shows fresh frames but ignores input, restart it before classifying an app failure. Use one narrow physical XCUITest only when a semantic control cannot be operated reliably; remove temporary test code and the runner afterward.
+If Device Hub shows fresh frames but ignores input, verify the device and app
+state independently, then refresh or reopen only that device view. Use one
+narrow physical XCUITest when a semantic control cannot be operated reliably.
+Restart Device Hub only after coordinating with every active runner because all
+of its device windows share one process. Remove temporary test code and the
+runner afterward.

@@ -86,12 +86,14 @@ swift test --package-path Packages/EnsembleCore
 swift test --package-path Packages/EnsembleUI
 ```
 
-For app-facing UI cleanup, build and launch at least one phone and one iPad simulator. Prefer XcodeBuildMCP for the configured iPad path. Use shell `xcodebuild`/`simctl` for additional named devices when needed.
+For app-facing UI cleanup, build and launch at least one phone and one iPad
+simulator. Resolve and assign exact UUIDs first; use the UUID in XcodeBuildMCP,
+`xcodebuild`, and `simctl`, with a unique DerivedData path per concurrent runner.
 
 Required closeout checks for broad cleanup:
 
 ```bash
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,id=<iphone-uuid>' -derivedDataPath /tmp/ensemble-derived-cleanup-iphone build
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=macOS' build
 ```
 
