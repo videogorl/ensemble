@@ -66,9 +66,9 @@ public struct ArtistsView: View {
 
     public var body: some View {
         Group {
-            if artistSnapshot.phase != .idle && !artistSnapshot.hasVisibleContent {
+            if artistSnapshot.phase != .idle && !hasLibraryContent {
                 loadingView
-            } else if !artistSnapshot.hasVisibleContent {
+            } else if !hasLibraryContent {
                 emptyView
             } else {
                 rootContent
@@ -132,7 +132,7 @@ public struct ArtistsView: View {
     }
 
     private var isBrowseToolbarVisible: Bool {
-        artistSnapshot.hasVisibleContent &&
+        hasLibraryContent &&
         navigationCoordinator.pathSnapshot(for: .artists).isEmpty &&
         !navigationCoordinator.isRouteTransitionActive(for: .artists)
     }
@@ -278,6 +278,10 @@ public struct ArtistsView: View {
         EnsembleStateScaffold(kind: .loading, title: "Loading artists…")
     }
 
+    private var hasLibraryContent: Bool {
+        artistSnapshot.hasVisibleContent || !libraryVM.artists.isEmpty
+    }
+
     private var emptyView: some View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Artists",
@@ -349,7 +353,8 @@ public struct ArtistsView: View {
         GenreFilterHeader(
             availableGenres: artistSnapshot.availableGenres,
             selectedGenres: artistFilterOptions.selectedGenres,
-            excludedGenres: artistFilterOptions.excludedGenres
+            excludedGenres: artistFilterOptions.excludedGenres,
+            favoriteFilter: artistFilterOptions.favoriteFilter
         )
     }
 

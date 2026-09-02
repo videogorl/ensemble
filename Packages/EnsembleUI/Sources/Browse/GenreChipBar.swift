@@ -1,4 +1,5 @@
 import EnsembleDesignTokens
+import EnsembleCore
 import SwiftUI
 
 // MARK: - Genre Chip Bar
@@ -10,6 +11,7 @@ public struct GenreFilterHeader<Supplementary: View>: View {
     let availableGenres: [String]
     @Binding var selectedGenres: Set<String>
     @Binding var excludedGenres: Set<String>
+    @Binding var favoriteFilter: FavoriteFilter?
     let reservesEmptySpace: Bool
     let supplementary: Supplementary
 
@@ -17,12 +19,14 @@ public struct GenreFilterHeader<Supplementary: View>: View {
         availableGenres: [String],
         selectedGenres: Binding<Set<String>>,
         excludedGenres: Binding<Set<String>>,
+        favoriteFilter: Binding<FavoriteFilter?>,
         reservesEmptySpace: Bool = false,
         @ViewBuilder supplementary: () -> Supplementary
     ) {
         self.availableGenres = availableGenres
         self._selectedGenres = selectedGenres
         self._excludedGenres = excludedGenres
+        self._favoriteFilter = favoriteFilter
         self.reservesEmptySpace = reservesEmptySpace
         self.supplementary = supplementary()
     }
@@ -34,6 +38,7 @@ public struct GenreFilterHeader<Supplementary: View>: View {
                 availableGenres: availableGenres,
                 selectedGenres: $selectedGenres,
                 excludedGenres: $excludedGenres,
+                favoriteFilter: $favoriteFilter,
                 reservesEmptySpace: reservesEmptySpace
             )
         }
@@ -46,12 +51,14 @@ public extension GenreFilterHeader where Supplementary == EmptyView {
         availableGenres: [String],
         selectedGenres: Binding<Set<String>>,
         excludedGenres: Binding<Set<String>>,
+        favoriteFilter: Binding<FavoriteFilter?>,
         reservesEmptySpace: Bool = false
     ) {
         self.init(
             availableGenres: availableGenres,
             selectedGenres: selectedGenres,
             excludedGenres: excludedGenres,
+            favoriteFilter: favoriteFilter,
             reservesEmptySpace: reservesEmptySpace
         ) {
             EmptyView()
@@ -68,18 +75,21 @@ public struct GenreChipBar: View {
     let availableGenres: [String]
     @Binding var selectedGenres: Set<String>
     @Binding var excludedGenres: Set<String>
+    @Binding var favoriteFilter: FavoriteFilter?
     let reservesEmptySpace: Bool
 
     public init(
         availableGenres: [String],
         selectedGenres: Binding<Set<String>>,
         excludedGenres: Binding<Set<String>>,
+        favoriteFilter: Binding<FavoriteFilter?>,
         reservesEmptySpace: Bool = false
     ) {
         // Filter out any empty/whitespace-only genre names
         self.availableGenres = availableGenres.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         self._selectedGenres = selectedGenres
         self._excludedGenres = excludedGenres
+        self._favoriteFilter = favoriteFilter
         self.reservesEmptySpace = reservesEmptySpace
     }
 
@@ -87,11 +97,11 @@ public struct GenreChipBar: View {
 
     /// Whether any genre chips are active (included or excluded)
     private var hasActiveChips: Bool {
-        !selectedGenres.isEmpty || !excludedGenres.isEmpty
+        favoriteFilter != nil || !selectedGenres.isEmpty || !excludedGenres.isEmpty
     }
 
     public var body: some View {
-        if !availableGenres.isEmpty {
+        if !availableGenres.isEmpty || favoriteFilter != nil {
             ScrollView(.horizontal, showsIndicators: false) {
                 if #available(iOS 26, macOS 26, *) {
                     GlassEffectContainer(spacing: EnsembleScaffold.Chip.rowSpacing) {
@@ -113,12 +123,15 @@ public struct GenreChipBar: View {
 
     private var chipRow: some View {
         HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
+            favoriteButton
+
             // Clear button — animates width to/from zero so it doesn't
             // cause a jarring shift when chips are toggled mid-scroll
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     selectedGenres.removeAll()
                     excludedGenres.removeAll()
+                    favoriteFilter = nil
                 }
             } label: {
                 Image(systemName: EnsembleDesign.Icon.closeCircle)
@@ -141,6 +154,49 @@ public struct GenreChipBar: View {
             }
         }
         .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+    }
+
+    private var favoriteButton: some View {
+        Button(action: cycleFavoriteFilter) {
+            Image(systemName: favoriteIcon)
+                .font(EnsembleDesign.Typography.chipLabel)
+                .foregroundColor(favoriteFilter == nil ? EnsembleDesign.Color.secondaryText : EnsembleDesign.Color.accent)
+                .padding(.horizontal, EnsembleScaffold.Chip.horizontalPadding)
+                .padding(.vertical, EnsembleScaffold.Chip.verticalPadding)
+                .genreChipMaterial(
+                    backgroundColor: EnsembleDesign.Color.windowSurface,
+                    borderColor: EnsembleDesign.Color.accent,
+                    borderWidth: EnsembleScaffold.Chip.borderWidth,
+                    tintsGlass: false
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Favorite Filter")
+        .accessibilityValue(favoriteAccessibilityValue)
+    }
+
+    private var favoriteIcon: String {
+        switch favoriteFilter {
+        case nil: return EnsembleDesign.Icon.favorite
+        case .favorites: return EnsembleDesign.Icon.favoriteFilled
+        case .unfavorited: return EnsembleDesign.Icon.favoriteRemove
+        }
+    }
+
+    private var favoriteAccessibilityValue: String {
+        switch favoriteFilter {
+        case nil: return "All Items"
+        case .favorites: return "Favorites Only"
+        case .unfavorited: return "Unfavorited Only"
+        }
+    }
+
+    private func cycleFavoriteFilter() {
+        switch favoriteFilter {
+        case nil: favoriteFilter = .favorites
+        case .favorites: favoriteFilter = .unfavorited
+        case .unfavorited: favoriteFilter = nil
+        }
     }
 
     /// Determine the current state of a genre chip

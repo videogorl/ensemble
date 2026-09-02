@@ -3,6 +3,15 @@ import Foundation
 
 public typealias SortDirection = EnsembleDomain.SortDirection
 
+public enum FavoriteFilter: String, Codable, Sendable {
+    case favorites
+    case unfavorited
+
+    func includes(_ isFavorite: Bool) -> Bool {
+        isFavorite == (self == .favorites)
+    }
+}
+
 // MARK: - Sort Options
 
 // MARK: - Filter Options
@@ -19,6 +28,9 @@ public struct FilterOptions: Codable, Equatable {
     // Genre filtering (include/exclude)
     public var selectedGenres: Set<String> = []
     public var excludedGenres: Set<String> = []
+
+    // Favorite filtering (nil shows all items)
+    public var favoriteFilter: FavoriteFilter?
 
     // Artist filtering (for albums/songs)
     public var selectedArtists: Set<String> = []
@@ -38,6 +50,7 @@ public struct FilterOptions: Codable, Equatable {
     public var hasActiveFilters: Bool {
         !selectedGenres.isEmpty ||
         !excludedGenres.isEmpty ||
+        favoriteFilter != nil ||
         !selectedArtists.isEmpty ||
         yearRange != nil ||
         showDownloadedOnly ||
@@ -48,6 +61,7 @@ public struct FilterOptions: Codable, Equatable {
     public mutating func clearFilters() {
         selectedGenres.removeAll()
         excludedGenres.removeAll()
+        favoriteFilter = nil
         selectedArtists.removeAll()
         yearRange = nil
         showDownloadedOnly = false

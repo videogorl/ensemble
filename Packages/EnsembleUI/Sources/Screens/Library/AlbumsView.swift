@@ -77,9 +77,9 @@ public struct AlbumsView: View {
 
     public var body: some View {
         Group {
-            if albumSnapshot.phase != .idle && !albumSnapshot.hasVisibleContent {
+            if albumSnapshot.phase != .idle && !hasLibraryContent {
                 loadingView
-            } else if !albumSnapshot.hasVisibleContent {
+            } else if !hasLibraryContent {
                 emptyView
             } else if isStageFlowActive {
                 stageFlowView
@@ -142,8 +142,12 @@ public struct AlbumsView: View {
         EnsembleStateScaffold(kind: .loading, title: "Loading albums…")
     }
 
+    private var hasLibraryContent: Bool {
+        albumSnapshot.hasVisibleContent || !libraryVM.albums.isEmpty
+    }
+
     private var isBrowseToolbarVisible: Bool {
-        guard albumSnapshot.hasVisibleContent, !isStageFlowActive else { return false }
+        guard hasLibraryContent, !isStageFlowActive else { return false }
 
         #if os(iOS)
         if #available(iOS 16.0, *) {
@@ -273,7 +277,8 @@ public struct AlbumsView: View {
         GenreFilterHeader(
             availableGenres: albumSnapshot.availableGenres,
             selectedGenres: albumFilterOptions.selectedGenres,
-            excludedGenres: albumFilterOptions.excludedGenres
+            excludedGenres: albumFilterOptions.excludedGenres,
+            favoriteFilter: albumFilterOptions.favoriteFilter
         )
     }
 

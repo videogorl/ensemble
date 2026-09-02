@@ -97,9 +97,9 @@ public struct SongsView: View {
 
     public var body: some View {
         Group {
-            if trackSnapshot.phase != .idle && !trackSnapshot.hasVisibleContent {
+            if trackSnapshot.phase != .idle && !hasLibraryContent {
                 loadingView
-            } else if !trackSnapshot.hasVisibleContent {
+            } else if !hasLibraryContent {
                 emptyView
             } else if isStageFlowActive {
                 landscapeAlbumStageFlowView
@@ -122,7 +122,7 @@ public struct SongsView: View {
             await libraryVM.refreshFromServer()
         }
         .toolbar {
-            EnsembleBrowseToolbar(isVisible: trackSnapshot.hasVisibleContent && !isStageFlowActive) {
+            EnsembleBrowseToolbar(isVisible: hasLibraryContent && !isStageFlowActive) {
                 songsFilterButton
                 songsMoreMenu
             }
@@ -198,6 +198,10 @@ public struct SongsView: View {
 
     private var loadingView: some View {
         EnsembleStateScaffold(kind: .loading, title: "Loading songs…")
+    }
+
+    private var hasLibraryContent: Bool {
+        trackSnapshot.hasVisibleContent || !libraryVM.tracks.isEmpty
     }
 
     private var emptyView: some View {
@@ -289,7 +293,8 @@ public struct SongsView: View {
         GenreFilterHeader(
             availableGenres: trackSnapshot.availableGenres,
             selectedGenres: trackFilterOptions.selectedGenres,
-            excludedGenres: trackFilterOptions.excludedGenres
+            excludedGenres: trackFilterOptions.excludedGenres,
+            favoriteFilter: trackFilterOptions.favoriteFilter
         )
     }
 
@@ -309,7 +314,7 @@ public struct SongsView: View {
         }
         .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         .padding(.top, EnsembleDesign.Spacing.md)
-        .padding(.bottom, trackSnapshot.availableGenres.isEmpty ? EnsembleDesign.Spacing.md : EnsembleDesign.Spacing.xs)
+        .padding(.bottom, showsFilterHeader ? EnsembleDesign.Spacing.xs : EnsembleDesign.Spacing.md)
     }
 
     private var songsTableHeaderContent: AnyView {
@@ -317,11 +322,15 @@ public struct SongsView: View {
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                 songsPlaybackActionRow
 
-                if !trackSnapshot.availableGenres.isEmpty {
+                if showsFilterHeader {
                     songsGenreChipBar
                 }
             }
         )
+    }
+
+    private var showsFilterHeader: Bool {
+        !trackSnapshot.availableGenres.isEmpty || libraryVM.tracksFilterOptions.favoriteFilter != nil
     }
 
     private var songsCountFooterContent: AnyView {

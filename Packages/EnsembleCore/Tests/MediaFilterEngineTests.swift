@@ -132,6 +132,33 @@ final class MediaFilterEngineTests: XCTestCase {
         XCTAssertEqual(filtered.map(\.id), ["a1"])
     }
 
+    func testFavoriteFilterUsesTrackAlbumAndArtistFavoriteState() {
+        var options = FilterOptions()
+        options.favoriteFilter = .favorites
+
+        let tracks = [
+            makeTrack(id: "favorite", rating: 10),
+            makeTrack(id: "unfavorited")
+        ]
+        let albums = [
+            makeAlbum(id: "favorite", artistKey: "favorite-artist", rating: 10),
+            makeAlbum(id: "unfavorited", artistKey: "unfavorited-artist")
+        ]
+        let artists = [
+            makeArtist(id: "favorite-artist", name: "Favorite"),
+            makeArtist(id: "unfavorited-artist", name: "Unfavorited")
+        ]
+
+        XCTAssertEqual(MediaFilterEngine.filterTracks(tracks, with: options).map(\.id), ["favorite"])
+        XCTAssertEqual(MediaFilterEngine.filterAlbums(albums, with: options).map(\.id), ["favorite"])
+        XCTAssertEqual(MediaFilterEngine.filterArtists(artists, with: options, albums: albums).map(\.id), ["favorite-artist"])
+
+        options.favoriteFilter = .unfavorited
+        XCTAssertEqual(MediaFilterEngine.filterTracks(tracks, with: options).map(\.id), ["unfavorited"])
+        XCTAssertEqual(MediaFilterEngine.filterAlbums(albums, with: options).map(\.id), ["unfavorited"])
+        XCTAssertEqual(MediaFilterEngine.filterArtists(artists, with: options, albums: albums).map(\.id), ["unfavorited-artist"])
+    }
+
     func testGenresFilterSearchesTitleOnly() {
         var options = FilterOptions()
         options.searchText = "rock"
@@ -150,7 +177,8 @@ final class MediaFilterEngineTests: XCTestCase {
         artist: String? = nil,
         album: String? = nil,
         genres: [String] = [],
-        downloaded: Bool = false
+        downloaded: Bool = false,
+        rating: Int = 0
     ) -> Track {
         Track(
             id: id,
@@ -159,6 +187,7 @@ final class MediaFilterEngineTests: XCTestCase {
             artistName: artist,
             albumName: album,
             localFilePath: downloaded ? "/tmp/\(id).mp3" : nil,
+            rating: rating,
             genres: genres
         )
     }
@@ -172,6 +201,7 @@ final class MediaFilterEngineTests: XCTestCase {
         year: Int? = nil,
         trackCount: Int = 0,
         genres: [String] = [],
+        rating: Int = 0,
         sourceCompositeKey: String? = nil
     ) -> Album {
         Album(
@@ -183,6 +213,7 @@ final class MediaFilterEngineTests: XCTestCase {
             artistRatingKey: artistKey,
             year: year,
             trackCount: trackCount,
+            rating: rating,
             genres: genres,
             sourceCompositeKey: sourceCompositeKey
         )

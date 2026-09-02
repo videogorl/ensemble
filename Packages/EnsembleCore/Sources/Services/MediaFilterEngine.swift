@@ -106,6 +106,10 @@ public struct MediaFilterEngine {
             filtered = filtered.filter { $0.isDownloaded }
         }
 
+        if let favoriteFilter = options.favoriteFilter {
+            filtered = filtered.filter { favoriteFilter.includes($0.isFavorite) }
+        }
+
         return filtered
     }
 
@@ -154,6 +158,10 @@ public struct MediaFilterEngine {
             filtered = filtered.filter { downloadedAlbumIDs.contains($0.sourceScopedID) }
         }
 
+        if let favoriteFilter = options.favoriteFilter {
+            filtered = filtered.filter { favoriteFilter.includes($0.rating >= 8) }
+        }
+
         return filtered
     }
 
@@ -185,6 +193,14 @@ public struct MediaFilterEngine {
                     return options.excludedGenres.isDisjoint(with: genres)
                 }
             }
+        }
+
+        if let favoriteFilter = options.favoriteFilter {
+            let favoriteArtistIDs = Set(albums.compactMap { album -> String? in
+                guard album.rating >= 8, let artistID = album.artistRatingKey else { return nil }
+                return sourceScopedIdentity(ratingKey: artistID, sourceCompositeKey: album.sourceCompositeKey)
+            })
+            filtered = filtered.filter { favoriteFilter.includes(favoriteArtistIDs.contains($0.sourceScopedID)) }
         }
 
         return filtered
