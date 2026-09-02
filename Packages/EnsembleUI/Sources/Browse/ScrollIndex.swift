@@ -191,7 +191,7 @@ public extension View {
     /// and scroll content do not move the index.
     @ViewBuilder
     func libraryScrollIndexOverlay<Index: View>(
-        _ placement: ScrollIndexPlacement = .bottomChrome,
+        _ placement: ScrollIndexPlacement = .centered,
         @ViewBuilder index: () -> Index
     ) -> some View {
         overlay(alignment: .trailing) {
@@ -203,7 +203,7 @@ public extension View {
     /// Anchors the alphabetical scroll index in the viewport so it stays fixed
     /// between top chrome and mini-player/tab chrome while content scrolls.
     @ViewBuilder
-    func libraryScrollIndexPositioning(_ placement: ScrollIndexPlacement = .bottomChrome) -> some View {
+    func libraryScrollIndexPositioning(_ placement: ScrollIndexPlacement = .centered) -> some View {
         switch placement {
         case .bottomChrome:
             bottomChromeScrollIndexPositioning()
@@ -232,7 +232,7 @@ public extension View {
         #endif
     }
 
-    /// Centers large-screen indexes beside the actual list/table content.
+    /// Centers browse indexes beside the actual list/table content.
     @ViewBuilder
     private func centeredScrollIndexPositioning() -> some View {
         #if os(iOS)
