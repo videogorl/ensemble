@@ -123,8 +123,6 @@ public struct GenreChipBar: View {
 
     private var chipRow: some View {
         HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
-            favoriteButton
-
             // Clear button — animates width to/from zero so it doesn't
             // cause a jarring shift when chips are toggled mid-scroll
             Button {
@@ -144,6 +142,8 @@ public struct GenreChipBar: View {
             .opacity(hasActiveChips ? 1 : 0)
             .disabled(!hasActiveChips)
             .animation(.easeInOut(duration: 0.2), value: hasActiveChips)
+
+            favoriteButton
 
             ForEach(availableGenres, id: \.self) { genre in
                 GenreChip(
