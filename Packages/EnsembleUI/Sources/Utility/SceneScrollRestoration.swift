@@ -71,13 +71,17 @@ private struct SceneScrollRestorationModifier: ViewModifier {
             }
             .onScrollPhaseChange { _, phase, context in
                 guard !isRestoring, phase == .idle, scenePhase == .active else { return }
-                storedScrollOffset = Double(
+                let offset = Double(
                     context.geometry.contentOffset.y + context.geometry.contentInsets.top
                 )
+                guard abs(storedScrollOffset - offset) > 1 else { return }
+                storedScrollOffset = offset
             }
             .onChange(of: scenePhase) { phase in
                 guard !isRestoring, phase != .active else { return }
-                storedScrollOffset = Double(liveOffset.value)
+                let offset = Double(liveOffset.value)
+                guard abs(storedScrollOffset - offset) > 1 else { return }
+                storedScrollOffset = offset
             }
             .overlay {
                 #if os(iOS)
