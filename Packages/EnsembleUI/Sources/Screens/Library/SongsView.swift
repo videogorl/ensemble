@@ -27,12 +27,20 @@ public struct SongsView: View {
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
-    @SceneStorage(SceneScrollRestorationID.songs.rawValue) private var storedScrollOffset = 0.0
+    @SceneStorage("SongsView.scrollTrackID") private var storedScrollTrackID = ""
+    @SceneStorage("SongsView.scrollTrackOffset") private var storedScrollTrackOffset = 0.0
 
-    private var scrollOffset: Binding<CGFloat> {
+    private var scrollPosition: Binding<(trackID: String, offset: CGFloat)?> {
         Binding(
-            get: { CGFloat(storedScrollOffset) },
-            set: { storedScrollOffset = Double($0) }
+            get: {
+                storedScrollTrackID.isEmpty
+                    ? nil
+                    : (storedScrollTrackID, CGFloat(storedScrollTrackOffset))
+            },
+            set: { position in
+                storedScrollTrackID = position?.trackID ?? ""
+                storedScrollTrackOffset = Double(position?.offset ?? 0)
+            }
         )
     }
 
@@ -247,7 +255,7 @@ public struct SongsView: View {
                         interactionModel: largeScreenTrackInteractionModel,
                         tableHeaderContent: songsTableHeaderContent,
                         tableFooterContent: songsCountFooterContent,
-                        scrollOffset: scrollOffset,
+                        scrollPosition: scrollPosition,
                         onRefresh: refreshLibrary
                     ) { track, _ in
                         playAvailableTrack(track)
@@ -267,7 +275,7 @@ public struct SongsView: View {
                         interactionModel: largeScreenTrackInteractionModel,
                         tableHeaderContent: songsTableHeaderContent,
                         tableFooterContent: songsCountFooterContent,
-                        scrollOffset: scrollOffset,
+                        scrollPosition: scrollPosition,
                         onRefresh: refreshLibrary
                     ) { track, _ in
                         playTrack(track)
@@ -287,7 +295,7 @@ public struct SongsView: View {
                         interactionModel: largeScreenTrackInteractionModel,
                         tableHeaderContent: songsTableHeaderContent,
                         tableFooterContent: songsCountFooterContent,
-                        scrollOffset: scrollOffset,
+                        scrollPosition: scrollPosition,
                         onRefresh: refreshLibrary
                     ) { track, index in
                         playAvailableTrack(track, index: index)
@@ -387,7 +395,7 @@ public struct SongsView: View {
             interactionModel: largeScreenTrackInteractionModel,
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: songsCountFooterContent,
-            scrollOffset: scrollOffset,
+            scrollPosition: scrollPosition,
             onRefresh: refreshLibrary
         ) { track, _ in
             playTrack(track)
@@ -407,7 +415,7 @@ public struct SongsView: View {
             interactionModel: largeScreenTrackInteractionModel,
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: songsCountFooterContent,
-            scrollOffset: scrollOffset,
+            scrollPosition: scrollPosition,
             onRefresh: refreshLibrary
         ) { track, _ in
             playTrack(track)
@@ -493,7 +501,7 @@ public struct SongsView: View {
                 interactionModel: largeScreenTrackInteractionModel,
                 tableHeaderContent: songsTableHeaderContent,
                 tableFooterContent: songsCountFooterContent,
-                scrollOffset: scrollOffset,
+                scrollPosition: scrollPosition,
                 onRefresh: refreshLibrary
             ) { track, _ in
                 playTrack(track)

@@ -83,11 +83,11 @@ struct EnsembleApp: App {
                     // This registers a user activity so we can track if the app becomes active
                     activity.title = "Ensemble Active"
                 }
+                .task(id: scenePhase) {
+                    await handleScenePhaseChange(scenePhase)
+                }
         }
         .applyBackgroundRefresh()
-        .onChange(of: scenePhase) { newPhase in
-            handleScenePhaseChange(newPhase)
-        }
         .commands {
             // Settings shortcut (⌘,) — macOS app menu + iPadOS keyboard shortcut overlay
             CommandGroup(replacing: .appSettings) {
@@ -214,16 +214,17 @@ struct EnsembleApp: App {
         DependencyContainer.shared.persistentLogService.startSession()
     }
 
-    private func handleScenePhaseChange(_ phase: ScenePhase) {
+    @MainActor
+    private func handleScenePhaseChange(_ phase: ScenePhase) async {
         #if os(iOS)
-        Task { @MainActor in
-            AppLogger.debug("📱 Scene phase changed to \(String(describing: phase))")
-            switch phase {
+        AppLogger.debug("📱 Scene phase changed to \(String(describing: phase))")
+        switch phase {
             case .active:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "active"])
                 if #available(iOS 16.0, *) {
                     await EnsembleFocusFilter.refreshCurrent()
                 }
+                guard !Task.isCancelled else { return }
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
                 let isInitialActivation = !hasHandledInitialIOSActivePhase
                 if isInitialActivation {
@@ -258,20 +259,13 @@ struct EnsembleApp: App {
                 // idle-budgeted startup sync has been able to run yet.
                 DependencyContainer.shared.syncCoordinator.startPeriodicSync()
 
-                // Resume persisted download work before foreground sync and reconciliation.
+                // Resume persisted download work when entering the foreground.
                 await DependencyContainer.shared.offlineDownloadService.handleAppWillEnterForeground()
-
-                if isInitialActivation {
-                    AppLogger.debug("📱 EnsembleApp: Initial active phase — skipping foreground freshness after cold-launch pipeline")
-                } else {
-                    // Route foreground freshness through one coordinator so iOS 15
-                    // foreground refresh and iOS background refresh share the same work.
-                    await DependencyContainer.shared.backgroundRefreshCoordinator.performForegroundFreshnessRefresh()
-                    await DependencyContainer.shared.reconcileSyncOnForeground()
-                }
+                guard !Task.isCancelled else { return }
 
                 // Drain any pending offline mutations now that connectivity may have resumed.
                 await DependencyContainer.shared.mutationCoordinator.drainQueue()
+                guard !Task.isCancelled else { return }
 
                 // Restart display timer if music was actively playing when backgrounded.
                 // Also resumes sidecar analysis so pending FFT jobs process in foreground.
@@ -282,7 +276,6 @@ struct EnsembleApp: App {
             case .background:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "background"])
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
-                DependencyContainer.shared.backgroundRefreshCoordinator.markMissedEventWindow()
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background audio playback.
                 DependencyContainer.shared.persistentLogService.flushSession()
@@ -294,17 +287,18 @@ struct EnsembleApp: App {
                 // flag is preserved — exitBackground() on foreground restarts correctly.
                 DependencyContainer.shared.audioAnalyzer.enterBackground()
 
+                // Stop foreground connectivity before suspending async work so a
+                // newer active phase cannot be overtaken by this background phase.
+                DependencyContainer.shared.networkMonitor.stopMonitoring()
+                DependencyContainer.shared.webSocketCoordinator.stop()
+                DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
+
                 // Suspend sidecar FFT analysis. Without this, a 75-track batch download
                 // completing in background can sustain ~95% CPU (FFT at background priority
                 // outlasts iOS's background CPU budget), triggering a SIGKILL after ~2min.
                 await DependencyContainer.shared.offlineDownloadService.suspendSidecarAnalysis()
+                guard !Task.isCancelled else { return }
                 await DependencyContainer.shared.offlineDownloadService.handleAppDidEnterBackground()
-
-                // Stop network monitoring and WebSocket connections to save battery.
-                // Without this, WebSocket reconnect loops burn ~30% network while idle.
-                DependencyContainer.shared.networkMonitor.stopMonitoring()
-                DependencyContainer.shared.webSocketCoordinator.stop()
-                DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
 
             case .inactive:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "inactive"])
@@ -312,13 +306,11 @@ struct EnsembleApp: App {
                 break
             @unknown default:
                 break
-            }
         }
         #endif
 
         #if os(macOS)
-        Task { @MainActor in
-            switch phase {
+        switch phase {
             case .active:
                 let isInitialActivation = !hasStartedPlaybackRestore
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
@@ -431,7 +423,6 @@ struct EnsembleApp: App {
                 break
             @unknown default:
                 break
-            }
         }
         #endif
     }
