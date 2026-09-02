@@ -17,10 +17,12 @@ public struct AddPlexAccountView: View {
     /// When true, the view is pushed inside an existing NavigationStack
     /// and should not wrap itself in another NavigationView.
     private let isEmbedded: Bool
+    private let onCompletion: () -> Void
 
-    public init(embedded: Bool = false) {
+    public init(embedded: Bool = false, onCompletion: @escaping () -> Void) {
         self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeAddPlexAccountViewModel())
         self.isEmbedded = embedded
+        self.onCompletion = onCompletion
     }
 
     public var body: some View {
@@ -56,7 +58,7 @@ public struct AddPlexAccountView: View {
         )
         .onChange(of: viewModel.state) { newState in
             if newState == .complete {
-                dismiss()
+                onCompletion()
             }
         }
     }
@@ -102,7 +104,7 @@ public struct AddPlexAccountView: View {
         }
         .onChange(of: viewModel.state) { newState in
             if newState == .complete {
-                dismiss()
+                onCompletion()
             }
         }
     }

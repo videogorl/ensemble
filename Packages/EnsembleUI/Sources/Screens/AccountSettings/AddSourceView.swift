@@ -31,7 +31,9 @@ public struct AddSourceView: View {
         List {
             Section {
                 NavigationLink {
-                    AddPlexAccountView(embedded: true)
+                    AddPlexAccountView(embedded: true) {
+                        dismiss()
+                    }
                 } label: {
                     Label {
                         Text("Plex")
