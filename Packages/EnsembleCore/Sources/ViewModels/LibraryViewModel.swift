@@ -485,17 +485,13 @@ public final class LibraryViewModel: ObservableObject {
     private static func computeTrackSections(from tracks: [Track]) -> [TrackSection] {
         let grouped = Dictionary(grouping: tracks) { $0.title.indexingLetter }
         return grouped.map { TrackSection(letter: $0.key, tracks: $0.value) }
-            .sorted { left, right in
-                if left.letter == "#" { return true }
-                if right.letter == "#" { return false }
-                return left.letter < right.letter
-            }
+            .sorted { indexLetterComesBefore($0.letter, $1.letter) }
     }
 
     private static func computeArtistSections(from artists: [DisplayArtist]) -> [ArtistSection] {
         let grouped = Dictionary(grouping: artists) { $0.name.indexingLetter }
         return grouped.map { ArtistSection(letter: $0.key, artists: $0.value) }
-            .sorted { $0.letter < $1.letter }
+            .sorted { indexLetterComesBefore($0.letter, $1.letter) }
     }
 
     private static func computeAlbumSections(from albums: [DisplayAlbum], sortOption: AlbumSortOption) -> [AlbumSection] {
@@ -513,7 +509,13 @@ public final class LibraryViewModel: ObservableObject {
 
         let grouped = Dictionary(grouping: albums, by: groupingKey)
         return grouped.map { AlbumSection(letter: $0.key, albums: $0.value) }
-            .sorted { $0.letter < $1.letter }
+            .sorted { indexLetterComesBefore($0.letter, $1.letter) }
+    }
+
+    static func indexLetterComesBefore(_ left: String, _ right: String) -> Bool {
+        if left == "#" { return false }
+        if right == "#" { return true }
+        return left < right
     }
 
     private func setupFilterPersistence() {
