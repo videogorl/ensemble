@@ -91,16 +91,28 @@ The iOS Simulator MCP may still inspect UI or capture screenshots if every call
 receives an explicit `udid`. Its default target selection chooses the first
 booted simulator and is not safe for concurrent runners.
 
-## Serialize Mac GUI Tools
+## Match Input To The Surface
 
-Device Hub, Simulator.app Computer Use, and iPhone Mirroring compete for
-foreground focus, and each app's windows share one process. Use one
-coordinator-owned GUI lease across all three. Device Hub tabs or standalone
-compact windows help humans observe several devices, but they do not isolate
-agent input and a Device Hub restart disconnects every Device Hub window.
+| Surface | Input model | Agent rule |
+|---|---|---|
+| UUID-pinned simulator tool | Device coordinates or current element references | Preferred for concurrent lanes; verify every action on that UUID. |
+| Device Hub canvas | Mac pointer and trackpad events translated into remote device touch | Reacquire the canvas after any resize, zoom, rotation, sidebar, or window change. The device UI isn't exposed as Mac accessibility elements. |
+| Simulator.app through Computer Use | Mac window interaction | Treat focus as shared global state and reacquire the window before every action. |
+| iPhone Mirroring | Regular Mac pointer and trackpad interaction, including scrolling | Use its current window geometry and Mac interaction semantics, not coordinates copied from Device Hub. It remains useful while the physical phone is locked or Device Hub's input channel is stale. |
+
+Use one coordinator-owned GUI lease for Mac GUI automation because focus and
+window geometry are shared state. Device Hub tabs or standalone compact windows
+help humans observe several devices, but every Device Hub window belongs to one
+process and uses the same underlying device services. A pop-out is neither an
+isolated agent lane nor a fresh connection; restarting Device Hub disconnects
+all of its windows.
+
 Keep Capture Keyboard off unless the scenario specifically tests hardware-key
-input. It routes Mac keystrokes to the selected device; it is not a repair for
-missed pointer or touch events.
+input. It routes Mac keystrokes to the selected device; pointer and trackpad
+events remain touch input. Capture Keyboard and zoom are separate toolbar
+controls, but toolbar layout can move after resizing or changing presentation;
+resolve the toggle from fresh accessibility state instead of reusing a toolbar
+coordinate.
 
 For physical devices, use `devicectl` for discovery, installation, launch,
 process, log, and lock evidence. Give the GUI lease to one agent only for actions
@@ -115,9 +127,17 @@ When an action appears ignored:
    hierarchy before blaming Ensemble.
 2. Repeat only after re-resolving the target from fresh state.
 3. Replace high-level tap with low-level touch down/up.
-4. For Device Hub, refresh or reopen only the affected device view.
-5. Use one narrow XCUITest when physical semantic input remains unreliable.
-6. Restart Device Hub only after every active GUI runner releases the lease.
+4. For Device Hub, distinguish a coordinate miss from a dead remote channel. If
+   the Mac window controls respond but the canvas is black or ignores Home and
+   touch, inspect recent Device Hub logs for `HID remote call failed`,
+   `CoreDeviceError 15004`, `XPCError 1001`, or `connection was invalidated`.
+5. Refresh or reopen only the affected device view. A pop-out may confirm the
+   same failure but does not create a new HID connection.
+6. Continue physical interaction in iPhone Mirroring, or use one narrow
+   XCUITest, when Device Hub's remote channel remains stale.
+7. Restart Device Hub only after every active Device Hub runner releases its
+   windows. A process restart is warranted when the window remains responsive
+   but Device Hub repeatedly reuses an invalidated HID service.
 
 An input tool's success response, a fresh mirror frame, or a journey log alone is
 not a pass. Require the observable state change relevant to the feature.
