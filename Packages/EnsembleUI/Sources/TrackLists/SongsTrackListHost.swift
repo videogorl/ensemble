@@ -23,6 +23,7 @@ public struct SongsTrackListHost: View {
     private let tableHeaderContent: AnyView?
     private let tableFooterContent: AnyView?
     private let searchTextBinding: Binding<String>?
+    private let scrollOffset: Binding<CGFloat>?
     private let onRemoveFromPlaylist: ((Track, Int) -> Void)?
     private let onTrackTap: (Track, Int) -> Void
 
@@ -39,6 +40,7 @@ public struct SongsTrackListHost: View {
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
+        scrollOffset: Binding<CGFloat>? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -49,6 +51,7 @@ public struct SongsTrackListHost: View {
         self.tableHeaderContent = tableHeaderContent
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
+        self.scrollOffset = scrollOffset
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.onTrackTap = onTrackTap
     }
@@ -59,6 +62,7 @@ public struct SongsTrackListHost: View {
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
+        scrollOffset: Binding<CGFloat>? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -67,6 +71,7 @@ public struct SongsTrackListHost: View {
         self.tableHeaderContent = tableHeaderContent
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
+        self.scrollOffset = scrollOffset
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.onTrackTap = onTrackTap
     }
@@ -84,6 +89,7 @@ public struct SongsTrackListHost: View {
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
+        scrollOffset: Binding<CGFloat>? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -102,6 +108,7 @@ public struct SongsTrackListHost: View {
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: tableFooterContent,
             searchTextBinding: searchTextBinding,
+            scrollOffset: scrollOffset,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
             onTrackTap: onTrackTap
         )
@@ -121,6 +128,7 @@ public struct SongsTrackListHost: View {
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
+        scrollOffset: Binding<CGFloat>? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -140,6 +148,7 @@ public struct SongsTrackListHost: View {
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: tableFooterContent,
             searchTextBinding: searchTextBinding,
+            scrollOffset: scrollOffset,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
             onTrackTap: onTrackTap
         )
@@ -186,6 +195,7 @@ public struct SongsTrackListHost: View {
                 interactionModel: configuration.interactionModel,
                 supplementalMetadataWidth: configuration.supplementalMetadataWidth,
                 trackSourceLabels: configuration.trackSourceLabels,
+                scrollOffset: scrollOffset,
                 sectionScrollRequestID: sectionScrollRequest?.id,
                 sectionScrollTargetID: sectionScrollRequest?.sectionID,
                 onRemoveFromPlaylist: onRemoveFromPlaylist
@@ -226,6 +236,7 @@ public struct SongsTrackListHost: View {
             interactionModel: configuration.interactionModel,
             supplementalMetadataWidth: configuration.supplementalMetadataWidth,
             trackSourceLabels: configuration.trackSourceLabels,
+            scrollOffset: scrollOffset,
             onRemoveFromPlaylist: onRemoveFromPlaylist
         ) { track, index in
             onTrackTap(track, index)

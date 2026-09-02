@@ -26,6 +26,14 @@ public struct SongsView: View {
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    @SceneStorage(SceneScrollRestorationID.songs.rawValue) private var storedScrollOffset = 0.0
+
+    private var scrollOffset: Binding<CGFloat> {
+        Binding(
+            get: { CGFloat(storedScrollOffset) },
+            set: { storedScrollOffset = Double($0) }
+        )
+    }
 
     private var canShowLargeScreenSongBrowser: Bool {
         #if os(iOS)
@@ -226,7 +234,8 @@ public struct SongsView: View {
                         showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
                         interactionModel: largeScreenTrackInteractionModel,
                         tableHeaderContent: songsTableHeaderContent,
-                        tableFooterContent: songsCountFooterContent
+                        tableFooterContent: songsCountFooterContent,
+                        scrollOffset: scrollOffset
                     ) { track, _ in
                         playAvailableTrack(track)
                     }
@@ -243,7 +252,8 @@ public struct SongsView: View {
                         showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
                         interactionModel: largeScreenTrackInteractionModel,
                         tableHeaderContent: songsTableHeaderContent,
-                        tableFooterContent: songsCountFooterContent
+                        tableFooterContent: songsCountFooterContent,
+                        scrollOffset: scrollOffset
                     ) { track, _ in
                         playTrack(track)
                     }
@@ -260,7 +270,8 @@ public struct SongsView: View {
                         supplementalMetadataWidth: width,
                         interactionModel: largeScreenTrackInteractionModel,
                         tableHeaderContent: songsTableHeaderContent,
-                        tableFooterContent: songsCountFooterContent
+                        tableFooterContent: songsCountFooterContent,
+                        scrollOffset: scrollOffset
                     ) { track, index in
                         playAvailableTrack(track, index: index)
                     }
@@ -352,7 +363,8 @@ public struct SongsView: View {
             showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
             interactionModel: largeScreenTrackInteractionModel,
             tableHeaderContent: tableHeaderContent,
-            tableFooterContent: songsCountFooterContent
+            tableFooterContent: songsCountFooterContent,
+            scrollOffset: scrollOffset
         ) { track, _ in
             playTrack(track)
         }
@@ -369,7 +381,8 @@ public struct SongsView: View {
             supplementalMetadataWidth: width,
             interactionModel: largeScreenTrackInteractionModel,
             tableHeaderContent: tableHeaderContent,
-            tableFooterContent: songsCountFooterContent
+            tableFooterContent: songsCountFooterContent,
+            scrollOffset: scrollOffset
         ) { track, _ in
             playTrack(track)
         }
@@ -452,7 +465,8 @@ public struct SongsView: View {
                 supplementalMetadataWidth: width,
                 interactionModel: largeScreenTrackInteractionModel,
                 tableHeaderContent: songsTableHeaderContent,
-                tableFooterContent: songsCountFooterContent
+                tableFooterContent: songsCountFooterContent,
+                scrollOffset: scrollOffset
             ) { track, _ in
                 playTrack(track)
             }

@@ -214,7 +214,7 @@ public struct AlbumsView: View {
                         )
                     }
                 }
-                .restoringAlbumScrollPosition()
+                .restoringSceneScrollPosition(.albums)
                 .miniPlayerBottomSpacing()
                 .libraryScrollIndexOverlay {
                     if isSortIndexed && !albumSnapshot.albums.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {
@@ -279,43 +279,6 @@ public struct AlbumsView: View {
 
     private func sectionHeader(_ letter: String) -> some View {
         EnsembleBrowseSectionHeader(letter)
-    }
-}
-
-@available(iOS 18.0, macOS 15.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
-private struct RestoringAlbumScrollView<Content: View>: View {
-    @Environment(\.scenePhase) private var scenePhase
-    @SceneStorage("AlbumsView.scrollOffset") private var storedScrollOffset = 0.0
-    @State private var scrollPosition = ScrollPosition()
-    @State private var isRestoring = true
-
-    let content: Content
-
-    var body: some View {
-        content
-            .scrollPosition($scrollPosition)
-            .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.contentOffset.y + geometry.contentInsets.top
-            } action: { _, offset in
-                guard !isRestoring, scenePhase == .active else { return }
-                storedScrollOffset = Double(offset)
-            }
-            .onAppear {
-                guard isRestoring else { return }
-                scrollPosition.scrollTo(y: CGFloat(storedScrollOffset))
-                isRestoring = false
-            }
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func restoringAlbumScrollPosition() -> some View {
-        if #available(iOS 18.0, macOS 15.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *) {
-            RestoringAlbumScrollView(content: self)
-        } else {
-            self
-        }
     }
 }
 
