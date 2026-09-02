@@ -260,8 +260,8 @@ public final class SyncSettingsManager: ObservableObject {
         featureActivities[feature]
     }
 
-    var hasEnabledFeatureNeedingRetry: Bool {
-        SyncFeature.allCases.contains { feature in
+    var enabledFeaturesNeedingRetry: [SyncFeature] {
+        SyncFeature.allCases.filter { feature in
             guard isFeatureEnabled(feature) else { return false }
             switch featureState(for: feature) {
             case .waitingForTransport, .error:

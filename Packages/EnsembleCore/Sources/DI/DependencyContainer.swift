@@ -1338,15 +1338,27 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     private func refreshSyncState(
         reason: String,
-        feature: SyncSettingsManager.SyncFeature? = nil
+        feature: SyncSettingsManager.SyncFeature? = nil,
+        retryUnsettledOnly: Bool = false
     ) async {
+        var shouldReconcileProfile = !retryUnsettledOnly
         if syncSettingsManager.isMasterSyncEnabled {
             lastKnownProfileTransportState = await cloudSyncService.currentProfileTransportState()
             lastKnownICloudAccountStatus = await cloudSyncService.currentAccountStatus()
-            await performSyncBootstrap(reason: reason, feature: feature)
+            if retryUnsettledOnly {
+                shouldReconcileProfile = profileNeedsRetry
+            }
+            await performSyncBootstrap(
+                reason: reason,
+                features: retryUnsettledOnly
+                    ? syncSettingsManager.enabledFeaturesNeedingRetry
+                    : feature.map { [$0] }
+            )
         }
 
-        await reconcileProfileSync(reason: reason)
+        if shouldReconcileProfile {
+            await reconcileProfileSync(reason: reason)
+        }
         scheduleFirstConnectRetryIfNeeded(reason: reason)
     }
 
@@ -1461,17 +1473,8 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     private var needsFirstConnectRetry: Bool {
         guard firstConnectRetryAttempt < Self.firstConnectRetryDelays.count else { return false }
-        if syncSettingsManager.hasEnabledFeatureNeedingRetry {
+        if !syncSettingsManager.enabledFeaturesNeedingRetry.isEmpty {
             return true
-        }
-
-        if syncSettingsManager.hasCompletedFirstConnect {
-            switch syncSettingsManager.profileStatus.phase {
-            case .transport(.networkUnavailable), .transport(.rateLimited), .transport(.error):
-                return true
-            case .unknown, .noRecord, .transport:
-                return false
-            }
         }
 
         let waitingForSources =
@@ -1483,15 +1486,24 @@ public final class DependencyContainer: @unchecked Sendable {
                 profileTransportState: lastKnownProfileTransportState
             )
 
-        let waitingForProfile =
-            userProfileStore.profile.isEmpty &&
-            syncSettingsManager.profileStatus.phase == .unknown &&
-            !Self.isBootstrapTransportUnavailable(
-                accountStatus: lastKnownICloudAccountStatus,
-                profileTransportState: lastKnownProfileTransportState
-            )
+        return waitingForSources || profileNeedsRetry
+    }
 
-        return waitingForSources || waitingForProfile
+    @MainActor
+    private var profileNeedsRetry: Bool {
+        switch syncSettingsManager.profileStatus.phase {
+        case .transport(.networkUnavailable), .transport(.rateLimited), .transport(.error):
+            return true
+        case .unknown:
+            return !syncSettingsManager.hasCompletedFirstConnect &&
+                userProfileStore.profile.isEmpty &&
+                !Self.isBootstrapTransportUnavailable(
+                    accountStatus: lastKnownICloudAccountStatus,
+                    profileTransportState: lastKnownProfileTransportState
+                )
+        case .noRecord, .transport:
+            return false
+        }
     }
 
     @MainActor
@@ -1526,21 +1538,22 @@ public final class DependencyContainer: @unchecked Sendable {
             guard !Task.isCancelled else { return }
 
             self.firstConnectRetryTask = nil
-            await self.refreshSyncState(reason: "sync-retry-\(attemptNumber)")
+            await self.refreshSyncState(
+                reason: "sync-retry-\(attemptNumber)",
+                retryUnsettledOnly: true
+            )
         }
     }
 
     @MainActor
-    private func performSyncBootstrap(reason: String, feature: SyncSettingsManager.SyncFeature? = nil) async {
+    private func performSyncBootstrap(
+        reason: String,
+        features: [SyncSettingsManager.SyncFeature]? = nil
+    ) async {
         guard syncSettingsManager.isMasterSyncEnabled else { return }
 
-        let featuresToBootstrap: [SyncSettingsManager.SyncFeature]
-        if let feature {
-            featuresToBootstrap = [feature]
-        } else {
-            featuresToBootstrap = SyncSettingsManager.SyncFeature.allCases.filter {
-                syncSettingsManager.isFeatureEnabled($0)
-            }
+        let featuresToBootstrap = features ?? SyncSettingsManager.SyncFeature.allCases.filter {
+            syncSettingsManager.isFeatureEnabled($0)
         }
 
         for feature in featuresToBootstrap {
