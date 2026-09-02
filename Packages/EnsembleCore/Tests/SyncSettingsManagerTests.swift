@@ -99,6 +99,21 @@ final class SyncSettingsManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testEveryEnabledFeatureCanRequestTransportRetry() {
+        let manager = SyncSettingsManager()
+
+        for state: SyncSettingsManager.SyncFeatureState in [.waitingForTransport, .error] {
+            for feature in SyncSettingsManager.SyncFeature.allCases {
+                manager.setFeatureState(state, for: feature)
+                XCTAssertTrue(manager.hasEnabledFeatureNeedingRetry, "\(feature) should retry from \(state)")
+                manager.setFeatureState(.idle, for: feature)
+            }
+        }
+
+        XCTAssertFalse(manager.hasEnabledFeatureNeedingRetry)
+    }
+
+    @MainActor
     func testFeatureActivityStoresDirectionDetailAndDate() {
         let manager = SyncSettingsManager()
         let date = Date(timeIntervalSince1970: 1_700_000_000)

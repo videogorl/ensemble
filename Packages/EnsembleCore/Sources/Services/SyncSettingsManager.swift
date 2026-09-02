@@ -260,6 +260,18 @@ public final class SyncSettingsManager: ObservableObject {
         featureActivities[feature]
     }
 
+    var hasEnabledFeatureNeedingRetry: Bool {
+        SyncFeature.allCases.contains { feature in
+            guard isFeatureEnabled(feature) else { return false }
+            switch featureState(for: feature) {
+            case .waitingForTransport, .error:
+                return true
+            case .idle, .bootstrapping, .appliedRemote, .seededLocal, .transportUnavailable:
+                return false
+            }
+        }
+    }
+
     /// Updates the runtime state for a feature when transport/bootstrap conditions change.
     public func setFeatureState(_ state: SyncFeatureState, for feature: SyncFeature) {
         guard featureStates[feature] != state else { return }

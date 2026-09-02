@@ -825,14 +825,14 @@ public final class DependencyContainer: @unchecked Sendable {
     private func scheduleDeferredSyncStartup() {
         guard !hasScheduledDeferredSyncStartup else { return }
         hasScheduledDeferredSyncStartup = true
+        wireProfileAndCloudCallbacks()
+        wireKVSSyncCallbacks()
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard await self.foregroundWorkScheduler.waitUntilAllowed(.startupSync, policy: .idleOnly) else {
                 EnsembleLogger.info("Sync startup: deferred iCloud/KVS bootstrap skipped because foreground work is unavailable")
                 return
             }
-            self.wireProfileAndCloudCallbacks()
-            self.wireKVSSyncCallbacks()
             await self.refreshSyncState(reason: "launch")
         }
     }
@@ -1460,7 +1460,19 @@ public final class DependencyContainer: @unchecked Sendable {
 
     @MainActor
     private var needsFirstConnectRetry: Bool {
-        guard shouldKeepFirstConnectPending else { return false }
+        guard firstConnectRetryAttempt < Self.firstConnectRetryDelays.count else { return false }
+        if syncSettingsManager.hasEnabledFeatureNeedingRetry {
+            return true
+        }
+
+        if syncSettingsManager.hasCompletedFirstConnect {
+            switch syncSettingsManager.profileStatus.phase {
+            case .transport(.networkUnavailable), .transport(.rateLimited), .transport(.error):
+                return true
+            case .unknown, .noRecord, .transport:
+                return false
+            }
+        }
 
         let waitingForSources =
             Self.shouldRetryFirstConnectForSources(
@@ -1491,16 +1503,10 @@ public final class DependencyContainer: @unchecked Sendable {
             return
         }
 
-        guard !syncSettingsManager.hasCompletedFirstConnect else {
-            firstConnectRetryTask?.cancel()
-            firstConnectRetryTask = nil
-            firstConnectRetryAttempt = 0
-            return
-        }
-
         guard needsFirstConnectRetry else {
             firstConnectRetryTask?.cancel()
             firstConnectRetryTask = nil
+            firstConnectRetryAttempt = 0
             return
         }
 
@@ -1510,17 +1516,17 @@ public final class DependencyContainer: @unchecked Sendable {
         firstConnectRetryAttempt += 1
 
         EnsembleLogger.info(
-            "Sync bootstrap: scheduling first-connect retry \(attemptNumber)/\(Self.firstConnectRetryDelays.count) in \(Int(delay))s after \(reason)"
+            "Sync bootstrap: scheduling retry \(attemptNumber)/\(Self.firstConnectRetryDelays.count) in \(Int(delay))s after \(reason)"
         )
 
         firstConnectRetryTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.firstConnectRetryTask = nil }
 
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled else { return }
 
-            await self.refreshSyncState(reason: "first-connect-retry-\(attemptNumber)")
+            self.firstConnectRetryTask = nil
+            await self.refreshSyncState(reason: "sync-retry-\(attemptNumber)")
         }
     }
 
@@ -1855,7 +1861,14 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         syncSettingsManager.setFeatureState(.bootstrapping, for: .hiddenItems)
-        if let remote = await cloudSyncService.pullHiddenMedia(), !remote.isEmpty {
+        guard let remote = await cloudSyncService.pullHiddenMedia() else {
+            EnsembleLogger.info("Sync bootstrap: waiting for CloudKit hidden items after \(reason)")
+            syncSettingsManager.setFeatureState(.waitingForTransport, for: .hiddenItems)
+            return false
+        }
+
+        EnsembleLogger.info("Sync bootstrap: pulled \(remote.count) hidden-item mutations after \(reason)")
+        if !remote.isEmpty {
             hiddenMediaStore.applyRemote(remote)
             syncSettingsManager.recordFeatureActivity(
                 for: .hiddenItems,
