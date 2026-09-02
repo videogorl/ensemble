@@ -13,7 +13,7 @@ public struct GenresView: View {
     private let presentationMode: PresentationMode
     private let externalSelectedGenre: Binding<DisplayGenre?>?
     @State private var localSelectedGenre: DisplayGenre?
-    @State private var cachedGenreSnapshot: GenreBrowseSnapshot = .empty
+    @StateObject private var genreSnapshotCache = BrowseSnapshotCache(GenreBrowseSnapshot.empty)
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(
@@ -61,21 +61,16 @@ public struct GenresView: View {
             await libraryVM.refreshFromServer()
         }
         .onReceive(libraryVM.$genreBrowseSnapshot) { snapshot in
-            if snapshot != cachedGenreSnapshot {
-                cachedGenreSnapshot = snapshot
-            }
+            genreSnapshotCache.snapshot = snapshot
         }
         .onAppear {
-            let snapshot = libraryVM.immediateGenreBrowseSnapshot
-            if snapshot != cachedGenreSnapshot {
-                cachedGenreSnapshot = snapshot
-            }
+            genreSnapshotCache.snapshot = libraryVM.immediateGenreBrowseSnapshot
         }
     }
 
     private var genreSnapshot: GenreBrowseSnapshot {
-        cachedGenreSnapshot.hasVisibleContent || cachedGenreSnapshot.phase != .idle
-            ? cachedGenreSnapshot
+        genreSnapshotCache.snapshot.hasVisibleContent || genreSnapshotCache.snapshot.phase != .idle
+            ? genreSnapshotCache.snapshot
             : libraryVM.immediateGenreBrowseSnapshot
     }
 

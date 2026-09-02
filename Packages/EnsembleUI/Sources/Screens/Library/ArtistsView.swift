@@ -43,7 +43,7 @@ public struct ArtistsView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
     @State private var localSelectedArtist: DisplayArtist?
-    @State private var cachedArtistSnapshot: ArtistBrowseSnapshot = .empty
+    @StateObject private var artistSnapshotCache = BrowseSnapshotCache(ArtistBrowseSnapshot.empty)
 
     private var artistFilterOptions: Binding<FilterOptions> {
         Binding(
@@ -99,15 +99,10 @@ public struct ArtistsView: View {
             )
         }
         .onReceive(libraryVM.$artistBrowseSnapshot) { snapshot in
-            if snapshot != cachedArtistSnapshot {
-                cachedArtistSnapshot = snapshot
-            }
+            artistSnapshotCache.snapshot = snapshot
         }
         .onAppear {
-            let snapshot = libraryVM.immediateArtistBrowseSnapshot
-            if snapshot != cachedArtistSnapshot {
-                cachedArtistSnapshot = snapshot
-            }
+            artistSnapshotCache.snapshot = libraryVM.immediateArtistBrowseSnapshot
         }
     }
 
@@ -126,8 +121,8 @@ public struct ArtistsView: View {
     }
 
     private var artistSnapshot: ArtistBrowseSnapshot {
-        cachedArtistSnapshot.hasVisibleContent || cachedArtistSnapshot.phase != .idle
-            ? cachedArtistSnapshot
+        artistSnapshotCache.snapshot.hasVisibleContent || artistSnapshotCache.snapshot.phase != .idle
+            ? artistSnapshotCache.snapshot
             : libraryVM.immediateArtistBrowseSnapshot
     }
 

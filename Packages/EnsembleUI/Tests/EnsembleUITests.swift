@@ -1132,6 +1132,7 @@ final class EnsembleUITests: XCTestCase {
         )
 
         let model = TrackRowInteractionModel(
+            onPlayNext: { _ in },
             onAddToRecentPlaylist: { _ in },
             isTrackFavorited: { $0.id == "track-1" },
             canAddToRecentPlaylist: { $0.id == "track-1" },
@@ -1142,6 +1143,8 @@ final class EnsembleUITests: XCTestCase {
 
         XCTAssertEqual(model.isFavorited(track), resolved.isFavorited)
         XCTAssertEqual(model.hasContextMenu(for: track), resolved.hasContextMenu)
+        XCTAssertTrue(model.hasHandler(for: .playNext))
+        XCTAssertFalse(model.hasHandler(for: .favoriteToggle))
     }
 
     func testTrackRowInteractionModelSuppressesUnavailableRecentPlaylistAction() {
@@ -1247,9 +1250,14 @@ final class EnsembleUITests: XCTestCase {
             title: "Techno Jeep",
             sourceCompositeKey: "plex:free:server:music"
         )
+        let tracks = [subscriberTrack]
+        let sharedTracks = tracks
+        let copiedTracks = tracks.map { $0 }
 
         XCTAssertTrue(trackIdentityOrderMatches([subscriberTrack], [subscriberTrack]))
         XCTAssertFalse(trackIdentityOrderMatches([subscriberTrack], [freeAccountTrack]))
+        XCTAssertTrue(arraysShareStorage(tracks, sharedTracks))
+        XCTAssertFalse(arraysShareStorage(tracks, copiedTracks))
     }
 
     func testMediaTrackListStateComparisonFindsDownloadChangesInOnePass() {

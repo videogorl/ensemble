@@ -13,6 +13,16 @@ func compareTrackListState(_ lhs: [Track], _ rhs: [Track]) -> (identityOrderMatc
     return (true, downloadStateChanged)
 }
 
+func arraysShareStorage<Element>(_ lhs: [Element], _ rhs: [Element]) -> Bool {
+    guard lhs.count == rhs.count else { return false }
+    guard !lhs.isEmpty else { return true }
+    return lhs.withUnsafeBufferPointer { lhsBuffer in
+        rhs.withUnsafeBufferPointer { rhsBuffer in
+            lhsBuffer.baseAddress == rhsBuffer.baseAddress
+        }
+    }
+}
+
 func trackIdentityOrderMatches(_ lhs: [Track], _ rhs: [Track]) -> Bool {
     compareTrackListState(lhs, rhs).identityOrderMatches
 }
@@ -865,11 +875,23 @@ public struct MediaTrackList: UIViewRepresentable {
             tableView.contentInset.bottom = bottomContentInset
         }
 
-        let newGroupedTracks = makeTrackGroups()
-        
-        // Check if track list structure changed (additions/removals/reordering)
-        let newGroupSignature = newGroupedTracks.map(\.signature)
-        let trackState = compareTrackListState(context.coordinator.tracks, tracks)
+        let contentIsUnchanged: Bool
+        switch (context.coordinator.sections, sections) {
+        case let (.some(previous), .some(current)):
+            contentIsUnchanged = arraysShareStorage(previous, current)
+        case (nil, nil):
+            contentIsUnchanged = arraysShareStorage(context.coordinator.tracks, tracks)
+        default:
+            contentIsUnchanged = false
+        }
+        let newGroupedTracks = contentIsUnchanged ? context.coordinator.groupedTracks : makeTrackGroups()
+
+        // Check if track list structure changed (additions/removals/reordering).
+        // Shared array storage avoids repeating this linear scan on unrelated updates.
+        let newGroupSignature = contentIsUnchanged ? context.coordinator.groupSignature : newGroupedTracks.map(\.signature)
+        let trackState = contentIsUnchanged
+            ? (identityOrderMatches: true, downloadStateChanged: false)
+            : compareTrackListState(context.coordinator.tracks, tracks)
         let dataChanged = !trackState.identityOrderMatches ||
             context.coordinator.groupSignature != newGroupSignature ||
             (context.coordinator.tableHeaderContent == nil) != (tableHeaderContent == nil) ||
@@ -888,13 +910,14 @@ public struct MediaTrackList: UIViewRepresentable {
         let supplementalMetadataWidthChanged = context.coordinator.supplementalMetadataWidth != supplementalMetadataWidth
         let trackSourceLabelsChanged = context.coordinator.trackSourceLabels != trackSourceLabels
         let displayRatingsChanged = context.coordinator.lastDisplayRatingsRevision != displayRatingsRevision
-        let newFavoriteStateSignature = !trackState.identityOrderMatches || displayRatingsChanged
+        let newFavoriteStateSignature = !dataChanged && displayRatingsChanged
             ? favoriteStateSignature(for: tracks)
             : context.coordinator.favoriteStateSignature
         let favoriteStateChanged = !dataChanged && context.coordinator.favoriteStateSignature != newFavoriteStateSignature
 
         // Update coordinator state
         context.coordinator.tracks = tracks
+        context.coordinator.sections = sections
         context.coordinator.groupedTracks = newGroupedTracks
         context.coordinator.groupSignature = newGroupSignature
         context.coordinator.favoriteStateSignature = newFavoriteStateSignature
@@ -1034,6 +1057,7 @@ public struct MediaTrackList: UIViewRepresentable {
     public func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator(
             tracks: tracks,
+            sections: sections,
             groupedTracks: makeTrackGroups(),
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
@@ -1068,6 +1092,7 @@ public struct MediaTrackList: UIViewRepresentable {
             isOffline: !dependencies.networkMonitor.isConnected,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             rowHeight: rowHeight,
+            displayRatingsRevision: displayRatingsRevision,
             tableHeaderContent: tableHeaderContent,
             tableHeaderRevision: tableHeaderRevision,
             tableFooterContent: tableFooterContent
@@ -1125,6 +1150,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var showTrackNumbers: Bool
         var showAlbumName: Bool
         var currentTrackId: String?
+        var sections: [NativeTrackListSection]?
         var onTrackTap: (Track, Int) -> Void
         var onPlayNext: ((Track) -> Void)?
         var onPlayLast: ((Track) -> Void)?
@@ -1169,6 +1195,7 @@ public struct MediaTrackList: UIViewRepresentable {
 
         fileprivate init(
             tracks: [Track],
+            sections: [NativeTrackListSection]?,
             groupedTracks: [MediaTrackGroup],
             showArtwork: Bool,
             showTrackNumbers: Bool,
@@ -1203,14 +1230,16 @@ public struct MediaTrackList: UIViewRepresentable {
             isOffline: Bool,
             activeDownloadTrackIdentities: Set<String> = [],
             rowHeight: CGFloat,
+            displayRatingsRevision: UInt64,
             tableHeaderContent: AnyView?,
             tableHeaderRevision: String?,
             tableFooterContent: AnyView?
         ) {
             self.tracks = tracks
+            self.sections = sections
             self.groupedTracks = groupedTracks
             self.groupSignature = groupedTracks.map(\.signature)
-            self.favoriteStateSignature = tracks.map { interactionModel.isFavorited($0) }
+            self.favoriteStateSignature = []
             self.showArtwork = showArtwork
             self.showTrackNumbers = showTrackNumbers
             self.showAlbumName = showAlbumName
@@ -1244,6 +1273,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.isOffline = isOffline
             self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
             self.rowHeight = rowHeight
+            self.lastDisplayRatingsRevision = displayRatingsRevision
             self.tableHeaderContent = tableHeaderContent
             self.tableHeaderRevision = tableHeaderRevision
             self.tableFooterContent = tableFooterContent
@@ -1592,15 +1622,20 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         private func swipeActions(from configured: [TrackSwipeAction?], track: Track) -> [UIContextualAction] {
-            let resolvedActions = interactionModel.resolve(for: track)
+            guard track.isLibraryAvailable else { return [] }
+            let isFavorited = interactionModel.isFavorited(track)
             return configured.compactMap { candidate -> UIContextualAction? in
-                guard let action = candidate,
-                      TrackActionPresentation.isSupported(action, resolvedActions: resolvedActions) else { return nil }
+                guard let action = candidate, interactionModel.hasHandler(for: action) else { return nil }
                 let contextual = UIContextualAction(
                     style: .normal,
-                    title: TrackActionPresentation.title(for: action, resolvedActions: resolvedActions)
+                    title: TrackActionPresentation.title(for: action, isFavorited: isFavorited)
                 ) { [weak self] _, _, completion in
                     guard let self else {
+                        completion(false)
+                        return
+                    }
+                    let resolvedActions = self.interactionModel.resolve(for: track)
+                    guard TrackActionPresentation.isSupported(action, resolvedActions: resolvedActions) else {
                         completion(false)
                         return
                     }
@@ -1611,8 +1646,8 @@ public struct MediaTrackList: UIViewRepresentable {
                     self.showSwipeConfirmation(for: action, track: track)
                     completion(true)
                 }
-                contextual.backgroundColor = UIColor(TrackActionPresentation.tint(for: action, resolvedActions: resolvedActions))
-                contextual.image = UIImage(systemName: TrackActionPresentation.systemImage(for: action, resolvedActions: resolvedActions))
+                contextual.backgroundColor = UIColor(TrackActionPresentation.tint(for: action, isFavorited: isFavorited))
+                contextual.image = UIImage(systemName: TrackActionPresentation.systemImage(for: action, isFavorited: isFavorited))
                 return contextual
             }
         }

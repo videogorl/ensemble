@@ -159,6 +159,19 @@ public struct TrackRowInteractionModel {
             ((canToggleHidden?(track) ?? true) && onToggleHidden != nil)
     }
 
+    func hasHandler(for action: TrackSwipeAction) -> Bool {
+        switch action {
+        case .playNext:
+            return onPlayNext != nil
+        case .playLast:
+            return onPlayLast != nil
+        case .addToPlaylist:
+            return onAddToPlaylist != nil
+        case .favoriteToggle:
+            return onToggleFavorite != nil
+        }
+    }
+
     public func resolve(for track: Track) -> ResolvedActions {
         guard track.isLibraryAvailable else {
             return ResolvedActions(

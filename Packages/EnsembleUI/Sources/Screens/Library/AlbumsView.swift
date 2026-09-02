@@ -10,7 +10,7 @@ public struct AlbumsView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
     @State private var selectedAlbum: DisplayAlbum?
-    @State private var cachedAlbumSnapshot: AlbumBrowseSnapshot = .empty
+    @StateObject private var albumSnapshotCache = BrowseSnapshotCache(AlbumBrowseSnapshot.empty)
 
     public init(
         libraryVM: LibraryViewModel,
@@ -27,8 +27,8 @@ public struct AlbumsView: View {
     }
 
     private var albumSnapshot: AlbumBrowseSnapshot {
-        cachedAlbumSnapshot.hasVisibleContent || cachedAlbumSnapshot.phase != .idle
-            ? cachedAlbumSnapshot
+        albumSnapshotCache.snapshot.hasVisibleContent || albumSnapshotCache.snapshot.phase != .idle
+            ? albumSnapshotCache.snapshot
             : libraryVM.immediateAlbumBrowseSnapshot
     }
 
@@ -126,15 +126,10 @@ public struct AlbumsView: View {
             )
         }
         .onReceive(libraryVM.$albumBrowseSnapshot) { snapshot in
-            if snapshot != cachedAlbumSnapshot {
-                cachedAlbumSnapshot = snapshot
-            }
+            albumSnapshotCache.snapshot = snapshot
         }
         .onAppear {
-            let snapshot = libraryVM.immediateAlbumBrowseSnapshot
-            if snapshot != cachedAlbumSnapshot {
-                cachedAlbumSnapshot = snapshot
-            }
+            albumSnapshotCache.snapshot = libraryVM.immediateAlbumBrowseSnapshot
         }
     }
 

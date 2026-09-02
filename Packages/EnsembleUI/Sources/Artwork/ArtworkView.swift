@@ -15,6 +15,7 @@ public struct ArtworkView: View {
     let isResponsive: Bool
 
     @Environment(\.dependencies) private var dependencies
+    @Environment(\.scenePhase) private var scenePhase
     @State private var artworkURL: URL?
     /// Snapshot of the currently resolved image.
     @State private var resolvedImage: PlatformImage?
@@ -104,7 +105,9 @@ public struct ArtworkView: View {
                     .contentShape(artworkShape)
             }
         }
-        .task(id: "\(loadID)|\(invalidationToken)") {
+        .task(id: "\(loadID)|\(invalidationToken)|\(scenePhase == .active)") {
+            guard scenePhase == .active,
+                  resolvedImage == nil || currentArtworkIdentity != loadID else { return }
             await loadArtwork()
         }
         .onReceive(
@@ -162,7 +165,9 @@ public struct ArtworkView: View {
         }
 
         let resolved = await dependencies.artworkLoader.resolvedImage(for: request)
-        guard requestedInvalidationToken == invalidationToken, currentArtworkIdentity == loadID else { return }
+        guard !Task.isCancelled,
+              requestedInvalidationToken == invalidationToken,
+              currentArtworkIdentity == loadID else { return }
         guard let resolved else {
             artworkURL = nil
             resolvedImage = nil

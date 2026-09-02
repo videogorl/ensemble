@@ -904,10 +904,18 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     private func setBrowsePhase(_ phase: LibraryBrowseRefreshPhase) {
-        updateTrackBrowseSnapshot(trackBrowseSnapshot.updating(phase: phase))
-        updateArtistBrowseSnapshot(artistBrowseSnapshot.updating(phase: phase))
-        updateAlbumBrowseSnapshot(albumBrowseSnapshot.updating(phase: phase))
-        updateGenreBrowseSnapshot(genreBrowseSnapshot.updating(phase: phase))
+        if trackBrowseSnapshot.phase != phase {
+            trackBrowseSnapshot = trackBrowseSnapshot.updating(phase: phase)
+        }
+        if artistBrowseSnapshot.phase != phase {
+            artistBrowseSnapshot = artistBrowseSnapshot.updating(phase: phase)
+        }
+        if albumBrowseSnapshot.phase != phase {
+            albumBrowseSnapshot = albumBrowseSnapshot.updating(phase: phase)
+        }
+        if genreBrowseSnapshot.phase != phase {
+            genreBrowseSnapshot = genreBrowseSnapshot.updating(phase: phase)
+        }
     }
 
     private func commitTrackSnapshot(

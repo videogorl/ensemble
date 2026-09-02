@@ -21,7 +21,7 @@ public struct SongsView: View {
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     @State private var cachedNativeTrackSections: [NativeTrackListSection] = []
-    @State private var cachedTrackSnapshot: TrackBrowseSnapshot = .empty
+    @StateObject private var trackSnapshotCache = BrowseSnapshotCache(TrackBrowseSnapshot.empty)
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
@@ -135,9 +135,7 @@ public struct SongsView: View {
             availabilityGeneration: $availabilityGeneration
         )
         .onReceive(libraryVM.$trackBrowseSnapshot) { snapshot in
-            if snapshot != cachedTrackSnapshot {
-                cachedTrackSnapshot = snapshot
-            }
+            trackSnapshotCache.snapshot = snapshot
             updateNativeTrackSections(from: snapshot.sections)
             guard isStageFlowActive else { return }
             rebuildCachedStageFlowAlbums(from: snapshot.tracks)
@@ -148,9 +146,7 @@ public struct SongsView: View {
         }
         .onAppear {
             let snapshot = libraryVM.immediateTrackBrowseSnapshot
-            if snapshot != cachedTrackSnapshot {
-                cachedTrackSnapshot = snapshot
-            }
+            trackSnapshotCache.snapshot = snapshot
             updateNativeTrackSections(from: trackSnapshot.sections)
             guard isStageFlowActive else { return }
             rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
@@ -185,8 +181,8 @@ public struct SongsView: View {
     }
 
     private var trackSnapshot: TrackBrowseSnapshot {
-        cachedTrackSnapshot.hasVisibleContent || cachedTrackSnapshot.phase != .idle
-            ? cachedTrackSnapshot
+        trackSnapshotCache.snapshot.hasVisibleContent || trackSnapshotCache.snapshot.phase != .idle
+            ? trackSnapshotCache.snapshot
             : libraryVM.immediateTrackBrowseSnapshot
     }
 

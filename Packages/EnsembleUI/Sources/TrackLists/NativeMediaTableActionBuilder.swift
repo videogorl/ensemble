@@ -33,9 +33,13 @@ enum TrackActionPresentation {
         for action: TrackSwipeAction,
         resolvedActions: TrackRowInteractionModel.ResolvedActions
     ) -> String {
+        title(for: action, isFavorited: resolvedActions.isFavorited)
+    }
+
+    static func title(for action: TrackSwipeAction, isFavorited: Bool) -> String {
         switch action {
         case .favoriteToggle:
-            return resolvedActions.isFavorited ? "Unfavorite" : "Favorite"
+            return isFavorited ? "Unfavorite" : "Favorite"
         default:
             return action.title
         }
@@ -45,9 +49,13 @@ enum TrackActionPresentation {
         for action: TrackSwipeAction,
         resolvedActions: TrackRowInteractionModel.ResolvedActions
     ) -> String {
+        systemImage(for: action, isFavorited: resolvedActions.isFavorited)
+    }
+
+    static func systemImage(for action: TrackSwipeAction, isFavorited: Bool) -> String {
         switch action {
         case .favoriteToggle:
-            return resolvedActions.isFavorited ? EnsembleDesign.Icon.favoriteRemoveFilled : EnsembleDesign.Icon.favoriteFilled
+            return isFavorited ? EnsembleDesign.Icon.favoriteRemoveFilled : EnsembleDesign.Icon.favoriteFilled
         default:
             return action.systemImage
         }
@@ -57,9 +65,13 @@ enum TrackActionPresentation {
         for action: TrackSwipeAction,
         resolvedActions: TrackRowInteractionModel.ResolvedActions
     ) -> Color {
+        tint(for: action, isFavorited: resolvedActions.isFavorited)
+    }
+
+    static func tint(for action: TrackSwipeAction, isFavorited: Bool) -> Color {
         switch action {
         case .favoriteToggle:
-            return resolvedActions.isFavorited ? EnsembleDesign.Color.neutralStatus : EnsembleDesign.Color.favorite
+            return isFavorited ? EnsembleDesign.Color.neutralStatus : EnsembleDesign.Color.favorite
         default:
             return action.tint
         }
