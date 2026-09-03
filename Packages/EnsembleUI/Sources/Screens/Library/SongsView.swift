@@ -27,10 +27,6 @@ public struct SongsView: View {
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
-    private var scrollPosition: Binding<(trackID: String, offset: CGFloat)?> {
-        SceneScrollRestoration.trackPosition(.songs)
-    }
-
     private var canShowLargeScreenSongBrowser: Bool {
         #if os(iOS)
             return UIDevice.current.userInterfaceIdiom != .phone
@@ -242,7 +238,6 @@ public struct SongsView: View {
                         interactionModel: largeScreenTrackInteractionModel,
                         tableHeaderContent: songsTableHeaderContent,
                         tableFooterContent: songsCountFooterContent,
-                        scrollPosition: scrollPosition,
                         onRefresh: refreshLibrary
                     ) { track, _ in
                         playAvailableTrack(track)
@@ -262,7 +257,6 @@ public struct SongsView: View {
                         interactionModel: largeScreenTrackInteractionModel,
                         tableHeaderContent: songsTableHeaderContent,
                         tableFooterContent: songsCountFooterContent,
-                        scrollPosition: scrollPosition,
                         onRefresh: refreshLibrary
                     ) { track, _ in
                         playTrack(track)
@@ -282,7 +276,6 @@ public struct SongsView: View {
                         interactionModel: largeScreenTrackInteractionModel,
                         tableHeaderContent: songsTableHeaderContent,
                         tableFooterContent: songsCountFooterContent,
-                        scrollPosition: scrollPosition,
                         onRefresh: refreshLibrary
                     ) { track, index in
                         playAvailableTrack(track, index: index)
@@ -382,7 +375,6 @@ public struct SongsView: View {
             interactionModel: largeScreenTrackInteractionModel,
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: songsCountFooterContent,
-            scrollPosition: scrollPosition,
             onRefresh: refreshLibrary
         ) { track, _ in
             playTrack(track)
@@ -402,7 +394,6 @@ public struct SongsView: View {
             interactionModel: largeScreenTrackInteractionModel,
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: songsCountFooterContent,
-            scrollPosition: scrollPosition,
             onRefresh: refreshLibrary
         ) { track, _ in
             playTrack(track)
@@ -488,7 +479,6 @@ public struct SongsView: View {
                 interactionModel: largeScreenTrackInteractionModel,
                 tableHeaderContent: songsTableHeaderContent,
                 tableFooterContent: songsCountFooterContent,
-                scrollPosition: scrollPosition,
                 onRefresh: refreshLibrary
             ) { track, _ in
                 playTrack(track)

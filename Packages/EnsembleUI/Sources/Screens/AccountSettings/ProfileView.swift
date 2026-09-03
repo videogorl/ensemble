@@ -189,7 +189,6 @@ public struct ProfileView: View {
                 aboutSection
             }
             .listStyle(.insetGrouped)
-            .restoringSceneScrollPosition(.profile)
             .onAppear {
                 applyAutomationScrollIfNeeded(scrollProxy)
             }

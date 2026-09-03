@@ -3,83 +3,70 @@ import SwiftUI
 
 struct NavigationDestinationFactory {
     @MainActor
+    @ViewBuilder
     static func tabContent(
         for tab: TabItem,
-        libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
-        homeVM: HomeViewModel? = nil,
-        searchVM: SearchViewModel,
-        pinnedVM: PinnedViewModel? = nil,
-        playlistsVM: PlaylistViewModel,
+        viewModels: RootScreenModels,
         mediaNavigationNamespace: Namespace.ID? = nil,
         isMoreRoot: Bool = false,
         isSelectedRoot: Bool = true
-    ) -> AnyView {
-        AnyView(NavigationTabContentView(
+    ) -> some View {
+        NavigationTabContentView(
             tab: tab,
-            libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
-            homeVM: homeVM,
-            searchVM: searchVM,
-            pinnedVM: pinnedVM,
-            playlistsVM: playlistsVM,
+            viewModels: viewModels,
             mediaNavigationNamespace: mediaNavigationNamespace,
             isMoreRoot: isMoreRoot,
             isSelectedRoot: isSelectedRoot
-        ))
+        )
     }
 
     @MainActor
+    @ViewBuilder
     static func destinationContent(
         for destination: NavigationCoordinator.Destination,
-        libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
-        homeVM: HomeViewModel? = nil,
-        searchVM: SearchViewModel,
-        pinnedVM: PinnedViewModel? = nil,
-        playlistsVM: PlaylistViewModel,
+        viewModels: RootScreenModels,
         mediaNavigationNamespace: Namespace.ID? = nil
-    ) -> AnyView {
+    ) -> some View {
+        let libraryVM = viewModels.library
         switch destination {
         case .displayArtist(let id):
             if let displayArtist = displayArtist(for: id, libraryVM: libraryVM) {
-                return AnyView(ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM))
+                ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
             } else {
-                return AnyView(EnsembleStateScaffold(kind: .empty, title: "Artist not found"))
+                EnsembleStateScaffold(kind: .empty, title: "Artist not found")
             }
         case .artistNamed(let name, let fallbackID, let sourceKey, let includesHidden):
             if let displayArtist = displayArtist(named: name, libraryVM: libraryVM) {
-                return AnyView(
-                    ArtistDetailView(
-                        displayArtist: displayArtist,
-                        nowPlayingVM: nowPlayingVM,
-                        includesHidden: includesHidden
-                    )
-                    .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
+                ArtistDetailView(
+                    displayArtist: displayArtist,
+                    nowPlayingVM: nowPlayingVM,
+                    includesHidden: includesHidden
                 )
-            }
-            if let fallbackID {
-                return AnyView(
-                    ArtistDetailLoader(
-                        artistId: fallbackID,
-                        artistSourceKey: sourceKey,
-                        nowPlayingVM: nowPlayingVM,
-                        includesHidden: includesHidden
-                    )
-                    .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
+                .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
+            } else if let fallbackID {
+                ArtistDetailLoader(
+                    artistId: fallbackID,
+                    artistSourceKey: sourceKey,
+                    nowPlayingVM: nowPlayingVM,
+                    includesHidden: includesHidden
                 )
+                .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
+            } else {
+                EnsembleStateScaffold(kind: .empty, title: "Artist not found")
             }
-            return AnyView(EnsembleStateScaffold(kind: .empty, title: "Artist not found"))
         case .displayGenre(let id):
             if let displayGenre = displayGenre(for: id, libraryVM: libraryVM) {
-                return AnyView(GenreDetailContentView(
+                GenreDetailContentView(
                     libraryVM: libraryVM,
                     genre: displayGenre,
                     nowPlayingVM: nowPlayingVM,
                     presentationStyle: .navigationPage
-                ))
+                )
             } else {
-                return AnyView(EnsembleStateScaffold(kind: .empty, title: "Genre not found"))
+                EnsembleStateScaffold(kind: .empty, title: "Genre not found")
             }
         case .artistDetail(let artist, let includesHidden):
             let detailView = ArtistDetailView(
@@ -90,18 +77,19 @@ struct NavigationDestinationFactory {
             .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
             #if os(iOS)
             if #available(iOS 18.0, *), let mediaNavigationNamespace {
-                return AnyView(
-                    detailView.navigationTransition(
-                        .zoom(sourceID: artist.sourceScopedID, in: mediaNavigationNamespace)
-                    )
+                detailView.navigationTransition(
+                    .zoom(sourceID: artist.sourceScopedID, in: mediaNavigationNamespace)
                 )
+            } else {
+                detailView
             }
+            #else
+            detailView
             #endif
-            return AnyView(detailView)
         case .artist(let id, let sourceKey):
-            return AnyView(ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
+            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .album(let id, let sourceKey):
-            return AnyView(AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
+            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .albumDetail(let displayAlbum, let includesHidden):
             let detailView = AlbumDetailView(
                 displayAlbum: displayAlbum,
@@ -111,18 +99,19 @@ struct NavigationDestinationFactory {
             .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
             #if os(iOS)
             if #available(iOS 18.0, *), let mediaNavigationNamespace {
-                return AnyView(
-                    detailView.navigationTransition(
-                        .zoom(sourceID: displayAlbum.id, in: mediaNavigationNamespace)
-                    )
+                detailView.navigationTransition(
+                    .zoom(sourceID: displayAlbum.id, in: mediaNavigationNamespace)
                 )
+            } else {
+                detailView
             }
+            #else
+            detailView
             #endif
-            return AnyView(detailView)
         case .song(let id, let sourceKey):
-            return AnyView(SongPermalinkLoader(songId: id, songSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
+            SongPermalinkLoader(songId: id, songSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .playlist(let id, let sourceKey):
-            return AnyView(PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
+            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .playlistDetail(let playlist, let includesHidden):
             let detailView = PlaylistDetailView(
                 playlist: playlist,
@@ -132,16 +121,17 @@ struct NavigationDestinationFactory {
             .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
             #if os(iOS)
             if #available(iOS 18.0, *), let mediaNavigationNamespace {
-                return AnyView(
-                    detailView.navigationTransition(
-                        .zoom(sourceID: playlist.sourceScopedID, in: mediaNavigationNamespace)
-                    )
+                detailView.navigationTransition(
+                    .zoom(sourceID: playlist.sourceScopedID, in: mediaNavigationNamespace)
                 )
+            } else {
+                detailView
             }
+            #else
+            detailView
             #endif
-            return AnyView(detailView)
         case .mergedPlaylist(let title, let isSmart):
-            if let displayPlaylist = playlistsVM.displayPlaylists.first(where: {
+            if let displayPlaylist = viewModels.playlists.displayPlaylists.first(where: {
                 DisplayPlaylist.normalizedTitle($0.title) == DisplayPlaylist.normalizedTitle(title)
                     && $0.isSmart == isSmart
             }) {
@@ -151,48 +141,46 @@ struct NavigationDestinationFactory {
                 )
                 #if os(iOS)
                 if #available(iOS 18.0, *), let mediaNavigationNamespace {
-                    return AnyView(
-                        detailView.navigationTransition(
-                            .zoom(
-                                sourceID: displayPlaylist.primaryPlaylist.sourceScopedID,
-                                in: mediaNavigationNamespace
-                            )
+                    detailView.navigationTransition(
+                        .zoom(
+                            sourceID: displayPlaylist.primaryPlaylist.sourceScopedID,
+                            in: mediaNavigationNamespace
                         )
                     )
+                } else {
+                    detailView
                 }
+                #else
+                detailView
                 #endif
-                return AnyView(detailView)
+            } else {
+                MergedPlaylistDetailLoader(
+                    title: title,
+                    isSmart: isSmart,
+                    nowPlayingVM: nowPlayingVM,
+                    playlistsVM: viewModels.playlists
+                )
             }
-            return AnyView(MergedPlaylistDetailLoader(
-                title: title,
-                isSmart: isSmart,
-                nowPlayingVM: nowPlayingVM,
-                playlistsVM: playlistsVM
-            ))
         case .moodTracks(let mood):
-            return AnyView(MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM))
+            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .hidden:
-            return AnyView(HiddenMediaView(nowPlayingVM: nowPlayingVM))
+            HiddenMediaView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.hidden)
         case .searchResults(let section):
-            return AnyView(SearchView(
+            SearchView(
                 nowPlayingVM: nowPlayingVM,
-                viewModel: searchVM,
-                pinnedVM: pinnedVM,
+                viewModel: viewModels.search,
+                pinnedVM: viewModels.pinned,
                 resultSection: section
-            ))
+            )
         case .view(let tab):
-            return AnyView(NavigationTabContentView(
+            NavigationTabContentView(
                 tab: tab,
-                libraryVM: libraryVM,
                 nowPlayingVM: nowPlayingVM,
-                homeVM: homeVM,
-                searchVM: searchVM,
-                pinnedVM: pinnedVM,
-                playlistsVM: playlistsVM,
+                viewModels: viewModels,
                 mediaNavigationNamespace: mediaNavigationNamespace,
                 isMoreRoot: false,
                 isSelectedRoot: true
-            ))
+            )
         }
     }
 
@@ -240,12 +228,8 @@ private extension View {
 
 private struct NavigationTabContentView: View {
     let tab: TabItem
-    let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
-    let homeVM: HomeViewModel?
-    let searchVM: SearchViewModel
-    let pinnedVM: PinnedViewModel?
-    let playlistsVM: PlaylistViewModel
+    let viewModels: RootScreenModels
     let mediaNavigationNamespace: Namespace.ID?
     let isMoreRoot: Bool
     let isSelectedRoot: Bool
@@ -262,23 +246,23 @@ private struct NavigationTabContentView: View {
     private var tabBody: some View {
         switch tab {
         case .home:
-            HomeView(nowPlayingVM: nowPlayingVM, viewModel: homeVM, isSelectedRoot: isSelectedRoot)
+            HomeView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.home, isSelectedRoot: isSelectedRoot)
         case .songs:
-            SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            SongsView(libraryVM: viewModels.library, nowPlayingVM: nowPlayingVM)
         case .artists:
-            ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            ArtistsView(libraryVM: viewModels.library, nowPlayingVM: nowPlayingVM)
         case .albums:
-            AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            AlbumsView(libraryVM: viewModels.library, nowPlayingVM: nowPlayingVM)
         case .genres:
-            GenresView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            GenresView(libraryVM: viewModels.library, nowPlayingVM: nowPlayingVM)
         case .playlists:
-            PlaylistsView(nowPlayingVM: nowPlayingVM, viewModel: playlistsVM)
+            PlaylistsView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.playlists)
         case .favorites:
-            FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            FavoritesView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.favorites)
         case .search:
-            SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM, pinnedVM: pinnedVM)
+            SearchView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.search, pinnedVM: viewModels.pinned)
         case .downloads:
-            DownloadsView(nowPlayingVM: nowPlayingVM)
+            DownloadsView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.downloads)
         case .settings:
             ProfileView()
         }

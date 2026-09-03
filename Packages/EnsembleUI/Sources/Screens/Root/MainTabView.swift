@@ -7,18 +7,9 @@ import SwiftUI
 import AppKit
 #endif
 
-@MainActor
-private final class RootViewModelOwner: ObservableObject {
-    let library = DependencyContainer.shared.makeLibraryViewModel()
-    let home = DependencyContainer.shared.makeHomeViewModel()
-    let search = DependencyContainer.shared.makeSearchViewModel()
-    let pinned = DependencyContainer.shared.makePinnedViewModel()
-    let playlists = DependencyContainer.shared.makePlaylistViewModel()
-}
-
 /// Main tab bar view for iPhone (5-tab classic iOS style)
 public struct MainTabView: View {
-    @StateObject private var viewModels: RootViewModelOwner
+    let viewModels: RootScreenModels
     private let nowPlayingVM: NowPlayingViewModel
     @Namespace private var mediaNavigationNamespace
     private let settingsManager = DependencyContainer.shared.settingsManager
@@ -60,10 +51,9 @@ public struct MainTabView: View {
         )
     }
 
-    @MainActor
-    public init(nowPlayingVM: NowPlayingViewModel) {
-        self._viewModels = StateObject(wrappedValue: RootViewModelOwner())
+    init(nowPlayingVM: NowPlayingViewModel, viewModels: RootScreenModels) {
         self.nowPlayingVM = nowPlayingVM
+        self.viewModels = viewModels
     }
 
     private var libraryVM: LibraryViewModel {
@@ -355,12 +345,8 @@ public struct MainTabView: View {
                     // iOS 15 Fallback: Support nested navigation by passing the remaining path
                     NavigationDestinationFactory.tabContent(
                         for: tab,
-                        libraryVM: libraryVM,
                         nowPlayingVM: nowPlayingVM,
-                        homeVM: homeVM,
-                        searchVM: searchVM,
-                        pinnedVM: pinnedVM,
-                        playlistsVM: playlistsVM,
+                        viewModels: viewModels,
                         mediaNavigationNamespace: mediaNavigationNamespace,
                         isMoreRoot: isMoreRoot,
                         isSelectedRoot: selectedRootTab == tab
@@ -404,12 +390,8 @@ public struct MainTabView: View {
     private func tabContentView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
         NavigationDestinationFactory.tabContent(
             for: tab,
-            libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
-            homeVM: homeVM,
-            searchVM: searchVM,
-            pinnedVM: pinnedVM,
-            playlistsVM: playlistsVM,
+            viewModels: viewModels,
             mediaNavigationNamespace: mediaNavigationNamespace,
             isMoreRoot: isMoreRoot,
             isSelectedRoot: selectedRootTab == tab
@@ -426,12 +408,8 @@ public struct MainTabView: View {
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
         NavigationDestinationFactory.destinationContent(
             for: destination,
-            libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
-            homeVM: homeVM,
-            searchVM: searchVM,
-            pinnedVM: pinnedVM,
-            playlistsVM: playlistsVM,
+            viewModels: viewModels,
             mediaNavigationNamespace: mediaNavigationNamespace
         )
     }
@@ -607,7 +585,7 @@ public struct SidebarView: View {
         let dropTargets: [PlaylistDropTargetReference]
     }
 
-    @StateObject private var viewModels: RootViewModelOwner
+    let viewModels: RootScreenModels
     private let nowPlayingVM: NowPlayingViewModel
     @Namespace private var mediaNavigationNamespace
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -646,9 +624,14 @@ public struct SidebarView: View {
     @State private var isApplyingAuthoritativePlaylistClear = false
 
     @MainActor
-    public init(nowPlayingVM: NowPlayingViewModel, selection: Binding<SidebarSelection?>) {
+    init(
+        nowPlayingVM: NowPlayingViewModel,
+        viewModels: RootScreenModels,
+        selection: Binding<SidebarSelection?>
+    ) {
         self.init(
             nowPlayingVM: nowPlayingVM,
+            viewModels: viewModels,
             selection: selection,
             rootSidebarChromeRegistrationHandler: nil
         )
@@ -657,11 +640,12 @@ public struct SidebarView: View {
     @MainActor
     init(
         nowPlayingVM: NowPlayingViewModel,
+        viewModels: RootScreenModels,
         selection: Binding<SidebarSelection?>,
         rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
     ) {
-        self._viewModels = StateObject(wrappedValue: RootViewModelOwner())
         self.nowPlayingVM = nowPlayingVM
+        self.viewModels = viewModels
         self._selection = selection
         self.rootSidebarChromeRegistrationHandler = rootSidebarChromeRegistrationHandler
     }
@@ -1378,7 +1362,7 @@ public struct SidebarView: View {
         case .pin(let id, let sourceKey, let type):
             pinnedDetailRootView(id: id, sourceKey: sourceKey, type: type)
         case .hidden:
-            HiddenMediaView(nowPlayingVM: nowPlayingVM)
+            HiddenMediaView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.hidden)
         case .none:
             sidebarContentView(for: .home)
         }
@@ -1602,12 +1586,8 @@ public struct SidebarView: View {
             } else {
                 NavigationDestinationFactory.tabContent(
                     for: tab,
-                    libraryVM: libraryVM,
                     nowPlayingVM: nowPlayingVM,
-                    homeVM: homeVM,
-                    searchVM: searchVM,
-                    pinnedVM: pinnedVM,
-                    playlistsVM: playlistsVM,
+                    viewModels: viewModels,
                     mediaNavigationNamespace: mediaNavigationNamespace
                 )
             }
@@ -2213,12 +2193,8 @@ public struct SidebarView: View {
     private func destinationView(for destination: NavigationCoordinator.Destination) -> some View {
         NavigationDestinationFactory.destinationContent(
             for: destination,
-            libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
-            homeVM: homeVM,
-            searchVM: searchVM,
-            pinnedVM: pinnedVM,
-            playlistsVM: playlistsVM,
+            viewModels: viewModels,
             mediaNavigationNamespace: mediaNavigationNamespace
         )
     }

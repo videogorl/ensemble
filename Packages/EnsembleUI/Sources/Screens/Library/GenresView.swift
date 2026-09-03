@@ -161,7 +161,6 @@ public struct GenresView: View {
             }
         }
         .listStyle(.plain)
-        .restoringSceneScrollPosition(.genres)
         .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }

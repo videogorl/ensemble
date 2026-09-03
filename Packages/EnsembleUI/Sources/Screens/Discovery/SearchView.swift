@@ -385,7 +385,6 @@ public struct SearchView: View {
                 }
                 .padding(.vertical)
             }
-            .restoringSceneScrollPosition(.searchExplore)
             .foregroundScrollActivity()
             .onAppear {
                 pinDragSource = nil
@@ -787,7 +786,6 @@ public struct SearchView: View {
             }
             .padding(.vertical)
         }
-        .restoringSceneScrollPosition(.searchResults)
         .foregroundScrollActivity()
     }
 

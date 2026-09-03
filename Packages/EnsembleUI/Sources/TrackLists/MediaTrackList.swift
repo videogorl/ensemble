@@ -38,7 +38,6 @@ import UIKit
 class DeferredLayoutTableView: UITableView {
     private var hasAppearedInWindow = false
     var defersLayoutUntilWindow = true
-    var onFirstAppearance: (() -> Void)?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -48,8 +47,6 @@ class DeferredLayoutTableView: UITableView {
                 reloadData()
             }
             layoutIfNeeded()
-            onFirstAppearance?()
-            onFirstAppearance = nil
         }
     }
 
@@ -610,7 +607,6 @@ public struct MediaTrackList: UIViewRepresentable {
     /// Optional available width used to reveal wide artist/album metadata columns.
     let supplementalMetadataWidth: CGFloat?
     let trackSourceLabels: [String: String]
-    let scrollPosition: Binding<(trackID: String, offset: CGFloat)?>?
 
     /// Change token from TrackAvailabilityResolver — parent observes the singleton
     /// and passes the generation here so MediaTrackList doesn't subscribe itself.
@@ -641,7 +637,6 @@ public struct MediaTrackList: UIViewRepresentable {
     let onRefresh: (() async -> Void)?
     @Environment(\.dependencies) private var dependencies
     @Environment(\.trackListDisplayRatingsRevision) private var displayRatingsRevision
-    @Environment(\.scenePhase) private var scenePhase
 
     public init(
         tracks: [Track],
@@ -665,7 +660,6 @@ public struct MediaTrackList: UIViewRepresentable {
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
         trackSourceLabels: [String: String] = [:],
-        scrollPosition: Binding<(trackID: String, offset: CGFloat)?>? = nil,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -703,7 +697,6 @@ public struct MediaTrackList: UIViewRepresentable {
         self.onRefresh = onRefresh
         self.supplementalMetadataWidth = supplementalMetadataWidth
         self.trackSourceLabels = trackSourceLabels
-        self.scrollPosition = scrollPosition
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
@@ -759,7 +752,6 @@ public struct MediaTrackList: UIViewRepresentable {
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
         trackSourceLabels: [String: String] = [:],
-        scrollPosition: Binding<(trackID: String, offset: CGFloat)?>? = nil,
         showsNativeSectionIndex: Bool = false,
         sectionScrollRequestID: Int? = nil,
         sectionScrollTargetID: String? = nil,
@@ -787,7 +779,6 @@ public struct MediaTrackList: UIViewRepresentable {
         self.onRefresh = onRefresh
         self.supplementalMetadataWidth = supplementalMetadataWidth
         self.trackSourceLabels = trackSourceLabels
-        self.scrollPosition = scrollPosition
         self.onPlayNext = nil
         self.onPlayLast = nil
         self.onAddToPlaylist = nil
@@ -871,22 +862,10 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.dragDelegate = context.coordinator
         tableView.dragInteractionEnabled = true
         context.coordinator.tableView = tableView
-        let coordinator = context.coordinator
-        tableView.onFirstAppearance = { [weak tableView, weak coordinator] in
-            guard let tableView else { return }
-            coordinator?.restoreScrollPositionIfNeeded(in: tableView)
-        }
-
         return tableView
     }
     
     public func updateUIView(_ tableView: UITableView, context: Context) {
-        if context.coordinator.isSceneActive && scenePhase != .active {
-            context.coordinator.persistScrollPosition()
-        }
-        context.coordinator.scrollPosition = scrollPosition
-        context.coordinator.isSceneActive = scenePhase == .active
-
         if managesOwnScrolling,
            context.coordinator.contentScrollViewOwner == nil,
            tableView.window != nil {
@@ -1011,8 +990,6 @@ public struct MediaTrackList: UIViewRepresentable {
         // will trigger reloadData() on didMoveToWindow to avoid early layout passes.
         guard tableView.window != nil else { return }
 
-        context.coordinator.restoreScrollPositionIfNeeded(in: tableView)
-
         if let sectionScrollRequestID,
            context.coordinator.consumedSectionScrollRequestID != sectionScrollRequestID,
            let sectionScrollTargetID,
@@ -1102,8 +1079,6 @@ public struct MediaTrackList: UIViewRepresentable {
             interactionModel: interactionModel,
             supplementalMetadataWidth: supplementalMetadataWidth,
             trackSourceLabels: trackSourceLabels,
-            scrollPosition: scrollPosition,
-            isSceneActive: scenePhase == .active,
             artworkLoader: dependencies.artworkLoader,
             shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
@@ -1194,10 +1169,6 @@ public struct MediaTrackList: UIViewRepresentable {
         var interactionModel: TrackRowInteractionModel
         var supplementalMetadataWidth: CGFloat?
         var trackSourceLabels: [String: String]
-        var scrollPosition: Binding<(trackID: String, offset: CGFloat)?>?
-        var pendingScrollPosition: (trackID: String, offset: CGFloat)?
-        var isSceneActive: Bool
-        var didRestoreScrollPosition = false
         var artworkLoader: ArtworkLoaderProtocol
         var shareService: ShareService
         var toastCenter: ToastCenter
@@ -1244,8 +1215,6 @@ public struct MediaTrackList: UIViewRepresentable {
             interactionModel: TrackRowInteractionModel,
             supplementalMetadataWidth: CGFloat?,
             trackSourceLabels: [String: String],
-            scrollPosition: Binding<(trackID: String, offset: CGFloat)?>?,
-            isSceneActive: Bool,
             artworkLoader: ArtworkLoaderProtocol,
             shareService: ShareService,
             toastCenter: ToastCenter,
@@ -1289,8 +1258,6 @@ public struct MediaTrackList: UIViewRepresentable {
             self.interactionModel = interactionModel
             self.supplementalMetadataWidth = supplementalMetadataWidth
             self.trackSourceLabels = trackSourceLabels
-            self.scrollPosition = scrollPosition
-            self.isSceneActive = isSceneActive
             self.artworkLoader = artworkLoader
             self.shareService = shareService
             self.toastCenter = toastCenter
@@ -1553,64 +1520,6 @@ public struct MediaTrackList: UIViewRepresentable {
             onTrackTap(track, indexed.index)
         }
 
-        public func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            guard didRestoreScrollPosition, isSceneActive, scrollPosition != nil,
-                  let tableView = scrollView as? UITableView,
-                  let indexPath = tableView.indexPathsForVisibleRows?.min(by: {
-                      tableView.rectForRow(at: $0).minY < tableView.rectForRow(at: $1).minY
-                  }),
-                  let track = track(at: indexPath) else { return }
-            let visibleTop = tableView.contentOffset.y + tableView.adjustedContentInset.top
-            pendingScrollPosition = (
-                trackID: track.playbackIdentity,
-                offset: tableView.rectForRow(at: indexPath).minY - visibleTop
-            )
-        }
-
-        public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-            if !decelerate { persistScrollPosition() }
-        }
-
-        public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-            persistScrollPosition()
-        }
-
-        public func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-            persistScrollPosition()
-        }
-
-        func persistScrollPosition() {
-            guard let pendingScrollPosition else { return }
-            if let current = scrollPosition?.wrappedValue,
-               current.trackID == pendingScrollPosition.trackID,
-               abs(current.offset - pendingScrollPosition.offset) < 0.5 {
-                return
-            }
-            scrollPosition?.wrappedValue = pendingScrollPosition
-        }
-
-        func restoreScrollPositionIfNeeded(in tableView: UITableView) {
-            guard !didRestoreScrollPosition else { return }
-            defer { didRestoreScrollPosition = true }
-            guard let position = scrollPosition?.wrappedValue,
-                  let indexPath = indexPath(forTrackId: position.trackID) else { return }
-
-            tableView.layoutIfNeeded()
-            let visibleTop = tableView.rectForRow(at: indexPath).minY - position.offset
-            let minimumOffset = -tableView.adjustedContentInset.top
-            let maximumOffset = max(
-                tableView.contentSize.height - tableView.bounds.height + tableView.adjustedContentInset.bottom,
-                minimumOffset
-            )
-            tableView.setContentOffset(
-                CGPoint(
-                    x: 0,
-                    y: min(max(visibleTop - tableView.adjustedContentInset.top, minimumOffset), maximumOffset)
-                ),
-                animated: false
-            )
-        }
-        
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
             groupIndex(forTableSection: indexPath.section) == nil ? UITableView.automaticDimension : rowHeight
         }
