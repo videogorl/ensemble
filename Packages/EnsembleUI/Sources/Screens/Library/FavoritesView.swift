@@ -166,7 +166,7 @@ public struct FavoritesView: View {
             EnsembleStateScaffold(
                 kind: .empty,
                 title: "No Favorites Yet",
-                message: "Rate tracks 4 or 5 stars to add them here\n\(viewModel.tracks.count) total tracks • Showing favorites from all libraries",
+                message: "Rate tracks 4 or 5 stars to add them here\n\(viewModel.tracks.count) total tracks • Showing favorites from visible libraries",
                 iconSystemName: EnsembleDesign.Icon.favorite
             )
         }

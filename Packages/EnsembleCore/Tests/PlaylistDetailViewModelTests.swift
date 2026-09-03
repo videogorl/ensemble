@@ -1302,14 +1302,20 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             makeCachedFavoriteTrack(id: "track-a", title: "Favorite A", context: context)
         ]
 
-        let firstViewModel = FavoritesViewModel(libraryRepository: libraryRepository)
+        let firstViewModel = FavoritesViewModel(
+            libraryRepository: libraryRepository,
+            accountManager: AccountManager(keychain: TestKeychain())
+        )
         await firstViewModel.loadTracks()
 
         XCTAssertEqual(firstViewModel.tracks.map(\.id), ["track-a"])
         XCTAssertEqual(firstViewModel.filteredTracks.map(\.id), ["track-a"])
 
         libraryRepository.favoriteTracks = []
-        let secondViewModel = FavoritesViewModel(libraryRepository: libraryRepository)
+        let secondViewModel = FavoritesViewModel(
+            libraryRepository: libraryRepository,
+            accountManager: AccountManager(keychain: TestKeychain())
+        )
 
         XCTAssertEqual(secondViewModel.tracks.map(\.id), ["track-a"])
         XCTAssertEqual(secondViewModel.filteredTracks.map(\.id), ["track-a"])
@@ -1326,11 +1332,73 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let libraryRepository = LibraryRepository(coreDataStack: coreDataStack)
         _ = makeCachedFavoriteTrack(id: "track-a", title: "Favorite A", context: coreDataStack.viewContext)
 
-        let viewModel = FavoritesViewModel(libraryRepository: libraryRepository)
+        let viewModel = FavoritesViewModel(
+            libraryRepository: libraryRepository,
+            accountManager: AccountManager(keychain: TestKeychain())
+        )
 
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-a"])
         XCTAssertEqual(viewModel.filteredTracks.map(\.id), ["track-a"])
         XCTAssertFalse(viewModel.isLoading)
+    }
+
+    func testFavoritesViewModelFiltersCachedAndLiveVisibility() async throws {
+        FavoritesViewModel.resetLastGoodSnapshotForTesting()
+        let coreDataStack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: coreDataStack)
+        let visibleSource = "plex:account-1:server-1:visible"
+        let hiddenSource = "plex:account-1:server-1:hidden"
+        let visibleTrack = makeCachedFavoriteTrack(id: "visible", title: "Visible", context: coreDataStack.viewContext)
+        visibleTrack.sourceCompositeKey = visibleSource
+        let hiddenItemTrack = makeCachedFavoriteTrack(id: "hidden-item", title: "Hidden Item", context: coreDataStack.viewContext)
+        hiddenItemTrack.sourceCompositeKey = visibleSource
+        let hiddenSourceTrack = makeCachedFavoriteTrack(id: "hidden-source", title: "Hidden Source", context: coreDataStack.viewContext)
+        hiddenSourceTrack.sourceCompositeKey = hiddenSource
+
+        let visibilityDefaultsSuiteName = "FavoritesVisibility.\(UUID().uuidString)"
+        let hiddenMediaDefaultsSuiteName = "FavoritesHiddenMedia.\(UUID().uuidString)"
+        let visibilityDefaults = try XCTUnwrap(UserDefaults(suiteName: visibilityDefaultsSuiteName))
+        let hiddenMediaDefaults = try XCTUnwrap(UserDefaults(suiteName: hiddenMediaDefaultsSuiteName))
+        defer {
+            visibilityDefaults.removePersistentDomain(forName: visibilityDefaultsSuiteName)
+            hiddenMediaDefaults.removePersistentDomain(forName: hiddenMediaDefaultsSuiteName)
+        }
+        let visibilityStore = LibraryVisibilityStore(userDefaults: visibilityDefaults)
+        visibilityStore.setHiddenSourceCompositeKeys([hiddenSource])
+        let hiddenMediaStore = HiddenMediaStore(defaults: hiddenMediaDefaults)
+        let hiddenIdentity = HiddenMediaIdentity(
+            kind: .track,
+            itemID: hiddenItemTrack.ratingKey,
+            sourceCompositeKey: visibleSource
+        )
+        hiddenMediaStore.setHidden(true, identity: hiddenIdentity)
+
+        let viewModel = FavoritesViewModel(
+            libraryRepository: libraryRepository,
+            accountManager: AccountManager(keychain: TestKeychain()),
+            visibilityStore: visibilityStore,
+            hiddenMediaStore: hiddenMediaStore
+        )
+
+        XCTAssertEqual(viewModel.tracks.map(\.id), [visibleTrack.ratingKey])
+
+        let sourceShown = expectation(description: "Source visibility updates Favorites")
+        let sourceObservation = viewModel.$tracks
+            .filter { Set($0.map(\.id)) == [visibleTrack.ratingKey, hiddenSourceTrack.ratingKey] }
+            .first()
+            .sink { _ in sourceShown.fulfill() }
+        visibilityStore.setSourceVisibility(sourceCompositeKey: hiddenSource, isVisible: true)
+        await fulfillment(of: [sourceShown], timeout: 1)
+
+        let itemShown = expectation(description: "Hidden item updates Favorites")
+        let itemObservation = viewModel.$tracks
+            .filter { Set($0.map(\.id)) == [visibleTrack.ratingKey, hiddenItemTrack.ratingKey, hiddenSourceTrack.ratingKey] }
+            .first()
+            .sink { _ in itemShown.fulfill() }
+        hiddenMediaStore.setHidden(false, identity: hiddenIdentity)
+        await fulfillment(of: [itemShown], timeout: 1)
+
+        withExtendedLifetime((sourceObservation, itemObservation)) {}
     }
 
     func testFavoritesViewModelRefreshesBeforeMappingFavoriteMetadata() async {
@@ -1344,7 +1412,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             makeCachedFavoriteTrack(id: "track-a", title: "Favorite A", context: context)
         ]
 
-        let viewModel = FavoritesViewModel(libraryRepository: libraryRepository)
+        let viewModel = FavoritesViewModel(
+            libraryRepository: libraryRepository,
+            accountManager: AccountManager(keychain: TestKeychain())
+        )
         await viewModel.loadTracks()
 
         XCTAssertGreaterThanOrEqual(libraryRepository.refreshContextCallCount, 1)

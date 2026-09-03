@@ -261,6 +261,8 @@ public extension DependencyContainer {
     func makeFavoritesViewModel() -> FavoritesViewModel {
         FavoritesViewModel(
             libraryRepository: libraryRepository,
+            accountManager: accountManager,
+            visibilityStore: libraryVisibilityStore,
             hiddenMediaStore: hiddenMediaStore,
             settingsManager: settingsManager
         )

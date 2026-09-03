@@ -5,7 +5,7 @@ import Foundation
 
 /// ViewModel for Favorites view - displays tracks rated 4/5 or 5/5 stars
 /// This is an offline-first hub that pulls data directly from CoreData without server requests
-/// Spans all configured servers and libraries
+/// Spans visible configured servers and libraries
 @MainActor
 public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelProtocol {
     private static var lastGoodTracksSnapshot: [Track] = []
@@ -30,16 +30,23 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     @Published public private(set) var totalDuration: String = "0 min"
 
     private let libraryRepository: LibraryRepositoryProtocol
+    private let accountManager: AccountManager
+    private let visibilityStore: LibraryVisibilityStore
     private let hiddenMediaStore: HiddenMediaStore
     private let settingsManager: SettingsManager
     private var cancellables = Set<AnyCancellable>()
+    private var allTracks: [Track] = []
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
+        accountManager: AccountManager,
+        visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
         settingsManager: SettingsManager? = nil
     ) {
         self.libraryRepository = libraryRepository
+        self.accountManager = accountManager
+        self.visibilityStore = visibilityStore ?? .shared
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
         self.settingsManager = settingsManager ?? SettingsManager()
 
@@ -56,9 +63,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         setupFilterPersistence()
         setupFilteredTracksPipeline()
         observeReloadTriggers()
-        self.hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
-            Task { await self?.loadTracks() }
-        }.store(in: &cancellables)
+        setupVisibilityObservation()
 
         // Initial load
         Task {
@@ -102,13 +107,13 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             // Favorites can reopen while the view context still holds stale sync placeholders.
             await libraryRepository.refreshContext()
             let favoriteTracks = try await libraryRepository.fetchFavoriteTracks()
-            let nextTracks = hiddenMediaStore.snapshot.visibleTracks(favoriteTracks.map { Track(from: $0) })
+            let nextTracks = favoriteTracks.map { Track(from: $0) }
             publishTracksIfChanged(nextTracks)
             updateLastGoodSnapshot(nextTracks)
         } catch {
             // Silently fail - offline-first means we show what we have
             self.error = error.localizedDescription
-            if tracks.isEmpty {
+            if allTracks.isEmpty {
                 publishTracksIfChanged([])
             }
         }
@@ -131,6 +136,23 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
             await self?.loadTracks()
         }
+    }
+
+    private func setupVisibilityObservation() {
+        Publishers.CombineLatest3(
+            visibilityStore.$profiles,
+            visibilityStore.$activeProfileID,
+            visibilityStore.$focusFilter
+        )
+            .dropFirst()
+            .map { _ in () }
+            .merge(with: hiddenMediaStore.$snapshot.dropFirst().map { _ in () })
+            .merge(with: accountManager.sourceConfigurationPublisher.dropFirst().map { _ in () })
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.applyVisibilityToPublishedTracks()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Filter + Sort (static for background pipeline)
@@ -183,8 +205,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     private func seedFromLastGoodSnapshotIfAvailable() {
         let snapshot = Self.lastGoodTracksSnapshot
         guard !snapshot.isEmpty else { return }
-        tracks = snapshot
-        applyFilteredTracks(snapshot)
+        publishTracksIfChanged(snapshot)
         hasLoadedTracks = true
     }
 
@@ -195,18 +216,37 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
               !snapshot.isEmpty else {
             return
         }
-        tracks = snapshot
-        applyFilteredTracks(snapshot)
+        publishTracksIfChanged(snapshot)
         updateLastGoodSnapshot(snapshot)
         hasLoadedTracks = true
         isLoading = false
     }
 
     private func publishTracksIfChanged(_ nextTracks: [Track]) {
-        if tracks != nextTracks {
-            tracks = nextTracks
+        if allTracks != nextTracks {
+            allTracks = nextTracks
         }
-        applyFilteredTracks(nextTracks)
+        applyVisibilityToPublishedTracks()
+    }
+
+    private func applyVisibilityToPublishedTracks() {
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
+        let hiddenSourceCompositeKeys = visibilityStore.effectiveHiddenSourceCompositeKeys(
+            enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
+        )
+        let cachedSourceFilter = sourceConfiguration.hasAnySources || !sourceConfiguration.isAuthoritative
+            ? sourceConfiguration
+            : nil
+        let visibleTracks = LibraryVisibilityFiltering.visibleItems(
+            allTracks,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: cachedSourceFilter,
+            hiddenMedia: hiddenMediaStore.snapshot
+        )
+        if tracks != visibleTracks {
+            tracks = visibleTracks
+        }
+        applyFilteredTracks(visibleTracks)
     }
 
     private func applyFilteredTracks(_ nextTracks: [Track]) {
