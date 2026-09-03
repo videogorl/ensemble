@@ -13,6 +13,7 @@ enum SceneScrollRestorationID: String {
 enum SceneScrollRestoration {
     @MainActor static var offsets: [SceneScrollRestorationID: Double] = [:]
     @MainActor static var songsPosition: (trackID: String, offset: CGFloat)?
+    @MainActor static var favoritesPosition: (trackID: String, offset: CGFloat)?
 
     static func clampedOffset(_ requestedOffset: CGFloat, maximumOffset: CGFloat) -> CGFloat {
         min(max(requestedOffset, 0), max(maximumOffset, 0))
@@ -25,15 +26,19 @@ private struct SceneScrollMetrics: Equatable {
 }
 
 private final class SceneScrollOffsetCache {
-    var value: CGFloat = 0
+    var value: CGFloat
+
+    init(value: CGFloat = 0) {
+        self.value = value
+    }
 }
 
 @available(iOS 18.0, macOS 15.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 private struct SceneScrollRestorationModifier: ViewModifier {
     @Environment(\.scenePhase) private var scenePhase
-    @State private var scrollPosition = ScrollPosition()
+    @State private var scrollPosition: ScrollPosition
     @State private var isRestoring = true
-    @State private var liveOffset = SceneScrollOffsetCache()
+    @State private var liveOffset: SceneScrollOffsetCache
     let id: SceneScrollRestorationID
     let restoresNativeScrollView: Bool
 
@@ -45,6 +50,9 @@ private struct SceneScrollRestorationModifier: ViewModifier {
     init(id: SceneScrollRestorationID, restoresNativeScrollView: Bool = false) {
         self.id = id
         self.restoresNativeScrollView = restoresNativeScrollView
+        let storedOffset = CGFloat(SceneScrollRestoration.offsets[id, default: 0])
+        _scrollPosition = State(initialValue: ScrollPosition(y: storedOffset))
+        _liveOffset = State(initialValue: SceneScrollOffsetCache(value: storedOffset))
     }
 
     func body(content: Content) -> some View {

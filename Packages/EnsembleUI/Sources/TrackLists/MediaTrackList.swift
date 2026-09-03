@@ -37,20 +37,26 @@ import UIKit
 /// eagerly creates table views for navigation destinations not yet displayed.
 class DeferredLayoutTableView: UITableView {
     private var hasAppearedInWindow = false
+    var defersLayoutUntilWindow = true
+    var onFirstAppearance: (() -> Void)?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil && !hasAppearedInWindow {
             hasAppearedInWindow = true
-            // Trigger the first real layout now that we're in a window
-            reloadData()
+            if defersLayoutUntilWindow {
+                reloadData()
+            }
+            layoutIfNeeded()
+            onFirstAppearance?()
+            onFirstAppearance = nil
         }
     }
 
     override func layoutSubviews() {
         // Skip layout passes before the table is in a window — these cause
         // unnecessary work and "layout outside view hierarchy" warnings.
-        guard window != nil else { return }
+        guard !defersLayoutUntilWindow || window != nil else { return }
         super.layoutSubviews()
     }
 }
@@ -447,11 +453,15 @@ public class TrackTableViewCell: UITableViewCell {
             if currentTrackID != playbackIdentity {
                 currentTrackID = playbackIdentity
                 artworkImageView.backgroundColor = UIColor.systemGray5
+                artworkImageView.image = TrackArtworkThumbnailLoader.cachedImage(
+                    for: track,
+                    artworkLoader: artworkLoader
+                )
                 
                 // Cancel any previous artwork load task
                 artworkLoadTask?.cancel()
                 
-                artworkLoadTask = Task { @MainActor in
+                artworkLoadTask = artworkImageView.image == nil ? Task { @MainActor in
                     let image = await TrackArtworkThumbnailLoader.image(
                         for: track,
                         artworkLoader: artworkLoader
@@ -462,7 +472,7 @@ public class TrackTableViewCell: UITableViewCell {
                     if self.currentTrackID == playbackIdentity {
                         self.artworkImageView.image = image
                     }
-                }
+                } : nil
             } else {
                 // Same track - just update playing state without reloading artwork
             }
@@ -800,14 +810,8 @@ public struct MediaTrackList: UIViewRepresentable {
     }
     
     public func makeUIView(context: Context) -> UITableView {
-        let tableView: UITableView
-        if managesOwnScrolling {
-            // Regular UITableView — manages its own scrolling and cell recycling.
-            tableView = UITableView(frame: .zero, style: .plain)
-        } else {
-            // DeferredLayoutTableView — parent ScrollView handles scrolling.
-            tableView = DeferredLayoutTableView(frame: .zero, style: .plain)
-        }
+        let tableView = DeferredLayoutTableView(frame: .zero, style: .plain)
+        tableView.defersLayoutUntilWindow = !managesOwnScrolling
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.register(TrackTableViewCell.self, forCellReuseIdentifier: "TrackCell")
@@ -867,6 +871,11 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.dragDelegate = context.coordinator
         tableView.dragInteractionEnabled = true
         context.coordinator.tableView = tableView
+        let coordinator = context.coordinator
+        tableView.onFirstAppearance = { [weak tableView, weak coordinator] in
+            guard let tableView else { return }
+            coordinator?.restoreScrollPositionIfNeeded(in: tableView)
+        }
 
         return tableView
     }
@@ -1002,23 +1011,7 @@ public struct MediaTrackList: UIViewRepresentable {
         // will trigger reloadData() on didMoveToWindow to avoid early layout passes.
         guard tableView.window != nil else { return }
 
-        if !context.coordinator.didRestoreScrollPosition {
-            if let position = scrollPosition?.wrappedValue,
-               let indexPath = context.coordinator.indexPath(forTrackId: position.trackID) {
-                tableView.layoutIfNeeded()
-                let visibleTop = tableView.rectForRow(at: indexPath).minY - position.offset
-                let minimumOffset = -tableView.adjustedContentInset.top
-                let maximumOffset = max(
-                    tableView.contentSize.height - tableView.bounds.height + tableView.adjustedContentInset.bottom,
-                    minimumOffset
-                )
-                tableView.setContentOffset(
-                    CGPoint(x: 0, y: min(max(visibleTop - tableView.adjustedContentInset.top, minimumOffset), maximumOffset)),
-                    animated: false
-                )
-            }
-            context.coordinator.didRestoreScrollPosition = true
-        }
+        context.coordinator.restoreScrollPositionIfNeeded(in: tableView)
 
         if let sectionScrollRequestID,
            context.coordinator.consumedSectionScrollRequestID != sectionScrollRequestID,
@@ -1594,6 +1587,28 @@ public struct MediaTrackList: UIViewRepresentable {
                 return
             }
             scrollPosition?.wrappedValue = pendingScrollPosition
+        }
+
+        func restoreScrollPositionIfNeeded(in tableView: UITableView) {
+            guard !didRestoreScrollPosition else { return }
+            defer { didRestoreScrollPosition = true }
+            guard let position = scrollPosition?.wrappedValue,
+                  let indexPath = indexPath(forTrackId: position.trackID) else { return }
+
+            tableView.layoutIfNeeded()
+            let visibleTop = tableView.rectForRow(at: indexPath).minY - position.offset
+            let minimumOffset = -tableView.adjustedContentInset.top
+            let maximumOffset = max(
+                tableView.contentSize.height - tableView.bounds.height + tableView.adjustedContentInset.bottom,
+                minimumOffset
+            )
+            tableView.setContentOffset(
+                CGPoint(
+                    x: 0,
+                    y: min(max(visibleTop - tableView.adjustedContentInset.top, minimumOffset), maximumOffset)
+                ),
+                animated: false
+            )
         }
         
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {

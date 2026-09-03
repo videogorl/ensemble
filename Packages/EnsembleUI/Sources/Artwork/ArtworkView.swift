@@ -80,6 +80,7 @@ public struct ArtworkView: View {
         let shouldScaleCornerRadius =
             abs(cornerRadius - defaultSquareCornerRadius) < 0.5
             || abs(cornerRadius - defaultCircleCornerRadius) < 0.5
+        let cachedImage = dependencies.artworkLoader.synchronouslyCachedImage(for: request)?.image
 
         Group {
             if isResponsive {
@@ -90,7 +91,7 @@ public struct ArtworkView: View {
                         : min(max(cornerRadius, 0), side / 2)
                     let artworkShape = RoundedRectangle(cornerRadius: responsiveRadius, style: .continuous)
 
-                    artworkContent
+                    artworkContent(cachedImage: cachedImage)
                         .frame(width: side, height: side)
                         .clipShape(artworkShape)
                         .contentShape(artworkShape)
@@ -98,7 +99,7 @@ public struct ArtworkView: View {
                 .aspectRatio(1, contentMode: .fit)
             } else {
                 let artworkShape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                artworkContent
+                artworkContent(cachedImage: cachedImage)
                     .frame(width: frameSize.width, height: frameSize.height)
                     .clipShape(artworkShape)
                     .contentShape(artworkShape)
@@ -140,8 +141,8 @@ public struct ArtworkView: View {
     }
 
     @ViewBuilder
-    private var artworkContent: some View {
-        ResolvedArtworkImageView(image: resolvedImage ?? previousImage)
+    private func artworkContent(cachedImage: PlatformImage?) -> some View {
+        ResolvedArtworkImageView(image: resolvedImage ?? previousImage ?? cachedImage)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
     }
@@ -154,6 +155,12 @@ public struct ArtworkView: View {
             resolvedImage = nil
             previousImage = nil
             currentArtworkIdentity = loadID
+        }
+
+        if let cached = dependencies.artworkLoader.synchronouslyCachedImage(for: request) {
+            artworkURL = cached.url
+            resolvedImage = cached.image
+            return
         }
 
         guard request.hasArtwork else {

@@ -5,11 +5,16 @@ import Nuke
 
 public protocol ArtworkLoaderProtocol {
     func resolve(_ request: ArtworkRequest, policy: ArtworkResolutionPolicy) async -> ArtworkImageResolutionOutcome
+    func synchronouslyCachedImage(for request: ArtworkRequest) -> ArtworkResolvedImage?
     func invalidateURLCache() async
     @MainActor func clearCaches() async throws
 }
 
 public extension ArtworkLoaderProtocol {
+    func synchronouslyCachedImage(for request: ArtworkRequest) -> ArtworkResolvedImage? {
+        nil
+    }
+
     func resolve(_ request: ArtworkRequest) async -> ArtworkImageResolutionOutcome {
         await resolve(request, policy: .allowRemote)
     }
@@ -110,6 +115,14 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     }
 
     private let artworkURLTracker = ArtworkURLTracker()
+    private final class ResolvedImageCacheEntry {
+        let value: ArtworkResolvedImage
+
+        init(_ value: ArtworkResolvedImage) {
+            self.value = value
+        }
+    }
+    private let resolvedImageCache = NSCache<NSString, ResolvedImageCacheEntry>()
     private var memoryWarningObserver: NSObjectProtocol?
 
     /// Minimum interval between bulk URL cache invalidations to coalesce
@@ -254,8 +267,13 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     ) {
         self.syncCoordinator = syncCoordinator
         self.artworkDownloadManager = artworkDownloadManager
+        resolvedImageCache.countLimit = 40
         configurePipeline()
         installMemoryWarningObserver()
+    }
+
+    public func synchronouslyCachedImage(for request: ArtworkRequest) -> ArtworkResolvedImage? {
+        resolvedImageCache.object(forKey: request.stableBlurCacheKey as NSString)?.value
     }
 
     public func resolve(
@@ -263,7 +281,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         policy: ArtworkResolutionPolicy
     ) async -> ArtworkImageResolutionOutcome {
         if let local = await locallyCachedImage(for: request, minimumPixelDimension: request.tier.rawValue) {
-            return .resolved(local)
+            return cache(local, for: request)
         }
         guard policy == .allowRemote else { return .unavailable(.noArtworkURL) }
 
@@ -277,7 +295,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                    for: persistentIdentity
                ) {
                 if let local = await locallyCachedImage(for: candidate, minimumPixelDimension: nil) {
-                    return .resolved(local)
+                    return cache(local, for: request)
                 }
                 continue
             }
@@ -299,12 +317,12 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 )
                 if case .cached(let localURL) = cacheResult,
                    let resolved = await image(at: localURL, for: candidate) {
-                    return .resolved(resolved)
+                    return cache(resolved, for: request)
                 }
                 if case .unavailable = cacheResult {
                     failedURL = url
                 } else if let resolved = await image(at: url, for: candidate) {
-                    return .resolved(resolved)
+                    return cache(resolved, for: request)
                 } else {
                     failedURL = url
                 }
@@ -312,11 +330,22 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 
             if let local = await locallyCachedImage(for: candidate, minimumPixelDimension: nil),
                local.url != url {
-                return .resolved(local)
+                return cache(local, for: request)
             }
         }
 
         return failedURL.map { .unavailable(.imageLoadFailed($0)) } ?? .unavailable(.noArtworkURL)
+    }
+
+    private func cache(
+        _ image: ArtworkResolvedImage,
+        for request: ArtworkRequest
+    ) -> ArtworkImageResolutionOutcome {
+        resolvedImageCache.setObject(
+            ResolvedImageCacheEntry(image),
+            forKey: request.stableBlurCacheKey as NSString
+        )
+        return .resolved(image)
     }
 
     @MainActor
@@ -403,8 +432,9 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,
             queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             ImagePipeline.shared.cache.removeAll()
+            self?.resolvedImageCache.removeAllObjects()
             ArtworkBlurRenderer.clearMemoryCache()
             EnsembleLogger.debug("⚠️ Memory warning: Cleared artwork and blur caches")
         }
@@ -414,6 +444,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     /// Cancels transient image work, clears bounded render caches, and installs a fresh pipeline.
     @MainActor
     func resetTransientCaches() async throws {
+        resolvedImageCache.removeAllObjects()
         await urlCache.clearAll()
         await artworkURLTracker.clearAll()
         lastBulkInvalidationDate = nil
@@ -488,6 +519,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         let invalidations = Array(Set(invalidations))
         guard !invalidations.isEmpty else { return }
 
+        resolvedImageCache.removeAllObjects()
         var trackedURLs = Set<URL>()
         let ratingKeys = Set(invalidations.map(\.ratingKey))
         for invalidation in invalidations {

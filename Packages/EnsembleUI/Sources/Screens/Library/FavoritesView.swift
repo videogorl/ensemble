@@ -33,6 +33,13 @@ public struct FavoritesView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
+    private var scrollPosition: Binding<(trackID: String, offset: CGFloat)?> {
+        Binding(
+            get: { SceneScrollRestoration.favoritesPosition },
+            set: { SceneScrollRestoration.favoritesPosition = $0 }
+        )
+    }
+
     public init(libraryVM _: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
         _viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeFavoritesViewModel())
         self.nowPlayingVM = nowPlayingVM
@@ -210,7 +217,8 @@ public struct FavoritesView: View {
                 interactionModel: interactionModel
             ),
             tableHeaderContent: AnyView(favoritesHeaderSurface),
-            tableFooterContent: favoritesFooterContent
+            tableFooterContent: favoritesFooterContent,
+            scrollPosition: scrollPosition
         ) { _, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }

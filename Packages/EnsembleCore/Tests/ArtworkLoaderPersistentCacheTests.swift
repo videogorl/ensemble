@@ -377,6 +377,42 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         )
     }
 
+    func testResolvedArtworkRemainsSynchronouslyAvailableUntilTransientCacheReset() async throws {
+        let localURL = try makeTemporaryJPEG(width: 300, height: 300)
+        defer { try? FileManager.default.removeItem(at: localURL) }
+
+        let artworkManager = RecordingArtworkDownloadManager(strictPath: localURL.path, stalePath: nil)
+        let syncCoordinator = await makeOfflineSyncCoordinator(artworkManager: artworkManager)
+        let artworkLoader = ArtworkLoader(
+            syncCoordinator: syncCoordinator,
+            artworkDownloadManager: artworkManager
+        )
+        let request = ArtworkRequest(
+            path: "/library/metadata/album-1/thumb",
+            sourceKey: "plex:account-1:server-1:1",
+            ratingKey: "album-1",
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            identity: ArtworkRequest.Identity(
+                ratingKey: "album-1",
+                kind: .album,
+                sourcePath: "/library/metadata/album-1/thumb",
+                sourceCompositeKey: "plex:account-1:server-1:1"
+            ),
+            fallbackIdentity: nil,
+            tier: .thumbnail,
+            priority: .low
+        )
+
+        XCTAssertNil(artworkLoader.synchronouslyCachedImage(for: request))
+        let resolvedImage = await artworkLoader.resolvedImage(for: request)
+        XCTAssertNotNil(resolvedImage)
+        XCTAssertNotNil(artworkLoader.synchronouslyCachedImage(for: request))
+
+        try await artworkLoader.resetTransientCaches()
+        XCTAssertNil(artworkLoader.synchronouslyCachedImage(for: request))
+    }
+
     func testSourceScopedInvalidationDoesNotStaleAnotherSourcesMatchingKey() async throws {
         let localURL = try makeTemporaryJPEG(width: 300, height: 300)
         defer { try? FileManager.default.removeItem(at: localURL) }
