@@ -145,6 +145,7 @@ public struct DownloadsView: View {
         #else
         .listStyle(.inset)
         #endif
+        .restoringRootSceneScrollPosition(.downloads)
         .miniPlayerBottomSpacing()
     }
 

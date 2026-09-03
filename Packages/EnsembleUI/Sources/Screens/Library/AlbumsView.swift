@@ -213,6 +213,7 @@ public struct AlbumsView: View {
                         )
                     }
                 }
+                .restoringRootSceneScrollPosition(.albums)
                 .miniPlayerBottomSpacing()
                 .libraryScrollIndexOverlay {
                     if isSortIndexed && !albumSnapshot.albums.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {

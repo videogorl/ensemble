@@ -19,6 +19,7 @@ public struct RootView: View {
     @StateObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @StateObject private var screenModels: RootScreenModels
+    @StateObject private var scrollState = RootSceneScrollState()
     @StateObject private var artworkDetailBackgroundContinuity = ArtworkDetailBackgroundContinuityStore()
     @StateObject private var artistDetailArtworkContinuity = ArtistDetailArtworkContinuityStore()
     @StateObject private var sourceActionPresenter = MediaSourceActionPresenter()
@@ -100,6 +101,7 @@ public struct RootView: View {
         .environment(\.isSoftwareKeyboardVisible, isSoftwareKeyboardVisible)
         .environment(\.artworkDetailBackgroundContinuity, artworkDetailBackgroundContinuity)
         .environment(\.artistDetailArtworkContinuity, artistDetailArtworkContinuity)
+        .environment(\.rootSceneScrollState, scrollState)
         .environmentObject(navigationCoordinator)
         .accentColor(settingsManager.accentColor.color)
         .transaction { transaction in

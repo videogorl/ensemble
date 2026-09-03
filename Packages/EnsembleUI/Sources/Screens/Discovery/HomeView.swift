@@ -254,6 +254,7 @@ public struct HomeView: View {
             }
             .padding(.vertical)
         }
+        .restoringRootSceneScrollPosition(.feed)
         .refreshable {
             await viewModel.refresh()
         }
