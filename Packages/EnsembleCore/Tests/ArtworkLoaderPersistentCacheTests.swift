@@ -329,6 +329,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             object: artworkLoader,
             queue: nil
         ) { _ in
+            XCTAssertTrue(Thread.isMainThread)
             retryNotifications.fulfill()
         }
         defer { NotificationCenter.default.removeObserver(observer) }

@@ -493,7 +493,9 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // Connection changed — all tracked URLs are stale
         await artworkURLTracker.clearAll()
         EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated URL cache after connection change")
-        NotificationCenter.default.post(name: Self.serversBecameAvailable, object: self)
+        await MainActor.run {
+            NotificationCenter.default.post(name: Self.serversBecameAvailable, object: self)
+        }
     }
 
     /// Invalidate a specific artwork so views re-fetch from the server.
@@ -548,11 +550,13 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             }
         }
 
-        NotificationCenter.default.post(
-            name: Self.artworkDidInvalidate,
-            object: nil,
-            userInfo: ["ratingKeys": ratingKeys]
-        )
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: Self.artworkDidInvalidate,
+                object: nil,
+                userInfo: ["ratingKeys": ratingKeys]
+            )
+        }
         EnsembleLogger.debug("🎨 ArtworkLoader: Marked \(invalidations.count) artwork item(s) stale")
     }
 
