@@ -88,7 +88,6 @@ public struct MoreView: View {
         #else
         .listStyle(.inset)
         #endif
-        .restoringRootSceneScrollPosition(.more)
     }
 
     private func moreTabRowLabel(for tab: TabItem) -> some View {

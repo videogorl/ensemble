@@ -545,7 +545,6 @@ public struct PlaylistsView: View {
             playlistCountFooter(count: displayedPlaylists.count)
         }
         .listStyle(.plain)
-        .restoringRootSceneScrollPosition(.playlists)
         .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }

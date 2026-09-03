@@ -30,13 +30,8 @@ public struct FavoritesView: View {
     @State private var hasCompletedInitialLoad = false
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @Environment(\.dependencies) private var deps
-    @Environment(\.rootSceneScrollState) private var rootSceneScrollState
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
-
-    private var scrollPosition: Binding<(trackID: String, offset: CGFloat)?>? {
-        rootSceneScrollState?.trackPosition(.favorites)
-    }
 
     public init(nowPlayingVM: NowPlayingViewModel) {
         self.init(
@@ -222,8 +217,7 @@ public struct FavoritesView: View {
                 interactionModel: interactionModel
             ),
             tableHeaderContent: AnyView(favoritesHeaderSurface),
-            tableFooterContent: favoritesFooterContent,
-            scrollPosition: scrollPosition
+            tableFooterContent: favoritesFooterContent
         ) { _, index in
             nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
         }
