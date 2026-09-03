@@ -18,6 +18,7 @@ public struct RootView: View {
     private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @StateObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var nowPlayingVM: NowPlayingViewModel
+    @StateObject private var screenModels: RootScreenModels
     @StateObject private var artworkDetailBackgroundContinuity = ArtworkDetailBackgroundContinuityStore()
     @StateObject private var artistDetailArtworkContinuity = ArtistDetailArtworkContinuityStore()
     @StateObject private var sourceActionPresenter = MediaSourceActionPresenter()
@@ -51,6 +52,7 @@ public struct RootView: View {
                 navigationCoordinator: navigationCoordinator
             )
         )
+        _screenModels = StateObject(wrappedValue: RootScreenModels())
     }
 
     public var body: some View {
@@ -314,27 +316,29 @@ public struct RootView: View {
             if #available(iOS 16.0, *) {
                 SidebarView(
                     nowPlayingVM: nowPlayingVM,
+                    viewModels: screenModels,
                     selection: $sidebarSelection,
                     rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
                 )
             } else {
-                MainTabView(nowPlayingVM: nowPlayingVM)
+                MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
             }
             #elseif os(macOS)
             if #available(macOS 13.0, *) {
                 SidebarView(
                     nowPlayingVM: nowPlayingVM,
+                    viewModels: screenModels,
                     selection: $sidebarSelection,
                     rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
                 )
             } else {
-                MainTabView(nowPlayingVM: nowPlayingVM)
+                MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
             }
             #else
-            MainTabView(nowPlayingVM: nowPlayingVM)
+            MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
             #endif
         case .tabs:
-            MainTabView(nowPlayingVM: nowPlayingVM)
+            MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
         }
     }
 

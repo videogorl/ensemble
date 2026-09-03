@@ -16,6 +16,9 @@
 - Keep root profile/search/tab/mini-player/Now Playing chrome at the root owner.
   Leaf views must not compensate for root safe areas, hide global chrome, or
   mutate UIKit/AppKit appearance to repair a local transition.
+- Keep persistent navigation and scroll roots structurally stable across runtime
+  environment changes; pass changing values into modifiers instead of choosing
+  conditional modifier branches.
 - StageFlow is iPhone-only. `MainTabView` owns activation, orientation support,
   and root chrome suppression. Browse screens only consume
   `isStageFlowActive`; do not add local rotation detection or delay timers.

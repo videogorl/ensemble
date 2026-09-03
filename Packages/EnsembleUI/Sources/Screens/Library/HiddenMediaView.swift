@@ -4,7 +4,7 @@ import SwiftUI
 
 struct HiddenMediaView: View {
     let nowPlayingVM: NowPlayingViewModel
-    @StateObject private var viewModel = DependencyContainer.shared.makeHiddenMediaViewModel()
+    @StateObject private var viewModel: HiddenMediaViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var expandedSections = Set<HiddenMediaKind>()
     @State private var isEditingOrder = false
@@ -21,6 +21,11 @@ struct HiddenMediaView: View {
             alignment: .top
         )
     ]
+
+    init(nowPlayingVM: NowPlayingViewModel, viewModel: HiddenMediaViewModel) {
+        self.nowPlayingVM = nowPlayingVM
+        _viewModel = StateObject(wrappedValue: viewModel)
+    }
 
     var body: some View {
         Group {
@@ -44,7 +49,6 @@ struct HiddenMediaView: View {
                     }
                     .padding()
                 }
-                .restoringSceneScrollPosition(.hidden)
             }
         }
         .miniPlayerBottomSpacing()

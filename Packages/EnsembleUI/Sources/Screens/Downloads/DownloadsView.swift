@@ -10,7 +10,14 @@ public struct DownloadsView: View {
     let nowPlayingVM: NowPlayingViewModel
 
     public init(nowPlayingVM: NowPlayingViewModel) {
-        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeDownloadsViewModel())
+        self.init(
+            nowPlayingVM: nowPlayingVM,
+            viewModel: DependencyContainer.shared.makeDownloadsViewModel()
+        )
+    }
+
+    init(nowPlayingVM: NowPlayingViewModel, viewModel: DownloadsViewModel) {
+        self._viewModel = StateObject(wrappedValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
     }
 
@@ -138,7 +145,6 @@ public struct DownloadsView: View {
         #else
         .listStyle(.inset)
         #endif
-        .restoringSceneScrollPosition(.downloads)
         .miniPlayerBottomSpacing()
     }
 

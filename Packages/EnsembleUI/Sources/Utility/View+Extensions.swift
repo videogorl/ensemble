@@ -84,16 +84,11 @@ private struct AuroraBackgroundSupportModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
-        if colorScheme == .dark {
-            if #available(iOS 16.0, macOS 13.0, *) {
-                content
-                    .scrollContentBackground(.hidden)
-                    .background(Color.clear)
-            } else {
-                content.background(Color.clear)
-            }
+        if #available(iOS 16.0, macOS 13.0, *) {
+            content
+                .scrollContentBackground(colorScheme == .dark ? .hidden : .visible)
+                .background(Color.clear)
         } else {
-            // Light mode: keep system backgrounds so list rows are distinguishable
             content.background(Color.clear)
         }
     }

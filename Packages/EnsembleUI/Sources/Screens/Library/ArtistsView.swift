@@ -325,7 +325,6 @@ public struct ArtistsView: View {
                         )
                     }
                 }
-                .restoringSceneScrollPosition(.artists)
                 .miniPlayerBottomSpacing()
                 .libraryScrollIndexOverlay {
                     if shouldShowScrollIndex(width: geometry.size.width) {
