@@ -461,12 +461,13 @@ private struct DisplayArtistGrid: View {
                     .multilineTextAlignment(.center)
                     .foregroundColor(EnsembleDesign.Color.primaryText)
 
-                if displayArtist.isMerged {
-                    Text("\(displayArtist.artists.count) sources")
-                        .font(EnsembleDesign.Typography.cardSubtitle)
-                        .lineLimit(1)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                }
+                Text(displayArtist.isMerged ? "\(displayArtist.artists.count) sources" : " ")
+                    .font(EnsembleDesign.Typography.cardSubtitle)
+                    .lineLimit(1)
+                    .foregroundColor(
+                        displayArtist.isMerged ? EnsembleDesign.Color.secondaryText : .clear
+                    )
+                    .accessibilityHidden(!displayArtist.isMerged)
             }
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)
