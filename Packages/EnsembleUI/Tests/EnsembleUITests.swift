@@ -1,3 +1,4 @@
+import Combine
 import EnsembleDesignTokens
 import EnsembleDomain
 import SwiftUI
@@ -14,6 +15,19 @@ import AppKit
 #endif
 
 final class EnsembleUITests: XCTestCase {
+    func testBrowseSnapshotCacheDoesNotRepublishIdenticalSnapshot() {
+        let cache = BrowseSnapshotCache(1)
+        var publicationCount = 0
+        let cancellable = cache.objectWillChange.sink { publicationCount += 1 }
+
+        cache.snapshot = 1
+        cache.snapshot = 2
+
+        XCTAssertEqual(publicationCount, 1)
+        XCTAssertEqual(cache.snapshot, 2)
+        withExtendedLifetime(cancellable) {}
+    }
+
     func testSceneScrollRestorationClampsOffsetsToContent() {
         let cases: [(requested: CGFloat, maximum: CGFloat, expected: CGFloat)] = [
             (-10, 100, 0),
