@@ -28,10 +28,7 @@ public struct SongsView: View {
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     private var scrollPosition: Binding<(trackID: String, offset: CGFloat)?> {
-        Binding(
-            get: { SceneScrollRestoration.songsPosition },
-            set: { SceneScrollRestoration.songsPosition = $0 }
-        )
+        SceneScrollRestoration.trackPosition(.songs)
     }
 
     private var canShowLargeScreenSongBrowser: Bool {

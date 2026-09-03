@@ -44,6 +44,7 @@ struct HiddenMediaView: View {
                     }
                     .padding()
                 }
+                .restoringSceneScrollPosition(.hidden)
             }
         }
         .miniPlayerBottomSpacing()

@@ -138,6 +138,7 @@ public struct DownloadsView: View {
         #else
         .listStyle(.inset)
         #endif
+        .restoringSceneScrollPosition(.downloads)
         .miniPlayerBottomSpacing()
     }
 

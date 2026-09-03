@@ -34,10 +34,7 @@ public struct FavoritesView: View {
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
     private var scrollPosition: Binding<(trackID: String, offset: CGFloat)?> {
-        Binding(
-            get: { SceneScrollRestoration.favoritesPosition },
-            set: { SceneScrollRestoration.favoritesPosition = $0 }
-        )
+        SceneScrollRestoration.trackPosition(.favorites)
     }
 
     public init(libraryVM _: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {

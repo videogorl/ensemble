@@ -28,25 +28,6 @@ final class EnsembleUITests: XCTestCase {
         withExtendedLifetime(cancellable) {}
     }
 
-    func testSceneScrollRestorationClampsOffsetsToContent() {
-        let cases: [(requested: CGFloat, maximum: CGFloat, expected: CGFloat)] = [
-            (-10, 100, 0),
-            (40, 100, 40),
-            (120, 100, 100),
-            (40, -1, 0)
-        ]
-
-        for testCase in cases {
-            XCTAssertEqual(
-                SceneScrollRestoration.clampedOffset(
-                    testCase.requested,
-                    maximumOffset: testCase.maximum
-                ),
-                testCase.expected
-            )
-        }
-    }
-
     func testMediaDetailSourceLabelsUseProviderOrLibraryAndServer() {
         let appleMusic = MusicSourcePresentation(
             capabilities: MusicSourceType.appleMusic.capabilities,
