@@ -296,7 +296,7 @@ public struct PlaylistsView: View {
                 view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             }
             .task {
-                await viewModel.loadPlaylists()
+                await viewModel.loadPlaylistsIfNeeded()
             }
             // Keep cached displayed playlists in sync (avoids recomputing grouping on every body eval)
             .onReceive(viewModel.$displayPlaylists) { displayPlaylists in

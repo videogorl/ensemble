@@ -97,6 +97,7 @@ public final class PinnedViewModel: ObservableObject {
     private let hiddenMediaStore: HiddenMediaStore
     private var cancellables = Set<AnyCancellable>()
     private var isMoving = false
+    private var hasLoadedPinnedItems = false
 
     public init(
         pinManager: PinManager,
@@ -161,8 +162,15 @@ public final class PinnedViewModel: ObservableObject {
     }
 
     /// Fetch pinned items from Core Data by ratingKey, preserving pin order.
+    public func loadPinnedItemsIfNeeded() async {
+        guard !hasLoadedPinnedItems, !isMoving else { return }
+        hasLoadedPinnedItems = true
+        await loadPinnedItems()
+    }
+
     public func loadPinnedItems() async {
         guard !isMoving else { return }
+        hasLoadedPinnedItems = true
 
         // Safety reset of dragging state
         draggingPinId = nil

@@ -571,6 +571,11 @@ public final class LibraryViewModel: ObservableObject {
         await task.value
     }
 
+    public func loadLibraryIfNeeded() async {
+        guard loadGeneration == 0, libraryLoadTask == nil else { return }
+        await loadLibrary()
+    }
+
     private func performLibraryLoad() async {
         loadGeneration += 1
         let generation = loadGeneration

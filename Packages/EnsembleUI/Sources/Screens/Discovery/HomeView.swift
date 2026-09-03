@@ -18,12 +18,19 @@ public struct HomeView: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(\.scenePhase) private var scenePhase
+    private let isSelectedRoot: Bool
 
-    public init(nowPlayingVM: NowPlayingViewModel, viewModel: HomeViewModel? = nil) {
+    public init(
+        nowPlayingVM: NowPlayingViewModel,
+        viewModel: HomeViewModel? = nil,
+        isSelectedRoot: Bool = true
+    ) {
         let container = DependencyContainer.shared
         self.viewModel = viewModel ?? container.makeHomeViewModel()
         self.nowPlayingVM = nowPlayingVM
         self.cacheManager = container.cacheManager
+        self.isSelectedRoot = isSelectedRoot
         _artworkCacheInvalidationGeneration = State(
             initialValue: container.cacheManager.artworkCacheInvalidationGeneration
         )
@@ -91,14 +98,24 @@ public struct HomeView: View {
             await loadProfileBackgroundImage(reloadKey: profileBackgroundReloadKey)
         }
         .onAppear {
-            viewModel.handleViewVisibilityChange(isVisible: true)
+            updateViewVisibility()
         }
         .onDisappear {
             viewModel.handleViewVisibilityChange(isVisible: false)
         }
+        .onChange(of: isSelectedRoot) { isSelected in
+            viewModel.handleViewVisibilityChange(isVisible: isSelected && scenePhase == .active)
+        }
+        .onChange(of: scenePhase) { phase in
+            viewModel.handleViewVisibilityChange(isVisible: isSelectedRoot && phase == .active)
+        }
         .refreshCommand {
             await viewModel.refresh()
         }
+    }
+
+    private func updateViewVisibility() {
+        viewModel.handleViewVisibilityChange(isVisible: isSelectedRoot && scenePhase == .active)
     }
 
     private var feedTitle: String {

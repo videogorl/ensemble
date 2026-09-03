@@ -12,7 +12,8 @@ struct NavigationDestinationFactory {
         pinnedVM: PinnedViewModel? = nil,
         playlistsVM: PlaylistViewModel,
         mediaNavigationNamespace: Namespace.ID? = nil,
-        isMoreRoot: Bool = false
+        isMoreRoot: Bool = false,
+        isSelectedRoot: Bool = true
     ) -> AnyView {
         AnyView(NavigationTabContentView(
             tab: tab,
@@ -23,7 +24,8 @@ struct NavigationDestinationFactory {
             pinnedVM: pinnedVM,
             playlistsVM: playlistsVM,
             mediaNavigationNamespace: mediaNavigationNamespace,
-            isMoreRoot: isMoreRoot
+            isMoreRoot: isMoreRoot,
+            isSelectedRoot: isSelectedRoot
         ))
     }
 
@@ -188,7 +190,8 @@ struct NavigationDestinationFactory {
                 pinnedVM: pinnedVM,
                 playlistsVM: playlistsVM,
                 mediaNavigationNamespace: mediaNavigationNamespace,
-                isMoreRoot: false
+                isMoreRoot: false,
+                isSelectedRoot: true
             ))
         }
     }
@@ -245,6 +248,7 @@ private struct NavigationTabContentView: View {
     let playlistsVM: PlaylistViewModel
     let mediaNavigationNamespace: Namespace.ID?
     let isMoreRoot: Bool
+    let isSelectedRoot: Bool
 
     var body: some View {
         if isMoreRoot {
@@ -258,7 +262,7 @@ private struct NavigationTabContentView: View {
     private var tabBody: some View {
         switch tab {
         case .home:
-            HomeView(nowPlayingVM: nowPlayingVM, viewModel: homeVM)
+            HomeView(nowPlayingVM: nowPlayingVM, viewModel: homeVM, isSelectedRoot: isSelectedRoot)
         case .songs:
             SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .artists:

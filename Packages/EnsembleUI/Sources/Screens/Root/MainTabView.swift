@@ -182,8 +182,8 @@ public struct MainTabView: View {
                     reconcileInitialTabSelection()
                     didSetInitialTab = true
                 }
-                async let libraryRefresh: () = libraryVM.refresh()
-                async let pinsLoad: () = pinnedVM.loadPinnedItems()
+                async let libraryRefresh: () = libraryVM.loadLibraryIfNeeded()
+                async let pinsLoad: () = pinnedVM.loadPinnedItemsIfNeeded()
                 _ = await (libraryRefresh, pinsLoad)
             }
             // Observation-extracted receivers — update @State only when specific values change,
@@ -362,7 +362,8 @@ public struct MainTabView: View {
                         pinnedVM: pinnedVM,
                         playlistsVM: playlistsVM,
                         mediaNavigationNamespace: mediaNavigationNamespace,
-                        isMoreRoot: isMoreRoot
+                        isMoreRoot: isMoreRoot,
+                        isSelectedRoot: selectedRootTab == tab
                     )
                     .rootProfileToolbar(isVisible: shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
                     .auroraBackgroundSupport()
@@ -410,7 +411,8 @@ public struct MainTabView: View {
             pinnedVM: pinnedVM,
             playlistsVM: playlistsVM,
             mediaNavigationNamespace: mediaNavigationNamespace,
-            isMoreRoot: isMoreRoot
+            isMoreRoot: isMoreRoot,
+            isSelectedRoot: selectedRootTab == tab
         )
         .rootProfileToolbar(isVisible: shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
         .auroraBackgroundSupport()
@@ -1094,9 +1096,9 @@ public struct SidebarView: View {
         .task {
             // Load all sidebar data concurrently so playlists appear
             // immediately rather than waiting for library refresh to finish.
-            async let libRefresh: () = libraryVM.refresh()
-            async let pinsLoad: () = pinnedVM.loadPinnedItems()
-            async let playlistsLoad: () = playlistsVM.loadPlaylists()
+            async let libRefresh: () = libraryVM.loadLibraryIfNeeded()
+            async let pinsLoad: () = pinnedVM.loadPinnedItemsIfNeeded()
+            async let playlistsLoad: () = playlistsVM.loadPlaylistsIfNeeded()
             _ = await (libRefresh, pinsLoad, playlistsLoad)
             rebuildCachedSidebarPlaylists()
         }

@@ -85,6 +85,7 @@ public final class PlaylistViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var allPlaylists: [Playlist] = []
     private var coalescedReloadTask: Task<Void, Never>?
+    private var hasLoadedPlaylists = false
     private var optimisticCreatingPlaylists: [Playlist] = []
     private var optimisticRenamedPlaylistTitlesByIdentity: [String: String] = [:]
     private var optimisticDeletedPlaylistIdentities: Set<String> = []
@@ -230,7 +231,14 @@ public final class PlaylistViewModel: ObservableObject {
         .store(in: &cancellables)
     }
 
+    public func loadPlaylistsIfNeeded() async {
+        guard !hasLoadedPlaylists else { return }
+        hasLoadedPlaylists = true
+        await reloadPlaylists(showLoading: playlists.isEmpty)
+    }
+
     public func loadPlaylists() async {
+        hasLoadedPlaylists = true
         await reloadPlaylists(showLoading: playlists.isEmpty)
     }
 

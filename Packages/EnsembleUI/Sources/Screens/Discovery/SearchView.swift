@@ -101,9 +101,8 @@ public struct SearchView: View {
             isSearchFieldFocused = true
         }
         .task {
-            // Only load if data is empty (first time)
             await viewModel.loadExploreContentIfNeeded()
-            await pinnedVM.loadPinnedItems()
+            await pinnedVM.loadPinnedItemsIfNeeded()
         }
         .miniPlayerBottomSpacing()
         .nowPlayingTrackListObservation(

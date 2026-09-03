@@ -885,6 +885,23 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         _ = viewModel
     }
 
+    func testPlaylistViewModelLoadsOnlyOnceForRepeatedAppearances() async {
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            observesExternalChanges: false
+        )
+
+        await viewModel.loadPlaylistsIfNeeded()
+        await viewModel.loadPlaylistsIfNeeded()
+
+        XCTAssertEqual(playlistRepository.fetchPlaylistsCallCount, 1)
+    }
+
     func testPlaylistViewModelClearsVisiblePlaylistsAfterLibraryDataClearNotification() async throws {
         PlaylistViewModel.resetLastGoodSnapshotForTesting()
         let syncCoordinator = makeSyncCoordinator()
