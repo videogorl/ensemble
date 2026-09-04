@@ -255,6 +255,37 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         }
     }
 
+    func testBridgePublishesSynchronouslyCachedArtworkWithNewTrackMetadata() throws {
+        let track = makeTrack(
+            id: "track-2",
+            title: "Track Two",
+            albumRatingKey: "album-2",
+            thumbPath: nil,
+            fallbackThumbPath: "/thumb/album-2",
+            fallbackRatingKey: "album-2"
+        )
+        let request = ArtworkRequest(track: track, tier: .hero, priority: .high)
+        let image = makePlatformImage()
+        let artworkLoader = MockArtworkLoader(synchronouslyCachedImage: ArtworkResolvedImage(
+            url: URL(fileURLWithPath: "/tmp/artwork.png"),
+            image: image,
+            blurCacheKey: request.stableBlurCacheKey,
+            identityKey: try XCTUnwrap(request.candidateIdentityKeys.first)
+        ))
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: artworkLoader,
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+
+        bridge.updateNowPlayingInfo(makeState(track: track))
+
+        XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Two")
+        XCTAssertTrue(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] is MPMediaItemArtwork)
+        XCTAssertEqual(artworkLoader.requestCount, 0)
+    }
+
     func testArtworkCompletionDoesNotRestoreStalePlaybackState() async throws {
         let artworkURL = try makeTemporaryPNG()
         defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
@@ -647,6 +678,17 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         return url
     }
 
+    private func makePlatformImage() -> PlatformImage {
+        #if canImport(UIKit)
+        return UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+        #elseif canImport(AppKit)
+        return NSImage(size: NSSize(width: 8, height: 8))
+        #endif
+    }
+
     private func waitUntil(
         _ description: String,
         timeout: TimeInterval = 2,
@@ -667,6 +709,7 @@ private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendabl
     private let lock = NSLock()
     private var _artworkURL: URL?
     private var _localArtworkURL: URL?
+    private let _synchronouslyCachedImage: ArtworkResolvedImage?
     private let responseDelayNanoseconds: UInt64
     private var _requestCount = 0
     private var _localRequestCount = 0
@@ -674,10 +717,12 @@ private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendabl
     init(
         artworkURL: URL? = nil,
         localArtworkURL: URL? = nil,
+        synchronouslyCachedImage: ArtworkResolvedImage? = nil,
         responseDelayNanoseconds: UInt64 = 0
     ) {
         self._artworkURL = artworkURL
         self._localArtworkURL = localArtworkURL
+        self._synchronouslyCachedImage = synchronouslyCachedImage
         self.responseDelayNanoseconds = responseDelayNanoseconds
     }
 
@@ -692,6 +737,10 @@ private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendabl
 
     var localRequestCount: Int {
         locked { _localRequestCount }
+    }
+
+    func synchronouslyCachedImage(for request: ArtworkRequest) -> ArtworkResolvedImage? {
+        _synchronouslyCachedImage
     }
 
     func resolve(

@@ -280,6 +280,9 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         _ request: ArtworkRequest,
         policy: ArtworkResolutionPolicy
     ) async -> ArtworkImageResolutionOutcome {
+        if let cached = synchronouslyCachedImage(for: request) {
+            return .resolved(cached)
+        }
         if let local = await locallyCachedImage(for: request, minimumPixelDimension: request.tier.rawValue) {
             return cache(local, for: request)
         }

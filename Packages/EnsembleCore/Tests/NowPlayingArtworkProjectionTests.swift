@@ -9,6 +9,37 @@ import AppKit
 
 @MainActor
 final class NowPlayingArtworkProjectionTests: XCTestCase {
+    func testProjectionUsesCachedArtworkImmediatelyAndSkipsReloadForRatingChanges() throws {
+        let firstTrack = makeTrack(id: "track-1", sourceKey: "plex:a:s:1", albumPath: "/album-1")
+        let firstRequest = ArtworkRequest(track: firstTrack, tier: .hero, priority: .high)
+        let firstImage = makeImage()
+        let firstResolved = ArtworkResolvedImage(
+            url: URL(fileURLWithPath: "/tmp/first.jpg"),
+            image: firstImage,
+            blurCacheKey: firstRequest.stableBlurCacheKey,
+            identityKey: try XCTUnwrap(firstRequest.candidateIdentityKeys.first)
+        )
+        let projection = NowPlayingArtworkProjection()
+
+        XCTAssertFalse(projection.beginLoading(
+            firstTrack,
+            retaining: firstRequest.candidateIdentityKeys,
+            cached: firstResolved
+        ))
+        XCTAssertTrue(projection.artworkImage === firstImage)
+
+        let ratedTrack = firstTrack.withRating(10)
+        XCTAssertFalse(projection.beginLoading(
+            ratedTrack,
+            retaining: ArtworkRequest(
+                track: ratedTrack,
+                tier: .hero,
+                priority: .high
+            ).candidateIdentityKeys
+        ))
+        XCTAssertTrue(projection.artworkImage === firstImage)
+    }
+
     func testProjectionRetainsOnlyMatchingArtworkIdentityAndRejectsLateResults() throws {
         let albumPath = "/library/metadata/album-1/thumb"
         let firstTrack = makeTrack(id: "track-1", sourceKey: "plex:a:s:1", albumPath: albumPath)

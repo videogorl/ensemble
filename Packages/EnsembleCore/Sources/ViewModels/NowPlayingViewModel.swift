@@ -952,11 +952,28 @@ public final class NowPlayingViewModel: ObservableObject {
             priority: .high
         )
         let candidateIdentities = request.candidateIdentityKeys
+        let hasResolvedArtwork = artworkProjection.state.artworkIdentityKey.map(candidateIdentities.contains) == true
+            && artworkProjection.artworkImage != nil
+        let cachedArtwork = hasResolvedArtwork
+            ? nil
+            : DependencyContainer.shared.artworkLoader.synchronouslyCachedImage(for: request)
+
+        guard artworkProjection.beginLoading(
+            track,
+            retaining: candidateIdentities,
+            cached: cachedArtwork
+        ) else {
+            if let cachedArtwork {
+                artworkLoadTask?.cancel()
+                currentLoadTrackIdentity = trackIdentity
+                dispatchBlurGeneration(for: cachedArtwork, trackIdentity: trackIdentity)
+            }
+            return
+        }
 
         artworkLoadTask?.cancel()
         blurGenerationTask?.cancel()
         currentLoadTrackIdentity = trackIdentity
-        artworkProjection.beginLoading(track, retaining: candidateIdentities)
 
         artworkLoadTask = Task { @MainActor in
             guard !Task.isCancelled else { return }

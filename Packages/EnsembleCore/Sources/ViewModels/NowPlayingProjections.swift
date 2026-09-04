@@ -207,15 +207,23 @@ public final class NowPlayingArtworkProjection: ObservableObject {
     public var artworkImage: PlatformImage? { state.artworkImage }
     public var blurredArtworkImage: PlatformImage? { state.blurredArtworkImage }
 
-    func beginLoading(_ track: Track, retaining identities: Set<String>) {
+    @discardableResult
+    func beginLoading(
+        _ track: Track,
+        retaining identities: Set<String>,
+        cached: ArtworkResolvedImage? = nil
+    ) -> Bool {
         let keepsResolvedArtwork = state.artworkIdentityKey.map(identities.contains) == true
+        let cached = cached.flatMap { identities.contains($0.identityKey) ? $0 : nil }
+        let needsLoad = !keepsResolvedArtwork && cached == nil
         state = State(
             currentTrack: track,
-            artworkIdentityKey: keepsResolvedArtwork ? state.artworkIdentityKey : nil,
-            artworkImage: keepsResolvedArtwork ? state.artworkImage : nil,
+            artworkIdentityKey: cached?.identityKey ?? (keepsResolvedArtwork ? state.artworkIdentityKey : nil),
+            artworkImage: cached?.image ?? (keepsResolvedArtwork ? state.artworkImage : nil),
             blurredArtworkImage: keepsResolvedArtwork ? state.blurredArtworkImage : nil,
-            isLoading: !keepsResolvedArtwork
+            isLoading: needsLoad
         )
+        return needsLoad
     }
 
     func resolveArtwork(_ resolved: ArtworkResolvedImage, for track: Track) {

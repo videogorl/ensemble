@@ -343,6 +343,17 @@ final class PlaybackNowPlayingBridge {
 
         let nextArtworkRequestKey = Self.artworkRequestKey(for: track)
         let hasArtworkPath = Self.hasArtworkPath(for: track)
+        if hasArtworkPath,
+           artworkRequestKey != nextArtworkRequestKey,
+           let cached = artworkLoader.synchronouslyCachedImage(for: ArtworkRequest(
+               track: track,
+               tier: .hero,
+               priority: .high
+           )) {
+            cancelArtworkLoad(clearArtwork: false)
+            artworkRequestKey = nextArtworkRequestKey
+            artwork = MPMediaItemArtwork(boundsSize: cached.image.size) { _ in cached.image }
+        }
         let artworkForMetadata: MPMediaItemArtwork?
         if hasArtworkPath,
            artworkRequestKey == nextArtworkRequestKey,
