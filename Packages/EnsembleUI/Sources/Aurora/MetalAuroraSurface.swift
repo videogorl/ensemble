@@ -416,7 +416,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             float verticalSoftness = halo ? 0.48 : 0.70;
             float verticalBlur = halo ? 1.12 : 1.95;
 
-            float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity;
+            float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity * 0.70;
 
             for (uint i = 0; i < bandCount; i++) {
                 float intensity = clamp(bands[i], 0.0, 1.0);
@@ -457,12 +457,12 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         energy = clamp(energy * 0.70 + bassEnergy * 0.30, 0.0, 1.0);
 
         float fromBottomPixels = u.size.y - p.y;
-        float pool = 1.0 - smoothBand(0.0, u.poolHeight + u.maxHeight * 0.18, fromBottomPixels);
-        float poolOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * (0.06 + energy * 0.34);
-        alpha += pool * poolOpacity * 0.75;
+        // An opaque accent edge fades upward; stronger signals lift that fade.
+        float pool = 1.0 - smoothBand(1.0, u.poolHeight + u.maxHeight * 0.18 * energy, fromBottomPixels);
+        alpha = pool + alpha * (1.0 - pool);
 
         float topFeather = smoothBand(0.0, u.size.y * 0.20, p.y);
-        alpha = clamp(alpha * topFeather, 0.0, 0.95) * u.accentColor.a;
+        alpha = clamp(alpha * topFeather, 0.0, 1.0) * u.accentColor.a;
 
         // Premultiply once so brighter peaks preserve the selected accent hue.
         return float4(u.accentColor.rgb * alpha, alpha);

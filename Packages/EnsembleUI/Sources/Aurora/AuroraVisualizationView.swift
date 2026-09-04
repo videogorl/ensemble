@@ -124,7 +124,7 @@ public struct AuroraVisualizationView: View {
             auroraSurface(for: geometry)
                 .frame(maxHeight: .infinity, alignment: .bottom)
         }
-        .opacity(isVisible ? 0.7 : 0) // Reduced overall opacity for transparency
+        .opacity(isVisible ? 1 : 0)
         .if(expandsBeyondBounds) { view in
             view.ignoresSafeArea()
         }
@@ -359,7 +359,7 @@ public struct AuroraVisualizationView: View {
         let activeWidth = isPhone ? size.width : (activeContentMaxWidth.map { min(size.width, $0) } ?? size.width)
         let xOffset = (size.width - activeWidth) / 2
         let bandWidth = activeWidth / CGFloat(bandCount)
-        let baseOpacity = (colorScheme == .dark ? 0.7 : 0.5) * opacity
+        let baseOpacity = (colorScheme == .dark ? 0.7 : 0.5) * opacity * 0.7
 
         // Blur once for the whole glow layer. Applying a Gaussian filter per band
         // creates dozens of offscreen RenderBox surfaces per frame, which can
@@ -423,17 +423,22 @@ public struct AuroraVisualizationView: View {
         }
     }
     
-    /// A shallow, signal-weighted base joins the curtains without filling the window.
+    /// Signal strength lifts the fade; the bottom edge stays solid accent color.
     private func drawBottomPool(context: GraphicsContext, size: CGSize, energy: Double) {
-        let height = poolHeight + maxHeight * 0.18
+        let height = poolHeight + maxHeight * 0.18 * CGFloat(energy)
         let rect = CGRect(x: 0, y: size.height - height, width: size.width, height: height)
-        let opacity = (colorScheme == .dark ? 0.7 : 0.5) * (0.06 + energy * 0.34)
         context.fill(
             Path(rect),
             with: .linearGradient(
-                Gradient(colors: [.clear, accentColor.opacity(opacity)]),
+                Gradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: accentColor.opacity(0.15625), location: 0.25),
+                    .init(color: accentColor.opacity(0.5), location: 0.5),
+                    .init(color: accentColor.opacity(0.84375), location: 0.75),
+                    .init(color: accentColor, location: 1)
+                ]),
                 startPoint: CGPoint(x: rect.midX, y: rect.minY),
-                endPoint: CGPoint(x: rect.midX, y: rect.maxY)
+                endPoint: CGPoint(x: rect.midX, y: rect.maxY - 1)
             )
         )
     }
