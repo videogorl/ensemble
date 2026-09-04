@@ -410,7 +410,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
 
         for (uint layer = 0; layer < u.layerCount; layer++) {
             bool halo = u.layerCount > 1 && layer == 0;
-            float layerOpacity = halo ? 0.18 : 0.32;
+            float layerOpacity = halo ? 0.30 : 0.55;
             float spread = halo ? 1.6 : 1.0;
             float heightScale = halo ? 1.08 : 1.0;
             float verticalSoftness = halo ? 0.48 : 0.70;
@@ -432,30 +432,12 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
                 float ellipse = exp(-(dx * dx * 1.65 + dy * dy * verticalBlur));
                 float vertical = 1.0 - smoothBand(verticalSoftness, 1.0, dy);
                 float bellAlpha = bell;
-                float intensityAlpha = (0.06 + pow(intensity, 1.4) * 0.94) * bellAlpha;
+                float intensityAlpha = intensity * bellAlpha;
                 float contribution = ellipse * vertical * intensityAlpha * baseOpacity;
 
                 alpha += contribution * 0.72;
             }
         }
-
-        float energy = 0.0;
-        float bassEnergy = 0.0;
-        uint bassCount = min(bandCount, 6u);
-        for (uint i = 0; i < bandCount; i++) {
-            energy += clamp(bands[i], 0.0, 1.0);
-            if (i < bassCount) {
-                bassEnergy += clamp(bands[i], 0.0, 1.0);
-            }
-        }
-        energy = bandCount > 0 ? energy / float(bandCount) : 0.0;
-        bassEnergy = bassCount > 0 ? bassEnergy / float(bassCount) : 0.0;
-        energy = clamp(energy * 0.70 + bassEnergy * 0.30, 0.0, 1.0);
-
-        float fromBottomPixels = u.size.y - p.y;
-        // Curtains stay anchored at the bottom; view opacity sets the final edge alpha.
-        float pool = 1.0 - smoothBand(1.0, u.poolHeight + u.maxHeight * 0.18 * energy, fromBottomPixels);
-        alpha = pool + alpha * (1.0 - pool);
 
         float topFeather = smoothBand(0.0, u.size.y * 0.20, p.y);
         alpha = clamp(alpha * topFeather, 0.0, 1.0) * u.accentColor.a;

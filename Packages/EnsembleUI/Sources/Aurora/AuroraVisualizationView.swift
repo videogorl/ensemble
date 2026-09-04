@@ -40,7 +40,7 @@ public struct AuroraVisualizationView: View {
     /// Minimum height of bands (always visible base)
     private let minHeight: CGFloat = 6
 
-    /// Height of the solid "pool" at the bottom
+    /// Extra height at the base of each reactive band
     private var poolHeight: CGFloat { isPhone ? 18 : 10 }
 
     private let isPhone: Bool
@@ -331,21 +331,11 @@ public struct AuroraVisualizationView: View {
     private func drawAurora(context: GraphicsContext, size: CGSize) {
         // Non-playing states freeze the last rendered frame because TimelineView pauses.
         let bandsToRender = renderModel.renderedBands
-        let energy = auroraEnergy(from: bandsToRender)
 
         if !isLowPowerMode {
-            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 12, opacity: 0.18)
+            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 12, opacity: 0.30)
         }
-        drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 5, opacity: 0.32)
-        drawBottomPool(context: context, size: size, energy: energy)
-    }
-
-    private func auroraEnergy(from bands: [Double]) -> Double {
-        guard !bands.isEmpty else { return 0 }
-        let averageEnergy = bands.reduce(0, +) / Double(bands.count)
-        let bassCount = min(6, bands.count)
-        let bassEnergy = bands.prefix(bassCount).reduce(0, +) / Double(bassCount)
-        return min(1, max(0, averageEnergy * 0.70 + bassEnergy * 0.30))
+        drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 5, opacity: 0.55)
     }
 
     /// Draws a soft glow layer with wide, overlapping bands
@@ -391,7 +381,7 @@ public struct AuroraVisualizationView: View {
 
             // Anchor each curtain below the surface so it only fades upward.
             let bellAlpha = bellFactor
-            let intensityAlpha = (0.06 + pow(intensity, 1.4) * 0.94) * bellAlpha
+            let intensityAlpha = intensity * bellAlpha
             let bandGradient = Gradient(stops: [
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha), location: 0.0),
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.6), location: 0.45),
@@ -419,25 +409,6 @@ public struct AuroraVisualizationView: View {
         }
     }
     
-    /// Signal strength lifts the fade; view opacity sets the bottom edge to 35%.
-    private func drawBottomPool(context: GraphicsContext, size: CGSize, energy: Double) {
-        let height = poolHeight + maxHeight * 0.18 * CGFloat(energy)
-        let rect = CGRect(x: 0, y: size.height - height, width: size.width, height: height)
-        context.fill(
-            Path(rect),
-            with: .linearGradient(
-                Gradient(stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: accentColor.opacity(0.15625), location: 0.25),
-                    .init(color: accentColor.opacity(0.5), location: 0.5),
-                    .init(color: accentColor.opacity(0.84375), location: 0.75),
-                    .init(color: accentColor, location: 1)
-                ]),
-                startPoint: CGPoint(x: rect.midX, y: rect.minY),
-                endPoint: CGPoint(x: rect.midX, y: rect.maxY - 1)
-            )
-        )
-    }
 
 }
 
