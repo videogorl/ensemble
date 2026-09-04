@@ -33,6 +33,7 @@ public struct AuroraVisualizationView: View {
 
     /// Number of frequency bands (matches AudioAnalyzer)
     private let bandCount = 24
+    private var displaySampleCount: Int { isLowPowerMode || isLowCoreDevice ? 24 : 48 }
 
     /// Maximum height of the active aurora bands.
     private var maxHeight: CGFloat { isPhone ? 160 : 80 }
@@ -190,7 +191,7 @@ public struct AuroraVisualizationView: View {
                 surfaceTier: auroraSurfaceTier,
                 activeContentMaxWidth: isPhone ? nil : activeContentMaxWidth,
                 bellWidth: bellWidth,
-                bandCount: bandCount,
+                bandCount: displaySampleCount,
                 maxHeight: maxHeight,
                 minHeight: minHeight,
                 poolHeight: poolHeight
@@ -332,7 +333,7 @@ public struct AuroraVisualizationView: View {
     /// Main drawing function for the aurora frequency visualization
     private func drawAurora(context: GraphicsContext, size: CGSize) {
         // Non-playing states freeze the last rendered frame because TimelineView pauses.
-        let bandsToRender = renderModel.renderedBands
+        let bandsToRender = renderModel.displayBands(width: size.width, count: displaySampleCount)
 
         let time = renderModel.animationTime
         if !isLowPowerMode {
@@ -352,7 +353,7 @@ public struct AuroraVisualizationView: View {
     ) {
         let activeWidth = isPhone ? size.width : (activeContentMaxWidth.map { min(size.width, $0) } ?? size.width)
         let xOffset = (size.width - activeWidth) / 2
-        let bandWidth = activeWidth / CGFloat(bandCount)
+        let bandWidth = activeWidth / CGFloat(bands.count)
         let opacity = [0.20, 0.40, 0.50][layer]
         let blur: CGFloat = [14, 6, 2][layer]
         let spread: CGFloat = [2.0, 1.15, 0.65][layer]
@@ -366,11 +367,11 @@ public struct AuroraVisualizationView: View {
         layerContext.blendMode = .plusLighter
         layerContext.addFilter(.blur(radius: blur))
 
-        for i in 0..<bandCount {
+        for i in bands.indices {
             let intensity = bands[i]
             
             // Normalized position (0.0 to 1.0) for bell curve calculation
-            let normalizedPos = Double(i) / Double(bandCount - 1)
+            let normalizedPos = Double(i) / Double(bands.count - 1)
             
             // Bell curve factor keeps the aurora tallest and brightest in the middle.
             let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(Double(bellWidth), 2)))
@@ -379,7 +380,7 @@ public struct AuroraVisualizationView: View {
             // so use intensity directly here.
             let heightFactor = intensity * bellFactor
             
-            let phase = time * (0.25 + 0.15 * Double(layer)) + Double(i) * 0.7 + Double(layer) * 2.1
+            let phase = time * (0.25 + 0.15 * Double(layer)) + normalizedPos * 16.1 + Double(layer) * 2.1
             let breath = 0.9 + 0.1 * sin(phase + 1.3)
             let height = (minHeight + (maxHeight - minHeight) * CGFloat(heightFactor)) * heightScale * CGFloat(breath)
 
@@ -645,6 +646,20 @@ final class AuroraRenderModel: ObservableObject {
 
     var renderedBands: [Double] {
         smoothedBands
+    }
+
+    /// Compact surfaces spread the first 18 bands (about 60 Hz–4 kHz) across the view.
+    /// Interpolation adds display detail without changing the shared audio analyzer.
+    func displayBands(width: CGFloat, count: Int) -> [Double] {
+        let expansion = min(1, max(0, (Double(width) - 430) / 470))
+        let upperIndex = 17 + 6 * expansion
+        return (0..<count).map { index in
+            let position = Double(index) / Double(max(1, count - 1)) * upperIndex
+            let lower = Int(position)
+            let upper = min(lower + 1, bandCount - 1)
+            let fraction = position - Double(lower)
+            return smoothedBands[lower] * (1 - fraction) + smoothedBands[upper] * fraction
+        }
     }
 
     var isNearZero: Bool {

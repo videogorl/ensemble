@@ -199,7 +199,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         super.init()
 
         if let device {
-            self.bandBuffer = device.makeBuffer(length: MemoryLayout<Float>.stride * 24, options: .storageModeShared)
+            self.bandBuffer = device.makeBuffer(length: MemoryLayout<Float>.stride * 48, options: .storageModeShared)
             self.uniformBuffer = device.makeBuffer(length: MemoryLayout<Uniforms>.stride, options: .storageModeShared)
         }
     }
@@ -242,7 +242,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         uniforms.poolHeight = Float(poolHeight * backingScale)
         uniforms.activeWidth = Float((activeContentMaxWidth ?? 0) * backingScale)
         uniforms.bellWidth = Float(bellWidth)
-        uniforms.bandCount = UInt32(max(1, min(24, bandCount)))
+        uniforms.bandCount = UInt32(max(1, min(48, bandCount)))
         uniforms.layerCount = UInt32(layerCount(for: surfaceTier))
         uniforms.colorScheme = colorScheme == .dark ? 1 : 0
 
@@ -274,7 +274,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
 
         uniforms.size = SIMD2(Float(view.drawableSize.width), Float(view.drawableSize.height))
         uniforms.time = Float(renderModel.animationTime)
-        copyBands(into: bandBuffer)
+        copyBands(into: bandBuffer, width: view.bounds.width)
         memcpy(uniformBuffer.contents(), &uniforms, MemoryLayout<Uniforms>.stride)
 
         encoder.setRenderPipelineState(pipelineState)
@@ -287,11 +287,11 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         commandBuffer.commit()
     }
 
-    private func copyBands(into buffer: MTLBuffer) {
-        let bands = renderModel.renderedBands
+    private func copyBands(into buffer: MTLBuffer, width: CGFloat) {
+        let bands = renderModel.displayBands(width: width, count: Int(uniforms.bandCount))
         let pointer = buffer.contents().assumingMemoryBound(to: Float.self)
-        for index in 0..<24 {
-            pointer[index] = index < bands.count ? Float(max(0, min(1, bands[index]))) : 0
+        for index in bands.indices {
+            pointer[index] = Float(max(0, min(1, bands[index])))
         }
     }
 
@@ -405,7 +405,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             return float4(0.0);
         }
 
-        uint bandCount = min(u.bandCount, 24u);
+        uint bandCount = min(u.bandCount, 48u);
         float activeWidth = u.activeWidth > 0.0 ? min(u.size.x, u.activeWidth) : u.size.x;
         float xOffset = (u.size.x - activeWidth) * 0.5;
         float bandWidth = activeWidth / max(float(bandCount), 1.0);
@@ -425,7 +425,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
                 float intensity = clamp(bands[i], 0.0, 1.0);
                 float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
                 float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(u.bellWidth, 2.0)));
-                float phase = u.time * (0.25 + 0.15 * float(depth)) + float(i) * 0.7 + float(depth) * 2.1;
+                float phase = u.time * (0.25 + 0.15 * float(depth)) + normalized * 16.1 + float(depth) * 2.1;
                 float breath = 0.9 + 0.1 * sin(phase + 1.3);
                 float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell) * heightScale * breath;
                 float drift = sin(phase) * (0.25 + 0.12 * float(depth)) * bandWidth;

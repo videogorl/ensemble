@@ -2,6 +2,24 @@ import XCTest
 @testable import EnsembleUI
 
 final class AuroraRenderModelTests: XCTestCase {
+    func testDisplaySamplingExpandsFrequencyRangeWithAvailableWidth() {
+        let model = AuroraRenderModel()
+        model.advance(targetBands: (0..<24).map { Double($0) / 23 }, at: 0)
+        let source = model.renderedBands
+        for (width, upperIndex) in [(390.0, 17.0), (665.0, 20.0), (900.0, 23.0), (1200.0, 23.0)] {
+            for count in [24, 48] {
+                let samples = model.displayBands(width: width, count: count)
+                XCTAssertEqual(samples.count, count)
+                XCTAssertEqual(samples.first!, source[0])
+                XCTAssertEqual(samples.last!, source[Int(upperIndex)])
+                let midpoint = Double(count / 2) / Double(count - 1) * upperIndex
+                let lower = Int(midpoint)
+                let fraction = midpoint - Double(lower)
+                XCTAssertEqual(samples[count / 2], source[lower] * (1 - fraction) + source[lower + 1] * fraction, accuracy: 0.000001)
+            }
+        }
+    }
+
     func testAttackAndReleasePreserveDynamicsAcrossUpdateRates() {
         for rate in [15, 30, 60] {
             let model = AuroraRenderModel()
