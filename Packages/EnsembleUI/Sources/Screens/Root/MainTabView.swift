@@ -588,6 +588,7 @@ public struct SidebarView: View {
 
     let viewModels: RootScreenModels
     private let nowPlayingVM: NowPlayingViewModel
+    @ObservedObject private var pinnedVM: PinnedViewModel
     @Namespace private var mediaNavigationNamespace
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let settingsManager = DependencyContainer.shared.settingsManager
@@ -647,6 +648,7 @@ public struct SidebarView: View {
     ) {
         self.nowPlayingVM = nowPlayingVM
         self.viewModels = viewModels
+        self.pinnedVM = viewModels.pinned
         self._selection = selection
         self.rootSidebarChromeRegistrationHandler = rootSidebarChromeRegistrationHandler
     }
@@ -661,10 +663,6 @@ public struct SidebarView: View {
 
     private var searchVM: SearchViewModel {
         viewModels.search
-    }
-
-    private var pinnedVM: PinnedViewModel {
-        viewModels.pinned
     }
 
     private var playlistsVM: PlaylistViewModel {
