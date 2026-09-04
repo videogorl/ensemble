@@ -28,6 +28,7 @@ struct MetalAuroraSurface: View {
     let isPaused: Bool
     let surfaceTier: AuroraMetalSurfaceTier
     let activeContentMaxWidth: CGFloat?
+    let bellWidth: CGFloat
     let bandCount: Int
     let maxHeight: CGFloat
     let minHeight: CGFloat
@@ -42,6 +43,7 @@ struct MetalAuroraSurface: View {
             isPaused: isPaused,
             surfaceTier: surfaceTier,
             activeContentMaxWidth: activeContentMaxWidth,
+            bellWidth: bellWidth,
             bandCount: bandCount,
             maxHeight: maxHeight,
             minHeight: minHeight,
@@ -60,6 +62,7 @@ extension MetalAuroraSurface {
         let isPaused: Bool
         let surfaceTier: AuroraMetalSurfaceTier
         let activeContentMaxWidth: CGFloat?
+        let bellWidth: CGFloat
         let bandCount: Int
         let maxHeight: CGFloat
         let minHeight: CGFloat
@@ -82,6 +85,7 @@ extension MetalAuroraSurface {
                 isPaused: isPaused,
                 surfaceTier: surfaceTier,
                 activeContentMaxWidth: activeContentMaxWidth,
+                bellWidth: bellWidth,
                 bandCount: bandCount,
                 maxHeight: maxHeight,
                 minHeight: minHeight,
@@ -100,6 +104,7 @@ extension MetalAuroraSurface {
         let isPaused: Bool
         let surfaceTier: AuroraMetalSurfaceTier
         let activeContentMaxWidth: CGFloat?
+        let bellWidth: CGFloat
         let bandCount: Int
         let maxHeight: CGFloat
         let minHeight: CGFloat
@@ -122,6 +127,7 @@ extension MetalAuroraSurface {
                 isPaused: isPaused,
                 surfaceTier: surfaceTier,
                 activeContentMaxWidth: activeContentMaxWidth,
+                bellWidth: bellWidth,
                 bandCount: bandCount,
                 maxHeight: maxHeight,
                 minHeight: minHeight,
@@ -153,7 +159,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         var bandCount: UInt32 = 24
         var layerCount: UInt32 = 2
         var colorScheme: UInt32 = 0
-        var padding: UInt32 = 0
+        var bellWidth: Float = 0.24
     }
 
     private let renderModel: AuroraRenderModel
@@ -219,6 +225,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         isPaused: Bool,
         surfaceTier: AuroraMetalSurfaceTier,
         activeContentMaxWidth: CGFloat?,
+        bellWidth: CGFloat,
         bandCount: Int,
         maxHeight: CGFloat,
         minHeight: CGFloat,
@@ -233,6 +240,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         uniforms.minHeight = Float(minHeight * backingScale)
         uniforms.poolHeight = Float(poolHeight * backingScale)
         uniforms.activeWidth = Float((activeContentMaxWidth ?? 0) * backingScale)
+        uniforms.bellWidth = Float(bellWidth)
         uniforms.bandCount = UInt32(max(1, min(24, bandCount)))
         uniforms.layerCount = UInt32(layerCount(for: surfaceTier))
         uniforms.colorScheme = colorScheme == .dark ? 1 : 0
@@ -364,7 +372,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         uint bandCount;
         uint layerCount;
         uint colorScheme;
-        uint padding;
+        float bellWidth;
     };
 
     vertex VertexOut auroraVertex(uint vertexID [[vertex_id]]) {
@@ -413,7 +421,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             for (uint i = 0; i < bandCount; i++) {
                 float intensity = clamp(bands[i], 0.0, 1.0);
                 float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
-                float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(0.24, 2.0)));
+                float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(u.bellWidth, 2.0)));
                 float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell) * heightScale;
                 float centerX = xOffset + (float(i) + 0.5) * bandWidth;
                 float glowWidth = bandWidth * 3.0 * spread;
@@ -473,6 +481,7 @@ struct MetalAuroraSurface: View {
     let isPaused: Bool
     let surfaceTier: AuroraMetalSurfaceTier
     let activeContentMaxWidth: CGFloat?
+    let bellWidth: CGFloat
     let bandCount: Int
     let maxHeight: CGFloat
     let minHeight: CGFloat

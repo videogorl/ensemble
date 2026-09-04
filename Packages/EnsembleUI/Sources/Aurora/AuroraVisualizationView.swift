@@ -2,6 +2,9 @@ import EnsembleCore
 import SwiftUI
 import Combine
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 
 /// Real-time frequency visualization with soft aurora-style glow.
 /// Displays 24 frequency bands (60Hz-16kHz) from live FFT analysis,
@@ -32,13 +35,16 @@ public struct AuroraVisualizationView: View {
     private let bandCount = 24
 
     /// Maximum height of the active aurora bands.
-    private let maxHeight: CGFloat = 80
+    private var maxHeight: CGFloat { isPhone ? 160 : 80 }
 
     /// Minimum height of bands (always visible base)
     private let minHeight: CGFloat = 6
 
     /// Height of the solid "pool" at the bottom
-    private let poolHeight: CGFloat = 10
+    private var poolHeight: CGFloat { isPhone ? 18 : 10 }
+
+    private let isPhone: Bool
+    private var bellWidth: CGFloat { isPhone ? 0.60 : 0.24 }
 
     // MARK: - Init
 
@@ -67,6 +73,11 @@ public struct AuroraVisualizationView: View {
         expandsBeyondBounds: Bool = true,
         activeContentMaxWidth: CGFloat? = nil
     ) {
+        #if os(iOS)
+        self.isPhone = UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        self.isPhone = false
+        #endif
         self.playbackService = playbackService
         self.consumer = consumer
         self.accentColor = accentColor
@@ -163,7 +174,7 @@ public struct AuroraVisualizationView: View {
 
     @ViewBuilder
     private func auroraSurface(for geometry: GeometryProxy) -> some View {
-        let surfaceWidth = min(geometry.size.width, activeContentMaxWidth ?? 900)
+        let surfaceWidth = isPhone ? geometry.size.width : min(geometry.size.width, activeContentMaxWidth ?? 900)
         let surfaceHeight = maxHeight + 40
         let xOffset = (geometry.size.width - surfaceWidth) / 2
 
@@ -175,7 +186,8 @@ public struct AuroraVisualizationView: View {
                 preferredFrameInterval: frameInterval,
                 isPaused: isTimelinePaused,
                 surfaceTier: auroraSurfaceTier,
-                activeContentMaxWidth: activeContentMaxWidth,
+                activeContentMaxWidth: isPhone ? nil : activeContentMaxWidth,
+                bellWidth: bellWidth,
                 bandCount: bandCount,
                 maxHeight: maxHeight,
                 minHeight: minHeight,
@@ -207,21 +219,26 @@ public struct AuroraVisualizationView: View {
         return .immersive
     }
 
-    /// Taper the complete surface, including the base and blur, to transparent edges.
+    /// Phones fill the display; larger surfaces taper to transparent edges.
+    @ViewBuilder
     private var horizontalFade: some View {
-        LinearGradient(
-            stops: [
-                .init(color: .clear, location: 0),
-                .init(color: .black.opacity(0.18), location: 0.12),
-                .init(color: .black.opacity(0.68), location: 0.30),
-                .init(color: .black, location: 0.50),
-                .init(color: .black.opacity(0.68), location: 0.70),
-                .init(color: .black.opacity(0.18), location: 0.88),
-                .init(color: .clear, location: 1)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
+        if isPhone {
+            Color.black
+        } else {
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black.opacity(0.18), location: 0.12),
+                    .init(color: .black.opacity(0.68), location: 0.30),
+                    .init(color: .black, location: 0.50),
+                    .init(color: .black.opacity(0.68), location: 0.70),
+                    .init(color: .black.opacity(0.18), location: 0.88),
+                    .init(color: .clear, location: 1)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        }
     }
 
     private func canvasAuroraSurface(width: CGFloat, height: CGFloat, xOffset: CGFloat) -> some View {
@@ -339,7 +356,7 @@ public struct AuroraVisualizationView: View {
         blur: CGFloat,
         opacity: Double
     ) {
-        let activeWidth = activeContentMaxWidth.map { min(size.width, $0) } ?? size.width
+        let activeWidth = isPhone ? size.width : (activeContentMaxWidth.map { min(size.width, $0) } ?? size.width)
         let xOffset = (size.width - activeWidth) / 2
         let bandWidth = activeWidth / CGFloat(bandCount)
         let baseOpacity = (colorScheme == .dark ? 0.7 : 0.5) * opacity
@@ -358,7 +375,7 @@ public struct AuroraVisualizationView: View {
             let normalizedPos = Double(i) / Double(bandCount - 1)
             
             // Bell curve factor keeps the aurora tallest and brightest in the middle.
-            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.24, 2)))
+            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(Double(bellWidth), 2)))
             
             // Bands are already shaped by bandResponseExponent in calculateBandValues,
             // so use intensity directly here.
