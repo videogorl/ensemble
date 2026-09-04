@@ -232,7 +232,7 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     /// Fetches source-scoped playlists with track memberships for detail and body operations.
     func fetchPlaylistBodies(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist]
     func fetchPlaylistCompositePaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String]
-    func searchPlaylists(query: String) async throws -> [CDPlaylist]
+    func searchPlaylists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDPlaylist]) -> [Value]) async throws -> [Value]
     func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist]
     func upsertPlaylist(
         ratingKey: String,
@@ -773,9 +773,9 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         }
     }
 
-    public func searchPlaylists(query: String) async throws -> [CDPlaylist] {
+    public func searchPlaylists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDPlaylist]) -> [Value]) async throws -> [Value] {
         try await withCheckedThrowingContinuation { continuation in
-            let context = self.coreDataStack.viewContext
+            let context = self.coreDataStack.newBackgroundContext()
             context.perform {
                 let request = CDPlaylist.fetchRequest()
                 request.predicate = RepositoryPredicates.tokenized(
@@ -786,7 +786,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 request.fetchBatchSize = 100
                 do {
                     let playlists = try context.fetch(request)
-                    continuation.resume(returning: playlists)
+                    continuation.resume(returning: map(playlists))
                 } catch {
                     continuation.resume(throwing: error)
                 }

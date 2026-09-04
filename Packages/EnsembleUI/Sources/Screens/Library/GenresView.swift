@@ -64,14 +64,14 @@ public struct GenresView: View {
             genreSnapshotCache.snapshot = snapshot
         }
         .onAppear {
-            genreSnapshotCache.snapshot = libraryVM.immediateGenreBrowseSnapshot
+            genreSnapshotCache.snapshot = libraryVM.genreBrowseSnapshot
         }
     }
 
     private var genreSnapshot: GenreBrowseSnapshot {
         genreSnapshotCache.snapshot.hasVisibleContent || genreSnapshotCache.snapshot.phase != .idle
             ? genreSnapshotCache.snapshot
-            : libraryVM.immediateGenreBrowseSnapshot
+            : libraryVM.genreBrowseSnapshot
     }
 
     private var isGenreBrowseSearchVisible: Bool {

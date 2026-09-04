@@ -228,7 +228,7 @@ private final class MockPlaylistRepository: PlaylistRepositoryProtocol, @uncheck
     func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] { [] }
     func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? { nil }
     func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? { nil }
-    func searchPlaylists(query: String) async throws -> [CDPlaylist] { [] }
+    func searchPlaylists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDPlaylist]) -> [Value]) async throws -> [Value] { [] }
     func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist] { [] }
     func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist {
         throw PlexAPIError.noServerSelected

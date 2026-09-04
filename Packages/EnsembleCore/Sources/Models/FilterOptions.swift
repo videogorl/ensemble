@@ -20,7 +20,7 @@ public enum FavoriteFilter: String, Codable, Sendable {
 // MARK: - Filter Options
 
 /// Filtering and sorting options for list views
-public struct FilterOptions: Codable, Equatable {
+public struct FilterOptions: Codable, Equatable, Sendable {
     // Search/Filter text
     public var searchText: String = ""
     

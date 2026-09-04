@@ -530,10 +530,13 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(root.first).hasFault(forRelationshipNamed: "playlistTracks"))
 
         stack.viewContext.performAndWait { stack.viewContext.reset() }
-        let search = try await repository.searchPlaylists(query: "Playlist shared")
-        XCTAssertEqual(Set(search.compactMap(\.sourceCompositeKey)), [sourceA, sourceB])
-        XCTAssertEqual(Set(search.compactMap(\.fallbackArtworkPath)), ["/art/a", "/art/b"])
-        XCTAssertTrue(search.allSatisfy { $0.hasFault(forRelationshipNamed: "playlistTracks") })
+        let search = try await repository.searchPlaylists(query: "Playlist shared") { playlists in
+            playlists.map { (source: $0.sourceCompositeKey, artwork: $0.fallbackArtworkPath,
+                             tracksAreFaulted: $0.hasFault(forRelationshipNamed: "playlistTracks")) }
+        }
+        XCTAssertEqual(Set(search.compactMap(\.source)), [sourceA, sourceB])
+        XCTAssertEqual(Set(search.compactMap(\.artwork)), ["/art/a", "/art/b"])
+        XCTAssertTrue(search.allSatisfy(\.tracksAreFaulted))
 
         stack.viewContext.performAndWait { stack.viewContext.reset() }
         let titleMatches = try await repository.findPlaylistsByTitle(

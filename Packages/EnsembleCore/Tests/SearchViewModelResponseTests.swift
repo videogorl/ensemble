@@ -6,6 +6,30 @@ import XCTest
 @MainActor
 final class SearchViewModelResponseTests: XCTestCase {
 
+    func testLocalSearchMapsValuesOnBackgroundContexts() async throws {
+        let harness = makeHarness()
+        try await seedAmbientElectric(in: harness.playlistRepository)
+
+        let tracks = try await harness.libraryRepository.searchTracks(query: "Ambient") { rows in
+            XCTAssertFalse(Thread.isMainThread)
+            return rows.map(\.ratingKey)
+        }
+        let artists = try await harness.libraryRepository.searchArtists(query: "Ambient") { rows in
+            XCTAssertFalse(Thread.isMainThread)
+            return rows.map(\.ratingKey)
+        }
+        let albums = try await harness.libraryRepository.searchAlbums(query: "Ambient") { rows in
+            XCTAssertFalse(Thread.isMainThread)
+            return rows.map(\.ratingKey)
+        }
+        let playlists = try await harness.playlistRepository.searchPlaylists(query: "Ambient") { rows in
+            XCTAssertFalse(Thread.isMainThread)
+            return rows.map(\.ratingKey)
+        }
+        XCTAssertTrue(tracks.isEmpty && artists.isEmpty && albums.isEmpty)
+        XCTAssertEqual(Set(playlists), ["10425", "26898", "p.1YeW3rpCkzaPXR"])
+    }
+
     func testNonEmptyQueryShowsSearchingBeforeDebounceRuns() {
         let viewModel = makeViewModel()
 

@@ -443,15 +443,15 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             throw MockError.unimplemented
         }
 
-        func searchTracks(query _: String) async throws -> [CDTrack] {
+        func searchTracks<Value: Sendable>(query _: String, map: @escaping @Sendable ([CDTrack]) -> [Value]) async throws -> [Value] {
             []
         }
 
-        func searchArtists(query _: String) async throws -> [CDArtist] {
+        func searchArtists<Value: Sendable>(query _: String, map: @escaping @Sendable ([CDArtist]) -> [Value]) async throws -> [Value] {
             []
         }
 
-        func searchAlbums(query _: String) async throws -> [CDAlbum] {
+        func searchAlbums<Value: Sendable>(query _: String, map: @escaping @Sendable ([CDAlbum]) -> [Value]) async throws -> [Value] {
             []
         }
 
@@ -535,7 +535,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             nil
         }
 
-        func searchPlaylists(query _: String) async throws -> [CDPlaylist] {
+        func searchPlaylists<Value: Sendable>(query _: String, map: @escaping @Sendable ([CDPlaylist]) -> [Value]) async throws -> [Value] {
             []
         }
 

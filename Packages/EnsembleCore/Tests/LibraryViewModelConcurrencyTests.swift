@@ -170,16 +170,16 @@ final class LibraryViewModelConcurrencyTests: XCTestCase {
             )
         }
 
-        func searchTracks(query: String) async throws -> [CDTrack] {
-            try await repository.searchTracks(query: query)
+        func searchTracks<Value: Sendable>(query: String, map: @escaping @Sendable ([CDTrack]) -> [Value]) async throws -> [Value] {
+            try await repository.searchTracks(query: query, map: map)
         }
 
-        func searchArtists(query: String) async throws -> [CDArtist] {
-            try await repository.searchArtists(query: query)
+        func searchArtists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDArtist]) -> [Value]) async throws -> [Value] {
+            try await repository.searchArtists(query: query, map: map)
         }
 
-        func searchAlbums(query: String) async throws -> [CDAlbum] {
-            try await repository.searchAlbums(query: query)
+        func searchAlbums<Value: Sendable>(query: String, map: @escaping @Sendable ([CDAlbum]) -> [Value]) async throws -> [Value] {
+            try await repository.searchAlbums(query: query, map: map)
         }
 
         func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDTrack] {

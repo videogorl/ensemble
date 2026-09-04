@@ -12,20 +12,46 @@ extension LibraryRepository: LibraryRepositoryBackingStoreProviding {}
 @MainActor
 public final class LibraryViewModel: ObservableObject {
     private struct TrackComputation: Equatable, Sendable {
+        let rawCount: Int
         let tracks: [Track]
         let sections: [TrackSection]
     }
 
     private struct ArtistComputation: Equatable, Sendable {
+        let rawCount: Int
         let artists: [Artist]
         let displayArtists: [DisplayArtist]
         let sections: [ArtistSection]
     }
 
     private struct AlbumComputation: Equatable, Sendable {
+        let rawCount: Int
         let albums: [DisplayAlbum]
         let sections: [AlbumSection]
     }
+
+    private struct GenreComputation: Equatable, Sendable {
+        let rawCount: Int
+        let genres: [DisplayGenre]
+    }
+
+    private typealias LibraryContents = (artists: [Artist], albums: [Album], tracks: [Track], genres: [Genre])
+
+    private struct InitialBrowseConfiguration: Equatable, Sendable {
+        let trackSort: TrackSortOption
+        let artistSort: ArtistSortOption
+        let albumSort: AlbumSortOption
+        let trackFilter: FilterOptions
+        let artistFilter: FilterOptions
+        let albumFilter: FilterOptions
+        let genreFilter: FilterOptions
+        let preferences: EnsembleMergingPreferences
+        let sourceConfiguration: SourceConfigurationSnapshot?
+        let hiddenSourceKeys: Set<String>
+        let hiddenMedia: HiddenMediaSnapshot
+    }
+
+    private var hasPreparedInitialBrowse = false
 
     @Published public private(set) var artists: [Artist] = []
     @Published public private(set) var albums: [Album] = []
@@ -76,81 +102,11 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var albumBrowseSnapshot: AlbumBrowseSnapshot = .empty
     @Published public private(set) var genreBrowseSnapshot: GenreBrowseSnapshot = .empty
 
-    /// Synchronous first-frame fallback while debounced display pipelines catch up after cache loads.
-    public var immediateTrackBrowseSnapshot: TrackBrowseSnapshot {
-        guard !trackBrowseSnapshot.hasVisibleContent, !tracks.isEmpty else {
-            return trackBrowseSnapshot
-        }
-
-        let sorted = Self.sortTracks(tracks, by: trackSortOption, direction: tracksFilterOptions.sortDirection)
-        let filtered = Self.filterTracks(sorted, with: tracksFilterOptions)
-        let projected = MergingProjection.tracks(filtered, preferences: settingsManager.mergingPreferences)
-        return TrackBrowseSnapshot(
-            tracks: projected,
-            sections: Self.computeTrackSections(from: projected),
-            availableGenres: availableTrackGenres,
-            phase: trackBrowseSnapshot.phase,
-            isShowingStaleSnapshot: trackBrowseSnapshot.isShowingStaleSnapshot
-        )
-    }
-
-    public var immediateArtistBrowseSnapshot: ArtistBrowseSnapshot {
-        guard !artistBrowseSnapshot.hasVisibleContent, !artists.isEmpty else {
-            return artistBrowseSnapshot
-        }
-
-        let filtered = Self.filterArtists(artists, with: artistsFilterOptions, albums: albums)
-        let sorted = Self.sortArtists(filtered, by: artistSortOption, direction: artistsFilterOptions.sortDirection)
-        let displayArtists = Self.sortDisplayArtists(
-            DisplayArtist.group(filtered, preferences: settingsManager.mergingPreferences),
-            by: artistSortOption,
-            direction: artistsFilterOptions.sortDirection
-        )
-        return ArtistBrowseSnapshot(
-            artists: sorted,
-            displayArtists: displayArtists,
-            sections: artistSortOption == .name ? Self.computeArtistSections(from: displayArtists) : [],
-            availableGenres: availableArtistGenres,
-            phase: artistBrowseSnapshot.phase,
-            isShowingStaleSnapshot: artistBrowseSnapshot.isShowingStaleSnapshot
-        )
-    }
-
     public func mutationCandidates(for track: Track) -> [Track] {
         MergingProjection.mutationCandidates(
             for: track,
             in: tracks,
             preferences: settingsManager.mergingPreferences
-        )
-    }
-
-    public var immediateAlbumBrowseSnapshot: AlbumBrowseSnapshot {
-        guard !albumBrowseSnapshot.hasVisibleContent, !albums.isEmpty else {
-            return albumBrowseSnapshot
-        }
-
-        let sorted = Self.sortAlbums(albums, by: albumSortOption, direction: albumsFilterOptions.sortDirection)
-        let filtered = Self.filterAlbums(sorted, with: albumsFilterOptions, tracks: tracks)
-        let projected = MergingProjection.albums(filtered, preferences: settingsManager.mergingPreferences)
-        return AlbumBrowseSnapshot(
-            albums: projected,
-            sections: Self.computeAlbumSections(from: projected, sortOption: albumSortOption),
-            availableGenres: availableAlbumGenres,
-            phase: albumBrowseSnapshot.phase,
-            isShowingStaleSnapshot: albumBrowseSnapshot.isShowingStaleSnapshot
-        )
-    }
-
-    public var immediateGenreBrowseSnapshot: GenreBrowseSnapshot {
-        guard !genreBrowseSnapshot.hasVisibleContent, !genres.isEmpty else {
-            return genreBrowseSnapshot
-        }
-
-        let displayGenres = Self.displayGenres(from: genres, albums: albums, with: genresFilterOptions)
-        return GenreBrowseSnapshot(
-            displayGenres: displayGenres,
-            phase: genreBrowseSnapshot.phase,
-            isShowingStaleSnapshot: genreBrowseSnapshot.isShowingStaleSnapshot
         )
     }
 
@@ -316,19 +272,16 @@ public final class LibraryViewModel: ObservableObject {
         Publishers.CombineLatest4($tracks, $trackSortOption, $tracksFilterOptions, settingsManager.$mergingPreferences)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { tracks, sortOption, filterOptions, preferences -> TrackComputation in
-                let sorted = LibraryViewModel.sortTracks(tracks, by: sortOption, direction: filterOptions.sortDirection)
-                let filtered = LibraryViewModel.filterTracks(sorted, with: filterOptions)
-                let projected = MergingProjection.tracks(filtered, preferences: preferences)
-                let sections = LibraryViewModel.computeTrackSections(from: projected)
-                return TrackComputation(tracks: projected, sections: sections)
+                Self.computeTracks(tracks, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] result in
-                self?.commitTrackSnapshot(
+                guard let self, self.tracks.count == result.rawCount else { return }
+                self.commitTrackSnapshot(
                     tracks: result.tracks,
                     sections: result.sections,
-                    rawTrackCount: self?.tracks.count ?? 0
+                    rawTrackCount: result.rawCount
                 )
             }
             .store(in: &cancellables)
@@ -343,24 +296,17 @@ public final class LibraryViewModel: ObservableObject {
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { artistsAndPreferences, sortOption, filterOptions, albums -> ArtistComputation in
                 let (artists, preferences) = artistsAndPreferences
-                let filtered = LibraryViewModel.filterArtists(artists, with: filterOptions, albums: albums)
-                let sorted = LibraryViewModel.sortArtists(filtered, by: sortOption, direction: filterOptions.sortDirection)
-                let display = LibraryViewModel.sortDisplayArtists(
-                    DisplayArtist.group(filtered, preferences: preferences),
-                    by: sortOption,
-                    direction: filterOptions.sortDirection
-                )
-                let sections = sortOption == .name ? LibraryViewModel.computeArtistSections(from: display) : []
-                return ArtistComputation(artists: sorted, displayArtists: display, sections: sections)
+                return Self.computeArtists(artists, albums: albums, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] result in
-                self?.commitArtistSnapshot(
+                guard let self, self.artists.count == result.rawCount else { return }
+                self.commitArtistSnapshot(
                     artists: result.artists,
                     displayArtists: result.displayArtists,
                     sections: result.sections,
-                    rawArtistCount: self?.artists.count ?? 0
+                    rawArtistCount: result.rawCount
                 )
             }
             .store(in: &cancellables)
@@ -377,19 +323,16 @@ public final class LibraryViewModel: ObservableObject {
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { albumsAndPreferences, sortOption, filterOptions, tracks -> AlbumComputation in
                 let (albums, preferences) = albumsAndPreferences
-                let sorted = LibraryViewModel.sortAlbums(albums, by: sortOption, direction: filterOptions.sortDirection)
-                let filtered = LibraryViewModel.filterAlbums(sorted, with: filterOptions, tracks: tracks)
-                let projected = MergingProjection.albums(filtered, preferences: preferences)
-                let sections = LibraryViewModel.computeAlbumSections(from: projected, sortOption: sortOption)
-                return AlbumComputation(albums: projected, sections: sections)
+                return Self.computeAlbums(albums, tracks: tracks, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] result in
-                self?.commitAlbumSnapshot(
+                guard let self, self.albums.count == result.rawCount else { return }
+                self.commitAlbumSnapshot(
                     albums: result.albums,
                     sections: result.sections,
-                    rawAlbumCount: self?.albums.count ?? 0
+                    rawAlbumCount: result.rawCount
                 )
             }
             .store(in: &cancellables)
@@ -397,14 +340,15 @@ public final class LibraryViewModel: ObservableObject {
         // Genres (no sort option — always alphabetical) — removeDuplicates prevents no-op publishes during sync
         Publishers.CombineLatest3($genres, $albums, $genresFilterOptions)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { genres, albums, filterOptions -> [DisplayGenre] in
-                LibraryViewModel.displayGenres(from: genres, albums: albums, with: filterOptions)
+            .map { genres, albums, filterOptions -> GenreComputation in
+                GenreComputation(rawCount: genres.count, genres: Self.displayGenres(from: genres, albums: albums, with: filterOptions))
             }
-            .removeDuplicates { old, new in
-                old == new
-            }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.commitGenreSnapshot(displayGenres: $0, rawGenreCount: self?.genres.count ?? 0) }
+            .sink { [weak self] result in
+                guard let self, self.genres.count == result.rawCount else { return }
+                self.commitGenreSnapshot(displayGenres: result.genres, rawGenreCount: result.rawCount)
+            }
             .store(in: &cancellables)
 
         // Available genres for chip bar filtering.
@@ -482,19 +426,19 @@ public final class LibraryViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    private static func computeTrackSections(from tracks: [Track]) -> [TrackSection] {
+    private nonisolated static func computeTrackSections(from tracks: [Track]) -> [TrackSection] {
         let grouped = Dictionary(grouping: tracks) { $0.title.indexingLetter }
         return grouped.map { TrackSection(letter: $0.key, tracks: $0.value) }
             .sorted { indexLetterComesBefore($0.letter, $1.letter) }
     }
 
-    private static func computeArtistSections(from artists: [DisplayArtist]) -> [ArtistSection] {
+    private nonisolated static func computeArtistSections(from artists: [DisplayArtist]) -> [ArtistSection] {
         let grouped = Dictionary(grouping: artists) { $0.name.indexingLetter }
         return grouped.map { ArtistSection(letter: $0.key, artists: $0.value) }
             .sorted { indexLetterComesBefore($0.letter, $1.letter) }
     }
 
-    private static func computeAlbumSections(from albums: [DisplayAlbum], sortOption: AlbumSortOption) -> [AlbumSection] {
+    private nonisolated static func computeAlbumSections(from albums: [DisplayAlbum], sortOption: AlbumSortOption) -> [AlbumSection] {
         let groupingKey: (DisplayAlbum) -> String
         switch sortOption {
         case .title:
@@ -512,7 +456,7 @@ public final class LibraryViewModel: ObservableObject {
             .sorted { indexLetterComesBefore($0.letter, $1.letter) }
     }
 
-    static func indexLetterComesBefore(_ left: String, _ right: String) -> Bool {
+    nonisolated static func indexLetterComesBefore(_ left: String, _ right: String) -> Bool {
         if left == "#" { return false }
         if right == "#" { return true }
         return left < right
@@ -614,6 +558,8 @@ public final class LibraryViewModel: ObservableObject {
             )
             guard generation == loadGeneration else { return }
 
+            guard await prepareInitialBrowseSnapshots(result, generation: generation) else { return }
+
             allArtists = result.artists
             allAlbums = result.albums
             allTracks = result.tracks
@@ -624,6 +570,62 @@ public final class LibraryViewModel: ObservableObject {
                 self.error = error.localizedDescription
             }
         }
+    }
+
+    private var initialBrowseConfiguration: InitialBrowseConfiguration {
+        let source = accountManager.sourceConfigurationSnapshot
+        return InitialBrowseConfiguration(
+            trackSort: trackSortOption, artistSort: artistSortOption, albumSort: albumSortOption,
+            trackFilter: tracksFilterOptions, artistFilter: artistsFilterOptions,
+            albumFilter: albumsFilterOptions, genreFilter: genresFilterOptions,
+            preferences: settingsManager.mergingPreferences,
+            sourceConfiguration: source.hasAnySources || !source.isAuthoritative ? source : nil,
+            hiddenSourceKeys: visibilityStore.effectiveHiddenSourceCompositeKeys(enabledSourceCompositeKeys: source.enabledSourceKeys),
+            hiddenMedia: hiddenMediaStore.snapshot
+        )
+    }
+
+    /// Prepare the first committed snapshots before exposing raw cache rows to views.
+    private func prepareInitialBrowseSnapshots(_ contents: LibraryContents, generation: UInt64) async -> Bool {
+        while !hasPreparedInitialBrowse {
+            let configuration = initialBrowseConfiguration
+            let work = Task.detached(priority: .userInitiated) {
+                func visible<Item: LibraryVisibilitySourceIdentifiable>(_ items: [Item]) -> [Item] {
+                    LibraryVisibilityFiltering.visibleItems(
+                        items, hiddenSourceCompositeKeys: configuration.hiddenSourceKeys,
+                        sourceConfiguration: configuration.sourceConfiguration, hiddenMedia: configuration.hiddenMedia
+                    )
+                }
+                let tracks = visible(contents.tracks)
+                let artists = visible(contents.artists)
+                let albums = visible(contents.albums)
+                let genres = LibraryVisibilityFiltering.visibleItems(
+                    contents.genres, hiddenSourceCompositeKeys: configuration.hiddenSourceKeys,
+                    sourceConfiguration: configuration.sourceConfiguration
+                )
+                return (
+                    tracks: Self.computeTracks(tracks, sortOption: configuration.trackSort, filterOptions: configuration.trackFilter, preferences: configuration.preferences),
+                    artists: Self.computeArtists(artists, albums: albums, sortOption: configuration.artistSort, filterOptions: configuration.artistFilter, preferences: configuration.preferences),
+                    albums: Self.computeAlbums(albums, tracks: tracks, sortOption: configuration.albumSort, filterOptions: configuration.albumFilter, preferences: configuration.preferences),
+                    genres: Self.displayGenres(from: genres, albums: albums, with: configuration.genreFilter),
+                    rawGenreCount: genres.count
+                )
+            }
+            let prepared = await withTaskCancellationHandler {
+                await work.value
+            } onCancel: {
+                work.cancel()
+            }
+            guard !Task.isCancelled, generation == loadGeneration else { return false }
+            // Settings/source visibility may change while computation is off the main actor.
+            guard configuration == initialBrowseConfiguration else { continue }
+            commitTrackSnapshot(tracks: prepared.tracks.tracks, sections: prepared.tracks.sections, rawTrackCount: prepared.tracks.rawCount)
+            commitArtistSnapshot(artists: prepared.artists.artists, displayArtists: prepared.artists.displayArtists, sections: prepared.artists.sections, rawArtistCount: prepared.artists.rawCount)
+            commitAlbumSnapshot(albums: prepared.albums.albums, sections: prepared.albums.sections, rawAlbumCount: prepared.albums.rawCount)
+            commitGenreSnapshot(displayGenres: prepared.genres, rawGenreCount: prepared.rawGenreCount)
+            hasPreparedInitialBrowse = true
+        }
+        return generation == loadGeneration && !Task.isCancelled
     }
 
     /// Resolves the source keys that may be published without treating transient credentials as deletion intent.
@@ -665,6 +667,7 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     private func clearInMemoryLibrary() {
+        hasPreparedInitialBrowse = false
         allArtists = []
         allAlbums = []
         allTracks = []
@@ -1050,9 +1053,37 @@ public final class LibraryViewModel: ObservableObject {
         }
     }
 
+    private nonisolated static func computeTracks(_ tracks: [Track], sortOption: TrackSortOption, filterOptions: FilterOptions, preferences: EnsembleMergingPreferences) -> TrackComputation {
+        let filtered = LibraryViewModel.filterTracks(tracks, with: filterOptions)
+        let sorted = LibraryViewModel.sortTracks(filtered, by: sortOption, direction: filterOptions.sortDirection)
+        let projected = MergingProjection.tracks(sorted, preferences: preferences)
+        let sections = LibraryViewModel.computeTrackSections(from: projected)
+        return TrackComputation(rawCount: tracks.count, tracks: projected, sections: sections)
+    }
+
+    private nonisolated static func computeArtists(_ artists: [Artist], albums: [Album], sortOption: ArtistSortOption, filterOptions: FilterOptions, preferences: EnsembleMergingPreferences) -> ArtistComputation {
+        let filtered = LibraryViewModel.filterArtists(artists, with: filterOptions, albums: albums)
+        let sorted = LibraryViewModel.sortArtists(filtered, by: sortOption, direction: filterOptions.sortDirection)
+        let display = LibraryViewModel.sortDisplayArtists(
+            DisplayArtist.group(filtered, preferences: preferences),
+            by: sortOption,
+            direction: filterOptions.sortDirection
+        )
+        let sections = sortOption == .name ? LibraryViewModel.computeArtistSections(from: display) : []
+        return ArtistComputation(rawCount: artists.count, artists: sorted, displayArtists: display, sections: sections)
+    }
+
+    private nonisolated static func computeAlbums(_ albums: [Album], tracks: [Track], sortOption: AlbumSortOption, filterOptions: FilterOptions, preferences: EnsembleMergingPreferences) -> AlbumComputation {
+        let filtered = LibraryViewModel.filterAlbums(albums, with: filterOptions, tracks: tracks)
+        let sorted = LibraryViewModel.sortAlbums(filtered, by: sortOption, direction: filterOptions.sortDirection)
+        let projected = MergingProjection.albums(sorted, preferences: preferences)
+        let sections = LibraryViewModel.computeAlbumSections(from: projected, sortOption: sortOption)
+        return AlbumComputation(rawCount: albums.count, albums: projected, sections: sections)
+    }
+
     // MARK: - Sort Implementations (static so Combine pipelines can call them without actor capture)
 
-    static func sortTracks(_ tracks: [Track], by option: TrackSortOption, direction: SortDirection) -> [Track] {
+    nonisolated static func sortTracks(_ tracks: [Track], by option: TrackSortOption, direction: SortDirection) -> [Track] {
         let asc = direction == .ascending
         switch option {
         case .title:
@@ -1076,7 +1107,7 @@ public final class LibraryViewModel: ObservableObject {
         }
     }
 
-    static func sortArtists(_ artists: [Artist], by option: ArtistSortOption, direction: SortDirection) -> [Artist] {
+    nonisolated static func sortArtists(_ artists: [Artist], by option: ArtistSortOption, direction: SortDirection) -> [Artist] {
         let asc = direction == .ascending
         switch option {
         case .name:
@@ -1088,7 +1119,7 @@ public final class LibraryViewModel: ObservableObject {
         }
     }
 
-    static func sortDisplayArtists(_ artists: [DisplayArtist], by option: ArtistSortOption, direction: SortDirection) -> [DisplayArtist] {
+    nonisolated static func sortDisplayArtists(_ artists: [DisplayArtist], by option: ArtistSortOption, direction: SortDirection) -> [DisplayArtist] {
         let asc = direction == .ascending
         switch option {
         case .name:
@@ -1153,15 +1184,15 @@ public final class LibraryViewModel: ObservableObject {
         return Array(Set(filtered)).sorted()
     }
 
-    private static func filterTracks(_ tracks: [Track], with options: FilterOptions) -> [Track] {
+    private nonisolated static func filterTracks(_ tracks: [Track], with options: FilterOptions) -> [Track] {
         MediaFilterEngine.filterTracks(tracks, with: options, configuration: .library)
     }
 
-    private static func filterArtists(_ artists: [Artist], with options: FilterOptions, albums: [Album] = []) -> [Artist] {
+    private nonisolated static func filterArtists(_ artists: [Artist], with options: FilterOptions, albums: [Album] = []) -> [Artist] {
         MediaFilterEngine.filterArtists(artists, with: options, albums: albums)
     }
 
-    private static func filterAlbums(_ albums: [Album], with options: FilterOptions, tracks: [Track]) -> [Album] {
+    private nonisolated static func filterAlbums(_ albums: [Album], with options: FilterOptions, tracks: [Track]) -> [Album] {
         let downloadedAlbumIDs: Set<String>?
         if options.showDownloadedOnly {
             downloadedAlbumIDs = Set(tracks.compactMap { track in
@@ -1180,11 +1211,11 @@ public final class LibraryViewModel: ObservableObject {
         )
     }
 
-    private static func filterGenres(_ genres: [Genre], with options: FilterOptions) -> [Genre] {
+    private nonisolated static func filterGenres(_ genres: [Genre], with options: FilterOptions) -> [Genre] {
         MediaFilterEngine.filterGenres(genres, with: options)
     }
 
-    static func displayGenres(from genres: [Genre], albums: [Album], with options: FilterOptions) -> [DisplayGenre] {
+    nonisolated static func displayGenres(from genres: [Genre], albums: [Album], with options: FilterOptions) -> [DisplayGenre] {
         let albumGenreTitles = Set(albums.flatMap(\.genres).map(DisplayGenre.normalizedTitle))
         let sorted = genres.sortedByCachedStringKey({ $0.title.sortingKey }, ascending: true)
         let albumBacked = sorted.filter { albumGenreTitles.contains(DisplayGenre.normalizedTitle($0.title)) }

@@ -29,7 +29,7 @@ public struct AlbumsView: View {
     private var albumSnapshot: AlbumBrowseSnapshot {
         albumSnapshotCache.snapshot.hasVisibleContent || albumSnapshotCache.snapshot.phase != .idle
             ? albumSnapshotCache.snapshot
-            : libraryVM.immediateAlbumBrowseSnapshot
+            : libraryVM.albumBrowseSnapshot
     }
 
     private var albumFilterOptions: Binding<FilterOptions> {
@@ -129,7 +129,7 @@ public struct AlbumsView: View {
             albumSnapshotCache.snapshot = snapshot
         }
         .onAppear {
-            albumSnapshotCache.snapshot = libraryVM.immediateAlbumBrowseSnapshot
+            albumSnapshotCache.snapshot = libraryVM.albumBrowseSnapshot
         }
     }
 

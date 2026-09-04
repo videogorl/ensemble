@@ -640,9 +640,9 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func batchUpsertGenres(_ inputs: [GenreUpsertInput], sourceCompositeKey: String) async throws
 
     // Search
-    func searchTracks(query: String) async throws -> [CDTrack]
-    func searchArtists(query: String) async throws -> [CDArtist]
-    func searchAlbums(query: String) async throws -> [CDAlbum]
+    func searchTracks<Value: Sendable>(query: String, map: @escaping @Sendable ([CDTrack]) -> [Value]) async throws -> [Value]
+    func searchArtists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDArtist]) -> [Value]) async throws -> [Value]
+    func searchAlbums<Value: Sendable>(query: String, map: @escaping @Sendable ([CDAlbum]) -> [Value]) async throws -> [Value]
     func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDTrack]
     func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>?) async throws -> [CDArtist]
     func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDAlbum]

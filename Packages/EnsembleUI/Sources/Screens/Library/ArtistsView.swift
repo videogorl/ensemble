@@ -102,7 +102,7 @@ public struct ArtistsView: View {
             artistSnapshotCache.snapshot = snapshot
         }
         .onAppear {
-            artistSnapshotCache.snapshot = libraryVM.immediateArtistBrowseSnapshot
+            artistSnapshotCache.snapshot = libraryVM.artistBrowseSnapshot
         }
     }
 
@@ -123,7 +123,7 @@ public struct ArtistsView: View {
     private var artistSnapshot: ArtistBrowseSnapshot {
         artistSnapshotCache.snapshot.hasVisibleContent || artistSnapshotCache.snapshot.phase != .idle
             ? artistSnapshotCache.snapshot
-            : libraryVM.immediateArtistBrowseSnapshot
+            : libraryVM.artistBrowseSnapshot
     }
 
     private var isBrowseToolbarVisible: Bool {

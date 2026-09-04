@@ -473,7 +473,8 @@ public final class NavigationCoordinator: ObservableObject {
         UserJourneyLogger.log(context: "navigation", event: event, details: details)
     }
 
-    private func markNavigationInteraction() {
+    /// Defers nonessential work through the latest navigation or menu handoff.
+    public func markNavigationInteraction() {
         guard let foregroundWorkScheduler else { return }
 
         navigationInteractionGeneration += 1

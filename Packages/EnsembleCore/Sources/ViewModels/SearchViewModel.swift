@@ -78,6 +78,7 @@ public final class SearchViewModel: ObservableObject {
     private let playlistMergeDefaults: UserDefaults
     private let appleMusicCatalogSearch: AppleMusicCatalogSearchClient
     private var searchTask: Task<Void, Never>?
+    private var searchProjectionTask: Task<Void, Never>?
     private var exploreTask: Task<Void, Never>?
     private var searchGeneration: UInt64 = 0
     private var exploreGeneration: UInt64 = 0
@@ -239,6 +240,7 @@ public final class SearchViewModel: ObservableObject {
     // MARK: - Search
 
     private func prepareForSearchQueryChange(_ query: String) {
+        searchProjectionTask?.cancel()
         searchTask?.cancel()
         searchTask = nil
         searchGeneration &+= 1
@@ -343,6 +345,8 @@ public final class SearchViewModel: ObservableObject {
                 unfilteredAlbumResults = results.albums
                 unfilteredPlaylistResults = results.playlists
                 applyVisibilityToSearchResults()
+                await searchProjectionTask?.value
+                guard isCurrentSearch(query, scope: requestedScope, generation: generation) else { return }
                 isSearching = false
                 let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
                 UserJourneyLogger.log(
@@ -361,10 +365,10 @@ public final class SearchViewModel: ObservableObject {
                 return
             }
 
-            async let localTracks = libraryRepository.searchTracks(query: query)
-            async let localArtists = libraryRepository.searchArtists(query: query)
-            async let localAlbums = libraryRepository.searchAlbums(query: query)
-            async let localPlaylists = playlistRepository.searchPlaylists(query: query)
+            async let localTracks = libraryRepository.searchTracks(query: query) { $0.map { Track(from: $0) } }
+            async let localArtists = libraryRepository.searchArtists(query: query) { $0.map { Artist(from: $0) } }
+            async let localAlbums = libraryRepository.searchAlbums(query: query) { $0.map { Album(from: $0) } }
+            async let localPlaylists = playlistRepository.searchPlaylists(query: query) { $0.map { Playlist(from: $0) } }
             
             let (tracks, artists, albums, playlists) = try await (localTracks, localArtists, localAlbums, localPlaylists)
 
@@ -377,11 +381,13 @@ public final class SearchViewModel: ObservableObject {
                 return
             }
             
-            unfilteredTrackResults = tracks.map { Track(from: $0) }
-            unfilteredArtistResults = artists.map { Artist(from: $0) }
-            unfilteredAlbumResults = albums.map { Album(from: $0) }
-            unfilteredPlaylistResults = playlists.map { Playlist(from: $0) }
+            unfilteredTrackResults = tracks
+            unfilteredArtistResults = artists
+            unfilteredAlbumResults = albums
+            unfilteredPlaylistResults = playlists
             applyVisibilityToSearchResults()
+            await searchProjectionTask?.value
+            guard isCurrentSearch(query, scope: requestedScope, generation: generation) else { return }
 
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
             UserJourneyLogger.log(
@@ -419,6 +425,9 @@ public final class SearchViewModel: ObservableObject {
     }
 
     private func clearSearchResults() {
+        searchProjectionTask?.cancel()
+        searchProjectionTask = nil
+        visibleTrackResults = []
         unfilteredTrackResults = []
         unfilteredArtistResults = []
         unfilteredAlbumResults = []
@@ -583,45 +592,60 @@ public final class SearchViewModel: ObservableObject {
             ? sourceConfiguration
             : sourceConfigurationForCachedFiltering(sourceConfiguration)
         let hiddenMedia = scope == .library ? hiddenMediaStore.snapshot : .empty
-        let visibleTracks = LibraryVisibilityFiltering.visibleItems(
-            unfilteredTrackResults,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: cachedSourceFilter,
-            hiddenMedia: hiddenMedia
-        )
-        visibleTrackResults = visibleTracks
-        trackResults = MergingProjection.tracks(visibleTracks, preferences: mergingPreferences)
-        artistResults = LibraryVisibilityFiltering.visibleItems(
-            unfilteredArtistResults,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: cachedSourceFilter,
-            hiddenMedia: hiddenMedia
-        )
-        displayArtistResults = DisplayArtist.group(artistResults, preferences: mergingPreferences)
-        let visibleAlbums = LibraryVisibilityFiltering.visibleItems(
-            unfilteredAlbumResults,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: cachedSourceFilter,
-            hiddenMedia: hiddenMedia
-        )
-        albumResults = visibleAlbums
-        displayAlbumResults = MergingProjection.albums(visibleAlbums, preferences: mergingPreferences)
-        let visiblePlaylists = LibraryVisibilityFiltering.visibleItems(
-            unfilteredPlaylistResults,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: cachedSourceFilter,
-            hiddenMedia: hiddenMedia
-        )
-        playlistResults = visiblePlaylists
-        let nextDisplayPlaylists = Self.displayPlaylists(
-            visiblePlaylists,
-            scope: scope,
-            preferences: mergingPreferences
-        )
-        if displayPlaylistResults != nextDisplayPlaylists {
-            displayPlaylistResults = nextDisplayPlaylists
+        searchProjectionTask?.cancel()
+        let tracks = unfilteredTrackResults
+        let artists = unfilteredArtistResults
+        let albums = unfilteredAlbumResults
+        let playlists = unfilteredPlaylistResults
+        let preferences = mergingPreferences
+        let scope = scope
+        let work = Task.detached(priority: .userInitiated) {
+            let visibleTracks = LibraryVisibilityFiltering.visibleItems(
+                tracks, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+                sourceConfiguration: cachedSourceFilter, hiddenMedia: hiddenMedia
+            )
+            let visibleArtists = LibraryVisibilityFiltering.visibleItems(
+                artists, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+                sourceConfiguration: cachedSourceFilter, hiddenMedia: hiddenMedia
+            )
+            let visibleAlbums = LibraryVisibilityFiltering.visibleItems(
+                albums, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+                sourceConfiguration: cachedSourceFilter, hiddenMedia: hiddenMedia
+            )
+            let visiblePlaylists = LibraryVisibilityFiltering.visibleItems(
+                playlists, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+                sourceConfiguration: cachedSourceFilter, hiddenMedia: hiddenMedia
+            )
+            return (
+                visibleTracks: visibleTracks,
+                tracks: MergingProjection.tracks(visibleTracks, preferences: preferences),
+                artists: visibleArtists,
+                displayArtists: DisplayArtist.group(visibleArtists, preferences: preferences),
+                albums: visibleAlbums,
+                displayAlbums: MergingProjection.albums(visibleAlbums, preferences: preferences),
+                playlists: visiblePlaylists,
+                displayPlaylists: Self.displayPlaylists(visiblePlaylists, scope: scope, preferences: preferences)
+            )
         }
-        determineSearchSectionOrder()
+        searchProjectionTask = Task { [weak self] in
+            let result = await withTaskCancellationHandler {
+                await work.value
+            } onCancel: {
+                work.cancel()
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.visibleTrackResults = result.visibleTracks
+            self.trackResults = result.tracks
+            self.artistResults = result.artists
+            self.displayArtistResults = result.displayArtists
+            self.albumResults = result.albums
+            self.displayAlbumResults = result.displayAlbums
+            self.playlistResults = result.playlists
+            if self.displayPlaylistResults != result.displayPlaylists {
+                self.displayPlaylistResults = result.displayPlaylists
+            }
+            self.determineSearchSectionOrder()
+        }
     }
 
     public func mutationCandidates(for track: Track) -> [Track] {

@@ -138,7 +138,7 @@ public struct SongsView: View {
             rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
         }
         .onAppear {
-            let snapshot = libraryVM.immediateTrackBrowseSnapshot
+            let snapshot = libraryVM.trackBrowseSnapshot
             cacheTrackSnapshot(snapshot)
             updateNativeTrackSections(from: trackSnapshot.sections)
             guard isStageFlowActive else { return }
@@ -185,7 +185,7 @@ public struct SongsView: View {
     private var trackSnapshot: TrackBrowseSnapshot {
         trackSnapshotCache.snapshot.hasVisibleContent || trackSnapshotCache.snapshot.phase != .idle
             ? trackSnapshotCache.snapshot
-            : libraryVM.immediateTrackBrowseSnapshot
+            : libraryVM.trackBrowseSnapshot
     }
 
     /// StageFlow carousel for landscape mode. MainTabView owns rotation and

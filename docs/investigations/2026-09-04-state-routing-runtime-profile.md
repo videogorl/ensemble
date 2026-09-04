@@ -72,7 +72,44 @@ Evidence: `navigation/output_259.json`, `navigation/app-stacks.txt`, and `journe
 - Instruments Time Profiler rejected the verified live PID (`Cannot find process for provided pid`) with both simulator selection and host attachment. No usable Instruments `.trace` resulted; the completed profiles are ETTrace flamegraphs and macOS `sample` reports.
 - ETTrace all-thread mode stalled the instrumented app immediately after recording started. That capture was discarded; a diagnostic sample is retained as `ettrace-multithread-stall.txt`. It is not evidence of an ordinary Ensemble hang.
 - Completed ETTrace runs used main-thread mode with matched dSYMs. Keyboard, accessibility automation, profiler overhead, and background startup activity appear in the captures. Absolute simulator timings do not establish physical-device frame times, thermal behavior, or energy savings.
-- No implementation changes or before/after performance comparison were made.
+- The baseline run above made no implementation changes; the follow-up below measures the implemented changes.
 - Debugger detached. Normal Release build reinstalled; executable hash matched the saved normal build, and ETTrace was absent (`restored.json`). Songs text filter cleared, keyboard dismissed, playback left paused, and log streaming stopped.
 
 Priority: fix navigation bookkeeping at its shared owner; move broad-search processing off main; eliminate synchronous browse recomputation; then apply and compare filter-before-sort. Keep destination fallback grouping as an unmeasured candidate.
+
+## Implemented changes and repeat run
+
+The follow-up implements the four demonstrated opportunities:
+
+- Route links use the coordinator's existing generation-controlled interaction timer. Menu handoffs extend that same interaction; the separate UI timer is deleted.
+- Local search repositories fetch and map rows on background contexts. Only Sendable values leave those contexts. Search visibility and merging run in a detached task; canceled projections cannot publish, and existing query/scope generation checks still guard completion.
+- The initial library load prepares browse snapshots off main before publishing raw cache collections. Views consume committed snapshots instead of computing synchronous fallbacks. Preparation rechecks load generation, cancellation, settings, and source visibility before publication. Debounced results retain their input counts so an old empty computation cannot overwrite a newly prepared populated snapshot.
+- Track and album computation filters before sorting. Initial preparation and subsequent updates share the same computation functions.
+
+### Repeat-run provenance
+
+Same UUID, iOS 26.5 runtime, Release configuration, animations enabled, and cached library counts as the baseline. Normal build `202609041334.0678`, initially PID 77195, matched the freshly built executable. The ETTrace variant used PID 79929 for search and PID 81418 for cold launch; its matching app dSYM UUID was `DC6B21D1-F1B3-37E4-9203-ECB509AF5880`. The profiler's localhost listener was verified as PID 79929, avoiding ambiguity from another booted simulator. First-party unresolved frames were at most 0.007% in these profiles.
+
+All new artifacts are under `/tmp/ensemble-state-audit-0904/after/`. `normal-freshness.json`, `profile-freshness.json`, `launch-freshness.json`, and `dsym-check.log` record build/process provenance. ETTrace remains external to the project.
+
+### Before/after evidence
+
+| Check | Before | After | Interpretation |
+| --- | --- | --- | --- |
+| Actual artist-card tap | Two navigation begins and two ends, from separate owners | One begin and one end, both from the coordinator | Duplicate ownership removed; debugger timing is not a hitch measurement |
+| Songs filter `love`, normal app, 7-second sample | 96 track-computation samples; 63 sorting, 23 filtering, 8 merging | 33 track-computation samples; 1 sorting, 23 filtering, 8 merging | Sorting work substantially reduced in this sampled interaction; no device frame-rate claim |
+| Search `The` | 159 ms main-thread search processing, including 138 ms visibility/projection; approximately 37 ms fetch closures | No samples attributed to those search fetch/projection functions on main | Targeted work moved off main; absence of samples does not mean zero publication/rendering cost |
+| Search `love` | Approximately 22 ms main-thread track fetch and 17 ms result processing | No samples attributed to those search fetch/projection functions on main | Same bounded conclusion |
+| Process-cold Artists launch | Approximately 64 ms in synchronous Artists snapshot getter; approximately 31 ms grouping | Getter deleted; no main-thread `DisplayArtist.group` samples | First content now comes from prepared snapshots |
+
+Both searches retained exactly the same raw counts: `The` 7,672 tracks / 482 albums / 109 artists; `love` 620 / 28 / 1. Search completion latency did **not** improve in these single runs: `The` was 244 ms versus 202 ms, and `love` 83 ms versus 44 ms, excluding debounce. Fresh background contexts and mapping trade some completion latency for keeping the main actor free. Do not describe this as faster end-to-end search.
+
+The cold-launch capture was 10.549 seconds with 3.455 seconds classified active, versus the baseline's 14.961 / 3.910 seconds. Different capture windows and startup variability prevent treating that total as a measured launch-time improvement. Main-thread snapshot publication/comparison remains visible: approximately 22 ms in track snapshot commit and 83 ms aggregate display-artist equality. Those costs were not optimized in this change.
+
+Direct snapshots/screenshots confirmed populated Artists, correct search results, filtered Songs, and Artists → a-ha → album → Back → Back. Evidence: `timer-events.jsonl` (Back then artist push), `filter-love-normal-sample.txt`, `search-the/`, `search-love/`, `launch/`, `journey.log`, and the PNG captures. The destination-resolution fallback and separate route-transition timer remain outside this change.
+
+### Checks and cleanup
+
+- Release simulator build succeeded. 96 focused Core checks and 27 playlist persistence checks passed, covering search responses/cancellation/visibility, navigation, first committed browse content, cache/readiness/concurrency, genre projection, and existing sort/filter behavior.
+- The broader cache selection exposed two unrelated failures: `testRemoteDisabledLibraryFlagCleansAlreadyDisabledSourceDownloads` and `testRemoteLibraryDisableCleansSourceDownloadsAndPreservesEnabledSource`. Both produced the same 14 assertions on unchanged commit `067e8310` in an isolated worktree. They were excluded from the final focused cache run; they are not claimed fixed. Logs: `../baseline-cleanup-tests.log`, `../improvements-all-focused.log`, `../improvements-cache-tests.log`, `../improvements-final-focused.log`, `../improvements-sort-tests.log`, and `../improvements-persistence-tests.log`.
+- Debugger detached; capture processes stopped. Normal Release app restored, PID 82241, matching executable and no embedded ETTrace (`restored.json`). Songs filter empty, keyboard closed, playback paused. No physical-device, energy, or frame-time proof is claimed.

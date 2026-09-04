@@ -135,9 +135,10 @@ final class NavigationCoordinatorTests: XCTestCase {
             navigationInteractionDurationNanoseconds: 10_000_000
         )
 
+        coordinator.markNavigationInteraction() // Menu presentation starts the same interaction.
         coordinator.push(.album(id: "album", sourceKey: nil), in: .albums)
 
-        XCTAssertEqual(scheduler.beginStates, [.navigating])
+        XCTAssertEqual(scheduler.beginStates, [.navigating, .navigating])
         XCTAssertTrue(scheduler.activeStates.contains(.navigating))
 
         try? await Task.sleep(nanoseconds: 30_000_000)
