@@ -171,6 +171,7 @@ final class NavigationCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.selectedTab, .albums)
         XCTAssertEqual(coordinator.pathSnapshot(for: .albums), [destination])
+        XCTAssertEqual(coordinator.externalRouteSequence, 1)
         XCTAssertTrue(coordinator.pathSnapshot(for: .home).isEmpty)
         XCTAssertTrue(coordinator.isRouteTransitionActive(for: .albums))
     }

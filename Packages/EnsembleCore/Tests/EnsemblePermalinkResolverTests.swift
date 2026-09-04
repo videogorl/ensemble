@@ -87,6 +87,80 @@ final class EnsemblePermalinkResolverTests: XCTestCase {
         XCTAssertEqual(destination, .mergedPlaylist(title: "Road Trip", isSmart: false))
     }
 
+    func testMissingLocalTrackUsesClosestAppleMusicCatalogMatchWhenEnabled() async throws {
+        let stack = CoreDataStack.inMemory()
+        let library = LibraryRepository(coreDataStack: stack)
+        let playlists = PlaylistRepository(coreDataStack: stack)
+        let appleMusicSourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        let matchingAlbum = Album(
+            id: "album-match",
+            key: "apple-catalog",
+            title: "Vespertine",
+            artistName: "Björk",
+            sourceCompositeKey: appleMusicSourceKey
+        )
+        let matchingTrack = Track(
+            id: "track-match",
+            key: "apple-catalog",
+            title: "Pagan Poetry",
+            artistName: "Björk",
+            albumName: "Vespertine",
+            albumRatingKey: matchingAlbum.id,
+            trackNumber: 5,
+            discNumber: 1,
+            duration: 301,
+            sourceCompositeKey: appleMusicSourceKey
+        )
+        let wrongTrack = Track(
+            id: "track-wrong",
+            key: "apple-catalog",
+            title: "Pagan Poetry",
+            artistName: "Other Artist",
+            albumName: "Other Album",
+            albumRatingKey: "album-wrong",
+            duration: 180,
+            sourceCompositeKey: appleMusicSourceKey
+        )
+        let resolver = EnsemblePermalinkResolver(
+            libraryRepository: library,
+            playlistRepository: playlists,
+            enabledSourceKeys: { [appleMusicSourceKey] },
+            appleMusicCatalogSearch: AppleMusicCatalogSearchClient { term in
+                if term.contains("Vespertine") {
+                    return AppleMusicCatalogSearchResults(
+                        tracks: [],
+                        artists: [],
+                        albums: [matchingAlbum],
+                        playlists: []
+                    )
+                }
+                return AppleMusicCatalogSearchResults(
+                    tracks: [wrongTrack, matchingTrack],
+                    artists: [],
+                    albums: [],
+                    playlists: []
+                )
+            }
+        )
+
+        let destination = try await resolver.resolve(
+            EnsemblePermalink(
+                kind: .track,
+                title: matchingTrack.title,
+                artistName: matchingTrack.artistName,
+                albumTitle: matchingTrack.albumName,
+                duration: matchingTrack.duration,
+                trackNumber: matchingTrack.trackNumber,
+                discNumber: matchingTrack.discNumber
+            )
+        )
+
+        XCTAssertEqual(
+            destination,
+            .albumDetail(.single(matchingAlbum), selectedTrackId: matchingTrack.playbackIdentity)
+        )
+    }
+
     private func trackInput(id: String, artist: String, album: String, duration: Int) -> TrackUpsertInput {
         TrackUpsertInput(
             ratingKey: id,

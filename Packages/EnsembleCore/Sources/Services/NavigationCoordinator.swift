@@ -42,7 +42,7 @@ public final class NavigationCoordinator: ObservableObject {
         case artistDetail(Artist, includesHidden: Bool = false)
         case artist(id: String, sourceKey: String? = nil)
         case album(id: String, sourceKey: String? = nil)
-        case albumDetail(DisplayAlbum, includesHidden: Bool = false)
+        case albumDetail(DisplayAlbum, includesHidden: Bool = false, selectedTrackId: String? = nil)
         case song(id: String, sourceKey: String? = nil)
         case playlist(id: String, sourceKey: String?)
         case playlistDetail(Playlist, includesHidden: Bool = false)
@@ -111,6 +111,7 @@ public final class NavigationCoordinator: ObservableObject {
     @Published public var activeAuxiliaryPresentation: AuxiliaryPresentation?
     @Published public var auxiliaryWindowRequest: AuxiliaryWindowRequest?
     @Published public private(set) var routeTransitionTabs: Set<TabItem> = []
+    @Published public private(set) var externalRouteSequence: UInt64 = 0
 
     /// For NowPlaying flow: pending navigation to execute after sheet dismissal
     public struct PendingNavigation {
@@ -338,6 +339,7 @@ public final class NavigationCoordinator: ObservableObject {
 
     /// Route external content selections to the destination's owning tab.
     public func navigateFromExternalSearch(to destination: Destination) {
+        externalRouteSequence &+= 1
         let targetTab = Self.targetTab(for: destination)
         logJourney(
             event: "externalRoute",

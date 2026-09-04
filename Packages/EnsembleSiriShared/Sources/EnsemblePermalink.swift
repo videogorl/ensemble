@@ -55,7 +55,7 @@ public struct EnsemblePermalink: Sendable, Equatable, Hashable {
         append(year, named: "year", to: &queryItems)
         append(duration.map { Int($0.rounded()) }, named: "duration", to: &queryItems)
         append(trackNumber, named: "track", to: &queryItems)
-        append(discNumber, named: "disc", to: &queryItems)
+        append(discNumber.flatMap { $0 > 1 ? $0 : nil }, named: "disc", to: &queryItems)
         append(isSmartPlaylist, named: "smart", to: &queryItems)
         components.queryItems = queryItems.isEmpty ? nil : queryItems
         return components.url

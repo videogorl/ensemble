@@ -90,10 +90,11 @@ struct NavigationDestinationFactory {
             ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .album(let id, let sourceKey):
             AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .albumDetail(let displayAlbum, let includesHidden):
+        case .albumDetail(let displayAlbum, let includesHidden, let selectedTrackId):
             let detailView = AlbumDetailView(
                 displayAlbum: displayAlbum,
                 nowPlayingVM: nowPlayingVM,
+                selectedTrackId: selectedTrackId,
                 includesHidden: includesHidden
             )
             .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)

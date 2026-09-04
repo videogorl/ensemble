@@ -2,7 +2,7 @@ import XCTest
 @testable import EnsembleSiriShared
 
 final class EnsemblePermalinkTests: XCTestCase {
-    func testTrackRoundTripPreservesMatchingMetadata() throws {
+    func testTrackRoundTripPreservesMatchingMetadataAndOmitsDefaultDisc() throws {
         let link = EnsemblePermalink(
             kind: .track,
             title: "Pagan Poetry",
@@ -17,6 +17,7 @@ final class EnsemblePermalinkTests: XCTestCase {
         XCTAssertEqual(url.scheme, "https")
         XCTAssertEqual(url.host, "ensemble.videogorl.me")
         XCTAssertTrue(url.absoluteString.contains("/media/v1/song/Pagan%20Poetry"), url.absoluteString)
+        XCTAssertFalse(url.absoluteString.contains("disc="), url.absoluteString)
 
         let decoded = try XCTUnwrap(EnsemblePermalink(url: url), url.absoluteString)
         XCTAssertEqual(decoded.kind, .track)
@@ -25,7 +26,7 @@ final class EnsemblePermalinkTests: XCTestCase {
         XCTAssertEqual(decoded.albumTitle, "Vespertine")
         XCTAssertEqual(decoded.duration, 301)
         XCTAssertEqual(decoded.trackNumber, 5)
-        XCTAssertEqual(decoded.discNumber, 1)
+        XCTAssertNil(decoded.discNumber)
     }
 
     func testPlaylistRoundTripPreservesSmartFlag() throws {

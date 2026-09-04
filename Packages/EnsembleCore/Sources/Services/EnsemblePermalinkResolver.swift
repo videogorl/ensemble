@@ -10,6 +10,7 @@ public final class EnsemblePermalinkResolver {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let enabledSourceKeys: () -> Set<String>
     private let mergingPreferences: () -> EnsembleMergingPreferences
+    private let appleMusicCatalogSearch: AppleMusicCatalogSearchClient
 
     public init(
         accountManager: AccountManager,
@@ -23,18 +24,21 @@ public final class EnsemblePermalinkResolver {
             Set(accountManager.enabledSources().map(\.compositeKey))
         }
         self.mergingPreferences = { settingsManager.mergingPreferences }
+        self.appleMusicCatalogSearch = .live
     }
 
     init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         enabledSourceKeys: @escaping () -> Set<String>,
-        mergingPreferences: @escaping () -> EnsembleMergingPreferences = { .default }
+        mergingPreferences: @escaping () -> EnsembleMergingPreferences = { .default },
+        appleMusicCatalogSearch: AppleMusicCatalogSearchClient = .live
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.enabledSourceKeys = enabledSourceKeys
         self.mergingPreferences = mergingPreferences
+        self.appleMusicCatalogSearch = appleMusicCatalogSearch
     }
 
     /// Returns a typed scene-local navigation destination without starting playback.
@@ -42,16 +46,39 @@ public final class EnsemblePermalinkResolver {
         let sourceKeys = enabledSourceKeys()
         guard !sourceKeys.isEmpty else { return nil }
 
-        switch permalink.kind {
+        let localDestination = switch permalink.kind {
         case .artist:
-            return try await resolveArtist(permalink, sourceKeys: sourceKeys)
+            try await resolveArtist(permalink, sourceKeys: sourceKeys)
         case .album:
-            return try await resolveAlbum(permalink, sourceKeys: sourceKeys)
+            try await resolveAlbum(permalink, sourceKeys: sourceKeys)
         case .track:
-            return try await resolveTrack(permalink, sourceKeys: sourceKeys)
+            try await resolveTrack(permalink, sourceKeys: sourceKeys)
         case .playlist:
-            return try await resolvePlaylist(permalink, sourceKeys: playlistSourceKeys(from: sourceKeys))
+            try await resolvePlaylist(permalink, sourceKeys: playlistSourceKeys(from: sourceKeys))
         }
+        if let localDestination { return localDestination }
+
+        guard sourceKeys.contains(MusicSourceIdentifier.appleMusic.compositeKey) else { return nil }
+        let query = [permalink.artistName, permalink.title]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        let results = try await appleMusicCatalogSearch.search(query)
+        if let destination = appleMusicDestination(for: permalink, results: results) {
+            return destination
+        }
+        guard permalink.kind == .track, let albumTitle = permalink.albumTitle else { return nil }
+        let albumResults = try await appleMusicCatalogSearch.search(
+            [permalink.artistName, albumTitle].compactMap { $0 }.joined(separator: " ")
+        )
+        return appleMusicDestination(
+            for: permalink,
+            results: AppleMusicCatalogSearchResults(
+                tracks: results.tracks,
+                artists: results.artists + albumResults.artists,
+                albums: results.albums + albumResults.albums,
+                playlists: results.playlists
+            )
+        )
     }
 
     private func resolveArtist(
@@ -147,6 +174,54 @@ public final class EnsemblePermalinkResolver {
             return .mergedPlaylist(title: first.title, isSmart: first.isSmart)
         }
         return .playlist(id: first.id, sourceKey: first.sourceCompositeKey)
+    }
+
+    private func appleMusicDestination(
+        for permalink: EnsemblePermalink,
+        results: AppleMusicCatalogSearchResults
+    ) -> NavigationCoordinator.Destination? {
+        switch permalink.kind {
+        case .artist:
+            return results.artists
+                .first { normalized($0.name) == normalized(permalink.title) }
+                .map { .artistDetail($0) }
+        case .album:
+            return best(
+                results.albums.filter { normalized($0.title) == normalized(permalink.title) },
+                sourceKey: \.sourceCompositeKey,
+                score: { album in
+                    var score = 0
+                    if matches(permalink.artistName, album.artistName ?? album.albumArtist) { score += 8 }
+                    if permalink.year != nil, permalink.year == album.year { score += 4 }
+                    return score
+                }
+            ).map { .albumDetail(.single($0)) }
+        case .track:
+            guard let track = best(
+                results.tracks.filter { normalized($0.title) == normalized(permalink.title) },
+                sourceKey: \.sourceCompositeKey,
+                score: { track in
+                    var score = 0
+                    if matches(permalink.artistName, track.artistName ?? track.albumArtistName) { score += 8 }
+                    if matches(permalink.albumTitle, track.albumName) { score += 6 }
+                    if let duration = permalink.duration, abs(duration - track.duration) <= 2 { score += 4 }
+                    if permalink.trackNumber != nil, permalink.trackNumber == track.trackNumber { score += 2 }
+                    if permalink.discNumber != nil, permalink.discNumber == track.discNumber { score += 1 }
+                    return score
+                }
+            ), let album = results.albums.first(where: {
+                $0.id == track.albumRatingKey
+                    || (normalized($0.title) == normalized(track.albumName ?? "")
+                        && normalized($0.artistName ?? $0.albumArtist ?? "")
+                            == normalized(track.artistName ?? track.albumArtistName ?? ""))
+            }) else { return nil }
+            return .albumDetail(.single(album), selectedTrackId: track.playbackIdentity)
+        case .playlist:
+            return results.playlists.first {
+                normalized($0.title) == normalized(permalink.title)
+                    && (permalink.isSmartPlaylist == nil || $0.isSmart == permalink.isSmartPlaylist)
+            }.map { .playlistDetail($0) }
+        }
     }
 
     private func best<T>(

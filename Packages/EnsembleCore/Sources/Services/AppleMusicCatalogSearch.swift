@@ -155,10 +155,10 @@ enum AppleMusicCatalogSearch {
         )
 
         let tracks: [Track] = response.songs.map { song in
-                let albumArtwork = response.albums.first {
+                let matchingAlbum = response.albums.first {
                     DisplayPlaylist.normalizedTitle($0.title) == DisplayPlaylist.normalizedTitle(song.albumTitle ?? "")
                         && DisplayPlaylist.normalizedTitle($0.artistName) == DisplayPlaylist.normalizedTitle(song.artistName)
-                }?.artwork?.ensembleResolvableURL()
+                }
                 return Track(
                     id: String(describing: song.id),
                     key: song.libraryAddedDate == nil ? "apple-catalog" : "apple-catalog-library",
@@ -166,12 +166,13 @@ enum AppleMusicCatalogSearch {
                     artistName: song.artistName,
                     albumArtistName: song.artistName,
                     albumName: song.albumTitle,
+                    albumRatingKey: matchingAlbum.map { String(describing: $0.id) },
                     artistRatingKey: song.artistURL?.lastPathComponent
                         ?? artistIDsByName[DisplayPlaylist.normalizedTitle(song.artistName)],
                     trackNumber: song.trackNumber ?? 0,
                     discNumber: song.discNumber ?? 1,
                     duration: song.duration ?? 0,
-                    thumbPath: song.artwork?.ensembleResolvableURL() ?? albumArtwork,
+                    thumbPath: song.artwork?.ensembleResolvableURL() ?? matchingAlbum?.artwork?.ensembleResolvableURL(),
                     streamKey: song.url?.absoluteString,
                     genres: song.genreNames,
                     sourceCompositeKey: sourceKey

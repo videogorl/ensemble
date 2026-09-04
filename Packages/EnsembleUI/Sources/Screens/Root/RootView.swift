@@ -138,6 +138,11 @@ public struct RootView: View {
         .onReceive(navigationCoordinator.$selectedTab) { tab in
             syncSidebarSelection(to: tab)
         }
+        .onReceive(navigationCoordinator.$externalRouteSequence.dropFirst()) { _ in
+            if isNowPlayingPresented {
+                dismissNowPlaying()
+            }
+        }
         #if canImport(UIKit)
         .onReceive(Self.softwareKeyboardVisibilityPublisher) { newValue in
             if newValue != isSoftwareKeyboardVisible {

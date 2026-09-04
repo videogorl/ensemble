@@ -31,7 +31,8 @@ struct SongPermalinkLoader: View {
                 )
             }
         }
-        .task {
+        .task(id: "\(songSourceKey ?? "")|\(songId)") {
+            isLoading = true
             let track = try? await deps.libraryRepository.fetchTrack(
                 ratingKey: songId,
                 sourceCompositeKey: songSourceKey

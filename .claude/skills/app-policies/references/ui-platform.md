@@ -6,6 +6,8 @@
 - Typed media routes append to the active scene stack. Feed/list refreshes do not
   pop a destination, opening a shared link does not start playback, and an
   existing macOS main window handles incoming navigation when available.
+- Shared links prefer enabled local-library matches, then the closest Apple
+  Music catalog match when Apple Music is enabled.
 - Prefer native platform owners for tab/split navigation, sheets, keyboard,
   search, scrolling, toolbars, menus, tables, AirPlay, Metal, volume, and window
   behavior. Custom bridges are limited to capabilities SwiftUI does not expose.
