@@ -125,6 +125,8 @@ public struct AuroraVisualizationView: View {
                 .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .opacity(isVisible ? 0.35 : 0)
+        // Add light on dark surfaces; additive blending disappears against white.
+        .blendMode(colorScheme == .dark ? .plusLighter : .normal)
         .if(expandsBeyondBounds) { view in
             view.ignoresSafeArea()
         }
@@ -332,10 +334,12 @@ public struct AuroraVisualizationView: View {
         // Non-playing states freeze the last rendered frame because TimelineView pauses.
         let bandsToRender = renderModel.renderedBands
 
+        let time = renderModel.animationTime
         if !isLowPowerMode {
-            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 12, opacity: 0.30)
+            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, layer: 0, time: time)
+            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, layer: 1, time: time)
         }
-        drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 5, opacity: 0.55)
+        drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, layer: 2, time: time)
     }
 
     /// Draws a soft glow layer with wide, overlapping bands
@@ -343,12 +347,16 @@ public struct AuroraVisualizationView: View {
         context: GraphicsContext,
         size: CGSize,
         bands: [Double],
-        blur: CGFloat,
-        opacity: Double
+        layer: Int,
+        time: TimeInterval
     ) {
         let activeWidth = isPhone ? size.width : (activeContentMaxWidth.map { min(size.width, $0) } ?? size.width)
         let xOffset = (size.width - activeWidth) / 2
         let bandWidth = activeWidth / CGFloat(bandCount)
+        let opacity = [0.20, 0.40, 0.50][layer]
+        let blur: CGFloat = [14, 6, 2][layer]
+        let spread: CGFloat = [2.0, 1.15, 0.65][layer]
+        let heightScale: CGFloat = [0.85, 1.10, 1.30][layer]
         let baseOpacity = (colorScheme == .dark ? 0.7 : 0.5) * opacity
 
         // Blur once for the whole glow layer. Applying a Gaussian filter per band
@@ -371,11 +379,14 @@ public struct AuroraVisualizationView: View {
             // so use intensity directly here.
             let heightFactor = intensity * bellFactor
             
-            let height = minHeight + (maxHeight - minHeight) * CGFloat(heightFactor)
+            let phase = time * (0.25 + 0.15 * Double(layer)) + Double(i) * 0.7 + Double(layer) * 2.1
+            let breath = 0.9 + 0.1 * sin(phase + 1.3)
+            let height = (minHeight + (maxHeight - minHeight) * CGFloat(heightFactor)) * heightScale * CGFloat(breath)
 
             // Center the band and make it very wide for ethereal overlap
-            let centerX = xOffset + (CGFloat(i) + 0.5) * bandWidth
-            let glowWidth = bandWidth * 3.0
+            let drift = CGFloat(sin(phase) * (0.25 + 0.12 * Double(layer))) * bandWidth
+            let centerX = xOffset + (CGFloat(i) + 0.5) * bandWidth + drift
+            let glowWidth = bandWidth * 3.0 * spread
             let x = centerX - glowWidth / 2
             let y = size.height - height - poolHeight
 
@@ -626,6 +637,11 @@ final class AuroraRenderModel: ObservableObject {
     private let bandCount = 24
     private var smoothedBands = AuroraRenderModel.idleBands
     private var lastUpdateTime: TimeInterval?
+    private let animationStartTime = ProcessInfo.processInfo.systemUptime
+
+    var animationTime: TimeInterval {
+        ProcessInfo.processInfo.systemUptime - animationStartTime
+    }
 
     var renderedBands: [Double] {
         smoothedBands

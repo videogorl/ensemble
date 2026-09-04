@@ -160,6 +160,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         var layerCount: UInt32 = 2
         var colorScheme: UInt32 = 0
         var bellWidth: Float = 0.24
+        var time: Float = 0
     }
 
     private let renderModel: AuroraRenderModel
@@ -272,6 +273,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
               let uniformBuffer else { return }
 
         uniforms.size = SIMD2(Float(view.drawableSize.width), Float(view.drawableSize.height))
+        uniforms.time = Float(renderModel.animationTime)
         copyBands(into: bandBuffer)
         memcpy(uniformBuffer.contents(), &uniforms, MemoryLayout<Uniforms>.stride)
 
@@ -298,7 +300,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         case .lowPower:
             return 1
         case .ambient, .immersive:
-            return 2
+            return 3
         }
     }
 
@@ -373,6 +375,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         uint layerCount;
         uint colorScheme;
         float bellWidth;
+        float time;
     };
 
     vertex VertexOut auroraVertex(uint vertexID [[vertex_id]]) {
@@ -409,12 +412,12 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         float alpha = 0.0;
 
         for (uint layer = 0; layer < u.layerCount; layer++) {
-            bool halo = u.layerCount > 1 && layer == 0;
-            float layerOpacity = halo ? 0.30 : 0.55;
-            float spread = halo ? 1.6 : 1.0;
-            float heightScale = halo ? 1.08 : 1.0;
-            float verticalSoftness = halo ? 0.48 : 0.70;
-            float verticalBlur = halo ? 1.12 : 1.95;
+            uint depth = u.layerCount == 1 ? 2u : layer;
+            float layerOpacity = depth == 0 ? 0.20 : (depth == 1 ? 0.40 : 0.50);
+            float spread = depth == 0 ? 2.0 : (depth == 1 ? 1.15 : 0.65);
+            float heightScale = depth == 0 ? 0.85 : (depth == 1 ? 1.10 : 1.30);
+            float verticalSoftness = depth == 0 ? 0.48 : 0.70;
+            float verticalBlur = depth == 0 ? 1.12 : 1.95;
 
             float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity;
 
@@ -422,8 +425,11 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
                 float intensity = clamp(bands[i], 0.0, 1.0);
                 float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
                 float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(u.bellWidth, 2.0)));
-                float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell) * heightScale;
-                float centerX = xOffset + (float(i) + 0.5) * bandWidth;
+                float phase = u.time * (0.25 + 0.15 * float(depth)) + float(i) * 0.7 + float(depth) * 2.1;
+                float breath = 0.9 + 0.1 * sin(phase + 1.3);
+                float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell) * heightScale * breath;
+                float drift = sin(phase) * (0.25 + 0.12 * float(depth)) * bandWidth;
+                float centerX = xOffset + (float(i) + 0.5) * bandWidth + drift;
                 float glowWidth = bandWidth * 3.0 * spread;
                 float rectHeight = height + u.poolHeight * heightScale;
 
@@ -435,6 +441,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
                 float intensityAlpha = intensity * bellAlpha;
                 float contribution = ellipse * vertical * intensityAlpha * baseOpacity;
 
+                // Additive light from independently moving curtains.
                 alpha += contribution * 0.72;
             }
         }
