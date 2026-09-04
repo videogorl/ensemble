@@ -103,12 +103,22 @@ public final class HiddenMediaStore: ObservableObject {
         at date: Date = Date(),
         relatedCatalogID: String? = nil
     ) {
-        apply(HiddenMediaMutation(
+        apply([HiddenMediaMutation(
             identity: identity,
             isHidden: isHidden,
             modifiedAt: date,
             relatedCatalogID: relatedCatalogID ?? mutations[identity]?.relatedCatalogID
-        ))
+        )])
+    }
+
+    /// Updates a source-selection batch with one persistence write and publication.
+    public func setHidden(_ isHidden: Bool, candidates: [HiddenMediaCandidate], at date: Date = Date()) {
+        apply(candidates.map { candidate in
+            HiddenMediaMutation(
+                identity: candidate.identity, isHidden: isHidden, modifiedAt: date,
+                relatedCatalogID: candidate.relatedCatalogID ?? mutations[candidate.identity]?.relatedCatalogID
+            )
+        })
     }
 
     public func moveSections(fromOffsets source: IndexSet, toOffset destination: Int) {
@@ -118,14 +128,7 @@ public final class HiddenMediaStore: ObservableObject {
 
     public func applyRemote(_ remote: [HiddenMediaMutation]) {
         lastRemoteApplyTime = Date()
-        var changed = false
-        for mutation in remote {
-            let current = mutations[mutation.identity]
-            guard current == nil || current!.modifiedAt < mutation.modifiedAt else { continue }
-            mutations[mutation.identity] = mutation
-            changed = true
-        }
-        if changed { save() }
+        apply(remote)
     }
 
     public func exportMutations() -> [HiddenMediaMutation] {
@@ -150,15 +153,23 @@ public final class HiddenMediaStore: ObservableObject {
                 ? mutation.identity
                 : nil
         }
-        for identity in missing {
-            setHidden(false, identity: identity)
-        }
+        let date = Date()
+        apply(missing.map { identity in
+            HiddenMediaMutation(
+                identity: identity, isHidden: false, modifiedAt: date,
+                relatedCatalogID: mutations[identity]?.relatedCatalogID
+            )
+        })
     }
 
-    private func apply(_ mutation: HiddenMediaMutation) {
-        guard mutations[mutation.identity]?.modifiedAt ?? .distantPast < mutation.modifiedAt else { return }
-        mutations[mutation.identity] = mutation
-        save()
+    private func apply(_ updates: [HiddenMediaMutation]) {
+        var changed = false
+        for mutation in updates {
+            if let current = mutations[mutation.identity], current.modifiedAt >= mutation.modifiedAt { continue }
+            mutations[mutation.identity] = mutation
+            changed = true
+        }
+        if changed { save() }
     }
 
     private func load() {

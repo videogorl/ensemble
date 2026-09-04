@@ -785,13 +785,7 @@ func hiddenMediaToggleAction(
                     title: "All Sources",
                     source: "\(eligible.count) sources"
                 ) {
-                    for candidate in eligible {
-                        store.setHidden(
-                            !isHidden,
-                            identity: candidate.identity,
-                            relatedCatalogID: candidate.relatedCatalogID
-                        )
-                    }
+                    store.setHidden(!isHidden, candidates: eligible)
                 },
                 at: 0
             )

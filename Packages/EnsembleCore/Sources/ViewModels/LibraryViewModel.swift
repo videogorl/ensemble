@@ -15,6 +15,7 @@ public final class LibraryViewModel: ObservableObject {
         let rawCount: Int
         let tracks: [Track]
         let sections: [TrackSection]
+        let availableGenres: [String]
     }
 
     private struct ArtistComputation: Equatable, Sendable {
@@ -281,7 +282,8 @@ public final class LibraryViewModel: ObservableObject {
                 self.commitTrackSnapshot(
                     tracks: result.tracks,
                     sections: result.sections,
-                    rawTrackCount: result.rawCount
+                    rawTrackCount: result.rawCount,
+                    availableGenres: result.availableGenres
                 )
             }
             .store(in: &cancellables)
@@ -378,33 +380,10 @@ public final class LibraryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        Publishers.CombineLatest($tracks, $tracksFilterOptions)
-            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { tracks, filterOptions -> [String] in
-                var nonGenreOptions = filterOptions
-                nonGenreOptions.selectedGenres.removeAll()
-                nonGenreOptions.excludedGenres.removeAll()
-                let preFiltered = Self.filterTracks(tracks, with: nonGenreOptions)
-                return Self.extractUniqueGenres(from: preFiltered.flatMap(\.genres))
-            }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] genres in
-                guard let self else { return }
-                if self.availableTrackGenres != genres {
-                    self.availableTrackGenres = genres
-                }
-                let next = self.trackBrowseSnapshot.updating(availableGenres: genres)
-                if self.trackBrowseSnapshot != next {
-                    self.trackBrowseSnapshot = next
-                }
-            }
-            .store(in: &cancellables)
-
         // Artist genres: derived from albums that pass non-genre filters
-        Publishers.CombineLatest($albums, $artistsFilterOptions)
+        $albums
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { albums, _ -> [String] in
+            .map { albums -> [String] in
                 var allGenres = Set<String>()
                 for album in albums where !album.genres.isEmpty {
                     album.genres.forEach { allGenres.insert($0) }
@@ -619,7 +598,7 @@ public final class LibraryViewModel: ObservableObject {
             guard !Task.isCancelled, generation == loadGeneration else { return false }
             // Settings/source visibility may change while computation is off the main actor.
             guard configuration == initialBrowseConfiguration else { continue }
-            commitTrackSnapshot(tracks: prepared.tracks.tracks, sections: prepared.tracks.sections, rawTrackCount: prepared.tracks.rawCount)
+            commitTrackSnapshot(tracks: prepared.tracks.tracks, sections: prepared.tracks.sections, rawTrackCount: prepared.tracks.rawCount, availableGenres: prepared.tracks.availableGenres)
             commitArtistSnapshot(artists: prepared.artists.artists, displayArtists: prepared.artists.displayArtists, sections: prepared.artists.sections, rawArtistCount: prepared.artists.rawCount)
             commitAlbumSnapshot(albums: prepared.albums.albums, sections: prepared.albums.sections, rawAlbumCount: prepared.albums.rawCount)
             commitGenreSnapshot(displayGenres: prepared.genres, rawGenreCount: prepared.rawGenreCount)
@@ -929,13 +908,15 @@ public final class LibraryViewModel: ObservableObject {
     private func commitTrackSnapshot(
         tracks: [Track],
         sections: [TrackSection],
-        rawTrackCount: Int
+        rawTrackCount: Int,
+        availableGenres: [String]
     ) {
         guard rawTrackCount > 0 || !trackBrowseSnapshot.hasVisibleContent || canCommitAuthoritativeEmptyBrowseSnapshot else {
             updateTrackBrowseSnapshot(trackBrowseSnapshot.updating(isShowingStaleSnapshot: true))
             return
         }
 
+        if availableTrackGenres != availableGenres { availableTrackGenres = availableGenres }
         if filteredTracks != tracks { filteredTracks = tracks }
         if trackSections != sections { trackSections = sections }
 
@@ -1054,11 +1035,13 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     private nonisolated static func computeTracks(_ tracks: [Track], sortOption: TrackSortOption, filterOptions: FilterOptions, preferences: EnsembleMergingPreferences) -> TrackComputation {
-        let filtered = LibraryViewModel.filterTracks(tracks, with: filterOptions)
+        let base = MediaFilterEngine.filterTracksWithoutGenres(tracks, with: filterOptions)
+        let availableGenres = Self.extractUniqueGenres(from: base.flatMap(\.genres))
+        let filtered = MediaFilterEngine.filterTrackGenres(base, with: filterOptions)
         let sorted = LibraryViewModel.sortTracks(filtered, by: sortOption, direction: filterOptions.sortDirection)
         let projected = MergingProjection.tracks(sorted, preferences: preferences)
         let sections = LibraryViewModel.computeTrackSections(from: projected)
-        return TrackComputation(rawCount: tracks.count, tracks: projected, sections: sections)
+        return TrackComputation(rawCount: tracks.count, tracks: projected, sections: sections, availableGenres: availableGenres)
     }
 
     private nonisolated static func computeArtists(_ artists: [Artist], albums: [Album], sortOption: ArtistSortOption, filterOptions: FilterOptions, preferences: EnsembleMergingPreferences) -> ArtistComputation {
@@ -1179,13 +1162,9 @@ public final class LibraryViewModel: ObservableObject {
     // MARK: - Filter Implementations (static so Combine pipelines can call them without actor capture)
 
     /// Extract unique sorted genre names from a flat list
-    static func extractUniqueGenres(from names: [String]) -> [String] {
+    nonisolated static func extractUniqueGenres(from names: [String]) -> [String] {
         let filtered = names.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         return Array(Set(filtered)).sorted()
-    }
-
-    private nonisolated static func filterTracks(_ tracks: [Track], with options: FilterOptions) -> [Track] {
-        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .library)
     }
 
     private nonisolated static func filterArtists(_ artists: [Artist], with options: FilterOptions, albums: [Album] = []) -> [Artist] {

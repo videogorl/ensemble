@@ -113,3 +113,31 @@ Direct snapshots/screenshots confirmed populated Artists, correct search results
 - Release simulator build succeeded. 96 focused Core checks and 27 playlist persistence checks passed, covering search responses/cancellation/visibility, navigation, first committed browse content, cache/readiness/concurrency, genre projection, and existing sort/filter behavior.
 - The broader cache selection exposed two unrelated failures: `testRemoteDisabledLibraryFlagCleansAlreadyDisabledSourceDownloads` and `testRemoteLibraryDisableCleansSourceDownloadsAndPreservesEnabledSource`. Both produced the same 14 assertions on unchanged commit `067e8310` in an isolated worktree. They were excluded from the final focused cache run; they are not claimed fixed. Logs: `../baseline-cleanup-tests.log`, `../improvements-all-focused.log`, `../improvements-cache-tests.log`, `../improvements-final-focused.log`, `../improvements-sort-tests.log`, and `../improvements-persistence-tests.log`.
 - Debugger detached; capture processes stopped. Normal Release app restored, PID 82241, matching executable and no embedded ETTrace (`restored.json`). Songs filter empty, keyboard closed, playback paused. No physical-device, energy, or frame-time proof is claimed.
+
+## Filtering and hidden-media follow-up
+
+The next change batches hidden-media updates through the existing store, shares Songs' non-genre filtering between rows and genre choices, and scopes artist genre lookup by source plus item ID. It also removes the unused artist-filter dependency from genre-choice computation. Persisted identities, timestamp conflict resolution, unhide tombstones, and raw catalog retention remain intact; no schema migration is needed.
+
+### Focused checks
+
+56 distinct focused Core tests passed across two selections (18 and 41 tests, with three overlapping). Coverage includes hidden-media persistence, cache cleanup, favorites, genre browsing, concurrency, and filter configurations. The added checks establish:
+
+- A 100-item hide batch publishes once; cleanup of 99 items publishes once more. Older mutations are ignored, and all 100 mutation records plus related catalog IDs survive reload.
+- Artists with identical item IDs on different sources cannot inherit each other's genres, for inclusion or exclusion.
+- Songs genre choices retain the non-genre result while displayed rows apply included/excluded genres to that same result.
+
+Logs: `/tmp/ensemble-state-audit-0904/hidden-filter-final-tests.log` and `hidden-filter-cache-tests.log`. The two previously baseline-confirmed download cleanup failures listed above were excluded from the cache selection and remain unresolved. Release simulator build succeeded.
+
+### Runtime evidence
+
+Artifacts are in `/tmp/ensemble-state-audit-0904/filter-batch/`. The same iOS 26.5 simulator UUID and cached catalog were used. Normal Release build `202609041534.2389`, PID 54587, matched the freshly built executable SHA-256 `d3481b1643aaa31fe22e762da2e22c891612d5a2bdbfe601e4d6fd110537b126`; ETTrace was absent (`freshness.json`).
+
+| Interaction | Observed result |
+| --- | --- |
+| Songs text filter `love`, seven-second `sample` | Library-compute queue: 81 samples in the previous build versus 35 now. Previous work included a separate 42-sample genre-choice filter; that pipeline is deleted. Track computation itself was 33 versus 32 samples. |
+| a-ha → Hide → All Sources | Artist disappeared from Artists. Hidden showed two source-specific entries; persisted data contained two hidden artist identities with the same batch timestamp. |
+| Unhide both entries from Hidden | Hidden became empty, a-ha returned with “2 sources,” and persisted data retained two unhide tombstones with zero active hidden items. |
+
+Evidence: `filter-love-sample.txt`, `love-filter.png`, `hidden-after-batch.json`, `hidden-two-sources.png`, `hidden-restored.json`, and `restored-artists.png`. Comparison sample: `../after/filter-love-normal-sample.txt`.
+
+This is one sampled interaction per build, not an end-to-end latency, frame-rate, or energy benchmark. After simulator input stopped being delivered, only the assigned simulator was restarted and Simulator.app opened; the no-input capture is explicitly discarded (`discarded-no-input-sample.txt`). The valid run rendered “Love” because of keyboard capitalization; filtering is case-insensitive. Keyboard setup differed, so compare the targeted computation rather than whole-process activity. The final app is uninstrumented, Songs text is cleared, Artists is visible, and playback is paused. All temporary hides were restored through the UI.

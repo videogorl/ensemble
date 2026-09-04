@@ -132,6 +132,45 @@ final class MediaFilterEngineTests: XCTestCase {
         XCTAssertEqual(filtered.map(\.id), ["a1"])
     }
 
+    func testArtistGenresStayWithinTheirSource() {
+        let sourceA = "plex:account:server-a:library"
+        let sourceB = "plex:account:server-b:library"
+        let artists = [sourceA, sourceB].map {
+            Artist(id: "shared", key: "shared", name: "Artist", sourceCompositeKey: $0)
+        }
+        let albums = [
+            makeAlbum(id: "jazz", artistKey: "shared", genres: ["Jazz"], sourceCompositeKey: sourceA),
+            makeAlbum(id: "rock", artistKey: "shared", genres: ["Rock"], sourceCompositeKey: sourceB)
+        ]
+        for excluding in [false, true] {
+            var options = FilterOptions()
+            if excluding { options.excludedGenres = ["Rock"] }
+            else { options.selectedGenres = ["Jazz"] }
+            XCTAssertEqual(MediaFilterEngine.filterArtists(artists, with: options, albums: albums).map(\.sourceScopedID),
+                           [artists[0].sourceScopedID])
+        }
+    }
+
+    func testTrackGenreChoicesUseTheSharedNonGenreResult() {
+        var options = FilterOptions()
+        options.searchText = "love"
+        options.selectedGenres = ["Jazz"]
+        options.excludedGenres = ["Live"]
+        options.favoriteFilter = .favorites
+        let tracks = [
+            makeTrack(id: "jazz", title: "Love", genres: ["Jazz"], rating: 10),
+            makeTrack(id: "rock", title: "Love", genres: ["Rock"], rating: 10),
+            makeTrack(id: "live", title: "Love", genres: ["Jazz", "Live"], rating: 10),
+            makeTrack(id: "unrated", title: "Love", genres: ["Pop"]),
+            makeTrack(id: "other", title: "Other", genres: ["Soul"], rating: 10)
+        ]
+        let base = MediaFilterEngine.filterTracksWithoutGenres(tracks, with: options)
+        XCTAssertEqual(base.map(\.id), ["jazz", "rock", "live"])
+        XCTAssertEqual(Set(base.flatMap(\.genres)), ["Jazz", "Rock", "Live"])
+        XCTAssertEqual(MediaFilterEngine.filterTrackGenres(base, with: options).map(\.id), ["jazz"])
+        XCTAssertEqual(MediaFilterEngine.filterTracks(tracks, with: options).map(\.id), ["jazz"])
+    }
+
     func testFavoriteFilterUsesTrackAlbumAndArtistFavoriteState() {
         var options = FilterOptions()
         options.favoriteFilter = .favorites

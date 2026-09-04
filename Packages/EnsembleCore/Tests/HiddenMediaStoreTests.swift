@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import EnsembleCore
 
@@ -41,6 +42,35 @@ final class HiddenMediaStoreTests: XCTestCase {
 
         store.removeMissing(kind: .track, sourceKey: source, survivingItemIDs: [readded.id])
         XCTAssertFalse(store.snapshot.isHidden(track))
+    }
+
+    func testBatchPublishesOnceAndPersistsUnhideTombstones() throws {
+        let suiteName = "HiddenMediaStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = HiddenMediaStore(defaults: defaults)
+        let source = "plex:account:server:library"
+        let candidates = (0..<100).map { index in
+            HiddenMediaCandidate(
+                identity: HiddenMediaIdentity(kind: .track, itemID: "\(index)", sourceCompositeKey: source),
+                title: "Track", source: source, relatedCatalogID: "catalog-\(index)"
+            )
+        }
+        var publications = 0
+        let observation = store.$snapshot.dropFirst().sink { _ in publications += 1 }
+        defer { observation.cancel() }
+        let start = Date(timeIntervalSince1970: 100)
+        store.setHidden(true, candidates: candidates, at: start)
+        XCTAssertEqual(publications, 1)
+        XCTAssertEqual(store.snapshot.identities, Set(candidates.map(\.identity)))
+        store.setHidden(false, candidates: candidates, at: start.addingTimeInterval(-1))
+        XCTAssertEqual(publications, 1, "Older changes must not overwrite the batch")
+        store.removeMissing(kind: .track, sourceKey: source, survivingItemIDs: ["0"])
+        XCTAssertEqual(publications, 2, "Cleanup is also a single batch")
+        let reloaded = HiddenMediaStore(defaults: defaults)
+        XCTAssertEqual(reloaded.snapshot.identities, [candidates[0].identity])
+        XCTAssertEqual(reloaded.exportMutations().count, 100, "Unhide tombstones must survive persistence")
+        XCTAssertTrue(reloaded.exportMutations().allSatisfy { $0.relatedCatalogID != nil })
     }
 
     func testMediaIdentitiesRejectEmptySourceKeys() {
