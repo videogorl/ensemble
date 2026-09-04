@@ -12,7 +12,8 @@ final class AuroraRenderModelTests: XCTestCase {
                 XCTAssertEqual(samples.count, count)
                 XCTAssertEqual(samples.first!, source[0])
                 XCTAssertEqual(samples.last!, source[Int(upperIndex)])
-                let midpoint = Double(count / 2) / Double(count - 1) * upperIndex
+                let normalizedMidpoint = Double(count / 2) / Double(count - 1)
+                let midpoint = (normalizedMidpoint + 0.35 * normalizedMidpoint * (1 - normalizedMidpoint)) * upperIndex
                 let lower = Int(midpoint)
                 let fraction = midpoint - Double(lower)
                 XCTAssertEqual(samples[count / 2], source[lower] * (1 - fraction) + source[lower + 1] * fraction, accuracy: 0.000001)

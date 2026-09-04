@@ -654,7 +654,9 @@ final class AuroraRenderModel: ObservableObject {
         let expansion = min(1, max(0, (Double(width) - 430) / 470))
         let upperIndex = 17 + 6 * expansion
         return (0..<count).map { index in
-            let position = Double(index) / Double(max(1, count - 1)) * upperIndex
+            let normalized = Double(index) / Double(max(1, count - 1))
+            // Pull interior activity left by up to about 8% without dropping either edge.
+            let position = (normalized + 0.35 * normalized * (1 - normalized)) * upperIndex
             let lower = Int(position)
             let upper = min(lower + 1, bandCount - 1)
             let fraction = position - Double(lower)
