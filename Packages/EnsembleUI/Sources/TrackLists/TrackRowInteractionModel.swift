@@ -297,32 +297,35 @@ extension TrackRowInteractionModel {
         navigationCoordinator: NavigationCoordinator? = nil,
         includeAlbumNavigation: Bool = true,
         includeArtistNavigation: Bool = true,
+        onNavigate: ((NavigationCoordinator.Destination) -> Void)? = nil,
         recentPlaylistTitle: String?,
         mutationCandidates: ((Track) -> [Track])? = nil,
         sourceActionPresenter: MediaSourceActionPresenter? = nil,
         onAddToPlaylist: @escaping ([Track]) -> Void,
         onGetInfo: @escaping (Track) -> Void
     ) -> TrackRowInteractionModel {
-        let goToAlbum: ((Track) -> Void)?
-        if includeAlbumNavigation, let navigationCoordinator {
-            goToAlbum = { track in
-                guard let albumId = track.albumRatingKey else { return }
+        let navigate = onNavigate ?? navigationCoordinator.map { navigationCoordinator in
+            { destination in
                 navigationCoordinator.routeFromMenu(
-                    to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                    to: destination,
                     in: navigationCoordinator.selectedTab
                 )
+            }
+        }
+        let goToAlbum: ((Track) -> Void)?
+        if includeAlbumNavigation, let navigate {
+            goToAlbum = { track in
+                guard let albumId = track.albumRatingKey else { return }
+                navigate(.album(id: albumId, sourceKey: track.sourceCompositeKey))
             }
         } else {
             goToAlbum = nil
         }
         let goToArtist: ((Track) -> Void)?
-        if includeArtistNavigation, let navigationCoordinator {
+        if includeArtistNavigation, let navigate {
             goToArtist = { track in
                 guard let artistId = track.artistRatingKey else { return }
-                navigationCoordinator.routeFromMenu(
-                    to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
-                    in: navigationCoordinator.selectedTab
-                )
+                navigate(.artist(id: artistId, sourceKey: track.sourceCompositeKey))
             }
         } else {
             goToArtist = nil

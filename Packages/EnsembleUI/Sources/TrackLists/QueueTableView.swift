@@ -241,17 +241,7 @@ public struct QueueTableView: UIViewRepresentable {
     let currentQueueIndex: Int
     let onItemTap: (QueueItem, Int) -> Void
     let onHistoryTap: (QueueItem, Int) -> Void  // Called when tapping a history item (item, historyIndex)
-    let onPlayNext: (Track) -> Void
-    let onPlayLast: (Track) -> Void
-    let onAddToLibrary: ((Track) -> Void)?
-    let canAddToLibrary: ((Track) -> Bool)?
-    let onAddToPlaylist: ((Track) -> Void)?
-    let onAddToRecentPlaylist: ((Track) -> Void)?
-    let onGoToAlbum: ((Track) -> Void)?
-    let onGoToArtist: ((Track) -> Void)?
-    let canAddToRecentPlaylist: ((Track) -> Bool)?
-    let recentPlaylistTitle: String?
-    let recentPlaylistTitleForTrack: ((Track) -> String?)?
+    let interactionModel: TrackRowInteractionModel
     let onRemoveFromQueue: (Int) -> Void
     let onMoveItem: (String, Int, Int, QueueItemSource?) -> Void
 
@@ -265,17 +255,7 @@ public struct QueueTableView: UIViewRepresentable {
         currentQueueIndex: Int,
         onItemTap: @escaping (QueueItem, Int) -> Void,
         onHistoryTap: @escaping (QueueItem, Int) -> Void,
-        onPlayNext: @escaping (Track) -> Void,
-        onPlayLast: @escaping (Track) -> Void,
-        onAddToLibrary: ((Track) -> Void)? = nil,
-        canAddToLibrary: ((Track) -> Bool)? = nil,
-        onAddToPlaylist: ((Track) -> Void)? = nil,
-        onAddToRecentPlaylist: ((Track) -> Void)? = nil,
-        onGoToAlbum: ((Track) -> Void)? = nil,
-        onGoToArtist: ((Track) -> Void)? = nil,
-        canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
-        recentPlaylistTitle: String? = nil,
-        recentPlaylistTitleForTrack: ((Track) -> String?)? = nil,
+        interactionModel: TrackRowInteractionModel,
         onRemoveFromQueue: @escaping (Int) -> Void,
         onMoveItem: @escaping (String, Int, Int, QueueItemSource?) -> Void
     ) {
@@ -286,17 +266,7 @@ public struct QueueTableView: UIViewRepresentable {
         self.currentQueueIndex = currentQueueIndex
         self.onItemTap = onItemTap
         self.onHistoryTap = onHistoryTap
-        self.onPlayNext = onPlayNext
-        self.onPlayLast = onPlayLast
-        self.onAddToLibrary = onAddToLibrary
-        self.canAddToLibrary = canAddToLibrary
-        self.onAddToPlaylist = onAddToPlaylist
-        self.onAddToRecentPlaylist = onAddToRecentPlaylist
-        self.onGoToAlbum = onGoToAlbum
-        self.onGoToArtist = onGoToArtist
-        self.canAddToRecentPlaylist = canAddToRecentPlaylist
-        self.recentPlaylistTitle = recentPlaylistTitle
-        self.recentPlaylistTitleForTrack = recentPlaylistTitleForTrack
+        self.interactionModel = interactionModel
         self.onRemoveFromQueue = onRemoveFromQueue
         self.onMoveItem = onMoveItem
     }
@@ -346,17 +316,7 @@ public struct QueueTableView: UIViewRepresentable {
         context.coordinator.currentQueueIndex = currentQueueIndex
         context.coordinator.onItemTap = onItemTap
         context.coordinator.onHistoryTap = onHistoryTap
-        context.coordinator.onPlayNext = onPlayNext
-        context.coordinator.onPlayLast = onPlayLast
-        context.coordinator.onAddToLibrary = onAddToLibrary
-        context.coordinator.canAddToLibrary = canAddToLibrary
-        context.coordinator.onAddToPlaylist = onAddToPlaylist
-        context.coordinator.onAddToRecentPlaylist = onAddToRecentPlaylist
-        context.coordinator.onGoToAlbum = onGoToAlbum
-        context.coordinator.onGoToArtist = onGoToArtist
-        context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
-        context.coordinator.recentPlaylistTitle = recentPlaylistTitle
-        context.coordinator.recentPlaylistTitleForTrack = recentPlaylistTitleForTrack
+        context.coordinator.interactionModel = interactionModel
         context.coordinator.onRemoveFromQueue = onRemoveFromQueue
         context.coordinator.onMoveItem = onMoveItem
         context.coordinator.artworkLoader = dependencies.artworkLoader
@@ -398,17 +358,7 @@ public struct QueueTableView: UIViewRepresentable {
             currentQueueIndex: currentQueueIndex,
             onItemTap: onItemTap,
             onHistoryTap: onHistoryTap,
-            onPlayNext: onPlayNext,
-            onPlayLast: onPlayLast,
-            onAddToLibrary: onAddToLibrary,
-            canAddToLibrary: canAddToLibrary,
-            onAddToPlaylist: onAddToPlaylist,
-            onAddToRecentPlaylist: onAddToRecentPlaylist,
-            onGoToAlbum: onGoToAlbum,
-            onGoToArtist: onGoToArtist,
-            canAddToRecentPlaylist: canAddToRecentPlaylist,
-            recentPlaylistTitle: recentPlaylistTitle,
-            recentPlaylistTitleForTrack: recentPlaylistTitleForTrack,
+            interactionModel: interactionModel,
             onRemoveFromQueue: onRemoveFromQueue,
             onMoveItem: onMoveItem,
             artworkLoader: dependencies.artworkLoader,
@@ -426,17 +376,7 @@ public struct QueueTableView: UIViewRepresentable {
         var currentQueueIndex: Int
         var onItemTap: (QueueItem, Int) -> Void
         var onHistoryTap: (QueueItem, Int) -> Void
-        var onPlayNext: (Track) -> Void
-        var onPlayLast: (Track) -> Void
-        var onAddToLibrary: ((Track) -> Void)?
-        var canAddToLibrary: ((Track) -> Bool)?
-        var onAddToPlaylist: ((Track) -> Void)?
-        var onAddToRecentPlaylist: ((Track) -> Void)?
-        var onGoToAlbum: ((Track) -> Void)?
-        var onGoToArtist: ((Track) -> Void)?
-        var canAddToRecentPlaylist: ((Track) -> Bool)?
-        var recentPlaylistTitle: String?
-        var recentPlaylistTitleForTrack: ((Track) -> String?)?
+        var interactionModel: TrackRowInteractionModel
         var onRemoveFromQueue: (Int) -> Void
         var onMoveItem: (String, Int, Int, QueueItemSource?) -> Void
         var artworkLoader: ArtworkLoaderProtocol
@@ -479,17 +419,7 @@ public struct QueueTableView: UIViewRepresentable {
             currentQueueIndex: Int,
             onItemTap: @escaping (QueueItem, Int) -> Void,
             onHistoryTap: @escaping (QueueItem, Int) -> Void,
-            onPlayNext: @escaping (Track) -> Void,
-            onPlayLast: @escaping (Track) -> Void,
-            onAddToLibrary: ((Track) -> Void)?,
-            canAddToLibrary: ((Track) -> Bool)?,
-            onAddToPlaylist: ((Track) -> Void)?,
-            onAddToRecentPlaylist: ((Track) -> Void)?,
-            onGoToAlbum: ((Track) -> Void)?,
-            onGoToArtist: ((Track) -> Void)?,
-            canAddToRecentPlaylist: ((Track) -> Bool)?,
-            recentPlaylistTitle: String?,
-            recentPlaylistTitleForTrack: ((Track) -> String?)?,
+            interactionModel: TrackRowInteractionModel,
             onRemoveFromQueue: @escaping (Int) -> Void,
             onMoveItem: @escaping (String, Int, Int, QueueItemSource?) -> Void,
             artworkLoader: ArtworkLoaderProtocol,
@@ -502,17 +432,7 @@ public struct QueueTableView: UIViewRepresentable {
             self.currentQueueIndex = currentQueueIndex
             self.onItemTap = onItemTap
             self.onHistoryTap = onHistoryTap
-            self.onPlayNext = onPlayNext
-            self.onPlayLast = onPlayLast
-            self.onAddToLibrary = onAddToLibrary
-            self.canAddToLibrary = canAddToLibrary
-            self.onAddToPlaylist = onAddToPlaylist
-            self.onAddToRecentPlaylist = onAddToRecentPlaylist
-            self.onGoToAlbum = onGoToAlbum
-            self.onGoToArtist = onGoToArtist
-            self.canAddToRecentPlaylist = canAddToRecentPlaylist
-            self.recentPlaylistTitle = recentPlaylistTitle
-            self.recentPlaylistTitleForTrack = recentPlaylistTitleForTrack
+            self.interactionModel = interactionModel
             self.onRemoveFromQueue = onRemoveFromQueue
             self.onMoveItem = onMoveItem
             self.artworkLoader = artworkLoader
@@ -735,19 +655,6 @@ public struct QueueTableView: UIViewRepresentable {
         }
 
         func contextMenu(for track: Track, absoluteIndex: Int?) -> UIMenu? {
-            let interactionModel = TrackRowInteractionModel(
-                onPlayNext: { [weak self] track in self?.onPlayNext(track) },
-                onPlayLast: { [weak self] track in self?.onPlayLast(track) },
-                onAddToLibrary: self.onAddToLibrary,
-                onAddToPlaylist: self.onAddToPlaylist,
-                onAddToRecentPlaylist: self.onAddToRecentPlaylist,
-                onGoToAlbum: self.onGoToAlbum,
-                onGoToArtist: self.onGoToArtist,
-                canAddToLibrary: self.canAddToLibrary,
-                canAddToRecentPlaylist: self.canAddToRecentPlaylist,
-                recentPlaylistTitle: self.recentPlaylistTitle,
-                recentPlaylistTitleForTrack: self.recentPlaylistTitleForTrack
-            )
             let resolvedActions = interactionModel.resolve(for: track)
 
             return NativeMediaTableActionBuilder.contextMenu(

@@ -20,6 +20,7 @@ public struct QueueCard: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     #if os(macOS)
     @State private var macOSDraggingQueueItemID: String?
@@ -112,6 +113,7 @@ public struct QueueCard: View {
             .padding(.bottom, EnsembleScaffold.NowPlaying.secondaryControlsBottomPadding)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         .recentPlaylistTargetObservation(
             nowPlayingVM: viewModel,
             tracks: playbackProjection.currentTrack.map { [$0] } ?? [],
@@ -193,51 +195,7 @@ public struct QueueCard: View {
                         onHistoryTap: { _, historyIndex in
                             viewModel.playFromHistory(at: historyIndex)
                         },
-                        onPlayNext: { track in
-                            viewModel.playNext(track)
-                        },
-                        onPlayLast: { track in
-                            viewModel.playLast(track)
-                        },
-                        onAddToLibrary: { track in
-                            Task { await viewModel.addTrackToLibrary(track) }
-                        },
-                        canAddToLibrary: { track in
-                            viewModel.canAddTrackToLibrary(track)
-                        },
-                        onAddToPlaylist: { track in
-                            presentPlaylistPicker(with: [track], title: "Add to Playlist")
-                        },
-                        onAddToRecentPlaylist: { track in
-                            PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: viewModel)
-                        },
-                        onGoToAlbum: { track in
-                            if let albumId = track.albumRatingKey {
-                                navigateFromNowPlaying(
-                                    to: .album(id: albumId, sourceKey: track.sourceCompositeKey)
-                                )
-                            }
-                        },
-                        onGoToArtist: { track in
-                            if let artistId = track.artistRatingKey {
-                                navigateFromNowPlaying(
-                                    to: .artist(id: artistId, sourceKey: track.sourceCompositeKey)
-                                )
-                            }
-                        },
-                        canAddToRecentPlaylist: { track in
-                            PlaylistActionPresentationHost.recentPlaylistTitle(
-                                for: [track],
-                                nowPlayingVM: viewModel
-                            ) != nil
-                        },
-                        recentPlaylistTitle: lastPlaylistQuickTarget?.title,
-                        recentPlaylistTitleForTrack: { track in
-                            PlaylistActionPresentationHost.recentPlaylistTitle(
-                                for: [track],
-                                nowPlayingVM: viewModel
-                            )
-                        },
+                        interactionModel: trackInteractionModel,
                         onRemoveFromQueue: { absoluteIndex in
                             viewModel.removeFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
                         },
@@ -504,6 +462,9 @@ public struct QueueCard: View {
                         )
                     }
                 },
+                onGetInfo: {
+                    libraryItemInfoRequest = .track(item.track)
+                },
                 onRemoveFromQueue: onRemoveFromQueue
             )
         }
@@ -582,6 +543,19 @@ public struct QueueCard: View {
     }
 
     // MARK: - Helper Methods
+
+    private var trackInteractionModel: TrackRowInteractionModel {
+        .nowPlayingActions(
+            nowPlayingVM: viewModel,
+            deps: deps,
+            onNavigate: navigateFromNowPlaying(to:),
+            recentPlaylistTitle: lastPlaylistQuickTarget?.title
+        ) { tracks in
+            presentPlaylistPicker(with: tracks, title: "Add to Playlist")
+        } onGetInfo: { track in
+            libraryItemInfoRequest = .track(track)
+        }
+    }
 
     private func presentPlaylistPicker(
         with tracks: [Track],
