@@ -3,7 +3,7 @@ import EnsemblePersistence
 import EnsembleSiriShared
 import Foundation
 
-/// Resolves library-independent Ensemble links against the recipient's enabled local libraries.
+/// Resolves library-independent Ensemble links against visible libraries and Apple Music fallback.
 @MainActor
 public final class EnsemblePermalinkResolver {
     private let libraryRepository: LibraryRepositoryProtocol
@@ -15,13 +15,19 @@ public final class EnsemblePermalinkResolver {
     public init(
         accountManager: AccountManager,
         settingsManager: SettingsManager,
+        visibilityStore: LibraryVisibilityStore,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.enabledSourceKeys = {
-            Set(accountManager.enabledSources().map(\.compositeKey))
+            let enabledSourceKeys = Set(accountManager.enabledSources().map(\.compositeKey))
+            return enabledSourceKeys.subtracting(
+                visibilityStore.effectiveHiddenSourceCompositeKeys(
+                    enabledSourceCompositeKeys: enabledSourceKeys
+                )
+            )
         }
         self.mergingPreferences = { settingsManager.mergingPreferences }
         self.appleMusicCatalogSearch = .live
@@ -251,10 +257,10 @@ public final class EnsemblePermalinkResolver {
         return candidates
             .map { (candidate: $0, score: score($0)) }
             .sorted {
-                if $0.score != $1.score { return $0.score > $1.score }
                 let lhsRank = preferences.rank(for: sourceKey($0.candidate))
                 let rhsRank = preferences.rank(for: sourceKey($1.candidate))
                 if lhsRank != rhsRank { return lhsRank < rhsRank }
+                if $0.score != $1.score { return $0.score > $1.score }
                 return $0.candidate.id.localizedCaseInsensitiveCompare($1.candidate.id) == .orderedAscending
             }
             .first?

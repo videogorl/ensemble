@@ -6,8 +6,8 @@
 - Typed media routes append to the active scene stack. Feed/list refreshes do not
   pop a destination, opening a shared link does not start playback, and an
   existing macOS main window handles incoming navigation when available.
-- Shared links prefer enabled local-library matches, then the closest Apple
-  Music catalog match when Apple Music is enabled.
+- Shared links prefer enabled, visible local-library matches, then the closest
+  Apple Music catalog match when Apple Music is enabled and visible.
 - Prefer native platform owners for tab/split navigation, sheets, keyboard,
   search, scrolling, toolbars, menus, tables, AirPlay, Metal, volume, and window
   behavior. Custom bridges are limited to capabilities SwiftUI does not expose.
@@ -32,8 +32,9 @@
   its recorded quality matches. Empty/incomplete exports are rejected and
   temporary files live long enough for receivers to finish reading.
 - Portable Ensemble links contain descriptive metadata, never credentials or
-  source IDs. They resolve only against enabled cached libraries and navigate
-  without autoplay; unresolved links fail non-destructively into Search.
+  source IDs. They resolve against enabled, visible cached libraries and the
+  Apple Music fallback above, then navigate without autoplay; unresolved links
+  fail non-destructively into Search.
 - File/library info may expose Plex media paths only outside Demo Mode. It does
   not mix static library metadata with live Now Playing/connection state.
 - Artwork-backed surfaces use source/identity-scoped durable artwork and cached

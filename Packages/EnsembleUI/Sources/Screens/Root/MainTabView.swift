@@ -412,6 +412,7 @@ public struct MainTabView: View {
             viewModels: viewModels,
             mediaNavigationNamespace: mediaNavigationNamespace
         )
+        .id(destination)
     }
 
     @ViewBuilder
@@ -2197,6 +2198,7 @@ public struct SidebarView: View {
             viewModels: viewModels,
             mediaNavigationNamespace: mediaNavigationNamespace
         )
+        .id(destination)
     }
 }
 

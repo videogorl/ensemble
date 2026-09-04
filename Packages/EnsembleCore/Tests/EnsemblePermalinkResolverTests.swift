@@ -39,6 +39,43 @@ final class EnsemblePermalinkResolverTests: XCTestCase {
         XCTAssertEqual(destination, .song(id: "match", sourceKey: sourceB))
     }
 
+    func testTrackUsesPreferredLibraryBeforeMetadataScore() async throws {
+        let stack = CoreDataStack.inMemory()
+        let library = LibraryRepository(coreDataStack: stack)
+        let playlists = PlaylistRepository(coreDataStack: stack)
+        let preferredSource = "plex:account:preferred:music"
+        let otherSource = "plex:account:other:music"
+
+        try await library.batchUpsertTracks([
+            trackInput(id: "preferred", artist: "Björk", album: "Greatest Hits", duration: 300_000),
+        ], sourceCompositeKey: preferredSource)
+        try await library.batchUpsertTracks([
+            trackInput(id: "other", artist: "Björk", album: "Vespertine", duration: 301_000),
+        ], sourceCompositeKey: otherSource)
+
+        let resolver = EnsemblePermalinkResolver(
+            libraryRepository: library,
+            playlistRepository: playlists,
+            enabledSourceKeys: { [preferredSource, otherSource] },
+            mergingPreferences: {
+                EnsembleMergingPreferences(preferredSourceKeys: [preferredSource, otherSource])
+            }
+        )
+        let destination = try await resolver.resolve(
+            EnsemblePermalink(
+                kind: .track,
+                title: "Pagan Poetry",
+                artistName: "Björk",
+                albumTitle: "Vespertine",
+                duration: 301,
+                trackNumber: 5,
+                discNumber: 1
+            )
+        )
+
+        XCTAssertEqual(destination, .song(id: "preferred", sourceKey: preferredSource))
+    }
+
     func testCaseInsensitiveSameNamedPlaylistsUseMergedDestination() async throws {
         let stack = CoreDataStack.inMemory()
         let library = LibraryRepository(coreDataStack: stack)

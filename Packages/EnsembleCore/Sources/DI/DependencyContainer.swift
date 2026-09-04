@@ -243,6 +243,7 @@ public final class DependencyContainer: @unchecked Sendable {
             EnsemblePermalinkResolver(
                 accountManager: network.accountManager,
                 settingsManager: core.settingsManager,
+                visibilityStore: core.libraryVisibilityStore,
                 libraryRepository: core.libraryRepository,
                 playlistRepository: core.playlistRepository
             )
