@@ -116,17 +116,6 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         }
     }
 
-    private final class MockArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
-        func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
-        func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
-        func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
-        func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws {}
-        func deleteArtwork(ratingKey: String, type: ArtworkType) {}
-        func deleteArtwork(forRatingKeys ratingKeys: Set<String>) {}
-        func clearArtworkCache() async throws {}
-        func getArtworkCacheSize() async throws -> Int64 { 0 }
-    }
-
     private final class MockPendingMutationRepository: PendingMutationRepositoryProtocol, @unchecked Sendable {
         func fetchPendingMutations() async throws -> [CDPendingMutation] { [] }
         func fetchAllMutations() async throws -> [CDPendingMutation] { [] }
@@ -388,7 +377,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             accountManager: accountManager,
             libraryRepository: MockLibraryRepository(),
             playlistRepository: MockPlaylistRepository(),
-            artworkDownloadManager: MockArtworkDownloadManager(),
+            artworkDownloadManager: EmptyArtworkDownloadManager(),
             networkMonitor: networkMonitorRef,
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitorRef)
         )

@@ -1576,18 +1576,6 @@ public final class SyncCoordinator: ObservableObject {
         )
     }
 
-    /// Get a quality-aware universal stream URL for offline downloading.
-    /// Playback should continue using direct stream URLs for AVPlayer compatibility.
-    public func getOfflineDownloadURL(for track: Track, quality: StreamingQuality) async throws -> URL {
-        let apiClient = try await apiClientForTrack(track)
-
-        guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else {
-            throw PlexAPIError.invalidResponse
-        }
-
-        return try await apiClient.getUniversalStreamURL(for: plexTrack, quality: quality)
-    }
-
     /// Download a complete quality-specific Plex file for export.
     public func downloadUniversalStreamToFile(
         for track: Track,
@@ -1611,38 +1599,6 @@ public final class SyncCoordinator: ObservableObject {
         return try await apiClient.downloadTranscodedMediaViaQueue(
             trackRatingKey: track.id,
             quality: quality
-        )
-    }
-
-    /// Get a quality-aware fallback URL for offline downloading using Plex's audio transcode endpoint.
-    /// This is used when universal offline URLs are rejected by certain server configurations.
-    public func getOfflineDownloadFallbackURL(
-        for track: Track,
-        quality: StreamingQuality,
-        preferStreamKeyPath: Bool = false,
-        useAbsolutePathParameter: Bool = false,
-        useAudioEndpoint: Bool = false,
-        useStartWithoutExtension: Bool = false
-    ) async throws -> URL {
-        let apiClient = try await apiClientForTrack(track)
-
-        let transcodeTrackKey: String
-        if preferStreamKeyPath,
-           let streamKey = track.streamKey,
-           !streamKey.isEmpty {
-            // Some servers are stricter about path shape for transcode start and
-            // only accept part paths instead of metadata paths.
-            transcodeTrackKey = streamKey
-        } else {
-            transcodeTrackKey = "/library/metadata/\(track.id)"
-        }
-
-        return try await apiClient.getTranscodeStreamURL(
-            trackKey: transcodeTrackKey,
-            quality: quality,
-            useAbsolutePathParameter: useAbsolutePathParameter,
-            useAudioEndpoint: useAudioEndpoint,
-            useStartWithoutExtension: useStartWithoutExtension
         )
     }
 

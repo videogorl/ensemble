@@ -28,7 +28,6 @@ public enum EnsembleScaffold {
         public static let albumGridRowSpacing = rowSpacing
         public static let albumShelfSpacing = rowSpacing
         public static let hubArtworkDimension: CGFloat = 140
-        public static let hubShadowY = EnsembleDesign.Effect.shadowY
         public static let horizontalScrollMetadataHeight: CGFloat = 78
         public static let metadataTextHeight: CGFloat = 66
         public static let compactColumnMinimum: CGFloat = 100
@@ -72,13 +71,10 @@ public enum EnsembleScaffold {
     public enum Marquee {
         public static let duplicateTextSpacing: CGFloat = 50
         public static let fadeWidth = EnsembleDesign.Spacing.xxl
-        public static let fallbackLineHeight = EnsembleDesign.Spacing.xxl
-        public static let preferredLineHeightMultiplier: CGFloat = 1.5
         public static let measurementOpacity = EnsembleDesign.Spacing.none
     }
 
     public enum Waveform {
-        public static let emptyBarCount = 40
         public static let emptyBarHeightRatio = 0.2
         public static let barSpacing: CGFloat = 1
         public static let barCornerRadius: CGFloat = 1
@@ -136,7 +132,6 @@ public enum EnsembleScaffold {
     public enum Favorites {
         public static let heroIconSize = EnsembleScaffold.VirtualDetailHeader.heroIconSize
         public static let heroArtworkDimension = EnsembleScaffold.VirtualDetailHeader.heroArtworkDimension
-        public static let heroTopPadding = EnsembleDesign.Spacing.xl
         public static let headerBottomPadding = EnsembleDesign.Spacing.xl
         public static let metadataSpacing = EnsembleDesign.Spacing.xs
     }
@@ -181,11 +176,6 @@ public enum EnsembleScaffold {
         public static let descriptionSpacing = EnsembleDesign.Spacing.sm
         public static let aboutSpacing = EnsembleDesign.Spacing.lg
         public static let factLabelWidth: CGFloat = 50
-        public static let actionIconDimension = EnsembleScaffold.UtilityRow.iconLaneWidth
-        public static let wideArtworkShadowColor = EnsembleDesign.Effect.shadowColor
-        public static let wideArtworkShadowRadius = EnsembleDesign.Effect.shadowRadius
-        public static let wideArtworkShadowY = EnsembleDesign.Effect.shadowY
-        public static let placeholderArtworkColor = Color.gray.opacity(0.2)
         public static let darkLegibilityOverlayOpacity = EnsembleScaffold.DetailSurface.darkLegibilityOverlayOpacity
         public static let lightLegibilityOverlayOpacity = EnsembleScaffold.DetailSurface.lightLegibilityOverlayOpacity
     }
@@ -368,7 +358,6 @@ public enum EnsembleScaffold {
         public static let iconActionDimension = EnsembleScaffold.UtilityRow.iconLaneWidth
         public static let darkLegibilityOverlayOpacity = 0.45
         public static let lightLegibilityOverlayOpacity = 0.7
-        public static let backgroundFadeDuration = 0.55
 
         public enum ArtworkShadow {
             public static let color = EnsembleDesign.Effect.shadowColor
@@ -394,9 +383,6 @@ public enum EnsembleScaffold {
         public static let backgroundHeight: CGFloat = 400
         public static let progressMaxWidth: CGFloat = 280
         public static let backgroundAccentOpacity = 0.3
-        public static let headerIconShadowColor = EnsembleDesign.Effect.shadowColor
-        public static let headerIconShadowRadius = EnsembleDesign.Effect.shadowRadius
-        public static let headerIconShadowY = EnsembleDesign.Effect.shadowY
     }
 
     public enum NowPlaying {
@@ -411,7 +397,6 @@ public enum EnsembleScaffold {
         public static let sectionTopPadding = EnsembleDesign.Spacing.lg
         public static let compactSectionTopPadding = EnsembleDesign.Spacing.sm
         public static let spaciousHeightThreshold: CGFloat = 700
-        public static let artworkMaxHeightRatio: CGFloat = 0.4
         public static let artworkMaxDimension: CGFloat = 400
         public static let secondaryControlsSpacing: CGFloat = 30
         public static let transportControlsSpacing: CGFloat = 40
@@ -513,7 +498,6 @@ public enum EnsembleScaffold {
         public static let horizontalPadding = EnsembleDesign.Spacing.xs
         public static let letterHeight: CGFloat = 13
         public static let letterSpacing = EnsembleDesign.Spacing.none
-        public static let letterWidth = EnsembleDesign.Spacing.xl
         public static let letterFont: Font = .system(size: 10, weight: .bold)
         public static let hitTargetWidth: CGFloat = 14
         public static let bottomLift: CGFloat = 8
@@ -552,21 +536,10 @@ public enum EnsembleScaffold {
         public static let popoverWidth: CGFloat = 240
         public static let popoverDividerVerticalPadding = EnsembleDesign.Spacing.chipVertical
         public static let macMenuYOffset = EnsembleDesign.Spacing.xs
-        public static let backgroundBlurRadius: CGFloat = 50
-        public static let backgroundContrast: CGFloat = 2.0
-        public static let backgroundSaturation: CGFloat = 1.9
-        public static let backgroundDarkBrightness: CGFloat = -0.1
-        public static let backgroundLightBrightness: CGFloat = 0.05
         public static let backgroundOpacity = 0.3
-        public static let backgroundTopDimming = 0.2
-        public static let backgroundBottomDimming = 0.15
-        public static let backgroundAnimationDuration = 0.8
         public static let sheenDarkTopOpacity = 0.03
         public static let sheenDarkBottomOpacity = 0.02
         public static let sheenLightOpacity = 0.01
-        public static let edgeGlowDarkOpacity = 0.15
-        public static let edgeGlowLightOpacity = 0.05
-        public static let edgeGlowInset: CGFloat = 1
     }
 
     public enum AuxiliaryWindow {

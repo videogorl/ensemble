@@ -609,7 +609,6 @@ public struct ArtistDetailView: View {
     @State private var showToolbarTitle = false
     @State private var artistHeaderActionWidth: CGFloat = 0
     @State private var favoritedTrackListWidth: CGFloat = 0
-    @State private var sourceFavoritedTrackListWidths: [String: CGFloat] = [:]
     @Environment(\.artistDetailArtworkContinuity) private var artistArtworkContinuity
     @Environment(\.openURL) private var openURL
 
@@ -1530,76 +1529,6 @@ public struct ArtistDetailView: View {
         }
     }
 
-    private var mergedSourceSections: some View {
-        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.sectionTopPadding) {
-            ForEach(mergedViewModel.sourceSections) { section in
-                mergedSourceSection(section)
-            }
-        }
-    }
-
-    private func mergedSourceSection(_ section: MergedArtistSourceSection) -> some View {
-        let snapshot = mergedViewModel.sourceDisplaySnapshot(for: section)
-        let studioAlbums = snapshot.studioAlbums
-        let singlesAndEPs = snapshot.singlesAndEPs
-        let favoritedTracks = snapshot.favoritedTracks
-
-        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
-            HStack(alignment: .firstTextBaseline, spacing: EnsembleDesign.Spacing.md) {
-                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                    Text(section.sourceTitle)
-                        .font(EnsembleDesign.Typography.sectionTitle)
-                        .foregroundColor(EnsembleDesign.Color.primaryText)
-
-                    Text(sourceSectionMetadata(section, snapshot: snapshot, totalTracks: snapshot.filteredTracks))
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                }
-
-                Spacer()
-
-                if canDownload(section.artist) {
-                    sourceDownloadButton(for: section.artist)
-                }
-            }
-            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-
-            if !studioAlbums.isEmpty || !singlesAndEPs.isEmpty {
-                VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.sectionTopPadding) {
-                    if !studioAlbums.isEmpty {
-                        albumReleaseSection(title: "Albums", albums: studioAlbums)
-                    }
-
-                    if !singlesAndEPs.isEmpty {
-                        albumReleaseSection(title: "Singles & EPs", albums: singlesAndEPs)
-                    }
-                }
-            }
-
-            if !favoritedTracks.isEmpty {
-                sourceFavoritedTracksSection(section: section, tracks: favoritedTracks)
-            }
-        }
-    }
-
-    private func sourceSectionMetadata(
-        _ section: MergedArtistSourceSection,
-        snapshot: ArtistDetailDisplaySnapshot,
-        totalTracks: [Track]
-    ) -> String {
-        return [
-            artistStatsAlbumText(albumCount: snapshot.studioAlbums.count, singlesAndEPCount: snapshot.singlesAndEPs.count),
-            "\(totalTracks.count) song\(totalTracks.count == 1 ? "" : "s")",
-            "\(snapshot.favoritedTracks.count) favorited",
-            displaySourceSubtitle(section.sourceSubtitle)
-        ].joined(separator: " · ")
-    }
-
-    private func displaySourceSubtitle(_ sourceSubtitle: String) -> String {
-        guard settingsManager.demoModeEnabled else { return sourceSubtitle }
-        return "\(DemoModeRedaction.serverName) · \(DemoModeRedaction.accountIdentifier)"
-    }
-
     private var artistStatsAlbumText: String {
         artistStatsAlbumText(albumCount: detailStudioAlbums.count, singlesAndEPCount: detailSinglesAndEPs.count)
     }
@@ -1621,56 +1550,6 @@ public struct ArtistDetailView: View {
                 navigationCoordinator: navigationCoordinator,
                 includesHidden: includesHidden
             )
-        }
-    }
-
-    private func sourceDownloadButton(for artist: Artist) -> some View {
-        let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(artist)
-        return Button {
-            Task {
-                await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
-                    artist,
-                    isEnabled: !isDownloaded
-                )
-            }
-        } label: {
-            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-                .labelStyle(.iconOnly)
-        }
-        .buttonStyle(.borderless)
-        .accessibilityLabel(isDownloaded ? "Remove Download" : "Download")
-    }
-
-    private func canDownload(_ artist: Artist) -> Bool {
-        artist.actionAvailability(for: .download).isAvailable
-    }
-
-    private func sourceFavoritedTracksSection(
-        section: MergedArtistSourceSection,
-        tracks: [Track]
-    ) -> some View {
-        let width = sourceFavoritedTrackListWidths[section.id] ?? 0
-
-        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
-            EnsembleContentSectionHeader("Favorited Tracks")
-                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-
-            MediaDetailSurface<EmptyView>.CompactPlaybackActionRow(
-                isDisabled: tracks.isEmpty,
-                play: {
-                    nowPlayingVM.play(tracks: tracks)
-                },
-                shuffle: {
-                    nowPlayingVM.shufflePlay(tracks: tracks)
-                }
-            )
-
-            favoriteTrackList(tracks: tracks, supplementalMetadataWidth: width)
-        }
-        .measuredWidth { newWidth in
-            if abs((sourceFavoritedTrackListWidths[section.id] ?? 0) - newWidth) > 1 {
-                sourceFavoritedTrackListWidths[section.id] = newWidth
-            }
         }
     }
 

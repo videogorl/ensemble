@@ -52,7 +52,6 @@ public extension EnsembleDesign {
         public static let compactControlMinimumWidth: CGFloat = 430
         public static let detailWideHeader: CGFloat = 620
         public static let browseSplitMinimumWidth: CGFloat = 760
-        public static let nowPlayingSinglePanelWidth: CGFloat = 860
         public static let auxiliaryWindowMaxWidth: CGFloat = 420
     }
 
@@ -65,9 +64,6 @@ public extension EnsembleDesign {
         public static let cardShadowColor = shadowColor
         public static let cardShadowRadius = shadowRadius
         public static let cardShadowY = shadowY
-        public static let elevatedShadowColor = shadowColor
-        public static let elevatedShadowRadius = shadowRadius
-        public static let elevatedShadowY = shadowY
     }
 
     enum Animation {
@@ -307,10 +303,6 @@ public struct EnsemblePrimaryActionButtonStyle: ButtonStyle {
 }
 
 public extension View {
-    func ensembleFont(_ font: Font) -> some View {
-        self.font(font)
-    }
-
     func ensembleMaterial(
         _ role: EnsembleDesign.Material.Role,
         cornerRadius: CGFloat,

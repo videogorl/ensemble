@@ -15,7 +15,6 @@ public enum TrackListLayoutMetrics {
     public static let utilitySectionOuterPadding: CGFloat = detailHorizontalPadding - rowHorizontalPadding
 
     public static let defaultRowHeight: CGFloat = 68
-    public static let rowContentMinHeight: CGFloat = defaultRowHeight - (rowVerticalPadding * 2)
     public static let compactRowHeightThreshold: CGFloat = 60
     public static let standardArtworkDimension: CGFloat = 44
     public static let compactArtworkDimension: CGFloat = 40
@@ -40,13 +39,11 @@ public enum TrackListLayoutMetrics {
     public static let favoriteIndicatorDimension: CGFloat = 14
     public static let favoriteIndicatorCenterX: CGFloat = 8
     public static let downloadIndicatorDimension: CGFloat = 14
-    public static let downloadIndicatorScale: CGFloat = 0.7
     public static let playingIndicatorDimension: CGFloat = 18
     public static let rowAccessoryGap: CGFloat = 8
     public static let rowTightAccessoryGap: CGFloat = 6
     public static let dividerColor = EnsembleDesign.Color.divider
     public static let nativeDividerAlpha: CGFloat = 0.18
-    public static let unavailableOpacity = 0.45
     public static let primarySecondaryTextSpacing: CGFloat = EnsembleDesign.Spacing.xxs
     public static let defaultTitleTopPadding: CGFloat = 14
     public static let compactTitleTopPadding: CGFloat = 10

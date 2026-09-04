@@ -2107,46 +2107,6 @@ private struct WatchCollectionHero: View {
     }
 }
 
-private struct WatchCollectionHeaderSection: View {
-    let title: String
-    let subtitle: String?
-    let actionTarget: WatchMediaActionTarget?
-
-    init(title: String, subtitle: String?, actionTarget: WatchMediaActionTarget? = nil) {
-        self.title = title
-        self.subtitle = subtitle
-        self.actionTarget = actionTarget
-    }
-
-    var body: some View {
-        Section {
-            headerRow
-        }
-    }
-
-    @ViewBuilder
-    private var headerRow: some View {
-        let row = VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.headline)
-                .lineLimit(3)
-            if let subtitle, !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    .lineLimit(2)
-            }
-        }
-        .padding(.vertical, 2)
-
-        if let actionTarget {
-            row.watchMediaSwipeActions(actionTarget)
-        } else {
-            row
-        }
-    }
-}
-
 private struct WatchMediaActionDestination: Hashable {
     let id: String
     let kindRawValue: String

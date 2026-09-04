@@ -12,33 +12,6 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         libraryId: "1"
     )
 
-    private final class MockPlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
-        func fetchPlaylists() async throws -> [CDPlaylist] { [] }
-        func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] { [] }
-        func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? { nil }
-        func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? { nil }
-        func searchPlaylists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDPlaylist]) -> [Value]) async throws -> [Value] { [] }
-        func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist] { [] }
-        func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist { throw MockError.unimplemented }
-        func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws {}
-        func deletePlaylist(ratingKey: String) async throws {}
-        func deletePlaylists(sourceCompositeKey: String) async throws {}
-        func removeDuplicatePlaylists() async throws {}
-        func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
-        func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
-    }
-
-    private final class MockArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
-        func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
-        func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
-        func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
-        func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws {}
-        func deleteArtwork(ratingKey: String, type: ArtworkType) {}
-        func deleteArtwork(forRatingKeys ratingKeys: Set<String>) {}
-        func clearArtworkCache() async throws {}
-        func getArtworkCacheSize() async throws -> Int64 { 0 }
-    }
-
     private final class RecordingSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         private(set) var fullLibrarySyncCount = 0
@@ -125,8 +98,8 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
     func testStartupSyncForcesFullSyncWhenGenreMetadataIsSparse() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
-        let playlistRepository = MockPlaylistRepository()
-        let artworkManager = MockArtworkDownloadManager()
+        let playlistRepository = EmptyPlaylistRepository()
+        let artworkManager = EmptyArtworkDownloadManager()
         let accountManager = AccountManager(keychain: TestKeychain())
         accountManager.addPlexAccount(
             PlexAccountConfig(
@@ -251,8 +224,8 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let syncCursorRepository = SyncCursorRepository(coreDataStack: stack)
-        let playlistRepository = MockPlaylistRepository()
-        let artworkManager = MockArtworkDownloadManager()
+        let playlistRepository = EmptyPlaylistRepository()
+        let artworkManager = EmptyArtworkDownloadManager()
         let accountManager = AccountManager(keychain: TestKeychain())
         accountManager.addPlexAccount(
             PlexAccountConfig(

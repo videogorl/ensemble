@@ -18,7 +18,6 @@ public enum EnsembleDesign {
         public static let rowVertical: CGFloat = sm
         public static let rowItemGap: CGFloat = md
         public static let detailGutter: CGFloat = 40
-        public static let utilityOuterGutter: CGFloat = detailGutter - rowHorizontal
         public static let cardTextGap: CGFloat = xxs
         public static let cardGridGap: CGFloat = lg
         public static let cardRowGap: CGFloat = xl
@@ -27,8 +26,6 @@ public enum EnsembleDesign {
         public static let sheetRowVertical: CGFloat = 10
         public static let sheetOuterHorizontal: CGFloat = xxxl
         public static let sheetOuterVertical: CGFloat = 28
-        public static let sheetFooterHorizontal: CGFloat = xl
-        public static let sheetFooterVertical: CGFloat = md
         public static let sheetSectionPadding: CGFloat = 18
         public static let popoverActionHorizontal: CGFloat = 14
         public static let popoverActionVertical: CGFloat = 9
@@ -39,8 +36,6 @@ public enum EnsembleDesign {
         public static let control: CGFloat = 10
         public static let compactControl: CGFloat = 8
         public static let card: CGFloat = 12
-        public static let sectionCard: CGFloat = 14
-        public static let largeCard: CGFloat = 20
         public static let sheet: CGFloat = 20
         public static let chip: CGFloat = 20
         public static let miniPlayer: CGFloat = 28
@@ -74,8 +69,6 @@ public enum EnsembleDesign {
         public static let neutralStatus = SwiftUI.Color.gray
         public static let favorite = SwiftUI.Color.pink
         public static let generated = SwiftUI.Color.purple
-        public static let queueNext = SwiftUI.Color.blue
-        public static let queueLast = SwiftUI.Color.indigo
         public static let addToPlaylist = SwiftUI.Color.orange
         public static let onAccent = SwiftUI.Color.white
         public static let onArtwork = SwiftUI.Color.white.opacity(0.9)
@@ -107,13 +100,11 @@ public enum EnsembleDesign {
         public static let closeCircle = "xmark.circle.fill"
         public static let copy = "doc.on.doc"
         public static let delete = "trash"
-        public static let deleteFilled = "trash.fill"
         public static let download = "arrow.down.circle"
         public static let downloaded = "arrow.down.circle.fill"
         public static let dragReorder = "line.3.horizontal"
         public static let dragHandle = "circle.grid.2x3.fill"
         public static let edit = "pencil"
-        public static let editCircleFilled = "pencil.circle.fill"
         public static let editPlaylist = "slider.horizontal.3"
         public static let error = "exclamationmark.triangle.fill"
         public static let errorOutline = "exclamationmark.triangle"
@@ -131,14 +122,12 @@ public enum EnsembleDesign {
         public static let generatedBadge = "sparkles"
         public static let genre = "music.note.list"
         public static let genreEmpty = "guitars"
-        public static let genreFilled = "guitars.fill"
         public static let library = "music.note.house.fill"
         public static let libraryBuilding = "building.columns"
         public static let home = "house"
         public static let logs = "doc.text.magnifyingglass"
         public static let logsVerified = "text.badge.checkmark"
         public static let merge = "arrow.triangle.merge"
-        public static let mergeBranch = "arrow.triangle.branch"
         public static let more = "ellipsis"
         public static let moreCircle = "ellipsis.circle"
         public static let musicNote = "music.note"
@@ -175,7 +164,6 @@ public enum EnsembleDesign {
         public static let shuffle = "shuffle"
         public static let smartPlaylist = "gearshape.fill"
         public static let sort = "arrow.up.arrow.down"
-        public static let speakerPlayingCompact = "speaker.wave.2.fill"
         public static let speakerPlaying = "speaker.wave.3.fill"
         public static let unpin = "pin.slash"
         public static let aurora = "sparkles"

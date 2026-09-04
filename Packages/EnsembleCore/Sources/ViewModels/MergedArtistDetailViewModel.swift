@@ -38,7 +38,6 @@ public final class MergedArtistDetailViewModel: ObservableObject {
         didSet { rebuildDisplaySnapshots() }
     }
     @Published public private(set) var displaySnapshot: ArtistDetailDisplaySnapshot = .empty
-    @Published public private(set) var sourceDisplaySnapshots: [String: ArtistDetailDisplaySnapshot] = [:]
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
@@ -162,47 +161,12 @@ public final class MergedArtistDetailViewModel: ObservableObject {
         MediaFormatters.trackCollectionDuration(displaySnapshot.filteredTracks)
     }
 
-    public func filteredTracks(for section: MergedArtistSourceSection) -> [Track] {
-        sourceDisplaySnapshot(for: section).filteredTracks
-    }
-
-    public func filteredAlbums(for section: MergedArtistSourceSection) -> [Album] {
-        sourceDisplaySnapshot(for: section).filteredAlbums
-    }
-
-    public func favoritedTracks(for section: MergedArtistSourceSection) -> [Track] {
-        sourceDisplaySnapshot(for: section).favoritedTracks
-    }
-
-    public func sourceDisplaySnapshot(for section: MergedArtistSourceSection) -> ArtistDetailDisplaySnapshot {
-        sourceDisplaySnapshots[section.id] ?? ArtistDetailDisplaySnapshot(
-            albums: section.albums,
-            tracks: section.tracks,
-            filterOptions: filterOptions
-        )
-    }
-
     private func rebuildDisplaySnapshots() {
         let allAlbums = sourceSections.flatMap(\.albums)
         let allTracks = sourceSections.flatMap(\.tracks)
         let nextDisplay = makeDisplaySnapshot(albums: allAlbums, tracks: allTracks)
-        let nextSourceDisplays = Dictionary(
-            uniqueKeysWithValues: sourceSections.map { section in
-                (
-                    section.id,
-                    makeDisplaySnapshot(
-                        albums: section.albums,
-                        tracks: section.tracks
-                    )
-                )
-            }
-        )
-
         if displaySnapshot != nextDisplay {
             displaySnapshot = nextDisplay
-        }
-        if sourceDisplaySnapshots != nextSourceDisplays {
-            sourceDisplaySnapshots = nextSourceDisplays
         }
     }
 

@@ -509,24 +509,6 @@ public final class PlaylistViewModel: ObservableObject {
         dp.playlists.contains { Self.isOptimisticCreatingPlaylistID($0.id) }
     }
 
-    /// Deletes all constituent playlists in a merged DisplayPlaylist
-    public func deleteMergedPlaylist(_ dp: DisplayPlaylist) async -> Bool {
-        guard !dp.deletablePlaylists.isEmpty else { return false }
-        var allSucceeded = true
-        for playlist in dp.deletablePlaylists {
-            let success = await deletePlaylist(playlist)
-            if !success { allSucceeded = false }
-        }
-        return allSucceeded
-    }
-
-    /// Applies optimistic rename to all constituents of a merged DisplayPlaylist
-    public func applyOptimisticRenameForMerged(_ dp: DisplayPlaylist, newTitle: String) {
-        for playlist in dp.editablePlaylists {
-            applyOptimisticRename(for: playlist, newTitle: newTitle)
-        }
-    }
-
     private func reloadPlaylists(showLoading: Bool) async {
         if showLoading && playlists.isEmpty {
             isLoading = true

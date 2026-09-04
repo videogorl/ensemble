@@ -272,12 +272,6 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
             "\(sharedSubscriberSource)||7551",
             "\(sharedFreeSource)||7551"
         ])
-        XCTAssertEqual(viewModel.favoritedTracks(for: viewModel.sourceSections[0]).map(\.sourceScopedID), [
-            "\(sharedSubscriberSource)||7551"
-        ])
-        XCTAssertEqual(viewModel.favoritedTracks(for: viewModel.sourceSections[1]).map(\.sourceScopedID), [
-            "\(sharedFreeSource)||7551"
-        ])
         XCTAssertEqual(viewModel.displaySnapshot.favoritedTracks.map(\.sourceScopedID), [
             "\(sharedSubscriberSource)||7551",
             "\(sharedFreeSource)||7551"
@@ -285,13 +279,9 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
 
         viewModel.filterOptions.searchText = "Ordinaryish"
 
-        XCTAssertEqual(viewModel.displaySnapshot.filteredTracks.map(\.title), [
-            "Ordinaryish People"
+        XCTAssertEqual(viewModel.displaySnapshot.filteredTracks.map(\.sourceScopedID), [
+            "\(sharedSubscriberSource)||7552"
         ])
-        XCTAssertEqual(viewModel.sourceDisplaySnapshot(for: viewModel.sourceSections[0]).filteredTracks.map(\.title), [
-            "Ordinaryish People"
-        ])
-        XCTAssertTrue(viewModel.sourceDisplaySnapshot(for: viewModel.sourceSections[1]).filteredTracks.isEmpty)
     }
 
     func testHidingLoadedAlbumRemovesItFromMergedArtistSnapshots() async throws {
@@ -339,9 +329,7 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
             DispatchQueue.main.async { continuation.resume() }
         }
 
-        XCTAssertEqual(viewModel.filteredAlbums.map(\.id), ["300"])
-        XCTAssertTrue(viewModel.filteredAlbums(for: viewModel.sourceSections[0]).isEmpty)
-        XCTAssertEqual(viewModel.filteredAlbums(for: viewModel.sourceSections[1]).map(\.id), ["300"])
+        XCTAssertEqual(viewModel.filteredAlbums.map(\.sourceScopedID), ["\(otherSource)||300"])
     }
 
     func testArtistDetailDisplaySnapshotCachesFilteredReleaseAndFavoriteCollections() {
