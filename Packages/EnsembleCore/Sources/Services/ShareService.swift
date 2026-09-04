@@ -160,7 +160,8 @@ public final class ShareService: ObservableObject {
     // MARK: - File Sharing
 
     /// Prepare a shareable audio file payload for a track.
-    /// Reuses a local download only when it matches the selected sharing quality.
+    /// Reuses a local download when it matches the selected sharing quality, or
+    /// falls back to any valid download when the track's server is offline.
     /// For non-downloaded tracks, downloads to a temp directory first.
     /// Returns nil on download failure.
     public func prepareTrackFilePayload(track: Track) async -> SharePayload? {
@@ -168,7 +169,13 @@ public final class ShareService: ObservableObject {
         let quality = StreamingQuality(
             rawValue: AudioQualityPreference.storedSharingQuality()
         ) ?? .original
-        let localFileURL = Self.matchingLocalFileURL(for: track, quality: quality)
+        let serverState = serverState(for: track)
+        let matchingLocalFileURL = Self.matchingLocalFileURL(for: track, quality: quality)
+        let localFileURL = Self.localFileURL(
+            for: track,
+            quality: quality,
+            serverState: serverState
+        )
         let originalFileInfo = quality == .original && localFileURL == nil
             ? await originalFileInfo(for: track)
             : nil
@@ -182,8 +189,15 @@ public final class ShareService: ObservableObject {
         // Check for existing local download — create a renamed copy so the share sheet
         // shows the human-readable filename instead of the internal storage name
         if let localFileURL {
+            if matchingLocalFileURL == nil {
+                logger.info("Server is offline; sharing the existing offline download")
+            }
+            let localExtension = localFileURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+            let fileName = localExtension.isEmpty
+                ? exportMetadata.fileName
+                : "\(exportMetadata.sanitizedBaseName).\(localExtension.lowercased())"
             let renamedURL = Self.tempShareDirectory
-                .appendingPathComponent(exportMetadata.fileName)
+                .appendingPathComponent(fileName)
             try? FileManager.default.removeItem(at: renamedURL)
             do {
                 try FileManager.default.copyItem(at: localFileURL, to: renamedURL)
@@ -266,6 +280,22 @@ public final class ShareService: ObservableObject {
         return localQuality == quality.rawValue ? URL(fileURLWithPath: localPath) : nil
     }
 
+    nonisolated static func localFileURL(
+        for track: Track,
+        quality: StreamingQuality,
+        serverState: ServerConnectionState
+    ) -> URL? {
+        if let matchingURL = matchingLocalFileURL(for: track, quality: quality) {
+            return matchingURL
+        }
+        guard serverState == .offline,
+              let localPath = track.localFilePath,
+              FileManager.default.fileExists(atPath: localPath) else {
+            return nil
+        }
+        return URL(fileURLWithPath: localPath)
+    }
+
     nonisolated static func isCompleteAudioExport(actualByteCount: Int, expectedByteCount: Int?) -> Bool {
         actualByteCount > 0 && expectedByteCount.map { actualByteCount >= $0 } != false
     }
@@ -280,6 +310,16 @@ public final class ShareService: ObservableObject {
             logger.debug("Couldn't load original file metadata for sharing: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    private func serverState(for track: Track) -> ServerConnectionState {
+        guard let source = MediaSourceIdentity.parse(track.sourceCompositeKey) else {
+            return .unknown
+        }
+        return syncCoordinator.serverHealthChecker.getServerState(
+            accountId: source.accountId,
+            serverId: source.serverId
+        )
     }
 
     // MARK: - Formatting Helpers

@@ -104,6 +104,33 @@ final class ShareServiceTests: XCTestCase {
         XCTAssertNil(ShareService.matchingLocalFileURL(for: track, quality: .high))
     }
 
+    func testOfflineServerFallsBackToDownloadedFileAtAnotherQuality() {
+        let tempPath = NSTemporaryDirectory() + "test_share_fallback_\(UUID().uuidString).mp3"
+        FileManager.default.createFile(atPath: tempPath, contents: Data("fake audio".utf8))
+        defer { try? FileManager.default.removeItem(atPath: tempPath) }
+
+        let track = Track(
+            id: "1",
+            key: "/library/metadata/1",
+            title: "Downloaded Track",
+            localFilePath: tempPath,
+            downloadedQuality: "medium"
+        )
+
+        XCTAssertNil(
+            ShareService.localFileURL(
+                for: track,
+                quality: .high,
+                serverState: .connected(url: "https://plex")
+            )
+        )
+        XCTAssertNil(ShareService.localFileURL(for: track, quality: .high, serverState: .unknown))
+        XCTAssertEqual(
+            ShareService.localFileURL(for: track, quality: .high, serverState: .offline),
+            URL(fileURLWithPath: tempPath)
+        )
+    }
+
     func testTrackWithoutLocalFile_isNotDownloaded() {
         let track = Track(
             id: "1",

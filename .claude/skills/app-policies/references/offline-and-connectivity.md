@@ -3,6 +3,9 @@
 - A valid downloaded track remains playable when the device or its Plex server
   is unavailable. A non-downloaded Plex track requires allowed device
   connectivity and a source that is not confirmed unavailable.
+- Audio-file sharing honors the selected quality while health is unsettled or
+  the server is reachable. If health confirms the server offline, a valid
+  download at another quality may be shared instead.
 - Device offline and server unavailable are distinct states with distinct user
   messaging. Unknown, connecting, or an in-flight check is not confirmed
   unavailability; allow the real request unless the device is known offline.
