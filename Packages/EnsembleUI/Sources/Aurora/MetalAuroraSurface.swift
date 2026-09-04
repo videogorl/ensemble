@@ -416,7 +416,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             float verticalSoftness = halo ? 0.48 : 0.70;
             float verticalBlur = halo ? 1.12 : 1.95;
 
-            float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity * 0.70;
+            float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity;
 
             for (uint i = 0; i < bandCount; i++) {
                 float intensity = clamp(bands[i], 0.0, 1.0);
@@ -426,15 +426,11 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
                 float centerX = xOffset + (float(i) + 0.5) * bandWidth;
                 float glowWidth = bandWidth * 3.0 * spread;
                 float rectHeight = height + u.poolHeight * heightScale;
-                float rectMinY = u.size.y - height - u.poolHeight;
-                float rectCenterY = rectMinY + rectHeight * 0.5;
 
                 float dx = (p.x - centerX) / max(glowWidth * 0.5, 1.0);
-                float dy = (p.y - rectCenterY) / max(rectHeight * 0.5, 1.0);
+                float dy = (u.size.y - p.y) / max(rectHeight, 1.0);
                 float ellipse = exp(-(dx * dx * 1.65 + dy * dy * verticalBlur));
-                float t = clamp((p.y - rectMinY) / max(rectHeight, 1.0), 0.0, 1.0);
-                float fromBottom = 1.0 - t;
-                float vertical = smoothBand(0.0, 0.08, fromBottom) * (1.0 - smoothBand(verticalSoftness, 1.0, fromBottom));
+                float vertical = 1.0 - smoothBand(verticalSoftness, 1.0, dy);
                 float bellAlpha = bell;
                 float intensityAlpha = (0.06 + pow(intensity, 1.4) * 0.94) * bellAlpha;
                 float contribution = ellipse * vertical * intensityAlpha * baseOpacity;
@@ -457,7 +453,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         energy = clamp(energy * 0.70 + bassEnergy * 0.30, 0.0, 1.0);
 
         float fromBottomPixels = u.size.y - p.y;
-        // An opaque accent edge fades upward; stronger signals lift that fade.
+        // Curtains stay anchored at the bottom; view opacity sets the final edge alpha.
         float pool = 1.0 - smoothBand(1.0, u.poolHeight + u.maxHeight * 0.18 * energy, fromBottomPixels);
         alpha = pool + alpha * (1.0 - pool);
 

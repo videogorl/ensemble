@@ -124,7 +124,7 @@ public struct AuroraVisualizationView: View {
             auroraSurface(for: geometry)
                 .frame(maxHeight: .infinity, alignment: .bottom)
         }
-        .opacity(isVisible ? 1 : 0)
+        .opacity(isVisible ? 0.35 : 0)
         .if(expandsBeyondBounds) { view in
             view.ignoresSafeArea()
         }
@@ -359,7 +359,7 @@ public struct AuroraVisualizationView: View {
         let activeWidth = isPhone ? size.width : (activeContentMaxWidth.map { min(size.width, $0) } ?? size.width)
         let xOffset = (size.width - activeWidth) / 2
         let bandWidth = activeWidth / CGFloat(bandCount)
-        let baseOpacity = (colorScheme == .dark ? 0.7 : 0.5) * opacity * 0.7
+        let baseOpacity = (colorScheme == .dark ? 0.7 : 0.5) * opacity
 
         // Blur once for the whole glow layer. Applying a Gaussian filter per band
         // creates dozens of offscreen RenderBox surfaces per frame, which can
@@ -389,15 +389,11 @@ public struct AuroraVisualizationView: View {
             let x = centerX - glowWidth / 2
             let y = size.height - height - poolHeight
 
-            // Gradient fades transparent at the very bottom so bands "emerge" from the pool
-            // rather than anchoring bright cones to the floor (which causes the "uplight" banding look).
-            // Peak brightness sits slightly above the base, then fades upward to transparent.
+            // Anchor each curtain below the surface so it only fades upward.
             let bellAlpha = bellFactor
             let intensityAlpha = (0.06 + pow(intensity, 1.4) * 0.94) * bellAlpha
             let bandGradient = Gradient(stops: [
-                .init(color: accentColor.opacity(0), location: 0.0),
-                .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.7), location: 0.08),
-                .init(color: accentColor.opacity(baseOpacity * intensityAlpha), location: 0.2),
+                .init(color: accentColor.opacity(baseOpacity * intensityAlpha), location: 0.0),
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.6), location: 0.45),
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.25), location: 0.7),
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.08), location: 0.88),
@@ -409,21 +405,21 @@ public struct AuroraVisualizationView: View {
                 x: x,
                 y: y,
                 width: glowWidth,
-                height: height + poolHeight
+                height: (height + poolHeight) * 2
             )
 
             layerContext.fill(
                 Path(ellipseIn: glowRect),
                 with: .linearGradient(
                     bandGradient,
-                    startPoint: CGPoint(x: glowRect.midX, y: glowRect.maxY),
+                    startPoint: CGPoint(x: glowRect.midX, y: size.height),
                     endPoint: CGPoint(x: glowRect.midX, y: glowRect.minY)
                 )
             )
         }
     }
     
-    /// Signal strength lifts the fade; the bottom edge stays solid accent color.
+    /// Signal strength lifts the fade; view opacity sets the bottom edge to 35%.
     private func drawBottomPool(context: GraphicsContext, size: CGSize, energy: Double) {
         let height = poolHeight + maxHeight * 0.18 * CGFloat(energy)
         let rect = CGRect(x: 0, y: size.height - height, width: size.width, height: height)
