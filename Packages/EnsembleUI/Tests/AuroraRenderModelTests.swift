@@ -2,7 +2,7 @@ import XCTest
 @testable import EnsembleUI
 
 final class AuroraRenderModelTests: XCTestCase {
-    func testDisplaySamplingExpandsFrequencyRangeWithAvailableWidth() {
+    func testDisplaySamplingMirrorsBassAtCenterAndExpandsRangeWithWidth() {
         let model = AuroraRenderModel()
         model.advance(targetBands: (0..<24).map { Double($0) / 23 }, at: 0)
         let source = model.renderedBands
@@ -10,13 +10,14 @@ final class AuroraRenderModelTests: XCTestCase {
             for count in [24, 48] {
                 let samples = model.displayBands(width: width, count: count)
                 XCTAssertEqual(samples.count, count)
-                XCTAssertEqual(samples.first!, source[0])
+                XCTAssertEqual(samples.first!, source[Int(upperIndex)])
                 XCTAssertEqual(samples.last!, source[Int(upperIndex)])
-                let normalizedMidpoint = Double(count / 2) / Double(count - 1)
-                let midpoint = (normalizedMidpoint + 0.35 * normalizedMidpoint * (1 - normalizedMidpoint)) * upperIndex
-                let lower = Int(midpoint)
-                let fraction = midpoint - Double(lower)
-                XCTAssertEqual(samples[count / 2], source[lower] * (1 - fraction) + source[lower + 1] * fraction, accuracy: 0.000001)
+                XCTAssertEqual(samples[count / 2 - 1], source[0])
+                XCTAssertEqual(samples[count / 2], source[0])
+                for index in 0..<(count / 2) {
+                    XCTAssertEqual(samples[index], samples[count - 1 - index], accuracy: 0.000001)
+                    if index > 0 { XCTAssertLessThanOrEqual(samples[index], samples[index - 1]) }
+                }
             }
         }
     }

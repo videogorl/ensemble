@@ -419,18 +419,24 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             float verticalSoftness = depth == 0 ? 0.48 : 0.70;
             float verticalBlur = depth == 0 ? 1.12 : 1.95;
 
-            float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity;
+            // Slow independent motion gives each curtain its own shape and brightness.
+            float layerPhase = u.time * (0.19 + 0.07 * float(depth)) + float(depth) * 2.1;
+            float widthScale = 0.92 + 0.08 * sin(layerPhase);
+            float layerBreath = 0.86 + 0.14 * sin(layerPhase * 1.3 + 1.7);
+            float layerDrift = 0.025 * sin(layerPhase * 0.7 + 0.8) * activeWidth;
+            float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity * (0.82 + 0.18 * sin(layerPhase + 2.4));
 
             for (uint i = 0; i < bandCount; i++) {
                 float intensity = clamp(bands[i], 0.0, 1.0);
                 float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
                 float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(u.bellWidth, 2.0)));
-                float phase = u.time * (0.25 + 0.15 * float(depth)) + normalized * 16.1 + float(depth) * 2.1;
+                float phase = u.time * (0.25 + 0.15 * float(depth)) + normalized * 6.1 + float(depth) * 2.1;
                 float breath = 0.9 + 0.1 * sin(phase + 1.3);
-                float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell) * heightScale * breath;
+                float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell) * heightScale * breath * layerBreath;
                 float drift = sin(phase) * (0.25 + 0.12 * float(depth)) * bandWidth;
-                float centerX = xOffset + (float(i) + 0.5) * bandWidth + drift;
-                float glowWidth = bandWidth * 3.0 * spread;
+                float centeredX = (float(i) + 0.5) * bandWidth - activeWidth * 0.5;
+                float centerX = xOffset + activeWidth * 0.5 + centeredX * widthScale + layerDrift + drift;
+                float glowWidth = bandWidth * 3.0 * spread * widthScale;
                 float rectHeight = height + u.poolHeight * heightScale;
 
                 float dx = (p.x - centerX) / max(glowWidth * 0.5, 1.0);

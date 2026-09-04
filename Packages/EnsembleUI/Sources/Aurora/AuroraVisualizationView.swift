@@ -7,7 +7,7 @@ import UIKit
 #endif
 
 /// Real-time frequency visualization with soft aurora-style glow.
-/// Displays 24 frequency bands (60Hz-16kHz) from live FFT analysis,
+/// Mirrors live FFT bands with bass at the center and higher frequencies outward,
 /// rising from the bottom with blurred, overlapping wisps.
 @available(iOS 15.0, macOS 12.0, *)
 public struct AuroraVisualizationView: View {
@@ -358,7 +358,12 @@ public struct AuroraVisualizationView: View {
         let blur: CGFloat = [14, 6, 2][layer]
         let spread: CGFloat = [2.0, 1.15, 0.65][layer]
         let heightScale: CGFloat = [0.85, 1.10, 1.30][layer]
-        let baseOpacity = (colorScheme == .dark ? 0.7 : 0.5) * opacity
+        // Each curtain breathes independently of the audio, which still supplies its energy.
+        let layerPhase = time * (0.19 + 0.07 * Double(layer)) + Double(layer) * 2.1
+        let widthScale = 0.92 + 0.08 * sin(layerPhase)
+        let layerBreath = 0.86 + 0.14 * sin(layerPhase * 1.3 + 1.7)
+        let layerDrift = CGFloat(0.025 * sin(layerPhase * 0.7 + 0.8)) * activeWidth
+        let baseOpacity = (colorScheme == .dark ? 0.7 : 0.5) * opacity * (0.82 + 0.18 * sin(layerPhase + 2.4))
 
         // Blur once for the whole glow layer. Applying a Gaussian filter per band
         // creates dozens of offscreen RenderBox surfaces per frame, which can
@@ -380,14 +385,15 @@ public struct AuroraVisualizationView: View {
             // so use intensity directly here.
             let heightFactor = intensity * bellFactor
             
-            let phase = time * (0.25 + 0.15 * Double(layer)) + normalizedPos * 16.1 + Double(layer) * 2.1
+            let phase = time * (0.25 + 0.15 * Double(layer)) + normalizedPos * 6.1 + Double(layer) * 2.1
             let breath = 0.9 + 0.1 * sin(phase + 1.3)
-            let height = (minHeight + (maxHeight - minHeight) * CGFloat(heightFactor)) * heightScale * CGFloat(breath)
+            let height = (minHeight + (maxHeight - minHeight) * CGFloat(heightFactor)) * heightScale * CGFloat(breath * layerBreath)
 
             // Center the band and make it very wide for ethereal overlap
             let drift = CGFloat(sin(phase) * (0.25 + 0.12 * Double(layer))) * bandWidth
-            let centerX = xOffset + (CGFloat(i) + 0.5) * bandWidth + drift
-            let glowWidth = bandWidth * 3.0 * spread
+            let centeredX = (CGFloat(i) + 0.5) * bandWidth - activeWidth / 2
+            let centerX = xOffset + activeWidth / 2 + centeredX * CGFloat(widthScale) + layerDrift + drift
+            let glowWidth = bandWidth * 3.0 * spread * CGFloat(widthScale)
             let x = centerX - glowWidth / 2
             let y = size.height - height - poolHeight
 
@@ -648,15 +654,17 @@ final class AuroraRenderModel: ObservableObject {
         smoothedBands
     }
 
-    /// Compact surfaces spread the first 18 bands (about 60 Hz–4 kHz) across the view.
-    /// Interpolation adds display detail without changing the shared audio analyzer.
+    /// Mirror bass around the center, with higher frequencies toward both edges.
+    /// Compact surfaces use the first 18 bands (about 60 Hz–4 kHz) on each half.
     func displayBands(width: CGFloat, count: Int) -> [Double] {
         let expansion = min(1, max(0, (Double(width) - 430) / 470))
         let upperIndex = 17 + 6 * expansion
+        let center = Double(count - 1) / 2
+        let centerGap = count.isMultiple(of: 2) ? 0.5 : 0.0
         return (0..<count).map { index in
-            let normalized = Double(index) / Double(max(1, count - 1))
-            // Pull interior activity left by up to about 8% without dropping either edge.
-            let position = (normalized + 0.35 * normalized * (1 - normalized)) * upperIndex
+            // Both central samples reach the lowest band when the sample count is even.
+            let distance = max(0, abs(Double(index) - center) - centerGap)
+            let position = distance / max(1, floor(center)) * upperIndex
             let lower = Int(position)
             let upper = min(lower + 1, bandCount - 1)
             let fraction = position - Double(lower)
