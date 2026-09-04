@@ -215,12 +215,16 @@ public final class NowPlayingArtworkProjection: ObservableObject {
     ) -> Bool {
         let keepsResolvedArtwork = state.artworkIdentityKey.map(identities.contains) == true
         let cached = cached.flatMap { identities.contains($0.identityKey) ? $0 : nil }
+        let cachedBlurredArtwork = cached.flatMap {
+            ArtworkBlurRenderer.memoryCachedBlurredImage(forStableKey: $0.blurCacheKey)
+                ?? ArtworkBlurRenderer.cachedBlurredImage(for: $0.image)
+        }
         let needsLoad = !keepsResolvedArtwork && cached == nil
         state = State(
             currentTrack: track,
             artworkIdentityKey: cached?.identityKey ?? (keepsResolvedArtwork ? state.artworkIdentityKey : nil),
             artworkImage: cached?.image ?? (keepsResolvedArtwork ? state.artworkImage : nil),
-            blurredArtworkImage: keepsResolvedArtwork ? state.blurredArtworkImage : nil,
+            blurredArtworkImage: cachedBlurredArtwork ?? (keepsResolvedArtwork ? state.blurredArtworkImage : nil),
             isLoading: needsLoad
         )
         return needsLoad

@@ -32,12 +32,16 @@ public enum ArtworkBlurRenderer {
         cache.object(forKey: cacheKey(for: source))
     }
 
+    public static func memoryCachedBlurredImage(forStableKey stableKey: String) -> PlatformImage? {
+        cache.object(forKey: cacheKey(forStableKey: stableKey))
+    }
+
     public static func cachedBlurredImage(forStableKey stableKey: String) -> PlatformImage? {
-        let key = cacheKey(forStableKey: stableKey)
-        if let cached = cache.object(forKey: key) {
+        if let cached = memoryCachedBlurredImage(forStableKey: stableKey) {
             return cached
         }
 
+        let key = cacheKey(forStableKey: stableKey)
         guard let diskURL = diskCacheURL(forStableKey: stableKey),
               let image = imageFromDisk(at: diskURL) else {
             return nil

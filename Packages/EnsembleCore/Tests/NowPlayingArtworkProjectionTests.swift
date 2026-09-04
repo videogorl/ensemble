@@ -13,6 +13,7 @@ final class NowPlayingArtworkProjectionTests: XCTestCase {
         let firstTrack = makeTrack(id: "track-1", sourceKey: "plex:a:s:1", albumPath: "/album-1")
         let firstRequest = ArtworkRequest(track: firstTrack, tier: .hero, priority: .high)
         let firstImage = makeImage()
+        let firstBlurredImage = try XCTUnwrap(ArtworkBlurRenderer.blurredImage(from: firstImage))
         let firstResolved = ArtworkResolvedImage(
             url: URL(fileURLWithPath: "/tmp/first.jpg"),
             image: firstImage,
@@ -27,6 +28,7 @@ final class NowPlayingArtworkProjectionTests: XCTestCase {
             cached: firstResolved
         ))
         XCTAssertTrue(projection.artworkImage === firstImage)
+        XCTAssertTrue(projection.blurredArtworkImage === firstBlurredImage)
 
         let ratedTrack = firstTrack.withRating(10)
         XCTAssertFalse(projection.beginLoading(
@@ -112,7 +114,12 @@ final class NowPlayingArtworkProjectionTests: XCTestCase {
             context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
         }
         #elseif canImport(AppKit)
-        return NSImage(size: NSSize(width: 8, height: 8))
+        let image = NSImage(size: NSSize(width: 8, height: 8))
+        image.lockFocus()
+        NSColor.blue.setFill()
+        NSRect(x: 0, y: 0, width: 8, height: 8).fill()
+        image.unlockFocus()
+        return image
         #endif
     }
 }
