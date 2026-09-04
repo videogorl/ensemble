@@ -32,25 +32,13 @@ public struct AuroraVisualizationView: View {
     private let bandCount = 24
 
     /// Maximum height of the active aurora bands.
-    private let maxHeight: CGFloat = 185
+    private let maxHeight: CGFloat = 80
 
     /// Minimum height of bands (always visible base)
-    private let minHeight: CGFloat = 18
+    private let minHeight: CGFloat = 6
 
     /// Height of the solid "pool" at the bottom
-    private let poolHeight: CGFloat = 48
-
-    /// Attack smoothing (how fast bands rise) - increased for smoother transitions
-    private let attackFactor: Double = 0.7
-    
-    /// Decay smoothing (how fast bands fall) - increased for smoother transitions
-    private let decayFactor: Double = 0.7
-
-    /// Peak hold time in seconds
-    private let peakHoldTime: Double = 0.10
-    
-    /// Peak decay rate per second
-    private let peakDecayRate: Double = 1.5
+    private let poolHeight: CGFloat = 10
 
     // MARK: - Init
 
@@ -61,7 +49,7 @@ public struct AuroraVisualizationView: View {
     private let isLowPowerMode: Bool
 
     /// Whether the aurora is allowed to intentionally bleed beyond its host bounds.
-    /// Root shells want the wider glow treatment; split detail panes need a clipped surface.
+    /// Root shells include the bottom safe area; split detail panes stay within their host.
     private let expandsBeyondBounds: Bool
     private let activeContentMaxWidth: CGFloat?
 
@@ -175,30 +163,27 @@ public struct AuroraVisualizationView: View {
 
     @ViewBuilder
     private func auroraSurface(for geometry: GeometryProxy) -> some View {
-        let surfaceWidth = expandsBeyondBounds ? geometry.size.width + 80 : geometry.size.width
+        let surfaceWidth = min(geometry.size.width, activeContentMaxWidth ?? 900)
         let surfaceHeight = maxHeight + 40
-        let xOffset = expandsBeyondBounds ? -40.0 : 0.0
+        let xOffset = (geometry.size.width - surfaceWidth) / 2
 
         if isMetalAuroraAvailable {
-            ZStack {
-                MetalAuroraSurface(
-                    renderModel: renderModel,
-                    accentColor: accentColor,
-                    colorScheme: colorScheme,
-                    preferredFrameInterval: frameInterval,
-                    isPaused: isTimelinePaused,
-                    surfaceTier: auroraSurfaceTier,
-                    activeContentMaxWidth: activeContentMaxWidth,
-                    bandCount: bandCount,
-                    maxHeight: maxHeight,
-                    minHeight: minHeight,
-                    poolHeight: poolHeight
-                )
-                horizonGlowOverlay
-                foregroundFadeOverlay
-            }
+            MetalAuroraSurface(
+                renderModel: renderModel,
+                accentColor: accentColor,
+                colorScheme: colorScheme,
+                preferredFrameInterval: frameInterval,
+                isPaused: isTimelinePaused,
+                surfaceTier: auroraSurfaceTier,
+                activeContentMaxWidth: activeContentMaxWidth,
+                bandCount: bandCount,
+                maxHeight: maxHeight,
+                minHeight: minHeight,
+                poolHeight: poolHeight
+            )
             .frame(width: surfaceWidth, height: surfaceHeight)
-            .offset(x: xOffset, y: 15)
+            .mask(horizontalFade)
+            .offset(x: xOffset)
         } else {
             canvasAuroraSurface(width: surfaceWidth, height: surfaceHeight, xOffset: xOffset)
         }
@@ -222,43 +207,21 @@ public struct AuroraVisualizationView: View {
         return .immersive
     }
 
-    private var foregroundFadeOverlay: some View {
-        #if canImport(UIKit)
-        let baseColor: Color = colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
-        #else
-        let baseColor: Color = colorScheme == .dark ? .black : Color(nsColor: .windowBackgroundColor)
-        #endif
-
-        return LinearGradient(
-            gradient: Gradient(stops: [
-                .init(color: .clear, location: 0.0),
-                .init(color: .clear, location: 0.28),
-                .init(color: baseColor.opacity(0.10), location: 0.54),
-                .init(color: baseColor.opacity(0.34), location: 0.75),
-                .init(color: baseColor.opacity(0.56), location: 0.91),
-                .init(color: baseColor.opacity(0.68), location: 1.0)
-            ]),
-            startPoint: .top,
-            endPoint: .bottom
+    /// Taper the complete surface, including the base and blur, to transparent edges.
+    private var horizontalFade: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black.opacity(0.18), location: 0.12),
+                .init(color: .black.opacity(0.68), location: 0.30),
+                .init(color: .black, location: 0.50),
+                .init(color: .black.opacity(0.68), location: 0.70),
+                .init(color: .black.opacity(0.18), location: 0.88),
+                .init(color: .clear, location: 1)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
         )
-    }
-
-    private var horizonGlowOverlay: some View {
-        let bottomOpacity = colorScheme == .dark ? 0.64 : 0.96
-
-        return LinearGradient(
-            gradient: Gradient(stops: [
-                .init(color: .clear, location: 0.0),
-                .init(color: .clear, location: 0.46),
-                .init(color: accentColor.opacity(bottomOpacity * 0.10), location: 0.62),
-                .init(color: accentColor.opacity(bottomOpacity * 0.36), location: 0.76),
-                .init(color: accentColor.opacity(bottomOpacity * 0.78), location: 0.90),
-                .init(color: accentColor.opacity(bottomOpacity), location: 1.0)
-            ]),
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .blur(radius: 24)
     }
 
     private func canvasAuroraSurface(width: CGFloat, height: CGFloat, xOffset: CGFloat) -> some View {
@@ -270,7 +233,8 @@ public struct AuroraVisualizationView: View {
             }
             .frame(width: width)
             .frame(height: height)
-            .offset(x: xOffset, y: 15)
+            .mask(horizontalFade)
+            .offset(x: xOffset)
         }
     }
 
@@ -312,21 +276,8 @@ public struct AuroraVisualizationView: View {
     /// SwiftUI updates on every FFT tick.
     private func ingestBands(_ rawBands: [Double]) {
         let renderModel = renderModel
-        let attackFactor = attackFactor
-        let decayFactor = decayFactor
-        let peakHoldTime = peakHoldTime
-        let peakDecayRate = peakDecayRate
-        let deltaTime = frameInterval
-
         bandProcessor.submit(rawBands) { targetBands in
-            renderModel.advance(
-                targetBands: targetBands,
-                attackFactor: attackFactor,
-                decayFactor: decayFactor,
-                peakHoldTime: peakHoldTime,
-                peakDecayRate: peakDecayRate,
-                deltaTime: deltaTime
-            )
+            renderModel.advance(targetBands: targetBands)
         }
     }
 
@@ -338,14 +289,7 @@ public struct AuroraVisualizationView: View {
             let zeroBands = [Double](repeating: 0, count: bandCount)
             for _ in 0..<36 {
                 guard !Task.isCancelled else { return }
-                renderModel.advance(
-                    targetBands: zeroBands,
-                    attackFactor: attackFactor,
-                    decayFactor: 0.88,
-                    peakHoldTime: 0,
-                    peakDecayRate: peakDecayRate * 1.6,
-                    deltaTime: frameInterval
-                )
+                renderModel.advance(targetBands: zeroBands)
                 if renderModel.isNearZero { break }
                 try? await Task.sleep(nanoseconds: UInt64(frameInterval * 1_000_000_000))
             }
@@ -372,21 +316,11 @@ public struct AuroraVisualizationView: View {
         let bandsToRender = renderModel.renderedBands
         let energy = auroraEnergy(from: bandsToRender)
 
-        if isLowPowerMode {
-            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 10, opacity: 0.50)
-        } else if usesLowCostSurfaceTier || isLowCoreDevice {
-            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 18, opacity: 0.28)
-            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 8,  opacity: 0.42)
-        } else {
-            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 18, opacity: 0.25)
-            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 12, opacity: 0.30)
-            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 8,  opacity: 0.35)
+        if !isLowPowerMode {
+            drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 12, opacity: 0.18)
         }
-
-        drawBandPoolBridge(context: context, size: size, energy: energy)
+        drawSoftGlowLayer(context: context, size: size, bands: bandsToRender, blur: 5, opacity: 0.32)
         drawBottomPool(context: context, size: size, energy: energy)
-        drawHorizonGlow(context: context, size: size)
-        drawForegroundFade(context: context, size: size)
     }
 
     private func auroraEnergy(from bands: [Double]) -> Double {
@@ -424,7 +358,7 @@ public struct AuroraVisualizationView: View {
             let normalizedPos = Double(i) / Double(bandCount - 1)
             
             // Bell curve factor keeps the aurora tallest and brightest in the middle.
-            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.34, 2)))
+            let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(0.24, 2)))
             
             // Bands are already shaped by bandResponseExponent in calculateBandValues,
             // so use intensity directly here.
@@ -434,15 +368,15 @@ public struct AuroraVisualizationView: View {
 
             // Center the band and make it very wide for ethereal overlap
             let centerX = xOffset + (CGFloat(i) + 0.5) * bandWidth
-            let glowWidth = bandWidth * 4.5 // Wider overlap for more ethereal blending
+            let glowWidth = bandWidth * 3.0
             let x = centerX - glowWidth / 2
             let y = size.height - height - poolHeight
 
             // Gradient fades transparent at the very bottom so bands "emerge" from the pool
             // rather than anchoring bright cones to the floor (which causes the "uplight" banding look).
             // Peak brightness sits slightly above the base, then fades upward to transparent.
-            let bellAlpha = 0.32 + bellFactor * 0.68
-            let intensityAlpha = (0.18 + intensity * 0.82) * bellAlpha
+            let bellAlpha = bellFactor
+            let intensityAlpha = (0.06 + pow(intensity, 1.4) * 0.94) * bellAlpha
             let bandGradient = Gradient(stops: [
                 .init(color: accentColor.opacity(0), location: 0.0),
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.7), location: 0.08),
@@ -472,145 +406,21 @@ public struct AuroraVisualizationView: View {
         }
     }
     
-    /// Adds a soft accent haze where active bands dissolve into the bottom pool.
-    private func drawBandPoolBridge(context: GraphicsContext, size: CGSize, energy: Double) {
-        let activeWidth = activeContentMaxWidth.map { min(size.width, $0) } ?? size.width
-        let xOffset = (size.width - activeWidth) / 2
-        let bridgeOpacity = (colorScheme == .dark ? 0.34 : 0.24) * (0.45 + energy * 0.7)
-        let bridgeHeight = poolHeight + 76
-        let bridgeRect = CGRect(
-            x: xOffset - activeWidth * 0.08,
-            y: size.height - bridgeHeight - 18,
-            width: activeWidth * 1.16,
-            height: bridgeHeight
-        )
-        let bridgeGradient = Gradient(stops: [
-            .init(color: .clear, location: 0.0),
-            .init(color: accentColor.opacity(bridgeOpacity * 0.22), location: 0.28),
-            .init(color: accentColor.opacity(bridgeOpacity * 0.6), location: 0.58),
-            .init(color: accentColor.opacity(bridgeOpacity), location: 1.0)
-        ])
-
-        var bridgeContext = context
-        bridgeContext.blendMode = .plusLighter
-        bridgeContext.addFilter(.blur(radius: 24))
-        bridgeContext.fill(
-            Path(ellipseIn: bridgeRect),
-            with: .linearGradient(
-                bridgeGradient,
-                startPoint: CGPoint(x: bridgeRect.midX, y: bridgeRect.minY),
-                endPoint: CGPoint(x: bridgeRect.midX, y: bridgeRect.maxY)
-            )
-        )
-    }
-
-    /// Draws the solid color pool at the very bottom.
-    /// Drawn in two passes: a wide blurred halo for soft spread, then a sharper core for brightness.
+    /// A shallow, signal-weighted base joins the curtains without filling the window.
     private func drawBottomPool(context: GraphicsContext, size: CGSize, energy: Double) {
-        let baselineOpacity = colorScheme == .dark ? 0.58 : 0.38
-        let poolOpacity = baselineOpacity * (0.84 + energy * 0.34)
-
-        // Wide halo pass — blurred so the pool bleeds softly upward into the bands
-        let haloHeight = poolHeight + 50
-        let haloRect = CGRect(x: 0, y: size.height - haloHeight, width: size.width, height: haloHeight)
-        let haloGradient = Gradient(stops: [
-            .init(color: .clear, location: 0.0),
-            .init(color: accentColor.opacity(poolOpacity * 0.2), location: 0.45),
-            .init(color: accentColor.opacity(poolOpacity * 0.5), location: 0.75),
-            .init(color: accentColor.opacity(poolOpacity * 0.65), location: 1.0)
-        ])
-        var haloContext = context
-        haloContext.blendMode = .plusLighter
-        haloContext.addFilter(.blur(radius: 18))
-        haloContext.fill(
-            Path(haloRect),
-            with: .linearGradient(haloGradient,
-                startPoint: CGPoint(x: haloRect.midX, y: haloRect.minY),
-                endPoint: CGPoint(x: haloRect.midX, y: haloRect.maxY))
-        )
-
-        // Sharp core pass — unblurred, gives the pool a solid glowing base
-        let poolRect = CGRect(
-            x: 0,
-            y: size.height - poolHeight - 20,
-            width: size.width,
-            height: poolHeight + 20
-        )
-
-        let poolGradient = Gradient(stops: [
-            .init(color: .clear, location: 0.0),
-            .init(color: accentColor.opacity(poolOpacity * 0.3), location: 0.2),
-            .init(color: accentColor.opacity(poolOpacity * 0.6), location: 0.55),
-            .init(color: accentColor.opacity(poolOpacity * 0.85), location: 1.0)
-        ])
-
-        var poolContext = context
-        poolContext.blendMode = .plusLighter
-        poolContext.fill(
-            Path(poolRect),
-            with: .linearGradient(
-                poolGradient,
-                startPoint: CGPoint(x: poolRect.midX, y: poolRect.minY),
-                endPoint: CGPoint(x: poolRect.midX, y: poolRect.maxY)
-            )
-        )
-    }
-
-    /// Draws the final foreground fade inside the same Canvas as the bands and pool.
-    /// This uses normal compositing so light-mode surfaces actually cover the glow
-    /// instead of multiplying white over it, which is visually almost a no-op.
-    private func drawForegroundFade(context: GraphicsContext, size: CGSize) {
-        #if canImport(UIKit)
-        let baseColor: Color = colorScheme == .dark ? .black : Color(uiColor: .systemBackground)
-        #else
-        let baseColor: Color = colorScheme == .dark ? .black : Color(nsColor: .windowBackgroundColor)
-        #endif
-
-        let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
-        let fadeGradient = Gradient(stops: [
-            .init(color: .clear, location: 0.0),
-            .init(color: .clear, location: 0.28),
-            .init(color: baseColor.opacity(0.10), location: 0.54),
-            .init(color: baseColor.opacity(0.34), location: 0.75),
-            .init(color: baseColor.opacity(0.56), location: 0.91),
-            .init(color: baseColor.opacity(0.68), location: 1.0)
-        ])
-
+        let height = poolHeight + maxHeight * 0.18
+        let rect = CGRect(x: 0, y: size.height - height, width: size.width, height: height)
+        let opacity = (colorScheme == .dark ? 0.7 : 0.5) * (0.06 + energy * 0.34)
         context.fill(
             Path(rect),
             with: .linearGradient(
-                fadeGradient,
+                Gradient(colors: [.clear, accentColor.opacity(opacity)]),
                 startPoint: CGPoint(x: rect.midX, y: rect.minY),
                 endPoint: CGPoint(x: rect.midX, y: rect.maxY)
             )
         )
     }
 
-    /// Adds a soft color wash below the foreground fade so the aurora reads as
-    /// emerging from a tinted horizon instead of a separate bottom layer.
-    private func drawHorizonGlow(context: GraphicsContext, size: CGSize) {
-        let bottomOpacity = colorScheme == .dark ? 0.64 : 0.96
-        let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
-        let glowGradient = Gradient(stops: [
-            .init(color: .clear, location: 0.0),
-            .init(color: .clear, location: 0.46),
-            .init(color: accentColor.opacity(bottomOpacity * 0.10), location: 0.62),
-            .init(color: accentColor.opacity(bottomOpacity * 0.36), location: 0.76),
-            .init(color: accentColor.opacity(bottomOpacity * 0.78), location: 0.90),
-            .init(color: accentColor.opacity(bottomOpacity), location: 1.0)
-        ])
-
-        var glowContext = context
-        glowContext.addFilter(.blur(radius: 24))
-        glowContext.fill(
-            Path(rect),
-            with: .linearGradient(
-                glowGradient,
-                startPoint: CGPoint(x: rect.midX, y: rect.minY),
-                endPoint: CGPoint(x: rect.midX, y: rect.maxY)
-            )
-        )
-    }
 }
 
 /// Coalesces raw FFT updates and shapes aurora bands off the SwiftUI receive path.
@@ -826,8 +636,7 @@ final class AuroraBandShapeProcessor: ObservableObject {
 final class AuroraRenderModel: ObservableObject {
     private let bandCount = 24
     private var smoothedBands = AuroraRenderModel.idleBands
-    private var peakHolds = Array(repeating: 0.0, count: 24)
-    private var peakDecayTimers = Array(repeating: 0.0, count: 24)
+    private var lastUpdateTime: TimeInterval?
 
     var renderedBands: [Double] {
         smoothedBands
@@ -839,45 +648,24 @@ final class AuroraRenderModel: ObservableObject {
 
     func resetToIdle() {
         smoothedBands = Self.idleBands
-        peakHolds = Array(repeating: 0.0, count: bandCount)
-        peakDecayTimers = Array(repeating: 0.0, count: bandCount)
+        lastUpdateTime = nil
     }
 
-    func advance(
-        targetBands: [Double],
-        attackFactor: Double,
-        decayFactor: Double,
-        peakHoldTime: Double,
-        peakDecayRate: Double,
-        deltaTime: Double
-    ) {
+    /// Fast attack and a softer release, independent of analyzer or rendering cadence.
+    func advance(targetBands: [Double], at time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        let deltaTime = max(0, min(time - (lastUpdateTime ?? (time - 1.0 / 30.0)), 0.1))
+        lastUpdateTime = time
         for index in 0..<bandCount {
             let target = targetBands[index]
             let current = smoothedBands[index]
-
-            if target > current {
-                smoothedBands[index] = current + (target - current) * (1.0 - attackFactor)
-            } else {
-                smoothedBands[index] = current + (target - current) * (1.0 - decayFactor)
-            }
-
-            if smoothedBands[index] > peakHolds[index] {
-                peakHolds[index] = smoothedBands[index]
-                peakDecayTimers[index] = peakHoldTime
-            } else if peakDecayTimers[index] > 0 {
-                peakDecayTimers[index] -= deltaTime
-            } else {
-                peakHolds[index] = max(
-                    smoothedBands[index],
-                    peakHolds[index] - peakDecayRate * deltaTime
-                )
-            }
+            let responseTime = target > current ? 0.10 : 0.32
+            smoothedBands[index] = current + (target - current) * (1 - exp(-deltaTime / responseTime))
         }
     }
 
     private static let idleBands: [Double] = (0..<24).map { index in
         let normalizedPosition = Double(index) / 23.0
-        let centerLift = exp(-pow(normalizedPosition - 0.5, 2) / (2 * pow(0.34, 2)))
+        let centerLift = exp(-pow(normalizedPosition - 0.5, 2) / (2 * pow(0.24, 2)))
         return 0.035 + centerLift * 0.075
     }
 }

@@ -146,9 +146,9 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     private struct Uniforms {
         var size: SIMD2<Float> = .zero
         var accentColor: SIMD4<Float> = .zero
-        var maxHeight: Float = 220
-        var minHeight: Float = 25
-        var poolHeight: Float = 48
+        var maxHeight: Float = 80
+        var minHeight: Float = 6
+        var poolHeight: Float = 10
         var activeWidth: Float = 0
         var bandCount: UInt32 = 24
         var layerCount: UInt32 = 2
@@ -289,10 +289,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         switch tier {
         case .lowPower:
             return 1
-        case .ambient:
+        case .ambient, .immersive:
             return 2
-        case .immersive:
-            return 3
         }
     }
 
@@ -400,44 +398,25 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         float activeWidth = u.activeWidth > 0.0 ? min(u.size.x, u.activeWidth) : u.size.x;
         float xOffset = (u.size.x - activeWidth) * 0.5;
         float bandWidth = activeWidth / max(float(bandCount), 1.0);
-        float3 color = float3(0.0);
         float alpha = 0.0;
 
         for (uint layer = 0; layer < u.layerCount; layer++) {
-            float layerOpacity;
-            float spread;
-            float heightScale;
-            float verticalSoftness;
-            float verticalBlur;
-            if (u.layerCount == 1) {
-                layerOpacity = 0.50;
-                spread = 1.8;
-                heightScale = 0.94;
-                verticalSoftness = 0.62;
-                verticalBlur = 1.75;
-            } else if (u.layerCount == 2) {
-                layerOpacity = layer == 0 ? 0.20 : 0.42;
-                spread = layer == 0 ? 2.3 : 1.25;
-                heightScale = layer == 0 ? 1.05 : 0.94;
-                verticalSoftness = layer == 0 ? 0.48 : 0.70;
-                verticalBlur = layer == 0 ? 1.12 : 1.95;
-            } else {
-                layerOpacity = layer == 0 ? 0.16 : (layer == 1 ? 0.28 : 0.38);
-                spread = layer == 0 ? 2.7 : (layer == 1 ? 1.75 : 1.15);
-                heightScale = layer == 0 ? 1.12 : (layer == 1 ? 1.02 : 0.94);
-                verticalSoftness = layer == 0 ? 0.42 : (layer == 1 ? 0.58 : 0.76);
-                verticalBlur = layer == 0 ? 0.92 : (layer == 1 ? 1.42 : 2.4);
-            }
+            bool halo = u.layerCount > 1 && layer == 0;
+            float layerOpacity = halo ? 0.18 : 0.32;
+            float spread = halo ? 1.6 : 1.0;
+            float heightScale = halo ? 1.08 : 1.0;
+            float verticalSoftness = halo ? 0.48 : 0.70;
+            float verticalBlur = halo ? 1.12 : 1.95;
 
             float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity;
 
             for (uint i = 0; i < bandCount; i++) {
                 float intensity = clamp(bands[i], 0.0, 1.0);
                 float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
-                float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(0.34, 2.0)));
+                float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(0.24, 2.0)));
                 float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell) * heightScale;
                 float centerX = xOffset + (float(i) + 0.5) * bandWidth;
-                float glowWidth = bandWidth * 4.5 * spread;
+                float glowWidth = bandWidth * 3.0 * spread;
                 float rectHeight = height + u.poolHeight * heightScale;
                 float rectMinY = u.size.y - height - u.poolHeight;
                 float rectCenterY = rectMinY + rectHeight * 0.5;
@@ -448,11 +427,10 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
                 float t = clamp((p.y - rectMinY) / max(rectHeight, 1.0), 0.0, 1.0);
                 float fromBottom = 1.0 - t;
                 float vertical = smoothBand(0.0, 0.08, fromBottom) * (1.0 - smoothBand(verticalSoftness, 1.0, fromBottom));
-                float bellAlpha = 0.32 + bell * 0.68;
-                float intensityAlpha = (0.18 + intensity * 0.82) * bellAlpha;
+                float bellAlpha = bell;
+                float intensityAlpha = (0.06 + pow(intensity, 1.4) * 0.94) * bellAlpha;
                 float contribution = ellipse * vertical * intensityAlpha * baseOpacity;
 
-                color += u.accentColor.rgb * contribution;
                 alpha += contribution * 0.72;
             }
         }
@@ -470,28 +448,16 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         bassEnergy = bassCount > 0 ? bassEnergy / float(bassCount) : 0.0;
         energy = clamp(energy * 0.70 + bassEnergy * 0.30, 0.0, 1.0);
 
-        float bridgeHeight = u.poolHeight + 76.0;
-        float bridgeWidth = activeWidth * 1.16;
-        float2 bridgeCenter = float2(u.size.x * 0.5, u.size.y - bridgeHeight * 0.5 - 18.0);
-        float2 bridgeD = (p - bridgeCenter) / float2(max(bridgeWidth * 0.5, 1.0), max(bridgeHeight * 0.5, 1.0));
-        float bridge = exp(-(bridgeD.x * bridgeD.x * 1.3 + bridgeD.y * bridgeD.y * 2.0));
-        float bridgeOpacity = (u.colorScheme == 1 ? 0.34 : 0.24) * (0.45 + energy * 0.7);
-        color += u.accentColor.rgb * bridge * bridgeOpacity;
-        alpha += bridge * bridgeOpacity * 0.72;
-
         float fromBottomPixels = u.size.y - p.y;
-        float pool = 1.0 - smoothBand(0.0, u.poolHeight + 52.0, fromBottomPixels);
-        float poolOpacity = (u.colorScheme == 1 ? 0.58 : 0.38) * (0.84 + energy * 0.34);
-        color += u.accentColor.rgb * pool * poolOpacity;
+        float pool = 1.0 - smoothBand(0.0, u.poolHeight + u.maxHeight * 0.18, fromBottomPixels);
+        float poolOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * (0.06 + energy * 0.34);
         alpha += pool * poolOpacity * 0.75;
 
-        float topFeather = smoothBand(0.0, 96.0, p.y);
-        color *= topFeather;
-        alpha = clamp(alpha * topFeather, 0.0, 0.95);
+        float topFeather = smoothBand(0.0, u.size.y * 0.20, p.y);
+        alpha = clamp(alpha * topFeather, 0.0, 0.95) * u.accentColor.a;
 
-        color = min(color, float3(alpha));
-
-        return float4(color, alpha);
+        // Premultiply once so brighter peaks preserve the selected accent hue.
+        return float4(u.accentColor.rgb * alpha, alpha);
     }
     """
 }
