@@ -341,15 +341,16 @@ final class PlaybackNowPlayingBridge {
         lastPublishedState = state
         lastPublishedPlaybackState = publishedPlaybackState
 
-        let nextArtworkRequestKey = Self.artworkRequestKey(for: track)
-        let hasArtworkPath = Self.hasArtworkPath(for: track)
+        let artworkRequest = ArtworkRequest(
+            track: track,
+            tier: .hero,
+            priority: .high
+        )
+        let nextArtworkRequestKey = Self.artworkRequestKey(for: artworkRequest, track: track)
+        let hasArtworkPath = artworkRequest.hasArtwork
         if hasArtworkPath,
            artworkRequestKey != nextArtworkRequestKey,
-           let cached = artworkLoader.synchronouslyCachedImage(for: ArtworkRequest(
-               track: track,
-               tier: .hero,
-               priority: .high
-           )) {
+           let cached = artworkLoader.synchronouslyCachedImage(for: artworkRequest) {
             cancelArtworkLoad(clearArtwork: false)
             artworkRequestKey = nextArtworkRequestKey
             artwork = MPMediaItemArtwork(boundsSize: cached.image.size) { _ in cached.image }
@@ -388,7 +389,7 @@ final class PlaybackNowPlayingBridge {
         artworkTask = Task { [weak self] in
             guard let self else { return }
 
-            guard let image = await self.resolvedArtworkImage(for: track) else {
+            guard let image = await self.resolvedArtworkImage(for: artworkRequest) else {
                 EnsembleLogger.debug("[NowPlaying] Artwork unavailable for '\(track.title)'; applying generated fallback")
                 await MainActor.run {
                     self.applyFallbackArtwork(for: track, requestKey: nextArtworkRequestKey)
@@ -408,23 +409,11 @@ final class PlaybackNowPlayingBridge {
         }
     }
 
-    private func resolvedArtworkImage(for track: Track) async -> PlatformArtworkImage? {
-        let request = ArtworkRequest(
-            track: track,
-            tier: .hero,
-            priority: .high
-        )
-
+    private func resolvedArtworkImage(for request: ArtworkRequest) async -> PlatformArtworkImage? {
         if let cached = await artworkLoader.cachedImage(for: request) {
-            EnsembleLogger.debug("[NowPlaying] Using cached artwork for '\(track.title)'")
             return cached.image
         }
-
-        guard case .resolved(let resolved) = await artworkLoader.resolve(request) else {
-            return nil
-        }
-
-        return resolved.image
+        return await artworkLoader.resolvedImage(for: request)?.image
     }
 
     func pushNowPlayingForSkipTransition(_ state: PlaybackNowPlayingState) {
@@ -634,26 +623,11 @@ final class PlaybackNowPlayingBridge {
         )
     }
 
-    private static func artworkRequestKey(for track: Track) -> String {
-        let request = ArtworkRequest(
-            track: track,
-            tier: .hero,
-            priority: .high
-        )
+    private static func artworkRequestKey(for request: ArtworkRequest, track: Track) -> String {
         let candidates = request.candidateIdentityKeys.sorted()
         return candidates.isEmpty
             ? "\(track.sourceCompositeKey ?? "")|generated|\(track.id)"
             : candidates.joined(separator: "||")
-    }
-
-    private static func hasArtworkPath(for track: Track) -> Bool {
-        if let thumbPath = track.thumbPath, !thumbPath.isEmpty {
-            return true
-        }
-        if let fallbackThumbPath = track.fallbackThumbPath, !fallbackThumbPath.isEmpty {
-            return true
-        }
-        return false
     }
 
     private static func fallbackArtwork(for track: Track) -> MPMediaItemArtwork {
