@@ -20,17 +20,38 @@ struct AppleMusicCatalogSearchResults: Sendable {
 
 struct AppleMusicCatalogSearchClient: Sendable {
     let search: @Sendable (String) async throws -> AppleMusicCatalogSearchResults
+    let albumTracks: @Sendable (String) async throws -> [Track]
 
-    static let live = Self { term in
-        #if os(iOS)
-        guard #available(iOS 18, *) else {
-            throw AppleMusicCatalogSearchAvailabilityError.unavailable
-        }
-        return try await AppleMusicCatalogSearch.search(term)
-        #else
-        throw AppleMusicCatalogSearchAvailabilityError.unavailable
-        #endif
+    init(
+        search: @escaping @Sendable (String) async throws -> AppleMusicCatalogSearchResults,
+        albumTracks: @escaping @Sendable (String) async throws -> [Track] = { _ in [] }
+    ) {
+        self.search = search
+        self.albumTracks = albumTracks
     }
+
+    static let live = Self(
+        search: { term in
+            #if os(iOS)
+            guard #available(iOS 18, *) else {
+                throw AppleMusicCatalogSearchAvailabilityError.unavailable
+            }
+            return try await AppleMusicCatalogSearch.search(term)
+            #else
+            throw AppleMusicCatalogSearchAvailabilityError.unavailable
+            #endif
+        },
+        albumTracks: { albumID in
+            #if os(iOS)
+            guard #available(iOS 18, *) else {
+                throw AppleMusicCatalogSearchAvailabilityError.unavailable
+            }
+            return try await AppleMusicCatalogSearch.tracks(inAlbum: albumID)
+            #else
+            throw AppleMusicCatalogSearchAvailabilityError.unavailable
+            #endif
+        }
+    )
 }
 
 private enum AppleMusicCatalogSearchAvailabilityError: LocalizedError {
@@ -155,29 +176,12 @@ enum AppleMusicCatalogSearch {
         )
 
         let tracks: [Track] = response.songs.map { song in
-                let matchingAlbum = response.albums.first {
-                    DisplayPlaylist.normalizedTitle($0.title) == DisplayPlaylist.normalizedTitle(song.albumTitle ?? "")
-                        && DisplayPlaylist.normalizedTitle($0.artistName) == DisplayPlaylist.normalizedTitle(song.artistName)
-                }
-                return Track(
-                    id: String(describing: song.id),
-                    key: song.libraryAddedDate == nil ? "apple-catalog" : "apple-catalog-library",
-                    title: song.title,
-                    artistName: song.artistName,
-                    albumArtistName: song.artistName,
-                    albumName: song.albumTitle,
-                    albumRatingKey: matchingAlbum.map { String(describing: $0.id) },
-                    artistRatingKey: song.artistURL?.lastPathComponent
-                        ?? artistIDsByName[DisplayPlaylist.normalizedTitle(song.artistName)],
-                    trackNumber: song.trackNumber ?? 0,
-                    discNumber: song.discNumber ?? 1,
-                    duration: song.duration ?? 0,
-                    thumbPath: song.artwork?.ensembleResolvableURL() ?? matchingAlbum?.artwork?.ensembleResolvableURL(),
-                    streamKey: song.url?.absoluteString,
-                    genres: song.genreNames,
-                    sourceCompositeKey: sourceKey
-                )
+            let matchingAlbum = response.albums.first {
+                DisplayPlaylist.normalizedTitle($0.title) == DisplayPlaylist.normalizedTitle(song.albumTitle ?? "")
+                    && DisplayPlaylist.normalizedTitle($0.artistName) == DisplayPlaylist.normalizedTitle(song.artistName)
             }
+            return track(song, album: matchingAlbum, artistIDsByName: artistIDsByName)
+        }
         let artists: [Artist] = response.artists.map { artist in
                 Artist(
                     id: String(describing: artist.id),
@@ -220,6 +224,51 @@ enum AppleMusicCatalogSearch {
             artists: artists,
             albums: albums,
             playlists: playlists
+        )
+    }
+
+    static func tracks(inAlbum albumID: String) async throws -> [Track] {
+        var request = MusicCatalogResourceRequest<MusicKit.Album>(
+            matching: \.id,
+            equalTo: MusicItemID(albumID)
+        )
+        request.properties = [.tracks]
+        let configuredRequest = request
+        let response = try await AppleMusicCatalogRequestBoundary.run(
+            timeoutNanoseconds: requestTimeoutNanoseconds
+        ) {
+            try await configuredRequest.response()
+        }
+        guard let album = response.items.first else { return [] }
+        return album.tracks?.compactMap { item in
+            guard case .song(let song) = item else { return nil }
+            return track(song, album: album)
+        } ?? []
+    }
+
+    private static func track(
+        _ song: Song,
+        album: MusicKit.Album?,
+        artistIDsByName: [String: String] = [:]
+    ) -> Track {
+        Track(
+            id: String(describing: song.id),
+            key: song.libraryAddedDate == nil ? "apple-catalog" : "apple-catalog-library",
+            title: song.title,
+            artistName: song.artistName,
+            albumArtistName: song.artistName,
+            albumName: song.albumTitle,
+            albumRatingKey: album.map { String(describing: $0.id) },
+            artistRatingKey: song.artistURL?.lastPathComponent
+                ?? album?.artistURL?.lastPathComponent
+                ?? artistIDsByName[DisplayPlaylist.normalizedTitle(song.artistName)],
+            trackNumber: song.trackNumber ?? 0,
+            discNumber: song.discNumber ?? 1,
+            duration: song.duration ?? 0,
+            thumbPath: song.artwork?.ensembleResolvableURL() ?? album?.artwork?.ensembleResolvableURL(),
+            streamKey: song.url?.absoluteString,
+            genres: song.genreNames,
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
         )
     }
 }

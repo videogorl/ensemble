@@ -31,7 +31,7 @@ public struct EnsemblePermalink: Sendable, Equatable, Hashable {
         self.artistName = artistName
         self.albumTitle = albumTitle
         self.year = year
-        self.duration = duration
+        self.duration = duration.flatMap { $0 > 0 ? $0 : nil }
         self.trackNumber = trackNumber
         self.discNumber = discNumber
         self.isSmartPlaylist = isSmartPlaylist

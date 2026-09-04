@@ -59,7 +59,7 @@ public final class EnsemblePermalinkResolver {
         if let localDestination { return localDestination }
 
         guard sourceKeys.contains(MusicSourceIdentifier.appleMusic.compositeKey) else { return nil }
-        let query = [permalink.artistName, permalink.title]
+        let query = [permalink.artistName, permalink.title, permalink.albumTitle]
             .compactMap { $0 }
             .joined(separator: " ")
         let results = try await appleMusicCatalogSearch.search(query)
@@ -70,12 +70,18 @@ public final class EnsemblePermalinkResolver {
         let albumResults = try await appleMusicCatalogSearch.search(
             [permalink.artistName, albumTitle].compactMap { $0 }.joined(separator: " ")
         )
+        let albums = results.albums + albumResults.albums
+        guard let album = albums.first(where: {
+            normalized($0.title) == normalized(albumTitle)
+                && hasCompatibleArtist(permalink.artistName, $0.artistName ?? $0.albumArtist)
+        }) else { return nil }
+        let albumTracks = try await appleMusicCatalogSearch.albumTracks(album.id)
         return appleMusicDestination(
             for: permalink,
             results: AppleMusicCatalogSearchResults(
-                tracks: results.tracks,
+                tracks: results.tracks + albumResults.tracks + albumTracks,
                 artists: results.artists + albumResults.artists,
-                albums: results.albums + albumResults.albums,
+                albums: albums,
                 playlists: results.playlists
             )
         )
@@ -113,7 +119,10 @@ public final class EnsemblePermalinkResolver {
             sourceCompositeKeys: sourceKeys
         )
         .map(Album.init(from:))
-        .filter { normalized($0.title) == normalized(permalink.title) }
+        .filter {
+            normalized($0.title) == normalized(permalink.title)
+                && hasCompatibleArtist(permalink.artistName, $0.artistName ?? $0.albumArtist)
+        }
 
         guard let album = best(albums, sourceKey: \.sourceCompositeKey, score: { album in
             var score = 0
@@ -138,7 +147,10 @@ public final class EnsemblePermalinkResolver {
             sourceCompositeKeys: sourceKeys
         )
         .map(Track.init(from:))
-        .filter { normalized($0.title) == normalized(permalink.title) }
+        .filter {
+            normalized($0.title) == normalized(permalink.title)
+                && hasCompatibleArtist(permalink.artistName, $0.artistName ?? $0.albumArtistName)
+        }
 
         guard let track = best(tracks, sourceKey: \.sourceCompositeKey, score: { track in
             var score = 0
@@ -187,7 +199,10 @@ public final class EnsemblePermalinkResolver {
                 .map { .artistDetail($0) }
         case .album:
             return best(
-                results.albums.filter { normalized($0.title) == normalized(permalink.title) },
+                results.albums.filter {
+                    normalized($0.title) == normalized(permalink.title)
+                        && hasCompatibleArtist(permalink.artistName, $0.artistName ?? $0.albumArtist)
+                },
                 sourceKey: \.sourceCompositeKey,
                 score: { album in
                     var score = 0
@@ -198,7 +213,10 @@ public final class EnsemblePermalinkResolver {
             ).map { .albumDetail(.single($0)) }
         case .track:
             guard let track = best(
-                results.tracks.filter { normalized($0.title) == normalized(permalink.title) },
+                results.tracks.filter {
+                    normalized($0.title) == normalized(permalink.title)
+                        && hasCompatibleArtist(permalink.artistName, $0.artistName ?? $0.albumArtistName)
+                },
                 sourceKey: \.sourceCompositeKey,
                 score: { track in
                     var score = 0
@@ -246,6 +264,10 @@ public final class EnsemblePermalinkResolver {
     private func matches(_ expected: String?, _ candidate: String?) -> Bool {
         guard let expected, let candidate else { return false }
         return normalized(expected) == normalized(candidate)
+    }
+
+    private func hasCompatibleArtist(_ expected: String?, _ candidate: String?) -> Bool {
+        expected == nil || matches(expected, candidate)
     }
 
     private func normalized(_ value: String) -> String {

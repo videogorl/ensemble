@@ -87,73 +87,79 @@ final class EnsemblePermalinkResolverTests: XCTestCase {
         XCTAssertEqual(destination, .mergedPlaylist(title: "Road Trip", isSmart: false))
     }
 
-    func testMissingLocalTrackUsesClosestAppleMusicCatalogMatchWhenEnabled() async throws {
+    func testUnrelatedLocalTrackUsesClosestAppleMusicCatalogMatchWhenEnabled() async throws {
         let stack = CoreDataStack.inMemory()
         let library = LibraryRepository(coreDataStack: stack)
         let playlists = PlaylistRepository(coreDataStack: stack)
+        let plexSourceKey = "plex:account:server-a:music"
         let appleMusicSourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        try await library.batchUpsertTracks([
+            trackInput(
+                id: "local-wrong",
+                title: "Orbit",
+                artist: "808 State",
+                album: "Gorgeous",
+                duration: 256_600
+            ),
+        ], sourceCompositeKey: plexSourceKey)
         let matchingAlbum = Album(
             id: "album-match",
             key: "apple-catalog",
-            title: "Vespertine",
-            artistName: "Björk",
+            title: "Bass Persuades",
+            artistName: "Miley Cyrus",
             sourceCompositeKey: appleMusicSourceKey
         )
         let matchingTrack = Track(
             id: "track-match",
             key: "apple-catalog",
-            title: "Pagan Poetry",
-            artistName: "Björk",
-            albumName: "Vespertine",
+            title: "Orbit",
+            artistName: "Miley Cyrus",
+            albumName: "Bass Persuades",
             albumRatingKey: matchingAlbum.id,
-            trackNumber: 5,
+            trackNumber: 4,
             discNumber: 1,
-            duration: 301,
+            duration: 0,
             sourceCompositeKey: appleMusicSourceKey
         )
         let wrongTrack = Track(
             id: "track-wrong",
             key: "apple-catalog",
-            title: "Pagan Poetry",
+            title: "Orbit",
             artistName: "Other Artist",
             albumName: "Other Album",
             albumRatingKey: "album-wrong",
-            duration: 180,
+            duration: 0,
             sourceCompositeKey: appleMusicSourceKey
         )
         let resolver = EnsemblePermalinkResolver(
             libraryRepository: library,
             playlistRepository: playlists,
-            enabledSourceKeys: { [appleMusicSourceKey] },
-            appleMusicCatalogSearch: AppleMusicCatalogSearchClient { term in
-                if term.contains("Vespertine") {
-                    return AppleMusicCatalogSearchResults(
-                        tracks: [],
+            enabledSourceKeys: { [plexSourceKey, appleMusicSourceKey] },
+            appleMusicCatalogSearch: AppleMusicCatalogSearchClient(
+                search: { _ in
+                    AppleMusicCatalogSearchResults(
+                        tracks: [wrongTrack],
                         artists: [],
                         albums: [matchingAlbum],
                         playlists: []
                     )
+                },
+                albumTracks: { albumID in
+                    XCTAssertEqual(albumID, matchingAlbum.id)
+                    return [matchingTrack]
                 }
-                return AppleMusicCatalogSearchResults(
-                    tracks: [wrongTrack, matchingTrack],
-                    artists: [],
-                    albums: [],
-                    playlists: []
-                )
-            }
-        )
-
-        let destination = try await resolver.resolve(
-            EnsemblePermalink(
-                kind: .track,
-                title: matchingTrack.title,
-                artistName: matchingTrack.artistName,
-                albumTitle: matchingTrack.albumName,
-                duration: matchingTrack.duration,
-                trackNumber: matchingTrack.trackNumber,
-                discNumber: matchingTrack.discNumber
             )
         )
+
+        let url = try XCTUnwrap(
+            URL(
+                string: "https://ensemble.videogorl.me/media/v1/song/Orbit?artist=Miley%20Cyrus&album=Bass%20Persuades&duration=0&track=4"
+            )
+        )
+        let permalink = try XCTUnwrap(EnsemblePermalink(url: url))
+        XCTAssertNil(permalink.duration)
+
+        let destination = try await resolver.resolve(permalink)
 
         XCTAssertEqual(
             destination,
@@ -161,11 +167,17 @@ final class EnsemblePermalinkResolverTests: XCTestCase {
         )
     }
 
-    private func trackInput(id: String, artist: String, album: String, duration: Int) -> TrackUpsertInput {
+    private func trackInput(
+        id: String,
+        title: String = "Pagan Poetry",
+        artist: String,
+        album: String,
+        duration: Int
+    ) -> TrackUpsertInput {
         TrackUpsertInput(
             ratingKey: id,
             key: "/\(id)",
-            title: "Pagan Poetry",
+            title: title,
             artistName: artist,
             albumName: album,
             albumRatingKey: nil,
