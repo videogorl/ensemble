@@ -655,10 +655,10 @@ final class AuroraRenderModel: ObservableObject {
     }
 
     /// Mirror the active spectrum around the center, with higher frequencies outward.
-    /// Skip sparse low FFT bands; compact surfaces show roughly 240 Hz–4 kHz.
+    /// Skip sparse low FFT bands; compact surfaces show roughly 300 Hz–4 kHz.
     func displayBands(width: CGFloat, count: Int) -> [Double] {
         let expansion = min(1, max(0, (Double(width) - 430) / 470))
-        let lowerIndex = 6.0
+        let lowerIndex = 7.0
         let upperIndex = 17 + 6 * expansion
         let center = Double(count - 1) / 2
         let centerGap = count.isMultiple(of: 2) ? 0.5 : 0.0

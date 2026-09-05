@@ -12,8 +12,8 @@ final class AuroraRenderModelTests: XCTestCase {
                 XCTAssertEqual(samples.count, count)
                 XCTAssertEqual(samples.first!, source[Int(upperIndex)])
                 XCTAssertEqual(samples.last!, source[Int(upperIndex)])
-                XCTAssertEqual(samples[count / 2 - 1], source[6])
-                XCTAssertEqual(samples[count / 2], source[6])
+                XCTAssertEqual(samples[count / 2 - 1], source[7])
+                XCTAssertEqual(samples[count / 2], source[7])
                 for index in 0..<(count / 2) {
                     XCTAssertEqual(samples[index], samples[count - 1 - index], accuracy: 0.000001)
                     if index > 0 { XCTAssertLessThanOrEqual(samples[index], samples[index - 1]) }
