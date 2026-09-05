@@ -229,8 +229,8 @@ public struct AuroraVisualizationView: View {
             LinearGradient(
                 stops: [
                     .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.10),
-                    .init(color: .black, location: 0.90),
+                    .init(color: .black, location: 0.15),
+                    .init(color: .black, location: 0.85),
                     .init(color: .clear, location: 1)
                 ],
                 startPoint: .leading,
@@ -664,11 +664,11 @@ final class AuroraRenderModel: ObservableObject {
     }
 
     /// Mirror the active spectrum around the center, with higher frequencies outward.
-    /// Skip sparse low FFT bands; compact surfaces show roughly 390 Hz–6 kHz.
+    /// Skip sparse low FFT bands; compact surfaces show roughly 390 Hz–5 kHz.
     func displayBands(width: CGFloat, count: Int) -> [Double] {
         let expansion = min(1, max(0, (Double(width) - 430) / 470))
         let lowerIndex = 8.0
-        let upperIndex = 19 + 4 * expansion
+        let upperIndex = 18 + 5 * expansion
         let center = Double(count - 1) / 2
         let centerGap = count.isMultiple(of: 2) ? 0.5 : 0.0
         return (0..<count).map { index in
@@ -698,7 +698,7 @@ final class AuroraRenderModel: ObservableObject {
         for index in 0..<bandCount {
             let target = targetBands[index]
             let current = smoothedBands[index]
-            let responseTime = target > current ? 0.07 : 0.32
+            let responseTime = target > current ? 0.05 : 0.26
             smoothedBands[index] = current + (target - current) * (1 - exp(-deltaTime / responseTime))
         }
     }
