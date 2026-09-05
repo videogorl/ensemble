@@ -18,8 +18,9 @@
   synced tracks.
 - Same-named regular playlists may merge for display across providers; smart or
   editorial kinds stay separate. Rename and hide may target one or all eligible
-  constituents; other mutations select one exact-source constituent. Playback
-  and queueing use the preferred copy. Adding media to a playlist selects the
+  constituents; other mutations select one exact-source constituent. Merged playlist
+  playback and queueing include all constituent tracks, respecting active filters
+  in detail views. Adding media to a playlist selects the
   media source first; the recent-playlist shortcut uses the preferred source's
   most recently created or added-to playlist.
 - Merging is presentation-only: exact source records remain stored and reappear

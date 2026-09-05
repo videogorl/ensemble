@@ -1171,22 +1171,22 @@ struct MergedPlaylistActionsContextMenu: View {
             ),
             handlers: MediaMenuHandlers(
                 play: {
-                    withPreferredTracks { tracks in
+                    withMergedTracks { tracks in
                         nowPlayingVM.play(tracks: tracks)
                     }
                 },
                 shuffle: {
-                    withPreferredTracks { tracks in
+                    withMergedTracks { tracks in
                         nowPlayingVM.shufflePlay(tracks: tracks)
                     }
                 },
                 playNext: {
-                    withPreferredTracks { tracks in
+                    withMergedTracks { tracks in
                         nowPlayingVM.playNext(tracks)
                     }
                 },
                 playLast: {
-                    withPreferredTracks { tracks in
+                    withMergedTracks { tracks in
                         nowPlayingVM.playLast(tracks)
                     }
                 },
@@ -1250,10 +1250,9 @@ struct MergedPlaylistActionsContextMenu: View {
         )
     }
 
-    private func withPreferredTracks(perform action: @escaping ([Track]) -> Void) {
+    private func withMergedTracks(perform action: @escaping ([Track]) -> Void) {
         Task {
-            let tracks = (try? await DisplayPlaylist.resolvedTracks(
-                for: [displayPlaylist.primaryPlaylist],
+            let tracks = (try? await displayPlaylist.resolvedTracks(
                 using: deps.playlistRepository
             )) ?? []
             guard !tracks.isEmpty else {

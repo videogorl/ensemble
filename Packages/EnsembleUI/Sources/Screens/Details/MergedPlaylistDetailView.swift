@@ -40,7 +40,6 @@ public struct MergedPlaylistDetailView: View {
             showTrackNumbers: false,
             groupByDisc: false,
             mediaType: .playlist,
-            actionTracks: viewModel.preferredFilteredTracks,
             hiddenCandidates: playlists.compactMap { $0.hiddenCandidate(deps: deps) },
             playlistMenuActions: PlaylistDetailMenuActions(
                 favoriteAvailability: .combined(
@@ -127,10 +126,10 @@ public struct MergedPlaylistDetailView: View {
                     }?()
                 },
                 onPlayNext: {
-                    nowPlayingVM.playNext(viewModel.preferredFilteredTracks)
+                    nowPlayingVM.playNext(viewModel.filteredTracks)
                 },
                 onPlayLast: {
-                    nowPlayingVM.playLast(viewModel.preferredFilteredTracks)
+                    nowPlayingVM.playLast(viewModel.filteredTracks)
                 }
             ),
             // Pin/unpin ALL constituent playlists as a batch

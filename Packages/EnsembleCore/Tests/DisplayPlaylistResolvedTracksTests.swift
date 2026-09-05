@@ -60,10 +60,8 @@ final class DisplayPlaylistResolvedTracksTests: XCTestCase {
         repository.playlists["source-a|playlist-1"] = makeCachedPlaylist(first, trackIDs: ["a1", "a2"], context: context)
         repository.playlists["source-b|playlist-2"] = makeCachedPlaylist(second, trackIDs: ["b1", "b2"], context: context)
 
-        let tracks = try await DisplayPlaylist.resolvedTracks(
-            for: [first, second],
-            using: repository
-        )
+        let playlist = DisplayPlaylist.merged(title: "Mix", isSmart: false, playlists: [first, second])
+        let tracks = try await playlist.resolvedTracks(using: repository)
 
         XCTAssertEqual(tracks.map(\.id), ["a1", "b1", "a2", "b2"])
         XCTAssertEqual(repository.fetchPlaylistBodiesCalls.count, 1)
