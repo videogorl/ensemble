@@ -7,6 +7,7 @@ import SwiftUI
 public struct MergedPlaylistDetailView: View {
     @StateObject private var viewModel: MergedPlaylistDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
+    private let displayPlaylist: DisplayPlaylist
 
     @State private var showRenamePrompt = false
     @State private var renamePromptText = ""
@@ -23,6 +24,7 @@ public struct MergedPlaylistDetailView: View {
             wrappedValue: DependencyContainer.shared.makeMergedPlaylistDetailViewModel(displayPlaylist: displayPlaylist)
         )
         self.nowPlayingVM = nowPlayingVM
+        self.displayPlaylist = displayPlaylist
     }
 
     public var body: some View {
@@ -148,6 +150,9 @@ public struct MergedPlaylistDetailView: View {
                 return identities.allSatisfy { pinnedIdentities.contains($0) }
             }
         )
+        .onChange(of: displayPlaylist) { updated in
+            Task { await viewModel.updateDisplayPlaylist(updated) }
+        }
         .alert("Rename Playlist", isPresented: $showRenamePrompt) {
             TextField("Playlist name", text: $renamePromptText)
             Button("Cancel", role: .cancel) {

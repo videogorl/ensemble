@@ -39,19 +39,11 @@ struct StageFlowTrackLoader {
                 }
 
         case .albumGroup(let albums):
-            var tracks: [Track] = []
-            for album in albums {
-                guard let sourceKey = album.sourceCompositeKey,
-                      MediaSourceIdentity.parse(sourceKey) != nil else { continue }
-                let sourceTracks = try await libraryRepository.fetchTracks(
-                    forAlbum: album.id,
-                    sourceCompositeKey: sourceKey
-                ).map { Track(from: $0) }
-                tracks.append(contentsOf: sourceTracks.sorted { lhs, rhs in
-                    (lhs.discNumber, lhs.trackNumber) < (rhs.discNumber, rhs.trackNumber)
-                })
-            }
-            return MergingProjection.albumTracks(tracks, preferences: mergingPreferences)
+            guard let first = albums.first else { return [] }
+            return try await DisplayAlbum(id: first.sourceScopedID, albums: albums).resolvedTracks(
+                using: libraryRepository,
+                preferences: mergingPreferences
+            )
 
         case .playlist(let id, let sourceCompositeKey):
             guard let playlist = try await playlistRepository.fetchPlaylist(

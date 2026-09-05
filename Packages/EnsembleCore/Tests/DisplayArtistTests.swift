@@ -35,6 +35,19 @@ final class DisplayArtistTests: XCTestCase {
         XCTAssertEqual(grouped[1].primaryArtist.sourceScopedID, "plex:free:test-server:1||1")
     }
 
+    func testArtistGroupingMatchesFeedForTypographicQuotes() {
+        let artists = ["Guns N’ Roses", "GUNS N' ROSES"].enumerated().map { index, name in
+            Artist(id: "\(index)", key: "/artist/\(index)", name: name, sourceCompositeKey: "plex:a:s:\(index)")
+        }
+        let feedItems = artists.map {
+            HubItem(id: $0.id, type: "artist", title: $0.name, subtitle: nil, thumbPath: nil,
+                    year: nil, sourceCompositeKey: $0.sourceCompositeKey!, artist: $0)
+        }
+        XCTAssertEqual(DisplayArtist.group(artists).map { $0.artists.map(\.id) }, [["0", "1"]])
+        XCTAssertEqual(DisplayHubItem.group(feedItems).map { $0.items.map(\.id) }, [["0", "1"]])
+        XCTAssertEqual(DisplayArtist.group(artists).first?.name, "Guns N’ Roses")
+    }
+
     func testGroupUsesSourceScopedIDForSingles() {
         let artist = Artist(
             id: "42",

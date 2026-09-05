@@ -76,6 +76,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
             return
         }
 
+        let playlists = displayPlaylist.playlists
         isLoading = true
         error = nil
 
@@ -85,6 +86,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
                 tracks = loadedTracks
             }
         } catch {
+            guard playlists == displayPlaylist.playlists else { return }
             self.error = error.localizedDescription
         }
 
@@ -93,21 +95,23 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     }
 
     private func loadConstituentTrackSets() async throws -> [[Track]] {
-        let references = displayPlaylist.playlists.compactMap { playlist -> SourceScopedArtworkReference? in
+        let playlists = displayPlaylist.playlists
+        let references = playlists.compactMap { playlist -> SourceScopedArtworkReference? in
             guard let sourceCompositeKey = playlist.sourceCompositeKey else { return nil }
             return SourceScopedArtworkReference(ratingKey: playlist.id, sourceCompositeKey: sourceCompositeKey)
         }
 
         guard references.count == displayPlaylist.playlists.count else {
-            return try await loadConstituentTrackSetsOneByOne()
+            return try await loadConstituentTrackSetsOneByOne(playlists)
         }
 
         let playlistsByKey = try await playlistRepository.fetchPlaylistBodies(forReferences: references)
+        guard playlists == displayPlaylist.playlists else { throw CancellationError() }
         var uneditablePlaylistIDs = Set<String>()
         var loadedTrackCountsByPlaylistID: [String: Int] = [:]
         var loadedItemsByPlaylistID: [String: [PlaylistItem]] = [:]
         var hasUnavailableTracks = false
-        let trackSets: [[Track]] = displayPlaylist.playlists.map { playlist -> [Track] in
+        let trackSets: [[Track]] = playlists.map { playlist -> [Track] in
             guard let sourceCompositeKey = playlist.sourceCompositeKey else { return [] }
             let key = SourceScopedArtworkReference(
                 ratingKey: playlist.id,
@@ -138,14 +142,14 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         return trackSets
     }
 
-    private func loadConstituentTrackSetsOneByOne() async throws -> [[Track]] {
+    private func loadConstituentTrackSetsOneByOne(_ playlists: [Playlist]) async throws -> [[Track]] {
         var trackSets: [[Track]] = []
         var uneditablePlaylistIDs = Set<String>()
         var loadedTrackCountsByPlaylistID: [String: Int] = [:]
         var loadedItemsByPlaylistID: [String: [PlaylistItem]] = [:]
         var hasUnavailableTracks = false
         trackSets.reserveCapacity(displayPlaylist.playlists.count)
-        for playlist in displayPlaylist.playlists {
+        for playlist in playlists {
             if let cached = try await playlistRepository.fetchPlaylist(
                 ratingKey: playlist.id,
                 sourceCompositeKey: playlist.sourceCompositeKey
@@ -167,6 +171,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
                 trackSets.append([])
             }
         }
+        guard playlists == displayPlaylist.playlists else { throw CancellationError() }
         self.uneditablePlaylistIDs = uneditablePlaylistIDs
         self.loadedTrackCountsByPlaylistID = loadedTrackCountsByPlaylistID
         self.loadedItemsByPlaylistID = loadedItemsByPlaylistID
@@ -350,7 +355,10 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     }
 
     /// Updates the display playlist (e.g., when merge state changes and constituents are refreshed)
-    public func updateDisplayPlaylist(_ dp: DisplayPlaylist) {
+    public func updateDisplayPlaylist(_ dp: DisplayPlaylist) async {
+        guard displayPlaylist != dp else { return }
         displayPlaylist = dp
+        shouldSkipNextLoadAfterLocalEdit = false
+        await loadTracks()
     }
 }

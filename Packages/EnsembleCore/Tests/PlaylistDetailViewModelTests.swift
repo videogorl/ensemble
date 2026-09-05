@@ -10,6 +10,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
     private final class MockLibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
         var favoriteTracks: [CDTrack] = []
+        var albumTracks: [String: [CDTrack]] = [:]
         var refreshedFavoriteTracks: [CDTrack]?
         var refreshContextCallCount = 0
 
@@ -28,7 +29,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func fetchTracks(forSource sourceCompositeKey: String) async throws -> [CDTrack] { [] }
         func fetchSiriEligibleTracks() async throws -> [CDTrack] { [] }
         func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack] { [] }
-        func fetchTracks(forAlbum albumRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] { [] }
+        func fetchTracks(forAlbum albumRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] { albumTracks["\(sourceCompositeKey)|\(albumRatingKey)"] ?? [] }
         func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack] { [] }
         func fetchTracks(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] { [] }
         func fetchFavoriteTracks() async throws -> [CDTrack] { favoriteTracks }
@@ -1658,6 +1659,91 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
         XCTAssertEqual(viewModel.error, PlaylistMutationError.smartPlaylistReadOnly.localizedDescription)
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-1"])
+    }
+
+    func testMergedAlbumPlaybackRetainsSecondaryTracksAcrossAllQueueSources() async throws {
+        let sources = ["plex:account-1:server-1:lib-1", "plex:account-2:server-2:lib-2"]
+        let albums = sources.map { Album(id: "album", key: "/album", title: "Album", sourceCompositeKey: $0) }
+        let tracks = sources.enumerated().flatMap { sourceIndex, source in
+            (1...(sourceIndex == 0 ? 2 : 3)).map { index in
+                Track(id: "track-\(index)", key: "/track/\(index)", title: "Track \(index)",
+                      artistName: "Artist", albumName: "Album", albumRatingKey: "album",
+                      trackNumber: index, duration: 180, sourceCompositeKey: source)
+            }
+        }
+        let repository = MockLibraryRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        for source in sources {
+            repository.albumTracks["\(source)|album"] = makeCachedPlaylist(
+                makePlaylist(), tracks: tracks.filter { $0.sourceCompositeKey == source }, context: context
+            ).tracksArray
+        }
+        let settings = SettingsManager()
+        let previous = settings.mergingPreferences
+        defer { settings.setMergingPreferences(previous) }
+        settings.setMergingPreferences(.init(preferredSourceKeys: sources))
+        let viewModel = AlbumDetailViewModel(
+            displayAlbum: DisplayAlbum(id: "merged", albums: albums),
+            libraryRepository: repository,
+            syncCoordinator: makeSyncCoordinator(),
+            initialTracks: tracks,
+            settingsManager: settings,
+            includesHidden: true
+        )
+        viewModel.filterOptions = FilterOptions()
+        let detail: any MediaDetailViewModelProtocol = viewModel
+
+        for mergeTracks in [false, true] {
+            for preferredSources in [sources, Array(sources.reversed())] {
+                let preferences = EnsembleMergingPreferences(mergeTracks: mergeTracks, preferredSourceKeys: preferredSources)
+                settings.setMergingPreferences(preferences)
+                let queue = detail.playableTracks
+                XCTAssertEqual(queue.count, mergeTracks ? 3 : 5)
+                XCTAssertTrue(queue.contains { $0.id == "track-3" && $0.sourceCompositeKey == sources[1] })
+                XCTAssertEqual(queue.first?.sourceCompositeKey, preferredSources[0])
+                let resolved = try await viewModel.displayAlbum.resolvedTracks(using: repository, preferences: preferences)
+                XCTAssertEqual(resolved.map(\.sourceScopedID), queue.map(\.sourceScopedID))
+                for track in detail.filteredTracks {
+                    let selection = detail.playbackSelection(for: track)
+                    XCTAssertEqual(selection?.tracks.map(\.sourceScopedID), queue.map(\.sourceScopedID))
+                    XCTAssertEqual(selection.map { $0.tracks[$0.index].sourceScopedID }, track.sourceScopedID)
+                }
+            }
+        }
+    }
+
+    func testOpenMergedPlaylistRefreshesConstituentsAndTheirOrder() async {
+        let playlists = [
+            makePlaylist(id: "a", title: "Mix", sourceCompositeKey: "plex:account-1:server-1"),
+            makePlaylist(id: "b", title: "Mix", sourceCompositeKey: "plex:account-2:server-2")
+        ]
+        let context = CoreDataStack.inMemory().viewContext
+        let repository = MockPlaylistRepository()
+        for playlist in playlists {
+            repository.playlists[repository.playlistKey(ratingKey: playlist.id, sourceCompositeKey: playlist.sourceCompositeKey)] = makeCachedPlaylist(
+                playlist, tracks: [makeTrack(id: playlist.id, sourceCompositeKey: playlist.sourceCompositeKey! + ":lib-1")], context: context
+            )
+        }
+        let syncCoordinator = makeSyncCoordinator()
+        let viewModel = MergedPlaylistDetailViewModel(
+            displayPlaylist: .single(playlists[0]),
+            playlistRepository: repository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
+        )
+        viewModel.filterOptions = FilterOptions()
+        await viewModel.loadTracks()
+        XCTAssertEqual(viewModel.filteredTracks.map(\.id), ["a"])
+
+        for constituents in [playlists, Array(playlists.reversed()), [playlists[1]]] {
+            let updated = DisplayPlaylist.merged(title: "Mix", isSmart: false, playlists: constituents)
+            await viewModel.updateDisplayPlaylist(updated)
+            XCTAssertEqual(viewModel.filteredTracks.map(\.id), constituents.map(\.id))
+            XCTAssertEqual(viewModel.playableTracks.map(\.id), constituents.map(\.id))
+            let fetchCount = repository.fetchPlaylistBodiesCallCount
+            await viewModel.updateDisplayPlaylist(updated)
+            XCTAssertEqual(repository.fetchPlaylistBodiesCallCount, fetchCount)
+        }
     }
 
     func testRemoveTrackFromMergedPlaylistUsesMembershipIDsDespiteUnavailableTrackRows() async {

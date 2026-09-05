@@ -284,22 +284,22 @@ struct AlbumActionsContextMenu: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let pinManager = DependencyContainer.shared.pinManager
 
-    private var mutationAlbums: [Album] {
+    private var backingAlbums: [Album] {
         sourceAlbums.isEmpty ? [album] : sourceAlbums
     }
 
     var body: some View {
         let hiddenIdentity = HiddenMediaIdentity(album)
-        let hiddenCandidates = mutationAlbums.compactMap { $0.hiddenCandidate(deps: deps) }
+        let hiddenCandidates = backingAlbums.compactMap { $0.hiddenCandidate(deps: deps) }
         let isHidden = hiddenMediaIsHidden(
             identity: hiddenIdentity,
             candidates: hiddenCandidates,
             store: deps.hiddenMediaStore
         )
-        let downloadState = deps.downloadMutationWorkflow.batchState(for: mutationAlbums)
+        let downloadState = deps.downloadMutationWorkflow.batchState(for: backingAlbums)
         let isDownloaded = downloadState.isEnabled
         let downloadAvailability = MusicItemActionAvailability.combined(
-            mutationAlbums.map {
+            backingAlbums.map {
                 resolvedDownloadMenuAvailability(
                     isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled($0),
                     sourceAvailability: $0.actionAvailability(for: .download)
@@ -307,10 +307,10 @@ struct AlbumActionsContextMenu: View {
             }
         )
         let editAvailability = MusicItemActionAvailability.combined(
-            mutationAlbums.map { $0.actionAvailability(for: .editMetadata) }
+            backingAlbums.map { $0.actionAvailability(for: .editMetadata) }
         )
         let deleteAvailability = MusicItemActionAvailability.combined(
-            mutationAlbums.map { $0.actionAvailability(for: .delete) }
+            backingAlbums.map { $0.actionAvailability(for: .delete) }
         )
         let isPinned = customIsPinned?()
             ?? pinManager.isPinned(id: album.id, sourceKey: album.sourceCompositeKey ?? "")
@@ -367,27 +367,27 @@ struct AlbumActionsContextMenu: View {
             ),
             handlers: MediaMenuHandlers(
                 play: {
-                    withAlbumTracks(album) { tracks in
+                    withAlbumTracks { tracks in
                         nowPlayingVM.play(tracks: tracks)
                     }
                 },
                 shuffle: {
-                    withAlbumTracks(album) { tracks in
+                    withAlbumTracks { tracks in
                         nowPlayingVM.shufflePlay(tracks: tracks)
                     }
                 },
                 radio: {
-                    withAlbumTracks(album) { tracks in
+                    withAlbumTracks { tracks in
                         nowPlayingVM.enableRadio(tracks: tracks)
                     }
                 },
                 playNext: {
-                    withAlbumTracks(album) { tracks in
+                    withAlbumTracks { tracks in
                         nowPlayingVM.playNext(tracks)
                     }
                 },
                 playLast: {
-                    withAlbumTracks(album) { tracks in
+                    withAlbumTracks { tracks in
                         nowPlayingVM.playLast(tracks)
                     }
                 },
@@ -395,7 +395,7 @@ struct AlbumActionsContextMenu: View {
                 addToPlaylist: presentPlaylistPicker.flatMap { present in
                     sourceMutationAction(
                         title: "Add Album to Playlist",
-                        items: mutationAlbums,
+                        items: backingAlbums,
                         id: \.sourceScopedID,
                         itemTitle: \.title,
                         sourceKey: \.sourceCompositeKey,
@@ -412,7 +412,7 @@ struct AlbumActionsContextMenu: View {
                 editMetadata: onEditMetadata.flatMap { callback in
                     sourceMutationAction(
                         title: "Edit Album Metadata",
-                        items: mutationAlbums,
+                        items: backingAlbums,
                         id: \.sourceScopedID,
                         itemTitle: \.title,
                         sourceKey: \.sourceCompositeKey,
@@ -424,7 +424,7 @@ struct AlbumActionsContextMenu: View {
                 },
                 download: {
                     Task {
-                        await deps.downloadMutationWorkflow.toggleDownloads(for: mutationAlbums)
+                        await deps.downloadMutationWorkflow.toggleDownloads(for: backingAlbums)
                     }
                 },
                 pin: {
@@ -449,7 +449,7 @@ struct AlbumActionsContextMenu: View {
                 deleteAlbum: onDelete.flatMap { callback in
                     sourceMutationAction(
                         title: "Delete Album",
-                        items: mutationAlbums.filter {
+                        items: backingAlbums.filter {
                             $0.actionAvailability(for: .delete).isAvailable
                         },
                         id: \.sourceScopedID,
@@ -482,9 +482,20 @@ struct AlbumActionsContextMenu: View {
         )
     }
 
-    private func withAlbumTracks(_ album: Album, perform action: @escaping ([Track]) -> Void) {
+    private func withAlbumTracks(_ selectedAlbum: Album? = nil, perform action: @escaping ([Track]) -> Void) {
         Task {
-            let tracks = await resolveTracks(for: album)
+            let tracks: [Track]
+            if let selectedAlbum {
+                tracks = (try? await selectedAlbum.resolvedTracks(
+                    using: deps.libraryRepository, syncCoordinator: deps.syncCoordinator
+                )) ?? []
+            } else {
+                tracks = (try? await DisplayAlbum(id: album.sourceScopedID, albums: backingAlbums).resolvedTracks(
+                    using: deps.libraryRepository,
+                    preferences: deps.settingsManager.mergingPreferences,
+                    syncCoordinator: deps.syncCoordinator
+                )) ?? []
+            }
             guard !tracks.isEmpty else {
                 await MainActor.run {
                     deps.toastCenter.show(
@@ -503,16 +514,6 @@ struct AlbumActionsContextMenu: View {
                 action(tracks)
             }
         }
-    }
-
-    private func resolveTracks(for album: Album) async -> [Track] {
-        guard let sourceKey = album.sourceCompositeKey else { return [] }
-        if let cached = try? await deps.libraryRepository.fetchTracks(forAlbum: album.id, sourceCompositeKey: sourceKey),
-           !cached.isEmpty
-        {
-            return cached.map { Track(from: $0) }
-        }
-        return (try? await deps.syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)) ?? []
     }
 
     private func addAlbumToRecentPlaylist(_ album: Album, expectedTitle: String) {

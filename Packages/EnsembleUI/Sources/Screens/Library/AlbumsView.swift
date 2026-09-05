@@ -254,17 +254,10 @@ public struct AlbumsView: View {
     }
 
     private func resolveStageFlowTracks(for displayAlbum: DisplayAlbum) async -> [Track] {
-        var tracks: [Track] = []
-        for album in displayAlbum.albums {
-            guard let sourceCompositeKey = album.sourceCompositeKey,
-                  MediaSourceIdentity.parse(sourceCompositeKey) != nil else { continue }
-            let cachedTracks = (try? await deps.libraryRepository.fetchTracks(
-                forAlbum: album.id,
-                sourceCompositeKey: sourceCompositeKey
-            )) ?? []
-            tracks.append(contentsOf: cachedTracks.map { Track(from: $0) })
-        }
-        return MergingProjection.albumTracks(tracks, preferences: deps.settingsManager.mergingPreferences)
+        (try? await displayAlbum.resolvedTracks(
+            using: deps.libraryRepository,
+            preferences: deps.settingsManager.mergingPreferences
+        )) ?? []
     }
 
     private var albumGenreChipBar: some View {
@@ -360,7 +353,6 @@ public struct AlbumDetailView: View {
             showFilter: false,
             mediaType: .album,
             selectedTrackId: selectedTrackId,
-            actionTracks: viewModel.preferredFilteredTracks,
             hiddenCandidates: displayAlbum.albums.compactMap { $0.hiddenCandidate(deps: deps) },
             hiddenIdentity: displayAlbum.isMerged ? nil : HiddenMediaIdentity(album),
             includesHidden: includesHidden,
@@ -447,10 +439,10 @@ public struct AlbumDetailView: View {
                     }?()
                 },
                 onPlayNext: {
-                    nowPlayingVM.playNext(viewModel.preferredFilteredTracks)
+                    nowPlayingVM.playNext(viewModel.filteredTracks)
                 },
                 onPlayLast: {
-                    nowPlayingVM.playLast(viewModel.preferredFilteredTracks)
+                    nowPlayingVM.playLast(viewModel.filteredTracks)
                 }
             ),
             additionalFooterContent: AnyView(albumMetadataFooter),

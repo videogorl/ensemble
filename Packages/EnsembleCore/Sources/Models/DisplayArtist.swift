@@ -80,14 +80,6 @@ public struct DisplayArtist: Identifiable, Equatable, Sendable {
     }
 
     public static func normalizedName(_ name: String) -> String {
-        let folded = name
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return folded
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .lowercased()
+        EnsembleMergeIdentity.normalized(name) ?? ""
     }
 }

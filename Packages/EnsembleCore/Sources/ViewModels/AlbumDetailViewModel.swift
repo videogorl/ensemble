@@ -15,10 +15,24 @@ public protocol MediaDetailViewModelProtocol: ObservableObject {
     var filterOptions: FilterOptions { get set }
     
     func loadTracks() async
+    var playableTracks: [Track] { get }
     func mutationCandidates(for track: Track) -> [Track]
 }
 
 public extension MediaDetailViewModelProtocol {
+    var playableTracks: [Track] {
+        filteredTracks.filter(\.isLibraryAvailable)
+    }
+
+    func playbackSelection(for track: Track) -> (tracks: [Track], index: Int)? {
+        guard track.isLibraryAvailable else { return nil }
+        let tracks = playableTracks
+        guard let index = tracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) else {
+            return nil
+        }
+        return (tracks, index)
+    }
+
     func mutationCandidates(for track: Track) -> [Track] { [track] }
 }
 
@@ -124,7 +138,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         var lastError: Error?
         for sourceAlbum in displayAlbum.albums {
             do {
-                loadedTracks.append(contentsOf: try await loadTracks(for: sourceAlbum))
+                loadedTracks.append(contentsOf: try await sourceAlbum.resolvedTracks(using: libraryRepository, syncCoordinator: syncCoordinator))
             } catch {
                 lastError = error
                 EnsembleLogger.debug("AlbumDetailViewModel error for \(sourceAlbum.sourceScopedID): \(error.localizedDescription)")
@@ -151,10 +165,6 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         )
     }
 
-    public var preferredFilteredTracks: [Track] {
-        filteredTracks(for: displayAlbum.primaryAlbum)
-    }
-
     public func filteredTracks(for album: Album) -> [Track] {
         applyFilters(
             to: sourceTracks.filter {
@@ -165,20 +175,6 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         )
     }
 
-    private func loadTracks(for album: Album) async throws -> [Track] {
-        guard let sourceKey = album.sourceCompositeKey,
-              MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
-        let cachedTracks = try await libraryRepository.fetchTracks(
-            forAlbum: album.id,
-            sourceCompositeKey: sourceKey
-        )
-        if !cachedTracks.isEmpty {
-            return cachedTracks.map { Track(from: $0) }
-        }
-        EnsembleLogger.debug("AlbumDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
-        return try await syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)
-    }
-    
     /// Loads rich album metadata (genres, styles, studio/label) from the API
     public func loadAlbumDetail() async {
         guard let sourceKey = album.sourceCompositeKey else { return }

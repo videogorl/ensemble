@@ -236,7 +236,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let showFilter: Bool
     let mediaType: PinnedItemType?
     let selectedTrackId: String?
-    let actionTracks: [Track]?
     let genreChipContent: AnyView?
     let playlistMenuActions: PlaylistDetailMenuActions?
     let albumMenuActions: AlbumDetailMenuActions?
@@ -289,7 +288,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         showFilter: Bool = true,
         mediaType: PinnedItemType? = nil,
         selectedTrackId: String? = nil,
-        actionTracks: [Track]? = nil,
         hiddenCandidates: [HiddenMediaCandidate] = [],
         hiddenIdentity: HiddenMediaIdentity? = nil,
         includesHidden: Bool = false,
@@ -312,7 +310,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.showFilter = showFilter
         self.mediaType = mediaType
         self.selectedTrackId = selectedTrackId
-        self.actionTracks = actionTracks
         self.hiddenCandidates = hiddenCandidates
         self.hiddenIdentity = hiddenIdentity
         self.includesHidden = includesHidden
@@ -417,7 +414,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
         .task(id: quickTargetRefreshKey) {
             lastPlaylistQuickTarget = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
-                for: resolvedActionTracks,
+                for: viewModel.filteredTracks,
                 nowPlayingVM: nowPlayingVM
             )
         }
@@ -458,11 +455,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var playableTracks: [Track] {
-        resolvedActionTracks.filter(\.isLibraryAvailable)
-    }
-
-    private var resolvedActionTracks: [Track] {
-        actionTracks ?? viewModel.filteredTracks
+        viewModel.playableTracks
     }
 
     private var shouldShowStandaloneFilterButton: Bool {
@@ -470,9 +463,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var quickTargetRefreshKey: String {
-        let firstTrackID = resolvedActionTracks.first?.id ?? "none"
+        let firstTrackID = viewModel.filteredTracks.first?.id ?? "none"
         let playlistTargetID = nvmLastPlaylistTargetId ?? "none"
-        return "\(firstTrackID):\(resolvedActionTracks.count):\(playlistTargetID)"
+        return "\(firstTrackID):\(viewModel.filteredTracks.count):\(playlistTargetID)"
     }
 
     private var headerArtworkLoadKey: String {
@@ -550,23 +543,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     } label: {
                         MediaActionLabel(kind: .playNext)
                     }
-                    .disabled(resolvedActionTracks.isEmpty)
+                    .disabled(viewModel.filteredTracks.isEmpty)
 
                     Button {
                         albumMenuActions.onPlayLast()
                     } label: {
                         MediaActionLabel(kind: .playLast)
                     }
-                    .disabled(resolvedActionTracks.isEmpty)
+                    .disabled(viewModel.filteredTracks.isEmpty)
 
                     if let recentTitle = PlaylistActionPresentationHost.recentPlaylistTitle(
-                        for: resolvedActionTracks,
+                        for: viewModel.filteredTracks,
                         target: lastPlaylistQuickTarget,
                         nowPlayingVM: nowPlayingVM
                     ) {
                         Button {
                             PlaylistActionPresentationHost.addToRecentPlaylist(
-                                resolvedActionTracks,
+                                viewModel.filteredTracks,
                                 target: lastPlaylistQuickTarget,
                                 nowPlayingVM: nowPlayingVM
                             )
@@ -582,7 +575,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     } label: {
                         MediaActionLabel(kind: .addToPlaylist)
                     }
-                    .disabled(resolvedActionTracks.isEmpty)
+                    .disabled(viewModel.filteredTracks.isEmpty)
 
                     Divider()
 
@@ -795,14 +788,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 } label: {
                     MediaActionLabel(kind: .playNext)
                 }
-                .disabled(resolvedActionTracks.isEmpty)
+                .disabled(viewModel.filteredTracks.isEmpty)
 
                 Button {
                     playlistMenuActions.onPlayLast()
                 } label: {
                     MediaActionLabel(kind: .playLast)
                 }
-                .disabled(resolvedActionTracks.isEmpty)
+                .disabled(viewModel.filteredTracks.isEmpty)
 
                 Divider()
 
@@ -1417,7 +1410,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var radioButton: some View {
         if let _ = viewModel as? AlbumDetailViewModel {
             Button {
-                nowPlayingVM.enableRadio(tracks: resolvedActionTracks)
+                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {
                 radioButtonLabel
             }
@@ -1591,11 +1584,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             trackSourceLabels: headerData.trackSourceLabels,
             onRemoveFromPlaylist: playlistTrackRemovalHandler
         ) { track, _ in
-            guard track.isLibraryAvailable,
-                  let index = playableTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) else {
-                return
-            }
-            nowPlayingVM.play(tracks: playableTracks, startingAt: index)
+            playTrack(track)
         }
         #else
         SongsTrackListHost(
@@ -1628,12 +1617,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
         ) { track, _ in
-            if track.isLibraryAvailable,
-               let index = playableTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) {
-                nowPlayingVM.play(tracks: playableTracks, startingAt: index)
-            }
+            playTrack(track)
         }
         #endif
+    }
+
+    private func playTrack(_ track: Track) {
+        guard let selection = viewModel.playbackSelection(for: track) else { return }
+        nowPlayingVM.play(tracks: selection.tracks, startingAt: selection.index)
     }
 
     #if !os(iOS)
