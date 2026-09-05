@@ -358,7 +358,7 @@ public struct AuroraVisualizationView: View {
             let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(Double(bellWidth), 2)))
             
             // Keep quiet bands visibly rooted while stronger signals grow upward.
-            let heightTaper = min(1, min(normalizedPos, 1 - normalizedPos) / 0.30)
+            let heightTaper = min(1, min(normalizedPos, 1 - normalizedPos) / 0.20)
             let heightFactor = pow(intensity, 1.35) * bellFactor * heightTaper
             
             let phase = time * (0.25 + 0.15 * Double(layer)) + normalizedPos * 6.1 + Double(layer) * 2.1
