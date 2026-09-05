@@ -2,6 +2,14 @@
 
 Reviewed 2026-09-04 against `8e40f111` on `develop`. This is a source and public-API review, not a device reproduction or performance measurement. Production code is unchanged.
 
+## Scope clarification and evidence check — 2026-09-05
+
+The requested work is stability when switching between the existing engines. Engine replacement, an AVPlayer migration, and adding another engine are out of scope. The immediate symptoms are flashes in Now Playing View and disappearing iOS playback controls/widgets during Plex↔Apple Music transitions. The general efficiency findings below are secondary to these visible handoff failures.
+
+The next capture must distinguish app presentation changes from the system media surface disappearing. Record the same transition in NPV and on the relevant iOS media surface, correlated with queue identity, playback generation, logical state, Now Playing publication/clearing, MusicKit stop/queue replacement, and audio-session configuration. Success means the presentation stays mounted and the system controls remain present through the handoff; successful incoming audio alone is insufficient.
+
+At checkout `e486a707`, the worktree was clean and `devicectl` reported the physical iPhone 16 Pro unavailable. The three September 4 session logs in iCloud Downloads contain no Apple Music handoff markers. The September 1 log contains an Apple start, and the August 30 log contains Apple boundaries, but neither supplies a visual recording of the newly reported disappearance. Older logs also show artwork fallback/replacement during Apple transitions; that is not proof of the reported NPV flash or system-control loss. No current reproduction, root-cause attribution, or fix is claimed. A connected phone or matching recording and session log is needed to proceed with exact-symptom diagnosis.
+
 ## Recommendation
 
 Keep `ApplicationMusicPlayer` for Apple Music and `AudioPlaybackEngine` for Ensemble's file/HTTP playback. Improve their shared control boundary before considering another engine. The current split is appropriate; duplicated queue policy, inconsistent event handling, and unsafe native render work are the stronger targets.
