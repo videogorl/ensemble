@@ -357,9 +357,9 @@ public struct AuroraVisualizationView: View {
             // Taper height toward the ends without dimming the reactive base.
             let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(Double(bellWidth), 2)))
             
-            // Bands are already shaped by bandResponseExponent in calculateBandValues,
-            // so use intensity directly here.
-            let heightFactor = intensity * bellFactor * (1 - abs(normalizedPos * 2 - 1))
+            // Keep quiet bands visibly rooted while stronger signals grow upward.
+            let heightTaper = min(1, min(normalizedPos, 1 - normalizedPos) / 0.30)
+            let heightFactor = pow(intensity, 1.35) * bellFactor * heightTaper
             
             let phase = time * (0.25 + 0.15 * Double(layer)) + normalizedPos * 6.1 + Double(layer) * 2.1
             let breath = 0.9 + 0.1 * sin(phase + 1.3)
@@ -374,7 +374,7 @@ public struct AuroraVisualizationView: View {
             let y = size.height - height - poolHeight
 
             // Anchor each curtain below the surface so it only fades upward.
-            let intensityAlpha = intensity
+            let intensityAlpha = sqrt(intensity)
             let bandGradient = Gradient(stops: [
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha), location: 0.0),
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.6), location: 0.45),

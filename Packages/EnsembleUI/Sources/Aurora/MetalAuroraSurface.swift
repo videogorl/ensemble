@@ -432,8 +432,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
                 float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(u.bellWidth, 2.0)));
                 float phase = u.time * (0.25 + 0.15 * float(depth)) + normalized * 6.1 + float(depth) * 2.1;
                 float breath = 0.9 + 0.1 * sin(phase + 1.3);
-                float heightTaper = 1.0 - abs(normalized * 2.0 - 1.0);
-                float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell * heightTaper) * heightScale * breath * layerBreath;
+                float heightTaper = min(1.0, min(normalized, 1.0 - normalized) / 0.30);
+                float height = (u.minHeight + (u.maxHeight - u.minHeight) * pow(intensity, 1.35) * bell * heightTaper) * heightScale * breath * layerBreath;
                 float drift = sin(phase) * (0.25 + 0.12 * float(depth)) * bandWidth;
                 float centeredX = (float(i) + 0.5) * bandWidth - activeWidth * 0.5;
                 float centerX = xOffset + activeWidth * 0.5 + centeredX * widthScale + layerDrift + drift;
@@ -444,7 +444,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
                 float dy = (u.size.y - p.y) / max(rectHeight, 1.0);
                 float ellipse = exp(-(dx * dx * 1.65 + dy * dy * verticalBlur));
                 float vertical = 1.0 - smoothBand(verticalSoftness, 1.0, dy);
-                float intensityAlpha = intensity;
+                // Brightness arrives early so the subsequent rise is visible.
+                float intensityAlpha = sqrt(intensity);
                 float contribution = ellipse * vertical * intensityAlpha * baseOpacity;
 
                 // Additive light from independently moving curtains.
