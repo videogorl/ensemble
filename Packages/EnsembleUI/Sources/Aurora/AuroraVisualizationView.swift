@@ -36,7 +36,7 @@ public struct AuroraVisualizationView: View {
     private var displaySampleCount: Int { isLowPowerMode || isLowCoreDevice ? 24 : 48 }
 
     /// Maximum height of the active aurora bands.
-    private var maxHeight: CGFloat { isPhone ? 160 : 80 }
+    private var maxHeight: CGFloat { isPhone ? 184 : 92 }
 
     /// Minimum height of bands (always visible base)
     private let minHeight: CGFloat = 6
@@ -125,7 +125,7 @@ public struct AuroraVisualizationView: View {
             auroraSurface(for: geometry)
                 .frame(maxHeight: .infinity, alignment: .bottom)
         }
-        .opacity(isVisible ? 0.35 : 0)
+        .opacity(isVisible ? 0.45 : 0)
         // Add light on dark surfaces; additive blending disappears against white.
         .blendMode(colorScheme == .dark ? .plusLighter : .normal)
         .if(expandsBeyondBounds) { view in
@@ -655,10 +655,10 @@ final class AuroraRenderModel: ObservableObject {
     }
 
     /// Mirror the active spectrum around the center, with higher frequencies outward.
-    /// Skip sparse low FFT bands; compact surfaces show roughly 300 Hz–4 kHz.
+    /// Skip sparse low FFT bands; compact surfaces show roughly 390 Hz–4 kHz.
     func displayBands(width: CGFloat, count: Int) -> [Double] {
         let expansion = min(1, max(0, (Double(width) - 430) / 470))
-        let lowerIndex = 7.0
+        let lowerIndex = 8.0
         let upperIndex = 17 + 6 * expansion
         let center = Double(count - 1) / 2
         let centerGap = count.isMultiple(of: 2) ? 0.5 : 0.0
