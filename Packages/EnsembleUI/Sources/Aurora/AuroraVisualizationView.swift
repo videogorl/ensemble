@@ -36,7 +36,7 @@ public struct AuroraVisualizationView: View {
     private var displaySampleCount: Int { isLowPowerMode || isLowCoreDevice ? 24 : 48 }
 
     /// Maximum height of the active aurora bands.
-    private var maxHeight: CGFloat { isPhone ? 320 : 102 }
+    private var maxHeight: CGFloat { isPhone ? 194 : 102 }
 
     /// Minimum height of bands (always visible base)
     private let minHeight: CGFloat = 6
@@ -178,7 +178,7 @@ public struct AuroraVisualizationView: View {
     @ViewBuilder
     private func auroraSurface(for geometry: GeometryProxy) -> some View {
         let surfaceWidth = isPhone ? geometry.size.width : min(geometry.size.width, activeContentMaxWidth ?? 900)
-        let surfaceHeight = maxHeight * 1.3 + poolHeight + 40
+        let surfaceHeight = (maxHeight + poolHeight) * 1.85 + 40
         let xOffset = (geometry.size.width - surfaceWidth) / 2
 
         if isMetalAuroraAvailable {
@@ -197,7 +197,6 @@ public struct AuroraVisualizationView: View {
                 poolHeight: poolHeight
             )
             .frame(width: surfaceWidth, height: surfaceHeight)
-            .mask(horizontalFade)
             .offset(x: xOffset)
         } else {
             canvasAuroraSurface(width: surfaceWidth, height: surfaceHeight, xOffset: xOffset)
@@ -222,19 +221,6 @@ public struct AuroraVisualizationView: View {
         return .immersive
     }
 
-    /// Each end tapers across half the width, reaching full strength at the center.
-    private var horizontalFade: some View {
-        LinearGradient(
-            stops: [
-                .init(color: .clear, location: 0),
-                .init(color: .black, location: 0.50),
-                .init(color: .clear, location: 1)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-    }
-
     private func canvasAuroraSurface(width: CGFloat, height: CGFloat, xOffset: CGFloat) -> some View {
         // Fully paused when not actively playing (see isTimelinePaused).
         // The Canvas fallback mirrors the Metal surface for unsupported devices.
@@ -244,7 +230,6 @@ public struct AuroraVisualizationView: View {
             }
             .frame(width: width)
             .frame(height: height)
-            .mask(horizontalFade)
             .offset(x: xOffset)
         }
     }
@@ -348,7 +333,7 @@ public struct AuroraVisualizationView: View {
         let opacity = [0.20, 0.40, 0.50][layer]
         let blur: CGFloat = [14, 6, 2][layer]
         let spread: CGFloat = [2.0, 1.15, 0.65][layer]
-        let heightScale: CGFloat = [0.85, 1.10, 1.30][layer]
+        let heightScale: CGFloat = [1.85, 1.10, 1.30][layer]
         // Each curtain breathes independently of the audio, which still supplies its energy.
         let layerPhase = time * (0.19 + 0.07 * Double(layer)) + Double(layer) * 2.1
         let widthScale = 0.92 + 0.08 * sin(layerPhase)
@@ -369,12 +354,12 @@ public struct AuroraVisualizationView: View {
             // Normalized position (0.0 to 1.0) for bell curve calculation
             let normalizedPos = Double(i) / Double(bands.count - 1)
             
-            // Bell curve factor keeps the aurora tallest and brightest in the middle.
+            // Taper height toward the ends without dimming the reactive base.
             let bellFactor = exp(-pow(normalizedPos - 0.5, 2) / (2 * pow(Double(bellWidth), 2)))
             
             // Bands are already shaped by bandResponseExponent in calculateBandValues,
             // so use intensity directly here.
-            let heightFactor = intensity * bellFactor
+            let heightFactor = intensity * bellFactor * (1 - abs(normalizedPos * 2 - 1))
             
             let phase = time * (0.25 + 0.15 * Double(layer)) + normalizedPos * 6.1 + Double(layer) * 2.1
             let breath = 0.9 + 0.1 * sin(phase + 1.3)
@@ -389,8 +374,7 @@ public struct AuroraVisualizationView: View {
             let y = size.height - height - poolHeight
 
             // Anchor each curtain below the surface so it only fades upward.
-            let bellAlpha = bellFactor
-            let intensityAlpha = intensity * bellAlpha
+            let intensityAlpha = intensity
             let bandGradient = Gradient(stops: [
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha), location: 0.0),
                 .init(color: accentColor.opacity(baseOpacity * intensityAlpha * 0.6), location: 0.45),
