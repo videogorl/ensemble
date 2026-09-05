@@ -71,18 +71,6 @@ struct RootSceneLayerHost<Content: View>: View {
                     .accessibilityHidden(isViewportNowPlayingActive)
                     .zIndex(1)
 
-                if isAuroraEnabled && !isNowPlayingPresented {
-                    AuroraVisualizationView(
-                        playbackService: playbackService,
-                        consumer: .rootBackdrop,
-                        accentColor: accentColor,
-                        isLowPowerMode: isLowPowerMode,
-                        activeContentMaxWidth: 670
-                    )
-                    .allowsHitTesting(false)
-                    .zIndex(2)
-                }
-
                 if supportsViewportNowPlayingPresentation && isNowPlayingPresented {
                     NowPlayingViewportRoot(
                         viewModel: nowPlayingVM,
@@ -103,7 +91,20 @@ struct RootSceneLayerHost<Content: View>: View {
                     proxy: proxy
                 )
 
-                rootMiniPlayerLayer(layout: layout)
+                ZStack {
+                    if isAuroraEnabled && !isNowPlayingPresented {
+                        AuroraVisualizationView(
+                            playbackService: playbackService,
+                            consumer: .rootBackdrop,
+                            accentColor: accentColor,
+                            isLowPowerMode: isLowPowerMode,
+                            activeContentMaxWidth: min(900, layout.frame.width)
+                        )
+                        .offset(x: layout.frame.midX + layout.horizontalOffset - proxy.size.width / 2)
+                    }
+
+                    rootMiniPlayerLayer(layout: layout)
+                }
             }
         }
     }

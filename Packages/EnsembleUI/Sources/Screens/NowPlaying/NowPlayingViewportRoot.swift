@@ -52,7 +52,6 @@ struct NowPlayingBackdrop: View {
                     activeContentMaxWidth: activeContentMaxWidth
                 )
                 .allowsHitTesting(false)
-                .opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
             }
         }
         .ignoresSafeArea()

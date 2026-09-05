@@ -442,7 +442,7 @@ public enum EnsembleScaffold {
         public static let controlsPrimaryRowMinHeight = playPauseGlassControlSize
         public static let controlsSecondaryRowMinHeight: CGFloat = 36
         public static let loadingIndicatorDelayNanoseconds: UInt64 = 300_000_000
-        public static let auroraActiveContentMaxWidth: CGFloat = 670
+        public static let auroraActiveContentMaxWidth: CGFloat = 900
         public static let viewportContentMaxWidth: CGFloat = 1024
         public static let viewportHeaderMaxWidth: CGFloat = 1120
         public static let viewportContentMaxHeight: CGFloat = 768

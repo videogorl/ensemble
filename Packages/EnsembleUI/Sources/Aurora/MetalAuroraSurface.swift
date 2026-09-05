@@ -28,6 +28,7 @@ struct MetalAuroraSurface: View {
     let isPaused: Bool
     let surfaceTier: AuroraMetalSurfaceTier
     let activeContentMaxWidth: CGFloat?
+    let bellWidth: CGFloat
     let bandCount: Int
     let maxHeight: CGFloat
     let minHeight: CGFloat
@@ -42,6 +43,7 @@ struct MetalAuroraSurface: View {
             isPaused: isPaused,
             surfaceTier: surfaceTier,
             activeContentMaxWidth: activeContentMaxWidth,
+            bellWidth: bellWidth,
             bandCount: bandCount,
             maxHeight: maxHeight,
             minHeight: minHeight,
@@ -60,6 +62,7 @@ extension MetalAuroraSurface {
         let isPaused: Bool
         let surfaceTier: AuroraMetalSurfaceTier
         let activeContentMaxWidth: CGFloat?
+        let bellWidth: CGFloat
         let bandCount: Int
         let maxHeight: CGFloat
         let minHeight: CGFloat
@@ -82,6 +85,7 @@ extension MetalAuroraSurface {
                 isPaused: isPaused,
                 surfaceTier: surfaceTier,
                 activeContentMaxWidth: activeContentMaxWidth,
+                bellWidth: bellWidth,
                 bandCount: bandCount,
                 maxHeight: maxHeight,
                 minHeight: minHeight,
@@ -100,6 +104,7 @@ extension MetalAuroraSurface {
         let isPaused: Bool
         let surfaceTier: AuroraMetalSurfaceTier
         let activeContentMaxWidth: CGFloat?
+        let bellWidth: CGFloat
         let bandCount: Int
         let maxHeight: CGFloat
         let minHeight: CGFloat
@@ -122,6 +127,7 @@ extension MetalAuroraSurface {
                 isPaused: isPaused,
                 surfaceTier: surfaceTier,
                 activeContentMaxWidth: activeContentMaxWidth,
+                bellWidth: bellWidth,
                 bandCount: bandCount,
                 maxHeight: maxHeight,
                 minHeight: minHeight,
@@ -146,14 +152,15 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     private struct Uniforms {
         var size: SIMD2<Float> = .zero
         var accentColor: SIMD4<Float> = .zero
-        var maxHeight: Float = 220
-        var minHeight: Float = 25
-        var poolHeight: Float = 48
+        var maxHeight: Float = 80
+        var minHeight: Float = 6
+        var poolHeight: Float = 10
         var activeWidth: Float = 0
         var bandCount: UInt32 = 24
         var layerCount: UInt32 = 2
         var colorScheme: UInt32 = 0
-        var padding: UInt32 = 0
+        var bellWidth: Float = 0.24
+        var time: Float = 0
     }
 
     private let renderModel: AuroraRenderModel
@@ -192,7 +199,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         super.init()
 
         if let device {
-            self.bandBuffer = device.makeBuffer(length: MemoryLayout<Float>.stride * 24, options: .storageModeShared)
+            self.bandBuffer = device.makeBuffer(length: MemoryLayout<Float>.stride * 48, options: .storageModeShared)
             self.uniformBuffer = device.makeBuffer(length: MemoryLayout<Uniforms>.stride, options: .storageModeShared)
         }
     }
@@ -219,6 +226,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         isPaused: Bool,
         surfaceTier: AuroraMetalSurfaceTier,
         activeContentMaxWidth: CGFloat?,
+        bellWidth: CGFloat,
         bandCount: Int,
         maxHeight: CGFloat,
         minHeight: CGFloat,
@@ -233,7 +241,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         uniforms.minHeight = Float(minHeight * backingScale)
         uniforms.poolHeight = Float(poolHeight * backingScale)
         uniforms.activeWidth = Float((activeContentMaxWidth ?? 0) * backingScale)
-        uniforms.bandCount = UInt32(max(1, min(24, bandCount)))
+        uniforms.bellWidth = Float(bellWidth)
+        uniforms.bandCount = UInt32(max(1, min(48, bandCount)))
         uniforms.layerCount = UInt32(layerCount(for: surfaceTier))
         uniforms.colorScheme = colorScheme == .dark ? 1 : 0
 
@@ -264,7 +273,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
               let uniformBuffer else { return }
 
         uniforms.size = SIMD2(Float(view.drawableSize.width), Float(view.drawableSize.height))
-        copyBands(into: bandBuffer)
+        uniforms.time = Float(renderModel.animationTime)
+        copyBands(into: bandBuffer, width: view.bounds.width)
         memcpy(uniformBuffer.contents(), &uniforms, MemoryLayout<Uniforms>.stride)
 
         encoder.setRenderPipelineState(pipelineState)
@@ -277,11 +287,11 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         commandBuffer.commit()
     }
 
-    private func copyBands(into buffer: MTLBuffer) {
-        let bands = renderModel.renderedBands
+    private func copyBands(into buffer: MTLBuffer, width: CGFloat) {
+        let bands = renderModel.displayBands(width: width, count: Int(uniforms.bandCount))
         let pointer = buffer.contents().assumingMemoryBound(to: Float.self)
-        for index in 0..<24 {
-            pointer[index] = index < bands.count ? Float(max(0, min(1, bands[index]))) : 0
+        for index in bands.indices {
+            pointer[index] = Float(max(0, min(1, bands[index])))
         }
     }
 
@@ -289,9 +299,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         switch tier {
         case .lowPower:
             return 1
-        case .ambient:
-            return 2
-        case .immersive:
+        case .ambient, .immersive:
             return 3
         }
     }
@@ -366,7 +374,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         uint bandCount;
         uint layerCount;
         uint colorScheme;
-        uint padding;
+        float bellWidth;
+        float time;
     };
 
     vertex VertexOut auroraVertex(uint vertexID [[vertex_id]]) {
@@ -396,102 +405,59 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             return float4(0.0);
         }
 
-        uint bandCount = min(u.bandCount, 24u);
+        uint bandCount = min(u.bandCount, 48u);
         float activeWidth = u.activeWidth > 0.0 ? min(u.size.x, u.activeWidth) : u.size.x;
         float xOffset = (u.size.x - activeWidth) * 0.5;
         float bandWidth = activeWidth / max(float(bandCount), 1.0);
-        float3 color = float3(0.0);
         float alpha = 0.0;
 
         for (uint layer = 0; layer < u.layerCount; layer++) {
-            float layerOpacity;
-            float spread;
-            float heightScale;
-            float verticalSoftness;
-            float verticalBlur;
-            if (u.layerCount == 1) {
-                layerOpacity = 0.50;
-                spread = 1.8;
-                heightScale = 0.94;
-                verticalSoftness = 0.62;
-                verticalBlur = 1.75;
-            } else if (u.layerCount == 2) {
-                layerOpacity = layer == 0 ? 0.20 : 0.42;
-                spread = layer == 0 ? 2.3 : 1.25;
-                heightScale = layer == 0 ? 1.05 : 0.94;
-                verticalSoftness = layer == 0 ? 0.48 : 0.70;
-                verticalBlur = layer == 0 ? 1.12 : 1.95;
-            } else {
-                layerOpacity = layer == 0 ? 0.16 : (layer == 1 ? 0.28 : 0.38);
-                spread = layer == 0 ? 2.7 : (layer == 1 ? 1.75 : 1.15);
-                heightScale = layer == 0 ? 1.12 : (layer == 1 ? 1.02 : 0.94);
-                verticalSoftness = layer == 0 ? 0.42 : (layer == 1 ? 0.58 : 0.76);
-                verticalBlur = layer == 0 ? 0.92 : (layer == 1 ? 1.42 : 2.4);
-            }
+            uint depth = u.layerCount == 1 ? 2u : layer;
+            float layerOpacity = depth == 0 ? 0.20 : (depth == 1 ? 0.40 : 0.50);
+            float spread = depth == 0 ? 2.0 : (depth == 1 ? 1.15 : 0.65);
+            float heightScale = depth == 0 ? 1.85 : (depth == 1 ? 1.10 : 1.30);
+            float verticalSoftness = depth == 0 ? 0.48 : 0.70;
+            float verticalBlur = depth == 0 ? 1.12 : 1.95;
 
-            float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity;
+            // Slow independent motion gives each curtain its own shape and brightness.
+            float layerPhase = u.time * (0.19 + 0.07 * float(depth)) + float(depth) * 2.1;
+            float widthScale = 0.92 + 0.08 * sin(layerPhase);
+            float layerBreath = 0.86 + 0.14 * sin(layerPhase * 1.3 + 1.7);
+            float layerDrift = 0.025 * sin(layerPhase * 0.7 + 0.8) * activeWidth;
+            float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity * (0.82 + 0.18 * sin(layerPhase + 2.4));
 
             for (uint i = 0; i < bandCount; i++) {
                 float intensity = clamp(bands[i], 0.0, 1.0);
                 float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
-                float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(0.34, 2.0)));
-                float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell) * heightScale;
-                float centerX = xOffset + (float(i) + 0.5) * bandWidth;
-                float glowWidth = bandWidth * 4.5 * spread;
+                float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(u.bellWidth, 2.0)));
+                float phase = u.time * (0.25 + 0.15 * float(depth)) + normalized * 6.1 + float(depth) * 2.1;
+                float breath = 0.9 + 0.1 * sin(phase + 1.3);
+                float heightTaper = min(1.0, min(normalized, 1.0 - normalized) / 0.20);
+                float height = (u.minHeight + (u.maxHeight - u.minHeight) * pow(intensity, 1.35) * bell * heightTaper) * heightScale * breath * layerBreath;
+                float drift = sin(phase) * (0.25 + 0.12 * float(depth)) * bandWidth;
+                float centeredX = (float(i) + 0.5) * bandWidth - activeWidth * 0.5;
+                float centerX = xOffset + activeWidth * 0.5 + centeredX * widthScale + layerDrift + drift;
+                float glowWidth = bandWidth * 3.0 * spread * widthScale;
                 float rectHeight = height + u.poolHeight * heightScale;
-                float rectMinY = u.size.y - height - u.poolHeight;
-                float rectCenterY = rectMinY + rectHeight * 0.5;
 
                 float dx = (p.x - centerX) / max(glowWidth * 0.5, 1.0);
-                float dy = (p.y - rectCenterY) / max(rectHeight * 0.5, 1.0);
+                float dy = (u.size.y - p.y) / max(rectHeight, 1.0);
                 float ellipse = exp(-(dx * dx * 1.65 + dy * dy * verticalBlur));
-                float t = clamp((p.y - rectMinY) / max(rectHeight, 1.0), 0.0, 1.0);
-                float fromBottom = 1.0 - t;
-                float vertical = smoothBand(0.0, 0.08, fromBottom) * (1.0 - smoothBand(verticalSoftness, 1.0, fromBottom));
-                float bellAlpha = 0.32 + bell * 0.68;
-                float intensityAlpha = (0.18 + intensity * 0.82) * bellAlpha;
+                float vertical = 1.0 - smoothBand(verticalSoftness, 1.0, dy);
+                // Brightness arrives early so the subsequent rise is visible.
+                float intensityAlpha = sqrt(intensity);
                 float contribution = ellipse * vertical * intensityAlpha * baseOpacity;
 
-                color += u.accentColor.rgb * contribution;
+                // Additive light from independently moving curtains.
                 alpha += contribution * 0.72;
             }
         }
 
-        float energy = 0.0;
-        float bassEnergy = 0.0;
-        uint bassCount = min(bandCount, 6u);
-        for (uint i = 0; i < bandCount; i++) {
-            energy += clamp(bands[i], 0.0, 1.0);
-            if (i < bassCount) {
-                bassEnergy += clamp(bands[i], 0.0, 1.0);
-            }
-        }
-        energy = bandCount > 0 ? energy / float(bandCount) : 0.0;
-        bassEnergy = bassCount > 0 ? bassEnergy / float(bassCount) : 0.0;
-        energy = clamp(energy * 0.70 + bassEnergy * 0.30, 0.0, 1.0);
+        float topFeather = smoothBand(0.0, u.size.y * 0.20, p.y);
+        alpha = clamp(alpha * topFeather, 0.0, 1.0) * u.accentColor.a;
 
-        float bridgeHeight = u.poolHeight + 76.0;
-        float bridgeWidth = activeWidth * 1.16;
-        float2 bridgeCenter = float2(u.size.x * 0.5, u.size.y - bridgeHeight * 0.5 - 18.0);
-        float2 bridgeD = (p - bridgeCenter) / float2(max(bridgeWidth * 0.5, 1.0), max(bridgeHeight * 0.5, 1.0));
-        float bridge = exp(-(bridgeD.x * bridgeD.x * 1.3 + bridgeD.y * bridgeD.y * 2.0));
-        float bridgeOpacity = (u.colorScheme == 1 ? 0.34 : 0.24) * (0.45 + energy * 0.7);
-        color += u.accentColor.rgb * bridge * bridgeOpacity;
-        alpha += bridge * bridgeOpacity * 0.72;
-
-        float fromBottomPixels = u.size.y - p.y;
-        float pool = 1.0 - smoothBand(0.0, u.poolHeight + 52.0, fromBottomPixels);
-        float poolOpacity = (u.colorScheme == 1 ? 0.58 : 0.38) * (0.84 + energy * 0.34);
-        color += u.accentColor.rgb * pool * poolOpacity;
-        alpha += pool * poolOpacity * 0.75;
-
-        float topFeather = smoothBand(0.0, 96.0, p.y);
-        color *= topFeather;
-        alpha = clamp(alpha * topFeather, 0.0, 0.95);
-
-        color = min(color, float3(alpha));
-
-        return float4(color, alpha);
+        // Premultiply once so brighter peaks preserve the selected accent hue.
+        return float4(u.accentColor.rgb * alpha, alpha);
     }
     """
 }
@@ -507,6 +473,7 @@ struct MetalAuroraSurface: View {
     let isPaused: Bool
     let surfaceTier: AuroraMetalSurfaceTier
     let activeContentMaxWidth: CGFloat?
+    let bellWidth: CGFloat
     let bandCount: Int
     let maxHeight: CGFloat
     let minHeight: CGFloat
