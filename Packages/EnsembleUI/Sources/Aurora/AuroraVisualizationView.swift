@@ -654,17 +654,18 @@ final class AuroraRenderModel: ObservableObject {
         smoothedBands
     }
 
-    /// Mirror bass around the center, with higher frequencies toward both edges.
-    /// Compact surfaces use the first 18 bands (about 60 Hz–4 kHz) on each half.
+    /// Mirror the active spectrum around the center, with higher frequencies outward.
+    /// Skip sparse low FFT bands; compact surfaces show roughly 240 Hz–4 kHz.
     func displayBands(width: CGFloat, count: Int) -> [Double] {
         let expansion = min(1, max(0, (Double(width) - 430) / 470))
+        let lowerIndex = 6.0
         let upperIndex = 17 + 6 * expansion
         let center = Double(count - 1) / 2
         let centerGap = count.isMultiple(of: 2) ? 0.5 : 0.0
         return (0..<count).map { index in
             // Both central samples reach the lowest band when the sample count is even.
             let distance = max(0, abs(Double(index) - center) - centerGap)
-            let position = distance / max(1, floor(center)) * upperIndex
+            let position = lowerIndex + distance / max(1, floor(center)) * (upperIndex - lowerIndex)
             let lower = Int(position)
             let upper = min(lower + 1, bandCount - 1)
             let fraction = position - Double(lower)
