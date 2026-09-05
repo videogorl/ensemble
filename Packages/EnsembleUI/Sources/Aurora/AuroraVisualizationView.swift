@@ -36,7 +36,7 @@ public struct AuroraVisualizationView: View {
     private var displaySampleCount: Int { isLowPowerMode || isLowCoreDevice ? 24 : 48 }
 
     /// Maximum height of the active aurora bands.
-    private var maxHeight: CGFloat { isPhone ? 194 : 102 }
+    private var maxHeight: CGFloat { isPhone ? 320 : 102 }
 
     /// Minimum height of bands (always visible base)
     private let minHeight: CGFloat = 6
@@ -178,7 +178,7 @@ public struct AuroraVisualizationView: View {
     @ViewBuilder
     private func auroraSurface(for geometry: GeometryProxy) -> some View {
         let surfaceWidth = isPhone ? geometry.size.width : min(geometry.size.width, activeContentMaxWidth ?? 900)
-        let surfaceHeight = maxHeight + 40
+        let surfaceHeight = maxHeight * 1.3 + poolHeight + 40
         let xOffset = (geometry.size.width - surfaceWidth) / 2
 
         if isMetalAuroraAvailable {
@@ -222,35 +222,17 @@ public struct AuroraVisualizationView: View {
         return .immersive
     }
 
-    /// Keep phones full-width with a short edge taper; larger surfaces fade more broadly.
-    @ViewBuilder
+    /// Each end tapers across half the width, reaching full strength at the center.
     private var horizontalFade: some View {
-        if isPhone {
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.15),
-                    .init(color: .black, location: 0.85),
-                    .init(color: .clear, location: 1)
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        } else {
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black.opacity(0.18), location: 0.12),
-                    .init(color: .black.opacity(0.68), location: 0.30),
-                    .init(color: .black, location: 0.50),
-                    .init(color: .black.opacity(0.68), location: 0.70),
-                    .init(color: .black.opacity(0.18), location: 0.88),
-                    .init(color: .clear, location: 1)
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        }
+        LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black, location: 0.50),
+                .init(color: .clear, location: 1)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
     }
 
     private func canvasAuroraSurface(width: CGFloat, height: CGFloat, xOffset: CGFloat) -> some View {
@@ -698,7 +680,7 @@ final class AuroraRenderModel: ObservableObject {
         for index in 0..<bandCount {
             let target = targetBands[index]
             let current = smoothedBands[index]
-            let responseTime = target > current ? 0.05 : 0.26
+            let responseTime = target > current ? 0.03 : 0.15
             smoothedBands[index] = current + (target - current) * (1 - exp(-deltaTime / responseTime))
         }
     }
