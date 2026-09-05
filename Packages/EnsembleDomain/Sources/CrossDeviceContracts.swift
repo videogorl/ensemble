@@ -47,11 +47,12 @@ public struct EnsembleMergingPreferences: Codable, Equatable, Sendable {
         _ values: [Value],
         sourceKey: (Value) -> String?
     ) -> [Value] {
-        values.enumerated().sorted { lhs, rhs in
-            let lhsRank = rank(for: sourceKey(lhs.element))
-            let rhsRank = rank(for: sourceKey(rhs.element))
-            return lhsRank == rhsRank ? lhs.offset < rhs.offset : lhsRank < rhsRank
-        }.map(\.element)
+        let ranked = values.enumerated().map { item -> (offset: Int, value: Value, rank: Int) in
+            (item.offset, item.element, rank(for: sourceKey(item.element)))
+        }
+        return ranked.sorted { lhs, rhs in
+            lhs.rank == rhs.rank ? lhs.offset < rhs.offset : lhs.rank < rhs.rank
+        }.map(\.value)
     }
 
     public mutating func replaceVisibleSourceOrder(_ sourceKeys: [String]) {

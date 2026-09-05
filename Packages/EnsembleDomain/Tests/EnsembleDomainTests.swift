@@ -168,6 +168,19 @@ final class EnsembleDomainTests: XCTestCase {
         ))
     }
 
+    func testPreferredSourceOrderingPreservesTiesAndExactLibraryPriority() {
+        let preferences = EnsembleMergingPreferences(
+            preferredSourceKeys: ["plex:a:s:2", "plex:a:other:1", "plex:a:s:1"]
+        )
+        let sources: [String?] = [nil, "plex:a:s:1", "unknown", "plex:a:other:1", "plex:a:s", "plex:a:s:2"]
+
+        XCTAssertEqual(
+            preferences.ordered(sources, sourceKey: { $0 }),
+            ["plex:a:s", "plex:a:s:2", "plex:a:other:1", "plex:a:s:1", nil, "unknown"]
+        )
+        XCTAssertEqual(EnsembleMergingPreferences.default.ordered(sources, sourceKey: { $0 }), sources)
+    }
+
     func testMergeIdentityNormalizesCaseAndTypographicQuotes() {
         let expected = EnsembleMergeIdentity.normalized("Don't Judge Me")
 

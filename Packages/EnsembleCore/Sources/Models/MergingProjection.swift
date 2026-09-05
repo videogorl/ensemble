@@ -17,16 +17,7 @@ public enum MergingProjection {
         return EnsembleMergeIdentity.collapsed(
             tracks,
             preferences: preferences,
-            identity: {
-                EnsembleMergeIdentity.track(
-                    title: $0.title,
-                    artist: $0.artistName ?? $0.albumArtistName,
-                    album: $0.albumName,
-                    trackNumber: $0.trackNumber,
-                    discNumber: $0.discNumber,
-                    duration: $0.duration
-                )
-            },
+            identity: trackIdentity,
             sourceKey: \.sourceCompositeKey
         )
     }
@@ -57,7 +48,7 @@ public enum MergingProjection {
         return preferences.ordered(matches, sourceKey: \.sourceCompositeKey)
     }
 
-    private static func trackIdentity(_ track: Track) -> String? {
+    static func trackIdentity(_ track: Track) -> String? {
         EnsembleMergeIdentity.track(
             title: track.title,
             artist: track.artistName ?? track.albumArtistName,

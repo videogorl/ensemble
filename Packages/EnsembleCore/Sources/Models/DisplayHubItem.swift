@@ -74,14 +74,7 @@ public struct DisplayHubItem: Identifiable, Equatable, Sendable {
             return "playlist:\(PlexPlaylistMergeRules.key(title: playlist.title, isSmart: playlist.isSmartForPlaylistGrouping))"
         case "track" where preferences.mergeTracks:
             guard let track = item.track,
-                  let identity = EnsembleMergeIdentity.track(
-                      title: track.title,
-                      artist: track.artistName ?? track.albumArtistName,
-                      album: track.albumName,
-                      trackNumber: track.trackNumber,
-                      discNumber: track.discNumber,
-                      duration: track.duration
-                  ) else { return nil }
+                  let identity = MergingProjection.trackIdentity(track) else { return nil }
             return "track:\(identity)"
         default:
             return nil
