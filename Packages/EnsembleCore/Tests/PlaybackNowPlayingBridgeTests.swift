@@ -99,28 +99,37 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertTrue(commandCenter.changePlaybackPosition.isEnabled)
     }
 
-    func testSkipTransitionKeepsSystemNowPlayingActiveWhileLoadingAndSuppressesExactDuplicates() {
+    func testLoadingAndBufferingStopSystemClockAndSuppressDuplicates() {
         let nowPlayingCenter = FakeNowPlayingInfoCenter()
         let bridge = PlaybackNowPlayingBridge(
             artworkLoader: MockArtworkLoader(),
             nowPlayingCenter: nowPlayingCenter,
             commandCenter: FakeRemoteCommandCenter()
         )
-
         let track = makeTrack()
-        bridge.pushNowPlayingForSkipTransition(makeState(
-            track: track,
-            playbackState: .loading
-        ))
-        bridge.updateNowPlayingInfo(makeState(track: track, playbackState: .loading))
-        bridge.updateNowPlayingInfo(makeState(track: track, playbackState: .buffering))
+        for state: PlaybackState in [.playing, .loading, .buffering, .paused, .playing] {
+            let snapshot = makeState(track: track, playbackState: state)
+            bridge.updateNowPlayingInfo(snapshot)
+            bridge.updateNowPlayingInfo(snapshot)
+            XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] as? Double,
+                           state == .playing ? 1 : 0)
+        }
+        XCTAssertEqual(nowPlayingCenter.publishedPlaybackRates, [1, 0, 0, 0, 1])
+    }
 
-        XCTAssertEqual(nowPlayingCenter.playbackState, .playing)
-        XCTAssertEqual(
-            nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] as? Double,
-            1
+    func testRepeatReanchorsIdenticalTrackAndPosition() {
+        let center = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: MockArtworkLoader(), nowPlayingCenter: center,
+            commandCenter: FakeRemoteCommandCenter()
         )
-        XCTAssertEqual(nowPlayingCenter.publishedPlaybackRates, [1, 1])
+        var state = makeState(track: makeTrack(), currentTime: 0)
+        bridge.updateNowPlayingInfo(state)
+        // iOS has advanced its clock while the published snapshot still says zero.
+        state.timelineRevision += 1
+        bridge.updateNowPlayingInfo(state)
+        XCTAssertEqual(center.publishedPlaybackRates, [1, 1])
+        XCTAssertEqual(center.nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double, 0)
     }
 
     #if os(iOS)
@@ -302,12 +311,13 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         let track = makeTrack(thumbPath: "/thumb/track")
 
         bridge.updateNowPlayingInfo(makeState(track: track, playbackState: .playing))
-        bridge.updateNowPlayingInfo(makeState(track: track, playbackState: .paused))
+        bridge.currentState = { self.makeState(track: track, playbackState: .paused, currentTime: 12) }
 
         await waitUntil("artwork load") {
             nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] is MPMediaItemArtwork
         }
         XCTAssertEqual(nowPlayingCenter.playbackState, .paused)
+        XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double, 12)
     }
 
     func testBridgeReusesFallbackArtworkWhenPrimaryThumbPathIsEmpty() async throws {
@@ -557,24 +567,15 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertEqual(PlaybackNowPlayingBridge.repeatMode(for: .one), .one)
     }
 
-    func testRemoteSeekAllowsFreshLargeScrubOnNewTrack() {
-        XCTAssertFalse(PlaybackNowPlayingBridge.shouldRejectRemoteSeekAsStale(
-            targetPosition: 210,
-            currentTime: 2,
-            trackAge: 2.3,
-            eventTimestamp: 99.9,
-            nowTimestamp: 100
-        ))
-    }
-
-    func testRemoteSeekRejectsLargeCommandFromPreviousTrack() {
-        XCTAssertTrue(PlaybackNowPlayingBridge.shouldRejectRemoteSeekAsStale(
-            targetPosition: 210,
-            currentTime: 2,
-            trackAge: 2.3,
-            eventTimestamp: 96.5,
-            nowTimestamp: 100
-        ))
+    func testRemoteSeekRejectsPreviousTrackEventsAtAnyTrackAge() {
+        for trackAge: TimeInterval in [2.3, 131] {
+            XCTAssertFalse(PlaybackNowPlayingBridge.shouldRejectRemoteSeekAsStale(
+                trackAge: trackAge, eventTimestamp: 299.9, nowTimestamp: 300
+            ))
+            XCTAssertTrue(PlaybackNowPlayingBridge.shouldRejectRemoteSeekAsStale(
+                trackAge: trackAge, eventTimestamp: 300 - trackAge - 1, nowTimestamp: 300
+            ))
+        }
     }
 
     private func makeTrack(

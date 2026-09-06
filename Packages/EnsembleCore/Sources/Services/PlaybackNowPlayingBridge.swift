@@ -161,6 +161,7 @@ struct PlaybackNowPlayingState: Equatable {
     let canSeek: Bool
     let canToggleShuffle: Bool
     let canCycleRepeatMode: Bool
+    var timelineRevision: UInt64 = 0
 }
 
 /// Owns lock-screen metadata plus remote command registration.
@@ -179,9 +180,8 @@ final class PlaybackNowPlayingBridge {
     private var artwork: MPMediaItemArtwork?
     private var artworkRecoveryObserver: NSObjectProtocol?
     private var artworkCacheResetObserver: NSObjectProtocol?
-    private var latestPlaybackState: PlaybackState = .stopped
+    var currentState: (() -> PlaybackNowPlayingState?)?
     private var lastPublishedState: PlaybackNowPlayingState?
-    private var lastPublishedPlaybackState: PlaybackState?
 
     init(
         artworkLoader: ArtworkLoaderProtocol,
@@ -263,8 +263,6 @@ final class PlaybackNowPlayingBridge {
             let nowTimestamp = ProcessInfo.processInfo.systemUptime
 
             if Self.shouldRejectRemoteSeekAsStale(
-                targetPosition: position,
-                currentTime: currentTime,
                 trackAge: trackAge,
                 eventTimestamp: event.timestamp,
                 nowTimestamp: nowTimestamp
@@ -314,20 +312,7 @@ final class PlaybackNowPlayingBridge {
         }
     }
 
-    func updateNowPlayingInfo(
-        _ state: PlaybackNowPlayingState,
-        systemPlaybackState: PlaybackState? = nil
-    ) {
-        let publishedPlaybackState: PlaybackState
-        switch (systemPlaybackState, latestPlaybackState, state.playbackState) {
-        case let (.some(systemPlaybackState), _, _):
-            publishedPlaybackState = systemPlaybackState
-        case (nil, .playing, .loading), (nil, .playing, .buffering):
-            publishedPlaybackState = .playing
-        default:
-            publishedPlaybackState = state.playbackState
-        }
-        latestPlaybackState = publishedPlaybackState
+    func updateNowPlayingInfo(_ state: PlaybackNowPlayingState) {
         guard let track = state.track else {
             clearNowPlayingInfo()
             updateCommandAvailability(state)
@@ -335,11 +320,10 @@ final class PlaybackNowPlayingBridge {
         }
 
         guard let nowPlayingCenter else { return }
-        guard state != lastPublishedState || publishedPlaybackState != lastPublishedPlaybackState else {
+        guard state != lastPublishedState else {
             return
         }
         lastPublishedState = state
-        lastPublishedPlaybackState = publishedPlaybackState
 
         let artworkRequest = ArtworkRequest(
             track: track,
@@ -369,14 +353,13 @@ final class PlaybackNowPlayingBridge {
 
         nowPlayingCenter.nowPlayingInfo = Self.makeNowPlayingInfo(
             state: state,
-            artwork: artworkForMetadata,
-            systemPlaybackState: publishedPlaybackState
+            artwork: artworkForMetadata
         )
-        syncNowPlayingPlaybackState(publishedPlaybackState)
+        syncNowPlayingPlaybackState(state.playbackState)
         updateCommandAvailability(state)
         updateFeedbackCommandState(isLiked: state.isLiked, isDisliked: state.isDisliked)
 
-        let rate = publishedPlaybackState == .playing ? 1.0 : 0.0
+        let rate = state.playbackState == .playing ? 1.0 : 0.0
         let effectiveDuration = state.playbackState == .loading ? track.duration : state.duration
         EnsembleLogger.debug("[NowPlaying] Updated: '\(track.title)' rate=\(rate) elapsed=\(String(format: "%.1f", state.currentTime))s duration=\(String(format: "%.1f", effectiveDuration))s state=\(state.playbackState)")
 
@@ -416,13 +399,8 @@ final class PlaybackNowPlayingBridge {
         return await artworkLoader.resolvedImage(for: request)?.image
     }
 
-    func pushNowPlayingForSkipTransition(_ state: PlaybackNowPlayingState) {
-        updateNowPlayingInfo(state, systemPlaybackState: .playing)
-    }
-
     func clearNowPlayingInfo() {
         cancelArtworkLoad(clearArtwork: true)
-        latestPlaybackState = .stopped
         guard let nowPlayingCenter else { return }
         nowPlayingCenter.nowPlayingInfo = nil
         nowPlayingCenter.playbackState = .stopped
@@ -436,7 +414,6 @@ final class PlaybackNowPlayingBridge {
         if clearArtwork {
             artwork = nil
             lastPublishedState = nil
-            lastPublishedPlaybackState = nil
         }
     }
 
@@ -446,11 +423,10 @@ final class PlaybackNowPlayingBridge {
         artworkTask = nil
         artworkRequestKey = nil
         lastPublishedState = nil
-        lastPublishedPlaybackState = nil
     }
 
     private func reloadArtworkAfterCacheClear() {
-        guard let state = lastPublishedState else {
+        guard let state = currentState?() ?? lastPublishedState else {
             cancelArtworkLoad(clearArtwork: true)
             return
         }
@@ -482,13 +458,12 @@ final class PlaybackNowPlayingBridge {
 
     static func makeNowPlayingInfo(
         state: PlaybackNowPlayingState,
-        artwork: MPMediaItemArtwork?,
-        systemPlaybackState: PlaybackState? = nil
+        artwork: MPMediaItemArtwork?
     ) -> [String: Any] {
         guard let track = state.track else { return [:] }
 
         let effectiveDuration = state.playbackState == .loading ? track.duration : state.duration
-        let playbackRate = (systemPlaybackState ?? state.playbackState) == .playing ? 1.0 : 0.0
+        let playbackRate = state.playbackState == .playing ? 1.0 : 0.0
         let sourceScopedTrackID = sourceScopedTrackIdentifier(for: track)
 
         var info: [String: Any] = [
@@ -586,14 +561,11 @@ final class PlaybackNowPlayingBridge {
     }
 
     static func shouldRejectRemoteSeekAsStale(
-        targetPosition: TimeInterval,
-        currentTime: TimeInterval,
         trackAge: TimeInterval,
         eventTimestamp: TimeInterval,
         nowTimestamp: TimeInterval
     ) -> Bool {
-        guard trackAge > 0, trackAge < 5 else { return false }
-        guard abs(targetPosition - currentTime) > 30 else { return false }
+        guard trackAge.isFinite, trackAge >= 0 else { return false }
         guard eventTimestamp > 0, nowTimestamp >= eventTimestamp else { return false }
 
         let eventAge = nowTimestamp - eventTimestamp
@@ -723,37 +695,17 @@ final class PlaybackNowPlayingBridge {
         return "E"
     }
 
-    private func applyArtwork(
-        _ artwork: MPMediaItemArtwork,
-        for requestKey: String
-    ) {
-        guard let nowPlayingCenter,
-              var currentInfo = nowPlayingCenter.nowPlayingInfo,
-              artworkRequestKey == requestKey else {
-            return
-        }
-
+    private func applyArtwork(_ artwork: MPMediaItemArtwork, for requestKey: String) {
+        guard artworkRequestKey == requestKey,
+              let state = currentState?() ?? lastPublishedState else { return }
         self.artwork = artwork
-        currentInfo[MPMediaItemPropertyArtwork] = artwork
-        nowPlayingCenter.nowPlayingInfo = currentInfo
-        syncNowPlayingPlaybackState(latestPlaybackState)
+        // Republish current transport time, never the elapsed time saved before the download.
+        lastPublishedState = nil
+        updateNowPlayingInfo(state)
     }
 
-    private func applyFallbackArtwork(
-        for track: Track,
-        requestKey: String
-    ) {
-        guard let nowPlayingCenter,
-              var currentInfo = nowPlayingCenter.nowPlayingInfo,
-              artworkRequestKey == requestKey else {
-            return
-        }
-
-        let fallbackArtwork = Self.fallbackArtwork(for: track)
-        artwork = fallbackArtwork
-        currentInfo[MPMediaItemPropertyArtwork] = fallbackArtwork
-        nowPlayingCenter.nowPlayingInfo = currentInfo
-        syncNowPlayingPlaybackState(latestPlaybackState)
+    private func applyFallbackArtwork(for track: Track, requestKey: String) {
+        applyArtwork(Self.fallbackArtwork(for: track), for: requestKey)
     }
 
     private func syncNowPlayingPlaybackState(_ playbackState: PlaybackState) {
@@ -762,12 +714,10 @@ final class PlaybackNowPlayingBridge {
         switch playbackState {
         case .playing:
             mpState = .playing
-        case .paused:
+        case .paused, .loading, .buffering:
             mpState = .paused
         case .stopped, .failed:
             mpState = .stopped
-        case .loading, .buffering:
-            return
         }
 
         nowPlayingCenter.playbackState = mpState

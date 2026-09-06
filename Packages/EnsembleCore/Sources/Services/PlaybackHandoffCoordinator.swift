@@ -207,7 +207,7 @@ struct PlaybackHandoffCoordinator {
         state.pauseReason = pauseReason
         state.interruption = .none
 
-        guard playbackState == .playing || playbackState == .buffering else {
+        guard playbackState == .playing || playbackState == .buffering || playbackState == .loading else {
             return makeOutcome(category: .transportCommand, summary: "pause ignored", actions: [])
         }
 

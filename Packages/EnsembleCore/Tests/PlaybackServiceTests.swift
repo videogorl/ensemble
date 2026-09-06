@@ -445,31 +445,18 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertTrue(decision.shouldHandleDisconnect)
     }
 
-    func testAutomaticAdvanceGateRejectsOldTrackTimeSample() {
-        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeAfterAutomaticAdvance(
-            observedTime: 248.0,
-            elapsedSinceAdvance: 0.12
-        )
-
-        XCTAssertTrue(shouldIgnore)
-    }
-
-    func testAutomaticAdvanceGateAcceptsNewTrackTimeSample() {
-        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeAfterAutomaticAdvance(
-            observedTime: 0.18,
-            elapsedSinceAdvance: 0.12
-        )
-
-        XCTAssertFalse(shouldIgnore)
-    }
-
-    func testAutomaticAdvanceGateExpiresQuickly() {
-        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeAfterAutomaticAdvance(
-            observedTime: 248.0,
-            elapsedSinceAdvance: 0.9
-        )
-
-        XCTAssertFalse(shouldIgnore)
+    func testCompletionUsesPlayableSuccessorAndOnlyWrapsRepeatAll() {
+        for mode: RepeatMode in [.off, .one, .all] {
+            XCTAssertEqual(PlaybackService.completionQueueIndex(
+                nextPlayableIndex: 4, repeatMode: mode, firstPlayableIndex: { 1 }
+            ), 4)
+            XCTAssertEqual(PlaybackService.completionQueueIndex(
+                nextPlayableIndex: nil, repeatMode: mode, firstPlayableIndex: { 1 }
+            ), mode == .all ? 1 : nil)
+            XCTAssertNil(PlaybackService.completionQueueIndex(
+                nextPlayableIndex: nil, repeatMode: mode, firstPlayableIndex: { nil }
+            ))
+        }
     }
 
     func testPlaybackSnapshotPersistsAfterInterval() {
@@ -839,6 +826,12 @@ final class PlaybackServiceTests: XCTestCase {
             ),
             2
         )
+        XCTAssertEqual(PlaybackService.queueIndexForAdvance(
+            matching: track.playbackIdentity, in: queue, after: 0, repeatCurrent: true
+        ), 0)
+        XCTAssertEqual(PlaybackService.queueIndexForAdvance(
+            matching: track.playbackIdentity, in: queue, after: 2, repeatCurrent: true
+        ), 2)
     }
 
     func testRepeatedSmartMixPromotionDoesNotWrapToPastDuplicate() throws {
@@ -1707,6 +1700,9 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertTrue(PlaybackService.shouldStartAppleMusicAutoplay(nextItem: autoplay, isEnabled: true))
         XCTAssertTrue(PlaybackService.shouldStartAppleMusicAutoplay(nextItem: nil, isEnabled: true))
         XCTAssertFalse(PlaybackService.shouldStartAppleMusicAutoplay(nextItem: manual, isEnabled: true))
+        XCTAssertFalse(PlaybackService.shouldStartAppleMusicAutoplay(
+            nextItem: autoplay, isEnabled: true, isWrappingQueue: true
+        ))
     }
 
     func testQueueEndAutoplayOnlyAdvancesWhenRefreshAppendsATrack() {

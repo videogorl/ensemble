@@ -3,6 +3,14 @@ import XCTest
 @testable import EnsembleCore
 
 final class PlaybackHandoffCoordinatorTests: XCTestCase {
+    func testPauseCancelsLoadingAndBufferingLikePlaying() {
+        for playbackState: PlaybackState in [.loading, .buffering, .playing] {
+            var coordinator = PlaybackHandoffCoordinator()
+            let outcome = coordinator.handle(.pauseRequested(.system), playbackState: playbackState)
+            XCTAssertEqual(outcome.actions, [.pausePlayback(.system)])
+        }
+    }
+
     func testDisconnectRouteChangePausesAndMarksDisconnectPauseReason() {
         var coordinator = PlaybackHandoffCoordinator()
         let now = Date()

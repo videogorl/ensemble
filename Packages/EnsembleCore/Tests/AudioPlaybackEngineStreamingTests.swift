@@ -4,12 +4,20 @@ import Foundation
 import XCTest
 
 final class AudioPlaybackEngineStreamingTests: XCTestCase {
-    func testAdoptPlaybackGenerationUpdatesCompletionToken() {
+    func testProgressFromAnEarlierTimelineCannotSurviveResumeOrStop() {
         let engine = AudioPlaybackEngine()
-
         engine.adoptPlaybackGeneration(42)
-
+        let progress = AudioPlaybackEngine.Progress(
+            time: 42, trackID: engine.currentTrackId,
+            generation: 42, revision: engine.progressRevision
+        )
+        XCTAssertTrue(engine.isCurrentProgress(progress))
+        // A new timeline can belong to the same request and track (repeat/seek/resume).
+        engine.adoptPlaybackGeneration(42)
+        XCTAssertFalse(engine.isCurrentProgress(progress))
         XCTAssertEqual(engine.playbackRequestGeneration, 42)
+        engine.stop()
+        XCTAssertFalse(engine.isCurrentProgress(progress))
     }
 
     func testStreamingRenderHealthReportsSustainedStartupStarvationOnce() {

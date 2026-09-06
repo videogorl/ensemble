@@ -187,11 +187,18 @@ public final class AudioPlaybackEngine {
 
     // MARK: - Time Tracking
 
-    /// Current playback time, updated at ~10Hz via DispatchSourceTimer.
-    /// Sent from a dedicated background queue using wall-clock estimation to
-    /// avoid any playerNode property access that could cause priority inversion
-    /// with the audio render thread.
-    let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+    struct Progress: Equatable {
+        let time: TimeInterval
+        let trackID: String?
+        let generation: UInt64
+        let revision: UInt64
+    }
+
+    /// A revision distinguishes repeats and seeks even when track and request are unchanged.
+    private(set) var progressRevision: UInt64 = 0
+    let currentTimeSubject = CurrentValueSubject<Progress, Never>(
+        Progress(time: 0, trackID: nil, generation: 0, revision: 0)
+    )
     /// Last user-visible playhead. Unlike `seekFrameOffset`, this is playback
     /// truth when CoreAudio render timing disappears during route changes.
     private var durablePlaybackPosition: TimeInterval = 0
@@ -207,9 +214,7 @@ public final class AudioPlaybackEngine {
     // IO thread is blocked for the duration of the layout pass — classic unbounded
     // priority inversion. Instead we estimate time from CACurrentMediaTime().
     //
-    // Packed into a value-type struct so the background timer reads a consistent
-    // snapshot — struct assignment/read is a single pointer-width copy on arm64,
-    // avoiding torn reads of (wallTime, position, duration) during gapless transitions.
+    // Accessed on main together with transport changes; never polls the audio render lock.
     private struct TimeBase {
         var wallTime: TimeInterval = 0      // CACurrentMediaTime() at play/resume/seek
         var position: TimeInterval = 0      // Playback position at that moment
@@ -1662,7 +1667,7 @@ public final class AudioPlaybackEngine {
     }
 
     private func currentSmartMixIncomingTime() -> TimeInterval {
-        guard let transition = smartMixTransition else { return currentTimeSubject.value }
+        guard let transition = smartMixTransition else { return currentTimeSubject.value.time }
         let elapsed = max(0, CACurrentMediaTime() - transition.startedAtWallTime)
         return Self.smartMixIncomingPosition(
             incomingStartTime: transition.incomingStartTime,
@@ -1781,7 +1786,15 @@ public final class AudioPlaybackEngine {
 
     // MARK: - Playback Control
 
+    func isCurrentProgress(_ progress: Progress) -> Bool {
+        progress.time.isFinite && progress.time >= 0
+            && progress.generation == playbackRequestGeneration
+            && progress.revision == progressRevision
+            && progress.trackID == currentTrackId
+    }
+
     func adoptPlaybackGeneration(_ playbackGeneration: UInt64) {
+        progressRevision &+= 1
         playbackRequestGeneration = playbackGeneration
     }
 
@@ -1893,14 +1906,14 @@ public final class AudioPlaybackEngine {
             applyIsolationParameters()
         }
         if streamingPipeline != nil {
-            let observedPosition = currentTimeSubject.value
+            let observedPosition = currentTimeSubject.value.time
             wasPlaying = true
             startTimeUpdates(from: observedPosition)
             updateDurablePlaybackPosition(observedPosition)
             EnsembleLogger.debug("[AudioEngine] Streaming resumed")
             return
         }
-        let observedPosition = currentTimeSubject.value
+        let observedPosition = currentTimeSubject.value.time
         let resumePosition = Self.resolvedRouteRecoveryPosition(
             livePosition: currentTime(),
             observedPosition: observedPosition,
@@ -1946,6 +1959,7 @@ public final class AudioPlaybackEngine {
             throw AudioPlaybackEngineError.streamingSeekUnavailable
         }
         guard let file = currentFile else { return }
+        progressRevision &+= 1
         pendingRouteRecoveryPosition = nil
 
         let wasPlayingBeforeSeek = wasPlaying || activePlayerNode.isPlaying
@@ -2045,12 +2059,10 @@ public final class AudioPlaybackEngine {
     private func startTimeUpdates(from position: TimeInterval? = nil) {
         stopTimeUpdates()
         captureWallTimeBase(position: position)
-        let timer = DispatchSource.makeTimerSource(queue: timeUpdateQueue)
+        let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now(), repeating: .milliseconds(100))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            // Read the struct once — value copy gives a consistent snapshot even
-            // if the main thread updates it mid-read during a gapless transition.
             let base = self.timeBase
             let elapsed = CACurrentMediaTime() - base.wallTime
             let estimated = min(base.position + elapsed, base.duration)
@@ -2077,6 +2089,7 @@ public final class AudioPlaybackEngine {
     ///   position is already known (seek, play) to avoid calling currentTime()
     ///   which accesses playerNode.lastRenderTime.
     private func captureWallTimeBase(position: TimeInterval? = nil) {
+        progressRevision &+= 1
         let basePosition = position ?? currentTime()
         timeBase = TimeBase(
             wallTime: CACurrentMediaTime(),
@@ -2091,13 +2104,19 @@ public final class AudioPlaybackEngine {
         let clamped = Self.clampedPlaybackPosition(position, duration: fileDuration)
         durablePlaybackPosition = clamped
         if publish {
-            currentTimeSubject.send(clamped)
+            currentTimeSubject.send(Progress(
+                time: clamped,
+                trackID: currentTrackId,
+                generation: playbackRequestGeneration,
+                revision: progressRevision
+            ))
         }
         return clamped
     }
 
     /// Stop periodic time updates.
     private func stopTimeUpdates() {
+        progressRevision &+= 1
         timeUpdateTimer?.cancel()
         timeUpdateTimer = nil
     }
