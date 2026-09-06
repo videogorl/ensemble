@@ -7,6 +7,7 @@ import EnsemblePersistence
 import EnsemblePlex
 import Foundation
 import MediaPlayer
+import OSLog
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -1192,31 +1193,58 @@ public final class WatchPlaybackController: ObservableObject {
     }
 }
 
-private actor WatchHiddenMediaCloudStore {
+actor WatchHiddenMediaCloudStore {
     private let recordID = CKRecord.ID(recordName: "currentHiddenMediaState")
+    private let cacheURL: URL
 
-    func activeIdentities() async -> Set<HiddenMediaIdentity> {
+    init(cacheURL: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("ensemble.watch.hiddenMedia.json")) {
+        self.cacheURL = cacheURL
+    }
+
+    func cachedIdentities() -> Set<HiddenMediaIdentity> {
+        guard let data = try? Data(contentsOf: cacheURL),
+              let identities = try? JSONDecoder().decode(Set<HiddenMediaIdentity>.self, from: data) else { return [] }
+        return identities
+    }
+
+    func save(_ identities: Set<HiddenMediaIdentity>) throws {
+        let data = try JSONEncoder().encode(identities)
+        try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: cacheURL, options: .atomic)
+    }
+
+    func activeIdentities() async throws -> Set<HiddenMediaIdentity> {
         #if os(watchOS)
+        let database = CKContainer(identifier: "iCloud.com.videogorl.ensemble").privateCloudDatabase
+        let identities: Set<HiddenMediaIdentity>
         do {
-            let database = CKContainer(identifier: "iCloud.com.videogorl.ensemble").privateCloudDatabase
             let record = try await database.record(for: recordID)
-            guard let data = record["mutations"] as? Data,
-                  let mutations = try? JSONDecoder().decode([HiddenMediaMutation].self, from: data) else { return [] }
-            return Set(mutations.filter(\.isHidden).map(\.identity))
-        } catch {
-            return []
+            guard let data = record["mutations"] as? Data else {
+                throw CocoaError(.coderReadCorrupt)
+            }
+            let mutations = try JSONDecoder().decode([HiddenMediaMutation].self, from: data)
+            identities = Set(mutations.filter(\.isHidden).map(\.identity))
+        } catch let error as CKError where error.code == .unknownItem {
+            identities = []
         }
+        try Task.checkCancellation()
+        try save(identities)
+        return identities
         #else
-        return []
+        return cachedIdentities()
         #endif
     }
 }
 
 @MainActor
 public final class WatchExperienceModel: ObservableObject {
+    private static let logger = Logger(subsystem: "com.videogorl.ensemble", category: "watch.lifecycle")
     @Published public private(set) var bootstrapState: WatchBootstrapState = .idle
     @Published public private(set) var linkState: WatchLinkState?
-    @Published public private(set) var catalogSnapshot: EnsemblePlexCatalogSnapshot?
+    @Published public private(set) var catalogSnapshot: EnsemblePlexCatalogSnapshot? {
+        didSet { invalidateBrowseProjections() }
+    }
     @Published public private(set) var libraries: [EnsemblePlexLibrary] = []
     @Published public private(set) var sourceAccounts: [WatchSourceAccountSection] = []
     @Published public private(set) var detailTracks: [EnsembleTrack] = []
@@ -1227,7 +1255,9 @@ public final class WatchExperienceModel: ObservableObject {
     @Published public private(set) var playbackStatusMessage = "Ready"
     @Published public private(set) var playlistTargets: [EnsemblePlexPlaylistTarget] = []
     @Published public private(set) var accentColorName = "blue"
-    @Published public private(set) var mergingPreferences = EnsembleMergingPreferences.default
+    @Published public private(set) var mergingPreferences = EnsembleMergingPreferences.default {
+        didSet { invalidateBrowseProjections() }
+    }
     @Published public private(set) var pendingQueueReplacement: WatchQueueReplacementRequest?
     @Published public var playbackTarget: EnsemblePlaybackTarget =
         EnsemblePlaybackTarget(rawValue: UserDefaults.standard.string(forKey: "ensemble.watch.playbackTarget") ?? "") ?? .local {
@@ -1247,8 +1277,15 @@ public final class WatchExperienceModel: ObservableObject {
     private let cloudPreferences: WatchCloudPreferenceStore
     private let authService: PlexAuthService
     private let hiddenMediaCloud = WatchHiddenMediaCloudStore()
+    private let detailStore = WatchDetailStore()
     private var hiddenIdentities: Set<HiddenMediaIdentity> = []
     private var allCatalogSnapshot: EnsemblePlexCatalogSnapshot?
+    private var libraryTrackCache: [EnsembleTrack]?
+    private var albumGroupCache: [WatchMediaGroup]?
+    private var artistGroupCache: [WatchMediaGroup]?
+    private var playlistGroupCache: [WatchPlaylistGroup]?
+    private var autoplayTask: Task<Void, Never>?
+    private var hiddenMediaTask: Task<Void, Never>?
 
     private var discoveredServers: [EnsemblePlexServer] = []
     private var bootstrapTask: Task<Void, Never>?
@@ -1263,6 +1300,7 @@ public final class WatchExperienceModel: ObservableObject {
     private var playbackPrefetchTask: Task<Void, Never>?
     private var playbackRequestID: UUID?
     private var playbackPrefetchRequestID: UUID?
+    private var hasRestoredPlaybackQueue = false
     private var playbackQueue: WatchPlaybackQueue
 
     public init(
@@ -1283,7 +1321,7 @@ public final class WatchExperienceModel: ObservableObject {
         self.catalogStore = catalogStore
         self.artworkManager = artworkManager
         self.playbackQueueStore = playbackQueueStore
-        self.playbackQueue = WatchPlaybackQueue(snapshot: playbackQueueStore.load())
+        self.playbackQueue = WatchPlaybackQueue()
         self.cloudPreferences = cloudPreferences
         self.authService = authService
         playback.playbackEndedHandler = { [weak self] in
@@ -1307,13 +1345,6 @@ public final class WatchExperienceModel: ObservableObject {
         playback.setRepeatModeHandler = { [weak self] mode in
             self?.setRepeatMode(mode)
         }
-        playback.updatePlaybackModes(
-            isShuffleEnabled: playbackQueue.isShuffleEnabled,
-            repeatMode: playbackQueue.repeatMode
-        )
-        if let restoredTrack = playbackQueue.currentTrack {
-            playback.restore(track: restoredTrack, time: playbackQueue.currentTime)
-        }
         self.playbackStatusCancellable = playback.$status
             .dropFirst()
             .sink { [weak self] status in
@@ -1323,13 +1354,11 @@ public final class WatchExperienceModel: ObservableObject {
             .throttle(for: .seconds(5), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] time in
                 guard let self else { return }
+                guard let item = playbackQueue.currentItem else { return }
                 playbackQueue.setCurrentTime(time)
-                persistPlaybackQueue()
+                playbackQueueStore.checkpoint(itemID: item.id, time: time)
             }
 
-        if playbackQueue.isAutoplayEnabled {
-            refreshAutoplayQueue()
-        }
     }
 
     public var isReady: Bool {
@@ -1366,31 +1395,48 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func persistPlaybackQueue() {
+        guard hasRestoredPlaybackQueue else { return }
         playbackQueue.setCurrentTime(playback.currentTime)
-        playbackQueueStore.save(playbackQueue.snapshotForPersistence())
+        playbackQueueStore.saveAsync(playbackQueue.snapshotForPersistence())
+    }
+
+    private func invalidateBrowseProjections() {
+        libraryTrackCache = nil
+        albumGroupCache = nil
+        artistGroupCache = nil
+        playlistGroupCache = nil
     }
 
     public var playlistGroups: [WatchPlaylistGroup] {
-        WatchPlaylistGroup.grouped(
-            (catalogSnapshot?.playlists ?? []).filter { !isHidden($0) },
-            preferences: mergingPreferences
-        )
+        if let playlistGroupCache { return playlistGroupCache }
+        let groups = WatchPlaylistGroup.grouped(catalogSnapshot?.playlists ?? [], preferences: mergingPreferences)
+        playlistGroupCache = groups
+        return groups
     }
 
     public var libraryTracks: [EnsembleTrack] {
-        let tracks = catalogSnapshot?.tracks.filter { !isHidden($0) } ?? []
-        return projectedTracks(tracks)
+        if let libraryTrackCache { return libraryTrackCache }
+        let tracks = projectedTracks(catalogSnapshot?.tracks ?? [])
+        libraryTrackCache = tracks
+        return tracks
     }
 
-    public var libraryArtists: [EnsembleMediaSummary] {
-        let artists = catalogSnapshot?.artists.filter { !isHidden($0) } ?? []
-        return WatchMediaGroup.grouped(artists, preferences: mergingPreferences).map(\.primaryItem)
+    private var artistGroups: [WatchMediaGroup] {
+        if let artistGroupCache { return artistGroupCache }
+        let groups = WatchMediaGroup.grouped(catalogSnapshot?.artists ?? [], preferences: mergingPreferences)
+        artistGroupCache = groups
+        return groups
     }
 
-    public var libraryAlbums: [EnsembleMediaSummary] {
-        let albums = catalogSnapshot?.albums.filter { !isHidden($0) } ?? []
-        return WatchMediaGroup.grouped(albums, preferences: mergingPreferences).map(\.primaryItem)
+    private var albumGroups: [WatchMediaGroup] {
+        if let albumGroupCache { return albumGroupCache }
+        let groups = WatchMediaGroup.grouped(catalogSnapshot?.albums ?? [], preferences: mergingPreferences)
+        albumGroupCache = groups
+        return groups
     }
+
+    public var libraryArtists: [EnsembleMediaSummary] { artistGroups.map(\.primaryItem) }
+    public var libraryAlbums: [EnsembleMediaSummary] { albumGroups.map(\.primaryItem) }
 
     public var recentlyAddedAlbums: [EnsembleMediaSummary] {
         let albums = (catalogSnapshot?.recentlyAdded ?? []).filter { $0.kind == .album && !isHidden($0) }
@@ -1422,35 +1468,23 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func mediaGroup(containing item: EnsembleMediaSummary) -> WatchMediaGroup? {
-        guard let snapshot = catalogSnapshot else { return nil }
-        let candidates: [EnsembleMediaSummary]
+        let groups: [WatchMediaGroup]
         switch item.kind {
-        case .album: candidates = snapshot.albums
-        case .artist: candidates = snapshot.artists
-        case .playlist: candidates = snapshot.playlists
+        case .album: groups = albumGroups
+        case .artist: groups = artistGroups
+        case .playlist: groups = WatchMediaGroup.grouped(catalogSnapshot?.playlists ?? [], preferences: mergingPreferences)
         case .track: return nil
         }
-        return WatchMediaGroup.grouped(candidates.filter { !isHidden($0) }, preferences: mergingPreferences)
-            .first { group in group.items.contains { $0.id == item.id && $0.sourceKey == item.sourceKey } }
+        return groups.first { group in group.items.contains { $0.id == item.id && $0.sourceKey == item.sourceKey } }
     }
 
     public func start() {
         guard bootstrapTask == nil else { return }
-        refreshHiddenMedia()
-        Task { [weak self] in
-            guard let self else { return }
-            accentColorName = await cloudPreferences.accentColorName()
-            mergingPreferences = await cloudPreferences.mergingPreferences()
-            if let pins = await cloudPreferences.pinnedReferences() {
-                await applyPinnedReferences(pins)
-            }
-        }
         startBootstrapTask(forceRefresh: false)
     }
 
     public func refresh() {
         bootstrapTask?.cancel()
-        refreshHiddenMedia()
         startBootstrapTask(forceRefresh: true)
     }
 
@@ -1511,9 +1545,12 @@ public final class WatchExperienceModel: ObservableObject {
         detailTracks = projectedTracks(items.flatMap(cachedTracks(for:)), albumOrdered: item.kind == .album)
         detailTask = Task { [weak self] in
             guard let self else { return }
+            let cached = await cachedDetailTracks(for: items, interleaved: false)
+            guard !Task.isCancelled, detailRequestID == requestID else { return }
+            if let cached { detailTracks = projectedTracks(cached, albumOrdered: item.kind == .album) }
             let result = await loadTracks(for: items, albumOrdered: item.kind == .album)
             guard !Task.isCancelled, detailRequestID == requestID else { return }
-            if !result.tracks.isEmpty { detailTracks = result.tracks }
+            if result.failureCount == 0 || !result.tracks.isEmpty { detailTracks = result.tracks }
             detailStatusMessage = Self.trackLoadStatus(
                 trackCount: detailTracks.count,
                 failureCount: result.failureCount
@@ -1530,7 +1567,36 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func loadTracks(for genre: EnsembleGenreSummary) async -> [EnsembleTrack] {
-        (try? await catalog.tracks(for: genre, in: libraries)) ?? []
+        (try? await genreTracks(for: genre)) ?? []
+    }
+
+    private func genreTracks(for genre: EnsembleGenreSummary) async throws -> [EnsembleTrack] {
+        let key = WatchDetailStore.key(source: genre.sourceKey, kind: "genre", id: genre.id)
+        let cached = await detailStore.load(key: key)
+        if let cached, cached.isFresh { return cached.tracks.filter { !isHidden($0) } }
+        do {
+            guard libraries.contains(where: { $0.sourceKey == genre.sourceKey }) else { throw EnsemblePlexError.noReachableServer }
+            let tracks = try await catalog.tracks(for: genre, in: libraries)
+            try Task.checkCancellation()
+            try? await detailStore.save(tracks, key: key)
+            return tracks.filter { !isHidden($0) }
+        } catch {
+            if let cached, !Task.isCancelled { return cached.tracks.filter { !isHidden($0) } }
+            throw error
+        }
+    }
+
+    private func cachedDetailTracks(for items: [EnsembleMediaSummary], interleaved: Bool) async -> [EnsembleTrack]? {
+        var trackSets: [[EnsembleTrack]] = []
+        var hasCachedEntry = false
+        for item in items {
+            let key = WatchDetailStore.key(source: item.sourceKey, kind: item.kind.rawValue, id: item.id)
+            let entry = await detailStore.load(key: key)
+            hasCachedEntry = hasCachedEntry || entry != nil
+            trackSets.append(entry?.tracks ?? cachedTracks(for: item))
+        }
+        guard hasCachedEntry else { return nil }
+        return (interleaved ? PlexPlaylistMergeRules.interleaved(trackSets) : trackSets.flatMap { $0 }).filter { !isHidden($0) }
     }
 
     public func loadPlaylistTargets() async {
@@ -1606,6 +1672,9 @@ public final class WatchExperienceModel: ObservableObject {
         detailTracks = []
         detailTask = Task { [weak self] in
             guard let self else { return }
+            let cached = await cachedDetailTracks(for: group.playlists, interleaved: true)
+            guard !Task.isCancelled, detailRequestID == requestID else { return }
+            if let cached { detailTracks = projectedTracks(cached) }
             let result = await mergedTracks(for: group)
             guard !Task.isCancelled, detailRequestID == requestID else { return }
             detailTracks = result.tracks
@@ -1622,7 +1691,12 @@ public final class WatchExperienceModel: ObservableObject {
         detailTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let tracks = try await catalog.tracks(for: genre, in: libraries)
+                let key = WatchDetailStore.key(source: genre.sourceKey, kind: "genre", id: genre.id)
+                if let cached = await detailStore.load(key: key) {
+                    guard !Task.isCancelled, detailRequestID == requestID else { return }
+                    detailTracks = cached.tracks.filter { !isHidden($0) }
+                }
+                let tracks = try await genreTracks(for: genre)
                 guard !Task.isCancelled, detailRequestID == requestID else { return }
                 let visibleTracks = tracks.filter { !self.isHidden($0) }
                 detailTracks = visibleTracks
@@ -1723,9 +1797,7 @@ public final class WatchExperienceModel: ObservableObject {
     public func toggleAutoplay() {
         playbackQueue.toggleAutoplay()
         markQueueChanged()
-        if playbackQueue.isAutoplayEnabled {
-            refreshAutoplayQueue()
-        }
+        refreshAutoplayQueue()
     }
 
     public func playRadio(_ tracks: [EnsembleTrack]) {
@@ -1946,18 +2018,21 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func refreshAutoplayQueue() {
+        autoplayTask?.cancel()
         guard playbackQueue.isAutoplayEnabled,
               !libraries.isEmpty,
               let seed = playbackQueue.items.last(where: { $0.source != .autoplay })?.track else { return }
         let catalog = catalog
         let libraries = libraries
-        Task { [weak self] in
+        let revision = queueRevision
+        autoplayTask = Task { [weak self] in
             guard let self else { return }
             guard let recommendations = try? await catalog.recommendedTracks(
                 for: seed,
                 in: libraries,
                 limit: 10
             ) else { return }
+            guard !Task.isCancelled, playbackQueue.isAutoplayEnabled, queueRevision == revision else { return }
             let unique = recommendations.filter { candidate in
                 !self.playbackQueue.items.contains {
                     $0.track.id == candidate.id && $0.track.sourceKey == candidate.sourceKey
@@ -1977,6 +2052,7 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func markQueueChanged() {
+        hasRestoredPlaybackQueue = true
         queueRevision &+= 1
         persistPlaybackQueue()
     }
@@ -2127,45 +2203,13 @@ public final class WatchExperienceModel: ObservableObject {
 
     public func syncSelectedLibraries() {
         guard !isCatalogSyncing else { return }
-        isCatalogSyncing = true
-        Task { [weak self] in
-            guard let self else { return }
-            defer { isCatalogSyncing = false }
-            do {
-                try await refreshSelectedCatalog()
-            } catch {
-                statusMessage = error.localizedDescription
-            }
-        }
+        refresh()
     }
 
     private func mergedTracks(
         for group: WatchPlaylistGroup
     ) async -> (tracks: [EnsembleTrack], failureCount: Int) {
-        let catalog = catalog
-        let libraries = libraries
-        return await withTaskGroup(of: (Int, [EnsembleTrack]?, Bool).self) { tasks in
-            for (index, playlist) in group.playlists.enumerated() {
-                tasks.addTask {
-                    do {
-                        return (index, try await catalog.tracks(for: playlist, in: libraries), false)
-                    } catch {
-                        return (index, nil, true)
-                    }
-                }
-            }
-
-            var trackSets = Array(repeating: [EnsembleTrack](), count: group.playlists.count)
-            var failureCount = 0
-            for await (index, tracks, failed) in tasks {
-                trackSets[index] = tracks ?? []
-                failureCount += failed ? 1 : 0
-            }
-            return (
-                self.projectedTracks(PlexPlaylistMergeRules.interleaved(trackSets).filter { !self.isHidden($0) }),
-                failureCount
-            )
-        }
+        await loadTracks(for: group.playlists, albumOrdered: false, interleaved: true)
     }
 
     private func presentationItems(for item: EnsembleMediaSummary) -> [EnsembleMediaSummary] {
@@ -2174,17 +2218,29 @@ public final class WatchExperienceModel: ObservableObject {
 
     private func loadTracks(
         for items: [EnsembleMediaSummary],
-        albumOrdered: Bool
+        albumOrdered: Bool,
+        interleaved: Bool = false
     ) async -> (tracks: [EnsembleTrack], failureCount: Int) {
         let catalog = catalog
         let libraries = libraries
+        let store = detailStore
+        let fallbackTracks = items.map(cachedTracks(for:))
         return await withTaskGroup(of: (Int, [EnsembleTrack]?, Bool).self) { tasks in
             for (index, item) in items.enumerated() {
                 tasks.addTask {
+                    let key = WatchDetailStore.key(source: item.sourceKey, kind: item.kind.rawValue, id: item.id)
+                    let cached = await store.load(key: key)
+                    if let cached, cached.isFresh { return (index, cached.tracks, false) }
                     do {
-                        return (index, try await catalog.tracks(for: item, in: libraries), false)
+                        guard libraries.contains(where: { $0.sourceKey == item.sourceKey || $0.server.sourceKey == item.sourceKey }) else {
+                            throw EnsemblePlexError.noReachableServer
+                        }
+                        let tracks = try await catalog.tracks(for: item, in: libraries)
+                        try Task.checkCancellation()
+                        try? await store.save(tracks, key: key)
+                        return (index, tracks, false)
                     } catch {
-                        return (index, nil, true)
+                        return (index, cached?.tracks ?? fallbackTracks[index], true)
                     }
                 }
             }
@@ -2197,7 +2253,8 @@ public final class WatchExperienceModel: ObservableObject {
             }
             return (
                 projectedTracks(
-                    trackSets.flatMap { $0 }.filter { !isHidden($0) },
+                    (interleaved ? PlexPlaylistMergeRules.interleaved(trackSets) : trackSets.flatMap { $0 })
+                        .filter { !isHidden($0) },
                     albumOrdered: albumOrdered
                 ),
                 failureCount
@@ -2237,20 +2294,20 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func refreshHiddenMedia() {
-        Task { [weak self] in
-            guard let self else { return }
-            hiddenIdentities = await hiddenMediaCloud.activeIdentities()
+        hiddenMediaTask?.cancel()
+        hiddenMediaTask = Task { [weak self] in
+            guard let self,
+                  let identities = try? await hiddenMediaCloud.activeIdentities(),
+                  !Task.isCancelled, identities != hiddenIdentities else { return }
+            hiddenIdentities = identities
             applyHiddenMediaFilter()
         }
     }
 
-    private func applyHiddenMediaFilter(preservingCachedContent: Bool? = nil) {
+    private func applyHiddenMediaFilter() {
         guard let rawSnapshot = allCatalogSnapshot ?? catalogSnapshot else { return }
-        let filtered = Self.filteredSnapshot(rawSnapshot, for: libraries)
-        let selected = preservingCachedContent ?? isCatalogSyncing
-            ? Self.snapshotDuringRefresh(previous: catalogSnapshot, selected: filtered)
-            : filtered
-        catalogSnapshot = EnsemblePlexCatalogSnapshot(
+        let selected = Self.cachedVisibleSnapshot(rawSnapshot, flags: catalogStore.loadLibraryFlags())
+        let visible = EnsemblePlexCatalogSnapshot(
             fetchedAt: selected.fetchedAt,
             libraries: selected.libraries,
             pins: selected.pins.filter { !isHidden($0) },
@@ -2261,7 +2318,9 @@ public final class WatchExperienceModel: ObservableObject {
             tracks: selected.tracks.filter { !isHidden($0) },
             genres: selected.genres
         )
-        detailTracks = detailTracks.filter { !isHidden($0) }
+        if catalogSnapshot != visible { catalogSnapshot = visible }
+        let visibleTracks = detailTracks.filter { !isHidden($0) }
+        if detailTracks != visibleTracks { detailTracks = visibleTracks }
     }
 
     private func isHidden(_ item: EnsembleMediaSummary) -> Bool {
@@ -2316,8 +2375,11 @@ public final class WatchExperienceModel: ObservableObject {
 
     private func startBootstrapTask(forceRefresh: Bool) {
         let taskID = UUID()
+        let previousTask = bootstrapTask
         bootstrapTaskID = taskID
         bootstrapTask = Task { [weak self] in
+            await previousTask?.value
+            guard !Task.isCancelled else { return }
             await self?.bootstrap(forceRefresh: forceRefresh)
             self?.clearBootstrapTask(id: taskID)
         }
@@ -2330,95 +2392,90 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func bootstrap(forceRefresh: Bool = false) async {
-        if !forceRefresh,
-           catalogSnapshot == nil,
-           let cachedSnapshot = try? await catalogStore.loadHomeSnapshot() {
-            catalogSnapshot = cachedSnapshot
-            allCatalogSnapshot = cachedSnapshot
-            pinnedItemIDs = Set(cachedSnapshot.pins.map {
-                Self.pinIdentity(id: $0.id, sourceKey: $0.sourceKey)
-            })
+        let startTime = ProcessInfo.processInfo.systemUptime
+        if !hasRestoredPlaybackQueue {
+            let savedQueue = await playbackQueueStore.loadAsync()
+            guard !Task.isCancelled else { return }
+            if !hasRestoredPlaybackQueue {
+                playbackQueue = WatchPlaybackQueue(snapshot: savedQueue)
+                hasRestoredPlaybackQueue = true
+                playback.updatePlaybackModes(isShuffleEnabled: playbackQueue.isShuffleEnabled, repeatMode: playbackQueue.repeatMode)
+                playback.updateQueue(index: playbackQueue.currentIndex, count: playbackQueue.items.count)
+                if let track = playbackQueue.currentTrack {
+                    playback.restore(track: track, time: playbackQueue.currentTime)
+                }
+                queueRevision &+= 1
+            }
         }
-        if catalogSnapshot != nil {
-            bootstrapState = .ready
-            statusMessage = "Refreshing"
-            isCatalogSyncing = true
-        } else {
-            bootstrapState = .loading
+        if catalogSnapshot == nil {
+            hiddenIdentities = await hiddenMediaCloud.cachedIdentities()
+            if let cached = try? await catalogStore.loadSnapshot(), !Task.isCancelled {
+                allCatalogSnapshot = cached
+                applyHiddenMediaFilter()
+                pinnedItemIDs = Set(cached.pins.map { Self.pinIdentity(id: $0.id, sourceKey: $0.sourceKey) })
+            }
         }
-        defer { isCatalogSyncing = false }
+        guard !Task.isCancelled else { return }
+        bootstrapState = catalogSnapshot == nil ? .loading : .ready
+        Self.logger.info("WATCH_STARTUP cachedAlbums=\(self.catalogSnapshot?.albums.count ?? 0) cachedTracks=\(self.catalogSnapshot?.tracks.count ?? 0) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startTime) * 1000))")
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "EnsembleAutomationDisableNetwork") {
+            isCatalogSyncing = false
+            statusMessage = "Using cached library (offline simulation)"
+            return
+        }
+        #endif
+        isCatalogSyncing = true
+        defer { if !Task.isCancelled { isCatalogSyncing = false } }
+        refreshHiddenMedia()
         statusMessage = "Checking iCloud credentials"
 
         do {
+            accentColorName = await cloudPreferences.accentColorName()
+            mergingPreferences = await cloudPreferences.mergingPreferences()
+            try Task.checkCancellation()
+            if let pins = await cloudPreferences.pinnedReferences() {
+                try Task.checkCancellation()
+                await applyPinnedReferences(pins)
+            }
             let credentials = try await discovery.loadSyncedCredentials()
-            if !forceRefresh, let snapshot = catalogSnapshot {
-                let cachedLibraries = await discovery.cachedLibraries(from: credentials, snapshot: snapshot)
-                if !cachedLibraries.isEmpty {
-                    libraries = cachedLibraries
-                }
-            }
+            try Task.checkCancellation()
             try await finishBootstrap(credentials: credentials, forceRefresh: forceRefresh)
-        } catch EnsemblePlexError.noSyncedCredentials {
-            if catalogSnapshot != nil {
-                bootstrapState = .ready
-                statusMessage = "Using cached library. Sign in to refresh."
-            } else {
-                bootstrapState = .needsLink
-                statusMessage = "Sign in with Plex Link."
-            }
+        } catch is CancellationError {
+            return
         } catch {
-            bootstrapState = catalogSnapshot == nil ? .failed(error.localizedDescription) : .ready
-            statusMessage = error.localizedDescription
+            guard !Task.isCancelled else { return }
+            if error as? EnsemblePlexError == .noSyncedCredentials {
+                bootstrapState = catalogSnapshot == nil ? .needsLink : .ready
+                statusMessage = catalogSnapshot == nil ? "Sign in with Plex Link." : "Using cached library. Sign in to refresh."
+            } else {
+                bootstrapState = catalogSnapshot == nil ? .failed(error.localizedDescription) : .ready
+                statusMessage = error.localizedDescription
+            }
         }
     }
 
     private func finishBootstrap(credentials: [EnsembleAccountCredential], forceRefresh: Bool) async throws {
         statusMessage = "Finding Plex servers"
         let servers = try await discovery.discoverServers(from: credentials)
+        try Task.checkCancellation()
         let flaggedServers = await applyStoredLibraryFlags(to: servers)
+        try Task.checkCancellation()
         discoveredServers = flaggedServers
         sourceAccounts = Self.buildSourceAccounts(from: flaggedServers)
         libraries = try catalog.selectedLibraries(from: flaggedServers, fallbackToAllDiscovered: false)
-        await loadPlaylistTargets()
+        applyHiddenMediaFilter()
         refreshAutoplayQueue()
 
-        let cachedSnapshot = try? await catalogStore.loadSnapshot()
-        if let snapshot = cachedSnapshot {
-            allCatalogSnapshot = snapshot
-            let selectedSnapshot = Self.filteredSnapshot(snapshot, for: libraries)
-            let needsRefresh = forceRefresh
-                || Self.catalogNeedsRefresh(selectedSnapshot)
-                || (!libraries.isEmpty
-                    && Self.hasBrowseContent(snapshot)
-                    && !Self.hasBrowseContent(selectedSnapshot))
-            let visibleSnapshot = needsRefresh
-                ? Self.snapshotDuringRefresh(previous: catalogSnapshot, selected: selectedSnapshot)
-                : selectedSnapshot
-            if catalogSnapshot != visibleSnapshot { catalogSnapshot = visibleSnapshot }
-            applyHiddenMediaFilter()
-            bootstrapState = .ready
-            statusMessage = "Refreshing"
-
-            if !needsRefresh {
-                if let pins = await cloudPreferences.pinnedReferences() {
-                    await applyPinnedReferences(pins)
-                }
-                statusMessage = "Ready"
-                return
-            }
+        let needsRefresh = forceRefresh || allCatalogSnapshot.map { Self.catalogNeedsRefresh($0) } != false
+            || !Set(libraries.map(\.sourceKey)).isSubset(of: Self.catalogSourceKeys(allCatalogSnapshot))
+        if !needsRefresh {
+            statusMessage = "Ready"
+            return
         }
-
-        do {
-            try await refreshSelectedCatalog()
-            bootstrapState = .ready
-            if !libraries.isEmpty {
-                statusMessage = "Ready"
-            }
-        } catch {
-            guard cachedSnapshot != nil else { throw error }
-            bootstrapState = .ready
-            statusMessage = error.localizedDescription
-        }
+        try await refreshSelectedCatalog()
+        try Task.checkCancellation()
+        bootstrapState = .ready
     }
 
     private func requestAndPollLink() async {
@@ -2440,7 +2497,7 @@ public final class WatchExperienceModel: ObservableObject {
             let credential = try await discovery.credential(from: token)
             try await discovery.saveSyncedCredential(credential)
             linkState = nil
-            await bootstrap(forceRefresh: true)
+            refresh()
         } catch {
             bootstrapState = .failed(error.localizedDescription)
             statusMessage = error.localizedDescription
@@ -2448,18 +2505,9 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func refreshSelectedCatalog() async throws {
+        try Task.checkCancellation()
         guard !libraries.isEmpty else {
-            let emptySnapshot = EnsemblePlexCatalogSnapshot(
-                libraries: [],
-                pins: [],
-                albums: [],
-                artists: [],
-                playlists: [],
-                recentlyAdded: []
-            )
-            catalogSnapshot = emptySnapshot
-            allCatalogSnapshot = emptySnapshot
-            try await catalogStore.saveSnapshot(emptySnapshot)
+            applyHiddenMediaFilter()
             statusMessage = "Enable at least one library."
             return
         }
@@ -2471,14 +2519,17 @@ public final class WatchExperienceModel: ObservableObject {
             libraries: libraries,
             previousSnapshot: allCatalogSnapshot ?? catalogSnapshot
         )
-        allCatalogSnapshot = snapshot
+        try Task.checkCancellation()
         try await catalogStore.saveSnapshot(snapshot, libraries: libraries)
+        try Task.checkCancellation()
+        allCatalogSnapshot = snapshot
         if let pinnedReferences {
             await applyPinnedReferences(pinnedReferences)
         } else {
             await replacePins(cachedPins)
         }
-        applyHiddenMediaFilter(preservingCachedContent: false)
+        try Task.checkCancellation()
+        applyHiddenMediaFilter()
         statusMessage = "Ready"
     }
 
@@ -2701,6 +2752,36 @@ public final class WatchExperienceModel: ObservableObject {
                 servers: serverSections
             )
         }
+    }
+
+    private nonisolated static func catalogSourceKeys(_ snapshot: EnsemblePlexCatalogSnapshot?) -> Set<String> {
+        guard let snapshot else { return [] }
+        return Set((snapshot.pins + snapshot.albums + snapshot.artists + snapshot.playlists + snapshot.recentlyAdded).map(\.sourceKey)
+            + snapshot.tracks.map(\.sourceKey) + snapshot.genres.map(\.sourceKey))
+    }
+
+    nonisolated static func cachedVisibleSnapshot(
+        _ snapshot: EnsemblePlexCatalogSnapshot, flags: [String: Bool]
+    ) -> EnsemblePlexCatalogSnapshot {
+        let knownKeys = catalogSourceKeys(snapshot).union(flags.keys.map { "plex:" + $0 })
+        func isEnabled(_ key: String) -> Bool {
+            let parts = key.split(separator: ":")
+            guard parts.count == 3 || parts.count == 4, parts.first == "plex" else { return false }
+            if parts.count == 4 { return flags[parts.dropFirst().joined(separator: ":")] != false }
+            let children = knownKeys.filter { $0.hasPrefix(key + ":") }
+            return children.isEmpty || children.contains { flags[String($0.dropFirst(5))] != false }
+        }
+        let enabledKeys = Set(knownKeys.filter(isEnabled))
+        return EnsemblePlexCatalogSnapshot(
+            fetchedAt: snapshot.fetchedAt, libraries: snapshot.libraries,
+            pins: snapshot.pins.filter { enabledKeys.contains($0.sourceKey) },
+            albums: snapshot.albums.filter { enabledKeys.contains($0.sourceKey) },
+            artists: snapshot.artists.filter { enabledKeys.contains($0.sourceKey) },
+            playlists: snapshot.playlists.filter { enabledKeys.contains($0.sourceKey) },
+            recentlyAdded: snapshot.recentlyAdded.filter { enabledKeys.contains($0.sourceKey) },
+            tracks: snapshot.tracks.filter { enabledKeys.contains($0.sourceKey) },
+            genres: snapshot.genres.filter { enabledKeys.contains($0.sourceKey) }
+        )
     }
 
     nonisolated static func filteredSnapshot(

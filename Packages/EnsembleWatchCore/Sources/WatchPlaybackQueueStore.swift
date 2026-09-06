@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import EnsembleDomain
 
 public enum WatchQueueRepeatMode: Int, Codable, CaseIterable, Equatable, Sendable {
@@ -57,7 +58,15 @@ public struct WatchPlaybackQueueSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-public final class WatchPlaybackQueueStore {
+public final class WatchPlaybackQueueStore: @unchecked Sendable {
+    private let writer = DispatchQueue(label: "ensemble.watch.queue", qos: .utility)
+    private let logger = Logger(subsystem: "com.videogorl.ensemble", category: "watch.persistence")
+    private let positionKey = "ensemble.watch.playbackPosition"
+
+    private struct Position: Codable {
+        let itemID: String
+        let time: TimeInterval
+    }
     private static let defaultSnapshotURL = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)
         .first?
@@ -80,25 +89,75 @@ public final class WatchPlaybackQueueStore {
     }
 
     public func load() -> WatchPlaybackQueueSnapshot? {
+        writer.sync { loadStoredSnapshot() }
+    }
+
+    public func loadAsync() async -> WatchPlaybackQueueSnapshot? {
+        await withCheckedContinuation { continuation in
+            writer.async { continuation.resume(returning: self.loadStoredSnapshot()) }
+        }
+    }
+
+    private func loadStoredSnapshot() -> WatchPlaybackQueueSnapshot? {
         if let snapshotURL,
            let data = try? Data(contentsOf: snapshotURL),
            let snapshot = try? JSONDecoder().decode(WatchPlaybackQueueSnapshot.self, from: data) {
-            return snapshot
+            return restoringPosition(in: snapshot)
         }
         guard let data = defaults.data(forKey: key),
               let snapshot = try? JSONDecoder().decode(WatchPlaybackQueueSnapshot.self, from: data) else {
             return nil
         }
         if snapshotURL != nil {
-            save(snapshot)
+            writeSnapshot(snapshot)
         }
-        return snapshot
+        return restoringPosition(in: snapshot)
     }
 
     public func save(_ snapshot: WatchPlaybackQueueSnapshot) {
+        writer.sync { writeSnapshot(snapshot) }
+    }
+
+    public func saveAsync(_ snapshot: WatchPlaybackQueueSnapshot) {
+        writer.async { self.writeSnapshot(snapshot) }
+    }
+
+    public func checkpoint(itemID: String, time: TimeInterval) {
+        guard time.isFinite else { return }
+        writer.async {
+            do {
+                let data = try JSONEncoder().encode(Position(itemID: itemID, time: max(0, time)))
+                if let url = self.snapshotURL?.appendingPathExtension("position") {
+                    try data.write(to: url, options: .atomic)
+                } else {
+                    self.defaults.set(data, forKey: self.positionKey)
+                }
+            } catch {
+                self.logger.error("Could not checkpoint Watch playback position")
+            }
+        }
+    }
+
+    private func restoringPosition(in snapshot: WatchPlaybackQueueSnapshot) -> WatchPlaybackQueueSnapshot {
+        let data = snapshotURL.map { try? Data(contentsOf: $0.appendingPathExtension("position")) }
+            ?? defaults.data(forKey: positionKey)
+        guard let data, let position = try? JSONDecoder().decode(Position.self, from: data),
+              position.time.isFinite,
+              let index = snapshot.currentIndex, snapshot.queue.indices.contains(index),
+              snapshot.queue[index].id == position.itemID else { return snapshot }
+        return WatchPlaybackQueueSnapshot(
+            queue: snapshot.queue, originalQueue: snapshot.originalQueue, history: snapshot.history,
+            currentIndex: index, currentTime: position.time,
+            isShuffleEnabled: snapshot.isShuffleEnabled, repeatMode: snapshot.repeatMode,
+            isAutoplayEnabled: snapshot.isAutoplayEnabled, hasUserQueueEdits: snapshot.hasUserQueueEdits
+        )
+    }
+
+    private func writeSnapshot(_ snapshot: WatchPlaybackQueueSnapshot) {
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         guard let snapshotURL else {
             defaults.set(data, forKey: key)
+            defaults.removeObject(forKey: positionKey)
             return
         }
         do {
@@ -108,15 +167,20 @@ public final class WatchPlaybackQueueStore {
             )
             try data.write(to: snapshotURL, options: .atomic)
             defaults.removeObject(forKey: key)
+            try? FileManager.default.removeItem(at: snapshotURL.appendingPathExtension("position"))
         } catch {
-            return
+            logger.error("Could not save Watch playback queue")
         }
     }
 
     public func clear() {
-        if let snapshotURL {
-            try? FileManager.default.removeItem(at: snapshotURL)
+        writer.sync {
+            if let snapshotURL {
+                try? FileManager.default.removeItem(at: snapshotURL)
+                try? FileManager.default.removeItem(at: snapshotURL.appendingPathExtension("position"))
+            }
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: positionKey)
         }
-        defaults.removeObject(forKey: key)
     }
 }

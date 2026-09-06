@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 import EnsembleDomain
 import EnsemblePersistence
 import EnsemblePlex
@@ -532,18 +533,22 @@ final class EnsembleWatchCoreTests: XCTestCase {
             fetchedAt: now.addingTimeInterval(-599),
             libraries: [],
             pins: [],
-            albums: [],
+            albums: [makeSummary(id: "cached", sourceKey: "plex:account:server:3")],
             artists: [],
             playlists: [],
             recentlyAdded: []
         )
         try await store.saveSnapshot(freshSnapshot)
 
-        let model = WatchExperienceModel(catalogStore: store)
+        let model = WatchExperienceModel(catalogStore: store, playbackQueueStore: WatchPlaybackQueueStore(defaults: defaults))
+        let ready = expectation(description: "Cached library ready")
+        let observation = model.$bootstrapState.filter { $0 == .ready }.prefix(1).sink { _ in ready.fulfill() }
         model.start()
-        for _ in 0..<100 where model.bootstrapState != .ready { await Task.yield() }
+        await fulfillment(of: [ready], timeout: 3)
+        withExtendedLifetime(observation) {}
 
         XCTAssertEqual(model.bootstrapState, .ready)
+        XCTAssertEqual(model.libraryAlbums.map(\.id), ["cached"])
         XCTAssertFalse(WatchExperienceModel.catalogNeedsRefresh(freshSnapshot, now: now))
         XCTAssertTrue(WatchExperienceModel.catalogNeedsRefresh(
             EnsemblePlexCatalogSnapshot(
@@ -575,9 +580,12 @@ final class EnsembleWatchCoreTests: XCTestCase {
             recentlyAdded: []
         ))
 
-        let model = WatchExperienceModel(catalogStore: store)
+        let model = WatchExperienceModel(catalogStore: store, playbackQueueStore: WatchPlaybackQueueStore(defaults: defaults))
+        let ready = expectation(description: "Cached pins ready")
+        let observation = model.$pinnedItemIDs.filter { !$0.isEmpty }.prefix(1).sink { _ in ready.fulfill() }
         model.start()
-        for _ in 0..<100 where !model.isPinned(pinnedAlbum) { await Task.yield() }
+        await fulfillment(of: [ready], timeout: 3)
+        withExtendedLifetime(observation) {}
 
         XCTAssertTrue(model.isPinned(pinnedAlbum))
     }
@@ -609,6 +617,74 @@ final class EnsembleWatchCoreTests: XCTestCase {
             WatchExperienceModel.snapshotDuringRefresh(previous: empty, selected: cached),
             cached
         )
+    }
+
+    func testDetailCachePreservesSourceIdentityOrderDuplicatesAndEmptyResults() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WatchDetailStore(directory: directory)
+        let first = WatchDetailStore.key(source: "plex:a:server", kind: "playlist", id: "1")
+        let other = WatchDetailStore.key(source: "plex:b:server", kind: "playlist", id: "1")
+        let tracks = [makeTrack(id: "2"), makeTrack(id: "1"), makeTrack(id: "2")]
+        try await store.save(tracks, key: first)
+        let reopened = WatchDetailStore(directory: directory)
+        let restored = await reopened.load(key: first)
+        XCTAssertEqual(restored?.tracks, tracks)
+        let missing = await reopened.load(key: other)
+        XCTAssertNil(missing)
+        try await store.save([], key: first)
+        let empty = await reopened.load(key: first)
+        XCTAssertEqual(empty?.tracks, [])
+    }
+
+    func testQueueCheckpointPreservesStructureAndRejectsOldItemPosition() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("queue.json")
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = WatchPlaybackQueueStore(defaults: defaults, snapshotURL: url)
+        let item = WatchQueueItem(track: makeTrack(id: "track"))
+        let snapshot = WatchPlaybackQueueSnapshot(queue: [item], currentIndex: 0, currentTime: 5)
+        store.saveAsync(snapshot)
+        _ = await store.loadAsync()
+        let structure = try Data(contentsOf: url)
+        store.checkpoint(itemID: item.id, time: 42)
+        let restored = await store.loadAsync()
+        XCTAssertEqual(restored?.currentTime, 42)
+        XCTAssertEqual(try Data(contentsOf: url), structure)
+        XCTAssertEqual(WatchPlaybackQueueStore(defaults: defaults, snapshotURL: url).load()?.currentTime, 42)
+        store.checkpoint(itemID: "old-item", time: 99)
+        let stale = await store.loadAsync()
+        XCTAssertEqual(stale?.currentTime, 5)
+        store.saveAsync(snapshot)
+        let reset = await store.loadAsync()
+        XCTAssertEqual(reset, snapshot)
+    }
+
+    func testCachedSourceSelectionRetainsUnavailableSourcesAndHonorsDisabledLibraries() {
+        let first = makeSummary(id: "1", sourceKey: "plex:a:server:3")
+        let second = makeSummary(id: "1", sourceKey: "plex:b:server:3")
+        let playlist = EnsembleMediaSummary(id: "p", kind: .playlist, title: "Playlist", sourceKey: "plex:a:server")
+        let snapshot = EnsemblePlexCatalogSnapshot(libraries: [], pins: [first, second], albums: [first, second],
+            artists: [], playlists: [playlist], recentlyAdded: [])
+        let visible = WatchExperienceModel.cachedVisibleSnapshot(snapshot, flags: ["a:server:3": false])
+        XCTAssertEqual(visible.albums, [second])
+        XCTAssertEqual(visible.pins, [second])
+        XCTAssertTrue(visible.playlists.isEmpty)
+    }
+
+    func testHiddenMediaStateSurvivesStoreRecreationAndExplicitEmpty() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("hidden.json")
+        let store = WatchHiddenMediaCloudStore(cacheURL: url)
+        let identities: Set<HiddenMediaIdentity> = [.init(kind: .album, itemID: "album", sourceCompositeKey: "plex:a:s:3")]
+        try await store.save(identities)
+        let restored = await WatchHiddenMediaCloudStore(cacheURL: url).cachedIdentities()
+        XCTAssertEqual(restored, identities)
+        try await store.save([])
+        let empty = await WatchHiddenMediaCloudStore(cacheURL: url).cachedIdentities()
+        XCTAssertTrue(empty.isEmpty)
     }
 
     private func makeLibrary(

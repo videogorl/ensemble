@@ -11,6 +11,7 @@ public final class WatchCatalogStore: @unchecked Sendable {
 
     private let defaults: UserDefaults
     private let coreDataStack: CoreDataStack
+    private let writeContext: NSManagedObjectContext
     private let selectedLibraryKey = "ensemble.watch.selectedLibraries"
     private let libraryFlagsKey = "ensemble.watch.libraryFlags"
 
@@ -25,6 +26,7 @@ public final class WatchCatalogStore: @unchecked Sendable {
     public init(defaults: UserDefaults, coreDataStack: CoreDataStack) {
         self.defaults = defaults
         self.coreDataStack = coreDataStack
+        self.writeContext = coreDataStack.newBackgroundContext()
     }
 
     public func loadSnapshot() async throws -> EnsemblePlexCatalogSnapshot? {
@@ -44,7 +46,9 @@ public final class WatchCatalogStore: @unchecked Sendable {
         libraries: [EnsemblePlexLibrary] = []
     ) async throws {
         let descriptors = Self.sourceDescriptors(snapshot: snapshot, libraries: libraries)
-        try await coreDataStack.performBackgroundContext { context in
+        try await writeContext.perform { [writeContext] in
+            let context = writeContext
+            defer { context.reset() }
             let state = try Self.upsertSnapshotState(snapshot, in: context)
             let sources = try Self.upsertSources(descriptors, fetchedAt: snapshot.fetchedAt, in: context)
             let artists = try Self.upsertArtists(snapshot.artists, sources: sources, fetchedAt: snapshot.fetchedAt, in: context)
@@ -80,7 +84,9 @@ public final class WatchCatalogStore: @unchecked Sendable {
     }
 
     public func savePins(_ pins: [EnsembleMediaSummary]) async throws {
-        try await coreDataStack.performBackgroundContext { context in
+        try await writeContext.perform { [writeContext] in
+            let context = writeContext
+            defer { context.reset() }
             let request = CDHomeFeedSnapshot.fetchRequest()
             request.predicate = NSPredicate(format: "id == %@", Self.snapshotID)
             request.fetchLimit = 1

@@ -15,6 +15,9 @@ final class WatchSessionModel: NSObject, ObservableObject {
     @Published private(set) var snapshot: WatchCompanionSessionSnapshot?
     @Published private(set) var queueSnapshot: WatchCompanionQueueSnapshot?
     @Published private(set) var playlistTargets: [WatchCompanionPlaylistTargetSnapshot] = []
+    @Published private(set) var isQueueLoading = false
+    @Published private(set) var queueErrorMessage: String?
+    private var hasDeferredQueueRequest = false
     @Published private(set) var isReachable = false
     @Published private(set) var isCommandInFlight = false
     @Published private(set) var pendingQueueReplacement: WatchRemoteQueueReplacementRequest?
@@ -162,7 +165,8 @@ final class WatchSessionModel: NSObject, ObservableObject {
             return
         }
         guard inFlightCommandID == nil else {
-            completion?(false, "Another iPhone action is still in progress.")
+            statusMessage = "Another iPhone action is still in progress."
+            completion?(false, statusMessage)
             return
         }
 
@@ -185,7 +189,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
         if kind == .play || kind == .shuffle || kind == .radio {
             inFlightQueueReplacement = WatchRemoteQueueReplacementRequest(kind: kind, tracks: tracks ?? [])
         }
-        isCommandInFlight = kind.isMutating
+        isCommandInFlight = true
 
         do {
             let payload = try encoder.encode(command)
@@ -217,9 +221,18 @@ final class WatchSessionModel: NSObject, ObservableObject {
     }
 
     func requestQueue() {
-        queueSnapshot = nil
+        guard !isQueueLoading else { return }
+        queueErrorMessage = nil
+        guard inFlightCommandID == nil else {
+            hasDeferredQueueRequest = true
+            return
+        }
+        isQueueLoading = true
         requestedQueueArtworkRevision = nil
-        send(.requestQueue)
+        send(.requestQueue) { [weak self] accepted, message in
+            self?.isQueueLoading = false
+            if !accepted { self?.queueErrorMessage = message ?? "Could not load the iPhone queue." }
+        }
     }
 
     func setSystemNowPlayingProxyEnabled(_ isEnabled: Bool) {
@@ -261,7 +274,6 @@ final class WatchSessionModel: NSObject, ObservableObject {
             }
             if let responseQueue = response.queue {
                 queueSnapshot = responseQueue
-                requestQueueArtworkIfNeeded(for: responseQueue)
             }
             if let responseTargets = response.playlistTargets {
                 playlistTargets = responseTargets
@@ -274,6 +286,9 @@ final class WatchSessionModel: NSObject, ObservableObject {
             }
             inFlightQueueReplacement = nil
             finishCommand(response.accepted, response.errorMessage)
+            if let queue = response.queue, inFlightCommandID == nil {
+                requestQueueArtworkIfNeeded(for: queue)
+            }
         } catch {
             inFlightCommandID = nil
             isCommandInFlight = false
@@ -287,6 +302,10 @@ final class WatchSessionModel: NSObject, ObservableObject {
         let completion = inFlightCompletion
         inFlightCompletion = nil
         completion?(accepted, errorMessage)
+        if hasDeferredQueueRequest {
+            hasDeferredQueueRequest = false
+            requestQueue()
+        }
     }
 
     private func requestQueueArtworkIfNeeded(for queue: WatchCompanionQueueSnapshot) {
@@ -302,13 +321,14 @@ final class WatchSessionModel: NSObject, ObservableObject {
         do {
             apply(try decoder.decode(WatchCompanionSessionSnapshot.self, from: snapshotData))
             updateSystemNowPlayingProxy()
-            statusMessage = "Connected to iPhone"
+            statusMessage = isReachable ? "Connected to iPhone" : "Showing last iPhone state"
         } catch {
             statusMessage = error.localizedDescription
         }
     }
 
     private func apply(_ incoming: WatchCompanionSessionSnapshot) {
+        guard snapshot.map({ incoming.updatedAt >= $0.updatedAt }) ?? true else { return }
         guard let currentArtwork = snapshot?.currentTrack?.artworkData,
               let incomingTrack = incoming.currentTrack,
               incomingTrack.artworkData == nil,

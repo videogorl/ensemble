@@ -18,12 +18,20 @@ struct WatchRootView: View {
     @State private var showsNowPlaying = false
     @State private var selectedPin: EnsembleMediaSummary?
     @State private var hasHandledRemotePresentationForActivePhase = false
+    @State private var hasAppliedAutomationRoute = false
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
             rootContent
                 .navigationDestination(isPresented: showsPinDetail) {
                     selectedPinDestination
+                }
+                .navigationDestination(for: String.self) { route in
+                    if let category = EnsembleLibraryCategory(rawValue: route) {
+                        WatchCategoryView(category: category)
+                    } else if route == "queue" {
+                        WatchQueueView()
+                    }
                 }
                 .navigationDestination(for: WatchMediaActionDestination.self) { destination in
                     WatchMediaDetailView(item: destination.mediaSummary)
@@ -63,6 +71,16 @@ struct WatchRootView: View {
         }
         .onAppear {
             experience.start()
+        }
+        .onChange(of: experience.isReady) { _, isReady in
+            #if DEBUG
+            guard isReady, !hasAppliedAutomationRoute else { return }
+            hasAppliedAutomationRoute = true
+            if let route = UserDefaults.standard.string(forKey: "EnsembleAutomationStartSurface"),
+               EnsembleLibraryCategory(rawValue: route) != nil || route == "queue" {
+                navigationPath.append(route)
+            }
+            #endif
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
@@ -238,7 +256,7 @@ struct WatchRootView: View {
             if let snapshot = experience.catalogSnapshot, !snapshot.pins.isEmpty {
                 Section("Pins") {
                     LazyVGrid(columns: WatchPinsGrid.columns, spacing: WatchPinsGrid.spacing) {
-                        ForEach(snapshot.pins) { item in
+                        ForEach(snapshot.pins, id: \.watchListID) { item in
                             WatchHomePinCell(item: item) {
                                 selectedPin = item
                             }
@@ -260,7 +278,7 @@ struct WatchRootView: View {
                     .favorites,
                     .hidden
                 ]) { category in
-                    NavigationLink(destination: WatchCategoryView(category: category)) {
+                    NavigationLink(value: category.rawValue) {
                         Label(category.title, systemImage: category.systemImage)
                     }
                 }
@@ -2086,7 +2104,7 @@ private struct WatchCollectionHero: View {
             HStack {
                 Text(title)
                     .font(.headline)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -2301,7 +2319,7 @@ private struct WatchQueueView: View {
                 Button("Done") { dismiss() }
             }
         }
-        .task(id: experience.playbackTarget) {
+        .task(id: "\(experience.playbackTarget)-\(remoteSession.isReachable)") {
             if experience.playbackTarget == .remote, remoteSession.isReachable {
                 remoteSession.requestQueue()
             }
@@ -2314,6 +2332,8 @@ private struct WatchQueueView: View {
             queueControls(
                 shuffle: experience.isShuffleEnabled,
                 repeatTitle: localRepeatTitle,
+                repeatEnabled: experience.repeatMode != .off,
+                repeatOne: experience.repeatMode == .one,
                 autoplay: experience.isAutoplayEnabled,
                 toggleShuffle: experience.toggleShuffle,
                 cycleRepeat: experience.cycleRepeatMode,
@@ -2356,6 +2376,8 @@ private struct WatchQueueView: View {
                 queueControls(
                     shuffle: remoteSession.snapshot?.isShuffleEnabled == true,
                     repeatTitle: remoteRepeatTitle,
+                    repeatEnabled: (remoteSession.snapshot?.repeatMode ?? .off) != .off,
+                    repeatOne: remoteSession.snapshot?.repeatMode == .one,
                     autoplay: remoteSession.snapshot?.isAutoplayEnabled == true,
                     toggleShuffle: { remoteSession.send(.toggleShuffle) },
                     cycleRepeat: { remoteSession.send(.cycleRepeatMode) },
@@ -2395,6 +2417,9 @@ private struct WatchQueueView: View {
                 }
                 moreRow(totalCount: queue.totalUpcomingCount ?? allItems.count)
             }
+        } else if let error = remoteSession.queueErrorMessage {
+            Text(error).font(.caption)
+            Button("Retry") { remoteSession.requestQueue() }
         } else {
             ProgressView("Loading queue")
         }
@@ -2404,29 +2429,34 @@ private struct WatchQueueView: View {
     private func queueControls(
         shuffle: Bool,
         repeatTitle: String,
+        repeatEnabled: Bool,
+        repeatOne: Bool,
         autoplay: Bool,
         toggleShuffle: @escaping () -> Void,
         cycleRepeat: @escaping () -> Void,
         toggleAutoplay: @escaping () -> Void,
         disabled: Bool = false
     ) -> some View {
-        Button {
-            toggleShuffle()
-        } label: {
-            Label(shuffle ? "Shuffle On" : "Shuffle Off", systemImage: EnsembleDesign.Icon.shuffle)
+        HStack(spacing: 0) {
+            Button(action: toggleShuffle) {
+                Label(shuffle ? "Shuffle On" : "Shuffle Off", systemImage: EnsembleDesign.Icon.shuffle)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .foregroundStyle(shuffle ? EnsembleDesign.Color.accent : EnsembleDesign.Color.secondaryText)
+            }
+            Button(action: cycleRepeat) {
+                Label(repeatTitle, systemImage: repeatOne ? "repeat.1" : EnsembleDesign.Icon.repeatMode)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .foregroundStyle(repeatEnabled ? EnsembleDesign.Color.accent : EnsembleDesign.Color.secondaryText)
+            }
+            Button(action: toggleAutoplay) {
+                Label(autoplay ? "AutoPlay On" : "AutoPlay Off", systemImage: EnsembleDesign.Icon.autoplay)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .foregroundStyle(autoplay ? EnsembleDesign.Color.accent : EnsembleDesign.Color.secondaryText)
+            }
         }
-        .disabled(disabled)
-        Button {
-            cycleRepeat()
-        } label: {
-            Label(repeatTitle, systemImage: EnsembleDesign.Icon.repeatMode)
-        }
-        .disabled(disabled)
-        Button {
-            toggleAutoplay()
-        } label: {
-            Label(autoplay ? "AutoPlay On" : "AutoPlay Off", systemImage: EnsembleDesign.Icon.autoplay)
-        }
+        .font(.title3)
+        .labelStyle(.iconOnly)
+        .buttonStyle(.plain)
         .disabled(disabled)
     }
 
@@ -2942,6 +2972,7 @@ private struct WatchNowPlayingView: View {
     }
 
     private func loadArtwork() async {
+        let identity = artworkIdentity
         artwork = nil
         blurredArtwork = nil
 
@@ -2955,7 +2986,8 @@ private struct WatchNowPlayingView: View {
 
         guard let track = playback.currentTrack,
               let url = await experience.artworkURL(for: track, size: 240),
-              let image = await WatchArtworkLoader.image(from: url) else { return }
+              let image = await WatchArtworkLoader.image(from: url),
+              !Task.isCancelled, identity == artworkIdentity else { return }
         playback.setNowPlayingArtwork(image, for: track)
         artwork = image
         blurredArtwork = WatchArtworkLoader.blurred(image, key: artworkIdentity)
@@ -3259,7 +3291,9 @@ private struct WatchArtworkImage: View {
     private func loadImage() async {
         image = nil
         guard let url else { return }
-        image = await WatchArtworkLoader.image(from: url)
+        let loaded = await WatchArtworkLoader.image(from: url)
+        guard !Task.isCancelled else { return }
+        image = loaded
     }
 }
 
