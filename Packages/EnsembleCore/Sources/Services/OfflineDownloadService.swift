@@ -251,6 +251,7 @@ public final class OfflineDownloadService: ObservableObject {
     )
     private var backgroundProgress = OfflineDownloadBatchProgress()
     private var isInstallingNativeReceipts = false
+    private var backgroundHandoff: Task<Void, Never>?
     private let backgroundDownloads: BackgroundDownload
     private lazy var transferExecutor = DownloadTransferExecutor(
         dependencies: .init(
@@ -1114,10 +1115,13 @@ public final class OfflineDownloadService: ObservableObject {
     private func handleBackgroundTaskExpiration() {
         allowsBackgroundContinuation = false
         backgroundProgress = OfflineDownloadBatchProgress()
-        Task { @MainActor [weak self] in
+        guard backgroundHandoff == nil else { return }
+        backgroundHandoff = Task { @MainActor [weak self] in
             guard let self else { return }
-            // URLSession owns active transfers beyond the app execution grant.
-            await self.recoverInterruptedDownloads(reason: .backgroundExpiration, resumeEligibleWork: false)
+            await self.backgroundDownloads.handoffToBackground()
+            await self.queueCoordinator.cancelCurrentTask()
+            self.backgroundHandoff = nil
+            await self.recoverInterruptedDownloads(reason: .backgroundExpiration, resumeEligibleWork: !self.isAppInBackground)
         }
     }
 
@@ -1151,6 +1155,7 @@ public final class OfflineDownloadService: ObservableObject {
                 }
 
                 didProcess = true
+                backgroundExecutionCoordinator.beginExecutionWindow()
                 isQueueRunning = true
                 refreshQueueStatusReason()
 
@@ -1247,6 +1252,8 @@ public final class OfflineDownloadService: ObservableObject {
 
             let executionError = error as? DownloadTransferExecutionError
             let underlyingError = executionError?.underlying ?? error
+            // A native execution handoff is recoverable lifecycle work, not a failed download.
+            if PlexErrorClassification.classify(underlyingError) == .cancelled { return }
             let resolution = retryPolicy.resolveFailure(
                 .init(
                     trackRatingKey: ctx.trackRatingKey,
@@ -1610,6 +1617,7 @@ public final class OfflineDownloadService: ObservableObject {
     private var canRunQueueAutomatically: Bool {
         canExecuteDownloads
             && !isInstallingNativeReceipts
+            && backgroundHandoff == nil
             && !isUserPaused
             && !isLowPowerSuspended
             && !isPlaybackBufferLow
@@ -1966,6 +1974,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func stopQueueForSuspension(finishBackgroundTask: Bool = true) async {
+        await backgroundHandoff?.value
         await queueCoordinator.cancelCurrentTask()
         if finishBackgroundTask {
             backgroundExecutionCoordinator.finishCurrentTask(success: true)

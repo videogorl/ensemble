@@ -29,6 +29,7 @@ public protocol OfflineDownloadBackgroundCoordinating: AnyObject {
     var onSystemDidWake: (() -> Void)? { get set }
 
     func register()
+    func beginExecutionWindow()
     func requestContinuedProcessingIfAvailable(pendingTrackCount: Int)
     func setProgress(completedUnitCount: Int, totalUnitCount: Int)
     func finishCurrentTask(success: Bool)
@@ -36,6 +37,10 @@ public protocol OfflineDownloadBackgroundCoordinating: AnyObject {
     func completeBackgroundURLSessionEvents(identifier: String)
     func handleSystemWillSleep()
     func handleSystemDidWake()
+}
+
+public extension OfflineDownloadBackgroundCoordinating {
+    func beginExecutionWindow() {}
 }
 
 @MainActor
@@ -110,6 +115,7 @@ class OfflineBackgroundExecutionCoordinatorBase: OfflineDownloadBackgroundCoordi
     init() {}
 
     func register() {}
+    func beginExecutionWindow() {}
     func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {}
     func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
     func finishCurrentTask(success: Bool) {}
@@ -193,6 +199,10 @@ final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoo
 
         EnsembleLogger.debug("📦 Offline BG registration \(registered ? "succeeded" : "failed")")
         return registered
+    }
+
+    override func beginExecutionWindow() {
+        beginApplicationBackgroundTaskIfNeeded()
     }
 
     override func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {

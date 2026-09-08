@@ -1,7 +1,8 @@
 import CryptoKit
 import Foundation
 
-/// OS-owned file transfers. The queue owns admission and acknowledges files only after installation.
+/// Native file transfers while the queue has execution time, with an OS-owned
+/// background handoff when that time ends. Files remain owned until installation.
 public actor BackgroundDownload {
     public static let sessionIdentifier = "com.videogorl.ensemble.offline-files.v1"
     public static let shared = BackgroundDownload()
@@ -33,16 +34,36 @@ public actor BackgroundDownload {
     private var restoration: Task<Void, Never>?
     private var eventsFinished = false
     private var eventWaiters: [CheckedContinuation<Void, Never>] = []
+    private let delegateQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 1
+        return queue
+    }()
     private lazy var delegate = DownloadDelegate(owner: self, directory: directory)
     private var ownedSession: URLSession?
+    private var ownedImmediateSession: URLSession?
+    private var immediateSession: URLSession {
+        if let ownedImmediateSession { return ownedImmediateSession }
+        let config = configuration.identifier == nil ? configuration.copy() as! URLSessionConfiguration : .default
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.httpMaximumConnectionsPerHost = 3
+        config.timeoutIntervalForRequest = 60
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: delegateQueue)
+        ownedImmediateSession = session
+        return session
+    }
     private var session: URLSession {
         if let ownedSession { return ownedSession }
-        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: delegateQueue)
         ownedSession = session
         return session
     }
 
-    deinit { ownedSession?.invalidateAndCancel() }
+    deinit {
+        ownedSession?.invalidateAndCancel()
+        ownedImmediateSession?.invalidateAndCancel()
+    }
 
     public init(directory: URL? = nil, configuration: URLSessionConfiguration? = nil) {
         self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -96,7 +117,7 @@ public actor BackgroundDownload {
             }
             for task in await session.allTasks {
                 guard let task = task as? URLSessionDownloadTask,
-                      let key = task.taskDescription, records[key]?.taskID == task.taskIdentifier, tasks[key] == nil else {
+                      let key = task.downloadKey, records[key]?.taskID == task.downloadID, tasks[key] == nil else {
                     task.cancel()
                     continue
                 }
@@ -145,38 +166,25 @@ public actor BackgroundDownload {
             await cancel(key)
             records.removeValue(forKey: key)
         }
+        // Awaiting a file means the queue has execution time. Do not wait for
+        // discretionary daemon scheduling, including restored zero-byte tasks.
+        if let task = tasks[key], task.downloadID > 0 { await cancel(key) }
         var record = records[key] ?? Record(identity: identity, url: url, headers: request.allHTTPHeaderFields ?? [:],
                                             cellular: request.allowsCellularAccess, constrained: request.allowsConstrainedNetworkAccess)
         record.cellular = request.allowsCellularAccess
         record.constrained = request.allowsConstrainedNetworkAccess
         try save(record, key: key)
-        let task: URLSessionDownloadTask
-        if let existing = tasks[key] {
-            task = existing
-        } else {
-            if let data = record.resumeData, record.resumeDigest == Data(SHA256.hash(data: data)),
-               (try? PropertyListSerialization.propertyList(from: data, format: nil)) is [String: Any] {
-                task = session.downloadTask(withResumeData: data)
-            } else {
-                var request = request
-                request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-                task = session.downloadTask(with: request)
-            }
-            task.taskDescription = key
-            record.taskID = task.taskIdentifier
-            try save(record, key: key)
-            tasks[key] = task
-        }
+        let task = try makeTask(record: &record, request: request, key: key, immediate: true)
         self.progress[key] = progress
         do {
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
                     waiters[key] = continuation
                     task.resume()
-                    if Task.isCancelled { Task { await self.cancel(key, taskID: task.taskIdentifier) } }
+                    if Task.isCancelled { Task { await self.cancel(key, taskID: task.downloadID) } }
                 }
             } onCancel: {
-                Task { await self.cancel(key, taskID: task.taskIdentifier) }
+                Task { await self.cancel(key, taskID: task.downloadID) }
             }
         } catch {
             let invalidRange: Bool
@@ -187,6 +195,47 @@ public actor BackgroundDownload {
                 return try await file(for: request, identity: identity, progress: progress)
             }
             throw error
+        }
+    }
+
+    private func makeTask(record: inout Record, request: URLRequest, key: String, immediate: Bool) throws -> URLSessionDownloadTask {
+        if let existing = tasks[key] { return existing }
+        let session = immediate ? immediateSession : self.session
+        let task: URLSessionDownloadTask
+        if let data = record.resumeData, record.resumeDigest == Data(SHA256.hash(data: data)),
+           (try? PropertyListSerialization.propertyList(from: data, format: nil)) is [String: Any] {
+            task = session.downloadTask(withResumeData: data)
+        } else {
+            var request = request
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+            task = session.downloadTask(with: request)
+        }
+        task.taskDescription = key + (immediate ? ":immediate" : "")
+        record.taskID = task.downloadID
+        try save(record, key: key)
+        tasks[key] = task
+        EnsembleLogger.debug("Native download scheduled task=\(task.downloadID) transport=\(immediate ? "immediate" : "background")")
+        return task
+    }
+
+    /// Stop app-owned waits, retain native resume data, and let the daemon finish
+    /// existing transfers without keeping a continued-processing grant alive.
+    public func handoffToBackground() async {
+        await restore()
+        for key in Array(tasks.keys) {
+            guard let task = tasks[key], task.downloadID < 0 else { continue }
+            await cancel(key)
+            guard var record = records[key], record.status == nil else { continue }
+            var request = URLRequest(url: record.url)
+            request.allHTTPHeaderFields = record.headers
+            request.allowsCellularAccess = record.cellular
+            request.allowsConstrainedNetworkAccess = record.constrained
+            do {
+                let backgroundTask = try makeTask(record: &record, request: request, key: key, immediate: false)
+                backgroundTask.resume()
+            } catch {
+                EnsembleLogger.debug("Native download handoff retained for retry domain=\((error as NSError).domain) code=\((error as NSError).code)")
+            }
         }
     }
 
@@ -238,7 +287,7 @@ public actor BackgroundDownload {
     }
 
     private func cancel(_ key: String, taskID: Int? = nil) async {
-        if let taskID, tasks[key]?.taskIdentifier != taskID { return }
+        if let taskID, tasks[key]?.downloadID != taskID { return }
         if cancelling.contains(key) {
             await withCheckedContinuation { cancellationWaiters[key, default: []].append($0) }
             return
@@ -248,7 +297,7 @@ public actor BackgroundDownload {
         let data = await withCheckedContinuation { continuation in
             task.cancel { continuation.resume(returning: $0) }
         }
-        await finished(key: key, taskID: task.taskIdentifier, file: nil, response: task.response as? HTTPURLResponse,
+        await finished(key: key, taskID: task.downloadID, file: nil, response: task.response as? HTTPURLResponse,
                        offset: 0, total: task.countOfBytesExpectedToReceive, error: CancellationError(), resumeData: data, cancelled: true)
     }
 
@@ -259,7 +308,7 @@ public actor BackgroundDownload {
     }
 
     fileprivate func report(key: String, taskID: Int, received: Int64, expected: Int64) async {
-        guard tasks[key]?.taskIdentifier == taskID else { return }
+        guard tasks[key]?.downloadID == taskID else { return }
         await progress[key]?(received, expected)
     }
 
@@ -387,8 +436,8 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
 
     init(owner: BackgroundDownload, directory: URL) { self.owner = owner; self.directory = directory }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        let id = downloadTask.taskIdentifier
-        guard let key = downloadTask.taskDescription, let response = downloadTask.response as? HTTPURLResponse,
+        let id = downloadTask.downloadID
+        guard let key = downloadTask.downloadKey, let response = downloadTask.response as? HTTPURLResponse,
               let url = response.url else { return }
         let destination = directory.appendingPathComponent("\(key)-\(id).incoming")
         do {
@@ -404,33 +453,33 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
             try JSONEncoder().encode(receipt).write(to: receiptURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: receiptURL.path)
             files[id] = destination
-        } catch { errors[downloadTask.taskIdentifier] = error }
+        } catch { errors[downloadTask.downloadID] = error }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didResumeAtOffset fileOffset: Int64, expectedTotalBytes: Int64) {
-        offsets[downloadTask.taskIdentifier] = fileOffset
-        totals[downloadTask.taskIdentifier] = expectedTotalBytes
-        guard let key = downloadTask.taskDescription else { return }
+        offsets[downloadTask.downloadID] = fileOffset
+        totals[downloadTask.downloadID] = expectedTotalBytes
+        guard let key = downloadTask.downloadKey else { return }
         let previous = delivery
         delivery = Task {
             await previous?.value
-            await owner?.resumed(key: key, taskID: downloadTask.taskIdentifier, offset: fileOffset)
+            await owner?.resumed(key: key, taskID: downloadTask.downloadID, offset: fileOffset)
         }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
                     totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        let id = downloadTask.taskIdentifier
-        guard Date().timeIntervalSince(lastProgress[id] ?? .distantPast) >= 1, let key = downloadTask.taskDescription else { return }
+        let id = downloadTask.downloadID
+        guard Date().timeIntervalSince(lastProgress[id] ?? .distantPast) >= 1, let key = downloadTask.downloadKey else { return }
         lastProgress[id] = Date()
         Task { await owner?.report(key: key, taskID: id, received: totalBytesWritten, expected: totalBytesExpectedToWrite) }
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        let id = task.taskIdentifier
+        let id = task.downloadID
         let file = files.removeValue(forKey: id)
         let failure = errors.removeValue(forKey: id) ?? error
         let offset = offsets.removeValue(forKey: id) ?? 0
         let total = totals.removeValue(forKey: id) ?? task.countOfBytesExpectedToReceive
         lastProgress.removeValue(forKey: id)
-        guard let key = task.taskDescription else { return }
+        guard let key = task.downloadKey else { return }
         let previous = delivery
         delivery = Task {
             await previous?.value
@@ -443,4 +492,9 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         let previous = delivery
         delivery = Task { await previous?.value; await owner?.didFinishEvents() }
     }
+}
+
+private extension URLSessionTask {
+    var downloadKey: String? { taskDescription?.components(separatedBy: ":").first }
+    var downloadID: Int { taskDescription?.hasSuffix(":immediate") == true ? -taskIdentifier : taskIdentifier }
 }

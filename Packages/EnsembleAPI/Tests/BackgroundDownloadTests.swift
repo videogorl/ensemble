@@ -12,7 +12,7 @@ final class BackgroundDownloadTests: XCTestCase {
         await fulfillment(of: [port], timeout: 5)
         defer { server.listener.cancel() }
         let request = URLRequest(url: URL(string: "http://127.0.0.1:\(server.listener.port!.rawValue)/audio")!)
-        for mode in ["resume", "changed", "ignore", "malformed", "corrupt", "policy", "no-validator", "unsatisfiable", "remove"] {
+        for mode in ["resume", "handoff", "changed", "ignore", "malformed", "corrupt", "policy", "no-validator", "unsatisfiable", "remove"] {
             server.mode = mode
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: directory) }
@@ -25,7 +25,9 @@ final class BackgroundDownloadTests: XCTestCase {
                 }
             }
             await fulfillment(of: [received], timeout: 5)
-            if mode == "remove" { await transport.discard(identity: mode) } else { attempt.cancel() }
+            if mode == "remove" { await transport.discard(identity: mode) }
+            else if mode == "handoff" { await transport.handoffToBackground() }
+            else { attempt.cancel() }
             do { _ = try await attempt.value; XCTFail("Expected cancellation") } catch {}
             if mode == "remove" {
                 let remaining = await transport.identities()
@@ -38,13 +40,13 @@ final class BackgroundDownloadTests: XCTestCase {
                 json["resumeData"] = Data("invalid".utf8).base64EncodedString()
                 try JSONSerialization.data(withJSONObject: json).write(to: record, options: .atomic)
             }
-            transport = BackgroundDownload(directory: directory, configuration: .ephemeral)
+            if mode != "handoff" { transport = BackgroundDownload(directory: directory, configuration: .ephemeral) }
             var refreshed = request
             DownloadNetworkPolicy(allowsCellularAccess: mode != "policy", allowsConstrainedNetworkAccess: mode != "policy").apply(to: &refreshed)
             let (file, response) = try await transport.file(for: refreshed, identity: mode)
             defer { try? FileManager.default.removeItem(at: file) }
             XCTAssertEqual(try Data(contentsOf: file), mode == "changed" ? Data(repeating: 99, count: FileServer.data.count) : FileServer.data)
-            XCTAssertEqual(response.statusCode, mode == "resume" ? 206 : 200)
+            XCTAssertEqual(response.statusCode, (mode == "resume" || mode == "handoff") ? 206 : 200)
             // Simulate death after the synchronous delegate receipt, before the actor updates its record.
             if mode == "resume" {
                 let recordURL = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first { $0.pathExtension == "json" }!
