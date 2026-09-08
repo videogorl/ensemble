@@ -179,6 +179,7 @@ public final class OfflineDownloadService: ObservableObject {
     private let artifactQueue = DownloadArtifactQueue()
     private var isUserPaused = false
     private var isLowPowerSuspended = false
+    private var isPlaybackBufferLow = false
     private var isAppInBackground = false
     private var allowsBackgroundContinuation = false
     private var isPlaybackSensitive = false
@@ -888,6 +889,24 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    /// Playback starvation pauses work without changing the user's queue preference.
+    public func setPlaybackBufferLow(_ low: Bool) async {
+        guard isPlaybackBufferLow != low else { return }
+        isPlaybackBufferLow = low
+        if low {
+            // ponytail: reuse cancellation/requeue; byte-range resume belongs in the
+            // transport if repeated suspension wastes significant partial transfers.
+            await stopQueueForSuspension()
+        } else {
+            try? await applyNetworkPolicy()
+        }
+        refreshQueueStatusReason()
+        if !isPlaybackBufferLow {
+            try? await applyNetworkPolicy()
+            startQueueIfNeeded()
+        }
+    }
+
     // MARK: - Sidecar Analysis Lifecycle
 
     /// Suspend sidecar analysis when the app backgrounds to prevent background CPU abuse.
@@ -1506,6 +1525,7 @@ public final class OfflineDownloadService: ObservableObject {
         canExecuteDownloads
             && !isUserPaused
             && !isLowPowerSuspended
+            && !isPlaybackBufferLow
             && (!isAppInBackground || allowsBackgroundContinuation)
     }
 
@@ -1829,7 +1849,7 @@ public final class OfflineDownloadService: ObservableObject {
     private func refreshQueueStatusReason() {
         if isQueueRunning {
             queueStatusReason = .downloading
-        } else if isUserPaused || isLowPowerSuspended || (isAppInBackground && !allowsBackgroundContinuation) {
+        } else if isUserPaused || isLowPowerSuspended || isPlaybackBufferLow || (isAppInBackground && !allowsBackgroundContinuation) {
             queueStatusReason = .paused
         } else {
             queueStatusReason = queueReasonForCurrentState()

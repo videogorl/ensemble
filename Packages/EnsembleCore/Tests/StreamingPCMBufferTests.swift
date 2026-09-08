@@ -80,6 +80,29 @@ final class StreamingPCMBufferTests: XCTestCase {
         XCTAssertEqual(samples(second, channel: 1), [7, 8])
     }
 
+    func testRebufferingPreservesContentPositionAndDrainsCompletedTail() throws {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2))
+        let ring = try StreamingPCMBuffer(format: format, capacityFrames: 8)
+        let output = try emptyBuffer(format: format, capacity: 4)
+        _ = try ring.write(makeBuffer(format: format, left: [1, 2], right: [1, 2]))
+        XCTAssertEqual(ring.read(into: output.mutableAudioBufferList, frameCount: 4, resumeFrames: 4), 2)
+        XCTAssertEqual(ring.renderProgress.consumedFrames, 2)
+        XCTAssertTrue(ring.renderProgress.isRebuffering)
+        _ = try ring.write(makeBuffer(format: format, left: [3, 4], right: [3, 4]))
+        XCTAssertEqual(ring.read(into: output.mutableAudioBufferList, frameCount: 4, resumeFrames: 4), 0)
+        XCTAssertEqual(ring.renderProgress.consumedFrames, 2)
+        _ = try ring.write(makeBuffer(format: format, left: [5, 6], right: [5, 6]))
+        XCTAssertEqual(ring.read(into: output.mutableAudioBufferList, frameCount: 4, resumeFrames: 4), 4)
+        XCTAssertFalse(ring.renderProgress.isRebuffering)
+        XCTAssertEqual(ring.renderProgress.consumedFrames, 6)
+        XCTAssertEqual(ring.renderProgress.missingFrames, 6)
+        _ = ring.read(into: output.mutableAudioBufferList, frameCount: 4, resumeFrames: 4)
+        _ = try ring.write(makeBuffer(format: format, left: [7], right: [7]))
+        XCTAssertEqual(ring.read(into: output.mutableAudioBufferList, frameCount: 4, resumeFrames: 4, isComplete: true), 1)
+        XCTAssertEqual(ring.renderProgress.consumedFrames, 7)
+        XCTAssertFalse(ring.renderProgress.isRebuffering)
+    }
+
     private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline, !condition() {

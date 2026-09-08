@@ -262,6 +262,20 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         XCTAssertEqual(service.queueStatusReason, .idle)
     }
 
+    func testPlaybackBufferRecoveryPreservesTheUsersQueuePreference() async {
+        for userPaused in [false, true] {
+            let manager = MockDownloadManager()
+            let service = await makeService(downloadManager: manager)
+            if userPaused { await service.pauseQueue() }
+            await service.setPlaybackBufferLow(true)
+            XCTAssertEqual(service.queueStatusReason, .paused)
+            manager.resetStatusUpdates()
+            await service.setPlaybackBufferLow(false)
+            XCTAssertEqual(service.queueStatusReason, userPaused ? .paused : .idle)
+            XCTAssertEqual(manager.statusUpdates.contains { $0.0 == [.paused] && $0.1 == .pending }, !userPaused)
+        }
+    }
+
     func testResumeTemporarilyOverridesLowDataModeAndExpires() async {
         let downloadManager = MockDownloadManager()
         let networkMonitor = NetworkMonitor(

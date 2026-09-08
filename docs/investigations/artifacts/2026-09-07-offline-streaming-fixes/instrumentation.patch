@@ -1,0 +1,204 @@
+diff --git a/Ensemble/App/EnsembleApp.swift b/Ensemble/App/EnsembleApp.swift
+index ea7421f8..e2ef4806 100644
+--- a/Ensemble/App/EnsembleApp.swift
++++ b/Ensemble/App/EnsembleApp.swift
+@@ -35,6 +35,12 @@ struct EnsembleApp: App {
+     @State private var hasScheduledBackgroundRefresh = false
+     #endif
+
++    init() {
++        #if DEBUG
++        NetworkAuditSession.install()
++        #endif
++    }
++
+     var body: some Scene {
+         WindowGroup {
+             RootView()
+@@ -42,6 +48,9 @@ struct EnsembleApp: App {
+                 .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
+                 .onAppear {
+                     startPersistentLogSessionIfNeeded()
++                    #if DEBUG
++                    Task { await NetworkAuditSession.prepare() }
++                    #endif
+                     AppLogger.info("SIRI_APP: RootView.onAppear - app UI is visible")
+                     UserJourneyLogger.log(context: "app", event: "rootVisible")
+                     #if os(iOS)
+@@ -1042,3 +1051,154 @@ private func performBackgroundRefresh() async {
+     AppLogger.debug("✅ Background refresh complete")
+ }
+ #endif
++
++#if DEBUG
++import ObjectiveC
++
++// Temporary experiment instrumentation; removed before handoff.
++private enum NetworkAuditSession {
++    static func install() {
++        guard ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_PROXY_PORT"] != nil,
++              let original = class_getClassMethod(URLSessionConfiguration.self, #selector(getter: URLSessionConfiguration.default)),
++              let replacement = class_getClassMethod(URLSessionConfiguration.self, #selector(URLSessionConfiguration.auditDefault)) else { return }
++        method_exchangeImplementations(original, replacement)
++    }
++
++    @MainActor static var prepared = false
++
++    @MainActor static func prepare() async {
++        guard let mode = ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_MODE"] else { return }
++        guard !prepared else { return }
++        prepared = true
++        try? await Task.sleep(nanoseconds: 15_000_000_000)
++        let deps = DependencyContainer.shared
++        if mode != "normal" {
++            deps.syncCoordinator.stopPeriodicSync()
++            deps.webSocketCoordinator.stop()
++            await deps.offlineDownloadService.pauseQueue()
++            await deps.offlineDownloadService.suspendSidecarAnalysis()
++            deps.foregroundWorkScheduler.setForegroundActive(false)
++        }
++        if mode == "mutations" {
++            await mutationExperiment(deps)
++            return
++        }
++        AppLogger.info("NETWORK_AUDIT prepared mode=\(mode)")
++        guard let source = ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_SOURCE"],
++              let stored = try? await deps.libraryRepository.fetchTrack(ratingKey: "13827", sourceCompositeKey: source) else { return }
++        let track = Track(from: stored)
++        try? await Task.sleep(nanoseconds: 2_000_000_000)
++        AppLogger.info("NETWORK_AUDIT begin mode=\(mode)")
++        if mode == "normal" || mode == "sync" {
++            Task { await deps.syncCoordinator.syncAllIncremental() }
++        }
++        if mode == "probes" {
++            Task {
++                for _ in 0..<8 {
++                    await deps.serverHealthChecker.invalidateConnectionHealth()
++                    await deps.serverHealthChecker.checkAllServers()
++                    try? await Task.sleep(nanoseconds: 3_000_000_000)
++                }
++            }
++        }
++        if mode == "normal" || mode == "download" {
++            await deps.offlineDownloadService.resumeQueue()
++            if let storedAlbum = try? await deps.libraryRepository.fetchAlbum(ratingKey: "12935", sourceCompositeKey: source) {
++                Task { await deps.offlineDownloadService.setAlbumDownloadEnabled(Album(from: storedAlbum), isEnabled: true) }
++            }
++        }
++        await deps.playbackService.play(tracks: [track], startingAt: 0)
++        for _ in 0..<(Int(ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_SECONDS"] ?? "45") ?? 45) {
++            try? await Task.sleep(nanoseconds: 1_000_000_000)
++            AppLogger.info("NETWORK_AUDIT position seconds=\(deps.playbackService.currentTime)")
++        }
++        deps.playbackService.pause()
++        await deps.offlineDownloadService.pauseQueue()
++        AppLogger.info("NETWORK_AUDIT end mode=\(mode)")
++    }
++    @MainActor static func mutationExperiment(_ deps: DependencyContainer) async {
++        guard let source = ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_SOURCE"] else { return }
++        let repository = PendingMutationRepository(coreDataStack: deps.coreDataStack)
++        func snapshot(_ phase: String) async {
++            let rows = (try? await repository.fetchAllMutationRecords()) ?? []
++            AppLogger.info("NETWORK_AUDIT mutations phase=\(phase) rows=\(rows.count) pending=\(deps.mutationCoordinator.pendingCount)")
++            for row in rows {
++                AppLogger.info("NETWORK_AUDIT mutation id=\(row.id) status=\(row.status) retries=\(row.retryCount)")
++            }
++        }
++        do {
++            deps.networkMonitor.simulateOffline(true)
++            try await Task.sleep(nanoseconds: 300_000_000)
++            for key in ["900000001", "900000002"] {
++                let track = Track(id: key, key: "/library/metadata/" + key, title: "Network audit", sourceCompositeKey: source)
++                _ = try await deps.mutationCoordinator.rateTrack(track, rating: 10)
++            }
++            await snapshot("offline-enqueued")
++            deps.networkMonitor.simulateOffline(false)
++            for pass in 1...4 {
++                await deps.mutationCoordinator.drainQueue()
++                try await Task.sleep(nanoseconds: 300_000_000)
++                await snapshot("failed-pass-\(pass)")
++            }
++            NetworkAuditMutationProtocol.restore()
++            await snapshot("transport-restored-before-retry")
++            try await Task.sleep(nanoseconds: 35_000_000_000)
++            await snapshot("automatic-recovery")
++            for row in try await repository.fetchAllMutationRecords() {
++                try await repository.resetToRetry(id: row.id)
++            }
++            await deps.mutationCoordinator.drainQueue()
++            await snapshot("explicit-retry")
++        } catch {
++            AppLogger.error("NETWORK_AUDIT mutation experiment error=\(error)")
++        }
++        AppLogger.info("NETWORK_AUDIT end mode=mutations")
++    }
++
++}
++
++extension URLSessionConfiguration {
++    @objc fileprivate class func auditDefault() -> URLSessionConfiguration {
++        let config = auditDefault()
++        if ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_MODE"] == "mutations" {
++            config.protocolClasses = [NetworkAuditMutationProtocol.self] + (config.protocolClasses ?? [])
++        }
++        if let value = ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_PROXY_PORT"], let port = Int(value) {
++            config.connectionProxyDictionary = [
++                "HTTPEnable": 1, "HTTPProxy": "127.0.0.1", "HTTPPort": port,
++                "HTTPSEnable": 1, "HTTPSProxy": "127.0.0.1", "HTTPSPort": port
++            ]
++        }
++        return config
++    }
++}
++#endif
++
++#if DEBUG
++// Intercepts only fabricated audit rating keys; no audit mutation reaches PMS.
++private final class NetworkAuditMutationProtocol: URLProtocol {
++    private static let lock = NSLock()
++    private static var restored = false
++    static func restore() { lock.lock(); restored = true; lock.unlock() }
++    override class func canInit(with request: URLRequest) -> Bool {
++        guard let url = request.url, url.path == "/:/rate" else { return false }
++        return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains {
++            $0.name == "key" && ["900000001", "900000002"].contains($0.value ?? "")
++        } == true
++    }
++    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
++    override func startLoading() {
++        guard let url = request.url else { return }
++        let key = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "key" }?.value
++        Self.lock.lock(); let allowed = Self.restored || key == "900000001"; Self.lock.unlock()
++        AppLogger.info("NETWORK_AUDIT mockRating key=\(key ?? "none") acknowledged=\(allowed)")
++        if allowed {
++            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
++            client?.urlProtocolDidFinishLoading(self)
++        } else {
++            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
++        }
++    }
++    override func stopLoading() {}
++}
++#endif
+diff --git a/Packages/EnsembleCore/Sources/Services/StreamingAudioPipeline.swift b/Packages/EnsembleCore/Sources/Services/StreamingAudioPipeline.swift
+index c987bdd5..9431e81d 100644
+--- a/Packages/EnsembleCore/Sources/Services/StreamingAudioPipeline.swift
++++ b/Packages/EnsembleCore/Sources/Services/StreamingAudioPipeline.swift
+@@ -257,6 +257,17 @@ final class StreamingAudioPipeline: NSObject {
+             let task = session.dataTask(with: configuration.request)
+             self.task = task
+             task.resume()
++            #if DEBUG
++            if ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_MODE"] != nil {
++                Task { [weak self] in
++                    for _ in 0..<120 {
++                        try? await Task.sleep(nanoseconds: 1_000_000_000)
++                        guard let self, self.task?.state != .canceling else { break }
++                        EnsembleLogger.info("NETWORK_AUDIT pipeline \(self.diagnostics().summary)")
++                    }
++                }
++            }
++            #endif
+             let startupTimeoutWorkItem = DispatchWorkItem { [weak self] in
+                 self?.failStartupIfNeeded()
+             }

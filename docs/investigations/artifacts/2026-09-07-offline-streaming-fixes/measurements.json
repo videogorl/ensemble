@@ -1,0 +1,139 @@
+{
+  "note": "Proxy totals include startup. Render counters report the longest pipeline segment, not the sum across restarts. Mutation trial uses intercepted synthetic rating requests. Extended run uses 90 timer iterations (about 92 seconds of audio callbacks).",
+  "runs": [
+    {
+      "name": "fixed-combined",
+      "mode": "normal",
+      "rate": 48000,
+      "stall": 0.0,
+      "completed": true,
+      "elapsed": 66.73,
+      "firstAudibleMs": [
+        879
+      ],
+      "underruns": 0,
+      "restarts": 0,
+      "probes": 19,
+      "downloadAttempts": 1,
+      "proxyBytes": 4627694,
+      "proxyConnections": 22,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 0,
+      "bufferSamples": 45,
+      "longestSegmentRenderedSeconds": 45.237,
+      "longestSegmentMissingSeconds": 0.0,
+      "longestSegmentMissingPercent": 0.0
+    },
+    {
+      "name": "fixed-combined-extended",
+      "mode": "normal",
+      "rate": 48000,
+      "stall": 0.0,
+      "completed": true,
+      "elapsed": 113.47,
+      "firstAudibleMs": [
+        1075
+      ],
+      "underruns": 0,
+      "restarts": 0,
+      "probes": 19,
+      "downloadAttempts": 3,
+      "proxyBytes": 6863609,
+      "proxyConnections": 25,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 0,
+      "bufferSamples": 90,
+      "longestSegmentRenderedSeconds": 91.648,
+      "longestSegmentMissingSeconds": 0.0,
+      "longestSegmentMissingPercent": 0.0
+    },
+    {
+      "name": "fixed-gap",
+      "mode": "quiet",
+      "rate": 48000,
+      "stall": 4.0,
+      "completed": true,
+      "elapsed": 67.34,
+      "firstAudibleMs": [
+        1003
+      ],
+      "underruns": 0,
+      "restarts": 0,
+      "probes": 19,
+      "downloadAttempts": 0,
+      "proxyBytes": 4439200,
+      "proxyConnections": 19,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 2,
+      "bufferSamples": 45,
+      "longestSegmentRenderedSeconds": 45.696,
+      "longestSegmentMissingSeconds": 3.051,
+      "longestSegmentMissingPercent": 6.68
+    },
+    {
+      "name": "fixed-long-gap",
+      "mode": "quiet",
+      "rate": 48000,
+      "stall": 40.0,
+      "completed": true,
+      "elapsed": 66.7,
+      "firstAudibleMs": [
+        913,
+        9605
+      ],
+      "underruns": 0,
+      "restarts": 1,
+      "probes": 19,
+      "downloadAttempts": 0,
+      "proxyBytes": 2691224,
+      "proxyConnections": 21,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 37,
+      "bufferSamples": 44,
+      "longestSegmentRenderedSeconds": 32.693,
+      "longestSegmentMissingSeconds": 30.198,
+      "longestSegmentMissingPercent": 92.37
+    },
+    {
+      "name": "fixed-mutations",
+      "mode": "mutations",
+      "rate": 0,
+      "stall": 0.0,
+      "completed": true,
+      "elapsed": 55.12,
+      "firstAudibleMs": [],
+      "underruns": 0,
+      "restarts": 0,
+      "probes": 33,
+      "downloadAttempts": 0,
+      "proxyBytes": 2413774,
+      "proxyConnections": 30,
+      "measuredProbes": 33,
+      "zeroBufferSamples": 0,
+      "bufferSamples": 0
+    },
+    {
+      "name": "fixed-sync-final",
+      "mode": "sync",
+      "rate": 48000,
+      "stall": 0.0,
+      "completed": true,
+      "elapsed": 67.32,
+      "firstAudibleMs": [
+        961
+      ],
+      "underruns": 0,
+      "restarts": 0,
+      "probes": 19,
+      "downloadAttempts": 0,
+      "proxyBytes": 4624160,
+      "proxyConnections": 22,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 0,
+      "bufferSamples": 45,
+      "longestSegmentRenderedSeconds": 45.568,
+      "longestSegmentMissingSeconds": 0.0,
+      "longestSegmentMissingPercent": 0.0
+    }
+  ]
+}

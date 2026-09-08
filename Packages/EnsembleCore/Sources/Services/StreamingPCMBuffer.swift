@@ -14,6 +14,23 @@ final class StreamingPCMBuffer {
     private var readIndex = 0
     private var writeIndex = 0
     private var storedFrames = 0
+    private var consumedFrames: Int64 = 0
+    private var missingFrames: Int64 = 0
+    private var rebuffering = false
+
+    struct RenderProgress {
+        let consumedFrames: Int64
+        let missingFrames: Int64
+        let bufferedFrames: Int
+        let isRebuffering: Bool
+    }
+
+    var renderProgress: RenderProgress {
+        condition.lock()
+        defer { condition.unlock() }
+        return RenderProgress(consumedFrames: consumedFrames, missingFrames: missingFrames,
+                              bufferedFrames: storedFrames, isRebuffering: rebuffering)
+    }
 
     init(format: AVAudioFormat, capacityFrames: Int) throws {
         guard format.commonFormat == .pcmFormatFloat32,
@@ -132,13 +149,23 @@ final class StreamingPCMBuffer {
     @discardableResult
     func read(
         into audioBufferList: UnsafeMutablePointer<AudioBufferList>,
-        frameCount: AVAudioFrameCount
+        frameCount: AVAudioFrameCount,
+        resumeFrames: Int = 0,
+        isComplete: Bool = false
     ) -> Int {
         condition.lock()
         defer { condition.unlock() }
 
         let requestedFrames = Int(frameCount)
-        let framesToRead = min(requestedFrames, storedFrames)
+        if isComplete || storedFrames >= min(capacityFrames, resumeFrames) {
+            rebuffering = false
+        }
+        let framesToRead = rebuffering ? 0 : min(requestedFrames, storedFrames)
+        if framesToRead < requestedFrames, !isComplete, resumeFrames > 0 {
+            rebuffering = true
+        }
+        consumedFrames += Int64(framesToRead)
+        missingFrames += Int64(requestedFrames - framesToRead)
         let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
 
         for channelIndex in 0 ..< min(buffers.count, channels.count) {
@@ -168,6 +195,9 @@ final class StreamingPCMBuffer {
         readIndex = 0
         writeIndex = 0
         storedFrames = 0
+        consumedFrames = 0
+        missingFrames = 0
+        rebuffering = false
         condition.broadcast()
     }
 

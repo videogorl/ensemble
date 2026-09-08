@@ -3,35 +3,6 @@ import AVFoundation
 import Combine
 import QuartzCore
 
-struct StreamingRenderHealth {
-    let recoveryThresholdFrames: AVAudioFramePosition
-    private(set) var missingFrameCount: AVAudioFramePosition = 0
-    private var didReportUnderrun = false
-
-    init(recoveryThresholdFrames: AVAudioFramePosition) {
-        self.recoveryThresholdFrames = recoveryThresholdFrames
-    }
-
-    mutating func observe(
-        renderedFrames: Int,
-        requestedFrames: AVAudioFrameCount,
-        isComplete: Bool
-    ) -> Bool {
-        guard !didReportUnderrun, !isComplete else { return false }
-
-        let missingFrames = max(0, Int64(requestedFrames) - Int64(renderedFrames))
-        if missingFrames == 0 {
-            missingFrameCount = 0
-            return false
-        }
-
-        missingFrameCount += AVAudioFramePosition(missingFrames)
-        guard missingFrameCount >= recoveryThresholdFrames else { return false }
-        didReportUnderrun = true
-        return true
-    }
-}
-
 /// General-purpose AVAudioEngine wrapper for file-based audio playback.
 /// Replaces AVQueuePlayer with direct PCM scheduling for gapless transitions,
 /// inline audio effects (AUSoundIsolation for instrumental mode), and
@@ -60,6 +31,16 @@ public final class AudioPlaybackEngine {
     private let smartMixPlayerNode = AVAudioPlayerNode()
     private let primarySourceMixer = AVAudioMixerNode()
     private var streamingSourceNode: AVAudioSourceNode?
+    var onStreamingBufferPressureChanged: ((Bool) -> Void)?
+    var onStreamingRebufferingChanged: ((Bool, UInt64) -> Void)?
+    private static let streamingLowReserveSeconds: TimeInterval = 3
+    private static let streamingRecoveredReserveSeconds: TimeInterval = 8
+    private static let maximumRebufferSeconds: TimeInterval = 30
+    private var streamingBufferPressure = false
+    private var streamingRebufferStartedAt: TimeInterval?
+    private var reportedStreamingStall = false
+    private var lastStreamingDiagnosticAt: TimeInterval = 0
+    private var lastReportedMissingFrames: Int64 = 0
     private let outgoingHighPassEQ = AVAudioUnitEQ(numberOfBands: 1)
     private let smartMixHighPassEQ = AVAudioUnitEQ(numberOfBands: 1)
     private let primaryTimePitch = AVAudioUnitTimePitch()
@@ -1117,6 +1098,7 @@ public final class AudioPlaybackEngine {
             }
         }
         streamingPipeline = pipeline
+        setStreamingBufferPressure(true)
 
         let format: AVAudioFormat
         do {
@@ -1146,9 +1128,6 @@ public final class AudioPlaybackEngine {
         let completionGeneration = streamingCompletionGeneration
 
         var didLogFirstAudibleRender = false
-        var renderHealth = StreamingRenderHealth(
-            recoveryThresholdFrames: AVAudioFramePosition(max(1, format.sampleRate))
-        )
         let sourceNode = AVAudioSourceNode(format: format) { [weak self, weak pipeline] _, _, frameCount, audioBufferList in
             guard let self, let pipeline else { return noErr }
             let read = pipeline.render(into: audioBufferList, frameCount: frameCount)
@@ -1161,26 +1140,6 @@ public final class AudioPlaybackEngine {
                 }
             }
             let isComplete = pipeline.isComplete
-            if renderHealth.observe(
-                renderedFrames: read,
-                requestedFrames: frameCount,
-                isComplete: isComplete
-            ) {
-                let missingFrames = renderHealth.missingFrameCount
-                DispatchQueue.main.async { [weak self, weak pipeline] in
-                    guard let self, let pipeline, self.streamingPipeline === pipeline else { return }
-                    EnsembleLogger.error(
-                        "[StreamingPipeline] PCM underrun trackId=\(trackId)"
-                            + " missingFrames=\(missingFrames)"
-                            + " \(pipeline.diagnostics().summary)"
-                    )
-                    self.onError?(
-                        AudioPlaybackEngineError.streamingUnderrun,
-                        nil,
-                        playbackGeneration
-                    )
-                }
-            }
             if read == 0, isComplete {
                 DispatchQueue.main.async { [weak self, weak pipeline] in
                     guard let self, let pipeline, self.streamingPipeline === pipeline else { return }
@@ -1314,6 +1273,10 @@ public final class AudioPlaybackEngine {
         }
         streamingPipeline?.cancel()
         streamingPipeline = nil
+        streamingRebufferStartedAt = nil
+        reportedStreamingStall = false
+        lastReportedMissingFrames = 0
+        setStreamingBufferPressure(false)
         streamingStartTime = 0
         if let streamingSourceNode {
             engine.disconnectNodeOutput(streamingSourceNode)
@@ -1878,6 +1841,8 @@ public final class AudioPlaybackEngine {
     /// without rebuilding released engine resources. File playback retains the full
     /// stop used by its player-node resume path.
     func pause() {
+        streamingRebufferStartedAt = nil
+        reportedStreamingStall = false
         cancelSmartMixTransition(continueIncoming: hasPromotedSmartMixTransition)
         let position = snapshotPlaybackPositionBeforeStopping()
         playerNode.pause()
@@ -2063,23 +2028,55 @@ public final class AudioPlaybackEngine {
         timer.schedule(deadline: .now(), repeating: .milliseconds(100))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+            if let pipeline = self.streamingPipeline, let progress = pipeline.renderProgress {
+                self.updateStreamingProgress(pipeline, progress: progress)
+                return
+            }
             let base = self.timeBase
             let elapsed = CACurrentMediaTime() - base.wallTime
             let estimated = min(base.position + elapsed, base.duration)
             self.updateDurablePlaybackPosition(max(0, estimated))
-            if self.streamingPipeline != nil,
-               base.duration > 0,
-               estimated >= base.duration,
-               self.wasPlaying,
-               !self.streamingCompletionNotified {
-                let generation = self.streamingCompletionGeneration
-                DispatchQueue.main.async { [weak self] in
-                    self?.handleStreamingComplete(generation: generation)
-                }
-            }
+
         }
         timer.resume()
         timeUpdateTimer = timer
+    }
+
+    private func setStreamingBufferPressure(_ low: Bool) {
+        guard streamingBufferPressure != low else { return }
+        streamingBufferPressure = low
+        onStreamingBufferPressureChanged?(low)
+    }
+
+    private func updateStreamingProgress(_ pipeline: StreamingAudioPipeline, progress: StreamingPCMBuffer.RenderProgress) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let position = streamingStartTime + Double(progress.consumedFrames) / sampleRate
+        updateDurablePlaybackPosition(position)
+        if fileDuration > 0, position >= fileDuration, wasPlaying, !streamingCompletionNotified {
+            handleStreamingComplete(generation: streamingCompletionGeneration)
+            return
+        }
+        let reserve = Double(progress.bufferedFrames) / sampleRate
+        setStreamingBufferPressure(!pipeline.isComplete && reserve < (streamingBufferPressure ? Self.streamingRecoveredReserveSeconds : Self.streamingLowReserveSeconds))
+        if progress.isRebuffering, !pipeline.isComplete {
+            if streamingRebufferStartedAt == nil {
+                streamingRebufferStartedAt = now
+                onStreamingRebufferingChanged?(true, playbackRequestGeneration)
+            }
+            if !reportedStreamingStall, now - (streamingRebufferStartedAt ?? now) >= Self.maximumRebufferSeconds {
+                reportedStreamingStall = true
+                EnsembleLogger.error("[StreamingPipeline] Rebuffering timed out \(pipeline.diagnostics().summary)")
+                onError?(AudioPlaybackEngineError.streamingUnderrun, nil, playbackRequestGeneration)
+            }
+        } else if streamingRebufferStartedAt != nil {
+            streamingRebufferStartedAt = nil
+            onStreamingRebufferingChanged?(false, playbackRequestGeneration)
+        }
+        if progress.missingFrames != lastReportedMissingFrames, now - lastStreamingDiagnosticAt >= 5 {
+            lastStreamingDiagnosticAt = now
+            lastReportedMissingFrames = progress.missingFrames
+            EnsembleLogger.info("[StreamingPipeline] renderConsumedFrames=\(progress.consumedFrames) renderMissingFrames=\(progress.missingFrames) sampleRate=\(sampleRate) reserve=\(reserve)")
+        }
     }
 
     /// Capture the current wall clock and playback position for time estimation.

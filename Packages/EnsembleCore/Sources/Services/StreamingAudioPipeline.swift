@@ -231,7 +231,10 @@ final class StreamingAudioPipeline: NSObject {
             bufferedFrames: pcmBuffer?.availableFrames ?? 0,
             isComplete: isComplete,
             responseSummary: responseSummary,
-            metricsSummary: metricsSummary
+            metricsSummary: metricsSummary + (pcmBuffer.map { buffer in
+                let progress = buffer.renderProgress
+                return " renderRequestedFrames=\(progress.consumedFrames + progress.missingFrames) renderMissingFrames=\(progress.missingFrames) sampleRate=\(buffer.format.sampleRate)"
+            } ?? "")
         )
     }
 
@@ -296,6 +299,13 @@ final class StreamingAudioPipeline: NSObject {
         return try pcmBuffer.read(into: buffer, frameCount: frameCount)
     }
 
+    var renderProgress: StreamingPCMBuffer.RenderProgress? {
+        stateLock.lock()
+        let buffer = pcmBuffer
+        stateLock.unlock()
+        return buffer?.renderProgress
+    }
+
     @discardableResult
     func render(
         into audioBufferList: UnsafeMutablePointer<AudioBufferList>,
@@ -305,7 +315,8 @@ final class StreamingAudioPipeline: NSObject {
         let pcmBuffer = self.pcmBuffer
         stateLock.unlock()
         guard let pcmBuffer else { return 0 }
-        return pcmBuffer.read(into: audioBufferList, frameCount: frameCount)
+        return pcmBuffer.read(into: audioBufferList, frameCount: frameCount,
+                              resumeFrames: Int(pcmBuffer.format.sampleRate), isComplete: isComplete)
     }
 
     private func wire(_ decoder: StreamingAudioDecoder) {

@@ -111,6 +111,7 @@ public final class SyncCoordinator: ObservableObject {
 
     @Published public private(set) var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     @Published public private(set) var isSyncing = false
+    public var isPlaybackBufferLow = false
     @Published public private(set) var isOffline = false
     @Published public private(set) var lastPlaylistTarget: LastPlaylistTarget?
     /// Published when health checks complete so dependent services can react.
@@ -539,6 +540,10 @@ public final class SyncCoordinator: ObservableObject {
 
         let id = UUID()
         let task = Task { @MainActor in
+            while self.isPlaybackBufferLow {
+                do { try await Task.sleep(nanoseconds: 250_000_000) }
+                catch { return MusicSourceSyncOutcome.failure(message: "Sync was cancelled.") }
+            }
             guard !Task.isCancelled else {
                 return MusicSourceSyncOutcome.failure(message: "Sync was cancelled.")
             }

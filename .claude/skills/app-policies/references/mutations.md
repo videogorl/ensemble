@@ -65,3 +65,7 @@
 - Destructive mutation feedback is explicit and centralized. A failed or partial
   destructive operation never dismisses as full success or silently deletes
   additional local data.
+
+- Transport, server-overload, rate-limit, and cancellation failures never exhaust
+  a queued mutation's permanent-failure budget. Unacknowledged work stays pending;
+  automatic server-recovery retries use a bounded cadence and preserve source order.

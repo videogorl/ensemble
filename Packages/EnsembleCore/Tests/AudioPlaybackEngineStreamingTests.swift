@@ -20,30 +20,6 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
         XCTAssertFalse(engine.isCurrentProgress(progress))
     }
 
-    func testStreamingRenderHealthReportsSustainedStartupStarvationOnce() {
-        var health = StreamingRenderHealth(recoveryThresholdFrames: 100)
-
-        XCTAssertFalse(health.observe(renderedFrames: 0, requestedFrames: 99, isComplete: false))
-        XCTAssertTrue(health.observe(renderedFrames: 0, requestedFrames: 1, isComplete: false))
-        XCTAssertFalse(health.observe(renderedFrames: 0, requestedFrames: 100, isComplete: false))
-    }
-
-    func testStreamingRenderHealthResetsAfterHealthyRender() {
-        var health = StreamingRenderHealth(recoveryThresholdFrames: 100)
-
-        XCTAssertFalse(health.observe(renderedFrames: 25, requestedFrames: 50, isComplete: false))
-        XCTAssertFalse(health.observe(renderedFrames: 50, requestedFrames: 50, isComplete: false))
-        XCTAssertFalse(health.observe(renderedFrames: 0, requestedFrames: 75, isComplete: false))
-        XCTAssertTrue(health.observe(renderedFrames: 0, requestedFrames: 25, isComplete: false))
-    }
-
-    func testStreamingRenderHealthIgnoresNormalCompletion() {
-        var health = StreamingRenderHealth(recoveryThresholdFrames: 100)
-
-        XCTAssertFalse(health.observe(renderedFrames: 100, requestedFrames: 100, isComplete: false))
-        XCTAssertFalse(health.observe(renderedFrames: 0, requestedFrames: 100, isComplete: true))
-    }
-
     func testOffsetStreamingBufferedProgressMapsOntoTrackTimeline() {
         XCTAssertEqual(
             AudioPlaybackEngine.absoluteStreamingBufferedProgress(

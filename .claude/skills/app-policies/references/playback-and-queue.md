@@ -37,8 +37,10 @@
   URL ingestion writes an append-only cache file independently from decoder/PCM
   backpressure. Only compatible original containers bypass Plex's decision;
   unsupported originals request a Plex MP3 transcode.
-  Starvation or stream failure restarts from the visible playhead; cancellation
-  caused by a newer command does not trigger recovery.
+  Temporary starvation keeps a live stream through bounded rebuffering. Streaming
+  progress advances only with consumed media; a failed or persistently stalled
+  stream restarts from that playhead. Cancellation by a newer command does not
+  trigger recovery.
 - Clean offset-zero playback completions remain in purgeable `Library/Caches`
   under a byte-budgeted LRU. Reuse requires exact source revision and requested
   quality; Original additionally requires direct delivery. These artifacts are

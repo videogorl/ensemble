@@ -825,6 +825,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard playbackState != oldValue else { return }
             let trackTitle = currentTrack?.title ?? "nil"
             EnsembleLogger.playback("STATE: \(oldValue) → \(playbackState), track='\(trackTitle)'")
+            updateNetworkWorkPressure()
             syncHandoffStateWithPlaybackState()
             refreshPresentationTime()
             // Publish after the caller finishes changing track, position, and command flags.
@@ -1008,6 +1009,27 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var preBufferTask: Task<Void, Never>?
     private var qualityDebounceTask: Task<Void, Never>?
     private var gaplessScheduleRequestTask: Task<Void, Never>?
+    public var onNetworkWorkPressureChanged: ((Bool) -> Void)?
+    private var streamingBufferLow = false
+    private var networkWorkDeferred = false
+    private var playbackPreparationCount = 0
+
+    private func updateNetworkWorkPressure() {
+        let deferred = playbackPreparationCount > 0 || playbackState == .loading ||
+            ((playbackState == .playing || playbackState == .buffering) && streamingBufferLow)
+        guard deferred != networkWorkDeferred else { return }
+        networkWorkDeferred = deferred
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if self.networkWorkDeferred {
+                self.foregroundWorkScheduler?.beginInteraction(.streamingStarved)
+            } else {
+                self.foregroundWorkScheduler?.endInteraction(.streamingStarved)
+            }
+        }
+        onNetworkWorkPressureChanged?(deferred)
+    }
+
     private var audioCriticalInteractionEndTask: Task<Void, Never>?
     private var postPlaybackAutoplayRefreshTask: Task<Void, Never>?
     private var downloadChangeObserver: AnyCancellable?
@@ -1443,6 +1465,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     self.disarmSkipTransitionSafety()
                 }
             }
+        }
+
+        engine.onStreamingBufferPressureChanged = { [weak self] low in
+            guard let self else { return }
+            self.streamingBufferLow = low
+            self.updateNetworkWorkPressure()
+        }
+        engine.onStreamingRebufferingChanged = { [weak self] rebuffering, generation in
+            guard let self, generation == self.playbackGenerationCounter,
+                  self.playbackState == .playing || self.playbackState == .buffering else { return }
+            self.playbackState = rebuffering ? .buffering : .playing
         }
 
         engine.onBufferedProgress = { [weak self] trackId, generation, progress in
@@ -2736,8 +2769,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         await play(tracks: tracks, startingAt: index, context: .userInitiated)
     }
 
+    @MainActor
     public func play(tracks: [Track], startingAt index: Int, context: PlaybackStartContext) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
+        playbackPreparationCount += 1
+        updateNetworkWorkPressure()
+        defer {
+            playbackPreparationCount -= 1
+            updateNetworkWorkPressure()
+        }
 
         let startedAt = Date()
         let markedAudioCritical = await beginAudioCriticalInteractionIfNeeded(for: context)
@@ -4801,6 +4841,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             appleMusicQueueMutationGeneration &+= 1
         #endif
 
+        playbackPreparationCount += 1
+        updateNetworkWorkPressure()
+        defer {
+            playbackPreparationCount -= 1
+            updateNetworkWorkPressure()
+        }
+
         // Bump generation so any in-flight playback request knows it's been superseded
         playbackGenerationCounter &+= 1
         let requestGeneration = playbackGenerationCounter
@@ -5406,6 +5453,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func prefetchUpcomingItems(depth: Int) async {
+        while networkWorkDeferred {
+            do { try await Task.sleep(nanoseconds: 250_000_000) }
+            catch { return }
+        }
+        guard !Task.isCancelled else { return }
         guard let engine = audioEngine else { return }
 
         // Don't prefetch when playback has failed

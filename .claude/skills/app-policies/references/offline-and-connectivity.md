@@ -37,3 +37,7 @@
   it should remain usable offline until an authoritative replacement exists.
 - Watch treats servers independently so one unreachable Plex server cannot hide
   reachable servers or their cached libraries.
+
+- Playback preparation and a low streaming buffer defer new discretionary sync
+  and prefetch work and suspend download transfers. A recovered reserve resumes
+  eligible work without overriding a user pause or network restriction.

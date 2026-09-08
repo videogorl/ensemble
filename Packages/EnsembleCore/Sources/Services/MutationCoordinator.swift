@@ -126,6 +126,17 @@ public final class MutationCoordinator: ObservableObject {
     private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
     private var isDraining = false
+    private var recoveryTask: Task<Void, Never>?
+    private var recoveryDelay: TimeInterval = 30
+
+    enum ReplayResult: Equatable {
+        case acknowledged, deferred, rejected
+
+        static func failure(_ error: Error) -> Self {
+            let classification = PlexErrorClassification.classify(error)
+            return classification.isRetryable || classification == .cancelled ? .deferred : .rejected
+        }
+    }
 
     /// Whether the device is currently offline
     public var isOffline: Bool { syncCoordinator.isOffline }
@@ -636,46 +647,55 @@ public final class MutationCoordinator: ObservableObject {
 
             EnsembleLogger.debug("📬 MutationCoordinator: Draining \(mutations.count) mutations")
 
-            var consecutiveFailures = 0
-
+            var deferredOwners = Set<String>()
+            var consecutiveRejections = 0
             for mutation in mutations {
-                // If too many consecutive failures, stop draining — server is likely down.
-                // Queue will re-drain on next connectivity event.
-                if consecutiveFailures >= 5 {
-                    EnsembleLogger.debug("⚠️ MutationCoordinator: Stopping drain after \(consecutiveFailures) consecutive failures")
-                    break
-                }
-
-                // Progressive backoff after 2+ consecutive failures
-                if consecutiveFailures >= 2 {
-                    let delaySeconds = min(Double(1 << consecutiveFailures), 30.0)
-                    EnsembleLogger.debug("⏳ MutationCoordinator: Backoff \(delaySeconds)s before next drain attempt")
-                    try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
-                }
-
+                guard !Task.isCancelled, networkMonitor.isConnected, consecutiveRejections < 5 else { break }
+                let owner = mutation.sourceCompositeKey.flatMap { MediaSourceIdentity.parse($0)?.serverSourceKey }
+                    ?? mutation.sourceCompositeKey ?? mutation.id
+                guard !deferredOwners.contains(owner) else { continue }
                 guard let sourceKeys = persistenceSourceKeys(for: mutation) else {
-                    try? await repository.markFailed(id: mutation.id)
+                    try await repository.markFailed(id: mutation.id)
                     continue
                 }
-                guard let success = await replayMutationIfCurrent(mutation, sourceKeys: sourceKeys) else {
-                    continue
-                }
-                if success {
-                    try? await repository.deleteMutation(id: mutation.id)
-                    consecutiveFailures = 0
-                } else {
-                    consecutiveFailures += 1
-                    try? await repository.incrementRetryCount(id: mutation.id)
+                guard let result = await replayMutationIfCurrent(mutation, sourceKeys: sourceKeys) else { continue }
+                switch result {
+                case .acknowledged:
+                    consecutiveRejections = 0
+                    try await repository.deleteMutation(id: mutation.id)
+                case .deferred:
+                    deferredOwners.insert(owner)
+                case .rejected:
+                    consecutiveRejections += 1
+                    try await repository.incrementRetryCount(id: mutation.id)
                     if mutation.retryCount + 1 >= Self.maxRetries {
-                        try? await repository.markFailed(id: mutation.id)
-                        EnsembleLogger.debug("⚠️ MutationCoordinator: Mutation \(mutation.id) failed after \(Self.maxRetries) retries")
+                        try await repository.markFailed(id: mutation.id)
                     }
                 }
+            }
+            if !deferredOwners.isEmpty {
+                scheduleRecovery()
+            } else {
+                recoveryDelay = 30
             }
 
             await refreshCount()
         } catch {
             EnsembleLogger.debug("❌ MutationCoordinator: Error draining queue: \(error)")
+        }
+    }
+
+    /// One bounded-cadence retry covers server recovery without a device path change.
+    private func scheduleRecovery() {
+        guard recoveryTask == nil, networkMonitor.isConnected else { return }
+        let delay = recoveryDelay
+        recoveryDelay = min(300, recoveryDelay * 2)
+        recoveryTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+            catch { return }
+            guard let self else { return }
+            self.recoveryTask = nil
+            await self.drainQueue()
         }
     }
 
@@ -846,7 +866,7 @@ public final class MutationCoordinator: ObservableObject {
     private func replayMutationIfCurrent(
         _ mutation: PendingMutationRecord,
         sourceKeys: Set<String>
-    ) async -> Bool? {
+    ) async -> ReplayResult? {
         guard let persistenceWork = syncCoordinator.beginCurrentSourcePersistenceWork(sourceKeys: sourceKeys) else {
             return nil
         }
@@ -861,7 +881,7 @@ public final class MutationCoordinator: ObservableObject {
     // MARK: - Replay
 
     /// Attempt to replay a single persisted mutation against the server
-    private func replayMutation(_ mutation: PendingMutationRecord) async -> Bool {
+    private func replayMutation(_ mutation: PendingMutationRecord) async -> ReplayResult {
         switch mutation.mutationType {
         case .trackRating:
             return await replayTrackRating(mutation)
@@ -870,8 +890,8 @@ public final class MutationCoordinator: ObservableObject {
         case .playlistAdd:
             return await replayPlaylistAdd(mutation)
         case .playlistRemove:
-            // playlistRemove not currently enqueued but handled for future completeness
-            return true
+            // Unsupported work must never be acknowledged without execution.
+            return .rejected
         case .playlistRename:
             return await replayPlaylistRename(mutation)
         case .playlistDelete:
@@ -881,9 +901,9 @@ public final class MutationCoordinator: ObservableObject {
         }
     }
 
-    private func replayTrackRating(_ mutation: PendingMutationRecord) async -> Bool {
+    private func replayTrackRating(_ mutation: PendingMutationRecord) async -> ReplayResult {
         guard let payload = try? JSONDecoder().decode(TrackRatingMutationPayload.self, from: mutation.payload) else {
-            return false
+            return .rejected
         }
 
         // rateTrack only uses track.id and track.sourceCompositeKey
@@ -896,19 +916,19 @@ public final class MutationCoordinator: ObservableObject {
         do {
             try await syncCoordinator.rateTrack(track: track, rating: payload.rating)
             EnsembleLogger.debug("✅ MutationCoordinator: Replayed trackRating for \(payload.trackRatingKey)")
-            return true
+            return .acknowledged
         } catch {
             EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying trackRating: \(error)")
-            return false
+            return .failure(error)
         }
     }
 
-    private func replayCollectionRating(_ mutation: PendingMutationRecord) async -> Bool {
+    private func replayCollectionRating(_ mutation: PendingMutationRecord) async -> ReplayResult {
         guard let payload = try? JSONDecoder().decode(
             CollectionRatingMutationPayload.self,
             from: mutation.payload
         ) else {
-            return false
+            return .rejected
         }
         do {
             try await syncCoordinator.rateCollection(
@@ -916,16 +936,16 @@ public final class MutationCoordinator: ObservableObject {
                 sourceCompositeKey: payload.sourceCompositeKey,
                 rating: payload.rating
             )
-            return true
+            return .acknowledged
         } catch {
             EnsembleLogger.debug("MutationCoordinator: Failed replaying collection rating: \(error)")
-            return false
+            return .failure(error)
         }
     }
 
-    private func replayPlaylistAdd(_ mutation: PendingMutationRecord) async -> Bool {
+    private func replayPlaylistAdd(_ mutation: PendingMutationRecord) async -> ReplayResult {
         guard let payload = try? JSONDecoder().decode(PlaylistMutationPayload.self, from: mutation.payload) else {
-            return false
+            return .rejected
         }
 
         let tracks = payload.trackReferences.map { reference in
@@ -954,16 +974,16 @@ public final class MutationCoordinator: ObservableObject {
         do {
             _ = try await syncCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
             EnsembleLogger.debug("✅ MutationCoordinator: Replayed playlistAdd for playlist \(payload.playlistRatingKey)")
-            return true
+            return .acknowledged
         } catch {
             EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying playlistAdd: \(error)")
-            return false
+            return .failure(error)
         }
     }
 
-    private func replayPlaylistRename(_ mutation: PendingMutationRecord) async -> Bool {
+    private func replayPlaylistRename(_ mutation: PendingMutationRecord) async -> ReplayResult {
         guard let payload = try? JSONDecoder().decode(PlaylistRenameMutationPayload.self, from: mutation.payload) else {
-            return false
+            return .rejected
         }
 
         // renamePlaylist uses playlist.id, playlist.isSmart, and playlist.sourceCompositeKey
@@ -985,16 +1005,16 @@ public final class MutationCoordinator: ObservableObject {
         do {
             try await syncCoordinator.renamePlaylist(playlist, to: payload.newTitle)
             EnsembleLogger.debug("✅ MutationCoordinator: Replayed playlistRename for \(payload.playlistRatingKey)")
-            return true
+            return .acknowledged
         } catch {
             EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying playlistRename: \(error)")
-            return false
+            return .failure(error)
         }
     }
 
-    private func replayPlaylistDelete(_ mutation: PendingMutationRecord) async -> Bool {
+    private func replayPlaylistDelete(_ mutation: PendingMutationRecord) async -> ReplayResult {
         guard let payload = try? JSONDecoder().decode(PlaylistDeleteMutationPayload.self, from: mutation.payload) else {
-            return false
+            return .rejected
         }
 
         // deletePlaylist uses playlist.id, playlist.isSmart, and playlist.sourceCompositeKey
@@ -1016,16 +1036,16 @@ public final class MutationCoordinator: ObservableObject {
         do {
             try await syncCoordinator.deletePlaylist(playlist)
             EnsembleLogger.debug("✅ MutationCoordinator: Replayed playlistDelete for \(payload.playlistRatingKey)")
-            return true
+            return .acknowledged
         } catch {
             EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying playlistDelete: \(error)")
-            return false
+            return .failure(error)
         }
     }
 
-    private func replayScrobble(_ mutation: PendingMutationRecord) async -> Bool {
+    private func replayScrobble(_ mutation: PendingMutationRecord) async -> ReplayResult {
         guard let payload = try? JSONDecoder().decode(ScrobbleMutationPayload.self, from: mutation.payload) else {
-            return false
+            return .rejected
         }
 
         let track = Track(
@@ -1037,10 +1057,10 @@ public final class MutationCoordinator: ObservableObject {
         do {
             try await syncCoordinator.scrobbleTrackThrowing(track)
             EnsembleLogger.debug("✅ MutationCoordinator: Replayed scrobble for \(payload.trackRatingKey)")
-            return true
+            return .acknowledged
         } catch {
             EnsembleLogger.debug("❌ MutationCoordinator: Failed replaying scrobble: \(error)")
-            return false
+            return .failure(error)
         }
     }
 }

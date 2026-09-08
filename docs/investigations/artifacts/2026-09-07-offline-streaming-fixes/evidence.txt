@@ -1,0 +1,133 @@
+CASE fixed-combined
+[20:54:14.764] [INFO] [app] NETWORK_AUDIT begin mode=normal
+[20:54:15.777] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=a21468e2 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=879
+[20:54:24.670] [DEBUG] [core] ⬇️ Offline download attempt: track=12943 stage=download-queue quality=high
+[20:54:43.170] [DEBUG] [core] 📥 Download transfer cancelled; lifecycle owner will recover track=12943 source=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3
+[20:55:01.717] [INFO] [app] NETWORK_AUDIT end mode=normal
+[20:54:16.821] [INFO] [app] NETWORK_AUDIT position seconds=0.9920181405895692
+[20:54:17.843] [INFO] [app] NETWORK_AUDIT position seconds=1.9946712018140589
+[20:54:18.863] [INFO] [app] NETWORK_AUDIT position seconds=2.99734693877551
+[20:54:19.871] [INFO] [app] NETWORK_AUDIT position seconds=4.096009070294785
+[20:54:20.915] [INFO] [app] NETWORK_AUDIT position seconds=5.088004535147392
+[20:54:21.964] [INFO] [app] NETWORK_AUDIT position seconds=6.090680272108844
+[20:54:22.995] [INFO] [app] NETWORK_AUDIT position seconds=7.1893424036281175
+[20:54:24.032] [INFO] [app] NETWORK_AUDIT position seconds=8.19201814058957
+[20:54:25.063] [INFO] [app] NETWORK_AUDIT position seconds=9.194671201814058
+[20:55:00.679] [INFO] [app] NETWORK_AUDIT position seconds=44.89600907029479
+[20:55:01.696] [INFO] [app] NETWORK_AUDIT position seconds=45.888004535147395
+[20:54:59.966] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.17s lastPCM=0.16s bytes=1317902 taskBytes=1317902/-1 decodedFrames=2127215 bufferedFrames=178347 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1948868 renderMissingFrames=0 sampleRate=44100.0}
+[20:55:01.007] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.02s lastPCM=0.01s bytes=1375253 taskBytes=1375253/-1 decodedFrames=2211311 bufferedFrames=216344 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1994967 renderMissingFrames=0 sampleRate=44100.0}
+[20:55:02.046] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.19s lastPCM=0.17s bytes=1416206 taskBytes=1416206/-1 decodedFrames=2271215 bufferedFrames=245202 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=2026013 renderMissingFrames=0 sampleRate=44100.0}
+
+CASE fixed-combined-extended
+[20:58:24.187] [INFO] [app] NETWORK_AUDIT begin mode=normal
+[20:58:25.400] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=9168dcb2 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=1075
+[20:58:34.388] [DEBUG] [core] ⬇️ Offline download attempt: track=12945 stage=download-queue quality=high
+[20:58:52.194] [DEBUG] [core] 📥 Download transfer cancelled; lifecycle owner will recover track=12945 source=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3
+[20:59:15.292] [DEBUG] [core] ⬇️ Offline download attempt: track=12945 stage=download-queue quality=high
+[20:59:42.282] [DEBUG] [core] 📥 Download transfer cancelled; lifecycle owner will recover track=12945 source=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3
+[20:59:57.489] [DEBUG] [core] ⬇️ Offline download attempt: track=12945 stage=download-queue quality=high
+[20:59:57.826] [DEBUG] [core] 📥 Download transfer cancelled; lifecycle owner will recover track=12945 source=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3
+[20:59:57.866] [INFO] [app] NETWORK_AUDIT end mode=normal
+[20:58:26.479] [INFO] [app] NETWORK_AUDIT position seconds=0.9920181405895692
+[20:58:27.480] [INFO] [app] NETWORK_AUDIT position seconds=1.9946712018140589
+[20:58:28.503] [INFO] [app] NETWORK_AUDIT position seconds=3.0933333333333333
+[20:58:29.513] [INFO] [app] NETWORK_AUDIT position seconds=4.096009070294785
+[20:58:30.546] [INFO] [app] NETWORK_AUDIT position seconds=5.088004535147392
+[20:58:31.572] [INFO] [app] NETWORK_AUDIT position seconds=6.090680272108844
+[20:58:32.580] [INFO] [app] NETWORK_AUDIT position seconds=7.1893424036281175
+[20:58:33.641] [INFO] [app] NETWORK_AUDIT position seconds=8.19201814058957
+[20:58:34.680] [INFO] [app] NETWORK_AUDIT position seconds=9.194671201814058
+[20:59:56.777] [INFO] [app] NETWORK_AUDIT position seconds=91.29600907029479
+[20:59:57.781] [INFO] [app] NETWORK_AUDIT position seconds=92.2880045351474
+[20:59:55.988] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.26s lastPCM=0.25s bytes=2899353 taskBytes=2899353/-1 decodedFrames=4316015 bufferedFrames=320907 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=3995108 renderMissingFrames=0 sampleRate=44100.0}
+[20:59:57.036] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.27s lastPCM=0.26s bytes=2948505 taskBytes=2948505/-1 decodedFrames=4374767 bufferedFrames=333090 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=4041677 renderMissingFrames=0 sampleRate=44100.0}
+[20:59:58.041] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.21s lastPCM=0.21s bytes=2997657 taskBytes=2997657/-1 decodedFrames=4436975 bufferedFrames=361429 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=4075546 renderMissingFrames=0 sampleRate=44100.0}
+
+CASE fixed-gap
+[20:52:52.290] [INFO] [app] NETWORK_AUDIT begin mode=quiet
+[20:52:53.434] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=0779da54 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=1003
+[20:53:39.583] [INFO] [app] NETWORK_AUDIT end mode=quiet
+[20:52:54.493] [INFO] [app] NETWORK_AUDIT position seconds=0.9920181405895692
+[20:52:55.507] [INFO] [app] NETWORK_AUDIT position seconds=1.9946712018140589
+[20:52:56.510] [INFO] [app] NETWORK_AUDIT position seconds=2.4
+[20:52:57.515] [INFO] [app] NETWORK_AUDIT position seconds=2.4
+[20:52:58.557] [INFO] [app] NETWORK_AUDIT position seconds=2.4
+[20:52:59.610] [INFO] [app] NETWORK_AUDIT position seconds=3.0397732426303854
+[20:53:00.613] [INFO] [app] NETWORK_AUDIT position seconds=4.042426303854875
+[20:53:01.615] [INFO] [app] NETWORK_AUDIT position seconds=5.045102040816326
+[20:53:02.615] [INFO] [app] NETWORK_AUDIT position seconds=6.143764172335601
+[20:53:38.515] [INFO] [app] NETWORK_AUDIT position seconds=41.94111111111111
+[20:53:39.554] [INFO] [app] NETWORK_AUDIT position seconds=43.03977324263039
+[20:53:38.079] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.16s lastPCM=0.16s bytes=1971089 taskBytes=1971089/-1 decodedFrames=2718063 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1969565 renderMissingFrames=134545 sampleRate=44100.0}
+[20:53:39.118] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.17s lastPCM=0.07s bytes=2020241 taskBytes=2020241/-1 decodedFrames=2767983 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=2015194 renderMissingFrames=134545 sampleRate=44100.0}
+[20:53:40.186] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.21s lastPCM=0.76s bytes=2069393 taskBytes=2069393/-1 decodedFrames=2784367 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=2035421 renderMissingFrames=134545 sampleRate=44100.0}
+
+CASE fixed-long-gap
+[20:55:30.289] [INFO] [app] NETWORK_AUDIT begin mode=quiet
+[20:55:31.338] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=48a1df9f trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=913
+[20:56:04.016] [ERROR] [core] [StreamingPipeline] Rebuffering timed out task=running lastByte=31.86s lastPCM=31.85s bytes=65536 taskBytes=65536/-1 decodedFrames=110063 bufferedFrames=0 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1441776 renderMissingFrames=1331713 sampleRate=44100.0}
+[20:56:04.021] [INFO] [playback] ENGINE: stream interrupted -- retrying from 2.5s (The audio stream stopped producing decoded frames)
+[20:56:13.635] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=9b085cf5 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=9605
+[20:56:17.444] [INFO] [app] NETWORK_AUDIT end mode=quiet
+[20:55:32.384] [INFO] [app] NETWORK_AUDIT position seconds=0.9920181405895692
+[20:55:33.398] [INFO] [app] NETWORK_AUDIT position seconds=1.9840136054421769
+[20:55:34.410] [INFO] [app] NETWORK_AUDIT position seconds=2.4853514739229023
+[20:55:35.413] [INFO] [app] NETWORK_AUDIT position seconds=2.4853514739229023
+[20:55:36.414] [INFO] [app] NETWORK_AUDIT position seconds=2.4853514739229023
+[20:55:37.447] [INFO] [app] NETWORK_AUDIT position seconds=2.4853514739229023
+[20:55:38.504] [INFO] [app] NETWORK_AUDIT position seconds=2.4853514739229023
+[20:55:39.513] [INFO] [app] NETWORK_AUDIT position seconds=2.4853514739229023
+[20:55:40.575] [INFO] [app] NETWORK_AUDIT position seconds=2.4853514739229023
+[20:56:16.371] [INFO] [app] NETWORK_AUDIT position seconds=4.6880045351473925
+[20:56:17.417] [INFO] [app] NETWORK_AUDIT position seconds=5.786666666666667
+[20:56:14.717] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.09s lastPCM=0.08s bytes=73721 taskBytes=73721/-1 decodedFrames=120431 bufferedFrames=72450 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=47981 renderMissingFrames=0 sampleRate=44100.0}
+[20:56:15.745] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.09s lastPCM=0.07s bytes=122873 taskBytes=122873/-1 decodedFrames=199919 bufferedFrames=106779 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=93140 renderMissingFrames=0 sampleRate=44100.0}
+[20:56:16.793] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.12s lastPCM=0.10s bytes=172025 taskBytes=172025/-1 decodedFrames=281711 bufferedFrames=142002 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=139709 renderMissingFrames=0 sampleRate=44100.0}
+
+CASE fixed-mutations
+[20:57:06.864] [INFO] [app] NETWORK_AUDIT mutations phase=offline-enqueued rows=2 pending=2
+[20:57:06.871] [INFO] [app] NETWORK_AUDIT mutation id=3613FC9B-CE99-4BDC-ADC7-B561E138772D status=pending retries=0
+[20:57:06.872] [INFO] [app] NETWORK_AUDIT mutation id=9C0E80D0-C580-461F-A9B3-8C8E7628E503 status=pending retries=0
+[20:57:06.876] [INFO] [app] NETWORK_AUDIT mockRating key=900000001 acknowledged=true
+[20:57:06.878] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:57:07.138] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:57:07.447] [INFO] [app] NETWORK_AUDIT mutations phase=failed-pass-1 rows=1 pending=1
+[20:57:07.448] [INFO] [app] NETWORK_AUDIT mutation id=3613FC9B-CE99-4BDC-ADC7-B561E138772D status=pending retries=0
+[20:57:07.450] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:57:07.476] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:57:07.796] [INFO] [app] NETWORK_AUDIT mutations phase=failed-pass-2 rows=1 pending=1
+[20:57:07.796] [INFO] [app] NETWORK_AUDIT mutation id=3613FC9B-CE99-4BDC-ADC7-B561E138772D status=pending retries=0
+[20:57:07.798] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:57:07.821] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:57:08.141] [INFO] [app] NETWORK_AUDIT mutations phase=failed-pass-3 rows=1 pending=1
+[20:57:08.141] [INFO] [app] NETWORK_AUDIT mutation id=3613FC9B-CE99-4BDC-ADC7-B561E138772D status=pending retries=0
+[20:57:08.144] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:57:08.590] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:57:08.901] [INFO] [app] NETWORK_AUDIT mutations phase=failed-pass-4 rows=1 pending=1
+[20:57:08.901] [INFO] [app] NETWORK_AUDIT mutation id=3613FC9B-CE99-4BDC-ADC7-B561E138772D status=pending retries=0
+[20:57:08.901] [INFO] [app] NETWORK_AUDIT mutations phase=transport-restored-before-retry rows=1 pending=1
+[20:57:08.902] [INFO] [app] NETWORK_AUDIT mutation id=3613FC9B-CE99-4BDC-ADC7-B561E138772D status=pending retries=0
+[20:57:37.628] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=true
+[20:57:44.031] [INFO] [app] NETWORK_AUDIT mutations phase=automatic-recovery rows=0 pending=0
+[20:57:44.031] [INFO] [app] NETWORK_AUDIT mutations phase=explicit-retry rows=0 pending=0
+[20:57:44.032] [INFO] [app] NETWORK_AUDIT end mode=mutations
+
+CASE fixed-sync-final
+[20:51:30.309] [INFO] [app] NETWORK_AUDIT begin mode=sync
+[20:51:31.445] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=1c31dddf trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=961
+[20:52:17.345] [INFO] [app] NETWORK_AUDIT end mode=sync
+[20:51:32.510] [INFO] [app] NETWORK_AUDIT position seconds=0.9920181405895692
+[20:51:33.515] [INFO] [app] NETWORK_AUDIT position seconds=2.0906802721088433
+[20:51:34.516] [INFO] [app] NETWORK_AUDIT position seconds=2.986666666666667
+[20:51:35.562] [INFO] [app] NETWORK_AUDIT position seconds=4.085351473922903
+[20:51:36.605] [INFO] [app] NETWORK_AUDIT position seconds=5.088004535147392
+[20:51:37.614] [INFO] [app] NETWORK_AUDIT position seconds=6.090680272108844
+[20:51:38.616] [INFO] [app] NETWORK_AUDIT position seconds=7.082675736961451
+[20:51:39.616] [INFO] [app] NETWORK_AUDIT position seconds=8.19201814058957
+[20:51:40.638] [INFO] [app] NETWORK_AUDIT position seconds=9.184013605442177
+[20:52:16.311] [INFO] [app] NETWORK_AUDIT position seconds=44.78934240362812
+[20:52:17.313] [INFO] [app] NETWORK_AUDIT position seconds=45.79201814058957
+[20:52:15.969] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.31s lastPCM=0.30s bytes=1590141 taskBytes=1590141/-1 decodedFrames=2522351 bufferedFrames=558431 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1963920 renderMissingFrames=0 sampleRate=44100.0}
+[20:52:17.001] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.15s lastPCM=0.14s bytes=1647492 taskBytes=1647492/-1 decodedFrames=2606447 bufferedFrames=596898 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=2009549 renderMissingFrames=0 sampleRate=44100.0}
+[20:52:18.020] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.30s lastPCM=0.29s bytes=1688445 taskBytes=1688445/-1 decodedFrames=2670959 bufferedFrames=646357 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=2024602 renderMissingFrames=0 sampleRate=44100.0}

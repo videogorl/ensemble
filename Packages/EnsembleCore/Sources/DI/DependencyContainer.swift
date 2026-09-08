@@ -924,6 +924,10 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     private func wirePlaybackCallbacks() {
         playbackService.setMutationCoordinator(mutationCoordinator)
+        playbackService.onNetworkWorkPressureChanged = { [weak syncCoordinator, weak offlineDownloadService] low in
+            syncCoordinator?.isPlaybackBufferLow = low
+            Task { @MainActor in await offlineDownloadService?.setPlaybackBufferLow(low) }
+        }
         if let audioAnalyzer = audioAnalyzer as? FrequencyAnalysisService {
             audioAnalyzer.visualizationEnabled = PlaybackSettingsObserver.visualizerEnabled(in: .standard)
         }
