@@ -1,0 +1,37 @@
+RUN quiet-limited-counted
+[19:27:15.259] [INFO] [app] NETWORK_AUDIT begin mode=quiet
+[19:27:16.278] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=98abf58c trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=881
+[19:28:01.389] [INFO] [app] NETWORK_AUDIT end mode=quiet
+[19:27:58.967] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.18s lastPCM=0.03s bytes=2061537 taskBytes=2061537/-1 decodedFrames=2771695 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1882541 renderMissingFrames=0 sampleRate=44100.0}
+[19:28:00.029] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.22s lastPCM=0.16s bytes=2110689 taskBytes=2110689/-1 decodedFrames=2812655 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1929581 renderMissingFrames=0 sampleRate=44100.0}
+[19:28:01.066] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.23s lastPCM=0.07s bytes=2159841 taskBytes=2159841/-1 decodedFrames=2862447 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1975210 renderMissingFrames=0 sampleRate=44100.0}
+
+RUN normal-limited-counted
+[19:28:38.340] [INFO] [app] NETWORK_AUDIT begin mode=normal
+[19:28:40.442] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=60354dc9 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=1968
+[19:29:25.576] [INFO] [app] NETWORK_AUDIT end mode=normal
+[19:29:23.549] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.43s lastPCM=0.41s bytes=836725 taskBytes=836725/-1 decodedFrames=1379567 bufferedFrames=7210 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1901357 renderMissingFrames=529000 sampleRate=44100.0}
+[19:29:24.594] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.11s lastPCM=0.09s bytes=869493 taskBytes=869493/-1 decodedFrames=1432559 bufferedFrames=21322 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1947456 renderMissingFrames=536219 sampleRate=44100.0}
+[19:29:25.605] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.44s lastPCM=0.44s bytes=885877 taskBytes=885877/-1 decodedFrames=1456751 bufferedFrames=3648 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1989322 renderMissingFrames=536219 sampleRate=44100.0}
+
+RUN quiet-single-gap
+[19:31:11.248] [INFO] [app] NETWORK_AUDIT begin mode=quiet
+[19:31:12.287] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=a6529ca2 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=902
+[19:31:16.063] [ERROR] [core] [StreamingPipeline] PCM underrun trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 missingFrames=44257 task=running lastByte=2.78s lastPCM=2.78s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=0 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=166992 renderMissingFrames=44257 sampleRate=44100.0}
+[19:31:16.064] [INFO] [playback] ENGINE: stream interrupted -- retrying from 3.7s (The audio stream stopped producing decoded frames)
+[19:31:18.379] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=a1d3f454 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=2285
+[19:31:57.388] [INFO] [app] NETWORK_AUDIT end mode=quiet
+[19:31:55.798] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.03s lastPCM=0.08s bytes=1817056 taskBytes=1817056/-1 decodedFrames=2536687 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1650634 renderMissingFrames=0 sampleRate=44100.0}
+[19:31:56.830] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.04s lastPCM=0.01s bytes=1866208 taskBytes=1866208/-1 decodedFrames=2585839 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1695792 renderMissingFrames=0 sampleRate=44100.0}
+[19:31:57.861] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.04s lastPCM=0.48s bytes=1915360 taskBytes=1915360/-1 decodedFrames=2602991 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1720253 renderMissingFrames=0 sampleRate=44100.0}
+
+RUN quiet-single-gap-repeat
+[19:33:10.194] [INFO] [app] NETWORK_AUDIT begin mode=quiet
+[19:33:11.280] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=e0fcea10 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=916
+[19:33:15.043] [ERROR] [core] [StreamingPipeline] PCM underrun trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 missingFrames=44257 task=running lastByte=2.77s lastPCM=2.76s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=0 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=166992 renderMissingFrames=44257 sampleRate=44100.0}
+[19:33:15.057] [INFO] [playback] ENGINE: stream interrupted -- retrying from 3.7s (The audio stream stopped producing decoded frames)
+[19:33:17.647] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=a59c4112 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=2559
+[19:33:56.355] [INFO] [app] NETWORK_AUDIT end mode=quiet
+[19:33:53.815] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.24s lastPCM=0.10s bytes=1745512 taskBytes=1745512/-1 decodedFrames=2480623 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1595127 renderMissingFrames=0 sampleRate=44100.0}
+[19:33:54.833] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.23s lastPCM=0.04s bytes=1794664 taskBytes=1794664/-1 decodedFrames=2528239 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1640285 renderMissingFrames=0 sampleRate=44100.0}
+[19:33:55.867] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.23s lastPCM=0.15s bytes=1843816 taskBytes=1843816/-1 decodedFrames=2569199 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1685444 renderMissingFrames=0 sampleRate=44100.0}
