@@ -874,6 +874,10 @@ public final class OfflineDownloadService: ObservableObject {
         refreshQueueStatusReason()
         scheduleFullProgressRefresh()
         startQueueIfNeeded()
+        let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? 0
+        backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(
+            pendingTrackCount: max(pendingCount, activeDownloadTrackIdentities.count)
+        )
     }
 
     /// The connected network restriction that Play can temporarily override.

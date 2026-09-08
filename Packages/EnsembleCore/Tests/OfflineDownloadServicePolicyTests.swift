@@ -263,6 +263,19 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         XCTAssertEqual(service.queueStatusReason, .idle)
     }
 
+    func testManualResumeRequestsBackgroundExecutionBeforeBackgrounding() async {
+        let manager = MockDownloadManager()
+        let background = MockBackgroundExecutionCoordinator()
+        let service = await makeService(downloadManager: manager, backgroundCoordinator: background)
+        await service.pauseQueue()
+        manager.pendingCount = 3
+
+        await service.resumeQueue()
+
+        XCTAssertEqual(background.continuedProcessingRequests.last, 3)
+        await service.pauseQueue()
+    }
+
     func testExplicitRemovalFinishesBackgroundExecution() async {
         let background = MockBackgroundExecutionCoordinator()
         let service = await makeService(backgroundCoordinator: background)

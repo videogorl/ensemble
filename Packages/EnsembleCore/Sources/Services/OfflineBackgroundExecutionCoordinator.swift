@@ -146,14 +146,20 @@ final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoo
             }
 
             self.currentTask = continuedTask
-            continuedTask.expirationHandler = { [weak self] in
+            // The continued-processing grant replaces the short UIKit safety window.
+            // Its expiration must not cancel work protected by the longer grant.
+            self.endApplicationBackgroundTaskIfNeeded()
+            EnsembleLogger.debug("📦 Offline continued processing execution granted")
+            continuedTask.expirationHandler = { [weak self, weak continuedTask] in
                 Task { @MainActor in
-                    self?.eventStore.onExpiration?()
+                    guard let self, let continuedTask, self.currentTask === continuedTask else { return }
+                    EnsembleLogger.debug("📦 Offline continued processing grant expired")
+                    self.eventStore.onExpiration?()
                     // Mark success even on expiration — downloads are best-effort
                     // background acceleration. The persistent queue resumes in
                     // foreground. Using success:false shows "Task Failed" in the
                     // Dynamic Island which is misleading for a paused download.
-                    self?.finishCurrentTask(success: true)
+                    self.finishCurrentTask(success: true)
                 }
             }
             // Notify the download service so it can start/continue processing.
@@ -168,7 +174,7 @@ final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoo
     }
 
     override func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {
-        guard pendingTrackCount > 0 else { return }
+        guard pendingTrackCount > 0, currentTask == nil else { return }
         beginApplicationBackgroundTaskIfNeeded()
 
         guard #available(iOS 26.0, *) else { return }
@@ -219,13 +225,15 @@ final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoo
     }
 
     private func beginApplicationBackgroundTaskIfNeeded() {
-        guard applicationBackgroundTask == .invalid else { return }
+        guard applicationBackgroundTask == .invalid, currentTask == nil else { return }
 
         applicationBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Offline Downloads") { [weak self] in
-            Task { @MainActor in
-                self?.eventStore.onExpiration?()
-                self?.finishCurrentTask(success: true)
-            }
+            guard let self, self.applicationBackgroundTask != .invalid else { return }
+            self.endApplicationBackgroundTaskIfNeeded()
+            guard self.currentTask == nil else { return }
+            EnsembleLogger.debug("📦 Offline short background window expired without a continued grant")
+            self.eventStore.onExpiration?()
+            self.finishCurrentTask(success: true)
         }
         EnsembleLogger.debug("📦 Began app background task for offline downloads")
     }
