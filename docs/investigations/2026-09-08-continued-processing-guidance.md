@@ -98,3 +98,30 @@ This small display change is built separately; it is not installed over the
 user's active server download. Direct inspection of the updated system text
 therefore remains pending. The signed iOS build and four existing background
 coordinator tests passed.
+
+## Follow-up: real server-batch expiration and update installation
+
+Before installing the percentage build, Device Hub showed “Preparing Offline
+Music / Task failed”. The preserved log records expiration at 13:02:49.919,
+after the last progress at 12:59:01.228 (60,000/438,000 units, 13.7%). This was
+a new expiration after about 17 minutes of grant lifetime, not the old card.
+Calling `setTaskCompleted(success: true)` did not prevent the system failure UI.
+
+The pre-install SQLite snapshot contains 364 completed rows, 376 pending, and
+two downloading rows at zero progress: tracks 8428 and 11178. Two corresponding
+native receipts contain task IDs 63 and 64 but no completed file. Thus the work
+had reached native URLSession; the last high-level “download-queue” log alone
+does not establish a Plex preparation failure. The reason for absent native
+transfer progress is still unproven. Private raw logs, database/WAL, and native
+receipts were preserved under `/tmp/ensemble-task-failed-before-install` before
+installation; native receipts include credentials and must not be published.
+
+Installed the percentage build from commit `9ab19095`, verified the installation
+receipt and running PID 69943 at `42E03F5F-E23D-4920-A08A-B24AC9B7D186/Ensemble.app`.
+The debug dylib SHA-256 is
+`ea9d20c309f3908b45695079a91f00925ad22b0e8318456051dd133b6c70527f`.
+A brief queue pause/resume cancelled the two retained zero-progress waits and
+requested a fresh 378-track pass, granted at 13:10:28.115. The first post-resume
+capture still showed no transfer bytes. Installation is complete; the underlying
+stall is not fixed by the percentage change. Nothing Playing was verified before
+locking the phone with the download queue resumed.
