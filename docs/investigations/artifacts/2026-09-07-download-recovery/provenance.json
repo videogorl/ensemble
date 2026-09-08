@@ -1,0 +1,10 @@
+{
+  "simulator": "08CA3DD8-D174-40E9-A361-62B95671B969",
+  "runtime": "iOS 26.5 (23F77)",
+  "instrumentedBuildSHA256": "b45a98d425f68ba5784fdad57fc19c815a0c30c3392c684cb2bdb33870fc05e7",
+  "installedMatches": true,
+  "sourceBase": "9f2233e8",
+  "cleanBuildSHA256": "5cb984e596a79e5bbd4f3a3938a4d3327c0a5650ec5332ab58fe2fac1129bcad",
+  "cleanInstalledMatches": true,
+  "focusedTests": 56
+}

@@ -397,7 +397,7 @@ final class DownloadTransferExecutor {
     }
 
     /// Downloads a URL to a temporary file while periodically reporting progress to CoreData.
-    /// Uses URLSession.bytes(from:) to stream data and compare bytes received against Content-Length.
+    /// Retains validated partial transfers through the shared HTTP download transport.
     /// Falls back to `estimatedSize` when Content-Length is absent (common for transcode streams).
     /// Progress is throttled to ~1 update/second to avoid excessive CoreData writes.
     /// Runs the byte-streaming loop off the main actor so UI updates aren't blocked.
@@ -407,82 +407,19 @@ final class DownloadTransferExecutor {
         estimatedSize: Int64 = -1,
         downloadManager: DownloadManagerProtocol
     ) async throws -> (URL, URLResponse) {
-        let dm = downloadManager
-        let estimate = estimatedSize
-
-        let detachedTask = Task.detached(priority: .utility) { [dm] () -> (URL, URLResponse) in
-            let (asyncBytes, response) = try await URLSession.shared.bytes(from: url)
-            let totalExpected = response.expectedContentLength > 0
-                ? response.expectedContentLength
-                : estimate
-
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-            FileManager.default.createFile(atPath: tempURL.path, contents: nil)
-
-            do {
-                let fileHandle = try FileHandle(forWritingTo: tempURL)
-
-                var bytesReceived: Int64 = 0
-                var buffer = Data()
-                let flushThreshold = 65_536 // 64KB chunks
-                var lastProgressUpdate = Date.distantPast
-                let progressInterval: TimeInterval = 1.0
-
-                for try await byte in asyncBytes {
-                    try Task.checkCancellation()
-                    buffer.append(byte)
-
-                    if buffer.count >= flushThreshold {
-                        try fileHandle.write(contentsOf: buffer)
-                        bytesReceived += Int64(buffer.count)
-                        buffer.removeAll(keepingCapacity: true)
-
-                        if totalExpected > 0 {
-                            let now = Date()
-                            if now.timeIntervalSince(lastProgressUpdate) >= progressInterval {
-                                let progress = min(Float(bytesReceived) / Float(totalExpected), 0.99)
-                                try? await dm.updateDownloadProgress(downloadID, progress: progress)
-                                lastProgressUpdate = now
-                            }
-                        }
-                    }
-                }
-
-                if !buffer.isEmpty {
-                    bytesReceived += Int64(buffer.count)
-                    try fileHandle.write(contentsOf: buffer)
-                }
-                try fileHandle.close()
-
-                let expectedLength = response.expectedContentLength
-                if expectedLength > 0 {
-                    if bytesReceived < expectedLength {
-                        let pctReceived = Int(Double(bytesReceived) / Double(expectedLength) * 100)
-                        EnsembleLogger.debug(
-                            "⚠️ Download incomplete: received \(bytesReceived)/\(expectedLength) bytes (\(pctReceived)%)"
-                        )
-                        try? FileManager.default.removeItem(at: tempURL)
-                        throw DownloadTransferError.incompleteTransfer(
-                            bytesReceived: bytesReceived,
-                            bytesExpected: expectedLength,
-                            percentComplete: pctReceived
-                        )
-                    }
-                } else if estimate > 0, bytesReceived < estimate / 2 {
-                    let pctOfEstimate = Int(Double(bytesReceived) / Double(estimate) * 100)
-                    EnsembleLogger.debug(
-                        "⚠️ Download suspiciously short: received \(bytesReceived) bytes vs ~\(estimate) estimated (\(pctOfEstimate)%)"
+        let detachedTask = Task.detached(priority: .utility) {
+            try await ResumableDownload.file(
+                for: URLRequest(url: url),
+                identity: downloadID.uriRepresentation().absoluteString
+            ) { received, expected in
+                let total = expected > 0 ? expected : estimatedSize
+                if total > 0 {
+                    try? await downloadManager.updateDownloadProgress(
+                        downloadID, progress: min(Float(received) / Float(total), 0.99)
                     )
                 }
-
-                return (tempURL, response)
-            } catch {
-                try? FileManager.default.removeItem(at: tempURL)
-                throw error
             }
         }
-
         return try await withTaskCancellationHandler {
             try await detachedTask.value
         } onCancel: {

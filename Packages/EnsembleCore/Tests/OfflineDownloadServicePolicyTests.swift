@@ -75,7 +75,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         }
         func fetchPendingDownloads() async throws -> [CDDownload] { [] }
         func countPendingDownloads() async throws -> Int { pendingCount }
-        func fetchNextPendingDownload() async throws -> CDDownload? {
+        func fetchNextPendingDownload(excluding downloadIDs: Set<NSManagedObjectID>) async throws -> CDDownload? {
             try? await Task.sleep(nanoseconds: nextPendingDelayNanoseconds)
             return nil
         }
@@ -167,7 +167,8 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             continuedProcessingRequests.append(pendingTrackCount)
         }
         func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
-        func finishCurrentTask(success: Bool) {}
+        var finishCount = 0
+        func finishCurrentTask(success: Bool) { finishCount += 1 }
         func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
             onBackgroundURLSessionEvents?(identifier, completionHandler)
         }
@@ -262,12 +263,22 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         XCTAssertEqual(service.queueStatusReason, .idle)
     }
 
+    func testExplicitRemovalFinishesBackgroundExecution() async {
+        let background = MockBackgroundExecutionCoordinator()
+        let service = await makeService(backgroundCoordinator: background)
+        await service.removeAllDownloads()
+        XCTAssertEqual(background.finishCount, 1)
+    }
+
     func testPlaybackBufferRecoveryPreservesTheUsersQueuePreference() async {
         for userPaused in [false, true] {
             let manager = MockDownloadManager()
-            let service = await makeService(downloadManager: manager)
+            let background = MockBackgroundExecutionCoordinator()
+            let service = await makeService(downloadManager: manager, backgroundCoordinator: background)
             if userPaused { await service.pauseQueue() }
+            let finishCount = background.finishCount
             await service.setPlaybackBufferLow(true)
+            XCTAssertEqual(background.finishCount, finishCount)
             XCTAssertEqual(service.queueStatusReason, .paused)
             manager.resetStatusUpdates()
             await service.setPlaybackBufferLow(false)

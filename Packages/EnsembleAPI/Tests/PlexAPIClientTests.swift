@@ -44,6 +44,44 @@ private final class PlexAPIClientURLProtocol: URLProtocol {
 
 final class PlexAPIClientTests: XCTestCase {
 
+    func testDownloadQueueReusesPreparedJobAfterTransientMediaFailure() async throws {
+        let lock = NSLock()
+        var adds = 0
+        var mediaRequests = 0
+        PlexAPIClientURLProtocol.install { request in
+            lock.lock()
+            defer { lock.unlock() }
+            switch request.url?.path {
+            case "/downloadQueue":
+                return (200, Data(#"{"MediaContainer":{"DownloadQueue":[{"id":3}]}}"#.utf8))
+            case "/downloadQueue/3/add":
+                adds += 1
+                return (200, Data(#"{"MediaContainer":{"AddedQueueItems":[{"id":42}]}}"#.utf8))
+            case "/downloadQueue/3/items/42":
+                return (200, Data(#"{"MediaContainer":{"DownloadQueueItem":[{"id":42,"status":"available"}]}}"#.utf8))
+            default:
+                mediaRequests += 1
+                return (mediaRequests == 1 ? 503 : 200, Data([1, 2, 3]))
+            }
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(url: "https://example.com", token: "test", identifier: "server", name: "Server"),
+            keychain: TestKeychain(), urlSession: session
+        )
+        do {
+            _ = try await client.downloadTranscodedMediaViaQueue(trackRatingKey: "1", quality: .high)
+            XCTFail("Expected a deferred server failure")
+        } catch { XCTAssertEqual(PlexErrorClassification.classify(error), .serverError) }
+        let result = try await client.downloadTranscodedMediaViaQueue(trackRatingKey: "1", quality: .high)
+        XCTAssertEqual(result.data, Data([1, 2, 3]))
+        XCTAssertEqual(adds, 1)
+        XCTAssertEqual(mediaRequests, 2)
+    }
+
     func testDownloadQueueCachesIDAndRefreshesItAfterNotFound() async throws {
         let stateLock = NSLock()
         var queueRequests = 0

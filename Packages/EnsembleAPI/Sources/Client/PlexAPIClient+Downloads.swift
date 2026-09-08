@@ -14,10 +14,14 @@ extension PlexAPIClient {
         }
 
         let metadataKey = "/library/metadata/\(trackRatingKey)"
-        let (queueId, itemId) = try await enqueueDownloadQueueItem(
-            metadataKey: metadataKey,
-            quality: quality
-        )
+        let jobKey = "\(metadataKey)|\(quality.rawValue)"
+        let (queueId, itemId): (Int, Int)
+        if let job = interruptedDownloadQueueItems[jobKey] {
+            (queueId, itemId) = job
+        } else {
+            (queueId, itemId) = try await enqueueDownloadQueueItem(metadataKey: metadataKey, quality: quality)
+            interruptedDownloadQueueItems[jobKey] = (queueId, itemId)
+        }
 
         let timeoutDeadline = Date().addingTimeInterval(120)
         var pollInterval: UInt64 = 1_000_000_000
@@ -31,23 +35,18 @@ extension PlexAPIClient {
             do {
                 statusPollCount += 1
                 item = try await getDownloadQueueItem(queueId: queueId, itemId: itemId)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch let urlError as URLError where [
-                .notConnectedToInternet, .networkConnectionLost,
-                .dataNotAllowed, .internationalRoamingOff
-            ].contains(urlError.code) {
-                throw urlError
-            } catch {
-                try await Task.sleep(nanoseconds: pollInterval)
-                pollInterval = min(pollInterval * 2, maxPollInterval)
-                continue
+            } catch PlexAPIError.httpError(statusCode: 404) {
+                interruptedDownloadQueueItems.removeValue(forKey: jobKey)
+                throw URLError(.timedOut)
             }
 
             switch item.status {
             case "available":
-                return try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId)
+                let result = try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId)
+                interruptedDownloadQueueItems.removeValue(forKey: jobKey)
+                return result
             case "error":
+                interruptedDownloadQueueItems.removeValue(forKey: jobKey)
                 throw DownloadQueueError.itemFailed(item.error ?? "Unknown queue error")
             case "expired":
                 try await restartDownloadQueueItem(queueId: queueId, itemId: itemId)
@@ -60,7 +59,7 @@ extension PlexAPIClient {
             pollInterval = min(pollInterval * 2, maxPollInterval)
         }
 
-        throw DownloadQueueError.itemProcessingTimedOut
+        throw URLError(.timedOut)
     }
 
     /// Download a universal transcode stream to a temporary file and return the file URL.
@@ -313,39 +312,24 @@ extension PlexAPIClient {
         queueId: Int,
         itemId: Int
     ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
-        let deadline = Date().addingTimeInterval(90)
-        while Date() < deadline {
-            let request = try makeServerRequest(
-                url: currentServerURL,
-                method: "GET",
-                path: "/downloadQueue/\(queueId)/item/\(itemId)/media"
-            )
-            let (data, response) = try await performRequestAllowingNon2xx(request)
-
-            if response.statusCode == 200 {
-                let suggestedFilename = response.value(forHTTPHeaderField: "Content-Disposition")
-                    .flatMap { contentDisposition -> String? in
-                        let marker = "filename="
-                        guard let range = contentDisposition.range(of: marker) else { return nil }
-                        let filename = contentDisposition[range.upperBound...]
-                            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                        return filename.isEmpty ? nil : String(filename)
-                    }
-                let mimeType = response.value(forHTTPHeaderField: "Content-Type")
-                return (data, suggestedFilename, mimeType)
+        let request = try makeServerRequest(
+            url: currentServerURL,
+            method: "GET",
+            path: "/downloadQueue/\(queueId)/item/\(itemId)/media"
+        )
+        // The persistent queue owns transient retries, so an unavailable item cannot
+        // hold a worker here while other tracks are ready to download.
+        let (file, response) = try await ResumableDownload.file(for: request, session: session)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let data = try Data(contentsOf: file, options: .mappedIfSafe)
+        let suggestedFilename = response.value(forHTTPHeaderField: "Content-Disposition")
+            .flatMap { contentDisposition -> String? in
+                guard let range = contentDisposition.range(of: "filename=") else { return nil }
+                let filename = contentDisposition[range.upperBound...]
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                return filename.isEmpty ? nil : String(filename)
             }
-
-            if response.statusCode == 503 {
-                let retryAfter = response.value(forHTTPHeaderField: "Retry-After")
-                    .flatMap(Int.init) ?? 1
-                try? await Task.sleep(nanoseconds: UInt64(max(retryAfter, 1)) * 1_000_000_000)
-                continue
-            }
-
-            throw DownloadQueueError.mediaFetchFailed(statusCode: response.statusCode)
-        }
-
-        throw DownloadQueueError.itemProcessingTimedOut
+        return (data, suggestedFilename, response.value(forHTTPHeaderField: "Content-Type"))
     }
 
     func downloadQueueBitrate(for quality: StreamingQuality) -> String? {

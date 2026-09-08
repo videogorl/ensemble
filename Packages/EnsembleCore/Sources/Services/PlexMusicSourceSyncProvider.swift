@@ -1453,6 +1453,20 @@ public func getStreamURL(
         trackStreamKey: String?,
         quality: StreamingQuality
     ) async throws -> URL {
+        // Original downloads use the stable file resource, which can support validated ranges.
+        // Universal transcodes remain available for quality conversion and missing file keys.
+        if quality == .original {
+            let streamKey: String?
+            if let trackStreamKey, !trackStreamKey.isEmpty {
+                streamKey = trackStreamKey
+            } else {
+                streamKey = try await apiClient.getTrack(trackKey: trackRatingKey)?.streamURL
+            }
+            if let streamKey, !streamKey.isEmpty {
+                return try await apiClient.getStreamURL(trackKey: streamKey)
+            }
+        }
+
         // Try the universal download URL (no decision call)
         do {
             let url = try await apiClient.getUniversalDownloadURL(

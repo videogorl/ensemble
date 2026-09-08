@@ -1,0 +1,28 @@
+[21:38:21.956] [DEBUG] [core] ⚠️ BG continued processing request rejected: The operation couldn’t be completed. (BGTaskSchedulerErrorDomain error 1.)
+[21:38:21.961] [DEBUG] [core] ⬇️ Offline download attempt: track=12945 stage=direct-original
+[21:38:21.961] [DEBUG] [core] ⬇️ Offline download attempt: track=12937 stage=direct-original
+[21:38:23.010] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12937 source=[source] retrySeconds=30 reason=The network connection was lost.
+[21:38:23.014] [DEBUG] [core] ⬇️ Offline download attempt: track=12940 stage=direct-original
+[21:38:32.037] [DEBUG] [core] ✅ Offline download stored: track=12940 path=12940_plex_192ce24b8461095c_168bc50f4019f1c9750f28375dcf044594d4192d_3_original.flac size=28125901 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original magic=00 00 00 20 66 74 79 70 4d 34 41 20
+[21:38:32.050] [DEBUG] [core] ⬇️ Offline download attempt: track=12942 stage=direct-original
+[21:38:33.804] [DEBUG] [core] ✅ Offline download stored: track=12945 path=12945_plex_192ce24b8461095c_168bc50f4019f1c9750f28375dcf044594d4192d_3_original.flac size=35805250 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original magic=00 00 00 20 66 74 79 70 4d 34 41 20
+[21:38:33.808] [DEBUG] [core] ⬇️ Offline download attempt: track=12944 stage=direct-original
+[21:38:39.657] [DEBUG] [core] ✅ Offline download stored: track=12942 path=12942_plex_192ce24b8461095c_168bc50f4019f1c9750f28375dcf044594d4192d_3_original.flac size=23997181 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original magic=00 00 00 20 66 74 79 70 4d 34 41 20
+[21:38:39.663] [DEBUG] [core] ⬇️ Offline download attempt: track=12947 stage=direct-original
+[21:38:40.546] [DEBUG] [core] ✅ Offline download stored: track=12944 path=12944_plex_192ce24b8461095c_168bc50f4019f1c9750f28375dcf044594d4192d_3_original.flac size=21424787 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original magic=00 00 00 20 66 74 79 70 4d 34 41 20
+[21:38:40.552] [DEBUG] [core] ⬇️ Offline download attempt: track=12938 stage=direct-original
+[21:39:02.443] [DEBUG] [core] ✅ Offline download stored: track=12938 path=12938_plex_192ce24b8461095c_168bc50f4019f1c9750f28375dcf044594d4192d_3_original.flac size=20343366 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original magic=00 00 00 20 66 74 79 70 4d 34 41 20
+[21:39:02.450] [DEBUG] [core] ⬇️ Offline download attempt: track=12937 stage=direct-original
+[21:39:08.733] [DEBUG] [core] ✅ Offline download stored: track=12947 path=12947_plex_192ce24b8461095c_168bc50f4019f1c9750f28375dcf044594d4192d_3_original.flac size=40579701 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original magic=00 00 00 20 66 74 79 70 4d 34 41 20
+[21:39:08.739] [DEBUG] [core] ⬇️ Offline download attempt: track=12939 stage=direct-original
+[21:39:10.693] [DEBUG] [core] ✅ Offline download stored: track=12937 path=12937_plex_192ce24b8461095c_168bc50f4019f1c9750f28375dcf044594d4192d_3_original.flac size=27377882 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original magic=00 00 00 20 66 74 79 70 4d 34 41 20
+[21:39:10.697] [DEBUG] [core] ⬇️ Offline download attempt: track=12936 stage=direct-original
+[21:39:23.036] [DEBUG] [core] ✅ Offline download stored: track=12936 path=12936_plex_192ce24b8461095c_168bc50f4019f1c9750f28375dcf044594d4192d_3_original.flac size=25267219 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original magic=00 00 00 20 66 74 79 70 4d 34 41 20
+[21:39:23.044] [DEBUG] [core] ⬇️ Offline download attempt: track=12941 stage=direct-original
+[21:39:24.328] [DEBUG] [core] ✅ Offline download stored: track=12939 path=12939_plex_192ce24b8461095c_168bc50f4019f1c9750f28375dcf044594d4192d_3_original.flac size=29252732 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original magic=00 00 00 20 66 74 79 70 4d 34 41 20
+[21:39:24.332] [DEBUG] [core] ⬇️ Offline download attempt: track=12943 stage=direct-original
+[21:39:45.275] [DEBUG] [core] ✅ Offline download stored: track=12941 path=12941_plex_192ce24b8461095c_168bc50f4019f1c9750f28375dcf044594d4192d_3_original.flac size=24527090 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original magic=00 00 00 20 66 74 79 70 4d 34 41 20
+[21:39:45.287] [DEBUG] [core] ⬇️ Offline download attempt: track=12946 stage=direct-original
+[21:39:45.391] [DEBUG] [core] ✅ Offline download stored: track=12943 path=12943_plex_192ce24b8461095c_168bc50f4019f1c9750f28375dcf044594d4192d_3_original.flac size=24396138 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original magic=00 00 00 20 66 74 79 70 4d 34 41 20
+[21:39:50.305] [DEBUG] [core] 📥 Download transfer cancelled; lifecycle owner will recover track=12946 source=[source]
+[21:39:50.311] [INFO] [app] NETWORK_AUDIT end mode=download

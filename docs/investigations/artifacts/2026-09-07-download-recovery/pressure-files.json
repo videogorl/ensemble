@@ -1,0 +1,70 @@
+{
+  "completedTracks": [
+    "12941",
+    "12939",
+    "12946",
+    "12942",
+    "12936",
+    "12940",
+    "12938",
+    "12944",
+    "12945",
+    "12937",
+    "12943",
+    "12947"
+  ],
+  "files": [
+    {
+      "track": "12941",
+      "fileBytes": 24527090,
+      "sha256": "93413191b0bd8d06046bc25b4e265cb6a91a3d65f54b1e2d520fd67194ce8320",
+      "sourceMatches": true,
+      "transfers": [
+        {
+          "time": 1788842731.650602,
+          "key": "303b04c8eb00",
+          "offset": 0,
+          "bytes": 3735552,
+          "total": 24527090,
+          "interrupted": false,
+          "complete": false
+        },
+        {
+          "time": 1788842740.169163,
+          "key": "303b04c8eb00",
+          "offset": 3670016,
+          "bytes": 20857074,
+          "total": 24527090,
+          "interrupted": false,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "track": "12939",
+      "fileBytes": 29252732,
+      "sha256": "385d842baa33dac851d7ecbbffa7cea2d36c8a91d40a3a50ef19010e7239b375",
+      "sourceMatches": true,
+      "transfers": [
+        {
+          "time": 1788842731.652736,
+          "key": "fa713d4045b2",
+          "offset": 0,
+          "bytes": 3670016,
+          "total": 29252732,
+          "interrupted": false,
+          "complete": false
+        },
+        {
+          "time": 1788842741.534115,
+          "key": "fa713d4045b2",
+          "offset": 3604480,
+          "bytes": 25648252,
+          "total": 29252732,
+          "interrupted": false,
+          "complete": true
+        }
+      ]
+    }
+  ]
+}

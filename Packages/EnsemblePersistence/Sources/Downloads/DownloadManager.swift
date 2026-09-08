@@ -30,7 +30,7 @@ public protocol DownloadManagerProtocol: Sendable {
     func countPendingDownloads() async throws -> Int
     /// Atomically claim the next pending download by setting its status to `.downloading`.
     /// Returns nil when no pending downloads remain.
-    func fetchNextPendingDownload() async throws -> CDDownload?
+    func fetchNextPendingDownload(excluding downloadIDs: Set<NSManagedObjectID>) async throws -> CDDownload?
     func fetchCompletedDownloads() async throws -> [CDDownload]
     func countCompletedDownloads() async throws -> Int
     func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> CDDownload?
@@ -298,14 +298,14 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
-    public func fetchNextPendingDownload() async throws -> CDDownload? {
+    public func fetchNextPendingDownload(excluding downloadIDs: Set<NSManagedObjectID>) async throws -> CDDownload? {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDDownload.fetchRequest()
                 request.predicate = NSPredicate(
-                    format: "status == %@",
-                    CDDownload.Status.pending.rawValue
+                    format: "status == %@ AND NOT (SELF IN %@)",
+                    CDDownload.Status.pending.rawValue, downloadIDs
                 )
                 request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: true)]
                 request.fetchLimit = 1

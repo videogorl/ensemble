@@ -611,7 +611,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             []
         }
 
-        func fetchNextPendingDownload() async throws -> CDDownload? {
+        func fetchNextPendingDownload(excluding downloadIDs: Set<NSManagedObjectID>) async throws -> CDDownload? {
             nil
         }
 

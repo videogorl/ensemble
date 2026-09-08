@@ -85,7 +85,7 @@ final class DownloadTargetReconcilerTests: XCTestCase {
 
         func fetchDownloads() async throws -> [CDDownload] { [] }
         func fetchPendingDownloads() async throws -> [CDDownload] { [] }
-        func fetchNextPendingDownload() async throws -> CDDownload? { nil }
+        func fetchNextPendingDownload(excluding downloadIDs: Set<NSManagedObjectID>) async throws -> CDDownload? { nil }
         func fetchCompletedDownloads() async throws -> [CDDownload] { [] }
         func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> CDDownload? { nil }
         func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String : CDDownload] { [:] }

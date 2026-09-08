@@ -180,6 +180,9 @@ public final class OfflineDownloadService: ObservableObject {
     private var isUserPaused = false
     private var isLowPowerSuspended = false
     private var isPlaybackBufferLow = false
+    private var retryDeadlines: [NSManagedObjectID: Date] = [:]
+    private var retryWakeTask: Task<Void, Never>?
+    private var retryDelays: [NSManagedObjectID: TimeInterval] = [:]
     private var isAppInBackground = false
     private var allowsBackgroundContinuation = false
     private var isPlaybackSensitive = false
@@ -315,10 +318,12 @@ public final class OfflineDownloadService: ObservableObject {
                 try? await self?.applyNetworkPolicy()
             },
             finishBackgroundTask: { [weak self] success in
-                self?.backgroundExecutionCoordinator.finishCurrentTask(success: success)
+                guard let self, self.retryDeadlines.isEmpty else { return }
+                self.backgroundExecutionCoordinator.finishCurrentTask(success: success)
             },
             showCompletionToast: { [weak self] in
-                self?.notificationBridge.showQueueCompletionToast()
+                guard let self, self.retryDeadlines.isEmpty else { return }
+                self.notificationBridge.showQueueCompletionToast()
             }
         )
     )
@@ -609,8 +614,11 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Remove all download targets, memberships, and downloaded files.
     public func removeAllDownloads() async {
-        // Stop the download queue first.
-        await queueCoordinator.cancelCurrentTask()
+        // Explicit removal owns both queue cancellation and ending background execution.
+        retryWakeTask?.cancel()
+        retryDeadlines.removeAll()
+        retryDelays.removeAll()
+        await stopQueueForSuspension()
         isQueueRunning = false
         refreshQueueStatusReason()
 
@@ -894,11 +902,7 @@ public final class OfflineDownloadService: ObservableObject {
         guard isPlaybackBufferLow != low else { return }
         isPlaybackBufferLow = low
         if low {
-            // ponytail: reuse cancellation/requeue; byte-range resume belongs in the
-            // transport if repeated suspension wastes significant partial transfers.
-            await stopQueueForSuspension()
-        } else {
-            try? await applyNetworkPolicy()
+            await stopQueueForSuspension(finishBackgroundTask: false)
         }
         refreshQueueStatusReason()
         if !isPlaybackBufferLow {
@@ -1027,6 +1031,8 @@ public final class OfflineDownloadService: ObservableObject {
 
     private func handleBackgroundExecutionRequest() async {
         allowsBackgroundContinuation = true
+        // A playback pause keeps the grant for recovery, even if every row is paused.
+        guard !isPlaybackBufferLow else { return }
         await queueCoordinator.handleBackgroundExecutionRequest()
     }
 
@@ -1062,7 +1068,8 @@ public final class OfflineDownloadService: ObservableObject {
                 }
 
                 // Claim a single pending download (atomic, sets status to .downloading)
-                guard let nextDownload = try await downloadManager.fetchNextPendingDownload() else {
+                retryDeadlines = retryDeadlines.filter { $0.value > Date() }
+                guard let nextDownload = try await downloadManager.fetchNextPendingDownload(excluding: Set(retryDeadlines.keys)) else {
                     let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? -1
                     EnsembleLogger.debug("📥 Worker exit: no pending download (pendingCount=\(pendingCount), didProcess=\(didProcess))")
                     return didProcess
@@ -1163,6 +1170,8 @@ public final class OfflineDownloadService: ObservableObject {
             await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
 
             if result.persisted {
+                retryDeadlines.removeValue(forKey: ctx.downloadObjectID)
+                retryDelays.removeValue(forKey: ctx.downloadObjectID)
                 retryPolicy.recordSuccess(
                     trackRatingKey: ctx.trackRatingKey,
                     sourceCompositeKey: ctx.sourceCompositeKey,
@@ -1184,21 +1193,22 @@ public final class OfflineDownloadService: ObservableObject {
                     trackRatingKey: ctx.trackRatingKey,
                     sourceCompositeKey: ctx.sourceCompositeKey,
                     attemptedDirectFallback: executionError?.attemptedDirectFallback ?? false,
-                    isNetworkLoss: isNetworkLossError(underlyingError),
+                    isTransientFailure: PlexErrorClassification.classify(underlyingError).isRetryable || isTemporaryDownloadServerError(underlyingError),
                     isRetryableTransfer: underlyingError is DownloadTransferError || isRetryableTruncation(underlyingError),
                     errorDescription: underlyingError.localizedDescription
                 )
             )
 
             switch resolution {
-            case .pauseForNetworkLoss:
-                // Network dropped mid-transfer — pause so the download auto-resumes
-                // when connectivity returns, instead of marking as permanently failed.
-                try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .paused, quality: nil)
+            case .deferTransientFailure:
+                // Keep it queued, but let other tracks run before a bounded delayed retry.
+                deferDownloadRetry(ctx.downloadObjectID)
+                try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: nil)
                 EnsembleLogger.debug(
-                    "⏸️ Offline download paused (network lost): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey)"
+                    "⏸️ Offline download deferred (transient failure): track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) retrySeconds=\(Int(retryDelays[ctx.downloadObjectID] ?? 0)) reason=\(underlyingError.localizedDescription)"
                 )
             case .retryPending(let attempt, let maxAttempts, _):
+                deferDownloadRetry(ctx.downloadObjectID)
                 // Incomplete transfer or truncated payload — re-queue as pending so the
                 // download worker automatically retries. These are transient failures.
                 try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: nil)
@@ -1206,6 +1216,8 @@ public final class OfflineDownloadService: ObservableObject {
                     "🔄 Offline download re-queued (attempt \(attempt)/\(maxAttempts)): track=\(ctx.trackRatingKey) reason=\(underlyingError.localizedDescription)"
                 )
             case .fail(let message, _):
+                retryDeadlines.removeValue(forKey: ctx.downloadObjectID)
+                retryDelays.removeValue(forKey: ctx.downloadObjectID)
                 try? await downloadManager.failDownload(ctx.downloadObjectID, error: message)
                 EnsembleLogger.debug(
                     "❌ Offline download failed: track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(underlyingError.localizedDescription)"
@@ -1482,25 +1494,39 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
-    /// Returns true if the error indicates a network/connectivity loss rather than a server-side
-    /// or content error. Used to pause (not fail) downloads when connectivity drops mid-transfer.
-    /// Returns true for truncated payload errors that should be retried automatically.
-    private func isRetryableTruncation(_ error: Error) -> Bool {
-        if case DownloadProcessingError.truncatedPayload = error { return true }
-        return false
+    private func deferDownloadRetry(_ downloadID: NSManagedObjectID) {
+        let delay = min((retryDelays[downloadID] ?? 15) * 2, 300)
+        retryDelays[downloadID] = delay
+        retryDeadlines[downloadID] = Date().addingTimeInterval(delay)
+        scheduleRetryWake()
     }
 
-    private func isNetworkLossError(_ error: Error) -> Bool {
-        if let urlError = error as? URLError {
-            switch urlError.code {
-            case .notConnectedToInternet, .networkConnectionLost, .timedOut,
-                 .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed,
-                 .dataNotAllowed, .internationalRoamingOff:
-                return true
-            default:
-                return false
-            }
+    private func scheduleRetryWake() {
+        retryWakeTask?.cancel()
+        guard let deadline = retryDeadlines.values.min() else { return }
+        retryWakeTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(max(0.01, deadline.timeIntervalSinceNow) * 1_000_000_000))
+            } catch { return }
+            guard let self else { return }
+            self.retryDeadlines = self.retryDeadlines.filter { $0.value > Date() }
+            self.startQueueIfNeeded()
+            self.scheduleRetryWake()
         }
+    }
+
+    private func isTemporaryDownloadServerError(_ error: Error) -> Bool {
+        let status: Int
+        switch error {
+        case DownloadProcessingError.invalidHTTPStatus(let code): status = code
+        case PlexAPIError.httpError(let code): status = code
+        default: return false
+        }
+        return status == 408 || status == 429 || (500...599).contains(status)
+    }
+
+    private func isRetryableTruncation(_ error: Error) -> Bool {
+        if case DownloadProcessingError.truncatedPayload = error { return true }
         return false
     }
 
@@ -1840,9 +1866,11 @@ public final class OfflineDownloadService: ObservableObject {
             .store(in: &cancellables)
     }
 
-    private func stopQueueForSuspension() async {
+    private func stopQueueForSuspension(finishBackgroundTask: Bool = true) async {
         await queueCoordinator.cancelCurrentTask()
-        backgroundExecutionCoordinator.finishCurrentTask(success: true)
+        if finishBackgroundTask {
+            backgroundExecutionCoordinator.finishCurrentTask(success: true)
+        }
         try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
     }
 
@@ -1958,9 +1986,9 @@ public final class OfflineDownloadService: ObservableObject {
             break
         }
 
-        if isNetworkLossError(error) {
+        if PlexErrorClassification.classify(error).isRetryable {
             EnsembleLogger.debug(
-                "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) because the request failed with a network-loss error"
+                "⛔️ Skipping direct-original fallback for track=\(ctx.trackRatingKey) because the request failed transiently"
             )
             return false
         }

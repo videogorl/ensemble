@@ -188,23 +188,17 @@ public struct PlexMetadataFieldUpdate: Sendable, Equatable {
 public actor PlexAPIClient {
     enum DownloadQueueError: LocalizedError {
         case queueNotAvailable
-        case itemProcessingTimedOut
         case itemFailed(String)
         case invalidQueueResponse
-        case mediaFetchFailed(statusCode: Int)
 
         var errorDescription: String? {
             switch self {
             case .queueNotAvailable:
                 return "Download queue not available on this server"
-            case .itemProcessingTimedOut:
-                return "Download queue item timed out while processing"
             case .itemFailed(let reason):
                 return "Download queue item failed: \(reason)"
             case .invalidQueueResponse:
                 return "Invalid download queue response"
-            case .mediaFetchFailed(let statusCode):
-                return "Download queue media fetch failed with status \(statusCode)"
             }
         }
     }
@@ -244,6 +238,8 @@ public actor PlexAPIClient {
     let serverConnection: PlexServerConnection
     let selectedLibrary: PlexLibrarySelection?
     var currentServerURL: String  // The currently active server URL
+    // ponytail: prepared jobs survive interruptions in this process; persist IDs if relaunch preparation is costly.
+    var interruptedDownloadQueueItems: [String: (queueId: Int, itemId: Int)] = [:]
     var cachedDownloadQueueID: Int?
     var downloadQueueIDTask: Task<Int, Error>?
     var downloadQueueItemCount = 0

@@ -47,6 +47,22 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertNotEqual(downloadA?.track?.sourceCompositeKey, downloadB?.track?.sourceCompositeKey)
     }
 
+    func testDeferredDownloadDoesNotBlockTheNextTrack() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = LibraryRepository(coreDataStack: stack)
+        let manager = DownloadManager(coreDataStack: stack)
+        for key in ["first", "second"] {
+            try await seedTrack(ratingKey: key, sourceCompositeKey: sourceA, repository: repository)
+        }
+        let first = try await manager.createDownload(forTrackRatingKey: "first", sourceCompositeKey: sourceA, quality: "high")
+        let second = try await manager.createDownload(forTrackRatingKey: "second", sourceCompositeKey: sourceA, quality: "high")
+        let claimed = try await manager.fetchNextPendingDownload(excluding: [first.objectID])
+        XCTAssertEqual(claimed?.objectID, second.objectID)
+        XCTAssertEqual(first.downloadStatus, .pending)
+        let resumed = try await manager.fetchNextPendingDownload(excluding: [])
+        XCTAssertEqual(resumed?.objectID, first.objectID)
+    }
+
     func testConcurrentSingleAndBatchCreationLeaveOneDownload() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)

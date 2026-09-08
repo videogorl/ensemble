@@ -26,13 +26,13 @@ final class DownloadRetryPolicy {
         let trackRatingKey: String
         let sourceCompositeKey: String
         let attemptedDirectFallback: Bool
-        let isNetworkLoss: Bool
+        let isTransientFailure: Bool
         let isRetryableTransfer: Bool
         let errorDescription: String
     }
 
     enum FailureResolution: Equatable {
-        case pauseForNetworkLoss
+        case deferTransientFailure
         case retryPending(attempt: Int, maxAttempts: Int, blockDirectFallback: Bool)
         case fail(message: String, blockDirectFallback: Bool)
     }
@@ -57,8 +57,8 @@ final class DownloadRetryPolicy {
     }
 
     func resolveFailure(_ context: FailureContext) -> FailureResolution {
-        if context.isNetworkLoss {
-            return .pauseForNetworkLoss
+        if context.isTransientFailure {
+            return .deferTransientFailure
         }
 
         if context.isRetryableTransfer {

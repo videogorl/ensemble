@@ -47,3 +47,9 @@
   retries. Transport, cancellation, parse, and server failures remain retryable.
 - Bulk progress and completion publication is coalesced. Do not instantiate
   workers without pending work or emit per-item storms that compete with audio.
+- Transient download failures remain queued with bounded retry delays. Other
+  eligible tracks can progress, and retry does not require a device network change.
+- Temporary playback-buffer suspension preserves an existing background grant
+  until completion, explicit suspension, or OS expiration ends it.
+- Interrupted file transfers may append only after validating the same remote
+  resource and byte range. A replacement response restarts the file safely.

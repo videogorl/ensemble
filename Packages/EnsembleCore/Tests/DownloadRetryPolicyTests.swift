@@ -11,7 +11,7 @@ final class DownloadRetryPolicyTests: XCTestCase {
                 trackRatingKey: "track",
                 sourceCompositeKey: "source",
                 attemptedDirectFallback: true,
-                isNetworkLoss: false,
+                isTransientFailure: false,
                 isRetryableTransfer: false,
                 errorDescription: "boom"
             )
@@ -71,7 +71,7 @@ final class DownloadRetryPolicyTests: XCTestCase {
                 trackRatingKey: "track",
                 sourceCompositeKey: "source",
                 attemptedDirectFallback: true,
-                isNetworkLoss: false,
+                isTransientFailure: false,
                 isRetryableTransfer: true,
                 errorDescription: "short read"
             )
@@ -83,7 +83,7 @@ final class DownloadRetryPolicyTests: XCTestCase {
                 trackRatingKey: "track",
                 sourceCompositeKey: "source",
                 attemptedDirectFallback: true,
-                isNetworkLoss: false,
+                isTransientFailure: false,
                 isRetryableTransfer: true,
                 errorDescription: "short read"
             )
@@ -93,7 +93,7 @@ final class DownloadRetryPolicyTests: XCTestCase {
                 trackRatingKey: "track",
                 sourceCompositeKey: "source",
                 attemptedDirectFallback: true,
-                isNetworkLoss: false,
+                isTransientFailure: false,
                 isRetryableTransfer: true,
                 errorDescription: "short read"
             )
@@ -104,7 +104,7 @@ final class DownloadRetryPolicyTests: XCTestCase {
                 trackRatingKey: "track",
                 sourceCompositeKey: "source",
                 attemptedDirectFallback: true,
-                isNetworkLoss: false,
+                isTransientFailure: false,
                 isRetryableTransfer: true,
                 errorDescription: "short read"
             )
@@ -125,7 +125,7 @@ final class DownloadRetryPolicyTests: XCTestCase {
                     trackRatingKey: "shared-rating-key",
                     sourceCompositeKey: "source-a",
                     attemptedDirectFallback: false,
-                    isNetworkLoss: false,
+                    isTransientFailure: false,
                     isRetryableTransfer: true,
                     errorDescription: "short read"
                 )
@@ -137,7 +137,7 @@ final class DownloadRetryPolicyTests: XCTestCase {
                 trackRatingKey: "shared-rating-key",
                 sourceCompositeKey: "source-b",
                 attemptedDirectFallback: false,
-                isNetworkLoss: false,
+                isTransientFailure: false,
                 isRetryableTransfer: true,
                 errorDescription: "short read"
             )
@@ -158,12 +158,12 @@ final class DownloadRetryPolicyTests: XCTestCase {
                     trackRatingKey: "track",
                     sourceCompositeKey: "source",
                     attemptedDirectFallback: false,
-                    isNetworkLoss: true,
+                    isTransientFailure: true,
                     isRetryableTransfer: false,
                     errorDescription: "offline"
                 )
             ),
-            .pauseForNetworkLoss
+            .deferTransientFailure
         )
     }
 
@@ -175,7 +175,7 @@ final class DownloadRetryPolicyTests: XCTestCase {
                 trackRatingKey: "track",
                 sourceCompositeKey: "source",
                 attemptedDirectFallback: true,
-                isNetworkLoss: false,
+                isTransientFailure: false,
                 isRetryableTransfer: true,
                 errorDescription: "short read"
             )

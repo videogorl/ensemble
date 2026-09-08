@@ -116,6 +116,7 @@ final class DownloadQueueCoordinatorTests: XCTestCase {
     }
 
     func testCancellationWaitsForWorkerShutdownBeforeClearingTask() async {
+        var backgroundFinishes = 0
         let workerStarted = LockedBox(false)
         let workerFinished = LockedBox(false)
 
@@ -141,7 +142,7 @@ final class DownloadQueueCoordinatorTests: XCTestCase {
                     return true
                 },
                 applyNetworkPolicy: {},
-                finishBackgroundTask: { _ in },
+                finishBackgroundTask: { _ in backgroundFinishes += 1 },
                 showCompletionToast: {}
             )
         )
@@ -153,6 +154,7 @@ final class DownloadQueueCoordinatorTests: XCTestCase {
 
         await coordinator.cancelCurrentTask()
 
+        XCTAssertEqual(backgroundFinishes, 0)
         XCTAssertTrue(workerFinished.withValue { $0 })
         XCTAssertFalse(coordinator.hasActiveTask)
     }
