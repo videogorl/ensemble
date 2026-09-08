@@ -3,7 +3,10 @@
 Status: proposal, not implemented. Researched 2026-09-08 against checkout
 `0c1ddbe2`. This extends the reproduced straight/curly apostrophe search bug
 into the requested normalization, typo tolerance, transliteration, punctuation
-omission, ampersand equivalence, ranking, and possible lyric search work.
+omission, ampersand equivalence, ranking, cached lyric search, and shared Siri
+fallback work. Updated with user decisions: Search is a finder/explorer; source
+and filter controls remain in library views, Apple Music has its own search
+area, and lyric pre-caching and Foundation Models are deferred.
 
 ## Product objective
 
@@ -117,8 +120,9 @@ Recommended layout: a compact Top Results group (up to three strong, distinct
 entities), followed by the strongest relevant section, then other nonempty
 sections in a stable tie-break order. Keep the current section order as a tie
 break initially. Rank a section by its strongest meaningful evidence, never
-its raw number of matches. Lyrics are a secondary match group unless the user
-chooses Lyrics or the query has strong lyric evidence and weak metadata evidence.
+its raw number of matches. Lyric-only matches are song rows with extra evidence, not a separate filter or
+entity section. Strong lyric evidence with weak metadata evidence can promote
+Songs; ordinary short name queries should still favor metadata matches.
 
 Examples: `kflay` promotes the artist and Artists; `its just a lot kflay` promotes
 the song and Songs; an exact playlist name promotes that playlist. Ambiguous
@@ -131,19 +135,80 @@ row or change its action target beneath keyboard/VoiceOver users. Preserve the
 original spelling in results; highlighting must map normalized matches back to
 original text safely. Use a short match explanation for corrections or lyrics.
 
-Offer content-type and source chips, useful autocomplete from the visible
-library, and recent searches. Hidden/inactive sources must not leak through
-suggestions, counts, snippets, or cached top results. Make active filters visible
-and explain no-result causes: no match, filtered out, source unavailable, or
-incomplete lyric coverage are different states. A no-match state may offer an
-explicit catalog search without sending every local query remotely.
+Search remains a finder/explorer, not a curation interface. Do not add source
+or content-type filter chips, a Lyrics filter, or a catalog fallback action.
+Source/filter controls belong in the library views, and Apple Music retains its
+separate search area. Query suggestions and existing recent searches can help
+people find a name without adding configuration. Hidden/inactive sources must
+not leak through suggestions, counts, snippets, or cached top results. Distinguish
+no match from an unavailable source or incomplete cached-lyrics coverage.
 
 Library filters should share query normalization, aliases, token matching, and
 typo tolerance, while retaining the user's selected sort and existing genre,
 favorite, download, and source constraints. Provide relevance ordering as an
-explicit choice rather than silently replacing their selected browse order.
+future choice only if requested, rather than silently replacing their selected browse order.
 Keep lyric-only matches in Search by default, so filtering a playlist or Songs
 does not unexpectedly select tracks solely because of a lyric line.
+
+## Media-kind intent and Siri fallback
+
+Share normalization, aliases, candidate retrieval semantics, and relevance
+scoring across typed Search, library filters, and Siri fallback. Keep the
+caller-specific interpretation and final action policy separate. The common
+engine returns ranked candidates and match evidence; it does not decide to play.
+
+| Input | Interpretation | Result policy |
+| --- | --- | --- |
+| Typed `paramore` | No kind preference | Rank artist, album, songs, and playlists by relevance. |
+| Typed `album paramore` or `the album paramore` | Album hint plus name `paramore` | Promote matching album/Albums; retain literal full-query matching and useful other kinds below. |
+| Typed `artist paramore` | Artist hint plus name `paramore` | Promote artist/Artists. |
+| Siri `play the album paramore` | Explicit album request | Resolve an album; never silently substitute the artist. |
+| Siri `play the artist paramore` | Explicit artist request | Resolve the artist. |
+| Siri `play paramore` | Kind unknown unless supplied by reliable structured intent | Rank eligible kinds; disambiguate if strong candidates remain close. |
+| Typed `The Album` or `album` | Potential literal title, not enough residual text | Keep literal lookup; do not strip into an empty or broad query. |
+
+Recognize bounded command forms and complete words, not arbitrary substring
+occurrences. Extract intent before removing command words, retaining both the
+original query and the stripped search text. Preserve a literal path when words
+such as `artist`, `album`, `song`, or `playlist` may be part of an actual name.
+Quoted title text should remain literal. Parse `by <artist>` as a supported hint
+only when evidence distinguishes it from a title containing the word `by`.
+
+For Siri, distinguish an explicit user-supplied kind from a guessed kind or the
+kind of a previously returned candidate. Carry that provenance through the
+extension payload and app fallback. A guessed artist must not override an
+explicit album phrase that Ensemble actually receives. When Siri does not pass
+through those words or structured intent, Ensemble cannot reconstruct missing
+intent reliably; disambiguation is preferable to pretending otherwise.
+
+Current `PlayMediaIntentHandler` already passes requested kinds into
+`SiriMediaIndexResolver.rankCandidates`; its type resolution prefers structured
+media type/container/item fields before text inference. The app coordinator has
+separate track/album/artist/playlist resolution, exact-source ID lookup, and
+name/fuzzy fallback. Track fallback currently takes the first 800 Siri-eligible
+tracks before fuzzy scoring, so replacing the scorer alone cannot provide
+whole-library retrieval. Audit candidate generation and kind propagation too.
+
+Preserve valid exact entity/source lookup first. If a name fallback is needed,
+use the shared candidate rules within the requested kind and allowed sources.
+An explicit artist hint should not disappear in broadening. Siri needs stronger
+auto-selection evidence than a UI list: a sufficiently strong result and clear
+separation from alternatives; otherwise return disambiguation/no-match through
+the supported flow. Do not automatically play a weak lyric-only or fuzzy hit.
+Cached-lyric participation in Siri is not required for the initial shared
+metadata matcher; it needs separate confidence and extension-data decisions.
+
+The Siri extension reads an App Group index rather than the app's live CoreData
+and lyric cache. Share pure matching code and compatible indexed fields, not the
+Core ViewModel or main-app-only state. Keep old App Group payload/index decoding
+compatible and refresh derived representations incrementally. Avoid duplicating
+the lyric corpus into the extension merely to claim algorithm reuse.
+
+Add focused relevance cases for Paramore as both artist and self-titled album,
+explicit playlist/song commands, ambiguous unqualified names, literal titles
+containing kind words, and fallback after a stale ID. Verify intent at extension
+resolution, payload encoding/decoding, and final app resolution. Physical Siri
+proof is separate from package or typed-search proof.
 
 ## Provider lessons and limits
 
@@ -176,15 +241,16 @@ does not unexpectedly select tracks solely because of a lyric line.
 
 ## Lyric search
 
-Recommend a local first version using already-available, permitted lyric text.
+Scope is cached lyrics only, using already-available, permitted lyric text.
 Index actual lyric lines, not LRC timestamps, metadata headers, or chord symbols.
 Keep source/track identity, asset/version, language when known, and line offsets.
 Search phrases and nearby words; use restrained tolerance for a misremembered
 word, not unconstrained fuzzy matching across every lyric. Common phrases should
-not flood ordinary short title searches. Provide a Lyrics chip for explicit
-search even when metadata results are also strong.
+not flood ordinary short title searches. Begin automatic lyric matching at
+three words, as a tunable product rule. Search cached lyrics even when metadata
+results exist; rank the evidence rather than requiring a separate mode.
 
-Show a short matching excerpt with a “Lyrics match” explanation. A song matching
+Show the track in Songs with a secondary `Lyrics: <matching excerpt>` line. A song matching
 both metadata and lyrics remains one result with extra evidence. Opening the
 result should identify the recording and make Lyrics easy to reach; seeking to
 a matching timestamp is an explicit optional action, not an automatic playback
@@ -201,15 +267,16 @@ network, storage, and permitted-use requirements.
 LRCLIB's documented `/api/search?q=` searches track title, artist, and album
 metadata; it does not provide lyric-body phrase search. It cannot directly solve
 “I remember this line but not the title.” [LRCLIB docs](https://lrclib.net/docs).
-Catalog-wide lyric search remains dependent on a verified provider capability
-and appropriate access; availability of a playback lyric display is insufficient.
+Catalog-wide lyric search and Apple Music lyric integration are outside this
+scope. Library-sync lyric pre-caching is deferred to a separate future task.
 
 ## Implementation shape and validation
 
 Share pure text primitives below Core and Persistence (the existing Support
 layer fits); keep candidate storage in Persistence, ranking/intent in Core, and
-presentation in UI. Leave Siri-specific command interpretation separate and
-avoid changing Siri behavior accidentally during the first typed-search work.
+presentation in UI. Keep Siri-specific command interpretation separate while routing its fallback
+matching through the same shared retrieval and relevance rules. Preserve
+explicit kind/source/artist constraints and exact-identifier resolution.
 
 Precompute normalized fields/aliases incrementally. Use indexed candidate
 retrieval followed by bounded in-process scoring, off the main thread. A separate
@@ -249,15 +316,13 @@ service or logging raw users' queries.
 
 1. Establish the shared matching contract and candidate retrieval; include all
    requested normalization, omitted punctuation, conjunction aliases,
-   transliteration, and bounded typo tolerance, plus ranked local results.
+   transliteration, and bounded typo tolerance, plus ranked local results and
+   Siri fallback reuse with explicit media-kind preservation.
 2. Add Top Results/section relevance, query suggestions and match explanations;
    retain browse sort and wire supported MusicKit top results/autocomplete.
-3. Add available-lyrics indexing and visible coverage. Treat full-catalog lyric
-   search as a provider-dependent extension, not an unverified promise.
+3. Add cached-lyrics indexing, `Lyrics: …` song-row snippets, and honest coverage.
+   No catalog-wide lyric lookup or sync-time lyric pre-caching in this work.
 
-Later discovery can interpret concrete filters such as `90s alternative` or
-`downloaded live songs` using existing metadata. Requests such as “the song from
-that movie” require soundtrack/credit data; semantic mood descriptions and
-humming require different retrieval capabilities. Track them separately instead
-of pretending normalization alone can answer them. The present proposal does
-not require embeddings, a cloud search service, or an LLM on each keystroke.
+Natural-language discovery, including possible Apple Foundation Models use, is
+deferred. Do not add descriptive-query filter interpretation, embeddings,
+humming, a cloud search service, or an LLM on each keystroke to this work.
