@@ -206,8 +206,8 @@ final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoo
         guard registerContinuedTask(identifier: identifier) else { return }
         let request = BGContinuedProcessingTaskRequest(
             identifier: identifier,
-            title: "Preparing Offline Music",
-            subtitle: "Transferring and validating audio"
+            title: "Downloading Music",
+            subtitle: "0% of current batch"
         )
         // Work already runs independently. Do not enqueue a stale accelerator grant.
         request.strategy = .fail
@@ -231,6 +231,10 @@ final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoo
                 || currentTask.progress.completedUnitCount != Int64(completed) else { return }
         currentTask.progress.totalUnitCount = Int64(total)
         currentTask.progress.completedUnitCount = Int64(completed)
+        currentTask.updateTitle(
+            "Downloading Music",
+            subtitle: "\(Int(Double(completed) / Double(total) * 100))% of current batch"
+        )
         EnsembleLogger.debug("📦 Offline continued processing progress units=\(completed)/\(total)")
     }
 

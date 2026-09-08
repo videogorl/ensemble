@@ -82,3 +82,19 @@ existing download policy; OS expiration remains the bound on that pause.
 - [WWDC25: Finish tasks in the background](https://developer.apple.com/videos/play/wwdc2025/227/): compose a concrete identifier for registration and submission.
 - [DTS: intended registration pattern](https://developer.apple.com/forums/thread/796944): register each concrete instance, not the wildcard handler.
 - [DTS: unique IDs and independent work](https://developer.apple.com/forums/thread/807370): start work independently and attach the system task when delivered.
+
+## Follow-up: missing visible percentage
+
+A user-started 438-track server batch was granted at 12:45:46.295. The app
+backgrounded at 12:45:52.987 and continued reporting progress; at 12:52:24.231
+it reached 32,000/438,000 units (7.3%). The captured log contains no expiration
+for that pass. This confirms a display omission: native Progress was advancing,
+but the task title/subtitle stayed static.
+
+The coordinator now calls `updateTitle` alongside its existing progress updates,
+showing “Downloading Music” and an explicit whole percentage of the current batch.
+The percentage rounds down, so incomplete work cannot display 100% prematurely.
+This small display change is built separately; it is not installed over the
+user's active server download. Direct inspection of the updated system text
+therefore remains pending. The signed iOS build and four existing background
+coordinator tests passed.
