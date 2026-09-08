@@ -1597,13 +1597,15 @@ public final class SyncCoordinator: ObservableObject {
     /// Returns an owned temporary file and optional suggested filename. The caller must move or remove the file.
     public func getOfflineDownloadQueueMedia(
         for track: Track,
-        quality: StreamingQuality
+        quality: StreamingQuality,
+        networkPolicy: DownloadNetworkPolicy
     ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
         let apiClient = try await apiClientForTrack(track)
 
         return try await apiClient.downloadTranscodedMediaViaQueue(
             trackRatingKey: track.id,
-            quality: quality
+            quality: quality,
+            networkPolicy: networkPolicy
         )
     }
 

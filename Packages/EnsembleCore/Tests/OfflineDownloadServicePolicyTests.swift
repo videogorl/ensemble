@@ -320,8 +320,11 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
     func testExplicitRemovalFinishesBackgroundExecution() async {
         let background = MockBackgroundExecutionCoordinator()
         let service = await makeService(backgroundCoordinator: background)
+        // Settle the startup worker before measuring the explicit removal's completion.
+        await service.pauseQueue()
+        let completedBeforeRemoval = background.finishCount
         await service.removeAllDownloads()
-        XCTAssertEqual(background.finishCount, 1)
+        XCTAssertEqual(background.finishCount, completedBeforeRemoval + 1)
     }
 
     func testPlaybackBufferRecoveryPreservesTheUsersQueuePreference() async {
@@ -363,8 +366,10 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         await service.reevaluateQueuePolicy()
         downloadManager.resetStatusUpdates()
 
+        XCTAssertNil(service.effectiveDownloadNetworkPolicy)
         await service.resumeQueue()
 
+        XCTAssertEqual(service.effectiveDownloadNetworkPolicy?.allowsConstrainedNetworkAccess, true)
         XCTAssertEqual(service.temporaryResumeQueueReason, .lowDataMode)
         XCTAssertEqual(service.queueStatusReason, .idle)
         XCTAssertTrue(downloadManager.statusUpdates.contains { statuses, status in
@@ -373,6 +378,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         try? await Task.sleep(nanoseconds: 80_000_000)
 
+        XCTAssertNil(service.effectiveDownloadNetworkPolicy)
         XCTAssertEqual(service.queueStatusReason, .lowDataMode)
         XCTAssertTrue(downloadManager.statusUpdates.contains { statuses, status in
             statuses == [.downloading] && status == .paused
@@ -408,13 +414,19 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         await service.reevaluateQueuePolicy()
         downloadManager.resetStatusUpdates()
 
+        XCTAssertNil(service.effectiveDownloadNetworkPolicy)
         await service.resumeQueue()
 
+        XCTAssertEqual(service.effectiveDownloadNetworkPolicy?.allowsCellularAccess, true)
         XCTAssertEqual(service.temporaryResumeQueueReason, .waitingForWiFi)
         XCTAssertEqual(service.queueStatusReason, .idle)
         XCTAssertTrue(downloadManager.statusUpdates.contains { statuses, status in
             statuses == [.paused] && status == .pending
         })
+        // A valid exception also applies to requests begun on Wi-Fi before a path change.
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        XCTAssertEqual(service.effectiveDownloadNetworkPolicy?.allowsCellularAccess, true)
+
     }
 
     func testResumeDoesNotOverrideOfflinePolicy() async {
@@ -436,6 +448,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         await service.resumeQueue()
 
+        XCTAssertNil(service.effectiveDownloadNetworkPolicy)
         XCTAssertNil(service.temporaryResumeQueueReason)
         XCTAssertEqual(service.queueStatusReason, .offline)
         XCTAssertFalse(downloadManager.statusUpdates.contains { statuses, status in

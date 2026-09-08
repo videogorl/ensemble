@@ -1,6 +1,22 @@
 import CryptoKit
 import Foundation
 
+/// Native restrictions for one offline transfer attempt, resolved by the persistent queue.
+public struct DownloadNetworkPolicy {
+    public let allowsCellularAccess: Bool
+    public let allowsConstrainedNetworkAccess: Bool
+
+    public init(allowsCellularAccess: Bool = false, allowsConstrainedNetworkAccess: Bool = false) {
+        self.allowsCellularAccess = allowsCellularAccess
+        self.allowsConstrainedNetworkAccess = allowsConstrainedNetworkAccess
+    }
+
+    public func apply(to request: inout URLRequest) {
+        request.allowsCellularAccess = allowsCellularAccess
+        request.allowsConstrainedNetworkAccess = allowsConstrainedNetworkAccess
+    }
+}
+
 /// Retains interrupted HTTP files only when a strong entity validator makes appending safe.
 public enum ResumableDownload {
     private struct Partial: Codable {

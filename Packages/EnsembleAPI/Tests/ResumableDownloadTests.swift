@@ -8,6 +8,7 @@ final class ResumableDownloadTests: XCTestCase {
         static let lock = NSLock()
         static var attempts = 0
         static var ranges: [String?] = []
+        static var policies: [(Bool, Bool)] = []
         static var replace = false
         static var malformedRange = false
 
@@ -20,6 +21,7 @@ final class ResumableDownloadTests: XCTestCase {
             Self.attempts += 1
             let attempt = Self.attempts
             Self.ranges.append(request.value(forHTTPHeaderField: "Range"))
+            Self.policies.append((request.allowsCellularAccess, request.allowsConstrainedNetworkAccess))
             let replace = Self.replace
             let malformedRange = Self.malformedRange
             Self.lock.unlock()
@@ -51,6 +53,7 @@ final class ResumableDownloadTests: XCTestCase {
             Transport.lock.lock()
             Transport.attempts = 0
             Transport.ranges = []
+            Transport.policies = []
             Transport.replace = replace
             Transport.malformedRange = malformed
             Transport.lock.unlock()
@@ -58,7 +61,8 @@ final class ResumableDownloadTests: XCTestCase {
             config.protocolClasses = [Transport.self]
             var session = URLSession(configuration: config)
             defer { session.invalidateAndCancel() }
-            let request = URLRequest(url: URL(string: "https://download.invalid/\(UUID().uuidString)")!)
+            var request = URLRequest(url: URL(string: "https://download.invalid/\(UUID().uuidString)")!)
+            DownloadNetworkPolicy(allowsCellularAccess: replace, allowsConstrainedNetworkAccess: cancel).apply(to: &request)
             let progress = expectation(description: "partial bytes written")
             progress.assertForOverFulfill = false
             let transfer = Task {
@@ -85,6 +89,7 @@ final class ResumableDownloadTests: XCTestCase {
             let (file, _) = try await ResumableDownload.file(for: request, session: session)
             defer { try? FileManager.default.removeItem(at: file) }
             XCTAssertEqual(try Data(contentsOf: file), replace ? Data(repeating: 99, count: Transport.payload.count) : Transport.payload)
+            XCTAssertTrue(Transport.policies.allSatisfy { $0.0 == replace && $0.1 == cancel })
             let ranges = Transport.ranges.compactMap { $0 }
             XCTAssertEqual(ranges.count, 1)
             let offset = Int(ranges.first?.dropFirst(6).dropLast() ?? "0") ?? 0

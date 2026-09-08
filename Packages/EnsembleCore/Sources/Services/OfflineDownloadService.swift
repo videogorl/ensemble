@@ -255,19 +255,22 @@ public final class OfflineDownloadService: ObservableObject {
             fetchDirectDownloadURL: { [syncCoordinator] track, quality in
                 try await syncCoordinator.getDownloadURL(for: track, quality: quality)
             },
-            fetchOfflineDownloadQueueMedia: { [syncCoordinator] track, quality in
-                try await syncCoordinator.getOfflineDownloadQueueMedia(for: track, quality: quality)
+            fetchOfflineDownloadQueueMedia: { [weak self] track, quality in
+                guard let self, let policy = self.effectiveDownloadNetworkPolicy else { throw URLError(.dataNotAllowed) }
+                return try await self.syncCoordinator.getOfflineDownloadQueueMedia(for: track, quality: quality, networkPolicy: policy)
             },
             shouldAttemptDirectFallback: { [weak self] error, ctx in
                 guard let self else { return false }
                 return self.shouldAttemptDirectFallback(after: error, for: ctx)
             },
-            performDirectDownload: { [downloadManager] url, downloadID, estimatedSize in
-                try await DownloadTransferExecutor.downloadWithProgress(
+            performDirectDownload: { [weak self] url, downloadID, estimatedSize in
+                guard let self, let policy = self.effectiveDownloadNetworkPolicy else { throw URLError(.dataNotAllowed) }
+                return try await DownloadTransferExecutor.downloadWithProgress(
                     from: url,
                     downloadID: downloadID,
                     estimatedSize: estimatedSize,
-                    downloadManager: downloadManager
+                    downloadManager: self.downloadManager,
+                    networkPolicy: policy
                 )
             },
             didComplete: { [weak self] ctx, fileURL in
@@ -1531,22 +1534,23 @@ public final class OfflineDownloadService: ObservableObject {
         return false
     }
 
-    private var canExecuteDownloads: Bool {
-        if isNetworkPolicyOverridden && temporaryNetworkPolicyReason != nil {
-            return true
-        }
-
-        guard !networkMonitor.isConstrained else { return false }
-
+    /// One decision controls admission and the native restrictions on the admitted request.
+    internal var effectiveDownloadNetworkPolicy: DownloadNetworkPolicy? {
+        let override = isNetworkPolicyOverridden
+        let policy = DownloadNetworkPolicy(
+            allowsCellularAccess: override || DownloadSettingsPreference.storedAllowCellularDownloads(),
+            allowsConstrainedNetworkAccess: override
+        )
+        guard !networkMonitor.isConstrained || policy.allowsConstrainedNetworkAccess else { return nil }
         switch networkMonitor.networkState {
-        case .online(.wifi), .online(.wired):
-            return true
-        case .online(.cellular):
-            return DownloadSettingsPreference.storedAllowCellularDownloads()
-        case .online(.other), .offline, .limited, .unknown:
-            return false
+        case .online(.wifi), .online(.wired): return policy
+        case .online(.cellular): return policy.allowsCellularAccess ? policy : nil
+        case .online(.other): return override && temporaryNetworkPolicyReason != nil ? policy : nil
+        case .offline, .limited, .unknown: return nil
         }
     }
+
+    private var canExecuteDownloads: Bool { effectiveDownloadNetworkPolicy != nil }
 
     private var canRunQueueAutomatically: Bool {
         canExecuteDownloads

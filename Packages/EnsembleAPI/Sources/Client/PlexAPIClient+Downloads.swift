@@ -8,7 +8,8 @@ extension PlexAPIClient {
     /// The caller owns the returned temporary file and must move or remove it.
     public func downloadTranscodedMediaViaQueue(
         trackRatingKey: String,
-        quality: StreamingQuality
+        quality: StreamingQuality,
+        networkPolicy: DownloadNetworkPolicy
     ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
         guard quality != .original else {
             throw DownloadQueueError.queueNotAvailable
@@ -43,7 +44,7 @@ extension PlexAPIClient {
 
             switch item.status {
             case "available":
-                let result = try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId)
+                let result = try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId, networkPolicy: networkPolicy)
                 interruptedDownloadQueueItems.removeValue(forKey: jobKey)
                 return result
             case "error":
@@ -311,13 +312,15 @@ extension PlexAPIClient {
 
     func fetchDownloadQueueMedia(
         queueId: Int,
-        itemId: Int
+        itemId: Int,
+        networkPolicy: DownloadNetworkPolicy
     ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
-        let request = try makeServerRequest(
+        var request = try makeServerRequest(
             url: currentServerURL,
             method: "GET",
             path: "/downloadQueue/\(queueId)/item/\(itemId)/media"
         )
+        networkPolicy.apply(to: &request)
         // The persistent queue owns transient retries, so an unavailable item cannot
         // hold a worker here while other tracks are ready to download.
         let (file, response) = try await ResumableDownload.file(for: request, session: session)

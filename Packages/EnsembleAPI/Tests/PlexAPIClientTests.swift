@@ -60,6 +60,8 @@ final class PlexAPIClientTests: XCTestCase {
             case "/downloadQueue/3/items/42":
                 return (200, Data(#"{"MediaContainer":{"DownloadQueueItem":[{"id":42,"status":"available"}]}}"#.utf8))
             default:
+                XCTAssertFalse(request.allowsCellularAccess)
+                XCTAssertFalse(request.allowsConstrainedNetworkAccess)
                 mediaRequests += 1
                 return (mediaRequests == 1 ? 503 : 200, Data([1, 2, 3]))
             }
@@ -73,10 +75,10 @@ final class PlexAPIClientTests: XCTestCase {
             keychain: TestKeychain(), urlSession: session
         )
         do {
-            _ = try await client.downloadTranscodedMediaViaQueue(trackRatingKey: "1", quality: .high)
+            _ = try await client.downloadTranscodedMediaViaQueue(trackRatingKey: "1", quality: .high, networkPolicy: .init())
             XCTFail("Expected a deferred server failure")
         } catch { XCTAssertEqual(PlexErrorClassification.classify(error), .serverError) }
-        let result = try await client.downloadTranscodedMediaViaQueue(trackRatingKey: "1", quality: .high)
+        let result = try await client.downloadTranscodedMediaViaQueue(trackRatingKey: "1", quality: .high, networkPolicy: .init())
         defer { try? FileManager.default.removeItem(at: result.fileURL) }
         XCTAssertEqual(try Data(contentsOf: result.fileURL), Data([1, 2, 3]))
         XCTAssertEqual(adds, 1)

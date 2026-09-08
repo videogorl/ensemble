@@ -252,50 +252,54 @@ final class DownloadTransferExecutorTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: destinationURL), try Data(contentsOf: artifactURL))
     }
 
-    func testExecuteFallsBackToDirectOriginalWhenQueueFails() async throws {
-        let downloadManager = DownloadManagerMock()
-        let ctx = makeContext(trackRatingKey: "fallback-track", quality: "medium")
-        let response = makeHTTPResponse(url: URL(string: "https://example.com/fallback-track.mp3")!, mimeType: "audio/mpeg")
-        let completionExpectation = expectation(description: "completion observed")
-        var fallbackDecisionCalls = 0
+    func testExecuteFallsBackToDirectOriginalWhenQueueFailsOrIsEmpty() async throws {
+        for empty in [false, true] {
+            let downloadManager = DownloadManagerMock()
+            let ctx = makeContext(trackRatingKey: "fallback-track", quality: "medium")
+            let response = makeHTTPResponse(url: URL(string: "https://example.com/fallback-track.mp3")!, mimeType: "audio/mpeg")
+            cleanupURLs.append(DownloadTransferExecutor.localFileURL(ratingKey: ctx.trackRatingKey, safeSourceKey: ctx.safeSourceKey, quality: .medium, response: response))
+            let completionExpectation = expectation(description: "completion observed")
+            var fallbackDecisionCalls = 0
 
-        let executor = DownloadTransferExecutor(
-            dependencies: .init(
-                downloadManager: downloadManager,
-                fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/fallback-track.mp3")! },
-                fetchOfflineDownloadQueueMedia: { _, _ in
-                    throw URLError(.cannotDecodeContentData)
-                },
-                shouldAttemptDirectFallback: { _, _ in
-                    fallbackDecisionCalls += 1
-                    return true
-                },
-                performDirectDownload: { _, _, _ in
-                    let tempURL = try self.writeTemporaryFile(named: "fallback-track.tmp", data: Data([0x49, 0x44, 0x33, 0x04]))
-                    return (tempURL, response)
-                },
-                didComplete: { _, _ in completionExpectation.fulfill() },
-                scheduleDownloadsChanged: {},
-                isStillReferenced: { _ in true }
+            let executor = DownloadTransferExecutor(
+                dependencies: .init(
+                    downloadManager: downloadManager,
+                    fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/fallback-track.mp3")! },
+                    fetchOfflineDownloadQueueMedia: { _, _ in
+                        if empty { return (try self.writeTemporaryFile(named: "empty-queue.tmp", data: Data()), nil, nil) }
+                        throw URLError(.cannotDecodeContentData)
+                    },
+                    shouldAttemptDirectFallback: { _, _ in
+                        fallbackDecisionCalls += 1
+                        return true
+                    },
+                    performDirectDownload: { _, _, _ in
+                        let tempURL = try self.writeTemporaryFile(named: "fallback-track.tmp", data: Data([0x49, 0x44, 0x33, 0x04]))
+                        return (tempURL, response)
+                    },
+                    didComplete: { _, _ in completionExpectation.fulfill() },
+                    scheduleDownloadsChanged: {},
+                    isStillReferenced: { _ in true }
+                )
             )
-        )
 
-        let result = try await executor.execute(ctx: ctx, requestedQuality: .medium)
-        await fulfillment(of: [completionExpectation], timeout: 1.0)
+            let result = try await executor.execute(ctx: ctx, requestedQuality: .medium)
+            await fulfillment(of: [completionExpectation], timeout: 1.0)
 
-        let destinationURL = DownloadTransferExecutor.localFileURL(
-            ratingKey: ctx.trackRatingKey,
-            safeSourceKey: ctx.safeSourceKey,
-            quality: .original,
-            response: response
-        )
-        cleanupURLs.append(destinationURL)
+            let destinationURL = DownloadTransferExecutor.localFileURL(
+                ratingKey: ctx.trackRatingKey,
+                safeSourceKey: ctx.safeSourceKey,
+                quality: .original,
+                response: response
+            )
+            cleanupURLs.append(destinationURL)
 
-        XCTAssertTrue(result.attemptedDirectFallback)
-        XCTAssertEqual(fallbackDecisionCalls, 1)
-        XCTAssertEqual(downloadManager.completionCalls.count, 1)
-        XCTAssertEqual(downloadManager.completionCalls.first?.quality, StreamingQuality.original.rawValue)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: destinationURL.path))
+            XCTAssertTrue(result.attemptedDirectFallback)
+            XCTAssertEqual(fallbackDecisionCalls, empty ? 0 : 1)
+            XCTAssertEqual(downloadManager.completionCalls.count, 1)
+            XCTAssertEqual(downloadManager.completionCalls.first?.quality, StreamingQuality.original.rawValue)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: destinationURL.path))
+        }
     }
 
     func testExecuteSkipsPersistingWhenTargetIsRemovedBeforeCompletion() async throws {

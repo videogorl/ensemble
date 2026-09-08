@@ -106,7 +106,6 @@ final class DownloadTransferExecutor {
             }
 
             let sizeEstimate = Self.estimatedFileSize(durationMs: ctx.trackDuration, quality: requestedQuality)
-            var effectiveQuality = requestedQuality
 
             if requestedQuality != .original {
                 do {
@@ -132,11 +131,11 @@ final class DownloadTransferExecutor {
                     EnsembleLogger.debug(
                         "⚠️ Download queue failed for track=\(ctx.trackRatingKey): \(error.localizedDescription); falling back to direct original"
                     )
-                    effectiveQuality = .original
                 }
             }
 
-            let selectedURL = try await dependencies.fetchDirectDownloadURL(ctx.domainTrack, .original)
+            let effectiveQuality: StreamingQuality = .original
+            let selectedURL = try await dependencies.fetchDirectDownloadURL(ctx.domainTrack, effectiveQuality)
             let selectedMode = requestedQuality == .original ? "direct-original" : "direct-original-fallback"
             attemptedDirectFallback = requestedQuality != .original
 
@@ -326,30 +325,25 @@ final class DownloadTransferExecutor {
     /// Retains validated partial transfers through the shared HTTP download transport.
     /// Falls back to `estimatedSize` when Content-Length is absent (common for transcode streams).
     /// Progress is throttled to ~1 update/second to avoid excessive CoreData writes.
-    /// Runs the byte-streaming loop off the main actor so UI updates aren't blocked.
+    /// The nonisolated API transport owns execution; cancellation follows the worker task.
     static func downloadWithProgress(
         from url: URL,
         downloadID: NSManagedObjectID,
         estimatedSize: Int64 = -1,
-        downloadManager: DownloadManagerProtocol
+        downloadManager: DownloadManagerProtocol,
+        networkPolicy: DownloadNetworkPolicy
     ) async throws -> (URL, URLResponse) {
-        let detachedTask = Task.detached(priority: .utility) {
-            try await ResumableDownload.file(
-                for: URLRequest(url: url),
-                identity: downloadID.uriRepresentation().absoluteString
-            ) { received, expected in
-                let total = expected > 0 ? expected : estimatedSize
-                if total > 0 {
-                    try? await downloadManager.updateDownloadProgress(
-                        downloadID, progress: min(Float(received) / Float(total), 0.99)
-                    )
-                }
+        var request = URLRequest(url: url)
+        networkPolicy.apply(to: &request)
+        return try await ResumableDownload.file(
+            for: request, identity: downloadID.uriRepresentation().absoluteString
+        ) { received, expected in
+            let total = expected > 0 ? expected : estimatedSize
+            if total > 0 {
+                try? await downloadManager.updateDownloadProgress(
+                    downloadID, progress: min(Float(received) / Float(total), 0.99)
+                )
             }
-        }
-        return try await withTaskCancellationHandler {
-            try await detachedTask.value
-        } onCancel: {
-            detachedTask.cancel()
         }
     }
 
