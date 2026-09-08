@@ -1,0 +1,166 @@
+CASE isolate-download
+[20:03:46.868] [INFO] [app] NETWORK_AUDIT prepared mode=download
+[20:03:48.946] [INFO] [app] NETWORK_AUDIT begin mode=download
+[20:03:50.100] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=57976308 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=1021
+[20:04:35.234] [INFO] [app] NETWORK_AUDIT end mode=download
+[20:03:50.206] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.12s lastPCM=0.10s bytes=24569 taskBytes=24569/-1 decodedFrames=40943 bufferedFrames=35768 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=5175 renderMissingFrames=0 sampleRate=44100.0}
+[20:03:51.214] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.09s lastPCM=0.08s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=73343 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=49392 renderMissingFrames=0 sampleRate=44100.0}
+[20:03:52.249] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.10s lastPCM=0.08s bytes=122873 taskBytes=122873/-1 decodedFrames=203375 bufferedFrames=108354 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=95021 renderMissingFrames=0 sampleRate=44100.0}
+[20:03:53.289] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.10s lastPCM=0.08s bytes=172025 taskBytes=172025/-1 decodedFrames=282863 bufferedFrames=141743 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=141120 renderMissingFrames=0 sampleRate=44100.0}
+[20:03:54.345] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.13s lastPCM=0.11s bytes=221177 taskBytes=221177/-1 decodedFrames=365807 bufferedFrames=178117 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=187690 renderMissingFrames=0 sampleRate=44100.0}
+[20:03:55.388] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.15s lastPCM=0.15s bytes=270329 taskBytes=270329/-1 decodedFrames=446447 bufferedFrames=213128 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=233319 renderMissingFrames=0 sampleRate=44100.0}
+[20:03:56.428] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.16s lastPCM=0.15s bytes=319481 taskBytes=319481/-1 decodedFrames=528239 bufferedFrames=248821 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=279418 renderMissingFrames=0 sampleRate=44100.0}
+[20:03:57.481] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.01s lastPCM=0.01s bytes=370743 taskBytes=370743/-1 decodedFrames=596335 bufferedFrames=270818 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=325517 renderMissingFrames=0 sampleRate=44100.0}
+[20:04:34.649] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.45s lastPCM=0.43s bytes=1249192 taskBytes=1249192/-1 decodedFrames=2015471 bufferedFrames=50610 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1964861 renderMissingFrames=0 sampleRate=44100.0}
+[20:04:35.681] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.02s lastPCM=0.01s bytes=1290159 taskBytes=1290159/-1 decodedFrames=2082287 bufferedFrames=92965 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1989322 renderMissingFrames=0 sampleRate=44100.0}
+
+CASE isolate-probes
+[20:06:25.885] [INFO] [app] NETWORK_AUDIT prepared mode=probes
+[20:06:28.004] [INFO] [app] NETWORK_AUDIT begin mode=probes
+[20:06:29.047] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=8a4b7e63 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=911
+[20:07:14.151] [INFO] [app] NETWORK_AUDIT end mode=probes
+[20:06:29.289] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.27s lastPCM=0.25s bytes=24569 taskBytes=24569/-1 decodedFrames=40943 bufferedFrames=30123 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=10820 renderMissingFrames=0 sampleRate=44100.0}
+[20:06:30.329] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.29s lastPCM=0.28s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=65816 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=56919 renderMissingFrames=0 sampleRate=44100.0}
+[20:06:31.362] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.13s lastPCM=0.12s bytes=131072 taskBytes=131072/-1 decodedFrames=217199 bufferedFrames=115122 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=102077 renderMissingFrames=0 sampleRate=44100.0}
+[20:06:32.404] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.41s lastPCM=0.39s bytes=155641 taskBytes=155641/-1 decodedFrames=257519 bufferedFrames=109343 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=148176 renderMissingFrames=0 sampleRate=44100.0}
+[20:06:33.423] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.32s lastPCM=0.31s bytes=204793 taskBytes=204793/-1 decodedFrames=338159 bufferedFrames=144824 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=193335 renderMissingFrames=0 sampleRate=44100.0}
+[20:06:34.428] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.13s lastPCM=0.13s bytes=262144 taskBytes=262144/-1 decodedFrames=432623 bufferedFrames=195071 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=237552 renderMissingFrames=0 sampleRate=44100.0}
+[20:06:35.431] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.28s lastPCM=0.26s bytes=303097 taskBytes=303097/-1 decodedFrames=501743 bufferedFrames=219973 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=281770 renderMissingFrames=0 sampleRate=44100.0}
+[20:06:36.454] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.20s lastPCM=0.20s bytes=335866 taskBytes=335866/-1 decodedFrames=554735 bufferedFrames=227807 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=326928 renderMissingFrames=0 sampleRate=44100.0}
+[20:07:13.410] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.06s lastPCM=0.11s bytes=2019782 taskBytes=2019782/-1 decodedFrames=2841839 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1956394 renderMissingFrames=0 sampleRate=44100.0}
+[20:07:14.464] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.26s lastPCM=0.42s bytes=2060735 taskBytes=2060735/-1 decodedFrames=2874607 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1988852 renderMissingFrames=0 sampleRate=44100.0}
+
+CASE isolate-quiet
+[20:02:28.850] [INFO] [app] NETWORK_AUDIT prepared mode=quiet
+[20:02:30.935] [INFO] [app] NETWORK_AUDIT begin mode=quiet
+[20:02:32.336] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=fbbe3064 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=1222
+[20:03:17.457] [INFO] [app] NETWORK_AUDIT end mode=quiet
+[20:02:32.519] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.22s lastPCM=0.19s bytes=24569 taskBytes=24569/-1 decodedFrames=40943 bufferedFrames=32475 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=8468 renderMissingFrames=0 sampleRate=44100.0}
+[20:02:33.555] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.23s lastPCM=0.23s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=68639 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=54096 renderMissingFrames=0 sampleRate=44100.0}
+[20:02:34.605] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.09s lastPCM=0.08s bytes=131072 taskBytes=131072/-1 decodedFrames=217199 bufferedFrames=117003 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=100196 renderMissingFrames=0 sampleRate=44100.0}
+[20:02:35.620] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.25s lastPCM=0.23s bytes=172025 taskBytes=172025/-1 decodedFrames=282863 bufferedFrames=137979 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=144884 renderMissingFrames=0 sampleRate=44100.0}
+[20:02:36.669] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.27s lastPCM=0.25s bytes=221177 taskBytes=221177/-1 decodedFrames=365807 bufferedFrames=174354 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=191453 renderMissingFrames=0 sampleRate=44100.0}
+[20:02:37.719] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.30s lastPCM=0.29s bytes=270330 taskBytes=270330/-1 decodedFrames=446447 bufferedFrames=208895 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=237552 renderMissingFrames=0 sampleRate=44100.0}
+[20:02:38.786] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.17s lastPCM=0.17s bytes=328051 taskBytes=328051/-1 decodedFrames=542063 bufferedFrames=257471 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=284592 renderMissingFrames=0 sampleRate=44100.0}
+[20:02:39.820] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.01s lastPCM=0.01s bytes=385402 taskBytes=385402/-1 decodedFrames=634351 bufferedFrames=304130 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=330221 renderMissingFrames=0 sampleRate=44100.0}
+[20:03:17.220] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.08s lastPCM=0.01s bytes=2171780 taskBytes=2171780/-1 decodedFrames=2869487 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1979444 renderMissingFrames=0 sampleRate=44100.0}
+[20:03:18.254] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.25s lastPCM=0.85s bytes=2212733 taskBytes=2212733/-1 decodedFrames=2877167 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1989792 renderMissingFrames=0 sampleRate=44100.0}
+
+CASE isolate-sync
+[20:05:03.591] [INFO] [app] NETWORK_AUDIT prepared mode=sync
+[20:05:05.667] [INFO] [app] NETWORK_AUDIT begin mode=sync
+[20:05:05.811] [DEBUG] [core] ⏱️ Incremental sync: artist metadata comparison took 0.07s — 4 from server, 0 changed
+[20:05:07.487] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=6880cdcb trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=1682
+[20:05:19.351] [DEBUG] [core] ⏱️ Incremental sync: artist metadata comparison took 13.13s — 215 from server, 0 changed
+[20:05:22.440] [DEBUG] [core] ⏱️ Incremental sync: artist metadata comparison took 1.88s — 56 from server, 0 changed
+[20:05:30.212] [DEBUG] [core] ⏱️ Incremental sync: artist metadata comparison took 7.22s — 111 from server, 0 changed
+[20:05:52.584] [INFO] [app] NETWORK_AUDIT end mode=sync
+[20:05:07.097] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.32s lastPCM=never bytes=8185 taskBytes=8185/-1 decodedFrames=0 bufferedFrames=0 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none }
+[20:05:08.111] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.65s lastPCM=0.63s bytes=24569 taskBytes=24569/-1 decodedFrames=40943 bufferedFrames=13189 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=27754 renderMissingFrames=0 sampleRate=44100.0}
+[20:05:09.140] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.32s lastPCM=0.30s bytes=57337 taskBytes=57337/-1 decodedFrames=96239 bufferedFrames=22856 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=72912 renderMissingFrames=0 sampleRate=44100.0}
+[20:05:10.170] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.67s lastPCM=0.66s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=4194 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=118541 renderMissingFrames=0 sampleRate=44100.0}
+[20:05:11.204] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.33s lastPCM=0.32s bytes=106489 taskBytes=106489/-1 decodedFrames=175727 bufferedFrames=11914 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=164170 renderMissingFrames=357 sampleRate=44100.0}
+[20:05:12.222] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.33s lastPCM=0.32s bytes=131072 taskBytes=131072/-1 decodedFrames=217199 bufferedFrames=11837 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=209328 renderMissingFrames=3966 sampleRate=44100.0}
+[20:05:13.225] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.30s lastPCM=0.30s bytes=155641 taskBytes=155641/-1 decodedFrames=257519 bufferedFrames=12854 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=253546 renderMissingFrames=8881 sampleRate=44100.0}
+[20:05:14.270] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.67s lastPCM=0.65s bytes=172025 taskBytes=172025/-1 decodedFrames=282863 bufferedFrames=0 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=299645 renderMissingFrames=16782 sampleRate=44100.0}
+[20:05:51.522] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.07s lastPCM=0.07s bytes=1626566 taskBytes=1626566/-1 decodedFrames=2577647 bufferedFrames=672595 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1942282 renderMissingFrames=37230 sampleRate=44100.0}
+[20:05:52.563] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.26s lastPCM=0.24s bytes=1667519 taskBytes=1667519/-1 decodedFrames=2638703 bufferedFrames=687552 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1988381 renderMissingFrames=37230 sampleRate=44100.0}
+
+CASE isolate-sync-repeat
+[20:07:44.682] [INFO] [app] NETWORK_AUDIT prepared mode=sync
+[20:07:46.759] [INFO] [app] NETWORK_AUDIT begin mode=sync
+[20:07:49.089] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=e85987ff trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=2193
+[20:08:00.095] [DEBUG] [core] ⏱️ Incremental sync: artist metadata comparison took 13.15s — 215 from server, 0 changed
+[20:08:01.205] [DEBUG] [core] ⏱️ Incremental sync: artist metadata comparison took 0.17s — 4 from server, 0 changed
+[20:08:08.893] [DEBUG] [core] ⏱️ Incremental sync: artist metadata comparison took 7.21s — 111 from server, 0 changed
+[20:08:11.944] [DEBUG] [core] ⏱️ Incremental sync: artist metadata comparison took 1.88s — 56 from server, 0 changed
+[20:08:34.188] [INFO] [app] NETWORK_AUDIT end mode=sync
+[20:07:48.528] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.15s lastPCM=never bytes=8185 taskBytes=8185/-1 decodedFrames=0 bufferedFrames=0 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none }
+[20:07:49.562] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.51s lastPCM=0.48s bytes=24569 taskBytes=24569/-1 decodedFrames=40943 bufferedFrames=19304 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=21639 renderMissingFrames=0 sampleRate=44100.0}
+[20:07:50.564] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.14s lastPCM=0.12s bytes=57337 taskBytes=57337/-1 decodedFrames=96239 bufferedFrames=30383 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=65856 renderMissingFrames=0 sampleRate=44100.0}
+[20:07:51.567] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.46s lastPCM=0.45s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=12661 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=110074 renderMissingFrames=0 sampleRate=44100.0}
+[20:07:52.632] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.16s lastPCM=0.14s bytes=106489 taskBytes=106489/-1 decodedFrames=175727 bufferedFrames=19440 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=157114 renderMissingFrames=827 sampleRate=44100.0}
+[20:07:53.667] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.17s lastPCM=0.17s bytes=131072 taskBytes=131072/-1 decodedFrames=217199 bufferedFrames=18893 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=202743 renderMissingFrames=4437 sampleRate=44100.0}
+[20:07:54.693] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.17s lastPCM=0.15s bytes=155641 taskBytes=155641/-1 decodedFrames=257519 bufferedFrames=18970 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=247901 renderMissingFrames=9352 sampleRate=44100.0}
+[20:07:55.730] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.53s lastPCM=0.51s bytes=172025 taskBytes=172025/-1 decodedFrames=282863 bufferedFrames=2294 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=293530 renderMissingFrames=12961 sampleRate=44100.0}
+[20:08:33.658] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.14s lastPCM=0.13s bytes=1664124 taskBytes=1664124/-1 decodedFrames=2632943 bufferedFrames=701444 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1966272 renderMissingFrames=34773 sampleRate=44100.0}
+[20:08:34.667] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.29s lastPCM=0.29s bytes=1705077 taskBytes=1705077/-1 decodedFrames=2692847 bufferedFrames=738298 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1989322 renderMissingFrames=34773 sampleRate=44100.0}
+
+CASE mutation-reconnect
+[20:12:04.102] [INFO] [app] NETWORK_AUDIT mutations phase=offline-enqueued rows=2 pending=2
+[20:12:04.109] [INFO] [app] NETWORK_AUDIT mutation id=90CA788B-88DC-4CAE-91E3-7417427069D2 status=pending retries=0
+[20:12:04.110] [INFO] [app] NETWORK_AUDIT mutation id=C73AD954-AC23-41F1-8E4C-A82D7CA8CCA0 status=pending retries=0
+[20:12:04.115] [INFO] [app] NETWORK_AUDIT mockRating key=900000001 acknowledged=true
+[20:12:04.116] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:12:04.146] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:12:04.154] [INFO] [app] NETWORK_AUDIT mutations phase=failed-pass-1 rows=1 pending=1
+[20:12:04.154] [INFO] [app] NETWORK_AUDIT mutation id=90CA788B-88DC-4CAE-91E3-7417427069D2 status=pending retries=1
+[20:12:04.155] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:12:04.159] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:12:04.161] [INFO] [app] NETWORK_AUDIT mutations phase=failed-pass-2 rows=1 pending=1
+[20:12:04.161] [INFO] [app] NETWORK_AUDIT mutation id=90CA788B-88DC-4CAE-91E3-7417427069D2 status=pending retries=2
+[20:12:04.162] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:12:04.180] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=false
+[20:12:04.183] [INFO] [app] NETWORK_AUDIT mutations phase=failed-pass-3 rows=1 pending=0
+[20:12:04.183] [INFO] [app] NETWORK_AUDIT mutation id=90CA788B-88DC-4CAE-91E3-7417427069D2 status=failed retries=3
+[20:12:04.184] [INFO] [app] NETWORK_AUDIT mutations phase=transport-restored rows=1 pending=0
+[20:12:04.184] [INFO] [app] NETWORK_AUDIT mutation id=90CA788B-88DC-4CAE-91E3-7417427069D2 status=failed retries=3
+[20:12:04.185] [INFO] [app] NETWORK_AUDIT mockRating key=900000002 acknowledged=true
+[20:12:04.186] [INFO] [app] NETWORK_AUDIT mutations phase=explicit-retry rows=0 pending=0
+[20:12:04.186] [INFO] [app] NETWORK_AUDIT end mode=mutations
+
+CASE recovery-default
+[20:09:22.749] [INFO] [app] NETWORK_AUDIT prepared mode=quiet
+[20:09:24.800] [INFO] [app] NETWORK_AUDIT begin mode=quiet
+[20:09:25.835] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=d7e858d3 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=901
+[20:09:29.612] [ERROR] [core] [StreamingPipeline] PCM underrun trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 missingFrames=44257 task=running lastByte=2.77s lastPCM=2.77s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=0 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=166992 renderMissingFrames=44257 sampleRate=44100.0}
+[20:09:32.151] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=a39a527a trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=2500
+[20:10:11.865] [INFO] [app] NETWORK_AUDIT end mode=quiet
+[20:09:26.064] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.25s lastPCM=0.24s bytes=24569 taskBytes=24569/-1 decodedFrames=40943 bufferedFrames=30594 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=10349 renderMissingFrames=0 sampleRate=44100.0}
+[20:09:27.112] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.28s lastPCM=0.27s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=66287 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=56448 renderMissingFrames=0 sampleRate=44100.0}
+[20:09:28.120] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=1.28s lastPCM=1.28s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=21599 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=101136 renderMissingFrames=0 sampleRate=44100.0}
+[20:09:29.174] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=2.34s lastPCM=2.33s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=0 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=147236 renderMissingFrames=24501 sampleRate=44100.0}
+[20:09:30.179] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=3.34s lastPCM=3.33s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=0 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=166992 renderMissingFrames=44257 sampleRate=44100.0}
+[20:09:32.143] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.02s lastPCM=0.00s bytes=24569 taskBytes=24569/-1 decodedFrames=24576 bufferedFrames=24576 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=0 renderMissingFrames=0 sampleRate=44100.0}
+[20:09:33.164] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.02s lastPCM=0.01s bytes=73721 taskBytes=73721/-1 decodedFrames=120431 bufferedFrames=75272 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=45159 renderMissingFrames=0 sampleRate=44100.0}
+[20:09:34.209] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.04s lastPCM=0.02s bytes=122873 taskBytes=122873/-1 decodedFrames=201071 bufferedFrames=109813 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=91258 renderMissingFrames=0 sampleRate=44100.0}
+[20:10:11.394] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.07s lastPCM=0.11s bytes=1903730 taskBytes=1903730/-1 decodedFrames=2616175 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1731072 renderMissingFrames=0 sampleRate=44100.0}
+[20:10:12.461] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.10s lastPCM=0.62s bytes=1952882 taskBytes=1952882/-1 decodedFrames=2640751 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1751300 renderMissingFrames=0 sampleRate=44100.0}
+[20:09:26.910] [INFO] [app] NETWORK_AUDIT position seconds=1.0018430833588354
+[20:09:27.919] [INFO] [app] NETWORK_AUDIT position seconds=2.0018840833799914
+[20:09:28.973] [INFO] [app] NETWORK_AUDIT position seconds=3.1003829583642073
+[20:09:30.016] [INFO] [app] NETWORK_AUDIT position seconds=3.7017949583823793
+[20:09:31.070] [INFO] [app] NETWORK_AUDIT position seconds=3.7017949583823793
+[20:09:32.118] [INFO] [app] NETWORK_AUDIT position seconds=3.7017949583823793
+[20:09:33.127] [INFO] [app] NETWORK_AUDIT position seconds=3.9020765832974575
+[20:09:34.131] [INFO] [app] NETWORK_AUDIT position seconds=5.000093166658189
+[20:10:10.812] [INFO] [app] NETWORK_AUDIT position seconds=41.600120749964844
+[20:10:11.833] [INFO] [app] NETWORK_AUDIT position seconds=42.70205679163337
+
+CASE recovery-retained
+[20:10:45.348] [INFO] [app] NETWORK_AUDIT prepared mode=retain
+[20:10:47.446] [INFO] [app] NETWORK_AUDIT begin mode=retain
+[20:10:48.447] [INFO] [playback] PLAYBACK_JOURNEY event=firstAudibleRender journey=a953bc73 trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 elapsedMs=870
+[20:10:52.225] [ERROR] [core] [StreamingPipeline] PCM underrun trackId=plex:192ce24b8461095c:168bc50f4019f1c9750f28375dcf044594d4192d:3||13827 missingFrames=44257 task=running lastByte=2.77s lastPCM=2.77s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=0 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=166992 renderMissingFrames=44257 sampleRate=44100.0}
+[20:10:52.225] [INFO] [core] NETWORK_AUDIT retained live stream after underrun
+[20:11:34.264] [INFO] [app] NETWORK_AUDIT end mode=retain
+[20:10:48.703] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.28s lastPCM=0.26s bytes=24569 taskBytes=24569/-1 decodedFrames=40943 bufferedFrames=29653 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=11290 renderMissingFrames=0 sampleRate=44100.0}
+[20:10:49.729] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.28s lastPCM=0.27s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=65816 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=56919 renderMissingFrames=0 sampleRate=44100.0}
+[20:10:50.733] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=1.28s lastPCM=1.27s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=21599 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=101136 renderMissingFrames=0 sampleRate=44100.0}
+[20:10:51.736] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=2.28s lastPCM=2.28s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=0 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=145354 renderMissingFrames=22619 sampleRate=44100.0}
+[20:10:52.758] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=3.31s lastPCM=3.30s bytes=73721 taskBytes=73721/-1 decodedFrames=122735 bufferedFrames=0 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=190512 renderMissingFrames=67777 sampleRate=44100.0}
+[20:10:53.796] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.17s lastPCM=0.15s bytes=90105 taskBytes=90105/-1 decodedFrames=149231 bufferedFrames=18970 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=236141 renderMissingFrames=105880 sampleRate=44100.0}
+[20:10:54.837] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.18s lastPCM=0.17s bytes=139257 taskBytes=139257/-1 decodedFrames=231023 bufferedFrames=55133 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=281770 renderMissingFrames=105880 sampleRate=44100.0}
+[20:10:55.905] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.06s lastPCM=0.05s bytes=196608 taskBytes=196608/-1 decodedFrames=324335 bufferedFrames=101405 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=328810 renderMissingFrames=105880 sampleRate=44100.0}
+[20:11:33.133] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.04s lastPCM=0.02s bytes=1978815 taskBytes=1978815/-1 decodedFrames=2754159 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=1970976 renderMissingFrames=105880 sampleRate=44100.0}
+[20:11:34.179] [INFO] [core] NETWORK_AUDIT pipeline task=running lastByte=0.06s lastPCM=0.14s bytes=2027967 taskBytes=2027967/-1 decodedFrames=2795119 bufferedFrames=882000 complete=false response={status=200 expectedBytes=-1 framing=unknown} metrics={none renderRequestedFrames=2017076 renderMissingFrames=105880 sampleRate=44100.0}
+[20:10:49.528] [INFO] [app] NETWORK_AUDIT position seconds=1.000551541626919
+[20:10:50.529] [INFO] [app] NETWORK_AUDIT position seconds=2.0005794583121315
+[20:10:51.532] [INFO] [app] NETWORK_AUDIT position seconds=3.0020638749701902
+[20:10:52.533] [INFO] [app] NETWORK_AUDIT position seconds=4.100742583337706
+[20:10:53.533] [INFO] [app] NETWORK_AUDIT position seconds=5.101126458321232
+[20:10:54.580] [INFO] [app] NETWORK_AUDIT position seconds=6.101371500000823
+[20:10:55.585] [INFO] [app] NETWORK_AUDIT position seconds=7.102056249976158
+[20:10:56.628] [INFO] [app] NETWORK_AUDIT position seconds=8.100408583297394
+[20:11:33.218] [INFO] [app] NETWORK_AUDIT position seconds=44.70012266666163
+[20:11:34.234] [INFO] [app] NETWORK_AUDIT position seconds=45.80208079167642
