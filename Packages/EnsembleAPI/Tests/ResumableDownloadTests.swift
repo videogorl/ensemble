@@ -56,7 +56,7 @@ final class ResumableDownloadTests: XCTestCase {
             Transport.lock.unlock()
             let config = URLSessionConfiguration.ephemeral
             config.protocolClasses = [Transport.self]
-            let session = URLSession(configuration: config)
+            var session = URLSession(configuration: config)
             defer { session.invalidateAndCancel() }
             let request = URLRequest(url: URL(string: "https://download.invalid/\(UUID().uuidString)")!)
             let progress = expectation(description: "partial bytes written")
@@ -72,6 +72,9 @@ final class ResumableDownloadTests: XCTestCase {
             } catch {
                 if !cancel { XCTAssertEqual((error as? URLError)?.code, .networkConnectionLost) }
             }
+            // Recreate the transport as on relaunch; retained bytes are disk-owned.
+            session.invalidateAndCancel()
+            session = URLSession(configuration: config)
             if malformed {
                 do {
                     _ = try await ResumableDownload.file(for: request, session: session)

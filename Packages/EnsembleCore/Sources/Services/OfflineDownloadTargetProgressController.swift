@@ -223,10 +223,13 @@ final class OfflineDownloadTargetProgressController {
                 continue
             }
 
-            switch download.downloadStatus {
-            case .completed:
+            if download.hasStoredFile || download.downloadStatus == .completed {
                 completed += 1
                 downloadedBytes += max(download.fileSize, 0)
+            }
+            switch download.downloadStatus {
+            case .completed:
+                break
             case .downloading:
                 downloading += 1
             case .pending:
@@ -247,7 +250,7 @@ final class OfflineDownloadTargetProgressController {
         let status: CDOfflineDownloadTarget.Status
         if failed > 0 {
             status = .failed
-        } else if completed >= total {
+        } else if completed >= total && downloading == 0 && pending == 0 && paused == 0 {
             status = .completed
         } else if downloading > 0 || (dependencies.isQueueRunning() && pending > 0) {
             status = .downloading

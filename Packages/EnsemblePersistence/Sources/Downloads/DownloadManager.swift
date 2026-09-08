@@ -480,28 +480,8 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     downloadRequest.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
 
                     if let existing = try context.fetch(downloadRequest).first {
-                        let normalizedQuality = Self.normalizedQuality(quality)
-                        let existingQuality = existing.quality ?? "original"
-
-                        // Only re-queue if the existing quality is LOWER than desired.
-                        // original > high > medium > low — a fallback to "original"
-                        // satisfies any lower quality request and should not re-trigger.
-                        if !Self.qualitySatisfies(existing: existingQuality, desired: normalizedQuality) {
-                            // Keep the old file and localFilePath intact so the track remains
-                            // playable at old quality while the new download proceeds.
-                            // completeDownload() will update paths and clean up the old file.
-                            EnsembleLogger.debug(
-                                "📥 createDownload: quality upgrade needed for track=\(trackRatingKey) existing=\(existingQuality) desired=\(normalizedQuality) status=\(existing.status ?? "nil") filePath=\(existing.filePath ?? "nil") — resetting to pending"
-                            )
-                            existing.quality = normalizedQuality
-                            existing.progress = 0
-                            existing.error = nil
-                            existing.completedAt = nil
-                            existing.status = CDDownload.Status.pending.rawValue
-                            existing.startedAt = Date()
-                            try context.save()
-                        }
-
+                        // Existing targets keep their requested and installed quality.
+                        // Replacement is an explicit requeue operation.
                         let existingObjectID = existing.objectID
                         context.reset()
                         let mainContext = self.coreDataStack.viewContext
@@ -597,19 +577,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                             continue
                         }
 
-                        if let existing = downloadLookup[lookupKey] {
-                            // Existing download — only re-queue if quality upgrade needed
-                            let existingQuality = existing.quality ?? "original"
-                            if !Self.qualitySatisfies(existing: existingQuality, desired: normalizedQuality) {
-                                existing.quality = normalizedQuality
-                                existing.progress = 0
-                                existing.error = nil
-                                existing.completedAt = nil
-                                existing.status = CDDownload.Status.pending.rawValue
-                                existing.startedAt = now
-                                newlyCreated += 1
-                            }
-                        } else {
+                        if downloadLookup[lookupKey] == nil {
                             // No existing download — create new pending record
                             let download = CDDownload(context: context)
                             download.status = CDDownload.Status.pending.rawValue
@@ -832,7 +800,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDDownload.fetchRequest()
-                request.predicate = NSPredicate(format: "status == %@", CDDownload.Status.completed.rawValue)
+                request.predicate = NSPredicate(format: "filePath != nil AND filePath != ''")
 
                 do {
                     let downloads = try context.fetch(request)
@@ -1015,17 +983,6 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         default:
             return "original"
         }
-    }
-
-    /// Returns true when `existing` quality is equal to or higher than `desired`.
-    /// Quality ranking: original > high > medium > low.
-    /// Used to prevent re-downloading when a fallback stored original quality
-    /// but the user's setting is medium/high — the file already exceeds the request.
-    public static func qualitySatisfies(existing: String, desired: String) -> Bool {
-        let ranking = ["low": 0, "medium": 1, "high": 2, "original": 3]
-        let existingRank = ranking[existing] ?? 3
-        let desiredRank = ranking[desired] ?? 3
-        return existingRank >= desiredRank
     }
 
     /// Build the current absolute path for a download filename.

@@ -182,7 +182,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
     }
 
     private func makeService(
-        downloadManager: MockDownloadManager = MockDownloadManager(),
+        downloadManager: DownloadManagerProtocol = MockDownloadManager(),
         targetRepository: MockTargetRepository = MockTargetRepository(),
         backgroundCoordinator: OfflineDownloadBackgroundCoordinating? = nil,
         networkMonitor suppliedNetworkMonitor: NetworkMonitor? = nil,
@@ -253,6 +253,34 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         })
     }
 
+    func testCancellingReplacementKeepsPlayableFileAndManualPause() async throws {
+        let stack = CoreDataStack.inMemory()
+        let manager = DownloadManager(coreDataStack: stack)
+        let source = "plex:quality:server:library"
+        let track = CDTrack(context: stack.viewContext)
+        track.ratingKey = "cancel-quality"
+        track.key = "/library/metadata/cancel-quality"
+        track.title = "Cancel quality"
+        track.sourceCompositeKey = source
+        try stack.viewContext.save()
+        let filename = UUID().uuidString + "_high.mp3"
+        let url = DownloadManager.downloadsDirectory.appendingPathComponent(filename)
+        try Data(repeating: 1, count: 42).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let row = try await manager.createDownload(forTrackRatingKey: track.ratingKey, sourceCompositeKey: source, quality: "high")
+        try await manager.completeDownload(row.objectID, filePath: filename, fileSize: 42, quality: "high")
+        let service = await makeService(downloadManager: manager)
+        await service.pauseQueue()
+        try await manager.requeueDownload(row.objectID, quality: "original")
+
+        await service.cancelDownloadReplacements()
+
+        XCTAssertEqual(row.downloadStatus, .completed)
+        XCTAssertEqual(row.quality, "high")
+        XCTAssertEqual(try Data(contentsOf: url), Data(repeating: 1, count: 42))
+        XCTAssertEqual(service.queueStatusReason, .paused)
+    }
+
     func testManualPauseStateRemainsSetUntilResume() async {
         let service = await makeService()
 
@@ -261,6 +289,19 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         await service.resumeQueue()
         XCTAssertEqual(service.queueStatusReason, .idle)
+    }
+
+    func testBackgroundingPausedOrOfflineQueueDoesNotRequestExecution() async {
+        for offline in [false, true] {
+            let manager = MockDownloadManager()
+            manager.pendingCount = 3
+            let background = MockBackgroundExecutionCoordinator()
+            let network = NetworkMonitor(debounceNanoseconds: 0, monitorQueue: DispatchQueue(label: "grant-policy"), monitorFactory: { SystemNetworkPathMonitor() })
+            let service = await makeService(downloadManager: manager, backgroundCoordinator: background, networkMonitor: network)
+            if offline { network.simulateOffline(true) } else { await service.pauseQueue() }
+            await service.handleAppDidEnterBackground()
+            XCTAssertTrue(background.continuedProcessingRequests.isEmpty)
+        }
     }
 
     func testManualResumeRequestsBackgroundExecutionBeforeBackgrounding() async {

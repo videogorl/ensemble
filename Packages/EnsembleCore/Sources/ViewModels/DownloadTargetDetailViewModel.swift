@@ -29,6 +29,7 @@ public struct TrackDownloadRow: Identifiable {
     public let trackNumber: Int32
     /// Index within parent container (used for playlist ordering)
     public let index: Int
+    public var hasStoredFile = false
 
     public var sourceScopedID: String {
         sourceScopedIdentity(ratingKey: trackRatingKey, sourceCompositeKey: sourceCompositeKey)
@@ -83,12 +84,15 @@ struct TrackDownloadRowStats {
         var hasPaused = false
 
         for row in rows {
+            if row.status == .completed || row.hasStoredFile {
+                completedCount += 1
+                downloadedBytes += row.fileSize
+            }
             switch row.status {
             case .failed:
                 failedCount += 1
             case .completed:
-                completedCount += 1
-                downloadedBytes += row.fileSize
+                break
             case .downloading:
                 hasDownloading = true
             case .paused:
@@ -105,7 +109,7 @@ struct TrackDownloadRowStats {
 
         if failedCount > 0 {
             status = .failed
-        } else if completedCount >= rows.count && !rows.isEmpty {
+        } else if !rows.isEmpty && rows.allSatisfy({ $0.status == .completed }) {
             status = .completed
         } else if hasDownloading {
             status = .downloading
@@ -299,15 +303,16 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
                     progress: download?.progress ?? 0,
                     fileSize: download?.fileSize ?? 0,
                     errorMessage: download?.error,
-                    downloadedQuality: download?.quality,
+                    downloadedQuality: download?.filePath.flatMap { AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: $0)) } ?? (status == .completed ? download?.quality : nil),
                     discNumber: cdTrack?.discNumber ?? 0,
                     trackNumber: cdTrack?.trackNumber ?? 0,
-                    index: index
+                    index: index,
+                    hasStoredFile: download?.hasStoredFile ?? false
                 )
                 rows.append(row)
 
                 // Collect playable (downloaded) tracks as full domain models
-                if let cdTrack, status == .completed {
+                if let cdTrack, download?.hasStoredFile == true {
                     resolved.append(Track(from: cdTrack))
                 }
             }

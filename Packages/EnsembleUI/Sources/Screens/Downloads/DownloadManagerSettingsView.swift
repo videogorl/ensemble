@@ -32,6 +32,7 @@ public struct DownloadManagerSettingsView: View {
                     .foregroundColor(EnsembleDesign.Color.accent)
                     .textCase(nil)
             } footer: {
+                Text("Applies to new downloads. Use Redownload at Current Quality on a downloaded item to replace its files.")
                 if let estimates = viewModel.sizeEstimates {
                     Text("Estimated size at this quality: \(estimates.formattedSize(for: downloadQuality))")
                 } else {
@@ -60,6 +61,16 @@ public struct DownloadManagerSettingsView: View {
                         .textCase(nil)
                 } footer: {
                     Text("Estimates are based on downloaded content. Original quality varies by source file.")
+                }
+            }
+
+            if viewModel.replacementCount > 0 {
+                Section {
+                    Button("Cancel File Replacements (\(viewModel.replacementCount))") {
+                        Task { await viewModel.cancelReplacements() }
+                    }
+                } footer: {
+                    Text("Keeps the existing downloaded files. New downloads remain queued.")
                 }
             }
 
@@ -98,13 +109,6 @@ public struct DownloadManagerSettingsView: View {
         #endif
         .task {
             await viewModel.refresh()
-        }
-        .onChange(of: downloadQuality) { _ in
-            // Stop any in-progress downloads immediately when quality changes
-            // so we don't keep downloading at the old quality
-            Task {
-                await deps.offlineDownloadService.cancelInProgressDownloads()
-            }
         }
         .onChange(of: allowCellularDownloads) { _ in
             // Re-evaluate whether the queue should run based on new network policy

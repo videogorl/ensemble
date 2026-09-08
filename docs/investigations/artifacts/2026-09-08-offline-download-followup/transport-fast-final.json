@@ -1,0 +1,92 @@
+[
+  {
+    "bytes": "49357649",
+    "concurrency": "1",
+    "index": "0",
+    "path": "fast-failed-file",
+    "seconds": "2.893236994743347",
+    "sha256": "24307cb937022d6ca9d8d571b448577dd612941f18a0bb603b4d9819c4893c5e",
+    "status": "200",
+    "variant": "shared"
+  },
+  {
+    "bytes": "49357649",
+    "concurrency": "2",
+    "index": "0",
+    "path": "fast-failed-file",
+    "seconds": "4.75748610496521",
+    "sha256": "24307cb937022d6ca9d8d571b448577dd612941f18a0bb603b4d9819c4893c5e",
+    "status": "200",
+    "variant": "shared"
+  },
+  {
+    "bytes": "49357649",
+    "concurrency": "2",
+    "index": "1",
+    "path": "fast-failed-file",
+    "seconds": "4.9687340259552",
+    "sha256": "24307cb937022d6ca9d8d571b448577dd612941f18a0bb603b4d9819c4893c5e",
+    "status": "200",
+    "variant": "shared"
+  },
+  {
+    "bytes": "49357649",
+    "concurrency": "1",
+    "index": "0",
+    "path": "fast-failed-file",
+    "seconds": "3.4315240383148193",
+    "sha256": "24307cb937022d6ca9d8d571b448577dd612941f18a0bb603b4d9819c4893c5e",
+    "status": "200",
+    "variant": "default-cache"
+  },
+  {
+    "bytes": "49357649",
+    "concurrency": "2",
+    "index": "1",
+    "path": "fast-failed-file",
+    "seconds": "4.494354009628296",
+    "sha256": "24307cb937022d6ca9d8d571b448577dd612941f18a0bb603b4d9819c4893c5e",
+    "status": "200",
+    "variant": "default-cache"
+  },
+  {
+    "bytes": "49357649",
+    "concurrency": "2",
+    "index": "0",
+    "path": "fast-failed-file",
+    "seconds": "4.500496029853821",
+    "sha256": "24307cb937022d6ca9d8d571b448577dd612941f18a0bb603b4d9819c4893c5e",
+    "status": "200",
+    "variant": "default-cache"
+  },
+  {
+    "bytes": "49357649",
+    "concurrency": "1",
+    "index": "0",
+    "path": "fast-failed-file",
+    "seconds": "4.785369038581848",
+    "sha256": "24307cb937022d6ca9d8d571b448577dd612941f18a0bb603b4d9819c4893c5e",
+    "status": "200",
+    "variant": "slow-progress"
+  },
+  {
+    "bytes": "49357649",
+    "concurrency": "2",
+    "index": "0",
+    "path": "fast-failed-file",
+    "seconds": "6.216823935508728",
+    "sha256": "24307cb937022d6ca9d8d571b448577dd612941f18a0bb603b4d9819c4893c5e",
+    "status": "200",
+    "variant": "slow-progress"
+  },
+  {
+    "bytes": "49357649",
+    "concurrency": "2",
+    "index": "1",
+    "path": "fast-failed-file",
+    "seconds": "6.233062028884888",
+    "sha256": "24307cb937022d6ca9d8d571b448577dd612941f18a0bb603b4d9819c4893c5e",
+    "status": "200",
+    "variant": "slow-progress"
+  }
+]

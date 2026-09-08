@@ -1,4 +1,5 @@
 import XCTest
+import CoreData
 @testable import EnsembleCore
 import EnsembleAPI
 import EnsemblePersistence
@@ -27,7 +28,7 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         }
     }
 
-    private actor RecordingPlaylistProvider: MusicSourceSyncProvider, MusicSourcePlaylistMutating {
+    private actor RecordingPlaylistProvider: MusicSourceSyncProvider, MusicSourcePlaylistMutating, MusicSourceRatingMutating {
         let sourceIdentifier: MusicSourceIdentifier
         private(set) var events: [String] = []
 
@@ -38,6 +39,17 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             libraryId: "lib-1"
         )) {
             self.sourceIdentifier = sourceIdentifier
+        }
+
+        private var loseAcknowledgment = true
+        private(set) var acceptedRatings: [String: Int] = [:]
+        func restoreAcknowledgments() { loseAcknowledgment = false }
+        func ratings() -> [String: Int] { acceptedRatings }
+        func rateTrack(_ track: Track, rating: Int?) async throws -> MusicSourceRatingMutationEffects {
+            events.append("rate")
+            acceptedRatings[track.id] = rating
+            if loseAcknowledgment { throw URLError(.networkConnectionLost) }
+            return .none
         }
 
         func recordedEvents() -> [String] {
@@ -145,6 +157,57 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         }
         coordinator.setLastPlaylistTargetForTesting(nil, serverSourceKey: "plex:account-1:server-1")
         return coordinator
+    }
+
+    func testAgedOfflineMutationSurvivesStoreReopenAndLostAcknowledgment() async throws {
+        let storeURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".sqlite")
+        defer {
+            for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: storeURL.path + suffix) }
+        }
+        let source = "plex:account-1:server-1:lib-1"
+        var stack = CoreDataStack.inMemory()
+        let payload = try JSONEncoder().encode(TrackRatingMutationPayload(trackRatingKey: "offline", sourceCompositeKey: source, rating: 10))
+        try await PendingMutationRepository(coreDataStack: stack).enqueueMutation(id: "aged-rating", type: .trackRating, payload: payload, sourceCompositeKey: source)
+        let record = try XCTUnwrap(try stack.viewContext.fetch(CDPendingMutation.fetchRequest()).first)
+        record.createdAt = Date().addingTimeInterval(-72 * 3600)
+        try stack.viewContext.save()
+        let coordinator = stack.persistentContainer.persistentStoreCoordinator
+        let original = try XCTUnwrap(coordinator.persistentStores.first)
+        let saved = try coordinator.migratePersistentStore(original, to: storeURL, options: nil, withType: NSSQLiteStoreType)
+        try coordinator.remove(saved)
+        stack = CoreDataStack.inMemory()
+        let reopened = stack.persistentContainer.persistentStoreCoordinator
+        for store in reopened.persistentStores { try reopened.remove(store) }
+        try reopened.addPersistentStore(ofType: NSSQLiteStoreType, configurationName: nil, at: storeURL, options: nil)
+        let repository = PendingMutationRepository(coreDataStack: stack)
+        let network = NetworkMonitor(debounceNanoseconds: 0, monitorQueue: DispatchQueue(label: "aged-replay"), monitorFactory: { SystemNetworkPathMonitor() })
+        network.simulateOffline(true)
+        let sync = makeCoordinator()
+        let provider = RecordingPlaylistProvider()
+        sync.setSyncProvidersForTesting([source: provider])
+        var replay: MutationCoordinator? = MutationCoordinator(repository: repository, networkMonitor: network, syncCoordinator: sync)
+        for _ in 0..<12 { await replay?.drainQueue() }
+        let offlineEvents = await provider.recordedEvents()
+        XCTAssertEqual(offlineEvents, [])
+        let pending = try await repository.fetchPendingMutationRecords()
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(pending.first?.retryCount, 0)
+        network.simulateOffline(false)
+        network.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        for _ in 0..<4 { await replay?.drainQueue() }
+        let unacknowledged = try await repository.fetchPendingMutationRecords()
+        XCTAssertEqual(unacknowledged.count, 1)
+        XCTAssertEqual(unacknowledged.first?.retryCount, 0)
+        let accepted = await provider.ratings()
+        XCTAssertEqual(accepted, ["offline": 10])
+        replay = nil
+        await provider.restoreAcknowledgments()
+        replay = MutationCoordinator(repository: repository, networkMonitor: network, syncCoordinator: sync)
+        await replay?.drainQueue()
+        let remaining = try await repository.fetchPendingMutationRecords()
+        XCTAssertTrue(remaining.isEmpty)
+        let finalRatings = await provider.ratings()
+        XCTAssertEqual(finalRatings, accepted)
     }
 
     func testAddTrackToLibraryCoalescesConcurrentRequests() async throws {

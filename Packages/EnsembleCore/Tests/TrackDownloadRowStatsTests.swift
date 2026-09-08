@@ -19,6 +19,15 @@ final class TrackDownloadRowStatsTests: XCTestCase {
         XCTAssertEqual(stats.status, .completed)
     }
 
+    func testReplacementKeepsAvailableCountsWithoutReportingWorkComplete() {
+        for status: CDDownload.Status in [.pending, .downloading, .paused, .failed] {
+            let stats = TrackDownloadRowStats(rows: [makeRow(status: status, fileSize: 42, downloadedQuality: "high")])
+            XCTAssertEqual(stats.completedCount, 1)
+            XCTAssertEqual(stats.downloadedBytes, 42)
+            XCTAssertNotEqual(stats.status, .completed)
+        }
+    }
+
     func testStatusPriorityKeepsFailuresFirst() {
         let rows = [
             makeRow(status: .completed),
@@ -67,6 +76,7 @@ final class TrackDownloadRowStatsTests: XCTestCase {
     private func makeRow(
         status: CDDownload.Status,
         fileSize: Int64 = 0,
+        downloadedQuality: String? = nil,
         trackRatingKey: String = "track",
         sourceCompositeKey: String = "source",
         title: String = "Track",
@@ -86,10 +96,11 @@ final class TrackDownloadRowStatsTests: XCTestCase {
             progress: status == .completed ? 1 : 0,
             fileSize: fileSize,
             errorMessage: nil,
-            downloadedQuality: nil,
+            downloadedQuality: downloadedQuality,
             discNumber: discNumber,
             trackNumber: trackNumber,
-            index: 0
+            index: 0,
+            hasStoredFile: downloadedQuality != nil
         )
     }
 }

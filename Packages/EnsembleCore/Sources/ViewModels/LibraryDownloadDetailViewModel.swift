@@ -128,15 +128,16 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
                     progress: download.progress,
                     fileSize: download.fileSize,
                     errorMessage: download.error,
-                    downloadedQuality: download.quality,
+                    downloadedQuality: download.filePath.flatMap { AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: $0)) } ?? (status == .completed ? download.quality : nil),
                     discNumber: track.discNumber,
                     trackNumber: track.trackNumber,
-                    index: index
+                    index: index,
+                    hasStoredFile: download.hasStoredFile
                 )
                 rows.append(row)
 
                 // Collect playable (completed) tracks as domain models
-                if status == .completed {
+                if download.hasStoredFile {
                     resolved.append(Track(from: track))
                 }
             }

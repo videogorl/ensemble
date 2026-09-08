@@ -33,6 +33,10 @@
 - Startup publishes target/queue state after lightweight repair. Expensive file
   healing, truncation scans, cleanup, and full progress computation are deferred
   and coalesced so downloads and playback stay responsive on constrained devices.
+- The quality preference applies to newly queued tracks. Reconciliation preserves
+  existing requested quality; replacing installed files requires an explicit action.
+  Existing playable files remain counted and usable during replacement, and
+  cancelling replacements preserves them.
 - Requested quality is preserved across retry and recovery. Refresh a completed
   file only when its stored quality differs. A server that cannot perform
   offline transcode may fall back to original quality without repeated failing

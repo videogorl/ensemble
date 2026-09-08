@@ -396,6 +396,11 @@ extension CDDownload {
         case paused
     }
 
+    /// A completed artifact can remain playable while its replacement is queued.
+    public var hasStoredFile: Bool {
+        filePath?.isEmpty == false
+    }
+
     public var downloadStatus: Status {
         get { Status(rawValue: status ?? "") ?? .pending }
         set { status = newValue.rawValue }

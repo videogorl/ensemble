@@ -332,7 +332,7 @@ public final class DownloadsViewModel: ObservableObject {
                     )
 
                     let downloads = downloadsBySource[sourceCompositeKey] ?? []
-                    let completedDownloads = downloads.filter { $0.downloadStatus == .completed }
+                    let completedDownloads = downloads.filter { $0.hasStoredFile || $0.downloadStatus == .completed }
                     let downloadedBytes = completedDownloads.reduce(Int64(0)) { $0 + $1.fileSize }
 
                     let trackStats = trackStatsBySource[sourceCompositeKey]

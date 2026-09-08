@@ -47,6 +47,29 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertNotEqual(downloadA?.track?.sourceCompositeKey, downloadB?.track?.sourceCompositeKey)
     }
 
+    func testReconciliationPreservesExistingQualityAndReplacementIsExplicit() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = LibraryRepository(coreDataStack: stack)
+        let manager = DownloadManager(coreDataStack: stack)
+        try await seedTrack(ratingKey: "quality", sourceCompositeKey: sourceA, repository: repository)
+        let row = try await manager.createDownload(forTrackRatingKey: "quality", sourceCompositeKey: sourceA, quality: "high")
+        try await manager.completeDownload(row.objectID, filePath: "quality_high.mp3", fileSize: 42, quality: "high")
+        for desired in ["original", "low"] {
+            _ = try await manager.createDownload(forTrackRatingKey: "quality", sourceCompositeKey: sourceA, quality: desired)
+            let added = try await manager.batchCreateDownloads(references: [.init(trackRatingKey: "quality", trackSourceCompositeKey: sourceA)], quality: desired)
+            XCTAssertEqual(added, 0)
+            XCTAssertEqual(row.downloadStatus, .completed)
+            XCTAssertEqual(row.quality, "high")
+        }
+        try await manager.requeueDownload(row.objectID, quality: "original")
+        XCTAssertTrue(row.hasStoredFile)
+        XCTAssertEqual(row.downloadStatus, .pending)
+        let size = try await manager.getTotalDownloadSize()
+        XCTAssertEqual(size, 42)
+        _ = try await manager.batchCreateDownloads(references: [.init(trackRatingKey: "quality", trackSourceCompositeKey: sourceA)], quality: "low")
+        XCTAssertEqual(row.quality, "original")
+    }
+
     func testDeferredDownloadDoesNotBlockTheNextTrack() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)

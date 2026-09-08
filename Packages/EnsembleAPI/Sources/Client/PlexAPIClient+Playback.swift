@@ -4,7 +4,7 @@ extension PlexAPIClient {
     // MARK: - Playback URLs
 
     /// Generate streaming URL for a track using its stream key.
-    public func getStreamURL(trackKey: String?) throws -> URL {
+    public func getStreamURL(trackKey: String?, download: Bool = false) throws -> URL {
         guard let partKey = trackKey, !partKey.isEmpty else {
             EnsembleLogger.debug("❌ PlexAPIClient: trackKey is nil or empty")
             throw PlexAPIError.invalidURL
@@ -23,6 +23,8 @@ extension PlexAPIClient {
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
+
+        if download { components.queryItems?.append(URLQueryItem(name: "download", value: "1")) }
 
         guard let url = components.url else {
             EnsembleLogger.debug("❌ PlexAPIClient: Failed to construct final URL")

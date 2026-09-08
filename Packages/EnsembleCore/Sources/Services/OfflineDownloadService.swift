@@ -687,8 +687,7 @@ public final class OfflineDownloadService: ObservableObject {
                 await refreshAllTargetProgresses()
                 startQueueIfNeeded()
 
-                let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? 0
-                backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
+                await requestBackgroundExecutionIfNeeded()
                 notificationBridge.notifyDownloadsChangedImmediately()
             } else {
                 await refreshTargetProgress(forTargetKey: key)
@@ -744,8 +743,7 @@ public final class OfflineDownloadService: ObservableObject {
             await refreshAllTargetProgresses()
             startQueueIfNeeded()
 
-            let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? 0
-            backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
+            await requestBackgroundExecutionIfNeeded()
         } catch {
             EnsembleLogger.debug(
                 "❌ Retry download failed: track=\(trackRatingKey) source=\(sourceCompositeKey) reason=\(error.localizedDescription)"
@@ -774,8 +772,7 @@ public final class OfflineDownloadService: ObservableObject {
             await refreshTargetSnapshots()
             startQueueIfNeeded()
 
-            let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? 0
-            backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
+            await requestBackgroundExecutionIfNeeded()
 
             notificationBridge.notifyDownloadsChangedImmediately()
         } catch {
@@ -874,10 +871,7 @@ public final class OfflineDownloadService: ObservableObject {
         refreshQueueStatusReason()
         scheduleFullProgressRefresh()
         startQueueIfNeeded()
-        let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? 0
-        backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(
-            pendingTrackCount: max(pendingCount, activeDownloadTrackIdentities.count)
-        )
+        await requestBackgroundExecutionIfNeeded()
     }
 
     /// The connected network restriction that Play can temporarily override.
@@ -972,18 +966,27 @@ public final class OfflineDownloadService: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Stops all in-progress downloads and re-queues those transfers at the new quality.
-    public func cancelInProgressDownloads() async {
-        let desiredQuality = currentDownloadQuality()
-        let interruptedDownloadIDs = (try? await downloadManager.fetchPendingDownloads())?
-            .filter { $0.downloadStatus == .downloading }
-            .map(\.objectID) ?? []
+    /// Cancels replacement work without removing the last completed audio file.
+    public func cancelDownloadReplacements() async {
         await stopQueueForSuspension()
-        for downloadID in interruptedDownloadIDs {
-            try? await downloadManager.requeueDownload(downloadID, quality: desiredQuality)
+        do {
+            for download in try await downloadManager.fetchDownloads() where download.downloadStatus != .completed {
+                guard let storedPath = download.filePath,
+                      let quality = AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: storedPath)),
+                      let track = download.track,
+                      try await downloadManager.getLocalFilePath(
+                        forTrackRatingKey: track.ratingKey,
+                        sourceCompositeKey: track.sourceCompositeKey ?? ""
+                      ) != nil else { continue }
+                try await downloadManager.completeDownload(
+                    download.objectID, filePath: storedPath, fileSize: download.fileSize, quality: quality
+                )
+                retryDeadlines.removeValue(forKey: download.objectID)
+            }
+        } catch {
+            EnsembleLogger.error("Failed cancelling download replacements: \(error.localizedDescription)")
         }
-        refreshQueueStatusReason()
-        scheduleFullProgressRefresh()
+        await refreshAllTargetProgresses()
         startQueueIfNeeded()
     }
 
@@ -992,17 +995,23 @@ public final class OfflineDownloadService: ObservableObject {
     public func handleAppDidEnterBackground() async {
         isAppInBackground = true
         allowsBackgroundContinuation = true
+        await requestBackgroundExecutionIfNeeded()
+        try? await applyNetworkPolicy()
+        startQueueIfNeeded()
+        refreshQueueStatusReason()
+        scheduleFullProgressRefresh()
+    }
+
+    private func requestBackgroundExecutionIfNeeded() async {
+        guard canRunQueueAutomatically else { return }
         let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? 0
         let activeOrPendingCount = max(
             pendingCount,
             activeDownloadTrackIdentities.count,
             queueCoordinator.hasActiveTask || isQueueRunning ? 1 : 0
         )
+        guard canRunQueueAutomatically else { return }
         backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: activeOrPendingCount)
-        try? await applyNetworkPolicy()
-        startQueueIfNeeded()
-        refreshQueueStatusReason()
-        scheduleFullProgressRefresh()
     }
 
     /// Called when the app foregrounds so the queue can resume under the current policy.

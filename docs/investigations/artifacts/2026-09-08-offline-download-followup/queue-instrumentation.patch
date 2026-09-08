@@ -1,0 +1,37 @@
+--- a/Ensemble/App/EnsembleApp.swift
++++ b/Ensemble/App/EnsembleApp.swift
+@@ -46,6 +46,34 @@
+                     UserJourneyLogger.log(context: "app", event: "rootVisible")
+                     #if os(iOS)
+                     WatchCompanionBridge.shared.configure(dependencies: DependencyContainer.shared)
++                    #endif
++                }
++                .task {
++                    #if DEBUG
++                    if ProcessInfo.processInfo.arguments.contains("-EnsembleQueueAudit") {
++                        #if os(iOS)
++                        UIApplication.shared.isIdleTimerDisabled = true
++                        defer { UIApplication.shared.isIdleTimerDisabled = false }
++                        #endif
++                        let deps = DependencyContainer.shared
++                        await deps.offlineDownloadService.pauseQueue()
++                        try? await Task.sleep(nanoseconds: 10_000_000_000)
++                        let rows = (try? await deps.downloadManager.fetchDownloads()) ?? []
++                        for row in rows where ["14899", "8778", "14138", "12507"].contains(row.track?.ratingKey ?? "") {
++                            try? await deps.downloadManager.requeueDownload(row.objectID, quality: "original")
++                        }
++                        await deps.offlineDownloadService.resumeQueue()
++                        try? await Task.sleep(nanoseconds: 2_000_000_000)
++                        await deps.offlineDownloadService.pauseQueue()
++                        try? await Task.sleep(nanoseconds: 1_000_000_000)
++                        await deps.offlineDownloadService.resumeQueue()
++                        try? await Task.sleep(nanoseconds: 45_000_000_000)
++                        await deps.offlineDownloadService.pauseQueue()
++                        let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
++                        for name in ["DownloadTransportAudit.json", "DownloadTransportResults.json", "FailedDownloadURL.txt"] {
++                            try? FileManager.default.removeItem(at: root.appendingPathComponent(name))
++                        }
++                    }
+                     #endif
+                 }
+                 .onOpenURL { url in

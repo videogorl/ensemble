@@ -90,9 +90,9 @@ public enum ResumableDownload {
         let handle = try FileHandle(forWritingTo: partialURL)
         defer { try? handle.close() }
         try handle.seek(toOffset: UInt64(offset))
+        var received = offset
         do {
             try await withTaskCancellationHandler {
-                var received = offset
                 var buffer = Data()
                 var lastProgress = Date.distantPast
                 for try await byte in bytes {
@@ -111,7 +111,10 @@ public enum ResumableDownload {
                 try Task.checkCancellation()
                 try handle.write(contentsOf: buffer)
                 received += Int64(buffer.count)
-                if length > 0, received != length { throw URLError(.networkConnectionLost) }
+                if length > 0, received != length {
+                    EnsembleLogger.debug("Download transfer length mismatch received=\(received) expected=\(length)")
+                    throw URLError(.networkConnectionLost)
+                }
                 await progress(received, length)
             } onCancel: {
                 transferTask.cancel()
@@ -119,8 +122,10 @@ public enum ResumableDownload {
             let result = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             try FileManager.default.moveItem(at: partialURL, to: result)
             try? FileManager.default.removeItem(at: metadataURL)
+            EnsembleLogger.debug("Download transfer completed bytes=\(received) resumedFrom=\(offset) status=\(response.statusCode)")
             return (result, response)
         } catch {
+            EnsembleLogger.debug("Download transfer interrupted status=\(response.statusCode) retained=\(received) expected=\(length) resumedFrom=\(offset) errorDomain=\((error as NSError).domain) errorCode=\((error as NSError).code) cancelled=\(Task.isCancelled)")
             if !canResume {
                 try? FileManager.default.removeItem(at: partialURL)
                 try? FileManager.default.removeItem(at: metadataURL)

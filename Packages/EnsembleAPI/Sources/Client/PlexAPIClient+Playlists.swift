@@ -59,6 +59,12 @@ extension PlexAPIClient {
             PlexMediaContainer<PlexTrack>.self,
             from: data
         )
+        let content = container.mediaContainer
+        guard content.offset == nil || content.offset == 0,
+              content.size == content.items.count,
+              content.totalSize == nil || content.totalSize == content.items.count else {
+            throw PlexAPIError.invalidResponse
+        }
         EnsembleLogger.debug("✅ Got \(container.mediaContainer.items.count) playlist tracks")
         return container.mediaContainer.items
     }

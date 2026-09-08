@@ -170,12 +170,17 @@ public final class PlexMusicSourceSyncProvider:
     /// Adds source-compatible tracks to a Plex playlist.
     public func addTracks(_ tracks: [Track], to playlistID: String) async throws -> Int {
         guard !tracks.isEmpty else { return 0 }
+        // A previous append may have succeeded even when its acknowledgment was lost.
+        // Read server membership, never the optimistic local cache, before replaying.
+        var present = Set(try await apiClient.getPlaylistTracks(playlistKey: playlistID).map(\.ratingKey))
+        let missing = tracks.filter { present.insert($0.id).inserted }
+        guard !missing.isEmpty else { return 0 }
         try await apiClient.addItemsToPlaylist(
             playlistId: playlistID,
-            trackRatingKeys: tracks.map(\.id),
+            trackRatingKeys: missing.map(\.id),
             serverIdentifier: sourceIdentifier.serverId
         )
-        return tracks.count
+        return missing.count
     }
 
     /// Renames a Plex playlist.
@@ -1463,7 +1468,7 @@ public func getStreamURL(
                 streamKey = try await apiClient.getTrack(trackKey: trackRatingKey)?.streamURL
             }
             if let streamKey, !streamKey.isEmpty {
-                return try await apiClient.getStreamURL(trackKey: streamKey)
+                return try await apiClient.getStreamURL(trackKey: streamKey, download: true)
             }
         }
 
@@ -1481,7 +1486,7 @@ public func getStreamURL(
 
         // Fallback: direct file URL (always original quality)
         if let trackStreamKey, !trackStreamKey.isEmpty {
-            return try await apiClient.getStreamURL(trackKey: trackStreamKey)
+            return try await apiClient.getStreamURL(trackKey: trackStreamKey, download: true)
         }
 
         // Last resort: fetch track metadata for stream key
@@ -1489,7 +1494,7 @@ public func getStreamURL(
               let streamKey = track.streamURL else {
             throw PlexAPIError.invalidURL
         }
-        return try await apiClient.getStreamURL(trackKey: streamKey)
+        return try await apiClient.getStreamURL(trackKey: streamKey, download: true)
     }
 
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {
