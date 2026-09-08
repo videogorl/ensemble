@@ -5,10 +5,11 @@ extension PlexAPIClient {
 
     /// Download transcoded media using Plex's download queue flow.
     /// This primes server-side transcode before media retrieval.
+    /// The caller owns the returned temporary file and must move or remove it.
     public func downloadTranscodedMediaViaQueue(
         trackRatingKey: String,
         quality: StreamingQuality
-    ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
+    ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
         guard quality != .original else {
             throw DownloadQueueError.queueNotAvailable
         }
@@ -311,7 +312,7 @@ extension PlexAPIClient {
     func fetchDownloadQueueMedia(
         queueId: Int,
         itemId: Int
-    ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
+    ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
         let request = try makeServerRequest(
             url: currentServerURL,
             method: "GET",
@@ -320,8 +321,6 @@ extension PlexAPIClient {
         // The persistent queue owns transient retries, so an unavailable item cannot
         // hold a worker here while other tracks are ready to download.
         let (file, response) = try await ResumableDownload.file(for: request, session: session)
-        defer { try? FileManager.default.removeItem(at: file) }
-        let data = try Data(contentsOf: file, options: .mappedIfSafe)
         let suggestedFilename = response.value(forHTTPHeaderField: "Content-Disposition")
             .flatMap { contentDisposition -> String? in
                 guard let range = contentDisposition.range(of: "filename=") else { return nil }
@@ -329,7 +328,7 @@ extension PlexAPIClient {
                     .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                 return filename.isEmpty ? nil : String(filename)
             }
-        return (data, suggestedFilename, response.value(forHTTPHeaderField: "Content-Type"))
+        return (file, suggestedFilename, response.value(forHTTPHeaderField: "Content-Type"))
     }
 
     func downloadQueueBitrate(for quality: StreamingQuality) -> String? {

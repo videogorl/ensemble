@@ -1,0 +1,139 @@
+[
+  {
+    "bytes" : "55283058",
+    "item" : "12507",
+    "round" : "0",
+    "seconds" : "4.006158947944641",
+    "sha256" : "323c09979cdcdfe79328db8c7d9bc702468ca42200d8a7742917295068ae247d",
+    "start" : "1788885052.8696651",
+    "status" : "200",
+    "variant" : "custom"
+  },
+  {
+    "bytes" : "101100001",
+    "item" : "14138",
+    "round" : "0",
+    "seconds" : "6.158589005470276",
+    "sha256" : "a983d6293651c31d018494ccbf05f37b9b7c893268d230316ce1df7185c0b809",
+    "start" : "1788885052.8696651",
+    "status" : "200",
+    "variant" : "custom"
+  },
+  {
+    "bytes" : "55283058",
+    "item" : "12507",
+    "round" : "0",
+    "seconds" : "1.3627430200576782",
+    "sha256" : "323c09979cdcdfe79328db8c7d9bc702468ca42200d8a7742917295068ae247d",
+    "start" : "1788885061.0717201",
+    "status" : "200",
+    "variant" : "native"
+  },
+  {
+    "bytes" : "101100001",
+    "item" : "14138",
+    "round" : "0",
+    "seconds" : "2.0511250495910645",
+    "sha256" : "a983d6293651c31d018494ccbf05f37b9b7c893268d230316ce1df7185c0b809",
+    "start" : "1788885061.0717201",
+    "status" : "200",
+    "variant" : "native"
+  },
+  {
+    "bytes" : "55283058",
+    "item" : "12507",
+    "round" : "1",
+    "seconds" : "1.4544469118118286",
+    "sha256" : "323c09979cdcdfe79328db8c7d9bc702468ca42200d8a7742917295068ae247d",
+    "start" : "1788885065.303938",
+    "status" : "200",
+    "variant" : "native"
+  },
+  {
+    "bytes" : "101100001",
+    "item" : "14138",
+    "round" : "1",
+    "seconds" : "2.033105969429016",
+    "sha256" : "a983d6293651c31d018494ccbf05f37b9b7c893268d230316ce1df7185c0b809",
+    "start" : "1788885065.303938",
+    "status" : "200",
+    "variant" : "native"
+  },
+  {
+    "bytes" : "55283058",
+    "item" : "12507",
+    "round" : "1",
+    "seconds" : "3.689221978187561",
+    "sha256" : "323c09979cdcdfe79328db8c7d9bc702468ca42200d8a7742917295068ae247d",
+    "start" : "1788885069.5045729",
+    "status" : "200",
+    "variant" : "custom"
+  },
+  {
+    "bytes" : "101100001",
+    "item" : "14138",
+    "round" : "1",
+    "seconds" : "5.8334139585494995",
+    "sha256" : "a983d6293651c31d018494ccbf05f37b9b7c893268d230316ce1df7185c0b809",
+    "start" : "1788885069.5045729",
+    "status" : "200",
+    "variant" : "custom"
+  },
+  {
+    "bytes" : "55283058",
+    "item" : "12507",
+    "round" : "2",
+    "seconds" : "3.6271899938583374",
+    "sha256" : "323c09979cdcdfe79328db8c7d9bc702468ca42200d8a7742917295068ae247d",
+    "start" : "1788885077.492501",
+    "status" : "200",
+    "variant" : "custom"
+  },
+  {
+    "bytes" : "101100001",
+    "item" : "14138",
+    "round" : "2",
+    "seconds" : "5.801905989646912",
+    "sha256" : "a983d6293651c31d018494ccbf05f37b9b7c893268d230316ce1df7185c0b809",
+    "start" : "1788885077.492501",
+    "status" : "200",
+    "variant" : "custom"
+  },
+  {
+    "bytes" : "55283058",
+    "item" : "12507",
+    "round" : "2",
+    "seconds" : "0.9315290451049805",
+    "sha256" : "323c09979cdcdfe79328db8c7d9bc702468ca42200d8a7742917295068ae247d",
+    "start" : "1788885085.472323",
+    "status" : "200",
+    "variant" : "native"
+  },
+  {
+    "bytes" : "101100001",
+    "item" : "14138",
+    "round" : "2",
+    "seconds" : "2.013209104537964",
+    "sha256" : "a983d6293651c31d018494ccbf05f37b9b7c893268d230316ce1df7185c0b809",
+    "start" : "1788885085.472323",
+    "status" : "200",
+    "variant" : "native"
+  },
+  {
+    "bytes" : "101100001",
+    "cancelError" : "-999",
+    "item" : "14138",
+    "resumedAt" : "4014080",
+    "resumeDataAvailable" : "true",
+    "sha256" : "a983d6293651c31d018494ccbf05f37b9b7c893268d230316ce1df7185c0b809",
+    "status" : "206",
+    "variant" : "native-resume"
+  },
+  {
+    "bytes" : "101100001",
+    "seconds" : "1.8545570373535156",
+    "sha256" : "a983d6293651c31d018494ccbf05f37b9b7c893268d230316ce1df7185c0b809",
+    "status" : "200",
+    "variant" : "native-background-session"
+  }
+]

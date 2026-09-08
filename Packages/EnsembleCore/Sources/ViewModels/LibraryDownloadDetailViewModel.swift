@@ -128,7 +128,7 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
                     progress: download.progress,
                     fileSize: download.fileSize,
                     errorMessage: download.error,
-                    downloadedQuality: download.filePath.flatMap { AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: $0)) } ?? (status == .completed ? download.quality : nil),
+                    downloadedQuality: download.installedQuality,
                     discNumber: track.discNumber,
                     trackNumber: track.trackNumber,
                     index: index,

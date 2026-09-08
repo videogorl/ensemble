@@ -303,7 +303,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
                     progress: download?.progress ?? 0,
                     fileSize: download?.fileSize ?? 0,
                     errorMessage: download?.error,
-                    downloadedQuality: download?.filePath.flatMap { AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: $0)) } ?? (status == .completed ? download?.quality : nil),
+                    downloadedQuality: download?.installedQuality,
                     discNumber: cdTrack?.discNumber ?? 0,
                     trackNumber: cdTrack?.trackNumber ?? 0,
                     index: index,

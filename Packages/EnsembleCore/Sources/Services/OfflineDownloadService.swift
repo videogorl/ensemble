@@ -1092,19 +1092,7 @@ public final class OfflineDownloadService: ObservableObject {
                 isQueueRunning = true
                 refreshQueueStatusReason()
 
-                // Run process() in a detached task so it doesn't serialize on @MainActor.
-                // The detached task hops to main actor only when calling @MainActor services,
-                // but network I/O runs fully in parallel across workers.
-                let selfRef = self
-                let detachedProcess = Task.detached(priority: .utility) {
-                    await selfRef.process(download: nextDownload)
-                }
-                // Bridge cancellation so pause/cancel stops the download
-                await withTaskCancellationHandler {
-                    await detachedProcess.value
-                } onCancel: {
-                    detachedProcess.cancel()
-                }
+                await process(download: nextDownload)
 
                 // Update background execution progress
                 let completedCount = targets.reduce(0) { $0 + $1.completedTrackCount }

@@ -1,0 +1,13 @@
+[09:30:52.870] [INFO] [core] Native audit begin round=0 variant=custom
+[09:30:59.070] [INFO] [core] Native audit end round=0 variant=custom
+[09:31:01.072] [INFO] [core] Native audit begin round=0 variant=native
+[09:31:03.178] [INFO] [core] Native audit end round=0 variant=native
+[09:31:05.304] [INFO] [core] Native audit begin round=1 variant=native
+[09:31:07.392] [INFO] [core] Native audit end round=1 variant=native
+[09:31:09.505] [INFO] [core] Native audit begin round=1 variant=custom
+[09:31:15.378] [INFO] [core] Native audit end round=1 variant=custom
+[09:31:17.493] [INFO] [core] Native audit begin round=2 variant=custom
+[09:31:23.340] [INFO] [core] Native audit end round=2 variant=custom
+[09:31:25.473] [INFO] [core] Native audit begin round=2 variant=native
+[09:31:27.558] [INFO] [core] Native audit end round=2 variant=native
+[09:31:32.937] [INFO] [core] Native audit finished rows=14

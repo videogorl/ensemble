@@ -1594,11 +1594,11 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     /// Attempt a server-primed offline transcode through the download queue API.
-    /// Returns media payload and optional suggested filename when successful.
+    /// Returns an owned temporary file and optional suggested filename. The caller must move or remove the file.
     public func getOfflineDownloadQueueMedia(
         for track: Track,
         quality: StreamingQuality
-    ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
+    ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
         let apiClient = try await apiClientForTrack(track)
 
         return try await apiClient.downloadTranscodedMediaViaQueue(

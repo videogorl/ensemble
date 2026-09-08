@@ -77,7 +77,8 @@ final class PlexAPIClientTests: XCTestCase {
             XCTFail("Expected a deferred server failure")
         } catch { XCTAssertEqual(PlexErrorClassification.classify(error), .serverError) }
         let result = try await client.downloadTranscodedMediaViaQueue(trackRatingKey: "1", quality: .high)
-        XCTAssertEqual(result.data, Data([1, 2, 3]))
+        defer { try? FileManager.default.removeItem(at: result.fileURL) }
+        XCTAssertEqual(try Data(contentsOf: result.fileURL), Data([1, 2, 3]))
         XCTAssertEqual(adds, 1)
         XCTAssertEqual(mediaRequests, 2)
     }

@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreData
 import EnsembleAPI
 import Foundation
@@ -34,6 +35,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
         }
 
         var completionCalls: [CompletionCall] = []
+        private let stack = CoreDataStack.inMemory()
         var createdDownload: CDDownload?
 
         func fetchDownloads() async throws -> [CDDownload] { [] }
@@ -47,7 +49,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
             if let createdDownload {
                 return createdDownload
             }
-            let download = CDDownload(context: CoreDataStack.shared.viewContext)
+            let download = CDDownload(context: stack.viewContext)
             download.quality = quality
             createdDownload = download
             return download
@@ -74,6 +76,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
         func deleteAllDownloads() async throws {}
     }
 
+    private let stack = CoreDataStack.inMemory()
     private var cleanupURLs: [URL] = []
 
     override func tearDown() {
@@ -116,7 +119,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/direct-track.mp3")! },
                 fetchOfflineDownloadQueueMedia: { _, _ in
                     XCTFail("Queue download should not be used for original quality")
-                    return (Data(), nil, nil)
+                    throw URLError(.badServerResponse)
                 },
                 shouldAttemptDirectFallback: { _, _ in false },
                 performDirectDownload: { _, _, _ in
@@ -168,7 +171,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
                     return URL(string: "https://example.com/unused.mp3")!
                 },
                 fetchOfflineDownloadQueueMedia: { _, _ in
-                    (payload, "queue-track.mp3", "audio/mpeg")
+                    (try self.writeTemporaryFile(named: "queue.tmp", data: payload), "queue-track.mp3", "audio/mpeg")
                 },
                 shouldAttemptDirectFallback: { _, _ in false },
                 performDirectDownload: { _, _, _ in
@@ -216,7 +219,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 },
                 fetchOfflineDownloadQueueMedia: { _, _ in
                     XCTFail("Download queue should not be used for a matching playback artifact")
-                    return (Data(), nil, nil)
+                    throw URLError(.badServerResponse)
                 },
                 shouldAttemptDirectFallback: { _, _ in false },
                 performDirectDownload: { _, _, _ in
@@ -308,7 +311,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/removed-target.mp3")! },
                 fetchOfflineDownloadQueueMedia: { _, _ in
                     XCTFail("Queue download should not be used for original quality")
-                    return (Data(), nil, nil)
+                    throw URLError(.badServerResponse)
                 },
                 shouldAttemptDirectFallback: { _, _ in false },
                 performDirectDownload: { _, _, _ in
@@ -370,20 +373,57 @@ final class DownloadTransferExecutorTests: XCTestCase {
         }
     }
 
+    func testTruncatedReplacementPreservesExistingFileForDirectAndQueueTransfers() async throws {
+        for quality in [StreamingQuality.original, .high] {
+            let ctx = makeContext(trackRatingKey: UUID().uuidString, quality: quality.rawValue, duration: 30_000)
+            let source = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+            cleanupURLs.append(source)
+            let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 8_000, channels: 1))
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8_000))
+            buffer.frameLength = 8_000
+            try AVAudioFile(forWriting: source, settings: format.settings).write(from: buffer)
+            let response = makeHTTPResponse(url: URL(string: "https://example.com/file.wav")!, mimeType: "audio/wav")
+            let destination = DownloadTransferExecutor.localFileURL(ratingKey: ctx.trackRatingKey, safeSourceKey: ctx.safeSourceKey, quality: quality, response: response)
+            cleanupURLs.append(destination)
+            let previous = Data("previous playable file".utf8)
+            try previous.write(to: destination)
+            let manager = DownloadManagerMock()
+            let executor = DownloadTransferExecutor(dependencies: .init(
+                downloadManager: manager,
+                fetchDirectDownloadURL: { _, _ in response.url! },
+                fetchOfflineDownloadQueueMedia: { _, _ in (source, "file.wav", "audio/wav") },
+                shouldAttemptDirectFallback: { _, _ in false },
+                performDirectDownload: { _, _, _ in (source, response) },
+                didComplete: { _, _ in XCTFail("Rejected file must not complete") },
+                scheduleDownloadsChanged: {}, isStillReferenced: { _ in true }
+            ))
+            do {
+                _ = try await executor.execute(ctx: ctx, requestedQuality: quality)
+                XCTFail("Truncated replacement must fail")
+            } catch let error as DownloadTransferExecutionError {
+                guard case DownloadProcessingError.truncatedPayload = error.underlying else { return XCTFail("Expected duration rejection") }
+            }
+            XCTAssertEqual(try Data(contentsOf: destination), previous)
+            XCTAssertTrue(manager.completionCalls.isEmpty)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        }
+    }
+
     private func makeContext(
         trackRatingKey: String,
         quality: String,
+        duration: Int64 = 5_000,
         trackThumbPath: String? = nil,
         albumRatingKey: String? = nil,
         albumThumbPath: String? = nil
     ) -> DownloadTransferContext {
-        let download = CDDownload(context: CoreDataStack.shared.viewContext)
+        let download = CDDownload(context: stack.viewContext)
         let objectID = download.objectID
         return DownloadTransferContext(
             downloadObjectID: objectID,
             trackRatingKey: trackRatingKey,
             sourceCompositeKey: "library:account:server:source",
-            trackDuration: 5_000,
+            trackDuration: duration,
             downloadQuality: quality,
             domainTrack: Track(
                 id: trackRatingKey,

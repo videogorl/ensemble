@@ -1,0 +1,48 @@
+{
+  "custom": {
+    "phases": [
+      {
+        "seconds": 6.158589005470276,
+        "cpu_impact_mean": 30.33931202551447,
+        "cpu_impact_integral": 186.84734582835875,
+        "coverage_seconds": 6.158588753470271
+      },
+      {
+        "seconds": 5.8334139585494995,
+        "cpu_impact_mean": 27.675021554219104,
+        "cpu_impact_integral": 161.43985014645963,
+        "coverage_seconds": 5.8334137095495
+      },
+      {
+        "seconds": 5.801905989646912,
+        "cpu_impact_mean": 25.75421385474613,
+        "cpu_impact_integral": 149.42352126120815,
+        "coverage_seconds": 5.801905742646909
+      }
+    ],
+    "median_seconds": 5.8334139585494995
+  },
+  "native": {
+    "phases": [
+      {
+        "seconds": 2.0511250495910645,
+        "cpu_impact_mean": 13.94455090932059,
+        "cpu_impact_integral": 28.602016518007595,
+        "coverage_seconds": 2.0511249665910647
+      },
+      {
+        "seconds": 2.033105969429016,
+        "cpu_impact_mean": 3.0515871976950364,
+        "cpu_impact_integral": 6.204199894585216,
+        "coverage_seconds": 2.03310588642902
+      },
+      {
+        "seconds": 2.013209104537964,
+        "cpu_impact_mean": 0.8775484894929811,
+        "cpu_impact_integral": 1.7666885358842799,
+        "coverage_seconds": 2.0132090215379606
+      }
+    ],
+    "median_seconds": 2.033105969429016
+  }
+}

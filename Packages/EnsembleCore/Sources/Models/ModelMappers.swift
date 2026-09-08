@@ -2,6 +2,14 @@ import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
+extension CDDownload {
+    /// The retained file's quality can differ from an in-progress replacement request.
+    var installedQuality: String? {
+        filePath.flatMap { AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: $0)) }
+            ?? (downloadStatus == .completed ? quality : nil)
+    }
+}
+
 // MARK: - Audio File Info Mapper
 
 public extension AudioFileInfo {
