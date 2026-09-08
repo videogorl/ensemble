@@ -249,6 +249,7 @@ public final class OfflineDownloadService: ObservableObject {
             }
         )
     )
+    private var backgroundProgress = OfflineDownloadBatchProgress()
     private var isInstallingNativeReceipts = false
     private let backgroundDownloads: BackgroundDownload
     private lazy var transferExecutor = DownloadTransferExecutor(
@@ -262,7 +263,10 @@ public final class OfflineDownloadService: ObservableObject {
                 guard let self, self.canRunQueueAutomatically, let policy = self.effectiveDownloadNetworkPolicy else { throw URLError(.dataNotAllowed) }
                 return try await self.syncCoordinator.getOfflineDownloadQueueMedia(for: ctx.domainTrack, quality: quality, networkPolicy: policy,
                     transferIdentity: DownloadTransferExecutor.transferIdentity(ctx.downloadObjectID, quality: quality),
-                    backgroundDownloads: self.backgroundDownloads)
+                    backgroundDownloads: self.backgroundDownloads,
+                    progress: { [weak self] received, expected in
+                        await self?.reportTransferProgress(ctx.downloadObjectID, received: received, expected: expected)
+                    })
             },
             shouldAttemptDirectFallback: { [weak self] error, ctx in
                 guard let self else { return false }
@@ -275,7 +279,10 @@ public final class OfflineDownloadService: ObservableObject {
                     downloadID: downloadID,
                     estimatedSize: estimatedSize,
                     downloadManager: self.downloadManager,
-                    networkPolicy: policy, backgroundDownloads: self.backgroundDownloads
+                    networkPolicy: policy, backgroundDownloads: self.backgroundDownloads,
+                    progress: { [weak self] received, expected in
+                        await self?.reportTransferProgress(downloadID, received: received, expected: expected)
+                    }
                 )
             },
             didComplete: { [weak self] ctx, fileURL in
@@ -298,7 +305,10 @@ public final class OfflineDownloadService: ObservableObject {
                 let completed = await self.backgroundDownloads.completedIdentities().contains(identity)
                 guard completed || self.canRunQueueAutomatically else { return nil }
                 return try await self.backgroundDownloads.existingFile(
-                    identity: identity, policy: self.effectiveDownloadNetworkPolicy ?? DownloadNetworkPolicy()
+                    identity: identity, policy: self.effectiveDownloadNetworkPolicy ?? DownloadNetworkPolicy(),
+                    progress: { [weak self] received, expected in
+                        await self?.reportTransferProgress(ctx.downloadObjectID, received: received, expected: expected)
+                    }
                 )
             },
             discardTransfer: { [backgroundDownloads] ctx, quality in
@@ -311,6 +321,9 @@ public final class OfflineDownloadService: ObservableObject {
                     requestedQuality: quality.rawValue,
                     requireDirect: quality == .original
                 )
+            },
+            validationProgress: { [weak self] ctx, fraction in
+                await self?.reportBackgroundProgress(ctx.downloadObjectID, fraction: 0.9 + 0.09 * fraction)
             },
             rejectPlaybackArtifact: { [playbackArtifactCache] url in
                 playbackArtifactCache.removeArtifact(at: url)
@@ -338,8 +351,10 @@ public final class OfflineDownloadService: ObservableObject {
                 try? await self?.applyNetworkPolicy()
             },
             finishBackgroundTask: { [weak self] success in
-                guard let self, self.retryDeadlines.isEmpty else { return }
+                guard let self else { return }
                 self.backgroundExecutionCoordinator.finishCurrentTask(success: success)
+                self.allowsBackgroundContinuation = false
+                self.backgroundProgress = OfflineDownloadBatchProgress()
             },
             showCompletionToast: { [weak self] in
                 guard let self, self.retryDeadlines.isEmpty else { return }
@@ -1026,7 +1041,6 @@ public final class OfflineDownloadService: ObservableObject {
     public func handleAppDidEnterBackground() async {
         isAppInBackground = true
         allowsBackgroundContinuation = true
-        await requestBackgroundExecutionIfNeeded()
         try? await applyNetworkPolicy()
         startQueueIfNeeded()
         refreshQueueStatusReason()
@@ -1034,15 +1048,31 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func requestBackgroundExecutionIfNeeded() async {
-        guard canRunQueueAutomatically else { return }
-        let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? 0
-        let activeOrPendingCount = max(
-            pendingCount,
-            activeDownloadTrackIdentities.count,
-            queueCoordinator.hasActiveTask || isQueueRunning ? 1 : 0
+        guard canRunQueueAutomatically, !isAppInBackground else { return }
+        let pending = (try? await downloadManager.fetchPendingDownloads()) ?? []
+        guard canRunQueueAutomatically, !isAppInBackground else { return }
+        let identities = pending.filter { (retryDeadlines[$0.objectID] ?? .distantPast) <= Date() }
+            .map { $0.objectID.uriRepresentation().absoluteString }
+        guard !identities.isEmpty else { return }
+        backgroundProgress.include(identities)
+        backgroundExecutionCoordinator.setProgress(
+            completedUnitCount: backgroundProgress.completedUnitCount,
+            totalUnitCount: backgroundProgress.totalUnitCount
         )
-        guard canRunQueueAutomatically else { return }
-        backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: activeOrPendingCount)
+        backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: identities.count)
+    }
+
+    private func reportTransferProgress(_ id: NSManagedObjectID, received: Int64, expected: Int64) {
+        guard expected > 0 else { return }
+        reportBackgroundProgress(id, fraction: 0.9 * min(1, max(0, Double(received) / Double(expected))))
+    }
+
+    private func reportBackgroundProgress(_ id: NSManagedObjectID, fraction: Double) {
+        backgroundProgress.update(id.uriRepresentation().absoluteString, fraction: fraction)
+        backgroundExecutionCoordinator.setProgress(
+            completedUnitCount: backgroundProgress.completedUnitCount,
+            totalUnitCount: backgroundProgress.totalUnitCount
+        )
     }
 
     /// Called when the app foregrounds so the queue can resume under the current policy.
@@ -1083,6 +1113,7 @@ public final class OfflineDownloadService: ObservableObject {
 
     private func handleBackgroundTaskExpiration() {
         allowsBackgroundContinuation = false
+        backgroundProgress = OfflineDownloadBatchProgress()
         Task { @MainActor [weak self] in
             guard let self else { return }
             // URLSession owns active transfers beyond the app execution grant.
@@ -1123,15 +1154,11 @@ public final class OfflineDownloadService: ObservableObject {
                 isQueueRunning = true
                 refreshQueueStatusReason()
 
+                let downloadID = nextDownload.objectID
                 await process(download: nextDownload)
-
-                // Update background execution progress
-                let completedCount = targets.reduce(0) { $0 + $1.completedTrackCount }
-                let totalCount = targets.reduce(0) { $0 + $1.totalTrackCount }
-                backgroundExecutionCoordinator.setProgress(
-                    completedUnitCount: completedCount,
-                    totalUnitCount: totalCount
-                )
+                // This pass has handled the attempt, including a deferred retry or failure.
+                // The durable queue still reports the actual download outcome.
+                if !Task.isCancelled { reportBackgroundProgress(downloadID, fraction: 1) }
 
                 if applyInteractiveCooldown {
                     try? await Task.sleep(nanoseconds: Self.interactivePlaybackWorkerCooldownNs)
@@ -1942,6 +1969,7 @@ public final class OfflineDownloadService: ObservableObject {
         await queueCoordinator.cancelCurrentTask()
         if finishBackgroundTask {
             backgroundExecutionCoordinator.finishCurrentTask(success: true)
+            backgroundProgress = OfflineDownloadBatchProgress()
         }
         try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
         await backgroundDownloads.pause()

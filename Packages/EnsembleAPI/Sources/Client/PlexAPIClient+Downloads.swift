@@ -11,7 +11,8 @@ extension PlexAPIClient {
         quality: StreamingQuality,
         networkPolicy: DownloadNetworkPolicy,
         transferIdentity: String? = nil,
-        backgroundDownloads: BackgroundDownload = .shared
+        backgroundDownloads: BackgroundDownload = .shared,
+        progress: @escaping @Sendable (Int64, Int64) async -> Void = { _, _ in }
     ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
         guard quality != .original else {
             throw DownloadQueueError.queueNotAvailable
@@ -46,7 +47,7 @@ extension PlexAPIClient {
 
             switch item.status {
             case "available":
-                let result = try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId, networkPolicy: networkPolicy, transferIdentity: transferIdentity, backgroundDownloads: backgroundDownloads)
+                let result = try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId, networkPolicy: networkPolicy, transferIdentity: transferIdentity, backgroundDownloads: backgroundDownloads, progress: progress)
                 interruptedDownloadQueueItems.removeValue(forKey: jobKey)
                 return result
             case "error":
@@ -317,7 +318,8 @@ extension PlexAPIClient {
         itemId: Int,
         networkPolicy: DownloadNetworkPolicy,
         transferIdentity: String? = nil,
-        backgroundDownloads: BackgroundDownload = .shared
+        backgroundDownloads: BackgroundDownload = .shared,
+        progress: @escaping @Sendable (Int64, Int64) async -> Void = { _, _ in }
     ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
         var request = try makeServerRequest(
             url: currentServerURL,
@@ -329,9 +331,9 @@ extension PlexAPIClient {
         // hold a worker here while other tracks are ready to download.
         let (file, response): (URL, HTTPURLResponse)
         if let transferIdentity {
-            (file, response) = try await backgroundDownloads.file(for: request, identity: transferIdentity, legacyIdentity: "")
+            (file, response) = try await backgroundDownloads.file(for: request, identity: transferIdentity, legacyIdentity: "", progress: progress)
         } else {
-            (file, response) = try await ResumableDownload.file(for: request, session: session)
+            (file, response) = try await ResumableDownload.file(for: request, session: session, progress: progress)
         }
         return (file, response.suggestedFilename, response.value(forHTTPHeaderField: "Content-Type"))
     }

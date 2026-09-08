@@ -22,6 +22,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         private var _deleteBatches: [[OfflineTrackReference]] = []
         private var _removeOrphanedDownloadFilesCallCount = 0
         private var _pendingCount = 0
+        var pendingDownloads: [CDDownload] = []
         private var _nextPendingDelayNanoseconds: UInt64 = 0
         private var _statusUpdateDelayNanoseconds: UInt64 = 0
 
@@ -74,7 +75,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             lock.withLock { _fetchDownloadsCount += 1 }
             return []
         }
-        func fetchPendingDownloads() async throws -> [CDDownload] { [] }
+        func fetchPendingDownloads() async throws -> [CDDownload] { pendingDownloads }
         func countPendingDownloads() async throws -> Int { pendingCount }
         func fetchNextPendingDownload(excluding downloadIDs: Set<NSManagedObjectID>) async throws -> CDDownload? {
             try? await Task.sleep(nanoseconds: nextPendingDelayNanoseconds)
@@ -330,6 +331,8 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         let service = await makeService(downloadManager: manager, backgroundCoordinator: background)
         await service.pauseQueue()
         manager.pendingCount = 3
+        let stack = CoreDataStack.inMemory()
+        manager.pendingDownloads = (0..<3).map { _ in CDDownload(context: stack.viewContext) }
 
         await service.resumeQueue()
 
@@ -753,9 +756,9 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         XCTAssertEqual(service.currentDownloadWorkMode, .background)
         XCTAssertFalse(
             downloadManager.statusUpdates.contains { $0.0 == [.downloading] && $0.1 == .paused },
-            "Backgrounding should request an execution window and leave active downloads running until expiration."
+            "Backgrounding must leave active native downloads running without submitting another continued task."
         )
-        XCTAssertEqual(backgroundCoordinator.continuedProcessingRequests.count, 1)
+        XCTAssertTrue(backgroundCoordinator.continuedProcessingRequests.isEmpty)
     }
 
     func testDerivedArtifactQueueWaitsWhileBackgroundSuspended() async {

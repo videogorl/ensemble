@@ -39,10 +39,6 @@ extension AppDelegate {
         let dependencies = DependencyContainer.shared
         logLaunchPhase("dependencyContainer.ready")
 
-        // Register optional iOS 26+ continued processing handler for offline downloads.
-        dependencies.offlineBackgroundExecutionCoordinator.register()
-        logLaunchPhase("offlineBackground.registered")
-
         // CloudKit profile sync relies on silent push delivery for live updates.
         application.registerForRemoteNotifications()
         logLaunchPhase("remoteNotifications.requested")

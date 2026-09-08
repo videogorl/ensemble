@@ -80,6 +80,7 @@ final class DownloadTransferExecutor {
         var restoredTransfer: (DownloadTransferContext, StreamingQuality) async throws -> (URL, HTTPURLResponse)? = { _, _ in nil }
         var discardTransfer: (DownloadTransferContext, StreamingQuality) async -> Void = { _, _ in }
         var matchingPlaybackArtifact: (DownloadTransferContext, StreamingQuality) -> URL? = { _, _ in nil }
+        var validationProgress: @Sendable (DownloadTransferContext, Double) async -> Void = { _, _ in }
         var rejectPlaybackArtifact: (URL) -> Void = { _ in }
     }
 
@@ -281,7 +282,9 @@ final class DownloadTransferExecutor {
         } else {
             try FileManager.default.moveItem(at: sourceURL, to: stagingURL)
         }
-        try await Self.validateDownloadDuration(fileURL: stagingURL, ctx: ctx)
+        let validationProgress = dependencies.validationProgress
+        await validationProgress(ctx, 0)
+        try await Self.validateDownloadDuration(fileURL: stagingURL, ctx: ctx, progress: validationProgress)
         let size = (try FileManager.default.attributesOfItem(atPath: stagingURL.path)[.size] as? NSNumber)?.int64Value ?? 0
         guard size > 0 else { throw DownloadProcessingError.emptyPayload("staged-file") }
         try Task.checkCancellation()
@@ -366,7 +369,8 @@ final class DownloadTransferExecutor {
         estimatedSize: Int64 = -1,
         downloadManager: DownloadManagerProtocol,
         networkPolicy: DownloadNetworkPolicy,
-        backgroundDownloads: BackgroundDownload = .shared
+        backgroundDownloads: BackgroundDownload = .shared,
+        progress: @escaping @Sendable (Int64, Int64) async -> Void = { _, _ in }
     ) async throws -> (URL, URLResponse) {
         var request = URLRequest(url: url)
         networkPolicy.apply(to: &request)
@@ -374,6 +378,7 @@ final class DownloadTransferExecutor {
             for: request, identity: transferIdentity(downloadID, quality: .original),
             legacyIdentity: downloadID.uriRepresentation().absoluteString
         ) { received, expected in
+            await progress(received, expected)
             let total = expected > 0 ? expected : estimatedSize
             if total > 0 {
                 try? await downloadManager.updateDownloadProgress(
@@ -406,7 +411,8 @@ final class DownloadTransferExecutor {
     /// duration even when the server's original file ends halfway through an audio frame.
     private nonisolated static func validateDownloadDuration(
         fileURL: URL,
-        ctx: DownloadTransferContext
+        ctx: DownloadTransferContext,
+        progress: @Sendable (DownloadTransferContext, Double) async -> Void
     ) async throws {
         var audioFile: AVAudioFile
         do {
@@ -420,6 +426,7 @@ final class DownloadTransferExecutor {
               let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: 32_768) else {
             throw DownloadProcessingError.audioValidationFailed
         }
+        var lastProgress = Date.distantPast
         var decodedFrames: Int64 = 0
         // A decoder can fail transiently across an iOS lock transition. Reopen the same
         // retained file once before rejecting it; this never repeats the network transfer.
@@ -433,6 +440,10 @@ final class DownloadTransferExecutor {
                     try audioFile.read(into: buffer, frameCount: remaining)
                     guard buffer.frameLength > 0 else { break }
                     decodedFrames += Int64(buffer.frameLength)
+                    if Date().timeIntervalSince(lastProgress) >= 1 || decodedFrames == audioFile.length {
+                        lastProgress = Date()
+                        await progress(ctx, Double(decodedFrames) / Double(max(1, audioFile.length)))
+                    }
                 }
                 break
             } catch {

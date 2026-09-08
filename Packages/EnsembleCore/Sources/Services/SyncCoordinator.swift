@@ -1600,7 +1600,8 @@ public final class SyncCoordinator: ObservableObject {
         quality: StreamingQuality,
         networkPolicy: DownloadNetworkPolicy,
         transferIdentity: String? = nil,
-        backgroundDownloads: BackgroundDownload = .shared
+        backgroundDownloads: BackgroundDownload = .shared,
+        progress: @escaping @Sendable (Int64, Int64) async -> Void = { _, _ in }
     ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
         let apiClient = try await apiClientForTrack(track)
 
@@ -1608,7 +1609,7 @@ public final class SyncCoordinator: ObservableObject {
             trackRatingKey: track.id,
             quality: quality,
             networkPolicy: networkPolicy,
-            transferIdentity: transferIdentity, backgroundDownloads: backgroundDownloads
+            transferIdentity: transferIdentity, backgroundDownloads: backgroundDownloads, progress: progress
         )
     }
 

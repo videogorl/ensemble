@@ -1,0 +1,12 @@
+Test Suite 'Selected tests' started at 2026-09-08 12:28:35.690.
+Test Suite 'EnsembleAPIPackageTests.xctest' started at 2026-09-08 12:28:35.691.
+Test Suite 'BackgroundDownloadTests' started at 2026-09-08 12:28:35.691.
+Test Suite 'BackgroundDownloadTests' passed at 2026-09-08 12:28:39.123.
+	 Executed 1 test, with 0 failures (0 unexpected) in 3.432 (3.432) seconds
+Test Suite 'PlexAPIClientTests' started at 2026-09-08 12:28:39.123.
+Test Suite 'PlexAPIClientTests' passed at 2026-09-08 12:28:39.198.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.075 (0.075) seconds
+Test Suite 'EnsembleAPIPackageTests.xctest' passed at 2026-09-08 12:28:39.199.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 3.506 (3.507) seconds
+Test Suite 'Selected tests' passed at 2026-09-08 12:28:39.199.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 3.506 (3.508) seconds

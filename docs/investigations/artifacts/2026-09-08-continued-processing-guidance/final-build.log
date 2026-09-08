@@ -1,0 +1,31 @@
+Ensemble Session Log
+Session start: 2026-09-08 12:39:46.778
+Device: iPhone17,1 (iOS 27.0.0)
+App version: 0.3.0 (202609081227.5260)
+Source commit: unknown
+---
+[12:39:47.087] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=active
+[12:40:49.462] [DEBUG] [core] 📦 Offline BG registration succeeded
+[12:40:49.463] [DEBUG] [core] 📦 Submitted BG continued processing request for 2 tracks
+[12:40:49.484] [DEBUG] [core] 📦 Offline continued processing progress units=0/2000
+[12:40:49.484] [DEBUG] [core] 📦 Offline continued processing execution granted
+[12:40:50.909] [DEBUG] [core] 📦 Offline continued processing progress units=94/2000
+[12:40:51.045] [DEBUG] [core] 📦 Offline continued processing progress units=117/2000
+[12:40:51.911] [DEBUG] [core] 📦 Offline continued processing progress units=874/2000
+[12:40:51.965] [DEBUG] [api] Native download completed bytes=27213077 resumedFrom=0 status=200
+[12:40:51.973] [DEBUG] [core] 📦 Offline continued processing progress units=923/2000
+[12:40:52.050] [DEBUG] [core] 📦 Offline continued processing progress units=1001/2000
+[12:40:52.255] [DEBUG] [core] 📦 Offline continued processing progress units=1091/2000
+[12:40:52.258] [DEBUG] [core] Offline download installed track=22090 quality=original bytes=27213077 playbackCache=false
+[12:40:52.265] [DEBUG] [core] 📦 Offline continued processing progress units=1101/2000
+[12:40:53.052] [DEBUG] [core] 📦 Offline continued processing progress units=1252/2000
+[12:40:54.066] [DEBUG] [core] 📦 Offline continued processing progress units=1491/2000
+[12:40:55.066] [DEBUG] [core] 📦 Offline continued processing progress units=1759/2000
+[12:40:55.556] [DEBUG] [api] Native download completed bytes=38495372 resumedFrom=0 status=200
+[12:40:55.558] [DEBUG] [core] 📦 Offline continued processing progress units=1900/2000
+[12:40:55.849] [DEBUG] [core] 📦 Offline continued processing progress units=1990/2000
+[12:40:55.851] [DEBUG] [core] Offline download installed track=24391 quality=original bytes=38495372 playbackCache=false
+[12:40:55.857] [DEBUG] [core] 📦 Offline continued processing progress units=2000/2000
+[12:40:56.379] [DEBUG] [core] 📦 Offline continued processing finished success=true units=2000/2000
+[12:40:56.957] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=active
+[12:40:57.056] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=background

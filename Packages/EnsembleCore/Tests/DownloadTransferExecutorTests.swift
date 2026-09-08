@@ -78,6 +78,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
 
     private let stack = CoreDataStack.inMemory()
     private var cleanupURLs: [URL] = []
+    private var validationFractions: [Double] = []
 
     override func tearDown() {
         for url in cleanupURLs {
@@ -143,7 +144,10 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 scheduleDownloadsChanged: {
                     notificationCount += 1
                 },
-                isStillReferenced: { _ in true }
+                isStillReferenced: { _ in true },
+                validationProgress: { _, fraction in
+                    await MainActor.run { self.validationFractions.append(fraction) }
+                }
             )
         )
 
@@ -164,6 +168,9 @@ final class DownloadTransferExecutorTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: destinationURL.path))
         XCTAssertEqual(completedFileURL, destinationURL)
         XCTAssertEqual(notificationCount, 1)
+        XCTAssertEqual(validationFractions.first, 0)
+        XCTAssertTrue(validationFractions.contains { $0 > 0 && $0 < 1 })
+        XCTAssertEqual(validationFractions.last, 1)
     }
 
     func testExecuteDownloadQueueSuccessPersistsRequestedQuality() async throws {

@@ -1,0 +1,53 @@
+Ensemble Session Log
+Session start: 2026-09-08 12:34:02.394
+Device: iPhone17,1 (iOS 27.0.0)
+App version: 0.3.0 (202609081227.5260)
+Source commit: unknown
+---
+[12:34:02.846] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=active
+[12:34:03.708] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=active
+[12:34:53.894] [DEBUG] [core] 📦 Offline BG registration succeeded
+[12:34:53.895] [DEBUG] [core] 📦 Submitted BG continued processing request for 2 tracks
+[12:34:53.903] [DEBUG] [core] 📦 Offline continued processing progress units=0/2000
+[12:34:53.903] [DEBUG] [core] 📦 Offline continued processing execution granted
+[12:34:55.460] [DEBUG] [core] 📦 Offline continued processing progress units=37/2000
+[12:34:55.496] [DEBUG] [core] 📦 Offline continued processing progress units=167/2000
+[12:34:56.862] [DEBUG] [core] 📦 Offline continued processing progress units=591/2000
+[12:34:56.874] [DEBUG] [core] 📦 Offline continued processing progress units=646/2000
+[12:34:57.291] [DEBUG] [api] Native download completed bytes=38495372 resumedFrom=0 status=200
+[12:34:57.298] [DEBUG] [core] 📦 Offline continued processing progress units=992/2000
+[12:34:57.632] [DEBUG] [core] 📦 Offline continued processing progress units=1082/2000
+[12:34:57.638] [DEBUG] [core] Offline download installed track=24391 quality=original bytes=38495372 playbackCache=false
+[12:34:57.642] [DEBUG] [core] 📦 Offline continued processing progress units=1092/2000
+[12:34:57.898] [DEBUG] [core] 📦 Offline continued processing progress units=1197/2000
+[12:34:58.889] [DEBUG] [core] 📦 Offline continued processing progress units=1404/2000
+[12:34:59.301] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=active
+[12:34:59.805] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=background
+[12:35:00.424] [DEBUG] [core] 📦 Offline continued processing progress units=1547/2000
+[12:35:00.894] [DEBUG] [core] 📦 Offline continued processing progress units=1728/2000
+[12:35:01.603] [DEBUG] [api] Native download completed bytes=27213077 resumedFrom=0 status=200
+[12:35:01.612] [DEBUG] [core] 📦 Offline continued processing progress units=1900/2000
+[12:35:02.562] [DEBUG] [core] 📦 Offline continued processing progress units=1990/2000
+[12:35:02.582] [DEBUG] [core] Offline download installed track=22090 quality=original bytes=27213077 playbackCache=false
+[12:35:02.607] [DEBUG] [core] 📦 Offline continued processing progress units=2000/2000
+[12:35:03.222] [DEBUG] [core] 📦 Offline continued processing finished success=true units=2000/2000
+[12:35:36.049] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=active
+[12:37:32.474] [DEBUG] [core] 📦 Offline BG registration succeeded
+[12:37:32.474] [DEBUG] [core] 📦 Submitted BG continued processing request for 2 tracks
+[12:37:32.478] [DEBUG] [core] 📦 Offline continued processing progress units=0/2000
+[12:37:32.479] [DEBUG] [core] 📦 Offline continued processing execution granted
+[12:37:33.037] [DEBUG] [core] 📦 Offline continued processing progress units=2/2000
+[12:37:33.163] [DEBUG] [core] 📦 Offline continued processing progress units=3/2000
+[12:37:34.041] [DEBUG] [core] 📦 Offline continued processing progress units=397/2000
+[12:37:34.165] [DEBUG] [core] 📦 Offline continued processing progress units=735/2000
+[12:37:34.273] [DEBUG] [api] Native download completed bytes=7281329 resumedFrom=0 status=200
+[12:37:34.275] [DEBUG] [core] 📦 Offline continued processing progress units=1239/2000
+[12:37:34.460] [DEBUG] [api] Native download completed bytes=10391036 resumedFrom=0 status=200
+[12:37:34.461] [DEBUG] [core] 📦 Offline continued processing progress units=1800/2000
+[12:37:34.521] [DEBUG] [core] 📦 Offline continued processing progress units=1890/2000
+[12:37:34.524] [DEBUG] [core] Offline download installed track=22090 quality=high bytes=7281329 playbackCache=false
+[12:37:34.529] [DEBUG] [core] 📦 Offline continued processing progress units=1900/2000
+[12:37:34.801] [DEBUG] [core] 📦 Offline continued processing progress units=1990/2000
+[12:37:34.805] [DEBUG] [core] Offline download installed track=24391 quality=high bytes=10391036 playbackCache=false
+[12:37:34.809] [DEBUG] [core] 📦 Offline continued processing progress units=2000/2000
+[12:37:35.331] [DEBUG] [core] 📦 Offline continued processing finished success=true units=2000/2000
