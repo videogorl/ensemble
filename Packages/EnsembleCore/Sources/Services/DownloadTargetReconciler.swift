@@ -26,7 +26,7 @@ final class DownloadTargetReconciler {
         let playlistRepository: PlaylistRepositoryProtocol
         let downloadManager: DownloadManagerProtocol
         let currentDownloadQuality: @MainActor () -> String
-        let clearLyricsCaches: ([OfflineTrackReference]) async -> Void
+        let didRemoveDownloads: ([OfflineTrackReference]) async -> Void
     }
 
     private let dependencies: Dependencies
@@ -44,7 +44,7 @@ final class DownloadTargetReconciler {
                 from: previousReferences
             )
             try await dependencies.downloadManager.deleteDownloads(forReferences: unreferenced)
-            await dependencies.clearLyricsCaches(unreferenced)
+            await dependencies.didRemoveDownloads(unreferenced)
             return ReconcileResult(
                 trackReferenceCount: 0,
                 newPendingCount: 0,
@@ -71,7 +71,7 @@ final class DownloadTargetReconciler {
                 from: removedReferences
             )
             try await dependencies.downloadManager.deleteDownloads(forReferences: unreferenced)
-            await dependencies.clearLyricsCaches(unreferenced)
+            await dependencies.didRemoveDownloads(unreferenced)
         }
 
         return ReconcileResult(

@@ -69,6 +69,7 @@ public final class CacheManager: ObservableObject {
     private let lyricsService: LyricsService
     private let artworkCacheClear: @MainActor () async throws -> Void
     private let playbackArtifactCache = PlaybackArtifactCache.shared
+    public var onDownloadsRemoved: () async -> Void = {}
     public var sourceCacheCleanupService: SourceCacheCleaning?
 
     public init(
@@ -341,6 +342,7 @@ public final class CacheManager: ObservableObject {
     
     private func clearAllDownloads() async throws {
         try await downloadManager.deleteAllDownloads()
+        await onDownloadsRemoved()
     }
     
     private func clearNukeImageCache() async throws {

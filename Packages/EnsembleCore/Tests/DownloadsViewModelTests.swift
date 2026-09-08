@@ -83,7 +83,8 @@ final class DownloadsViewModelTests: XCTestCase {
             backgroundExecutionCoordinator: NoopBackgroundExecutionCoordinator(),
             artworkDownloadManager: ArtworkDownloadManager(),
             toastCenter: ToastCenter(),
-            lyricsService: LyricsService(syncCoordinator: syncCoordinator)
+            lyricsService: LyricsService(syncCoordinator: syncCoordinator),
+            backgroundDownloads: BackgroundDownload(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), configuration: .ephemeral)
         )
 
         let viewModel = DownloadsViewModel(

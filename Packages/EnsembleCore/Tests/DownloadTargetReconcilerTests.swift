@@ -168,7 +168,7 @@ final class DownloadTargetReconcilerTests: XCTestCase {
                 playlistRepository: playlistRepository,
                 downloadManager: downloadManager,
                 currentDownloadQuality: { "high" },
-                clearLyricsCaches: { clearedLyrics.append(contentsOf: $0) }
+                didRemoveDownloads: { clearedLyrics.append(contentsOf: $0) }
             )
         )
 
@@ -218,7 +218,7 @@ final class DownloadTargetReconcilerTests: XCTestCase {
                 playlistRepository: playlistRepository,
                 downloadManager: downloadManager,
                 currentDownloadQuality: { "high" },
-                clearLyricsCaches: { _ in }
+                didRemoveDownloads: { _ in }
             )
         )
 
@@ -266,7 +266,7 @@ final class DownloadTargetReconcilerTests: XCTestCase {
                 playlistRepository: playlistRepository,
                 downloadManager: downloadManager,
                 currentDownloadQuality: { "original" },
-                clearLyricsCaches: { _ in }
+                didRemoveDownloads: { _ in }
             )
         )
 
@@ -309,7 +309,7 @@ final class DownloadTargetReconcilerTests: XCTestCase {
                 playlistRepository: playlistRepository,
                 downloadManager: downloadManager,
                 currentDownloadQuality: { "high" },
-                clearLyricsCaches: { clearedLyrics.append(contentsOf: $0) }
+                didRemoveDownloads: { clearedLyrics.append(contentsOf: $0) }
             )
         )
 
@@ -356,7 +356,7 @@ final class DownloadTargetReconcilerTests: XCTestCase {
                 playlistRepository: playlistRepository,
                 downloadManager: downloadManager,
                 currentDownloadQuality: { "high" },
-                clearLyricsCaches: { clearedLyrics.append(contentsOf: $0) }
+                didRemoveDownloads: { clearedLyrics.append(contentsOf: $0) }
             )
         )
 
@@ -407,7 +407,7 @@ final class DownloadTargetReconcilerTests: XCTestCase {
                 playlistRepository: playlistRepository,
                 downloadManager: downloadManager,
                 currentDownloadQuality: { "original" },
-                clearLyricsCaches: { _ in }
+                didRemoveDownloads: { _ in }
             )
         )
 

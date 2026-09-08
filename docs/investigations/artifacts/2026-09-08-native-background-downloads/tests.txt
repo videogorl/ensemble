@@ -1,0 +1,35 @@
+API
+	 Executed 72 tests, with 0 failures (0 unexpected) in 5.934 (5.946) seconds
+	 Executed 72 tests, with 0 failures (0 unexpected) in 5.934 (5.950) seconds
+
+Core focused
+	 Executed 40 tests, with 0 failures (0 unexpected) in 1.446 (1.451) seconds
+	 Executed 40 tests, with 0 failures (0 unexpected) in 1.446 (1.454) seconds
+
+Core full
+	 Executed 1175 tests, with 16 failures (0 unexpected) in 33.621 (33.700) seconds
+	 Executed 1175 tests, with 16 failures (0 unexpected) in 33.621 (33.702) seconds
+
+Baseline Core full
+	 Executed 1175 tests, with 15 failures (0 unexpected) in 33.851 (33.954) seconds
+	 Executed 1175 tests, with 15 failures (0 unexpected) in 33.851 (33.957) seconds
+
+Additional artwork baseline
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.047 (0.049) seconds
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.047 (0.050) seconds
+
+Additional artwork current
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.039 (0.040) seconds
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.039 (0.041) seconds
+
+Quality regression red
+	 Executed 1 test, with 1 failure (0 unexpected) in 0.377 (0.377) seconds
+	 Executed 1 test, with 1 failure (0 unexpected) in 0.377 (0.378) seconds
+
+Quality regression green
+	 Executed 31 tests, with 0 failures (0 unexpected) in 1.107 (1.110) seconds
+	 Executed 31 tests, with 0 failures (0 unexpected) in 1.107 (1.111) seconds
+
+Final Core focused
+	 Executed 40 tests, with 0 failures (0 unexpected) in 1.531 (1.537) seconds
+	 Executed 40 tests, with 0 failures (0 unexpected) in 1.531 (1.540) seconds

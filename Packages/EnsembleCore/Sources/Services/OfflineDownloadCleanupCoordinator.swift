@@ -9,7 +9,7 @@ final class OfflineDownloadCleanupCoordinator {
     struct Dependencies {
         let downloadManager: DownloadManagerProtocol
         let targetRepository: OfflineDownloadTargetRepositoryProtocol
-        let clearLyricsCaches: ([OfflineTrackReference]) async -> Void
+        let didRemoveDownloads: ([OfflineTrackReference]) async -> Void
     }
 
     private let dependencies: Dependencies
@@ -34,7 +34,7 @@ final class OfflineDownloadCleanupCoordinator {
             from: references
         )
         try await dependencies.downloadManager.deleteDownloads(forReferences: orphanedReferences)
-        await dependencies.clearLyricsCaches(orphanedReferences)
+        await dependencies.didRemoveDownloads(orphanedReferences)
 
         _ = try await dependencies.downloadManager.removeOrphanedDownloadFiles()
         return orphanedReferences.count

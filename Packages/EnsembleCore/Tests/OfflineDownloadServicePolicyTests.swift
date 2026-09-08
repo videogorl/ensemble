@@ -13,6 +13,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
     }
 
     private final class MockDownloadManager: DownloadManagerProtocol, @unchecked Sendable {
+        let statusUpdatesPublisher = PassthroughSubject<([CDDownload.Status], CDDownload.Status), Never>()
         private let lock = NSLock()
         private var _statusUpdates: [([CDDownload.Status], CDDownload.Status)] = []
         private var _fetchDownloadsCount = 0
@@ -95,6 +96,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             lock.withLock {
                 _statusUpdates.append((statuses, status))
             }
+            statusUpdatesPublisher.send((statuses, status))
         }
         func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws {}
         func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws {}
@@ -218,7 +220,8 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             artworkDownloadManager: EmptyArtworkDownloadManager(),
             toastCenter: ToastCenter(),
             lyricsService: LyricsService(syncCoordinator: syncCoordinator),
-            launchRecoveryStartedAt: launchRecoveryStartedAt
+            launchRecoveryStartedAt: launchRecoveryStartedAt,
+            backgroundDownloads: BackgroundDownload(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), configuration: .ephemeral)
         )
 
         await Task.yield()
@@ -238,14 +241,19 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             networkMonitor: networkMonitor
         )
         downloadManager.resetStatusUpdates()
+        let paused = expectation(description: "network policy persisted the paused state")
+        paused.assertForOverFulfill = false
+        let subscription = downloadManager.statusUpdatesPublisher.sink { statuses, status in
+            if statuses == [.downloading] && status == .paused { paused.fulfill() }
+        }
+        defer { subscription.cancel() }
 
         networkMonitor.injectNetworkStateForTesting(
             .online(.wifi),
             isConstrained: true,
             debounced: false
         )
-        await Task.yield()
-        await Task.yield()
+        await fulfillment(of: [paused], timeout: 1)
 
         XCTAssertEqual(service.queueStatusReason, .lowDataMode)
         XCTAssertTrue(downloadManager.statusUpdates.contains { statuses, status in
@@ -269,7 +277,9 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
         let row = try await manager.createDownload(forTrackRatingKey: track.ratingKey, sourceCompositeKey: source, quality: "high")
         try await manager.completeDownload(row.objectID, filePath: filename, fileSize: 42, quality: "high")
-        let service = await makeService(downloadManager: manager)
+        let targets = MockTargetRepository()
+        targets.referencesByTarget["quality-target"] = [OfflineTrackReference(trackRatingKey: track.ratingKey, trackSourceCompositeKey: source)]
+        let service = await makeService(downloadManager: manager, targetRepository: targets)
         await service.pauseQueue()
         try await manager.requeueDownload(row.objectID, quality: "original")
 
@@ -279,6 +289,16 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         XCTAssertEqual(row.quality, "high")
         XCTAssertEqual(try Data(contentsOf: url), Data(repeating: 1, count: 42))
         XCTAssertEqual(service.queueStatusReason, .paused)
+
+        // Healing can restore the old playable file after a failed replacement.
+        // A subsequent explicit replacement must compare the installed quality.
+        let previousQuality = UserDefaults.standard.object(forKey: AudioQualityPreference.downloadQualityKey)
+        defer { UserDefaults.standard.set(previousQuality, forKey: AudioQualityPreference.downloadQualityKey) }
+        UserDefaults.standard.set("original", forKey: AudioQualityPreference.downloadQualityKey)
+        try await manager.updateDownloadStatus(row.objectID, status: .completed, quality: "original")
+        let result = await service.redownloadTargetAtCurrentQuality(key: "quality-target")
+        XCTAssertEqual(result.requeuedCount, 1)
+        XCTAssertEqual(try Data(contentsOf: url), Data(repeating: 1, count: 42))
     }
 
     func testManualPauseStateRemainsSetUntilResume() async {
@@ -772,7 +792,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         await service.handleAppWillEnterForeground()
         try? await Task.sleep(nanoseconds: 250_000_000)
 
-        XCTAssertEqual(downloadManager.statusUpdates.last?.0, [.downloading])
+        XCTAssertTrue(downloadManager.statusUpdates.contains { $0.0 == [.downloading] && $0.1 == .pending })
         XCTAssertEqual(downloadManager.statusUpdates.last?.1, .pending)
     }
 

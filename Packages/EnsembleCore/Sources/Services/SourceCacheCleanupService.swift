@@ -49,6 +49,7 @@ public protocol SourceCacheCleaning: Sendable {
 
 /// Removes source-owned cached data without routing heavy work through UI view models.
 public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Sendable {
+    public var onDownloadsRemoved: @Sendable () async -> Void = {}
     static let pendingMutationsDidChange = Notification.Name("SourceCacheCleanupPendingMutationsDidChange")
     public typealias LyricsCacheCleanup = @Sendable (String) async -> Int
     public typealias AllLyricsCacheCleanup = @Sendable () async -> Int
@@ -142,6 +143,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         let lyricsItemCount = await lyricsCleanup
         try await targetRepository.deleteAllTargets()
         try await downloadManager.deleteAllDownloads()
+        await onDownloadsRemoved()
         try await pendingMutationRepository.deleteAllMutations()
         NotificationCenter.default.post(name: Self.pendingMutationsDidChange, object: nil)
         try await libraryRepository.deleteAllLibraryData()
@@ -192,6 +194,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
             lyricsItemCount += await lyricsCleanup
             try await targetRepository.deleteTargets(forSourceCompositeKey: sourceKey)
             try await downloadManager.deleteDownloads(forSourceCompositeKey: sourceKey)
+            await onDownloadsRemoved()
             try await pendingMutationRepository.deleteMutations(forSourceCompositeKey: sourceKey)
             try await deletePlaylistMutations(referencingSourceCompositeKey: sourceKey)
             NotificationCenter.default.post(name: Self.pendingMutationsDidChange, object: nil)

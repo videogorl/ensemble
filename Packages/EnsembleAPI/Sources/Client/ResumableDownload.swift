@@ -43,11 +43,7 @@ public enum ResumableDownload {
         identity: String = "",
         progress: @escaping @Sendable (Int64, Int64) async -> Void = { _, _ in }
     ) async throws -> (URL, HTTPURLResponse) {
-        // Hash credentials as part of identity without persisting the URL or headers.
-        let headers = (request.allHTTPHeaderFields ?? [:]).sorted { $0.key < $1.key }
-            .map { "\($0.key):\($0.value)" }.joined(separator: "\n")
-        let key = SHA256.hash(data: Data((identity + (request.url?.absoluteString ?? "") + headers).utf8))
-            .map { String(format: "%02x", $0) }.joined()
+        let key = key(for: request, identity: identity)
         let partialURL = directory.appendingPathComponent(key + ".partial")
         let metadataURL = directory.appendingPathComponent(key + ".json")
         var partial = (try? Data(contentsOf: metadataURL)).flatMap { try? JSONDecoder().decode(Partial.self, from: $0) }
@@ -148,6 +144,20 @@ public enum ResumableDownload {
             }
             throw error
         }
+    }
+
+    private static func key(for request: URLRequest, identity: String) -> String {
+        // Hash credentials as part of identity without persisting the URL or headers.
+        let headers = (request.allHTTPHeaderFields ?? [:]).sorted { $0.key < $1.key }
+            .map { "\($0.key):\($0.value)" }.joined(separator: "\n")
+        return SHA256.hash(data: Data((identity + (request.url?.absoluteString ?? "") + headers).utf8))
+            .map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func hasRetainedFile(for request: URLRequest, identity: String) -> Bool {
+        let key = key(for: request, identity: identity)
+        return FileManager.default.fileExists(atPath: directory.appendingPathComponent(key + ".partial").path)
+            && FileManager.default.fileExists(atPath: directory.appendingPathComponent(key + ".json").path)
     }
 
     static func validContentRange(_ value: String?, offset: Int64, total: Int64) -> Bool {

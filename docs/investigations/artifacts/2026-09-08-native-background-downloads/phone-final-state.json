@@ -1,0 +1,10 @@
+{
+  "process": {
+    "executable": "file:///private/var/containers/Bundle/Application/073065D8-0DA3-4F49-926E-656421D91621/Ensemble.app/Ensemble",
+    "processIdentifier": 69422
+  },
+  "qualityPreference": "high",
+  "testTargetOriginalBytes": 65708449,
+  "playback": "Nothing Playing",
+  "lockState": "Current device lock state:\n\u2022 deviceIdentifier: FBEDD183-439E-58D7-BB94-56B9BAC9415A\n\u2022 passcodeRequired: true\n\u2022 unlockedSinceBoot: true\n"
+}

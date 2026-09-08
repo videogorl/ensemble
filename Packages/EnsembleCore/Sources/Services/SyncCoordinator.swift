@@ -1598,14 +1598,17 @@ public final class SyncCoordinator: ObservableObject {
     public func getOfflineDownloadQueueMedia(
         for track: Track,
         quality: StreamingQuality,
-        networkPolicy: DownloadNetworkPolicy
+        networkPolicy: DownloadNetworkPolicy,
+        transferIdentity: String? = nil,
+        backgroundDownloads: BackgroundDownload = .shared
     ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
         let apiClient = try await apiClientForTrack(track)
 
         return try await apiClient.downloadTranscodedMediaViaQueue(
             trackRatingKey: track.id,
             quality: quality,
-            networkPolicy: networkPolicy
+            networkPolicy: networkPolicy,
+            transferIdentity: transferIdentity, backgroundDownloads: backgroundDownloads
         )
     }
 

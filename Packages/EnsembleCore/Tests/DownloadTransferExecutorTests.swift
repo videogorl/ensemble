@@ -108,7 +108,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
     func testExecuteDirectOriginalCompletesAndRunsPostCompletionWork() async throws {
         let downloadManager = DownloadManagerMock()
         let ctx = makeContext(trackRatingKey: "direct-track", quality: "original")
-        let response = makeHTTPResponse(url: URL(string: "https://example.com/direct-track.mp3")!, mimeType: "audio/mpeg")
+        let response = makeHTTPResponse(url: URL(string: "https://example.com/direct-track.flac")!, mimeType: "audio/flac")
         let completionExpectation = expectation(description: "completion observed")
         var completedFileURL: URL?
         var notificationCount = 0
@@ -116,14 +116,23 @@ final class DownloadTransferExecutorTests: XCTestCase {
         let executor = DownloadTransferExecutor(
             dependencies: .init(
                 downloadManager: downloadManager,
-                fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/direct-track.mp3")! },
+                fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/direct-track.flac")! },
                 fetchOfflineDownloadQueueMedia: { _, _ in
                     XCTFail("Queue download should not be used for original quality")
                     throw URLError(.badServerResponse)
                 },
                 shouldAttemptDirectFallback: { _, _ in false },
                 performDirectDownload: { _, _, _ in
-                    let tempURL = try self.writeTemporaryFile(named: "direct-track.tmp", data: Data([0x49, 0x44, 0x33, 0x04, 0x00, 0x00]))
+                    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".flac")
+                    self.cleanupURLs.append(tempURL)
+                    let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 8_000, channels: 1))
+                    let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8_000))
+                    buffer.frameLength = 8_000
+                    let settings: [String: Any] = [AVFormatIDKey: kAudioFormatFLAC, AVSampleRateKey: 8_000, AVNumberOfChannelsKey: 1]
+                    do {
+                        let file = try AVAudioFile(forWriting: tempURL, settings: settings)
+                        for _ in 0..<5 { try file.write(from: buffer) }
+                    }
                     return (tempURL, response)
                 },
                 didComplete: { completedContext, fileURL in
@@ -378,15 +387,29 @@ final class DownloadTransferExecutorTests: XCTestCase {
     }
 
     func testTruncatedReplacementPreservesExistingFileForDirectAndQueueTransfers() async throws {
-        for quality in [StreamingQuality.original, .high] {
+        for (quality, misleadingHeader) in [(StreamingQuality.original, false), (.high, false), (.original, true), (.high, true)] {
             let ctx = makeContext(trackRatingKey: UUID().uuidString, quality: quality.rawValue, duration: 30_000)
-            let source = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+            let filename = misleadingHeader ? "file.flac" : "file.wav"
+            let source = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + filename)
             cleanupURLs.append(source)
             let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 8_000, channels: 1))
             let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8_000))
             buffer.frameLength = 8_000
-            try AVAudioFile(forWriting: source, settings: format.settings).write(from: buffer)
-            let response = makeHTTPResponse(url: URL(string: "https://example.com/file.wav")!, mimeType: "audio/wav")
+            if misleadingHeader {
+                let settings: [String: Any] = [AVFormatIDKey: kAudioFormatFLAC, AVSampleRateKey: 8_000, AVNumberOfChannelsKey: 1]
+                do {
+                    let file = try AVAudioFile(forWriting: source, settings: settings)
+                    for _ in 0..<30 { try file.write(from: buffer) }
+                }
+                let handle = try FileHandle(forWritingTo: source)
+                let size = try handle.seekToEnd()
+                try handle.truncate(atOffset: size / 2)
+                try handle.close()
+                XCTAssertEqual(try AVAudioFile(forReading: source).length, 240_000, "Header still advertises all 30 seconds")
+            } else {
+                try AVAudioFile(forWriting: source, settings: format.settings).write(from: buffer)
+            }
+            let response = makeHTTPResponse(url: URL(string: "https://example.com/\(filename)")!, mimeType: "audio/wav")
             let destination = DownloadTransferExecutor.localFileURL(ratingKey: ctx.trackRatingKey, safeSourceKey: ctx.safeSourceKey, quality: quality, response: response)
             cleanupURLs.append(destination)
             let previous = Data("previous playable file".utf8)
@@ -395,7 +418,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
             let executor = DownloadTransferExecutor(dependencies: .init(
                 downloadManager: manager,
                 fetchDirectDownloadURL: { _, _ in response.url! },
-                fetchOfflineDownloadQueueMedia: { _, _ in (source, "file.wav", "audio/wav") },
+                fetchOfflineDownloadQueueMedia: { _, _ in (source, filename, "audio/wav") },
                 shouldAttemptDirectFallback: { _, _ in false },
                 performDirectDownload: { _, _, _ in (source, response) },
                 didComplete: { _, _ in XCTFail("Rejected file must not complete") },
@@ -405,7 +428,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 _ = try await executor.execute(ctx: ctx, requestedQuality: quality)
                 XCTFail("Truncated replacement must fail")
             } catch let error as DownloadTransferExecutionError {
-                guard case DownloadProcessingError.truncatedPayload = error.underlying else { return XCTFail("Expected duration rejection") }
+                XCTAssertTrue(error.underlying is DownloadProcessingError, "Expected audio validation rejection")
             }
             XCTAssertEqual(try Data(contentsOf: destination), previous)
             XCTAssertTrue(manager.completionCalls.isEmpty)

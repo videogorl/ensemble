@@ -197,8 +197,8 @@ public final class OfflineDownloadService: ObservableObject {
             playlistRepository: playlistRepository,
             downloadManager: downloadManager,
             currentDownloadQuality: { [weak self] in self?.currentDownloadQuality() ?? "original" },
-            clearLyricsCaches: { [lyricsService] references in
-                await lyricsService.clearCaches(for: references)
+            didRemoveDownloads: { [weak self] references in
+                await self?.didRemoveDownloads(references)
             }
         )
     )
@@ -206,8 +206,8 @@ public final class OfflineDownloadService: ObservableObject {
         dependencies: .init(
             downloadManager: downloadManager,
             targetRepository: targetRepository,
-            clearLyricsCaches: { [lyricsService] references in
-                await lyricsService.clearCaches(for: references)
+            didRemoveDownloads: { [weak self] references in
+                await self?.didRemoveDownloads(references)
             }
         )
     )
@@ -249,28 +249,33 @@ public final class OfflineDownloadService: ObservableObject {
             }
         )
     )
+    private var isInstallingNativeReceipts = false
+    private let backgroundDownloads: BackgroundDownload
     private lazy var transferExecutor = DownloadTransferExecutor(
         dependencies: .init(
             downloadManager: downloadManager,
-            fetchDirectDownloadURL: { [syncCoordinator] track, quality in
-                try await syncCoordinator.getDownloadURL(for: track, quality: quality)
+            fetchDirectDownloadURL: { [weak self] track, quality in
+                guard let self, self.canRunQueueAutomatically else { throw URLError(.dataNotAllowed) }
+                return try await self.syncCoordinator.getDownloadURL(for: track, quality: quality)
             },
-            fetchOfflineDownloadQueueMedia: { [weak self] track, quality in
-                guard let self, let policy = self.effectiveDownloadNetworkPolicy else { throw URLError(.dataNotAllowed) }
-                return try await self.syncCoordinator.getOfflineDownloadQueueMedia(for: track, quality: quality, networkPolicy: policy)
+            fetchOfflineDownloadQueueMedia: { [weak self] ctx, quality in
+                guard let self, self.canRunQueueAutomatically, let policy = self.effectiveDownloadNetworkPolicy else { throw URLError(.dataNotAllowed) }
+                return try await self.syncCoordinator.getOfflineDownloadQueueMedia(for: ctx.domainTrack, quality: quality, networkPolicy: policy,
+                    transferIdentity: DownloadTransferExecutor.transferIdentity(ctx.downloadObjectID, quality: quality),
+                    backgroundDownloads: self.backgroundDownloads)
             },
             shouldAttemptDirectFallback: { [weak self] error, ctx in
                 guard let self else { return false }
                 return self.shouldAttemptDirectFallback(after: error, for: ctx)
             },
             performDirectDownload: { [weak self] url, downloadID, estimatedSize in
-                guard let self, let policy = self.effectiveDownloadNetworkPolicy else { throw URLError(.dataNotAllowed) }
+                guard let self, self.canRunQueueAutomatically, let policy = self.effectiveDownloadNetworkPolicy else { throw URLError(.dataNotAllowed) }
                 return try await DownloadTransferExecutor.downloadWithProgress(
                     from: url,
                     downloadID: downloadID,
                     estimatedSize: estimatedSize,
                     downloadManager: self.downloadManager,
-                    networkPolicy: policy
+                    networkPolicy: policy, backgroundDownloads: self.backgroundDownloads
                 )
             },
             didComplete: { [weak self] ctx, fileURL in
@@ -286,6 +291,18 @@ public final class OfflineDownloadService: ObservableObject {
                     trackSourceCompositeKey: ctx.sourceCompositeKey
                 )
                 return (try? await self.targetRepository.hasAnyMembership(for: reference)) ?? false
+            },
+            restoredTransfer: { [weak self] ctx, quality in
+                guard let self else { return nil }
+                let identity = DownloadTransferExecutor.transferIdentity(ctx.downloadObjectID, quality: quality)
+                let completed = await self.backgroundDownloads.completedIdentities().contains(identity)
+                guard completed || self.canRunQueueAutomatically else { return nil }
+                return try await self.backgroundDownloads.existingFile(
+                    identity: identity, policy: self.effectiveDownloadNetworkPolicy ?? DownloadNetworkPolicy()
+                )
+            },
+            discardTransfer: { [backgroundDownloads] ctx, quality in
+                await backgroundDownloads.discard(identity: DownloadTransferExecutor.transferIdentity(ctx.downloadObjectID, quality: quality))
             },
             matchingPlaybackArtifact: { [playbackArtifactCache] ctx, quality in
                 playbackArtifactCache.completedArtifact(
@@ -352,8 +369,10 @@ public final class OfflineDownloadService: ObservableObject {
         toastCenter: ToastCenter,
         lyricsService: LyricsService,
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil,
-        launchRecoveryStartedAt: Date = Date()
+        launchRecoveryStartedAt: Date = Date(),
+        backgroundDownloads: BackgroundDownload = .shared
     ) {
+        self.backgroundDownloads = backgroundDownloads
         self.downloadManager = downloadManager
         self.targetRepository = targetRepository
         self.libraryRepository = libraryRepository
@@ -631,6 +650,7 @@ public final class OfflineDownloadService: ObservableObject {
 
             // Delete all download records and files from disk
             try await downloadManager.deleteAllDownloads()
+            await backgroundDownloads.retain(identities: [])
 
             // Clear local state
             removalInProgress.removeAll()
@@ -652,7 +672,11 @@ public final class OfflineDownloadService: ObservableObject {
 
             let desiredQuality = currentDownloadQuality()
             let references = try await targetRepository.fetchTrackReferences(targetKey: key)
-            let downloadsByKey = try await downloadManager.fetchDownloadsBatch(forReferences: references)
+            var downloadsByKey = try await downloadManager.fetchDownloadsBatch(forReferences: references)
+            if downloadsByKey.values.contains(where: { $0.downloadStatus == .downloading && $0.quality != desiredQuality }) {
+                await stopQueueForSuspension(finishBackgroundTask: false)
+                downloadsByKey = try await downloadManager.fetchDownloadsBatch(forReferences: references)
+            }
             var requeuedCount = 0
 
             for ref in references {
@@ -668,7 +692,7 @@ public final class OfflineDownloadService: ObservableObject {
                     continue
                 }
 
-                let currentQuality = download.quality ?? "original"
+                let currentQuality = (download.downloadStatus == .completed ? download.installedQuality : download.quality) ?? "original"
                 guard currentQuality != desiredQuality else { continue }
 
                 switch download.downloadStatus {
@@ -696,6 +720,9 @@ public final class OfflineDownloadService: ObservableObject {
                 await refreshTargetProgress(forTargetKey: key)
                 await refreshTargetSnapshots()
             }
+
+            await reconcileNativeTransfers()
+            startQueueIfNeeded()
 
             EnsembleLogger.debug(
                 "🔄 Redownload target at current quality: key=\(key) quality=\(desiredQuality) requeued=\(requeuedCount)"
@@ -798,7 +825,7 @@ public final class OfflineDownloadService: ObservableObject {
                 from: previousReferences
             )
             try await downloadManager.deleteDownloads(forReferences: orphanedReferences)
-            await lyricsService.clearCaches(for: orphanedReferences)
+            await didRemoveDownloads(orphanedReferences)
             if total > 0 {
                 removalInProgress[key] = RemovalProgress(
                     targetTitle: targetTitle,
@@ -989,6 +1016,7 @@ public final class OfflineDownloadService: ObservableObject {
         } catch {
             EnsembleLogger.error("Failed cancelling download replacements: \(error.localizedDescription)")
         }
+        await reconcileNativeTransfers()
         await refreshAllTargetProgresses()
         startQueueIfNeeded()
     }
@@ -1035,6 +1063,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func handleBackgroundURLSessionEvents(identifier: String, completion: @escaping () -> Void) async {
+        await backgroundDownloads.finishEvents(identifier: identifier)
         await recoverInterruptedDownloads(reason: .backgroundURLSession(identifier), resumeEligibleWork: true)
         completion()
     }
@@ -1056,15 +1085,14 @@ public final class OfflineDownloadService: ObservableObject {
         allowsBackgroundContinuation = false
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.queueCoordinator.cancelCurrentTask()
+            // URLSession owns active transfers beyond the app execution grant.
             await self.recoverInterruptedDownloads(reason: .backgroundExpiration, resumeEligibleWork: false)
         }
     }
 
     /// Single download worker — loops pulling the next pending download until
     /// the queue is empty or the task is cancelled.
-    /// Runs the actual download in a detached task so multiple workers execute
-    /// their network I/O truly in parallel instead of serializing on @MainActor.
+    /// URLSession owns file transfer execution independently of the main actor.
     /// Returns true if at least one download was processed.
     private func workerLoop(applyInteractiveCooldown: Bool) async -> Bool {
         var didProcess = false
@@ -1554,6 +1582,7 @@ public final class OfflineDownloadService: ObservableObject {
 
     private var canRunQueueAutomatically: Bool {
         canExecuteDownloads
+            && !isInstallingNativeReceipts
             && !isUserPaused
             && !isLowPowerSuspended
             && !isPlaybackBufferLow
@@ -1786,6 +1815,8 @@ public final class OfflineDownloadService: ObservableObject {
             try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: recoveredStatus)
         }
 
+        await reconcileNativeTransfers(installCompleted: !queueCoordinator.hasActiveTask)
+
         if shouldResume {
             try? await applyNetworkPolicy()
         } else {
@@ -1817,11 +1848,47 @@ public final class OfflineDownloadService: ObservableObject {
         )
     }
 
+    private func didRemoveDownloads(_ references: [OfflineTrackReference]) async {
+        guard !references.isEmpty else { return }
+        await reconcileNativeTransfers()
+        await lyricsService.clearCaches(for: references)
+    }
+
+    /// CoreData remains authoritative; a failed read must never discard retained bytes.
+    func reconcileNativeTransfers(installCompleted: Bool = false) async {
+        guard !(await backgroundDownloads.identities()).isEmpty else { return }
+        guard let downloads = try? await downloadManager.fetchDownloads() else { return }
+        var allowed: Set<String> = []
+        var eligible: [CDDownload] = []
+        for download in downloads {
+            guard let track = download.track, let source = track.sourceCompositeKey else { continue }
+            let reference = OfflineTrackReference(trackRatingKey: track.ratingKey, trackSourceCompositeKey: source)
+            guard let referenced = try? await targetRepository.hasAnyMembership(for: reference) else { return }
+            guard referenced, download.status != CDDownload.Status.completed.rawValue else { continue }
+            let requested = streamingQuality(from: download.quality)
+            allowed.insert(DownloadTransferExecutor.transferIdentity(download.objectID, quality: requested))
+            allowed.insert(DownloadTransferExecutor.transferIdentity(download.objectID, quality: .original))
+            eligible.append(download)
+        }
+        await backgroundDownloads.retain(identities: allowed)
+        if isUserPaused || isLowPowerSuspended || isPlaybackBufferLow || effectiveDownloadNetworkPolicy == nil {
+            await backgroundDownloads.pause()
+        }
+        let completed = await backgroundDownloads.completedIdentities()
+        guard installCompleted, !queueCoordinator.hasActiveTask else { return }
+        isInstallingNativeReceipts = true
+        defer { isInstallingNativeReceipts = false }
+        for download in eligible where completed.contains(DownloadTransferExecutor.transferIdentity(download.objectID, quality: streamingQuality(from: download.quality)))
+            || completed.contains(DownloadTransferExecutor.transferIdentity(download.objectID, quality: .original)) {
+            await process(download: download)
+        }
+    }
+
     private func shouldUseLightweightStartupRecovery(for reason: OfflineDownloadRecoveryReason) -> Bool {
         switch reason {
-        case .launch, .foreground, .backgroundExpiration:
+        case .launch, .foreground, .backgroundExpiration, .backgroundURLSession:
             return true
-        case .backgroundURLSession, .systemWillSleep, .systemDidWake:
+        case .systemWillSleep, .systemDidWake:
             return false
         }
     }
@@ -1877,6 +1944,7 @@ public final class OfflineDownloadService: ObservableObject {
             backgroundExecutionCoordinator.finishCurrentTask(success: true)
         }
         try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
+        await backgroundDownloads.pause()
     }
 
     private func refreshQueueStatusReason() {

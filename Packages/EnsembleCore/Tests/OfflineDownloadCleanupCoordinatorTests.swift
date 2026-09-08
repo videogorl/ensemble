@@ -87,7 +87,7 @@ final class OfflineDownloadCleanupCoordinatorTests: XCTestCase {
             dependencies: .init(
                 downloadManager: downloadManager,
                 targetRepository: targetRepository,
-                clearLyricsCaches: { references in
+                didRemoveDownloads: { references in
                     clearedLyricsReferences.append(contentsOf: references)
                 }
             )

@@ -1,0 +1,6 @@
+Verified build; launched PID 1972
+relaunch initialBytes [('CFNetworkDownload_4nD3th.tmp', 2097152)]
+relaunch afterFourSeconds []
+com.videogorl.ensemble: 1986
+Final status completed bytes 24527090 error None
+SHA256 93413191b0bd8d06046bc25b4e265cb6a91a3d65f54b1e2d520fd67194ce8320 matches True

@@ -335,6 +335,14 @@ public final class DependencyContainer: @unchecked Sendable {
 
         offlineBackgroundExecutionCoordinator = mutation.offlineBackgroundExecutionCoordinator
         offlineDownloadService = mutation.offlineDownloadService
+        builtSourceCacheCleanupService.onDownloadsRemoved = { [weak service = mutation.offlineDownloadService] in
+            await service?.reconcileNativeTransfers()
+        }
+        MainActor.assumeIsolated {
+            playback.cacheManager.onDownloadsRemoved = { [weak service = mutation.offlineDownloadService] in
+                await service?.reconcileNativeTransfers()
+            }
+        }
         downloadMutationWorkflow = mutation.downloadMutationWorkflow
         mutationCoordinator = mutation.mutationCoordinator
         playlistMutationWorkflow = mutation.playlistMutationWorkflow

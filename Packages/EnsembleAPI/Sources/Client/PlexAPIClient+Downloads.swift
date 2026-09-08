@@ -9,7 +9,9 @@ extension PlexAPIClient {
     public func downloadTranscodedMediaViaQueue(
         trackRatingKey: String,
         quality: StreamingQuality,
-        networkPolicy: DownloadNetworkPolicy
+        networkPolicy: DownloadNetworkPolicy,
+        transferIdentity: String? = nil,
+        backgroundDownloads: BackgroundDownload = .shared
     ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
         guard quality != .original else {
             throw DownloadQueueError.queueNotAvailable
@@ -44,7 +46,7 @@ extension PlexAPIClient {
 
             switch item.status {
             case "available":
-                let result = try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId, networkPolicy: networkPolicy)
+                let result = try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId, networkPolicy: networkPolicy, transferIdentity: transferIdentity, backgroundDownloads: backgroundDownloads)
                 interruptedDownloadQueueItems.removeValue(forKey: jobKey)
                 return result
             case "error":
@@ -313,7 +315,9 @@ extension PlexAPIClient {
     func fetchDownloadQueueMedia(
         queueId: Int,
         itemId: Int,
-        networkPolicy: DownloadNetworkPolicy
+        networkPolicy: DownloadNetworkPolicy,
+        transferIdentity: String? = nil,
+        backgroundDownloads: BackgroundDownload = .shared
     ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
         var request = try makeServerRequest(
             url: currentServerURL,
@@ -323,15 +327,13 @@ extension PlexAPIClient {
         networkPolicy.apply(to: &request)
         // The persistent queue owns transient retries, so an unavailable item cannot
         // hold a worker here while other tracks are ready to download.
-        let (file, response) = try await ResumableDownload.file(for: request, session: session)
-        let suggestedFilename = response.value(forHTTPHeaderField: "Content-Disposition")
-            .flatMap { contentDisposition -> String? in
-                guard let range = contentDisposition.range(of: "filename=") else { return nil }
-                let filename = contentDisposition[range.upperBound...]
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                return filename.isEmpty ? nil : String(filename)
-            }
-        return (file, suggestedFilename, response.value(forHTTPHeaderField: "Content-Type"))
+        let (file, response): (URL, HTTPURLResponse)
+        if let transferIdentity {
+            (file, response) = try await backgroundDownloads.file(for: request, identity: transferIdentity, legacyIdentity: "")
+        } else {
+            (file, response) = try await ResumableDownload.file(for: request, session: session)
+        }
+        return (file, response.suggestedFilename, response.value(forHTTPHeaderField: "Content-Type"))
     }
 
     func downloadQueueBitrate(for quality: StreamingQuality) -> String? {
