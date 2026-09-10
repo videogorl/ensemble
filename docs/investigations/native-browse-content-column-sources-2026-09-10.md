@@ -61,6 +61,64 @@ transitions, older-OS runtime parity for this revision, and memory/binary-size
 overhead. Source deletion is not a runtime performance measurement. This remains
 an isolated experiment, not a shipping migration.
 
+## Focused stress pass — 2026-09-10 afternoon
+
+Tested commit `93a3c9dd`; no production changes in this pass. Fresh iOS and macOS
+workspace builds passed, as did all 24 `NavigationRootHelperTests`. This is a
+focused Artists/Albums investigation, not a full surface or performance sweep.
+
+Environment: the same iPad A16 UUID above, iPadOS 26.5; macOS 26.6.2 (25G83).
+Build version `202609101616.9339`. Built and installed simulator debug libraries
+matched SHA-256 `08c6005bfdcfecc24a02404c7746ab25a306ec8eeb7f5fe4768a5c5cbb475fe4`;
+running executable paths were verified on both platforms. Native and legacy
+comparisons used the same binary, differing only by the debug launch flag.
+The Mac's other debug app was closed with explicit user approval.
+
+### Results
+
+| Check | Observed result |
+|---|---|
+| iPad Artists → AJR → The Maybe Man → Albums → Artists | Selected artist and open album retained, Back present; repeated section round-trip also retained the album. |
+| iPad portrait → landscape with that album open | Artist content and album detail remained visible; landscape exposed the app sidebar too. |
+| iPad album deep link from Artists | `album/11618` opened OK ORCHESTRA in Albums; journey log confirmed routing, mini-player remained Nothing Playing. Returning to Artists restored The Maybe Man. |
+| iPad artist-list scroll after section switch | Resets to top. Legacy flag-off comparison also resets and additionally loses the selected artist. Existing limitation, not a newly established regression. |
+| Mac Janelle Monáe → Dirty Computer → Albums → Artists | Nested album retained. Existing per-section search filters (Janelle / Give Up) also retained. |
+| Mac native middle divider | Drag changed width from 300 to 352 points; detail stayed open. Width returned to 300 after later root replacement; width persistence is not established. |
+| Mac existing artist Pin | twenty one pilots → Clancy → twenty one pilots → Breach, then three Back clicks, returned correctly to the Pin root. Logs show depth 0→1→2→3→2→1→0. |
+| Mac narrow window | **P2 regression, reproduced twice:** at approximately 720-point window width, app sidebar ≈268 and Artists content ≈300 leave only ≈152 for detail. Artist title/count text and artwork clip severely. Widening recovers. |
+| Mac legacy comparison at that width | Uses the compact artist detail with Back, leaving ≈452 points for detail. Content is usable. |
+| Mac manual sidebar collapse at narrow width | Recovers usable content/detail widths. Reopening the sidebar can reintroduce compression; this is a recovery action, not a fix. |
+
+The native root requests `.all` and constrains only its content column; it does
+not carry over the custom explorer's minimum detail width or compact decision.
+See `NativeBrowseSection.body`, `SidebarView.init`, and
+`EnsembleScaffold.BrowseSplit.Configuration.rootBrowse` (minimum detail 360,
+split threshold 720 applied to the explorer's available region). This identifies
+the owning gap, not proof that a single width modifier will solve every resize.
+Next experiment: enforce a usable detail width with public native column sizing
+and a deliberate collapse policy, then prove narrow→wide→narrow transitions and
+Back/selection retention. Do not patch artist/album leaf layout or add a second
+custom splitter. Keep broader migration gated until this passes.
+
+### Evidence and limits
+
+Artifacts: `/tmp/native-explorer-stress.K3DGMi/`; `fix-report.json` records the
+confirmed finding and unverified cases. iPad before/after scroll and nested-album
+screenshots, native session logs, Mac build log, and focused test output are
+saved there. Mac screenshots were directly inspected through Computer Use;
+`mac-observations.md` records the relevant accessibility values and visual states.
+This pass preserves all library data and Pins; no playback or provider mutation
+was initiated. Mac pre-existing search filters were not changed. Native builds
+were left running on both targets, with the Mac restored to a usable wider window.
+
+Residual gaps: arbitrary iPad window resizing (the attempted resize gesture did
+not change the window), full keyboard/focus behavior (Command-[ did not navigate
+in the tested Mac context), iPad Pin coverage (no Pins in its sidebar), older-OS
+runtime checks, list/grid preference switching, long-scroll/detail restoration,
+and memory/binary/performance measurements. No new automated test was added:
+this pass diagnoses behavior without changing it. The earlier rotation XCTest
+pass remains valid evidence for its narrower scenario, not these untested cases.
+
 ## Source research (before the scope clarification)
 
 Date: 2026-09-10. Read-only source research; none of these external apps was built or run. These are patterns to study, not dependencies to add. No inspected project proves the exact combination of adaptive tab sidebar, real supplementary/content column, and section-dependent two/three-column layout that Ensemble wants.
