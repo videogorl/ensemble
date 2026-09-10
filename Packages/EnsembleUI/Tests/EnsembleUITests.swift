@@ -426,19 +426,20 @@ final class EnsembleUITests: XCTestCase {
 
         XCTAssertTrue(provider.hasItemConformingToTypeIdentifier(UTType.audio.identifier))
 
-        let loadedURL: URL = try await withCheckedThrowingContinuation { continuation in
+        let loadedData: Data = try await withCheckedThrowingContinuation { continuation in
             provider.loadFileRepresentation(forTypeIdentifier: UTType.audio.identifier) { url, error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else if let url {
-                    continuation.resume(returning: url)
+                    // NSItemProvider deletes this temporary file when the callback returns.
+                    continuation.resume(with: Result { try Data(contentsOf: url) })
                 } else {
                     continuation.resume(throwing: CocoaError(.fileNoSuchFile))
                 }
             }
         }
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: loadedURL.path))
+        XCTAssertEqual(loadedData, Data("audio".utf8))
     }
 
     func testTrackItemProviderDefaultsExtensionlessExportNameToMP3() async throws {

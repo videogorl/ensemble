@@ -573,6 +573,11 @@ enum RootSidebarColumnWidth {
 
 @available(iOS 16.0, macOS 13.0, *)
 public struct SidebarView: View {
+    var usesNativeBrowse = false
+    @State private var selectedArtist: DisplayArtist?
+    @State private var selectedGenre: DisplayGenre?
+    @State private var selectedPlaylist: DisplayPlaylist?
+    @State private var enabledTabs = DependencyContainer.shared.settingsManager.enabledTabs
     /// Stable sidebar-only playlist row model so SwiftUI diffing does not depend on
     /// the broader Playlist Hashable/Equatable semantics.
     private struct SidebarPlaylistItem: Identifiable, Equatable {
@@ -629,27 +634,15 @@ public struct SidebarView: View {
     init(
         nowPlayingVM: NowPlayingViewModel,
         viewModels: RootScreenModels,
-        selection: Binding<SidebarSelection?>
-    ) {
-        self.init(
-            nowPlayingVM: nowPlayingVM,
-            viewModels: viewModels,
-            selection: selection,
-            rootSidebarChromeRegistrationHandler: nil
-        )
-    }
-
-    @MainActor
-    init(
-        nowPlayingVM: NowPlayingViewModel,
-        viewModels: RootScreenModels,
         selection: Binding<SidebarSelection?>,
-        rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
+        usesNativeBrowse: Bool = false,
+        rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)? = nil
     ) {
         self.nowPlayingVM = nowPlayingVM
         self.viewModels = viewModels
         self.pinnedVM = viewModels.pinned
         self._selection = selection
+        self.usesNativeBrowse = usesNativeBrowse
         self.rootSidebarChromeRegistrationHandler = rootSidebarChromeRegistrationHandler
     }
 
@@ -687,6 +680,9 @@ public struct SidebarView: View {
     }
 
     private func updateSettingsSnapshot() {
+        if enabledTabs != settingsManager.enabledTabs {
+            enabledTabs = settingsManager.enabledTabs
+        }
         let latestAccentColor = settingsManager.accentColor
         if latestAccentColor != accentColor {
             accentColor = latestAccentColor
@@ -918,7 +914,9 @@ public struct SidebarView: View {
     }
 
     private func navigateFromPinnedMenu(to destination: NavigationCoordinator.Destination) {
-        selectSidebar(SidebarSelection.selection(for: destination, fallback: selection))
+        selectSidebar(usesNativeBrowse
+            ? .library(NavigationCoordinator.targetTab(for: destination))
+            : SidebarSelection.selection(for: destination, fallback: selection))
         navigationCoordinator.routeFromMenu(
             to: destination,
             in: NavigationCoordinator.targetTab(for: destination)
@@ -1085,6 +1083,14 @@ public struct SidebarView: View {
             _ = await (libRefresh, pinsLoad, playlistsLoad)
             rebuildCachedSidebarPlaylists()
         }
+        .onReceive(sidebarPlaylistCacheInvalidations) { _ in
+            rebuildCachedSidebarPlaylists()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: CacheManager.libraryDataDidClear)) { _ in
+            isApplyingAuthoritativePlaylistClear = true
+            cachedSmartPlaylists = []
+            cachedRegularPlaylists = []
+        }
     }
 
     private var sidebarSelectionBinding: Binding<SidebarSelection?> {
@@ -1154,6 +1160,7 @@ public struct SidebarView: View {
     }
 
     private func publishRootSidebarChromeRegistration(fallbackWidth: CGFloat? = nil) {
+        guard !usesNativeBrowse else { return }
         guard isSidebarChromeVisible else {
             rootSidebarChromeRegistrationHandler?(.hidden)
             return
@@ -1250,14 +1257,6 @@ public struct SidebarView: View {
         // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
         // instead of computed properties ensures updates survive NavigationSplitView
         // re-layouts on macOS that can swallow computed property changes.
-        .onReceive(sidebarPlaylistCacheInvalidations) { _ in
-            rebuildCachedSidebarPlaylists()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: CacheManager.libraryDataDidClear)) { _ in
-            isApplyingAuthoritativePlaylistClear = true
-            cachedSmartPlaylists = []
-            cachedRegularPlaylists = []
-        }
         .onAppear {
             rebuildCachedSidebarPlaylists()
         }
@@ -1342,6 +1341,11 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private var detailRootContentView: some View {
+        detailRootContent(for: selection)
+    }
+
+    @ViewBuilder
+    private func detailRootContent(for selection: SidebarSelection?) -> some View {
         switch selection {
         case .library(let tab):
             sidebarContentView(for: tab)
@@ -1476,7 +1480,9 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private var splitNavigationView: some View {
-        if #available(iOS 17.0, macOS 14.0, *) {
+        if #available(iOS 18.0, macOS 15.0, *), usesNativeBrowse {
+            nativeTabNavigationView
+        } else if #available(iOS 17.0, macOS 14.0, *) {
             splitNavigationViewWithCompactColumn
         } else {
             NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -1488,6 +1494,132 @@ public struct SidebarView: View {
                 .macEditorToolbarRoleIfAvailable()
             }
             .navigationSplitViewStyle(.balanced)
+        }
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private var nativeTabNavigationView: some View {
+        TabView(selection: sidebarSelectionBinding) {
+            ForEach(nativeLibraryTabs) { tab in
+                Tab(tab.displayTitle, systemImage: tab.systemImage,
+                    value: SidebarSelection.library(tab), role: tab == .search ? .search : nil) {
+                    NativeBrowseSection(
+                        tab: tab, nowPlayingVM: nowPlayingVM, viewModels: viewModels,
+                        rootSelection: $selection,
+                        artist: $selectedArtist, genre: $selectedGenre, playlist: $selectedPlaylist
+                    )
+                    .modifier(NativeBrowseChrome())
+                }
+                .defaultVisibility(enabledTabs.contains(tab) ? .visible : .hidden, for: .tabBar)
+                .customizationID("library.\(tab.rawValue)")
+                .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(tab))
+            }
+            Tab("Hidden", systemImage: "eye.slash", value: SidebarSelection.hidden) {
+                nativeDetail(for: .hidden)
+            }
+            .defaultVisibility(.hidden, for: .tabBar)
+            if !pinnedVM.resolvedPins.isEmpty {
+                TabSection("Pins") {
+                    ForEach(pinnedVM.resolvedPins) { pin in
+                        let item = pin.pinnedItem
+                        let value = SidebarSelection.pin(id: item.id, sourceKey: item.sourceCompositeKey, type: item.type)
+                        Tab(value: value) {
+                            nativeDetail(for: value)
+                        } label: {
+                            sidebarPinRow(pin)
+                        }
+                        .customizationID(pin.id)
+                        .defaultVisibility(.hidden, for: .tabBar)
+                        .contextMenu { sidebarPinContextMenu(pin) }
+                    }
+                }
+                .customizationID("pins")
+                .defaultVisibility(.hidden, for: .tabBar)
+            }
+            if !cachedSmartPlaylists.isEmpty {
+                TabSection("Smart Playlists") {
+                    ForEach(cachedSmartPlaylists) { playlist in
+                        nativePlaylistTab(playlist)
+                    }
+                }
+                .defaultVisibility(.hidden, for: .tabBar)
+            }
+            if !cachedRegularPlaylists.isEmpty {
+                TabSection("Playlists") {
+                    ForEach(cachedRegularPlaylists) { playlist in
+                        nativePlaylistTab(playlist)
+                    }
+                }
+                .defaultVisibility(.hidden, for: .tabBar)
+            }
+        }
+        .tabViewStyle(.sidebarAdaptable)
+        .modifier(NativeBrowseCustomization(pins: pinnedVM))
+        .tabViewSidebarBottomBar {
+            HStack {
+                ProfileToolbarButton()
+                Spacer()
+                Button { navigationCoordinator.openDownloads() } label: {
+                    Image(systemName: EnsembleDesign.Icon.download)
+                }
+                .accessibilityIdentifier(AutomationIdentifiers.Sidebar.downloadsToolbar)
+                .help("Downloads")
+            }
+            .padding(.horizontal)
+            .background {
+                GeometryReader { proxy in
+                    let registration = RootSidebarChromeRegistration.visible(
+                        frame: proxy.frame(in: .named(RootChromeCoordinateSpace.name))
+                    )
+                    Color.clear
+                        .onAppear { rootSidebarChromeRegistrationHandler?(registration) }
+                        .onChange(of: registration) { rootSidebarChromeRegistrationHandler?($0) }
+                        .onDisappear { rootSidebarChromeRegistrationHandler?(.hidden) }
+                }
+            }
+        }
+        .environment(\.mediaNavigationTransitionNamespace, mediaNavigationNamespace)
+    }
+
+    private var nativeLibraryTabs: [TabItem] {
+        let libraryTabs = TabItem.allCases.filter { $0 != .downloads && $0 != .settings }
+        return enabledTabs.filter { libraryTabs.contains($0) }
+            + libraryTabs.filter { !enabledTabs.contains($0) }
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private func nativeDetail(for selection: SidebarSelection) -> some View {
+        NavigationStack(path: navigationCoordinator.pathBinding(
+            for: selection.correspondingTab ?? .settings,
+            isActive: { self.selection == selection }
+        )) {
+            detailRootContent(for: selection)
+                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                    destinationView(for: destination)
+                }
+        }
+        .modifier(NativeBrowseChrome())
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private func nativePlaylistTab(_ playlist: SidebarPlaylistItem) -> some TabContent<SidebarSelection?> {
+        let value = playlist.isMerged
+            ? SidebarSelection.mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart)
+            : SidebarSelection.playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey)
+        return Tab(value: Optional(value)) {
+            nativeDetail(for: value)
+        } label: {
+            sidebarPlaylistRow(playlist)
+        }
+        .defaultVisibility(.hidden, for: .tabBar)
+        .dropDestination(for: MediaDragPayload.self) { payloads in
+            Task { @MainActor in
+                let action = SidebarPlaylistDropAction(
+                    deps: deps, libraryVM: libraryVM, playlistsVM: playlistsVM, nowPlayingVM: nowPlayingVM
+                )
+                let combined = MediaDragPayload(items: payloads.flatMap(\.items))
+                _ = await action.perform(combined, onto: playlist)
+            }
         }
     }
 
@@ -1606,6 +1738,7 @@ public struct SidebarView: View {
                 Text(pinnedItem.title)
             } icon: {
                 ArtworkView(artist: artist, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
+                    .nativeTabIcon(size: usesNativeBrowse ? artworkDimension : nil)
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
@@ -1618,34 +1751,15 @@ public struct SidebarView: View {
                 sourceKey: pinnedItem.sourceCompositeKey,
                 type: pinnedItem.type.rawValue
             ))
-            .contextMenu {
-                ArtistActionsContextMenu(
-                    artist: artist,
-                    nowPlayingVM: nowPlayingVM,
-                    toastNamespace: "sidebar-artist-menu",
-                    customPinAction: { isPinned in
-                        if isPinned {
-                            handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.artists))
-                            deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
-                        } else {
-                            deps.pinMutationWorkflow.pin(
-                                id: artist.id,
-                                sourceKey: artist.sourceCompositeKey ?? "",
-                                type: .artist,
-                                title: artist.name
-                            )
-                        }
-                    }
-                )
-            }
+            .contextMenu { sidebarPinContextMenu(pin) }
 
         case .mergedArtist(let displayArtist, let pinnedItems):
             let pinnedItem = pinnedItems[0]
-            let artist = displayArtist.primaryArtist
             Label {
                 Text(displayArtist.name)
             } icon: {
                 ArtworkView(artist: displayArtist.artworkArtist, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
+                    .nativeTabIcon(size: usesNativeBrowse ? artworkDimension : nil)
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
@@ -1653,26 +1767,14 @@ public struct SidebarView: View {
             .sidebarAccessibilityAction {
                 selectSidebar(.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
             }
-            .contextMenu {
-                ArtistActionsContextMenu(
-                    artist: artist,
-                    sourceArtists: displayArtist.artists,
-                    nowPlayingVM: nowPlayingVM,
-                    toastNamespace: "sidebar-merged-artist-menu",
-                    customPinAction: { isPinned in
-                        guard isPinned else { return }
-                        let identities = Set(pinnedItems.map(\.sourceScopedID))
-                        handlePinnedSelectionRemoval(identities: identities, fallback: .library(.artists))
-                        deps.pinMutationWorkflow.unpinAll(identities: identities)
-                    }
-                )
-            }
+            .contextMenu { sidebarPinContextMenu(pin) }
 
         case .album(let album, let pinnedItem):
             Label {
                 Text(pinnedItem.title)
             } icon: {
                 ArtworkView(album: album, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
+                    .nativeTabIcon(size: usesNativeBrowse ? artworkDimension : nil)
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
@@ -1685,41 +1787,7 @@ public struct SidebarView: View {
                 sourceKey: pinnedItem.sourceCompositeKey,
                 type: pinnedItem.type.rawValue
             ))
-            .contextMenu {
-                AlbumActionsContextMenu(
-                    album: album,
-                    sourceAlbums: [album],
-                    nowPlayingVM: nowPlayingVM,
-                    presentPlaylistPicker: { tracks, title in
-                        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                    },
-                    toastNamespace: "sidebar-album-menu",
-                    navigateToArtist: { artistID in
-                        navigateFromPinnedMenu(
-                            to: .artist(
-                                id: artistID,
-                                sourceKey: album.sourceCompositeKey ?? pinnedItem.sourceCompositeKey
-                            )
-                        )
-                    },
-                    onGetInfo: {
-                        libraryItemInfoRequest = .album(album)
-                    },
-                    customPinAction: { isPinned in
-                        if isPinned {
-                            handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.albums))
-                            deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
-                        } else {
-                            deps.pinMutationWorkflow.pin(
-                                id: album.id,
-                                sourceKey: album.sourceCompositeKey ?? "",
-                                type: .album,
-                                title: album.title
-                            )
-                        }
-                    }
-                )
-            }
+            .contextMenu { sidebarPinContextMenu(pin) }
 
         case .mergedAlbum(let displayAlbum, let pinnedItems):
             let pinnedItem = pinnedItems[0]
@@ -1728,6 +1796,7 @@ public struct SidebarView: View {
                 Text(displayAlbum.title)
             } icon: {
                 ArtworkView(album: album, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
+                    .nativeTabIcon(size: usesNativeBrowse ? artworkDimension : nil)
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
@@ -1735,30 +1804,14 @@ public struct SidebarView: View {
             .sidebarAccessibilityAction {
                 selectSidebar(.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
             }
-            .contextMenu {
-                AlbumActionsContextMenu(
-                    album: album,
-                    sourceAlbums: displayAlbum.albums,
-                    nowPlayingVM: nowPlayingVM,
-                    presentPlaylistPicker: { tracks, title in
-                        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                    },
-                    toastNamespace: "sidebar-merged-album-menu",
-                    onGetInfo: { libraryItemInfoRequest = .album(album) },
-                    customPinAction: { isPinned in
-                        guard isPinned else { return }
-                        let identities = Set(pinnedItems.map(\.sourceScopedID))
-                        handlePinnedSelectionRemoval(identities: identities, fallback: .library(.albums))
-                        deps.pinMutationWorkflow.unpinAll(identities: identities)
-                    }
-                )
-            }
+            .contextMenu { sidebarPinContextMenu(pin) }
 
         case .playlist(let playlist, let pinnedItem):
             Label {
                 Text(pinnedItem.title)
             } icon: {
                 ArtworkView(playlist: playlist, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
+                    .nativeTabIcon(size: usesNativeBrowse ? artworkDimension : nil)
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
@@ -1771,39 +1824,7 @@ public struct SidebarView: View {
                 sourceKey: pinnedItem.sourceCompositeKey,
                 type: pinnedItem.type.rawValue
             ))
-            .contextMenu {
-                PlaylistActionsContextMenu(
-                    playlist: playlist,
-                    nowPlayingVM: nowPlayingVM,
-                    toastNamespace: "sidebar-playlist-menu",
-                    onGetInfo: {
-                        libraryItemInfoRequest = .playlist(playlist)
-                    },
-                    onRename: { selectedPlaylist in
-                        playlistPendingRenameTitle = selectedPlaylist.title
-                        playlistsPendingRename = [selectedPlaylist]
-                    },
-                    onEdit: { selectedPlaylist in
-                        playlistForEditSheet = selectedPlaylist
-                    },
-                    onDelete: { selectedPlaylist in
-                        playlistPendingDelete = selectedPlaylist
-                    },
-                    customPinAction: { isPinned in
-                        if isPinned {
-                            handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.playlists))
-                            deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
-                        } else {
-                            deps.pinMutationWorkflow.pin(
-                                id: playlist.id,
-                                sourceKey: playlist.sourceCompositeKey ?? "",
-                                type: .playlist,
-                                title: playlist.title
-                            )
-                        }
-                    }
-                )
-            }
+            .contextMenu { sidebarPinContextMenu(pin) }
 
         case .mergedPlaylist(let displayPlaylist, let pinnedItems):
             Label {
@@ -1815,6 +1836,7 @@ public struct SidebarView: View {
                     cornerRadius: ArtworkCornerRadius.square(for: artworkDimension),
                     isResponsive: true
                 )
+                .nativeTabIcon(size: usesNativeBrowse ? artworkDimension : nil)
                 .frame(width: artworkDimension, height: artworkDimension)
                 .clipShape(RoundedRectangle(cornerRadius: ArtworkCornerRadius.square(for: artworkDimension), style: .continuous))
             }
@@ -1835,29 +1857,163 @@ public struct SidebarView: View {
                 sourceKey: pinnedItems[0].sourceCompositeKey,
                 type: pinnedItems[0].type.rawValue
             ))
-            .contextMenu {
-                MergedPlaylistActionsContextMenu(
-                    displayPlaylist: displayPlaylist,
-                    nowPlayingVM: nowPlayingVM,
-                    toastNamespace: "sidebar-merged-playlist-menu",
-                    context: .sidebar,
-                    onRename: { playlists in
-                        guard let first = playlists.first else { return }
-                        playlistPendingRenameTitle = first.title
-                        playlistsPendingRename = playlists
-                    },
-                    onDelete: { playlist in
-                        playlistPendingDelete = playlist
-                    },
-                    onUnpinAll: {
-                        handlePinnedSelectionRemoval(
-                            identities: Set(pinnedItems.map(\.sourceScopedID)),
-                            fallback: .library(.playlists)
+            .contextMenu { sidebarPinContextMenu(pin) }
+        }
+    }
+
+    @ViewBuilder
+    private func sidebarPinContextMenu(_ pin: ResolvedPin) -> some View {
+        switch pin {
+        case .artist(let artist, let pinnedItem):
+
+            ArtistActionsContextMenu(
+                artist: artist,
+                nowPlayingVM: nowPlayingVM,
+                toastNamespace: "sidebar-artist-menu",
+                customPinAction: { isPinned in
+                    if isPinned {
+                        handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.artists))
+                        deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
+                    } else {
+                        deps.pinMutationWorkflow.pin(
+                            id: artist.id,
+                            sourceKey: artist.sourceCompositeKey ?? "",
+                            type: .artist,
+                            title: artist.name
                         )
-                        deps.pinMutationWorkflow.unpinAll(identities: Set(pinnedItems.map(\.sourceScopedID)))
                     }
-                )
-            }
+                }
+            )
+
+        case .mergedArtist(let displayArtist, let pinnedItems):
+            let artist = displayArtist.primaryArtist
+
+            ArtistActionsContextMenu(
+                artist: artist,
+                sourceArtists: displayArtist.artists,
+                nowPlayingVM: nowPlayingVM,
+                toastNamespace: "sidebar-merged-artist-menu",
+                customPinAction: { isPinned in
+                    guard isPinned else { return }
+                    let identities = Set(pinnedItems.map(\.sourceScopedID))
+                    handlePinnedSelectionRemoval(identities: identities, fallback: .library(.artists))
+                    deps.pinMutationWorkflow.unpinAll(identities: identities)
+                }
+            )
+
+        case .album(let album, let pinnedItem):
+
+            AlbumActionsContextMenu(
+                album: album,
+                sourceAlbums: [album],
+                nowPlayingVM: nowPlayingVM,
+                presentPlaylistPicker: { tracks, title in
+                    playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+                },
+                toastNamespace: "sidebar-album-menu",
+                navigateToArtist: { artistID in
+                    navigateFromPinnedMenu(
+                        to: .artist(
+                            id: artistID,
+                            sourceKey: album.sourceCompositeKey ?? pinnedItem.sourceCompositeKey
+                        )
+                    )
+                },
+                onGetInfo: {
+                    libraryItemInfoRequest = .album(album)
+                },
+                customPinAction: { isPinned in
+                    if isPinned {
+                        handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.albums))
+                        deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
+                    } else {
+                        deps.pinMutationWorkflow.pin(
+                            id: album.id,
+                            sourceKey: album.sourceCompositeKey ?? "",
+                            type: .album,
+                            title: album.title
+                        )
+                    }
+                }
+            )
+
+        case .mergedAlbum(let displayAlbum, let pinnedItems):
+            let album = displayAlbum.primaryAlbum
+
+            AlbumActionsContextMenu(
+                album: album,
+                sourceAlbums: displayAlbum.albums,
+                nowPlayingVM: nowPlayingVM,
+                presentPlaylistPicker: { tracks, title in
+                    playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+                },
+                toastNamespace: "sidebar-merged-album-menu",
+                onGetInfo: { libraryItemInfoRequest = .album(album) },
+                customPinAction: { isPinned in
+                    guard isPinned else { return }
+                    let identities = Set(pinnedItems.map(\.sourceScopedID))
+                    handlePinnedSelectionRemoval(identities: identities, fallback: .library(.albums))
+                    deps.pinMutationWorkflow.unpinAll(identities: identities)
+                }
+            )
+
+        case .playlist(let playlist, let pinnedItem):
+
+            PlaylistActionsContextMenu(
+                playlist: playlist,
+                nowPlayingVM: nowPlayingVM,
+                toastNamespace: "sidebar-playlist-menu",
+                onGetInfo: {
+                    libraryItemInfoRequest = .playlist(playlist)
+                },
+                onRename: { selectedPlaylist in
+                    playlistPendingRenameTitle = selectedPlaylist.title
+                    playlistsPendingRename = [selectedPlaylist]
+                },
+                onEdit: { selectedPlaylist in
+                    playlistForEditSheet = selectedPlaylist
+                },
+                onDelete: { selectedPlaylist in
+                    playlistPendingDelete = selectedPlaylist
+                },
+                customPinAction: { isPinned in
+                    if isPinned {
+                        handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.playlists))
+                        deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
+                    } else {
+                        deps.pinMutationWorkflow.pin(
+                            id: playlist.id,
+                            sourceKey: playlist.sourceCompositeKey ?? "",
+                            type: .playlist,
+                            title: playlist.title
+                        )
+                    }
+                }
+            )
+
+        case .mergedPlaylist(let displayPlaylist, let pinnedItems):
+
+            MergedPlaylistActionsContextMenu(
+                displayPlaylist: displayPlaylist,
+                nowPlayingVM: nowPlayingVM,
+                toastNamespace: "sidebar-merged-playlist-menu",
+                context: .sidebar,
+                onRename: { playlists in
+                    guard let first = playlists.first else { return }
+                    playlistPendingRenameTitle = first.title
+                    playlistsPendingRename = playlists
+                },
+                onDelete: { playlist in
+                    playlistPendingDelete = playlist
+                },
+                onUnpinAll: {
+                    handlePinnedSelectionRemoval(
+                        identities: Set(pinnedItems.map(\.sourceScopedID)),
+                        fallback: .library(.playlists)
+                    )
+                    deps.pinMutationWorkflow.unpinAll(identities: Set(pinnedItems.map(\.sourceScopedID)))
+                }
+            )
         }
     }
 
@@ -1880,6 +2036,7 @@ public struct SidebarView: View {
                 cornerRadius: ArtworkCornerRadius.square(for: EnsembleScaffold.Sidebar.artworkDimension),
                 isResponsive: true
             )
+            .nativeTabIcon(size: usesNativeBrowse ? EnsembleScaffold.Sidebar.artworkDimension : nil)
             .frame(width: EnsembleScaffold.Sidebar.artworkDimension, height: EnsembleScaffold.Sidebar.artworkDimension)
             .clipShape(RoundedRectangle(cornerRadius: ArtworkCornerRadius.square(for: EnsembleScaffold.Sidebar.artworkDimension), style: .continuous))
         }
@@ -1981,7 +2138,7 @@ public struct SidebarView: View {
                     EnsembleLogger.debug(
                         "Sidebar playlist drop failed: payload unresolved for target=\(playlist.id) providerTypes=\(MediaDragPayload.debugRegisteredTypeIdentifiers(for: providers))"
                     )
-                    showSidebarDropToast(
+                    dropAction.showSidebarDropToast(
                         style: .warning,
                         title: "Drop not supported",
                         message: "That item could not be resolved.",
@@ -2001,51 +2158,17 @@ public struct SidebarView: View {
             return true
         }
 
-        @MainActor
-        private func performSidebarPlaylistDrop(_ payload: MediaDragPayload, onto sidebarPlaylist: SidebarPlaylistItem) async {
-            do {
-                let resolution = try await playlistDropResolver.resolve(
-                    references: payload.dropReferences,
-                    targets: sidebarPlaylist.dropTargets,
-                    tracks: libraryVM.tracks,
-                    albums: libraryVM.albums,
-                    playlists: playlistsVM.playlists,
-                    loadAlbumTracks: { album in
-                        let detailVM = DependencyContainer.shared.makeAlbumDetailViewModel(album: album)
-                        await detailVM.loadTracks()
-                        return detailVM.tracks
-                    },
-                    loadPlaylistTracks: { playlist in
-                        let detailVM = DependencyContainer.shared.makePlaylistDetailViewModel(playlist: playlist)
-                        await detailVM.loadTracks()
-                        return detailVM.tracks
-                    }
-                )
-                let outcome = try await nowPlayingVM.addTracksOptimistically(
-                    resolution.tracks,
-                    to: resolution.targetPlaylist
-                )
-                EnsembleLogger.debug(
-                    "Sidebar playlist drop completed: target=\(resolution.targetPlaylist.id) tracks=\(resolution.tracks.count) outcome=\(String(describing: outcome))"
-                )
-                let targetIdentity = dropTargetIdentity(
-                    id: resolution.targetPlaylist.id,
-                    sourceKey: resolution.targetPlaylist.sourceCompositeKey
-                )
-                if var cachedTrackIDs = cachedTrackIDsByTarget[targetIdentity] {
-                    cachedTrackIDs.formUnion(resolution.tracks.map(\.id))
-                    cachedTrackIDsByTarget[targetIdentity] = cachedTrackIDs
+        private var dropAction: SidebarPlaylistDropAction {
+            SidebarPlaylistDropAction(deps: deps, libraryVM: libraryVM, playlistsVM: playlistsVM, nowPlayingVM: nowPlayingVM)
+        }
+
+        private func performSidebarPlaylistDrop(_ payload: MediaDragPayload, onto playlist: SidebarPlaylistItem) async {
+            if let (target, tracks) = await dropAction.perform(payload, onto: playlist) {
+                let identity = dropTargetIdentity(id: target.id, sourceKey: target.sourceCompositeKey)
+                if var cached = cachedTrackIDsByTarget[identity] {
+                    cached.formUnion(tracks.map(\.id))
+                    cachedTrackIDsByTarget[identity] = cached
                 }
-            } catch let error as PlaylistDropResolutionError {
-                handleSidebarDropResolutionError(error, sidebarPlaylist: sidebarPlaylist)
-            } catch {
-                EnsembleLogger.debug("Sidebar playlist drop failed: target=\(sidebarPlaylist.playlistID) error=\(error.localizedDescription)")
-                showSidebarDropToast(
-                    style: .error,
-                    title: "Couldn't add tracks",
-                    message: error.localizedDescription,
-                    dedupeKey: "playlist-drop-add-failed-\(sidebarPlaylist.playlistID)"
-                )
             }
         }
 
@@ -2086,6 +2209,58 @@ public struct SidebarView: View {
 
         private func dropTargetIdentity(id: String, sourceKey: String?) -> String {
             "\(MediaTrackResolver.normalizedSourceKey(sourceKey) ?? "")|\(id)"
+        }
+
+    }
+
+    /// Shared execution for the legacy row and native Tab drop destinations.
+    @MainActor
+    private struct SidebarPlaylistDropAction {
+        let deps: DependencyContainer
+        let libraryVM: LibraryViewModel
+        let playlistsVM: PlaylistViewModel
+        let nowPlayingVM: NowPlayingViewModel
+        private let playlistDropResolver = PlaylistDropResolver()
+
+        func perform(_ payload: MediaDragPayload, onto sidebarPlaylist: SidebarPlaylistItem) async -> (Playlist, [Track])? {
+            do {
+                let resolution = try await playlistDropResolver.resolve(
+                    references: payload.dropReferences,
+                    targets: sidebarPlaylist.dropTargets,
+                    tracks: libraryVM.tracks,
+                    albums: libraryVM.albums,
+                    playlists: playlistsVM.playlists,
+                    loadAlbumTracks: { album in
+                        let detailVM = DependencyContainer.shared.makeAlbumDetailViewModel(album: album)
+                        await detailVM.loadTracks()
+                        return detailVM.tracks
+                    },
+                    loadPlaylistTracks: { playlist in
+                        let detailVM = DependencyContainer.shared.makePlaylistDetailViewModel(playlist: playlist)
+                        await detailVM.loadTracks()
+                        return detailVM.tracks
+                    }
+                )
+                let outcome = try await nowPlayingVM.addTracksOptimistically(
+                    resolution.tracks,
+                    to: resolution.targetPlaylist
+                )
+                EnsembleLogger.debug(
+                    "Sidebar playlist drop completed: target=\(resolution.targetPlaylist.id) tracks=\(resolution.tracks.count) outcome=\(String(describing: outcome))"
+                )
+                return (resolution.targetPlaylist, resolution.tracks)
+            } catch let error as PlaylistDropResolutionError {
+                handleSidebarDropResolutionError(error, sidebarPlaylist: sidebarPlaylist)
+            } catch {
+                EnsembleLogger.debug("Sidebar playlist drop failed: target=\(sidebarPlaylist.playlistID) error=\(error.localizedDescription)")
+                showSidebarDropToast(
+                    style: .error,
+                    title: "Couldn't add tracks",
+                    message: error.localizedDescription,
+                    dedupeKey: "playlist-drop-add-failed-\(sidebarPlaylist.playlistID)"
+                )
+            }
+            return nil
         }
 
         private func handleSidebarDropResolutionError(
@@ -2170,7 +2345,7 @@ public struct SidebarView: View {
             )
         }
 
-        private func showSidebarDropToast(
+        func showSidebarDropToast(
             style: ToastStyle,
             title: String,
             message: String,

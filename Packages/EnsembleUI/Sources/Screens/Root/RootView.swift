@@ -65,6 +65,7 @@ public struct RootView: View {
             isNowPlayingPresented: isNowPlayingPresented,
             isSoftwareKeyboardVisible: isSoftwareKeyboardVisible,
             sidebarChromeRegistration: rootSidebarChromeRegistration,
+            usesNativeBrowse: usesNativeBrowse,
             supportsViewportNowPlayingPresentation: supportsViewportNowPlayingPresentation,
             namespace: playerNamespace,
             animationID: artworkAnimationID,
@@ -139,6 +140,10 @@ public struct RootView: View {
             syncSidebarSelection(to: tab)
         }
         .onReceive(navigationCoordinator.$externalRouteSequence.dropFirst()) { _ in
+            if usesNativeBrowse {
+                // External routes target a library stack, never a transient Pin tab.
+                sidebarSelection = .library(navigationCoordinator.selectedTab)
+            }
             if isNowPlayingPresented {
                 dismissNowPlaying()
             }
@@ -317,11 +322,13 @@ public struct RootView: View {
     private var mainContentView: some View {
         #if DEBUG && (os(iOS) || os(macOS))
         if #available(iOS 18.0, macOS 15.0, *),
-           ProcessInfo.processInfo.arguments.contains("-EnsembleNativeBrowsePrototype") {
-            NativeBrowsePrototype(
+           usesNativeBrowse {
+            SidebarView(
                 nowPlayingVM: nowPlayingVM,
                 viewModels: screenModels,
-                selection: $sidebarSelection
+                selection: $sidebarSelection,
+                usesNativeBrowse: true,
+                rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
             )
         } else {
             legacyMainContentView
@@ -329,6 +336,15 @@ public struct RootView: View {
         #else
         legacyMainContentView
         #endif
+    }
+
+    private var usesNativeBrowse: Bool {
+        #if DEBUG && (os(iOS) || os(macOS))
+        if #available(iOS 18.0, macOS 15.0, *) {
+            return ProcessInfo.processInfo.arguments.contains("-EnsembleNativeBrowsePrototype")
+        }
+        #endif
+        return false
     }
 
     @ViewBuilder
@@ -398,6 +414,7 @@ public struct RootView: View {
     }
 
     private var usesSidebarRootNavigationShell: Bool {
+        if usesNativeBrowse { return true }
         switch EnsemblePlatformFeaturePolicy.currentRootNavigationShell {
         case .sidebar:
             #if os(iOS)
@@ -473,7 +490,11 @@ public struct RootView: View {
         navigationCoordinator.pendingNavigation = nil
 
         let targetTab: TabItem
-        if usesSidebarRootNavigationShell {
+        if usesNativeBrowse {
+            clearSidebarPinPath()
+            targetTab = NavigationCoordinator.targetTab(for: pending.destination)
+            sidebarSelection = .library(targetTab)
+        } else if usesSidebarRootNavigationShell {
             clearSidebarPinPath()
             sidebarSelection = SidebarSelection.selection(
                 for: pending.destination,

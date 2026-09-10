@@ -26,6 +26,7 @@ struct RootChromeRegistration {
     let centersInRootHorizontalSpace: Bool
     let showsMiniPlayer: Bool
     let priority: Int
+    var ownsContentFrame = false
 
     static let hidden = RootChromeRegistration(
         bounds: nil,
@@ -205,6 +206,7 @@ struct RootChromeFrameRegistrationView: View {
     var centersInRootHorizontalSpace = false
     let showsMiniPlayer: Bool
     let priority: Int
+    var ownsContentFrame = false
 
     var body: some View {
         Color.clear.anchorPreference(
@@ -218,7 +220,8 @@ struct RootChromeFrameRegistrationView: View {
                 contentLeadingInset: contentLeadingInset,
                 centersInRootHorizontalSpace: centersInRootHorizontalSpace,
                 showsMiniPlayer: showsMiniPlayer,
-                priority: priority
+                priority: priority,
+                ownsContentFrame: ownsContentFrame
             )
         }
     }
@@ -282,6 +285,11 @@ enum RootChromeLayoutResolver {
     ) -> RootChromeLayout {
         let rootBounds = CGRect(origin: .zero, size: proxy.size)
         let resolvedLayout = resolve(from: registration, in: proxy)
+        // Native tab content already excludes the app sidebar. Do not replace
+        // that authoritative frame with a legacy sidebar-width inference.
+        if registration.ownsContentFrame {
+            return nativeContentLayout(resolvedLayout, sidebar: sidebarRegistration)
+        }
         #if os(iOS)
         if UIDevice.current.userInterfaceIdiom == .pad {
             return resolvePadLayout(
@@ -328,6 +336,25 @@ enum RootChromeLayoutResolver {
             bottomPadding: layout.bottomPadding,
             horizontalOffset: 0,
             showsMiniPlayer: layout.showsMiniPlayer
+        )
+    }
+
+    static func nativeContentLayout(
+        _ layout: RootChromeLayout,
+        sidebar: RootSidebarChromeRegistration
+    ) -> RootChromeLayout {
+        guard sidebar.isVisible, let sidebarFrame = sidebar.frame else { return layout }
+        // The native sidebar footer measures its horizontal span. Its vertical
+        // position can be outside the root safe area, and the sidebar can float.
+        let frame = layout.frame
+        guard sidebarFrame.width > 0, sidebarFrame.minX < frame.maxX,
+              sidebarFrame.maxX > frame.minX else { return layout }
+        let minX = min(sidebarFrame.maxX, frame.maxX)
+        return RootChromeLayout(
+            frame: CGRect(x: minX, y: frame.minY, width: frame.maxX - minX, height: frame.height),
+            bottomPadding: layout.bottomPadding,
+            horizontalOffset: 0,
+            showsMiniPlayer: layout.showsMiniPlayer && minX < frame.maxX
         )
     }
 

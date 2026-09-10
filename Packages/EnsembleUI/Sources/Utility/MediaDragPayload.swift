@@ -1,5 +1,6 @@
 import EnsembleCore
 import Foundation
+import CoreTransferable
 import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
@@ -347,6 +348,13 @@ struct MediaDragPayload: Codable, Equatable {
             return first.title
         }
         return "\(items.count) media items"
+    }
+}
+
+@available(iOS 16.0, macOS 13.0, *)
+extension MediaDragPayload: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: contentType)
     }
 }
 

@@ -369,34 +369,36 @@ private struct DisplayArtistRow: View {
     let onTap: () -> Void
 
     var body: some View {
-        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            ArtworkView(
-                artist: displayArtist.artworkArtist,
-                size: .tiny,
-                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.tiny.cgSize.width)
-            )
+        Button(action: onTap) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                ArtworkView(
+                    artist: displayArtist.artworkArtist,
+                    size: .tiny,
+                    cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.tiny.cgSize.width)
+                )
 
-            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                Text(displayArtist.name)
-                    .font(EnsembleDesign.Typography.rowPrimary)
-                    .lineLimit(1)
-                    .foregroundColor(EnsembleDesign.Color.primaryText)
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
+                    Text(displayArtist.name)
+                        .font(EnsembleDesign.Typography.rowPrimary)
+                        .lineLimit(1)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
 
-                if displayArtist.isMerged {
-                    Text("\(displayArtist.artists.count) sources")
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    if displayArtist.isMerged {
+                        Text("\(displayArtist.artists.count) sources")
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    }
                 }
+
+                Spacer()
+
+                Image(systemName: EnsembleDesign.Icon.chevronRight)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
-
-            Spacer()
-
-            Image(systemName: EnsembleDesign.Icon.chevronRight)
-                .font(EnsembleDesign.Typography.rowSecondary)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
+            .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onTap)
+        .buttonStyle(.plain)
     }
 }
 

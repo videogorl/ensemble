@@ -51,14 +51,14 @@ final class EnsembleLaunchUITests: XCTestCase {
         hierarchy.lifetime = .keepAlways
         add(hierarchy)
         // In landscape the outer sidebar stays put while the section changes column count.
-        app.cells["square.stack"].tap()
+        app.cells["sidebar.library.albums"].tap()
         XCTAssertTrue(app.staticTexts["No Albums"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Select an Artist"].exists)
         let albumsScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         albumsScreenshot.name = "native-albums-two-columns"
         albumsScreenshot.lifetime = .keepAlways
         add(albumsScreenshot)
-        app.cells["person.2"].tap()
+        app.cells["sidebar.library.artists"].tap()
         XCTAssertTrue(app.staticTexts["Select an Artist"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.state, .runningForeground)
     }

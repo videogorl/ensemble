@@ -1,5 +1,101 @@
 # Native browse container experiment — 2026-09-09
 
+## Integration checkpoint — shipping gate remains closed
+
+The experiment now uses the existing `SidebarView` and its shared actions instead
+of a second sample sidebar. This is a **gated integration checkpoint, not a
+shipping replacement**. Normal launches and Release builds still use the legacy
+shell. The iOS 15/macOS 12 deployment targets and ordinary iPhone StageFlow path
+are unchanged. Nothing has been merged or pushed.
+
+### What is integrated
+
+- All library destinations, Hidden, existing enabled-tab defaults, profile and
+  downloads controls, real Pins, smart/regular playlist shortcuts, and sidebar
+  artwork. Native customization is persisted separately; Pin ordering is applied
+  through the existing Pin owner and its native ordering override is then reset.
+- Existing Pin context menus and playlist-drop execution are shared by both
+  shells. The native drop uses `MediaDragPayload`'s Codable Transferable
+  representation; source resolution and mutation handling are not duplicated.
+- Artist/genre/playlist selections live above replaceable tab content. An
+  inactive stack cannot write back into a newly selected root's shared path.
+  External and Now Playing routes select library stacks rather than relying on
+  a possibly absent playlist/Pin shortcut.
+- The shared root chrome owner uses native content bounds and the native sidebar
+  footer's measured horizontal span. The footer can sit below the root safe area;
+  its appearance/disappearance callbacks clear stale geometry when hidden.
+  There is no guessed native sidebar width or delayed layout correction.
+- Native Tab labels extract their image without preserving ordinary frame
+  modifiers. Intrinsically sized images now use the existing `ArtworkView` loader
+  and cache. Artist rows use native Buttons for selection accessibility.
+- The standalone sample-Pin fixture was removed. `NativeBrowseSection.swift` is
+  151 lines. Compared with the committed prototype, production Swift grows by
+  227 net lines, largely native tab composition and shared action wiring. No new
+  package, service, cache, custom divider, or navigation coordinator was added.
+  This measures source size, **not** binary size or runtime overhead.
+
+### Verification and its limits
+
+| Check | Integration evidence |
+| --- | --- |
+| Builds | Full iOS simulator and macOS workspace Debug builds pass with existing deployment targets. |
+| Package coverage | All 123 EnsembleUI tests pass. Focused additions cover inactive-root path writes and a floating sidebar footer outside the root safe area. |
+| Drag-export test | Corrected an existing intermittent test: read the exported temporary file inside the NSItemProvider callback, before the system deletes it. Production export code was not changed. |
+| iPadOS 26.5 | Real cached Artists and Albums, native sidebar playlist artwork, and opening/closing the sidebar inspected. Final callback version restores the mini-player's full width when the sidebar closes. |
+| Compact navigation | Isolated iPhone 17 Pro / iOS 26.5 clone, forced native flag: Artists → ABBA → Gold: Greatest Hits → Back → ABBA → Back → selected artist list. This is simulator evidence, not physical-device or StageFlow signoff. |
+| Real Pin | Created a temporary AJR Pin in the offline/no-iCloud simulator clone; native Pin → The Maybe Man → AJR → The Maybe Man produced logged depths 0→1→2→3. Three Back actions returned to Pin root (3→2→1→0), with no Back at root. Removed the test Pin afterward. This exercises the real Pin store, not the removed in-memory fixture. |
+| iPadOS 15.5 | Integrated binary launches with the native argument and shows the legacy Artists shell. Empty library: launch/fallback proof only. |
+| iPadOS 27 | Rotation and Artists→Albums→Artists test passes in 268.108 seconds. Four 60-second animation-idle waits remain. Screenshots prove column composition, not complete chrome correctness. This run precedes the final footer-lifecycle adjustment, which was inspected on 26.5. |
+| macOS runtime | Explicit built app launched and its PID/executable path was verified. Desktop capture returns `cgWindowNotFound`; no live window, resizing, keyboard or menu parity claim. |
+
+The existing drag test fix follows [Apple's documented temporary-file lifetime](https://developer.apple.com/documentation/foundation/nsitemprovider/loadfilerepresentation%28fortypeidentifier%3Acompletionhandler%3A%29).
+
+### Still required before enabling the modern shell
+
+1. **Fix and recheck chrome across transitions.** On 26.5, open then hide the app
+   sidebar: the Artists toolbar can move into the top-tab region and its inner
+   sidebar toggle becomes obscured. The landscape 27 screenshot also shows
+   different mini-player centering between Artists and Albums. The portrait
+   overlay fix does not establish complete rotation/window chrome parity. Resolve
+   ownership here; do not add arbitrary padding, delays, or OS-specific widths.
+2. **Close runtime coverage gaps.** No iPadOS 18 runtime is installed. Desktop
+   capture is unavailable. Test actual 18, current iPad, macOS minimum modern OS,
+   narrow/resizable windows, Dynamic Type, keyboard/VoiceOver, and multiwindow.
+   The existing phone shell needs its own StageFlow regression pass.
+3. **Complete state/action acceptance.** Native customization versus Settings,
+   Pin reorder/iCloud reconciliation, unpin while deep, actual drag/drop onto a
+   disposable playlist, hidden/removed sources while selected, and external/Now
+   Playing routes need acceptance coverage. Wired code is not proof of parity.
+   Observed: unpinning from the selected Pin's detail menu returns to Feed and a
+   smart-playlist shortcut appears in the top bar. Resolve dynamic-tab identity/
+   customization and the selected-Pin fallback before accepting this behavior.
+4. **Measure performance.** Compare the same cached library and interactions
+   against legacy: launch/selection/resize, steady-state memory and CPU, and
+   release size. Investigate the XCTest idle waits separately from user-visible
+   responsiveness. No zero-regression or negligible-overhead claim is justified.
+5. **Promote only after those checks.** Enable the native shell for the intended
+   iPadOS 18+/macOS 15+ scope, explicitly settle iPad rotation policy, retain the
+   older-OS fallback, and perform release/TestFlight signoff. Do not enable it for
+   ordinary phones merely because the compact experiment can run there.
+
+Current launch arguments are the four listed in Reproduce below; the old
+`-EnsembleNativeBrowseSamplePin` argument no longer exists. The compact clone is
+`8C415280-3613-483E-88E4-869FA53C6063` (verified iPhone 17 Pro, iOS 26.5).
+
+Evidence: `integrated-sidebar-open.png`, `integrated-sidebar-closed.png`,
+`integrated-compact-back.png`, `integrated-pin-depth-three.png`,
+`integrated-ios15-fallback.png`, and `integrated-*-landscape.png` under
+`/Users/felicity/.codex/artifacts/native-browse-20260909/`.
+The closed-sidebar screenshot deliberately records the remaining toolbar issue.
+Final integration test result:
+`/tmp/ensemble-native-browse-27/Logs/Test/Test-Ensemble-2026.09.09_21-11-28--0700.xcresult`.
+
+## Initial feasibility experiment (historical, commit f313dea8)
+
+The remainder records the earlier bounded prototype. Its implementation counts,
+sample-Pin argument and incomplete-sidebar list are superseded by the integration
+checkpoint above; its evidence remains useful but is not final-build signoff.
+
 ## Verdict
 
 The proposed composition works: a native sidebar-adaptable TabView can contain

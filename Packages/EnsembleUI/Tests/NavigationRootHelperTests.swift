@@ -3,6 +3,44 @@ import XCTest
 import EnsembleCore
 
 final class NavigationRootHelperTests: XCTestCase {
+    func testNativeChromeUsesSidebarHorizontalSpanOutsideRootSafeArea() {
+        let layout = RootChromeLayout(
+            frame: CGRect(x: 0, y: 0, width: 820, height: 1128),
+            bottomPadding: 20, horizontalOffset: 0, showsMiniPlayer: true
+        )
+        let cases: [(RootSidebarChromeRegistration, CGFloat)] = [
+            (.visible(frame: CGRect(x: 10, y: 1129.5, width: 270, height: 30.5)), 280),
+            (.visible(frame: CGRect(x: -280, y: 0, width: 270, height: 30)), 0),
+            (.visible(frame: CGRect(x: 0, y: 1129, width: 820, height: 30)), 820),
+            (.hidden, 0)
+        ]
+        for (sidebar, expectedMinX) in cases {
+            let resolved = RootChromeLayoutResolver.nativeContentLayout(layout, sidebar: sidebar)
+            XCTAssertEqual(resolved.frame.minX, expectedMinX)
+            XCTAssertEqual(resolved.frame.maxX, 820)
+            XCTAssertEqual(resolved.bottomPadding, 20)
+            XCTAssertEqual(resolved.showsMiniPlayer, expectedMinX < 820)
+        }
+    }
+
+    @MainActor
+    func testInactiveRootCannotOverwriteSharedTabPath() {
+        let coordinator = NavigationCoordinator()
+        var isActive = true
+        let binding = coordinator.pathBinding(for: .artists, isActive: { isActive })
+        let route = NavigationCoordinator.Destination.artist(id: "artist", sourceKey: "server/library")
+        binding.wrappedValue = [route]
+        XCTAssertEqual(coordinator.pathSnapshot(for: .artists), [route])
+
+        isActive = false
+        binding.wrappedValue = []
+        XCTAssertEqual(coordinator.pathSnapshot(for: .artists), [route])
+
+        isActive = true
+        binding.wrappedValue = []
+        XCTAssertTrue(coordinator.pathSnapshot(for: .artists).isEmpty)
+    }
+
     func testSidebarSelectionMappingForDestinations() {
         XCTAssertEqual(
             SidebarSelection.selection(for: .displayArtist(id: "merged:ajr"), fallback: nil),
