@@ -643,6 +643,7 @@ public struct SidebarView: View {
         self.pinnedVM = viewModels.pinned
         self._selection = selection
         self.usesNativeBrowse = usesNativeBrowse
+        self._columnVisibility = State(initialValue: usesNativeBrowse ? .all : .automatic)
         self.rootSidebarChromeRegistrationHandler = rootSidebarChromeRegistrationHandler
     }
 
@@ -1156,20 +1157,23 @@ public struct SidebarView: View {
     }
 
     private var isSidebarChromeVisible: Bool {
-        columnVisibility != .detailOnly
+        columnVisibility != .detailOnly && !(usesNativeBrowse && selection == .library(.artists) && columnVisibility == .doubleColumn)
     }
 
-    private func publishRootSidebarChromeRegistration(fallbackWidth: CGFloat? = nil) {
-        guard !usesNativeBrowse else { return }
+    private func publishRootSidebarChromeRegistration(frame: CGRect? = nil, fallbackWidth: CGFloat? = nil) {
         guard isSidebarChromeVisible else {
             rootSidebarChromeRegistrationHandler?(.hidden)
             return
         }
+        // Native columns publish their measured frame below; an inferred callback
+        // must not replace it when the split changes display mode.
+        guard !usesNativeBrowse || frame != nil else { return }
 
         rootSidebarChromeRegistrationHandler?(
             .visible(
+                frame: frame,
                 fallbackWidth: fallbackWidth ?? RootChromeLayoutResolver.defaultPadSidebarWidth,
-                priority: RootSidebarChromeRegistration.inferredPriority
+                priority: frame == nil ? RootSidebarChromeRegistration.inferredPriority : RootSidebarChromeRegistration.measuredPriority
             )
         )
     }
@@ -1263,15 +1267,19 @@ public struct SidebarView: View {
         .background {
             GeometryReader { proxy in
                 let width = proxy.size.width
+                let frame = usesNativeBrowse ? proxy.frame(in: .named(RootChromeCoordinateSpace.name)) : nil
                 RootSidebarChromeRegistrationView(isVisible: isSidebarChromeVisible)
                     .onAppear {
-                        publishRootSidebarChromeRegistration(fallbackWidth: width)
+                        publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: width)
                     }
                     .onChange(of: width) { newWidth in
-                        publishRootSidebarChromeRegistration(fallbackWidth: newWidth)
+                        publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: newWidth)
+                    }
+                    .onChange(of: frame) { newFrame in
+                        publishRootSidebarChromeRegistration(frame: newFrame, fallbackWidth: width)
                     }
                     .onChange(of: isSidebarChromeVisible) { _ in
-                        publishRootSidebarChromeRegistration(fallbackWidth: width)
+                        publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: width)
                     }
             }
         }
@@ -1481,7 +1489,7 @@ public struct SidebarView: View {
     @ViewBuilder
     private var splitNavigationView: some View {
         if #available(iOS 18.0, macOS 15.0, *), usesNativeBrowse {
-            nativeTabNavigationView
+            nativeExplorerNavigationView
         } else if #available(iOS 17.0, macOS 14.0, *) {
             splitNavigationViewWithCompactColumn
         } else {
@@ -1498,130 +1506,25 @@ public struct SidebarView: View {
     }
 
     @available(iOS 18.0, macOS 15.0, *)
-    private var nativeTabNavigationView: some View {
-        TabView(selection: sidebarSelectionBinding) {
-            ForEach(nativeLibraryTabs) { tab in
-                Tab(tab.displayTitle, systemImage: tab.systemImage,
-                    value: SidebarSelection.library(tab), role: tab == .search ? .search : nil) {
-                    NativeBrowseSection(
-                        tab: tab, nowPlayingVM: nowPlayingVM, viewModels: viewModels,
-                        rootSelection: $selection,
-                        artist: $selectedArtist, genre: $selectedGenre, playlist: $selectedPlaylist
-                    )
-                    .modifier(NativeBrowseChrome())
-                }
-                .defaultVisibility(enabledTabs.contains(tab) ? .visible : .hidden, for: .tabBar)
-                .customizationID("library.\(tab.rawValue)")
-                .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(tab))
-            }
-            Tab("Hidden", systemImage: "eye.slash", value: SidebarSelection.hidden) {
-                nativeDetail(for: .hidden)
-            }
-            .defaultVisibility(.hidden, for: .tabBar)
-            if !pinnedVM.resolvedPins.isEmpty {
-                TabSection("Pins") {
-                    ForEach(pinnedVM.resolvedPins) { pin in
-                        let item = pin.pinnedItem
-                        let value = SidebarSelection.pin(id: item.id, sourceKey: item.sourceCompositeKey, type: item.type)
-                        Tab(value: value) {
-                            nativeDetail(for: value)
-                        } label: {
-                            sidebarPinRow(pin)
-                        }
-                        .customizationID(pin.id)
-                        .defaultVisibility(.hidden, for: .tabBar)
-                        .contextMenu { sidebarPinContextMenu(pin) }
-                    }
-                }
-                .customizationID("pins")
-                .defaultVisibility(.hidden, for: .tabBar)
-            }
-            if !cachedSmartPlaylists.isEmpty {
-                TabSection("Smart Playlists") {
-                    ForEach(cachedSmartPlaylists) { playlist in
-                        nativePlaylistTab(playlist)
-                    }
-                }
-                .defaultVisibility(.hidden, for: .tabBar)
-            }
-            if !cachedRegularPlaylists.isEmpty {
-                TabSection("Playlists") {
-                    ForEach(cachedRegularPlaylists) { playlist in
-                        nativePlaylistTab(playlist)
-                    }
-                }
-                .defaultVisibility(.hidden, for: .tabBar)
+    private var nativeExplorerNavigationView: some View {
+        Group {
+            // Prove the real content-column role with Artists before widening the experiment.
+            if selection == .library(.artists) {
+                NativeBrowseSection(
+                    tab: .artists, sidebar: sidebarColumn,
+                    nowPlayingVM: nowPlayingVM, viewModels: viewModels,
+                    rootSelection: $selection,
+                    artist: $selectedArtist, genre: $selectedGenre, playlist: $selectedPlaylist,
+                    columnVisibility: $columnVisibility
+                )
+            } else {
+                splitNavigationViewWithCompactColumn
             }
         }
-        .tabViewStyle(.sidebarAdaptable)
-        .modifier(NativeBrowseCustomization(pins: pinnedVM))
-        .tabViewSidebarBottomBar {
-            HStack {
-                ProfileToolbarButton()
-                Spacer()
-                Button { navigationCoordinator.openDownloads() } label: {
-                    Image(systemName: EnsembleDesign.Icon.download)
-                }
-                .accessibilityIdentifier(AutomationIdentifiers.Sidebar.downloadsToolbar)
-                .help("Downloads")
-            }
-            .padding(.horizontal)
-            .background {
-                GeometryReader { proxy in
-                    let registration = RootSidebarChromeRegistration.visible(
-                        frame: proxy.frame(in: .named(RootChromeCoordinateSpace.name))
-                    )
-                    Color.clear
-                        .onAppear { rootSidebarChromeRegistrationHandler?(registration) }
-                        .onChange(of: registration) { rootSidebarChromeRegistrationHandler?($0) }
-                        .onDisappear { rootSidebarChromeRegistrationHandler?(.hidden) }
-                }
-            }
-        }
+        .modifier(NativeBrowseChrome())
         .environment(\.mediaNavigationTransitionNamespace, mediaNavigationNamespace)
     }
 
-    private var nativeLibraryTabs: [TabItem] {
-        let libraryTabs = TabItem.allCases.filter { $0 != .downloads && $0 != .settings }
-        return enabledTabs.filter { libraryTabs.contains($0) }
-            + libraryTabs.filter { !enabledTabs.contains($0) }
-    }
-
-    @available(iOS 18.0, macOS 15.0, *)
-    private func nativeDetail(for selection: SidebarSelection) -> some View {
-        NavigationStack(path: navigationCoordinator.pathBinding(
-            for: selection.correspondingTab ?? .settings,
-            isActive: { self.selection == selection }
-        )) {
-            detailRootContent(for: selection)
-                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    destinationView(for: destination)
-                }
-        }
-        .modifier(NativeBrowseChrome())
-    }
-
-    @available(iOS 18.0, macOS 15.0, *)
-    private func nativePlaylistTab(_ playlist: SidebarPlaylistItem) -> some TabContent<SidebarSelection?> {
-        let value = playlist.isMerged
-            ? SidebarSelection.mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart)
-            : SidebarSelection.playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey)
-        return Tab(value: Optional(value)) {
-            nativeDetail(for: value)
-        } label: {
-            sidebarPlaylistRow(playlist)
-        }
-        .defaultVisibility(.hidden, for: .tabBar)
-        .dropDestination(for: MediaDragPayload.self) { payloads in
-            Task { @MainActor in
-                let action = SidebarPlaylistDropAction(
-                    deps: deps, libraryVM: libraryVM, playlistsVM: playlistsVM, nowPlayingVM: nowPlayingVM
-                )
-                let combined = MediaDragPayload(items: payloads.flatMap(\.items))
-                _ = await action.perform(combined, onto: playlist)
-            }
-        }
-    }
 
     @available(iOS 17.0, macOS 14.0, *)
     @ViewBuilder
@@ -1738,7 +1641,6 @@ public struct SidebarView: View {
                 Text(pinnedItem.title)
             } icon: {
                 ArtworkView(artist: artist, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
-                    .nativeTabIcon(size: usesNativeBrowse ? artworkDimension : nil)
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
@@ -1759,7 +1661,6 @@ public struct SidebarView: View {
                 Text(displayArtist.name)
             } icon: {
                 ArtworkView(artist: displayArtist.artworkArtist, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
-                    .nativeTabIcon(size: usesNativeBrowse ? artworkDimension : nil)
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
@@ -1774,7 +1675,6 @@ public struct SidebarView: View {
                 Text(pinnedItem.title)
             } icon: {
                 ArtworkView(album: album, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
-                    .nativeTabIcon(size: usesNativeBrowse ? artworkDimension : nil)
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
@@ -1796,7 +1696,6 @@ public struct SidebarView: View {
                 Text(displayAlbum.title)
             } icon: {
                 ArtworkView(album: album, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
-                    .nativeTabIcon(size: usesNativeBrowse ? artworkDimension : nil)
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
@@ -1811,7 +1710,6 @@ public struct SidebarView: View {
                 Text(pinnedItem.title)
             } icon: {
                 ArtworkView(playlist: playlist, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
-                    .nativeTabIcon(size: usesNativeBrowse ? artworkDimension : nil)
                     .frame(width: artworkDimension, height: artworkDimension)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
@@ -1836,7 +1734,6 @@ public struct SidebarView: View {
                     cornerRadius: ArtworkCornerRadius.square(for: artworkDimension),
                     isResponsive: true
                 )
-                .nativeTabIcon(size: usesNativeBrowse ? artworkDimension : nil)
                 .frame(width: artworkDimension, height: artworkDimension)
                 .clipShape(RoundedRectangle(cornerRadius: ArtworkCornerRadius.square(for: artworkDimension), style: .continuous))
             }
@@ -2036,7 +1933,6 @@ public struct SidebarView: View {
                 cornerRadius: ArtworkCornerRadius.square(for: EnsembleScaffold.Sidebar.artworkDimension),
                 isResponsive: true
             )
-            .nativeTabIcon(size: usesNativeBrowse ? EnsembleScaffold.Sidebar.artworkDimension : nil)
             .frame(width: EnsembleScaffold.Sidebar.artworkDimension, height: EnsembleScaffold.Sidebar.artworkDimension)
             .clipShape(RoundedRectangle(cornerRadius: ArtworkCornerRadius.square(for: EnsembleScaffold.Sidebar.artworkDimension), style: .continuous))
         }

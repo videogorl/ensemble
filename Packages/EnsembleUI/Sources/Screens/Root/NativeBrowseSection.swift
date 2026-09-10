@@ -2,8 +2,9 @@ import EnsembleCore
 import SwiftUI
 
 @available(iOS 18.0, macOS 15.0, *)
-struct NativeBrowseSection: View {
+struct NativeBrowseSection<Sidebar: View>: View {
     let tab: TabItem
+    let sidebar: Sidebar
     let nowPlayingVM: NowPlayingViewModel
     let viewModels: RootScreenModels
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -11,31 +12,33 @@ struct NativeBrowseSection: View {
     @Binding var artist: DisplayArtist?
     @Binding var genre: DisplayGenre?
     @Binding var playlist: DisplayPlaylist?
-    @State private var compactColumn: NavigationSplitViewColumn = .sidebar
+    @Binding var columnVisibility: NavigationSplitViewVisibility
+    @State private var compactColumn: NavigationSplitViewColumn = .content
 
     var body: some View {
-        if [.artists, .genres, .playlists].contains(tab) {
-            NavigationSplitView(preferredCompactColumn: $compactColumn) {
-                NavigationStack {
-                    selectionColumn
-                }
+        NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $compactColumn) {
+            sidebar
+        } content: {
+            selectionColumn
                 .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 360)
-            } detail: {
-                detailStack
-            }
-            .navigationSplitViewStyle(.balanced)
-            .onChange(of: selectedID) { _, newValue in
-                guard rootSelection == .library(tab) else { return }
-                navigationCoordinator.setPath([], for: tab)
-                compactColumn = newValue == nil ? .sidebar : .detail
-            }
-            .onChange(of: navigationCoordinator.pathSnapshot(for: tab).count) { _, count in
-                if rootSelection == .library(tab), count > 0 {
-                    compactColumn = .detail
-                }
-            }
-        } else {
+        } detail: {
             detailStack
+        }
+        .navigationSplitViewStyle(.balanced)
+        .onChange(of: selectedID) { _, newValue in
+            guard rootSelection == .library(tab) else { return }
+            navigationCoordinator.setPath([], for: tab)
+            compactColumn = newValue == nil ? .content : .detail
+        }
+        .onChange(of: navigationCoordinator.pathSnapshot(for: tab).count) { _, count in
+            if rootSelection == .library(tab), count > 0 {
+                compactColumn = .detail
+            }
+        }
+        .onAppear {
+            if selectedID != nil || !navigationCoordinator.pathSnapshot(for: tab).isEmpty {
+                compactColumn = .detail
+            }
         }
     }
 
@@ -106,7 +109,7 @@ struct NativeBrowseSection: View {
         }
     }
 }
-/// Register the native tab's complete content region, not its inner detail column.
+/// Register the root region; the shared chrome owner excludes the app sidebar.
 @available(iOS 18.0, macOS 15.0, *)
 struct NativeBrowseChrome: ViewModifier {
     func body(content: Content) -> some View {
@@ -122,30 +125,5 @@ struct NativeBrowseChrome: ViewModifier {
                 )
             }
         }
-    }
-}
-
-@available(iOS 18.0, macOS 15.0, *)
-struct NativeBrowseCustomization: ViewModifier {
-    let pins: PinnedViewModel
-    @AppStorage("nativeBrowseCustomization") private var customization = TabViewCustomization()
-
-    func body(content: Content) -> some View {
-        content
-            .tabViewCustomization($customization)
-            .onChange(of: customization) { oldValue, newValue in
-                guard oldValue[sectionID: "pins"] != newValue[sectionID: "pins"],
-                      let order = newValue[sectionID: "pins"] else { return }
-                // Persist through the existing Pin owner so Search and the sidebar agree.
-                let available = Set(pins.resolvedPins.map(\.id))
-                for (target, id) in order.filter({ available.contains($0) }).enumerated() {
-                    guard let source = pins.resolvedPins.firstIndex(where: { $0.id == id }),
-                          target < pins.resolvedPins.count,
-                          source != target else { continue }
-                    pins.move(fromOffsets: IndexSet(integer: source), toOffset: target > source ? target + 1 : target)
-                }
-                // The Pin owner remains authoritative when Search or iCloud reorders it.
-                customization.resetSectionOrder(for: "pins")
-            }
     }
 }

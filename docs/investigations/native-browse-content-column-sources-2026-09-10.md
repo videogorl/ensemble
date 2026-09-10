@@ -1,5 +1,68 @@
 # Native browse content-column source references
 
+## Scope clarification and first native explorer experiment
+
+The user clarified that the goal is to replace the custom dual-pane explorer,
+not redesign app navigation. Adaptive top tabs and the tab-to-sidebar transition
+are optional, not acceptance requirements. This supersedes the proposed tab-bar
+acceptance gate below.
+
+The gated experiment now reuses `SidebarView.sidebarColumn` and presents Artists
+in `NavigationSplitView`'s actual `content:` role, with artist detail in `detail:`.
+Albums and other roots reuse the existing two-column app shell. Genres and
+Playlists deliberately retain their existing explorer until the Artists/Albums
+experiment is accepted. Selection remains in the existing root owner.
+
+Removed the experimental adaptable-tab composition, tab-customization modifier,
+and special tab-artwork rendering. Existing sidebar rows, Pins, context menus,
+playlist drops, and root chrome remain the owners. The native chrome callback
+uses the sidebar's measured frame instead of inferring the middle content panel
+to be another app sidebar; inferred callbacks cannot overwrite that measurement.
+The native shell initially requests `.all`, subject to available space. No new
+package or UIKit/AppKit container was added.
+
+Normal launches and Release builds still use the existing implementation. The
+iOS 15/macOS 12 deployment targets are unchanged; the experiment remains gated
+to iOS 18/macOS 15 with `-EnsembleNativeBrowsePrototype`.
+
+### Verification evidence
+
+- iOS simulator and full macOS workspace builds passed.
+- All 24 focused `NavigationRootHelperTests` passed.
+- Exact iPad: `08CA3DD8-D174-40E9-A361-62B95671B969`, iPad A16 / iPadOS 26.5.
+  The installed executable path and matching built/installed debug-library hash
+  were verified before the initial interaction pass.
+- Initial runtime pass: show sidebar to expose three columns; select ABBA;
+  switch to Albums and back to Artists; ABBA selection/detail retained.
+- Portrait directly inspected through Simulator rotation: artist content and
+  detail remain visible, with the app sidebar available through the native toggle.
+- Phone fallback launch inspected on the isolated iPhone simulator
+  `8C415280-3613-483E-88E4-869FA53C6063`, iOS 26.5, with the native flag omitted.
+  Existing Artists grid and bottom tabs rendered. That simulator was shut down
+  after the smoke check; this does not establish full phone/StageFlow parity.
+- Earlier rotation XCTest attempts completed orientation changes but failed when their
+  semantic Show Sidebar tap did not expose the sidebar. Afterward, runtime AX
+  snapshots returned one element despite the rendered app remaining visible.
+  The final focused test passed after the native startup visibility change and
+  updated test targeting: 1 test, 0 failures, 36.446 seconds. This covers rotation
+  and Artists/Albums switching, not every post-rotation toggle interaction.
+- On the final fresh build, direct Hide Sidebar / Show Sidebar checks passed;
+  the mini-player was visually centered over the explorer, excluding the app sidebar.
+- Final XCTest portrait and Albums screenshot attachments were inspected: portrait
+  keeps Artists content/detail; Albums has app sidebar plus the full-width grid.
+  Result bundle: `/tmp/ensemble-native-browse-derived/Logs/Test/Test-Ensemble-2026.09.10_07-03-27--0700.xcresult`.
+  Exported attachments: `/tmp/native-explorer-evidence.DEryEV/manifest.json`.
+- Final logs: `/tmp/native-explorer-rotation-final.log`,
+  `/tmp/native-explorer-mac-final.log`, `/tmp/native-explorer-navigation-final.log`.
+
+Still unproven: full macOS runtime/resize/keyboard behavior, arbitrary iPad window
+widths, scroll and nested-path preservation across root replacement, selected-Pin
+transitions, older-OS runtime parity for this revision, and memory/binary-size
+overhead. Source deletion is not a runtime performance measurement. This remains
+an isolated experiment, not a shipping migration.
+
+## Source research (before the scope clarification)
+
 Date: 2026-09-10. Read-only source research; none of these external apps was built or run. These are patterns to study, not dependencies to add. No inspected project proves the exact combination of adaptive tab sidebar, real supplementary/content column, and section-dependent two/three-column layout that Ensemble wants.
 
 ## 1. Foods navigation example: explicit two/three-column variants

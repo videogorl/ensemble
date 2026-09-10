@@ -33,7 +33,7 @@ final class EnsembleLaunchUITests: XCTestCase {
             "-EnsembleAutomationStartSurface", "artists"
         ]
         app.launch()
-        XCTAssertTrue(app.buttons["ToggleSideBar"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Select an Artist"].waitForExistence(timeout: 30))
         for orientation in [UIDeviceOrientation.landscapeLeft, .portrait, .landscapeLeft] {
             XCUIDevice.shared.orientation = orientation
             let landscape = orientation == .landscapeLeft
@@ -51,14 +51,21 @@ final class EnsembleLaunchUITests: XCTestCase {
         hierarchy.lifetime = .keepAlways
         add(hierarchy)
         // In landscape the outer sidebar stays put while the section changes column count.
-        app.cells["sidebar.library.albums"].tap()
-        XCTAssertTrue(app.staticTexts["No Albums"].waitForExistence(timeout: 10))
+        if !app.buttons["sidebar.library.albums"].isHittable {
+            app.buttons["Show Sidebar"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(app.buttons["sidebar.library.albums"].waitForExistence(timeout: 10))
+        app.buttons["sidebar.library.albums"].tap()
+        XCTAssertTrue(app.navigationBars["Albums"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Select an Artist"].exists)
         let albumsScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         albumsScreenshot.name = "native-albums-two-columns"
         albumsScreenshot.lifetime = .keepAlways
         add(albumsScreenshot)
-        app.cells["sidebar.library.artists"].tap()
+        if !app.buttons["sidebar.library.artists"].isHittable {
+            app.buttons["Show Sidebar"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        app.buttons["sidebar.library.artists"].tap()
         XCTAssertTrue(app.staticTexts["Select an Artist"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.state, .runningForeground)
     }

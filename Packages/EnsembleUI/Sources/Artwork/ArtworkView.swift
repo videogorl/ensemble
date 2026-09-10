@@ -13,16 +13,6 @@ public struct ArtworkView: View {
     let size: ArtworkSize
     let cornerRadius: CGFloat
     let isResponsive: Bool
-    private var nativeLabelSize: CGFloat?
-
-    /// Native Tab labels extract the image and do not preserve layout modifiers.
-    /// Supply an intrinsically sized image while retaining the shared loader lifecycle.
-    func nativeTabIcon(size: CGFloat?) -> Self {
-        var view = self
-        view.nativeLabelSize = size
-        return view
-    }
-
     @Environment(\.dependencies) private var dependencies
     @State private var artworkURL: URL?
     /// Snapshot of the currently resolved image.
@@ -92,9 +82,7 @@ public struct ArtworkView: View {
         let cachedImage = dependencies.artworkLoader.synchronouslyCachedImage(for: request)?.image
 
         Group {
-            if let nativeLabelSize, #available(iOS 16.0, macOS 13.0, *) {
-                nativeLabelImage(resolvedImage ?? previousImage ?? cachedImage, side: nativeLabelSize)
-            } else if isResponsive {
+            if isResponsive {
                 GeometryReader { proxy in
                     let side = max(0, proxy.size.width)
                     let responsiveRadius = shouldScaleCornerRadius
@@ -156,22 +144,6 @@ public struct ArtworkView: View {
         ResolvedArtworkImageView(image: resolvedImage ?? previousImage ?? cachedImage)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
-    }
-
-    @available(iOS 16.0, macOS 13.0, *)
-    private func nativeLabelImage(_ image: PlatformImage?, side: CGFloat) -> Image {
-        guard let image else { return Image(systemName: EnsembleDesign.Icon.musicNote) }
-        let size = CGSize(width: side, height: side)
-        let radius = cornerRadius >= self.size.cgSize.width / 2 ? side / 2 : ArtworkCornerRadius.square(for: side)
-        return Image(size: size, label: Text("")) { context in
-            let rect = CGRect(origin: .zero, size: size)
-            context.clip(to: Path(roundedRect: rect, cornerRadius: radius))
-            #if canImport(UIKit)
-            context.draw(Image(uiImage: image), in: rect)
-            #elseif canImport(AppKit)
-            context.draw(Image(nsImage: image), in: rect)
-            #endif
-        }
     }
 
     @MainActor
