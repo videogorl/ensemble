@@ -315,6 +315,24 @@ public struct RootView: View {
 
     @ViewBuilder
     private var mainContentView: some View {
+        #if DEBUG && (os(iOS) || os(macOS))
+        if #available(iOS 18.0, macOS 15.0, *),
+           ProcessInfo.processInfo.arguments.contains("-EnsembleNativeBrowsePrototype") {
+            NativeBrowsePrototype(
+                nowPlayingVM: nowPlayingVM,
+                viewModels: screenModels,
+                selection: $sidebarSelection
+            )
+        } else {
+            legacyMainContentView
+        }
+        #else
+        legacyMainContentView
+        #endif
+    }
+
+    @ViewBuilder
+    private var legacyMainContentView: some View {
         switch EnsemblePlatformFeaturePolicy.currentRootNavigationShell {
         case .sidebar:
             #if os(iOS)

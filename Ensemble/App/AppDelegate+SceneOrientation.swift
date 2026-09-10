@@ -75,7 +75,13 @@ extension AppDelegate {
     }
 
     private var currentSupportedInterfaceOrientations: UIInterfaceOrientationMask {
-        stageFlowRotationSupportTokens.isEmpty ? .portrait : .allButUpsideDown
+        #if DEBUG
+        if #available(iOS 18.0, *), UIDevice.current.userInterfaceIdiom == .pad,
+           ProcessInfo.processInfo.arguments.contains("-EnsembleNativeBrowsePrototype") {
+            return .all
+        }
+        #endif
+        return stageFlowRotationSupportTokens.isEmpty ? .portrait : .allButUpsideDown
     }
 
     private func refreshSupportedOrientations() {
