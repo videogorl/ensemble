@@ -8,6 +8,11 @@
 2. Record timestamp/time zone, app version/build, source commit when known,
    device/runtime, and the exact interaction/provider/item. Unknown provenance
    stays unknown; do not attribute it to current HEAD.
+   Keep the user's reported action, the event the app received, and your
+   interpretation separate. An accepted remote seek does not prove the user
+   scrubbed or identify the originating control/accessory. If the user reports
+   Next or no interaction, investigate that account; a time reset alone does
+   not establish Previous. Reconcile discrepancies without inventing user intent.
 3. Classify the report before grouping failures:
 
    | Evidence | Investigation |

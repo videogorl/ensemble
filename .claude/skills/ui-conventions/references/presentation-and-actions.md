@@ -15,6 +15,10 @@
 - Build native table menus through `NativeMediaTableActionBuilder`; use
   `TrackActionsContextMenu` for standalone SwiftUI track cards. Parent views add
   only truly local handlers.
+- Adapt shared menus to the current context: omit options that cannot make a
+  meaningful distinction, such as Album Artist sorting inside one artist's
+  detail. Keep globally useful options in global views, and distinguish an
+  irrelevant option from a relevant but unavailable action with a disabled reason.
 - Present add-to-playlist follow-up UI through
   `PlaylistActionPresentationHost`; do not duplicate picker payloads or recent
   playlist mutation logic.

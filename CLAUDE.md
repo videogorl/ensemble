@@ -8,6 +8,12 @@ Air 2.
 
 - Start with `git status --short`; preserve unrelated worktree changes.
 - Use `Ensemble.xcworkspace`, never `Ensemble.xcodeproj`.
+- Keep investigation and design requests read-only until implementation is
+  requested. Discussing a proposed fix is not approval to build it; once the
+  user approves that fix, proceed without asking again.
+- Preserve the requested solution boundary. Stabilizing a handoff does not
+  authorize replacing its engines, and a platform-specific request does not
+  expand to other platforms. Raise a necessary scope change before implementing it.
 - Prefer the smallest complete solution. Reuse existing code, native platform
   behavior, standard libraries, and installed dependencies before adding an
   abstraction or package.
