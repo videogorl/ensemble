@@ -185,7 +185,7 @@ public struct RootView: View {
             }
             #endif
         }
-        .macRootWindowMinimumFrame()
+        .macRootWindowMinimumFrame(usesNativeBrowse: usesNativeBrowse)
         .macViewportNowPlayingWindowChromeHidden(isNowPlayingPresented)
     }
 
@@ -560,10 +560,12 @@ private struct MediaSourceActionPicker: View {
 
 private extension View {
     @ViewBuilder
-    func macRootWindowMinimumFrame() -> some View {
+    func macRootWindowMinimumFrame(usesNativeBrowse: Bool) -> some View {
         #if os(macOS)
         self.frame(
-            minWidth: EnsembleScaffold.RootWindow.macMinimumWidth,
+            minWidth: usesNativeBrowse
+                ? EnsembleScaffold.RootWindow.nativeBrowseMacMinimumWidth
+                : EnsembleScaffold.RootWindow.macMinimumWidth,
             minHeight: EnsembleScaffold.RootWindow.macMinimumHeight
         )
         #else

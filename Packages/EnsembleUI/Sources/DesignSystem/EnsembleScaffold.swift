@@ -182,6 +182,8 @@ public enum EnsembleScaffold {
 
     public enum RootWindow {
         public static let macMinimumWidth: CGFloat = 720
+        // Leave room for detail even when both native leading columns are widened.
+        public static let nativeBrowseMacMinimumWidth: CGFloat = 1100
         public static let macMinimumHeight: CGFloat = 560
     }
 

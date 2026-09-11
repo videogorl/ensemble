@@ -95,10 +95,20 @@ See `NativeBrowseSection.body`, `SidebarView.init`, and
 `EnsembleScaffold.BrowseSplit.Configuration.rootBrowse` (minimum detail 360,
 split threshold 720 applied to the explorer's available region). This identifies
 the owning gap, not proof that a single width modifier will solve every resize.
-Next experiment: enforce a usable detail width with public native column sizing
-and a deliberate collapse policy, then prove narrow→wide→narrow transitions and
-Back/selection retention. Do not patch artist/album leaf layout or add a second
-custom splitter. Keep broader migration gated until this passes.
+Follow-up: at the user's request, the native prototype now uses a 1,100-point
+Mac root minimum (legacy remains 720). This budgets 360 points for each leading
+column and roughly 380 for detail without another collapse mechanism. The Mac
+workspace build passed and the explicit built app was relaunched and verified
+by PID/executable path (build `202609101727.8133`). Its initial wider window and
+readable artist detail were inspected; stale window-control automation prevented
+completing the shrink-limit check with both columns widened. That check remains
+open, along with Back/selection retention across resizing.
+
+Scroll restoration proposal, not implemented: keep a scene-local top-visible
+item ID above the replaceable root and bind the existing scroll view using native
+`scrollPosition(id:anchor:)` and `scrollTargetLayout()`. Keep it separate from
+selection; verify section switches, alphabet jumps, filtering, and reflow before
+generalizing. This needs no saved pixel offsets or delayed scrolling workaround.
 
 ### Evidence and limits
 
