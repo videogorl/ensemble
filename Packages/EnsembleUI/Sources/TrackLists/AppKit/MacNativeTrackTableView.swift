@@ -65,7 +65,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.target = context.coordinator
-        tableView.action = #selector(Coordinator.tableClicked(_:))
+        tableView.doubleAction = #selector(Coordinator.tableDoubleClicked(_:))
         tableView.contextMenuProvider = { [weak coordinator = context.coordinator] row in
             coordinator?.contextMenu(forRow: row)
         }
@@ -469,7 +469,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             }
         }
 
-        @objc func tableClicked(_ sender: NSTableView) {
+        @objc func tableDoubleClicked(_ sender: NSTableView) {
             let row = sender.clickedRow
             guard row >= 0,
                   row < rows.count,
