@@ -319,39 +319,21 @@ public struct RootView: View {
 
     @ViewBuilder
     private var mainContentView: some View {
-        #if os(iOS) || os(macOS)
-        if #available(iOS 18.0, macOS 15.0, *),
-           usesNativeBrowse {
-            SidebarView(
-                nowPlayingVM: nowPlayingVM,
-                viewModels: screenModels,
-                selection: $sidebarSelection,
-                usesNativeBrowse: true,
-                rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
-            )
-        } else {
-            legacyMainContentView
-        }
-        #else
-        legacyMainContentView
-        #endif
-    }
-
-    private var usesNativeBrowse: Bool {
-        #if os(iOS) || os(macOS)
-        if #available(iOS 18.0, macOS 15.0, *) {
-            return EnsemblePlatformFeaturePolicy.currentRootNavigationShell == .sidebar
-        }
-        #endif
-        return false
-    }
-
-    @ViewBuilder
-    private var legacyMainContentView: some View {
-        switch EnsemblePlatformFeaturePolicy.currentRootNavigationShell {
-        case .sidebar:
-            #if os(iOS)
-            if #available(iOS 16.0, *) {
+        switch EnsemblePlatformFeaturePolicy.current.rootNavigationShell {
+        case .nativeBrowse:
+            if #available(iOS 18.0, macOS 15.0, *) {
+                SidebarView(
+                    nowPlayingVM: nowPlayingVM,
+                    viewModels: screenModels,
+                    selection: $sidebarSelection,
+                    usesNativeBrowse: true,
+                    rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
+                )
+            } else {
+                MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
+            }
+        case .legacySidebar:
+            if #available(iOS 16.0, macOS 13.0, *) {
                 SidebarView(
                     nowPlayingVM: nowPlayingVM,
                     viewModels: screenModels,
@@ -361,23 +343,13 @@ public struct RootView: View {
             } else {
                 MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
             }
-            #elseif os(macOS)
-            if #available(macOS 13.0, *) {
-                SidebarView(
-                    nowPlayingVM: nowPlayingVM,
-                    viewModels: screenModels,
-                    selection: $sidebarSelection,
-                    rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
-                )
-            } else {
-                MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
-            }
-            #else
-            MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
-            #endif
         case .tabs:
             MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
         }
+    }
+
+    private var usesNativeBrowse: Bool {
+        EnsemblePlatformFeaturePolicy.current.usesNativeBrowse
     }
 
     private func updateRootSidebarChromeRegistration(_ registration: RootSidebarChromeRegistration) {
@@ -413,25 +385,7 @@ public struct RootView: View {
     }
 
     private var usesSidebarRootNavigationShell: Bool {
-        if usesNativeBrowse { return true }
-        switch EnsemblePlatformFeaturePolicy.currentRootNavigationShell {
-        case .sidebar:
-            #if os(iOS)
-            if #available(iOS 16.0, *) {
-                return true
-            }
-            return false
-            #elseif os(macOS)
-            if #available(macOS 13.0, *) {
-                return true
-            }
-            return false
-            #else
-            return false
-            #endif
-        case .tabs:
-            return false
-        }
+        EnsemblePlatformFeaturePolicy.current.usesSidebarRootNavigation
     }
 
     private var nowPlayingPresentationContent: some View {

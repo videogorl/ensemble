@@ -228,7 +228,7 @@ public struct SearchView: View {
     }
 
     private func routeSearchResult(to destination: NavigationCoordinator.Destination) {
-        if EnsemblePlatformFeaturePolicy.currentRootNavigationShell == .sidebar {
+        if EnsemblePlatformFeaturePolicy.current.usesSidebarRootNavigation {
             handleSearchResultNavigation()
             navigationCoordinator.navigateFromExternalSearch(to: destination)
         } else {

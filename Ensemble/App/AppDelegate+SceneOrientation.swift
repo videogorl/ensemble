@@ -1,6 +1,7 @@
 #if os(iOS)
 import UIKit
 import EnsembleCore
+import EnsembleUI
 
 extension AppDelegate {
     // MARK: - Scene Will Connect (iOS 13+ scene lifecycle)
@@ -75,7 +76,7 @@ extension AppDelegate {
     }
 
     private var currentSupportedInterfaceOrientations: UIInterfaceOrientationMask {
-        if #available(iOS 18.0, *), UIDevice.current.userInterfaceIdiom == .pad {
+        if EnsemblePlatformFeaturePolicy.current.usesNativeBrowse {
             return .all
         }
         return stageFlowRotationSupportTokens.isEmpty ? .portrait : .allButUpsideDown

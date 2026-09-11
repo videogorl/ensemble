@@ -6,9 +6,12 @@ final class PlatformAndDragPolicyTests: XCTestCase {
         let phone = EnsemblePlatformFeaturePolicy.resolve(
             family: .iPhone,
             supportsNavigationSplitView: true,
+            supportsNativeBrowse: true,
             usesLargeMiniPlayer: false
         )
         XCTAssertEqual(phone.rootNavigationShell, .tabs)
+        XCTAssertFalse(phone.usesSidebarRootNavigation)
+        XCTAssertFalse(phone.usesNativeBrowse)
         XCTAssertEqual(phone.miniPlayerMenuRenderer, .compactButtons)
         XCTAssertEqual(phone.nativeTrackListBackend, .compactRows)
         XCTAssertFalse(phone.usesUtilityCardScaffold)
@@ -16,21 +19,35 @@ final class PlatformAndDragPolicyTests: XCTestCase {
         XCTAssertTrue(phone.commandPolicy.providesRefreshCommand)
         XCTAssertFalse(phone.commandPolicy.removesSystemSidebarCommand)
 
+        let oldIPad = EnsemblePlatformFeaturePolicy.resolve(
+            family: .iPad,
+            supportsNavigationSplitView: false,
+            supportsNativeBrowse: false,
+            usesLargeMiniPlayer: true
+        )
+        XCTAssertEqual(oldIPad.rootNavigationShell, .tabs)
+
         let iPad = EnsemblePlatformFeaturePolicy.resolve(
             family: .iPad,
             supportsNavigationSplitView: true,
+            supportsNativeBrowse: false,
             usesLargeMiniPlayer: true
         )
-        XCTAssertEqual(iPad.rootNavigationShell, .sidebar)
+        XCTAssertEqual(iPad.rootNavigationShell, .legacySidebar)
+        XCTAssertTrue(iPad.usesSidebarRootNavigation)
+        XCTAssertFalse(iPad.usesNativeBrowse)
         XCTAssertEqual(iPad.miniPlayerMenuRenderer, .popover)
         XCTAssertEqual(iPad.nativeTrackListBackend, .uiKitTable)
 
         let mac = EnsemblePlatformFeaturePolicy.resolve(
             family: .macOS,
             supportsNavigationSplitView: true,
+            supportsNativeBrowse: true,
             usesLargeMiniPlayer: true
         )
-        XCTAssertEqual(mac.rootNavigationShell, .sidebar)
+        XCTAssertEqual(mac.rootNavigationShell, .nativeBrowse)
+        XCTAssertTrue(mac.usesSidebarRootNavigation)
+        XCTAssertTrue(mac.usesNativeBrowse)
         XCTAssertEqual(mac.miniPlayerMenuRenderer, .appKitMenu)
         XCTAssertEqual(mac.nativeTrackListBackend, .appKitTable)
         XCTAssertTrue(mac.usesUtilityCardScaffold)
