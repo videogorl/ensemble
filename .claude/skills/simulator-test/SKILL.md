@@ -17,7 +17,25 @@ This skill exists so the agent can iterate without asking the user to manually o
 
 Commands below assume `ENSEMBLE_SIMULATOR_UDID` is set to the currently discovered UUID for the requested runtime.
 
-For repeatable cold-launch baselines, prefer `scripts/capture_runtime_baseline.sh --capture-startup` after the app is installed. It captures both the simulator OS log stream and the latest `PersistentLogService` session log, then prints a filtered summary.
+Create one isolated run directory before using the examples below:
+
+```bash
+ENSEMBLE_RUN_DIR=$(mktemp -d /tmp/ensemble-runtime.XXXXXX)
+ENSEMBLE_DERIVED_DATA="$ENSEMBLE_RUN_DIR/DerivedData"
+```
+
+Reuse these paths for this run only. For a repeatable cold-launch baseline after
+fresh installation, use the existing helper with explicit target and output:
+
+```bash
+scripts/capture_runtime_baseline.sh --capture-startup \
+  --udid "$ENSEMBLE_SIMULATOR_UDID" --output-dir "$ENSEMBLE_RUN_DIR/startup" \
+  --wait-seconds 15
+```
+
+It captures OS and persistent session logs. The 15 seconds is a capture window,
+not proof of readiness; confirm the expected UI/log event separately. Never rely
+on the helper's default target or shared output path.
 
 ---
 
@@ -133,12 +151,14 @@ When a specific runtime is requested, use its current UUID everywhere. Do not pu
 
 ```bash
 xcrun simctl list devices available
-ENSEMBLE_SIMULATOR_UDID=<ios-26.5-uuid>
+ENSEMBLE_SIMULATOR_UDID='replace-with-discovered-uuid'
+# Boot only if this exact simulator is shut down.
 xcrun simctl boot "$ENSEMBLE_SIMULATOR_UDID"
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -configuration Debug \
   -destination "platform=iOS Simulator,id=$ENSEMBLE_SIMULATOR_UDID" \
-  -derivedDataPath "/tmp/ensemble-derived-<runner-id>" build
-xcrun simctl install "$ENSEMBLE_SIMULATOR_UDID" <path-to-Ensemble.app>
+  -derivedDataPath "$ENSEMBLE_DERIVED_DATA" build
+xcrun simctl install "$ENSEMBLE_SIMULATOR_UDID" \
+  "$ENSEMBLE_DERIVED_DATA/Build/Products/Debug-iphonesimulator/Ensemble.app"
 xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
 xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" launchctl list | rg 'com\.videogorl\.ensemble'
 ```
@@ -155,7 +175,7 @@ When validating on a real iPhone through iPhone Mirroring, do not use plain `scr
 
 ```bash
 swift -e 'import CoreGraphics; let opts = CGWindowListOption(arrayLiteral: [.optionOnScreenOnly, .excludeDesktopElements]); if let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] { for w in list { let owner = w[kCGWindowOwnerName as String] as? String ?? ""; let name = w[kCGWindowName as String] as? String ?? ""; if owner.localizedCaseInsensitiveContains("iPhone") || name.localizedCaseInsensitiveContains("iPhone") { print("\\(w[kCGWindowNumber as String] ?? "?") owner=\\(owner) name=\\(name) bounds=\\(w[kCGWindowBounds as String] ?? [:])") } } }'
-screencapture -x -l <window-id> /tmp/ensemble-device-profile/artifacts/iphone-mirroring-now-playing.png
+screencapture -x -l <window-id> "$ENSEMBLE_RUN_DIR/iphone-mirroring-now-playing.png"
 ```
 
 Use the window-targeted artifact for before/after performance comparisons, especially when collecting Time Profiler or Instruments evidence from a physical device.
@@ -172,8 +192,9 @@ xcrun devicectl list devices
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -showdestinations
 
 # Build for the exact attached device. Do not reuse an unverified old artifact.
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
-  -destination 'id=<device-udid>' build
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -configuration Debug \
+  -destination 'id=<device-udid>' \
+  -derivedDataPath "$ENSEMBLE_DERIVED_DATA" build
 
 # Install and verify the resulting app before testing.
 xcrun devicectl device install app --device <device-udid> <path-to-Ensemble.app>
@@ -198,233 +219,68 @@ Do not claim that the agent heard audio unless the active audio transport expose
 
 ---
 
-## Quick Reference
+## Build And Capture One Run
+
+Use the run directory and exact UUID established above. Omit
+`-sdk iphonesimulator` so the workspace can build its embedded Watch target with
+`watchsimulator`. Preserve the build exit status; inspect the log on failure.
 
 ```bash
-# 1. Build
-ENSEMBLE_SIMULATOR_UDID=<target-simulator-uuid>
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -configuration Debug \
   -destination "platform=iOS Simulator,id=$ENSEMBLE_SIMULATOR_UDID" \
-  build
+  -derivedDataPath "$ENSEMBLE_DERIVED_DATA" build \
+  > "$ENSEMBLE_RUN_DIR/build.log" 2>&1
+```
 
-# 2. Install the fresh app on the exact simulator
-xcrun simctl install "$ENSEMBLE_SIMULATOR_UDID" <path-to-Ensemble.app>
+Continue only after build success. Install the exact produced artifact:
 
-# 3. Terminate previous instance if needed
-xcrun simctl terminate "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
+```bash
+xcrun simctl install "$ENSEMBLE_SIMULATOR_UDID" \
+  "$ENSEMBLE_DERIVED_DATA/Build/Products/Debug-iphonesimulator/Ensemble.app"
+```
 
-# 4. Start log stream → file (background)
+For a cold-launch baseline, use the helper above. For a specific interaction,
+start a focused stream before the action and stop only this run's logger:
+
+```bash
 xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" log stream \
   --level debug \
   --predicate 'processImagePath CONTAINS "Ensemble" AND NOT processImagePath CONTAINS "Extension"' \
-  --style compact > /tmp/ensemble-test-log.txt 2>&1 &
-LOG_PID=$!
-
-# 5. Launch and prove the process on the exact simulator
+  --style compact > "$ENSEMBLE_RUN_DIR/interaction.log" 2>&1 &
+ENSEMBLE_LOG_PID=$!
 xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
 xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" launchctl list | rg 'com\.videogorl\.ensemble'
-
-# 6. Route with Ensemble automation, inspect with snapshot_ui, and drive the
-# remaining interaction with touch down/up or swipe. Pass the exact UUID to
-# every tool and verify the resulting state.
-
-# 7. Wait for the phase you're testing (adjust as needed)
-sleep 1
-
-sleep 10
-
-# 8. Stop log stream
-kill $LOG_PID 2>/dev/null
-
-# 9. Analyze with grep
-grep -E '(pattern|you|care|about)' /tmp/ensemble-test-log.txt
 ```
 
----
-
-## Step-by-Step Guide
-
-### 1. Boot Or Select The Target Simulator
+Confirm the logger is receiving events and the fresh process is running before
+accepting evidence. Use automation to establish nearby state, inspect the
+hierarchy, exercise the actual interaction, and verify its result. For a cold
+launch, terminate only the target app first; do not terminate it while testing
+in-process lifecycle recovery. Include extension logs when testing Siri.
 
 ```bash
-xcrun simctl list devices available
+kill "$ENSEMBLE_LOG_PID" 2>/dev/null
+rg 'USER_JOURNEY|PlaybackService|StreamingPipeline|OfflineDownload|SyncCoordinator|ConnectionFailover' \
+  "$ENSEMBLE_RUN_DIR/interaction.log"
 ```
 
-If no simulator is booted, boot one:
-
-```bash
-ENSEMBLE_SIMULATOR_UDID=<target-simulator-uuid>
-xcrun simctl boot "$ENSEMBLE_SIMULATOR_UDID"
-```
-
-Use the UUID with every `simctl` and build-tool command. Do not call
-`get_booted_sim_id`; multiple booted simulators make that selection ambiguous.
-
-### 2. Build the App
-
-```bash
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
-  -destination "platform=iOS Simulator,id=$ENSEMBLE_SIMULATOR_UDID" \
-  build 2>&1 | grep -E "error:|BUILD" | tail -5
-```
-
-Omit `-sdk iphonesimulator` for the full app scheme so Xcode can build its embedded Watch target with `watchsimulator`.
-
-Check for `BUILD SUCCEEDED`. If the build fails, fix errors before proceeding.
-
-### 3. Install, Launch, And Pin The Tool Session
-
-After building, explicitly install the generated `.app` bundle on `$ENSEMBLE_SIMULATOR_UDID`. Configure an ID-only, non-persisted session and confirm each returned target matches that UUID. Prove the Ensemble process is running on that simulator before accepting UI evidence.
-
-Once the app is running:
-
-- Use Ensemble launch surfaces or debug deep links to establish the starting state.
-- Use `snapshot_ui` to understand the current screen and resolve element references.
-- Use low-level `touch` down/up, `swipe`, or `gesture` for the behavior under test.
-- Use a fresh snapshot or screenshot plus relevant logs to confirm delivery.
-
-This is the default validation path for bug fixes and UI work.
-
-### 4. Terminate Any Running Instance
-
-```bash
-xcrun simctl terminate "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble 2>/dev/null
-```
-
-This ensures a clean cold launch. Ignore errors if no instance is running.
-
-### 5. Start Debug Log Stream
-
-```bash
-xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" log stream \
-  --level debug \
-  --predicate 'processImagePath CONTAINS "Ensemble" AND NOT processImagePath CONTAINS "Extension"' \
-  --style compact > /tmp/ensemble-test-log.txt 2>&1 &
-LOG_PID=$!
-sleep 1  # Give log stream time to initialize
-```
-
-**Predicate notes:**
-- `--level debug` captures ALL log levels (debug, info, default, error)
-- The predicate filters to only the main app process (excludes Siri extension noise)
-- To include the Siri extension, remove the `AND NOT` clause
-- `--style compact` keeps lines concise
-
-**Alternative predicates for focused capture:**
-
-```bash
-# Only app's own subsystem logs (skips system framework noise)
---predicate 'subsystem BEGINSWITH "com.videogorl.ensemble"'
-
-# Specific subsystem (e.g., only core services)
---predicate 'subsystem == "com.videogorl.ensemble:core"'
-
-# Combine: app process + specific level
---predicate 'processImagePath CONTAINS "Ensemble" AND messageType >= 1'
-```
-
-### 6. Launch the App
-
-```bash
-xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
-```
-
-For launches with specific arguments or environment variables:
-
-```bash
-xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble --argument1 value1
-```
-
-Prefer the Ensemble automation arguments for repeatable surface entry:
-
-```bash
-xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble \
-  -EnsembleAutomationMode YES \
-  -EnsembleAutomationStartSurface downloads
-```
-
-### 7. Wait for the Phase Under Test
-
-Adjust the sleep duration based on what you're measuring:
-
-| Phase | Suggested Wait |
-|-------|---------------|
-| Health checks only | 5s |
-| Full startup (health + sync) | 15s |
-| Siri cold launch simulation | 20s |
-| Background sync trigger | 30s |
-
-### 8. Stop Log Stream & Analyze
-
-```bash
-kill $LOG_PID 2>/dev/null
-```
-
-### 9. Analyze Results
-
-**Common analysis patterns:**
-
-```bash
-# Health check timing
-grep -E '(🏥|health check|ServerHealthChecker|ConnectionTest|✅ Server|❌ Server)' /tmp/ensemble-test-log.txt
-
-# Startup timeline
-grep -E '(📱 AppDelegate|didFinishLaunching|health check|Startup sync|network monitor)' /tmp/ensemble-test-log.txt
-
-# Connection probing details
-grep -E '(ConnectionTest|ConnectionFailover|⚡️|Early exit|Grace period|preferred)' /tmp/ensemble-test-log.txt
-
-# Siri flow
-grep -E '(SIRI_APP|SIRI_EXT|InAppPlayMedia|coordinator|execute|AirPlay|route)' /tmp/ensemble-test-log.txt
-
-# Playback flow
-grep -E '(🎵|Starting playback|AVPlayer|playing audio|player item|stream URL)' /tmp/ensemble-test-log.txt
-
-# Sync flow
-grep -E '(🔄|sync|incremental|full sync|SyncCoordinator)' /tmp/ensemble-test-log.txt
-
-# Network state
-grep -E '(📡|NetworkMonitor|network state|Restored cached)' /tmp/ensemble-test-log.txt
-```
-
----
-
-## All-in-One Script
-
-Copy-paste this block for a standard cold-launch capture:
-
-```bash
-# Build, launch, and capture 10s of cold-launch logs
-xcrun simctl terminate "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble 2>/dev/null
-xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" log stream --level debug \
-  --predicate 'processImagePath CONTAINS "Ensemble" AND NOT processImagePath CONTAINS "Extension"' \
-  --style compact > /tmp/ensemble-test-log.txt 2>&1 &
-LOG_PID=$!
-sleep 1
-xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
-sleep 10
-kill $LOG_PID 2>/dev/null
-echo "=== Captured $(wc -l < /tmp/ensemble-test-log.txt) lines ==="
-```
-
----
+Wait for the expected state/event within a bounded observation window. If it
+never arrives, report that outcome; elapsed sleep time does not establish
+startup completion, readiness, background execution, or lifecycle handoff. Use
+persistent session logs to corroborate events a live stream may have missed.
 
 ## Evidence To Capture
 
-Capture enough evidence to support the claim:
+- Focused tests/build checks selected by [testing](../testing/SKILL.md); a
+  non-trivial change does not automatically require a whole-package run.
+- The changed flow, verified through UUID-pinned interaction and fresh-build
+  provenance, with a screenshot, accessibility dump, or relevant log excerpt.
+- The actual lifecycle state reached, using the
+  [lifecycle matrix](../testing/references/downloads-and-lifecycle.md#lifecycle-evidence)
+  when background/download/playback behavior is involved.
 
-- A passing package test run for the affected package, if the change is non-trivial.
-- Simulator confirmation of the relevant flow using UUID-pinned, state-verified interaction.
-- A screenshot, accessibility dump, or log excerpt when the result would otherwise be ambiguous.
-
-If the app cannot be fully validated because login, network state, or an external service is unavailable, stop short of "done" and report the blocker precisely.
-
----
-
-## Tips
-
-- **Log file location:** Always use `/tmp/ensemble-test-log.txt` (or similar) so it's easy to find and doesn't clutter the project.
-- **Multiple runs:** Rename the log file between runs (e.g., `/tmp/ensemble-test-log-v2.txt`) to avoid confusion.
-- **Large logs:** The full debug log can be 5000+ lines for a 10s capture. Use targeted grep patterns rather than reading the whole file.
-- **Simulator performance:** Simulator probes are faster than real devices (local network latency is near-zero). Device logs will show longer probe times.
-- **Real device logs:** Prefer Xcode's device console, copied `PersistentLogService` session logs, or another device-supported log collection path. Correlate timestamps with visible actions; do not rely on the mirror alone.
+Report unavailable login, network, device, or provider coverage precisely.
+Simulator timings are directional; do not assume simulator networking is
+near-zero latency or use it as physical-device performance proof. For device
+logs, use copied `PersistentLogService` sessions or a supported device console
+and correlate timestamps with the visible action.

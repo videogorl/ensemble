@@ -21,6 +21,34 @@ The previous direct-stream-failure set and universal-endpoint-disable switch wer
 **ALWAYS test with curl before making streaming code changes.** Credentials are in `.env` at project root. If `PLEX_SERVER_URL` is unreachable, use Plex resource discovery with `PLEX_PASS_ACCESS_TOKEN` and the returned per-server token.
 
 
+## Transport Isolation
+
+Successful curl proves endpoint reachability and the observed response; it does
+not prove Ensemble's URLSession path. For a reported streaming failure:
+
+1. Match the exact source/track, requested quality, server endpoint, network and
+   audio route. Establish whether the app used an uncached stream, prefetch,
+   playback cache, or installed download. Choose an uncached item without
+   clearing unrelated user data; a restart may leave prefetch/cache reuse intact.
+2. Compare curl with the app's request/decision and response. For universal
+   transcodes, use decision then start with matching parameters and a unique
+   session per attempt. Record status, received bytes, first-byte time, decoder
+   progress, and first audio separately; keep tokens out of exported evidence.
+3. If curl receives audio but the app receives zero bytes, inspect the active
+   URLSession configuration/delegate/lifecycle path before changing decoding or
+   queue logic. Compare with an existing working loader when applicable. Change
+   one session variable at a time and repeat on the same device and route.
+4. After a transport change, verify the affected uncached path plus relevant
+   background/locked playback using the
+   [lifecycle matrix](../testing/references/downloads-and-lifecycle.md#lifecycle-evidence).
+   URLSession traffic classification is not proof of audio-session/background
+   behavior. Attribute a beta-specific regression only as strongly as the A/B
+   evidence supports; do not make one historical configuration failure a
+   permanent platform ban.
+
+Keep direct file streams and universal transcode available; scope recovery to
+the failing path. Cached playback success does not close an uncached failure.
+
 ## Universal Transcode Endpoint (Primary — use this)
 
 ### Step 1: `GET /music/:/transcode/universal/decision` (REQUIRED)

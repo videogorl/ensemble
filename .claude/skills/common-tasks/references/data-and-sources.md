@@ -8,6 +8,9 @@
 4. Preserve source-scoped identity and never use the shared production stack in
    tests.
 
+For overlapping writes or multi-source collections, use the
+[persistence checks](../../testing/references/persistence-and-unchanged-work.md).
+
 ## Hubs
 
 Providers implement `MusicSourceSyncProvider.getHomeHubs(limit:)` and map
@@ -36,3 +39,6 @@ Use the current `SyncCoordinator`, `BackgroundRefreshCoordinator`, and
 `HomeHubLoader` entrypoints. Full sync is for explicit setup/repair;
 incremental refresh is routine. WebSocket events accelerate the same owners and
 must not become the only correctness path.
+
+Verify both an unchanged repeat and a material delta using the
+[unchanged-work checks](../../testing/references/persistence-and-unchanged-work.md#repeat-with-unchanged-inputs).

@@ -1,6 +1,6 @@
 ---
 name: testing
-description: "Load when choosing Ensemble verification, editing tests, or deciding whether a production change needs new coverage. Defines the smallest sufficient proof."
+description: "Load when choosing Ensemble verification, editing tests, triaging crash/session logs, or deciding whether a production change needs new coverage. Defines the smallest sufficient proof."
 ---
 
 # Ensemble Testing
@@ -47,6 +47,18 @@ Run a full affected package only when the change crosses many owners, changes a
 shared contract, or a focused selection cannot establish safety. Do not run the
 whole app suite merely because one file changed. Do not add edit hooks that run
 broad suites automatically.
+
+## Focused Recipes
+
+Load only the recipe matching the changed behavior; these do not require a full
+surface sweep or authorize additional mutations.
+
+| Behavior | Reference |
+|---|---|
+| Download recovery, quality, shared artifacts, or background playback | [Downloads and lifecycle](references/downloads-and-lifecycle.md) |
+| Crash, hang, or named session-log investigation | [Crash and log triage](references/crash-and-log-triage.md) |
+| Multi-source persistence, duplicate content, sync/indexing/publication cost | [Persistence and unchanged work](references/persistence-and-unchanged-work.md) |
+| Uncached Plex streaming or transport failure | [Transport isolation](../plex-api/media-streaming.md#transport-isolation) |
 
 ## Runtime Evidence
 

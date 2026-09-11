@@ -27,3 +27,7 @@ Load this reference only for performance-sensitive Swift or SwiftUI work.
   or manual token counters for view-owned asynchronous work.
 - Measure before adding throttling, caching, or a custom observation layer.
   Retain a tuning knob when real hardware variation requires calibration.
+
+For sync, indexing, artwork, or browse changes, verify an unchanged repeat and
+one material change with the
+[unchanged-work checks](../../testing/references/persistence-and-unchanged-work.md#repeat-with-unchanged-inputs).

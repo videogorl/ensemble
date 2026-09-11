@@ -29,3 +29,6 @@ delegates. Follow-up actions use an ellipsis.
 
 Recovery normalizes stale in-progress rows without losing requested quality.
 New-download capability gates never disable removal of already local data.
+
+Select the affected [download and lifecycle checks](../../testing/references/downloads-and-lifecycle.md)
+for recovery, quality replacement, shared-file removal, or transport changes.
