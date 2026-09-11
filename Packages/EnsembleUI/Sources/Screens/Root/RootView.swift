@@ -65,7 +65,6 @@ public struct RootView: View {
             isNowPlayingPresented: isNowPlayingPresented,
             isSoftwareKeyboardVisible: isSoftwareKeyboardVisible,
             sidebarChromeRegistration: rootSidebarChromeRegistration,
-            usesNativeBrowse: usesNativeBrowse,
             supportsViewportNowPlayingPresentation: supportsViewportNowPlayingPresentation,
             namespace: playerNamespace,
             animationID: artworkAnimationID,

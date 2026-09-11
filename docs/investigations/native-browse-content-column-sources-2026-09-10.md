@@ -64,6 +64,29 @@ detail scroll views or app relaunch. Older-OS runtime parity, full keyboard/focu
 behavior, arbitrary window widths, and comparative memory/binary profiling remain
 unverified. Existing mutation owners and legacy list/grid paths were reused.
 
+### Simplification and state audit — 2026-09-11
+
+The follow-up cleanup removed 37 net production lines left by the superseded
+adaptive-tab composition: an unread enabled-tabs snapshot, unused
+`MediaDragPayload` `Transferable` support, a one-caller playlist-drop action,
+a one-caller detail-root forwarding method, duplicated native-mode chrome
+plumbing, and an unrelated formatting diff. The existing sidebar drop owner and
+`registration.ownsContentFrame` now express those behaviors directly.
+
+The remaining new state is deliberately scene-local and bounded: `SidebarView`
+owns the selected artist, genre, and playlist above replaceable roots; the
+existing `NavigationCoordinator` owns paths; `NativeBrowseScrollState` retains
+at most one item ID for each native browse tab; and each native split owns only
+its compact-column preference. The recreated scroll view keeps one restoration
+flag. No new observable object, singleton, persistence, cache, or model layer was
+introduced. The scroll and root-chrome adapters remain because removing either
+regressed the reproduced return position or mini-player frame.
+
+After cleanup, all 24 focused navigation/chrome tests and both iPad UI journeys
+passed. Fresh iPad and Mac workspace builds also passed. The explicit Mac build
+was inspected while hiding and restoring the native sidebar; the mini-player
+followed the available content frame in both states.
+
 ## Scope clarification and first native explorer experiment
 
 The user clarified that the goal is to replace the custom dual-pane explorer,

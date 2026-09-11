@@ -22,7 +22,6 @@ struct RootSceneLayerHost<Content: View>: View {
     let isNowPlayingPresented: Bool
     let isSoftwareKeyboardVisible: Bool
     let sidebarChromeRegistration: RootSidebarChromeRegistration
-    let usesNativeBrowse: Bool
     let supportsViewportNowPlayingPresentation: Bool
     let namespace: Namespace.ID
     let animationID: String
@@ -41,7 +40,6 @@ struct RootSceneLayerHost<Content: View>: View {
         isNowPlayingPresented: Bool,
         isSoftwareKeyboardVisible: Bool,
         sidebarChromeRegistration: RootSidebarChromeRegistration = .absent,
-        usesNativeBrowse: Bool = false,
         supportsViewportNowPlayingPresentation: Bool,
         namespace: Namespace.ID,
         animationID: String,
@@ -57,7 +55,6 @@ struct RootSceneLayerHost<Content: View>: View {
         self.isNowPlayingPresented = isNowPlayingPresented
         self.isSoftwareKeyboardVisible = isSoftwareKeyboardVisible
         self.sidebarChromeRegistration = sidebarChromeRegistration
-        self.usesNativeBrowse = usesNativeBrowse
         self.supportsViewportNowPlayingPresentation = supportsViewportNowPlayingPresentation
         self.namespace = namespace
         self.animationID = animationID
@@ -150,7 +147,9 @@ struct RootSceneLayerHost<Content: View>: View {
 
         let resolved = RootChromeLayoutResolver.resolve(
             from: registration,
-            sidebarRegistration: effectiveSidebarChromeRegistration,
+            sidebarRegistration: registration.ownsContentFrame
+                ? sidebarChromeRegistration
+                : effectiveSidebarChromeRegistration,
             in: proxy
         )
 
@@ -198,7 +197,6 @@ struct RootSceneLayerHost<Content: View>: View {
     }
 
     private var effectiveSidebarChromeRegistration: RootSidebarChromeRegistration {
-        if usesNativeBrowse { return sidebarChromeRegistration }
         if sidebarChromeRegistration.isVisible {
             return sidebarChromeRegistration
         }

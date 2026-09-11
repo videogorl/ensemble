@@ -577,7 +577,6 @@ public struct SidebarView: View {
     @State private var selectedArtist: DisplayArtist?
     @State private var selectedGenre: DisplayGenre?
     @State private var selectedPlaylist: DisplayPlaylist?
-    @State private var enabledTabs = DependencyContainer.shared.settingsManager.enabledTabs
     /// Stable sidebar-only playlist row model so SwiftUI diffing does not depend on
     /// the broader Playlist Hashable/Equatable semantics.
     private struct SidebarPlaylistItem: Identifiable, Equatable {
@@ -681,9 +680,6 @@ public struct SidebarView: View {
     }
 
     private func updateSettingsSnapshot() {
-        if enabledTabs != settingsManager.enabledTabs {
-            enabledTabs = settingsManager.enabledTabs
-        }
         let latestAccentColor = settingsManager.accentColor
         if latestAccentColor != accentColor {
             accentColor = latestAccentColor
@@ -1359,11 +1355,6 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private var detailRootContentView: some View {
-        detailRootContent(for: selection)
-    }
-
-    @ViewBuilder
-    private func detailRootContent(for selection: SidebarSelection?) -> some View {
         switch selection {
         case .library(let tab):
             sidebarContentView(for: tab)
@@ -2044,7 +2035,7 @@ public struct SidebarView: View {
                     EnsembleLogger.debug(
                         "Sidebar playlist drop failed: payload unresolved for target=\(playlist.id) providerTypes=\(MediaDragPayload.debugRegisteredTypeIdentifiers(for: providers))"
                     )
-                    dropAction.showSidebarDropToast(
+                    showSidebarDropToast(
                         style: .warning,
                         title: "Drop not supported",
                         message: "That item could not be resolved.",
@@ -2064,17 +2055,51 @@ public struct SidebarView: View {
             return true
         }
 
-        private var dropAction: SidebarPlaylistDropAction {
-            SidebarPlaylistDropAction(deps: deps, libraryVM: libraryVM, playlistsVM: playlistsVM, nowPlayingVM: nowPlayingVM)
-        }
-
-        private func performSidebarPlaylistDrop(_ payload: MediaDragPayload, onto playlist: SidebarPlaylistItem) async {
-            if let (target, tracks) = await dropAction.perform(payload, onto: playlist) {
-                let identity = dropTargetIdentity(id: target.id, sourceKey: target.sourceCompositeKey)
-                if var cached = cachedTrackIDsByTarget[identity] {
-                    cached.formUnion(tracks.map(\.id))
-                    cachedTrackIDsByTarget[identity] = cached
+        @MainActor
+        private func performSidebarPlaylistDrop(_ payload: MediaDragPayload, onto sidebarPlaylist: SidebarPlaylistItem) async {
+            do {
+                let resolution = try await playlistDropResolver.resolve(
+                    references: payload.dropReferences,
+                    targets: sidebarPlaylist.dropTargets,
+                    tracks: libraryVM.tracks,
+                    albums: libraryVM.albums,
+                    playlists: playlistsVM.playlists,
+                    loadAlbumTracks: { album in
+                        let detailVM = DependencyContainer.shared.makeAlbumDetailViewModel(album: album)
+                        await detailVM.loadTracks()
+                        return detailVM.tracks
+                    },
+                    loadPlaylistTracks: { playlist in
+                        let detailVM = DependencyContainer.shared.makePlaylistDetailViewModel(playlist: playlist)
+                        await detailVM.loadTracks()
+                        return detailVM.tracks
+                    }
+                )
+                let outcome = try await nowPlayingVM.addTracksOptimistically(
+                    resolution.tracks,
+                    to: resolution.targetPlaylist
+                )
+                EnsembleLogger.debug(
+                    "Sidebar playlist drop completed: target=\(resolution.targetPlaylist.id) tracks=\(resolution.tracks.count) outcome=\(String(describing: outcome))"
+                )
+                let targetIdentity = dropTargetIdentity(
+                    id: resolution.targetPlaylist.id,
+                    sourceKey: resolution.targetPlaylist.sourceCompositeKey
+                )
+                if var cachedTrackIDs = cachedTrackIDsByTarget[targetIdentity] {
+                    cachedTrackIDs.formUnion(resolution.tracks.map(\.id))
+                    cachedTrackIDsByTarget[targetIdentity] = cachedTrackIDs
                 }
+            } catch let error as PlaylistDropResolutionError {
+                handleSidebarDropResolutionError(error, sidebarPlaylist: sidebarPlaylist)
+            } catch {
+                EnsembleLogger.debug("Sidebar playlist drop failed: target=\(sidebarPlaylist.playlistID) error=\(error.localizedDescription)")
+                showSidebarDropToast(
+                    style: .error,
+                    title: "Couldn't add tracks",
+                    message: error.localizedDescription,
+                    dedupeKey: "playlist-drop-add-failed-\(sidebarPlaylist.playlistID)"
+                )
             }
         }
 
@@ -2115,58 +2140,6 @@ public struct SidebarView: View {
 
         private func dropTargetIdentity(id: String, sourceKey: String?) -> String {
             "\(MediaTrackResolver.normalizedSourceKey(sourceKey) ?? "")|\(id)"
-        }
-
-    }
-
-    /// Shared execution for the legacy row and native Tab drop destinations.
-    @MainActor
-    private struct SidebarPlaylistDropAction {
-        let deps: DependencyContainer
-        let libraryVM: LibraryViewModel
-        let playlistsVM: PlaylistViewModel
-        let nowPlayingVM: NowPlayingViewModel
-        private let playlistDropResolver = PlaylistDropResolver()
-
-        func perform(_ payload: MediaDragPayload, onto sidebarPlaylist: SidebarPlaylistItem) async -> (Playlist, [Track])? {
-            do {
-                let resolution = try await playlistDropResolver.resolve(
-                    references: payload.dropReferences,
-                    targets: sidebarPlaylist.dropTargets,
-                    tracks: libraryVM.tracks,
-                    albums: libraryVM.albums,
-                    playlists: playlistsVM.playlists,
-                    loadAlbumTracks: { album in
-                        let detailVM = DependencyContainer.shared.makeAlbumDetailViewModel(album: album)
-                        await detailVM.loadTracks()
-                        return detailVM.tracks
-                    },
-                    loadPlaylistTracks: { playlist in
-                        let detailVM = DependencyContainer.shared.makePlaylistDetailViewModel(playlist: playlist)
-                        await detailVM.loadTracks()
-                        return detailVM.tracks
-                    }
-                )
-                let outcome = try await nowPlayingVM.addTracksOptimistically(
-                    resolution.tracks,
-                    to: resolution.targetPlaylist
-                )
-                EnsembleLogger.debug(
-                    "Sidebar playlist drop completed: target=\(resolution.targetPlaylist.id) tracks=\(resolution.tracks.count) outcome=\(String(describing: outcome))"
-                )
-                return (resolution.targetPlaylist, resolution.tracks)
-            } catch let error as PlaylistDropResolutionError {
-                handleSidebarDropResolutionError(error, sidebarPlaylist: sidebarPlaylist)
-            } catch {
-                EnsembleLogger.debug("Sidebar playlist drop failed: target=\(sidebarPlaylist.playlistID) error=\(error.localizedDescription)")
-                showSidebarDropToast(
-                    style: .error,
-                    title: "Couldn't add tracks",
-                    message: error.localizedDescription,
-                    dedupeKey: "playlist-drop-add-failed-\(sidebarPlaylist.playlistID)"
-                )
-            }
-            return nil
         }
 
         private func handleSidebarDropResolutionError(
@@ -2251,7 +2224,7 @@ public struct SidebarView: View {
             )
         }
 
-        func showSidebarDropToast(
+        private func showSidebarDropToast(
             style: ToastStyle,
             title: String,
             message: String,

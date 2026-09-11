@@ -1,6 +1,10 @@
 # Native browse container experiment — 2026-09-09
 
-## Integration checkpoint — shipping gate remains closed
+> Historical record: the adaptive-tab composition described here was removed.
+> The current content-column implementation and evidence are in
+> [native-browse-content-column-sources-2026-09-10.md](native-browse-content-column-sources-2026-09-10.md).
+
+## Historical integration checkpoint
 
 The experiment now uses the existing `SidebarView` and its shared actions instead
 of a second sample sidebar. This is a **gated integration checkpoint, not a
