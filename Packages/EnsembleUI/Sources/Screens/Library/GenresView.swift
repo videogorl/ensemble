@@ -75,7 +75,11 @@ public struct GenresView: View {
     }
 
     private var isGenreBrowseSearchVisible: Bool {
-        selectedGenre == nil &&
+        #if os(iOS)
+        if presentationMode == .selectionColumn { return true }
+        #endif
+        // macOS has one toolbar search item, shared with genre album search.
+        return selectedGenre == nil &&
         navigationCoordinator.pathSnapshot(for: .genres).isEmpty &&
         !navigationCoordinator.isRouteTransitionActive(for: .genres)
     }
@@ -86,7 +90,25 @@ public struct GenresView: View {
         case .compactRoot:
             adaptiveGenreView
         case .selectionColumn:
-            genreSelectionList
+            if #available(iOS 18.0, macOS 15.0, *) {
+                NativeBrowseScrollView {
+                    ForEach(filteredGenres) { genre in
+                        Button { setSelectedGenre(genre) } label: {
+                            genreRow(genre)
+                                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+                                .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
+                                .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .browseSelectionBackground(isSelected: selectedGenre?.id == genre.id)
+                        .padding(.horizontal, EnsembleScaffold.BrowseSelection.outerHorizontalPadding)
+                        .id(genre.id)
+                    }
+                }
+                .accessibilityIdentifier("browse.genres")
+            } else {
+                genreSelectionList
+            }
         }
     }
 

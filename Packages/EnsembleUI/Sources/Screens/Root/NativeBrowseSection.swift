@@ -21,10 +21,14 @@ struct NativeBrowseSection<Sidebar: View>: View {
         } content: {
             selectionColumn
                 .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 360)
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
         } detail: {
             detailStack
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbarMaterialBackground()
         .onChange(of: selectedID) { _, newValue in
             guard rootSelection == .library(tab) else { return }
             navigationCoordinator.setPath([], for: tab)
@@ -109,6 +113,65 @@ struct NativeBrowseSection<Sidebar: View>: View {
         }
     }
 }
+
+@available(iOS 18.0, macOS 15.0, *)
+private struct NativeBrowseScrollPositionKey: EnvironmentKey {
+    static var defaultValue: Binding<String?> { .constant(nil) }
+}
+
+@available(iOS 18.0, macOS 15.0, *)
+private extension EnvironmentValues {
+    var nativeBrowseScrollPosition: Binding<String?> {
+        get { self[NativeBrowseScrollPositionKey.self] }
+        set { self[NativeBrowseScrollPositionKey.self] = newValue }
+    }
+}
+
+/// Keeps native scroll state alive above the replaceable two/three-column roots.
+@available(iOS 18.0, macOS 15.0, *)
+struct NativeBrowseScrollState<Content: View>: View {
+    let tab: TabItem?
+    @ViewBuilder var content: Content
+    @State private var positions: [TabItem: String] = [:]
+
+    var body: some View {
+        content.environment(\.nativeBrowseScrollPosition, Binding(
+            get: { tab.flatMap { positions[$0] } },
+            set: { if let tab, let id = $0 { positions[tab] = id } }
+        ))
+    }
+}
+
+@available(iOS 18.0, macOS 15.0, *)
+struct NativeBrowseScrollView<Content: View>: View {
+    @Environment(\.nativeBrowseScrollPosition) private var position
+    @State private var hasRestoredPosition = false
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    content
+                }
+                .scrollTargetLayout()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollPosition(id: position, anchor: .top)
+            .onScrollGeometryChange(for: CGSize.self) { $0.contentSize } action: { _, size in
+                // Restore only once the native scroll view has laid out its content.
+                guard !hasRestoredPosition, size.height > 0 else { return }
+                hasRestoredPosition = true
+                if let id = position.wrappedValue {
+                    proxy.scrollTo(id, anchor: .top)
+                }
+            }
+            .foregroundScrollActivity()
+            .miniPlayerBottomSpacing()
+        }
+    }
+}
+
 /// Register the root region; the shared chrome owner excludes the app sidebar.
 @available(iOS 18.0, macOS 15.0, *)
 struct NativeBrowseChrome: ViewModifier {

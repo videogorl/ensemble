@@ -405,7 +405,22 @@ public struct PlaylistsView: View {
         case .compactRoot:
             adaptivePlaylistView
         case .selectionColumn:
-            playlistSelectionList
+            if #available(iOS 18.0, macOS 15.0, *) {
+                NativeBrowseScrollView {
+                    ForEach(effectivePlaylists) { playlist in
+                        playlistSelectionRow(playlist)
+                            .padding(.horizontal, EnsembleScaffold.BrowseSelection.horizontalPadding)
+                            .padding(.vertical, EnsembleScaffold.BrowseSelection.verticalPadding)
+                            .browseSelectionBackground(isSelected: selectedPlaylist?.id == playlist.id)
+                            .padding(.horizontal, EnsembleScaffold.BrowseSelection.outerHorizontalPadding)
+                            .id(playlist.id)
+                    }
+                    playlistCountFooter(count: effectivePlaylists.count)
+                }
+                .accessibilityIdentifier("browse.playlists")
+            } else {
+                playlistSelectionList
+            }
         }
     }
 
@@ -453,17 +468,21 @@ public struct PlaylistsView: View {
         )
     }
 
+    private func playlistSelectionRow(_ playlist: DisplayPlaylist) -> some View {
+        let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(playlist)
+        return PlaylistRow(
+            displayPlaylist: playlist,
+            chipStyle: chipStyle(for: playlist),
+            onTap: isPendingCreation ? nil : { setSelectedPlaylist(playlist) },
+            isDisabled: isPendingCreation,
+            statusText: isPendingCreation ? "Creating..." : nil
+        )
+    }
+
     private var playlistSelectionList: some View {
         List {
             ForEach(effectivePlaylists) { dp in
-                let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(dp)
-                PlaylistRow(
-                    displayPlaylist: dp,
-                    chipStyle: chipStyle(for: dp),
-                    onTap: isPendingCreation ? nil : { setSelectedPlaylist(dp) },
-                    isDisabled: isPendingCreation,
-                    statusText: isPendingCreation ? "Creating..." : nil
-                )
+                playlistSelectionRow(dp)
                 .listRowBackground(
                     RoundedRectangle(
                         cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,

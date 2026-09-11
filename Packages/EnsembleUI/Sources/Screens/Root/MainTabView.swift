@@ -1157,7 +1157,16 @@ public struct SidebarView: View {
     }
 
     private var isSidebarChromeVisible: Bool {
-        columnVisibility != .detailOnly && !(usesNativeBrowse && selection == .library(.artists) && columnVisibility == .doubleColumn)
+        columnVisibility != .detailOnly && !(usesNativeBrowse && nativeBrowseTab != nil && columnVisibility == .doubleColumn)
+    }
+
+    private var nativeBrowseTab: TabItem? {
+        switch selection {
+        case .library(.artists): return .artists
+        case .library(.genres): return .genres
+        case .library(.playlists): return .playlists
+        default: return nil
+        }
     }
 
     private func publishRootSidebarChromeRegistration(frame: CGRect? = nil, fallbackWidth: CGFloat? = nil) {
@@ -1228,6 +1237,7 @@ public struct SidebarView: View {
 
         }
         .listStyle(.sidebar)
+        .accessibilityIdentifier("sidebar.browse")
         .safeAreaInset(edge: .bottom) {
             Color.clear
                 .frame(
@@ -1507,16 +1517,16 @@ public struct SidebarView: View {
 
     @available(iOS 18.0, macOS 15.0, *)
     private var nativeExplorerNavigationView: some View {
-        Group {
-            // Prove the real content-column role with Artists before widening the experiment.
-            if selection == .library(.artists) {
+        NativeBrowseScrollState(tab: nativeBrowseTab) {
+            if let tab = nativeBrowseTab {
                 NativeBrowseSection(
-                    tab: .artists, sidebar: sidebarColumn,
+                    tab: tab, sidebar: sidebarColumn,
                     nowPlayingVM: nowPlayingVM, viewModels: viewModels,
                     rootSelection: $selection,
                     artist: $selectedArtist, genre: $selectedGenre, playlist: $selectedPlaylist,
                     columnVisibility: $columnVisibility
                 )
+                .id(tab)
             } else {
                 splitNavigationViewWithCompactColumn
             }

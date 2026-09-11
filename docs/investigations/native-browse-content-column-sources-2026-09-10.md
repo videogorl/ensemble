@@ -1,5 +1,69 @@
 # Native browse content-column source references
 
+## Current implementation — scroll restoration and remaining explorers
+
+The debug-gated native root now covers Artists, Genres, and Playlists. Each uses
+the actual `content:` column; Albums and other roots keep the existing two-column
+shell. The iOS 15/macOS 12 deployment targets and normal-launch fallback remain
+unchanged. This is not enabled in Release or merged into the main checkout.
+
+One scene-local dictionary retains the leading item ID by browse tab
+above the replaceable roots. The three middle lists share a lazy native scroll
+view with stable item IDs and `scrollTargetLayout()`. Selection and detail paths
+remain in their existing owners. The shared scroll view binds `scrollPosition(id:)`
+and uses `ScrollViewReader.scrollTo` once SwiftUI reports nonempty content geometry.
+Testing an unfiltered Genre list exposed a 350-point return jump when restoration
+ran during `onAppear`; its saved item ID was correct, but restoring at that stage
+did not move the recreated viewport. The native layout callback passed that same
+regression journey. No delay, pixel-offset
+tracking, controller introspection, package, or persistence service was added.
+Restoration anchors the leading item, not its exact fractional pixel offset.
+
+The iPad middle panels use native inline titles, avoiding large-title collapse
+during restoration. The shared lazy stack fills its column with leading alignment.
+The new Artists path omits redundant geometry/index scaffolding: the existing
+alphabet index policy only shows it on compact phones, not these iPad/Mac panels.
+
+Mac validation caught and fixed duplicate toolbar search ownership: selecting a
+genre while both the browser and detail supplied `.searchable` raised an AppKit
+exception for duplicate `com.apple.SwiftUI.search`. Mac retains its existing single
+search-owner policy; iPad retains column-local genre search. The native root also
+reuses the existing toolbar-material helper to keep middle-panel titles readable
+when detail artwork scrolls beneath the unified Mac toolbar.
+
+Direct Mac checks passed for independent Genre and Playlist scroll/selection
+restoration across section changes, Jazz album drill-down/Back, and merged playlist
+detail. Compact iPhone Artists grid and Playlists list retained bottom tabs with
+the native flag omitted. All 24 `NavigationRootHelperTests` passed.
+
+Final acceptance evidence:
+
+- Both focused iPad UI tests passed: rotation/two-column Albums (20.148 seconds)
+  and the table-driven Artists/Genres/Playlists scroll/selection return journey
+  (99.486 seconds). The latter clears existing search filters and checks vertical
+  position, horizontal alignment, and visible rows. Returned screenshots for all
+  three sections were directly inspected; Genres used the unfiltered list.
+- Result bundle: `/tmp/ensemble-native-browse-derived/Logs/Test/Test-Ensemble-2026.09.10_18-44-12--0700.xcresult`.
+  Exported screenshots: `/tmp/native-browse-finish.bFatuG/accepted/manifest.json`.
+- Final simulator installed and built debug libraries matched SHA-256
+  `e5139f83ea0f0110d6b1c94574ac856d82d562c5ae95ad0072c2375578ef944f`.
+- Final Mac workspace build passed; explicitly launched executable PID 31681
+  came from `/tmp/ensemble-native-browse-mac/Build/Products/Debug/Ensemble.app`.
+  Its debug library SHA-256 was
+  `4bc45db95f686a32095b5444313f8e52636172e95b31bdbae52c566b2f54d3e4`.
+  Genre scroll value remained 0.9573 through an Albums round-trip; Playlist value
+  remained 0.2305 through a Genres round-trip, with both selections retained.
+- Logs: `/tmp/native-browse-acceptance-ipad.log`,
+  `/tmp/native-browse-acceptance-mac.log`, `/tmp/native-browse-final-navigation.log`.
+  Temporary diagnostic logging was removed; no provider mutation or playback
+  was initiated. Earlier failed checks exposed restoration/layout defects and
+  test-harness issues; they are not treated as passing evidence.
+
+Remaining limits: restoration covers the middle browse lists, not arbitrary
+detail scroll views or app relaunch. Older-OS runtime parity, full keyboard/focus
+behavior, arbitrary window widths, and comparative memory/binary profiling remain
+unverified. Existing mutation owners and legacy list/grid paths were reused.
+
 ## Scope clarification and first native explorer experiment
 
 The user clarified that the goal is to replace the custom dual-pane explorer,
@@ -7,11 +71,11 @@ not redesign app navigation. Adaptive top tabs and the tab-to-sidebar transition
 are optional, not acceptance requirements. This supersedes the proposed tab-bar
 acceptance gate below.
 
-The gated experiment now reuses `SidebarView.sidebarColumn` and presents Artists
+The initial gated experiment reused `SidebarView.sidebarColumn` and presented Artists
 in `NavigationSplitView`'s actual `content:` role, with artist detail in `detail:`.
 Albums and other roots reuse the existing two-column app shell. Genres and
-Playlists deliberately retain their existing explorer until the Artists/Albums
-experiment is accepted. Selection remains in the existing root owner.
+Playlists deliberately retained their existing explorer until the Artists/Albums
+experiment was accepted. Selection remained in the existing root owner.
 
 Removed the experimental adaptable-tab composition, tab-customization modifier,
 and special tab-artwork rendering. Existing sidebar rows, Pins, context menus,
@@ -104,7 +168,7 @@ readable artist detail were inspected; stale window-control automation prevented
 completing the shrink-limit check with both columns widened. That check remains
 open, along with Back/selection retention across resizing.
 
-Scroll restoration proposal, not implemented: keep a scene-local top-visible
+Initial scroll restoration proposal (superseded by the implementation above): keep a scene-local top-visible
 item ID above the replaceable root and bind the existing scroll view using native
 `scrollPosition(id:anchor:)` and `scrollTargetLayout()`. Keep it separate from
 selection; verify section switches, alphabet jumps, filtering, and reflow before

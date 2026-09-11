@@ -112,7 +112,11 @@ public struct ArtistsView: View {
         case .compactRoot:
             adaptiveArtistView
         case .selectionColumn:
-            artistSelectionList
+            if #available(iOS 18.0, macOS 15.0, *) {
+                nativeArtistSelectionList
+            } else {
+                artistSelectionList
+            }
         }
     }
 
@@ -201,6 +205,34 @@ public struct ArtistsView: View {
             Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
         }
         .accessibilityLabel("Sort Artists")
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private var nativeArtistSelectionList: some View {
+        NativeBrowseScrollView {
+            artistGenreChipBar
+            if libraryVM.artistSortOption == .name {
+                ForEach(artistSnapshot.sections) { section in
+                    Section {
+                        ForEach(section.artists) { artist in
+                            artistSelectionRow(artist)
+                        }
+                    } header: {
+                        sectionHeader(section.letter).id(section.letter)
+                    }
+                }
+            } else {
+                ForEach(artistSnapshot.displayArtists) { artist in
+                    artistSelectionRow(artist)
+                }
+            }
+            LibraryBrowseCountFooter(
+                count: artistSnapshot.displayArtists.count,
+                singular: "artist", plural: "artists",
+                bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
+            )
+        }
+        .accessibilityIdentifier("browse.artists")
     }
 
     private var artistSelectionList: some View {
