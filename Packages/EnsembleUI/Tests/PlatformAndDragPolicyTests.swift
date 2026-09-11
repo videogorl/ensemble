@@ -2,6 +2,20 @@ import XCTest
 @testable import EnsembleUI
 
 final class PlatformAndDragPolicyTests: XCTestCase {
+    func testToastDismissalRequiresLeftwardHorizontalSwipe() {
+        for (translation, expected) in [
+            (CGSize(width: -50, height: 0), true),
+            (CGSize(width: -100, height: 40), true),
+            (CGSize(width: -49, height: 0), false),
+            (CGSize(width: 100, height: 0), false),
+            (CGSize(width: -50, height: 80), false),
+            (CGSize(width: -50, height: -50), false),
+            (.zero, false)
+        ] {
+            XCTAssertEqual(ToastBannerView.shouldDismiss(for: translation), expected, "\(translation)")
+        }
+    }
+
     func testPlatformPolicyKeepsFeatureRulesSeparateFromRenderers() {
         let phone = EnsemblePlatformFeaturePolicy.resolve(
             family: .iPhone,

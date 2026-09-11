@@ -235,6 +235,13 @@ public struct ToastBannerView: View {
         .padding(.vertical, EnsembleScaffold.Toast.verticalPadding)
         .ensembleCapsuleMaterial(.popover, strokeColor: borderColor)
         .contentShape(Capsule())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { value in
+                    guard Self.shouldDismiss(for: value.translation) else { return }
+                    toastCenter.dismiss(id: toast.id)
+                }
+        )
         .onTapGesture {
             if toast.tapHandler != nil {
                 toastCenter.triggerTap(for: toast.id)
@@ -246,6 +253,13 @@ public struct ToastBannerView: View {
             toastCenter.dismiss(id: toast.id)
         }
         .accessibilityElement(children: .combine)
+        .accessibilityAction(.escape) {
+            toastCenter.dismiss(id: toast.id)
+        }
+    }
+
+    static func shouldDismiss(for translation: CGSize) -> Bool {
+        translation.width <= -50 && abs(translation.width) > abs(translation.height)
     }
 
     private var iconColor: Color {
