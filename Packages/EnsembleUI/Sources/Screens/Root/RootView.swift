@@ -319,7 +319,7 @@ public struct RootView: View {
 
     @ViewBuilder
     private var mainContentView: some View {
-        #if DEBUG && (os(iOS) || os(macOS))
+        #if os(iOS) || os(macOS)
         if #available(iOS 18.0, macOS 15.0, *),
            usesNativeBrowse {
             SidebarView(
@@ -338,9 +338,9 @@ public struct RootView: View {
     }
 
     private var usesNativeBrowse: Bool {
-        #if DEBUG && (os(iOS) || os(macOS))
+        #if os(iOS) || os(macOS)
         if #available(iOS 18.0, macOS 15.0, *) {
-            return ProcessInfo.processInfo.arguments.contains("-EnsembleNativeBrowsePrototype")
+            return EnsemblePlatformFeaturePolicy.currentRootNavigationShell == .sidebar
         }
         #endif
         return false

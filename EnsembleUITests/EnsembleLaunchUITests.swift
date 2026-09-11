@@ -32,7 +32,7 @@ final class EnsembleLaunchUITests: XCTestCase {
         ]
         for (surface, sidebarID) in surfaces {
             app.launchArguments = [
-                "-EnsembleNativeBrowsePrototype", "-EnsembleAutomationMode", "YES",
+                "-EnsembleAutomationMode", "YES",
                 "-EnsembleAutomationStartSurface", surface
             ]
             app.launch()
@@ -91,15 +91,14 @@ final class EnsembleLaunchUITests: XCTestCase {
         }
     }
 
-    // Native experiment evidence, not a claim of full navigation or visual parity.
-    func testNativeBrowsePrototypeRotation() throws {
+    func testNativeBrowseRotation() throws {
         guard #available(iOS 18.0, *), UIDevice.current.userInterfaceIdiom == .pad else {
-            throw XCTSkip("Native browse experiment requires iPadOS 18 or later")
+            throw XCTSkip("Native browse requires iPadOS 18 or later")
         }
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchArguments = [
-            "-EnsembleNativeBrowsePrototype", "-EnsembleAutomationMode", "YES",
+            "-EnsembleAutomationMode", "YES",
             "-EnsembleAutomationSimulateOffline", "YES",
             "-EnsembleAutomationStartSurface", "artists"
         ]
