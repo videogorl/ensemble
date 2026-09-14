@@ -154,14 +154,10 @@ xcrun simctl list devices available
 ENSEMBLE_SIMULATOR_UDID='replace-with-discovered-uuid'
 # Boot only if this exact simulator is shut down.
 xcrun simctl boot "$ENSEMBLE_SIMULATOR_UDID"
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -configuration Debug \
-  -destination "platform=iOS Simulator,id=$ENSEMBLE_SIMULATOR_UDID" \
-  -derivedDataPath "$ENSEMBLE_DERIVED_DATA" build
-xcrun simctl install "$ENSEMBLE_SIMULATOR_UDID" \
-  "$ENSEMBLE_DERIVED_DATA/Build/Products/Debug-iphonesimulator/Ensemble.app"
-xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
-xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" launchctl list | rg 'com\.videogorl\.ensemble'
 ```
+
+Continue with [Build And Capture One Run](#build-and-capture-one-run) for the
+build, install, launch, and log capture commands.
 
 Use an ID-only, non-persisted session. Do not change global `xcode-select`; pin a
 consistent toolchain with per-command `DEVELOPER_DIR` when necessary. After

@@ -91,10 +91,3 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 | `scripts/plex_hls_spike.sh` | Bounded PMS music-HLS viability probe. |
 | `scripts/update_build_number.sh` | Deterministic build-number update for app and Siri extension. |
 | `ci_scripts/test_ci_post_xcodebuild.sh` | Verify repeated Xcode Cloud tag creation remains idempotent. |
-
-## Current Certified Build Surface
-
-Verified May 13, 2026:
-- `Ensemble.xcworkspace` exists.
-- Workspace schemes include `Ensemble`, all package schemes, `EnsembleSiriIntentsExtension`, and `EnsembleWatch`.
-- `iPhone 17 Pro` is an available simulator destination.
