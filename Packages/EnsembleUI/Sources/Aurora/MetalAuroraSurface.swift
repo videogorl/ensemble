@@ -143,7 +143,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         guard let device = MTLCreateSystemDefaultDevice(),
               let library = try? device.makeLibrary(source: shaderSource, options: nil),
               library.makeFunction(name: "auroraVertex") != nil,
-              library.makeFunction(name: "auroraFragment") != nil else {
+              library.makeFunction(name: "auroraFragment") != nil,
+              library.makeFunction(name: "prepareAuroraBands") != nil else {
             return false
         }
         return true
@@ -168,8 +169,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     private let commandQueue: MTLCommandQueue?
     private let pipelineState: MTLRenderPipelineState?
     private var uniforms = Uniforms()
-    private var bandBuffer: MTLBuffer?
-    private var uniformBuffer: MTLBuffer?
+    private let preparationPipeline: MTLComputePipelineState?
+    private var preparedBandBuffer: MTLBuffer?
 
     init(renderModel: AuroraRenderModel) {
         self.renderModel = renderModel
@@ -181,7 +182,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         if let device,
            let library = try? device.makeLibrary(source: Self.shaderSource, options: nil),
            let vertex = library.makeFunction(name: "auroraVertex"),
-           let fragment = library.makeFunction(name: "auroraFragment") {
+           let fragment = library.makeFunction(name: "auroraFragment"),
+           let prepare = library.makeFunction(name: "prepareAuroraBands") {
             let descriptor = MTLRenderPipelineDescriptor()
             descriptor.vertexFunction = vertex
             descriptor.fragmentFunction = fragment
@@ -191,16 +193,21 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
             descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
             descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            self.preparationPipeline = try? device.makeComputePipelineState(function: prepare)
             self.pipelineState = try? device.makeRenderPipelineState(descriptor: descriptor)
         } else {
             self.pipelineState = nil
+            self.preparationPipeline = nil
         }
 
         super.init()
 
         if let device {
-            self.bandBuffer = device.makeBuffer(length: MemoryLayout<Float>.stride * 48, options: .storageModeShared)
-            self.uniformBuffer = device.makeBuffer(length: MemoryLayout<Uniforms>.stride, options: .storageModeShared)
+            // Two float4 values per band, for up to three layers. Only the GPU writes this buffer.
+            self.preparedBandBuffer = device.makeBuffer(
+                length: MemoryLayout<SIMD4<Float>>.stride * 2 * 48 * 3,
+                options: .storageModePrivate
+            )
         }
     }
 
@@ -247,7 +254,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         uniforms.colorScheme = colorScheme == .dark ? 1 : 0
 
         view.preferredFramesPerSecond = framesPerSecond(for: preferredFrameInterval)
-        let shouldPause = isPaused || pipelineState == nil
+        let shouldPause = isPaused || pipelineState == nil || preparationPipeline == nil
         view.isPaused = shouldPause
         configureTransparentBacking(for: view)
         if shouldPause, pipelineState != nil {
@@ -267,32 +274,42 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
               let descriptor = view.currentRenderPassDescriptor,
               let commandQueue,
               let commandBuffer = commandQueue.makeCommandBuffer(),
-              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor),
               let pipelineState,
-              let bandBuffer,
-              let uniformBuffer else { return }
+              let preparationPipeline,
+              let preparedBandBuffer else { return }
 
         uniforms.size = SIMD2(Float(view.drawableSize.width), Float(view.drawableSize.height))
         uniforms.time = Float(renderModel.animationTime)
-        copyBands(into: bandBuffer, width: view.bounds.width)
-        memcpy(uniformBuffer.contents(), &uniforms, MemoryLayout<Uniforms>.stride)
+        let bands = renderModel.displayBands(width: view.bounds.width, count: Int(uniforms.bandCount))
+            .map { Float(max(0, min(1, $0))) }
 
+        // Snapshot CPU inputs per command buffer so later frames cannot overwrite them in flight.
+        guard let preparation = commandBuffer.makeComputeCommandEncoder() else { return }
+        preparation.label = "Aurora band geometry"
+        preparation.setComputePipelineState(preparationPipeline)
+        bands.withUnsafeBytes { bytes in
+            preparation.setBytes(bytes.baseAddress!, length: bytes.count, index: 0)
+        }
+        preparation.setBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 1)
+        preparation.setBuffer(preparedBandBuffer, offset: 0, index: 2)
+        let threadCount = preparationPipeline.threadExecutionWidth
+        let bandCount = Int(uniforms.bandCount * uniforms.layerCount)
+        preparation.dispatchThreadgroups(
+            MTLSize(width: (bandCount + threadCount - 1) / threadCount, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: threadCount, height: 1, depth: 1)
+        )
+        preparation.endEncoding()
+
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else { return }
+        encoder.label = "Aurora glow"
         encoder.setRenderPipelineState(pipelineState)
-        encoder.setFragmentBuffer(bandBuffer, offset: 0, index: 0)
-        encoder.setFragmentBuffer(uniformBuffer, offset: 0, index: 1)
+        encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 1)
+        encoder.setFragmentBuffer(preparedBandBuffer, offset: 0, index: 2)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
 
         commandBuffer.present(drawable)
         commandBuffer.commit()
-    }
-
-    private func copyBands(into buffer: MTLBuffer, width: CGFloat) {
-        let bands = renderModel.displayBands(width: width, count: Int(uniforms.bandCount))
-        let pointer = buffer.contents().assumingMemoryBound(to: Float.self)
-        for index in bands.indices {
-            pointer[index] = Float(max(0, min(1, bands[index])))
-        }
     }
 
     private func layerCount(for tier: AuroraMetalSurfaceTier) -> Int {
@@ -395,64 +412,77 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         return x * x * (3.0 - 2.0 * x);
     }
 
+    struct PreparedBand {
+        float4 geometry;
+        float4 light;
+    };
+    // Geometry depends on the band and animation time, not the destination pixel.
+    kernel void prepareAuroraBands(
+        constant float *bands [[buffer(0)]],
+        constant Uniforms &u [[buffer(1)]],
+        device PreparedBand *out [[buffer(2)]],
+        uint id [[thread_position_in_grid]]
+    ) {
+        uint bandCount = min(u.bandCount, 48u);
+        uint layer = id / bandCount;
+        uint i = id % bandCount;
+        if (layer >= u.layerCount) return;
+        float activeWidth = u.activeWidth > 0.0 ? min(u.size.x, u.activeWidth) : u.size.x;
+        float xOffset = (u.size.x - activeWidth) * 0.5;
+        float bandWidth = activeWidth / max(float(bandCount), 1.0);
+        uint depth = u.layerCount == 1 ? 2u : layer;
+        float layerOpacity = depth == 0 ? 0.20 : (depth == 1 ? 0.40 : 0.50);
+        float spread = depth == 0 ? 2.0 : (depth == 1 ? 1.15 : 0.65);
+        float heightScale = depth == 0 ? 1.85 : (depth == 1 ? 1.10 : 1.30);
+        float verticalSoftness = depth == 0 ? 0.48 : 0.70;
+        float verticalBlur = depth == 0 ? 1.12 : 1.95;
+
+        // Slow independent motion gives each curtain its own shape and brightness.
+        float layerPhase = u.time * (0.19 + 0.07 * float(depth)) + float(depth) * 2.1;
+        float widthScale = 0.92 + 0.08 * sin(layerPhase);
+        float layerBreath = 0.86 + 0.14 * sin(layerPhase * 1.3 + 1.7);
+        float layerDrift = 0.025 * sin(layerPhase * 0.7 + 0.8) * activeWidth;
+        float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity * (0.82 + 0.18 * sin(layerPhase + 2.4));
+
+        float intensity = clamp(bands[i], 0.0, 1.0);
+        float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
+        float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(u.bellWidth, 2.0)));
+        float phase = u.time * (0.25 + 0.15 * float(depth)) + normalized * 6.1 + float(depth) * 2.1;
+        float breath = 0.9 + 0.1 * sin(phase + 1.3);
+        float heightTaper = min(1.0, min(normalized, 1.0 - normalized) / 0.20);
+        float height = (u.minHeight + (u.maxHeight - u.minHeight) * pow(intensity, 1.35) * bell * heightTaper) * heightScale * breath * layerBreath;
+        float drift = sin(phase) * (0.25 + 0.12 * float(depth)) * bandWidth;
+        float centeredX = (float(i) + 0.5) * bandWidth - activeWidth * 0.5;
+        float centerX = xOffset + activeWidth * 0.5 + centeredX * widthScale + layerDrift + drift;
+        float glowWidth = bandWidth * 3.0 * spread * widthScale;
+        float rectHeight = height + u.poolHeight * heightScale;
+
+        out[id].geometry = float4(centerX, max(glowWidth * 0.5, 1.0), max(rectHeight, 1.0), verticalBlur);
+        out[id].light = float4(verticalSoftness, sqrt(intensity), baseOpacity, 0);
+    }
+
     fragment float4 auroraFragment(
         VertexOut in [[stage_in]],
-        constant float *bands [[buffer(0)]],
-        constant Uniforms &u [[buffer(1)]]
+        constant Uniforms &u [[buffer(1)]],
+        constant PreparedBand *prepared [[buffer(2)]]
     ) {
         float2 p = in.position.xy;
         if (u.size.x <= 1.0 || u.size.y <= 1.0) {
             return float4(0.0);
         }
 
-        uint bandCount = min(u.bandCount, 48u);
-        float activeWidth = u.activeWidth > 0.0 ? min(u.size.x, u.activeWidth) : u.size.x;
-        float xOffset = (u.size.x - activeWidth) * 0.5;
-        float bandWidth = activeWidth / max(float(bandCount), 1.0);
         float alpha = 0.0;
-
-        for (uint layer = 0; layer < u.layerCount; layer++) {
-            uint depth = u.layerCount == 1 ? 2u : layer;
-            float layerOpacity = depth == 0 ? 0.20 : (depth == 1 ? 0.40 : 0.50);
-            float spread = depth == 0 ? 2.0 : (depth == 1 ? 1.15 : 0.65);
-            float heightScale = depth == 0 ? 1.85 : (depth == 1 ? 1.10 : 1.30);
-            float verticalSoftness = depth == 0 ? 0.48 : 0.70;
-            float verticalBlur = depth == 0 ? 1.12 : 1.95;
-
-            // Slow independent motion gives each curtain its own shape and brightness.
-            float layerPhase = u.time * (0.19 + 0.07 * float(depth)) + float(depth) * 2.1;
-            float widthScale = 0.92 + 0.08 * sin(layerPhase);
-            float layerBreath = 0.86 + 0.14 * sin(layerPhase * 1.3 + 1.7);
-            float layerDrift = 0.025 * sin(layerPhase * 0.7 + 0.8) * activeWidth;
-            float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity * (0.82 + 0.18 * sin(layerPhase + 2.4));
-
-            for (uint i = 0; i < bandCount; i++) {
-                float intensity = clamp(bands[i], 0.0, 1.0);
-                float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
-                float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(u.bellWidth, 2.0)));
-                float phase = u.time * (0.25 + 0.15 * float(depth)) + normalized * 6.1 + float(depth) * 2.1;
-                float breath = 0.9 + 0.1 * sin(phase + 1.3);
-                float heightTaper = min(1.0, min(normalized, 1.0 - normalized) / 0.20);
-                float height = (u.minHeight + (u.maxHeight - u.minHeight) * pow(intensity, 1.35) * bell * heightTaper) * heightScale * breath * layerBreath;
-                float drift = sin(phase) * (0.25 + 0.12 * float(depth)) * bandWidth;
-                float centeredX = (float(i) + 0.5) * bandWidth - activeWidth * 0.5;
-                float centerX = xOffset + activeWidth * 0.5 + centeredX * widthScale + layerDrift + drift;
-                float glowWidth = bandWidth * 3.0 * spread * widthScale;
-                float rectHeight = height + u.poolHeight * heightScale;
-
-                float dx = (p.x - centerX) / max(glowWidth * 0.5, 1.0);
-                float dy = (u.size.y - p.y) / max(rectHeight, 1.0);
-                float ellipse = exp(-(dx * dx * 1.65 + dy * dy * verticalBlur));
-                float vertical = 1.0 - smoothBand(verticalSoftness, 1.0, dy);
-                // Brightness arrives early so the subsequent rise is visible.
-                float intensityAlpha = sqrt(intensity);
-                float contribution = ellipse * vertical * intensityAlpha * baseOpacity;
-
-                // Additive light from independently moving curtains.
-                alpha += contribution * 0.72;
-            }
+        for (uint i = 0; i < min(u.bandCount, 48u) * u.layerCount; i++) {
+            PreparedBand b = prepared[i];
+            float dx = (p.x - b.geometry.x) / b.geometry.y;
+            float dy = (u.size.y - p.y) / b.geometry.z;
+            // The original vertical fade is exactly zero above the band.
+            if (dy >= 1.0) continue;
+            float ellipse = exp(-(dx * dx * 1.65 + dy * dy * b.geometry.w));
+            float vertical = 1.0 - smoothBand(b.light.x, 1.0, dy);
+            float contribution = ellipse * vertical * b.light.y * b.light.z;
+            alpha += contribution * 0.72;
         }
-
         float topFeather = smoothBand(0.0, u.size.y * 0.20, p.y);
         alpha = clamp(alpha * topFeather, 0.0, 1.0) * u.accentColor.a;
 
