@@ -498,13 +498,10 @@ final class AuroraBandShapeProcessor: ObservableObject {
         let spectralTilt = 0.72 + highPresence * 0.68
         let weighted = min(0.98, clamped * spectralTilt)
 
-        let bassCompression = (1 - normalizedPosition) * 2.2
-        let bassHeadroom = weighted / (1 + max(0, weighted - 0.58) * bassCompression)
-
         let logGain = 5.0 + normalizedPosition * 7.0
-        let logarithmic = log1p(bassHeadroom * logGain) / log1p(logGain)
+        let logarithmic = log1p(weighted * logGain) / log1p(logGain)
         let logMix = smoothStep(edge0: 0.28, edge1: 1.0, value: normalizedPosition) * 0.56
-        return bassHeadroom * (1 - logMix) + logarithmic * logMix
+        return weighted * (1 - logMix) + logarithmic * logMix
     }
 
     /// Preserves contrast when the whole spectrum is loud so strong songs still feel animated.
@@ -520,7 +517,6 @@ final class AuroraBandShapeProcessor: ObservableObject {
         let fullSpectrumFactor = smoothStep(edge0: 0.58, edge1: 0.92, value: density)
         let globalContrastBoost = 0.16 + loudFactor * 0.30 + fullSpectrumFactor * 0.18
         let localContrastBoost = 0.22 + fullSpectrumFactor * 0.38
-        let highBandCompression = 0.04 + fullSpectrumFactor * 0.08
 
         return bands.enumerated().map { index, value in
             let localAverage = localAverage(in: bands, around: index, radius: 2)
@@ -530,9 +526,7 @@ final class AuroraBandShapeProcessor: ObservableObject {
                 + globalContrast * globalContrastBoost
                 + localContrast * localContrastBoost
 
-            // Keep a little headroom in dense/loud sections so every band does not pin at max.
-            let compressed = contrasted / (1 + max(0, contrasted - 0.68) * highBandCompression)
-            return min(0.98, max(0.015, compressed))
+            return min(0.98, max(0.015, contrasted))
         }
     }
 
