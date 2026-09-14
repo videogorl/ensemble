@@ -220,6 +220,9 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         view.enableSetNeedsDisplay = false
         view.isPaused = true
         view.preferredFramesPerSecond = 30
+        #if canImport(UIKit)
+        view.autoResizeDrawable = false
+        #endif
         configureTransparentBacking(for: view)
 
         return view
@@ -239,7 +242,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         minHeight: CGFloat,
         poolHeight: CGFloat
     ) {
-        let backingScale = backingScaleFactor(for: view)
+        let backingScale = renderScaleFactor(for: view)
 
         uniforms.accentColor = resolvedRGBA(from: accentColor)
         // The shader runs in drawable pixels, while SwiftUI layout supplies points.
@@ -270,6 +273,15 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     }
 
     func draw(in view: MTKView) {
+        #if canImport(UIKit)
+        let scale = renderScaleFactor(for: view)
+        let size = CGSize(width: (view.bounds.width * scale).rounded(.down),
+                          height: (view.bounds.height * scale).rounded(.down))
+        guard size.width > 0, size.height > 0 else { return }
+        if view.drawableSize != size {
+            view.drawableSize = size
+        }
+        #endif
         guard let drawable = view.currentDrawable,
               let descriptor = view.currentRenderPassDescriptor,
               let commandQueue,
@@ -346,9 +358,10 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         #endif
     }
 
-    private func backingScaleFactor(for view: MTKView) -> CGFloat {
+    private func renderScaleFactor(for view: MTKView) -> CGFloat {
         #if canImport(UIKit)
-        return max(1, view.window?.screen.scale ?? view.contentScaleFactor)
+        // Half the native pixel density shades one quarter as many pixels for this soft glow.
+        return max(1, view.window?.screen.scale ?? UIScreen.main.scale) * 0.5
         #elseif canImport(AppKit)
         let converted = view.convertToBacking(CGSize(width: 1, height: 1))
         if converted.width > 0 {
