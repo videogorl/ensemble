@@ -160,7 +160,6 @@ public struct RootView: View {
         }
         #endif
         .rootNowPlayingPresentation(
-            style: nowPlayingPresentationStyle,
             isPresented: $isNowPlayingPresented,
             onDismiss: completeNowPlayingDismissal
         ) {
@@ -391,25 +390,6 @@ public struct RootView: View {
         #else
         return false
         #endif
-    }
-
-    private var usesFullScreenNowPlayingPresentation: Bool {
-        #if os(iOS)
-        if #available(iOS 27.0, *) { return true }
-        if #available(iOS 16.0, *) {
-            return UIDevice.current.userInterfaceIdiom == .pad
-        }
-        return false
-        #else
-        return false
-        #endif
-    }
-
-    private var nowPlayingPresentationStyle: RootNowPlayingPresentationStyle {
-        if supportsViewportNowPlayingPresentation {
-            return .none
-        }
-        return usesFullScreenNowPlayingPresentation ? .fullScreenCover : .sheet
     }
 
     private var usesSidebarRootNavigationShell: Bool {

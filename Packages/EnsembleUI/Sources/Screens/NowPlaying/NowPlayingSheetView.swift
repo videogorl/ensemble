@@ -2,7 +2,7 @@ import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
-/// Shared iOS Now Playing content for native sheets and full-screen covers.
+/// Shared iOS Now Playing content for native sheets.
 /// macOS viewport presentation lives in `NowPlayingViewportRoot`.
 public struct NowPlayingSheetView: View {
     let viewModel: NowPlayingViewModel

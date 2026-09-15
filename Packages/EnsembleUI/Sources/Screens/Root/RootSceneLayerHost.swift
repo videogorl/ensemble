@@ -7,12 +7,6 @@ import UIKit
 import AppKit
 #endif
 
-enum RootNowPlayingPresentationStyle {
-    case sheet
-    case fullScreenCover
-    case none
-}
-
 struct RootSceneLayerHost<Content: View>: View {
     let nowPlayingVM: NowPlayingViewModel
     let playbackService: PlaybackServiceProtocol
@@ -221,30 +215,37 @@ struct RootSceneLayerHost<Content: View>: View {
 extension View {
     @ViewBuilder
     func rootNowPlayingPresentation<PresentationContent: View>(
-        style: RootNowPlayingPresentationStyle,
         isPresented: Binding<Bool>,
         onDismiss: @escaping () -> Void,
         @ViewBuilder content: @escaping () -> PresentationContent
     ) -> some View {
         #if os(iOS)
-        switch style {
-        case .sheet:
-            sheet(
-                isPresented: isPresented,
-                onDismiss: onDismiss,
-                content: content
-            )
-        case .fullScreenCover:
-            fullScreenCover(
-                isPresented: isPresented,
-                onDismiss: onDismiss,
-                content: content
-            )
-        case .none:
-            self
+        sheet(isPresented: isPresented, onDismiss: onDismiss) {
+            if #available(iOS 18.0, *) {
+                content()
+                    .presentationSizing(NowPlayingPresentationSizing())
+                    .presentationDetents([.large])
+                    .presentationCompactAdaptation(.sheet)
+            } else if #available(iOS 16.4, *) {
+                content()
+                    .presentationDetents([.large])
+                    .presentationCompactAdaptation(.sheet)
+            } else {
+                content()
+            }
         }
         #else
         self
         #endif
     }
 }
+
+#if os(iOS)
+@available(iOS 18.0, *)
+private struct NowPlayingPresentationSizing: PresentationSizing {
+    func proposedSize(for root: PresentationSizingRoot, context: PresentationSizingContext) -> ProposedViewSize {
+        // Let the native sheet clamp to the window so wide layouts retain both panels.
+        ProposedViewSize(width: .infinity, height: .infinity)
+    }
+}
+#endif
