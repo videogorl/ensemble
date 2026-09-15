@@ -12,9 +12,11 @@ public struct AddSourceView: View {
     @State private var isAddingAppleMusic = false
     @State private var appleMusicSetupRequestID: UUID?
     private let isEmbedded: Bool
+    private let onCompletion: (() -> Void)?
 
-    public init(embedded: Bool = false) {
+    public init(embedded: Bool = false, onCompletion: (() -> Void)? = nil) {
         self.isEmbedded = embedded
+        self.onCompletion = onCompletion
     }
 
     public var body: some View {
@@ -32,7 +34,7 @@ public struct AddSourceView: View {
             Section {
                 NavigationLink {
                     AddPlexAccountView(embedded: true) {
-                        dismiss()
+                        completeSourceAddition()
                     }
                 } label: {
                     Label {
@@ -152,7 +154,7 @@ public struct AddSourceView: View {
             Task {
                 await syncCoordinator.sync(source: .appleMusic)
             }
-            dismiss()
+            completeSourceAddition()
         } catch is CancellationError {
             return
         } catch {
@@ -183,5 +185,13 @@ public struct AddSourceView: View {
         #else
         errorMessage
         #endif
+    }
+
+    private func completeSourceAddition() {
+        if let onCompletion {
+            onCompletion()
+        } else {
+            dismiss()
+        }
     }
 }

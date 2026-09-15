@@ -19,6 +19,7 @@ public struct ProfileView: View {
     @State private var showingRemoveAllAccountsAlert = false
     @State private var showingNameEditor = false
     @State private var accountToDelete: PlexAccountConfig?
+    @State private var isAddingSource = false
     @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
     @State private var hasAppliedAutomationScroll = false
 
@@ -270,8 +271,10 @@ public struct ProfileView: View {
             // Navigate within the profile sheet rather than opening a second sheet.
             // iOS doesn't allow stacking sheets — the add-account sheet won't appear
             // while the profile sheet is already presented.
-            NavigationLink {
-                AddSourceView(embedded: true)
+            NavigationLink(isActive: $isAddingSource) {
+                AddSourceView(embedded: true) {
+                    isAddingSource = false
+                }
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.addCircle,
@@ -661,15 +664,24 @@ public struct ProfileView: View {
                 EnsembleUtilityCardDivider()
             }
 
-            macNavigationRow {
-                AddSourceView(embedded: true)
+            NavigationLink(isActive: $isAddingSource) {
+                AddSourceView(embedded: true) {
+                    isAddingSource = false
+                }
             } label: {
-                EnsembleUtilityRowLabel(
-                    iconSystemName: EnsembleDesign.Icon.addCircle,
-                    title: "Add Source",
-                    iconColor: EnsembleDesign.Color.accent
-                )
+                EnsembleUtilityCardRow {
+                    HStack {
+                        EnsembleUtilityRowLabel(
+                            iconSystemName: EnsembleDesign.Icon.addCircle,
+                            title: "Add Source",
+                            iconColor: EnsembleDesign.Color.accent
+                        )
+                        Spacer()
+                        macChevron
+                    }
+                }
             }
+            .buttonStyle(.plain)
         }
     }
 
