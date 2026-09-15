@@ -1,5 +1,6 @@
 #if os(iOS)
 import AppIntents
+import CoreSpotlight
 import EnsembleCore
 import EnsembleSiriShared
 import Foundation
@@ -11,6 +12,52 @@ private enum SiriAppShortcutLogger {
         subsystem: "com.videogorl.ensemble.siri-appshortcuts",
         category: "AppShortcuts"
     )
+}
+
+@available(iOS 27.0, *)
+@MainActor
+final class EnsembleRelevantEntitiesPublisher {
+    static let shared = EnsembleRelevantEntitiesPublisher()
+
+    private var observationTask: Task<Void, Never>?
+    private var publishedTrackID: String?
+
+    private init() {}
+
+    func start() {
+        guard observationTask == nil else { return }
+
+        observationTask = Task { @MainActor in
+            for await track in DependencyContainer.shared.playbackService.currentTrackPublisher.values {
+                guard !Task.isCancelled else { return }
+                await publish(track)
+            }
+        }
+    }
+
+    private func publish(_ track: Track?) async {
+        let nextID = track?.sourceScopedID
+        guard nextID != publishedTrackID else { return }
+
+        do {
+            if let track {
+                try await RelevantEntities.shared.updateEntities(
+                    [EnsembleMediaEntity(track: track)],
+                    for: .audio(.nowPlaying)
+                )
+            } else {
+                try await RelevantEntities.shared.removeAllEntities(for: .audio(.nowPlaying))
+            }
+            publishedTrackID = nextID
+            SiriAppShortcutLogger.logger.debug(
+                "SIRI_SHORTCUT: updated now-playing relevant entity present=\(track != nil, privacy: .public)"
+            )
+        } catch {
+            SiriAppShortcutLogger.logger.error(
+                "SIRI_SHORTCUT: now-playing relevant entity update failed: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
 }
 
 @available(iOS 16.0, *)
@@ -325,6 +372,10 @@ struct PlayEnsembleTrackIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Track in Ensemble"
     static var description = IntentDescription("Plays a specific track from your Ensemble library.")
     static var openAppWhenRun: Bool = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
     @Parameter(title: "Track")
     var track: EnsembleTrackEntity
@@ -351,6 +402,10 @@ struct PlayEnsembleArtistIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Artist in Ensemble"
     static var description = IntentDescription("Plays music by a specific artist from your Ensemble library.")
     static var openAppWhenRun: Bool = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
     static var parameterSummary: some ParameterSummary {
         Summary("Play artist \(\.$artist)")
     }
@@ -381,6 +436,10 @@ struct ShuffleEnsembleArtistIntent: AppIntent {
     static var description = IntentDescription("Shuffles music by a specific artist from your Ensemble library.")
     static var isDiscoverable: Bool = false
     static var openAppWhenRun: Bool = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
     static var parameterSummary: some ParameterSummary {
         Summary("Shuffle the artist \(\.$artistName)")
     }
@@ -418,6 +477,10 @@ struct PlayEnsembleAlbumIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Album in Ensemble"
     static var description = IntentDescription("Plays a specific album from your Ensemble library.")
     static var openAppWhenRun: Bool = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
     @Parameter(title: "Album")
     var album: EnsembleAlbumEntity
@@ -444,6 +507,10 @@ struct PlayEnsemblePlaylistIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Playlist in Ensemble"
     static var description = IntentDescription("Plays a specific playlist from your Ensemble library.")
     static var openAppWhenRun: Bool = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
     @Parameter(title: "Playlist")
     var playlist: EnsemblePlaylistEntity
@@ -471,6 +538,10 @@ struct ShuffleEnsemblePlaylistIntent: AppIntent {
     static var description = IntentDescription("Shuffles a specific playlist from your Ensemble library.")
     static var isDiscoverable: Bool = false
     static var openAppWhenRun: Bool = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
     @Parameter(title: "Playlist")
     var playlist: EnsemblePlaylistEntity
@@ -546,6 +617,27 @@ struct EnsembleMediaEntity: AppEntity {
         discNumber = item.discNumber
         isSmartPlaylist = item.isSmartPlaylist
     }
+
+    @available(iOS 27.0, *)
+    init(track: Track) {
+        let reference = SystemMediaReference(
+            kind: .track,
+            id: track.id,
+            sourceCompositeKey: track.sourceCompositeKey,
+            displayName: track.title
+        )
+        id = reference.sourceScopedIdentifier
+        kindRawValue = SiriMediaKind.track.rawValue
+        ratingKey = track.id
+        title = track.title
+        sourceCompositeKey = track.sourceCompositeKey
+        artistName = track.artistName
+        albumTitle = track.albumName
+        duration = track.duration
+        trackNumber = track.trackNumber
+        discNumber = track.discNumber
+        isSmartPlaylist = nil
+    }
 }
 
 @available(iOS 16.0, *)
@@ -563,6 +655,24 @@ struct EnsembleMediaEntityQuery: EntityStringQuery {
 
     func suggestedEntities() async throws -> [EnsembleMediaEntity] {
         []
+    }
+}
+
+@available(iOS 18.0, *)
+extension EnsembleMediaEntity: IndexedEntity {}
+
+@available(iOS 27.0, *)
+extension EnsembleMediaEntityQuery: IndexedEntityQuery {
+    func reindexEntities(
+        for identifiers: [EnsembleMediaEntity.ID],
+        indexDescription _: CSSearchableIndexDescription
+    ) async throws {
+        guard !identifiers.isEmpty else { return }
+        await DependencyContainer.shared.systemMediaIntegrationService.refreshSpotlightIndex()
+    }
+
+    func reindexAllEntities(indexDescription _: CSSearchableIndexDescription) async throws {
+        await DependencyContainer.shared.systemMediaIntegrationService.refreshSpotlightIndex()
     }
 }
 
@@ -584,6 +694,10 @@ struct OpenEnsembleMediaIntent: AppIntent {
     static var title: LocalizedStringResource = "Open Media in Ensemble"
     static var description = IntentDescription("Opens a song, artist, album, or playlist in Ensemble without playing it.")
     static var openAppWhenRun = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
     @Parameter(title: "Media")
     var media: EnsembleMediaEntity

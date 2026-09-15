@@ -1,8 +1,17 @@
 import EnsembleDesignTokens
 import EnsembleCore
+import CoreTransferable
 import SwiftUI
 
 public struct SearchView: View {
+    @available(iOS 27.0, macOS 27.0, *)
+    private struct PinnedReorderTransfer: Identifiable, Transferable {
+        let id: String
+
+        static var transferRepresentation: some TransferRepresentation {
+            ProxyRepresentation(exporting: \.id)
+        }
+    }
     @StateObject private var viewModel: SearchViewModel
     let nowPlayingVM: NowPlayingViewModel
     @FocusState private var isSearchFieldFocused: Bool
@@ -406,18 +415,62 @@ public struct SearchView: View {
                 delegate: PinnedGridBackgroundDropDelegate(
                     viewModel: pinnedVM,
                     begin: beginPinDrag,
-                    finish: finishPinDrag
+                    finish: { finishPinDrag() }
                 )
             )
         }
     }
 
-    /// Recent searches list with swipe-to-delete, sized to fit content without scrolling
+    /// Recent searches with an iOS 27 native swipe container and a List fallback.
+    @ViewBuilder
     private var recentSearchesList: some View {
         let items = Array(viewModel.recentSearches.prefix(3))
-        let rowHeight = EnsembleScaffold.Discovery.recentSearchRowHeight
-        let listHeight = CGFloat(items.count) * rowHeight + EnsembleScaffold.Discovery.recentSearchExtraHeight
 
+        if #available(iOS 27.0, macOS 27.0, watchOS 27.0, *) {
+            VStack(spacing: 0) {
+                recentSearchRows(items)
+            }
+            .background(EnsembleDesign.Color.neutralBadge)
+            .swipeActionsContainer()
+        } else {
+            legacyRecentSearchesList(items)
+        }
+    }
+
+    @ViewBuilder
+    private func recentSearchRows(_ items: [String]) -> some View {
+        ForEach(items, id: \.self) { search in
+            Button {
+                viewModel.searchQuery = search
+            } label: {
+                HStack {
+                    Image(systemName: EnsembleDesign.Icon.search)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    Text(search)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
+                    Spacer()
+                    Image(systemName: EnsembleDesign.Icon.recentSearchReuse)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                }
+                .padding(.horizontal)
+                .frame(height: EnsembleScaffold.Discovery.recentSearchRowHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .swipeActions(edge: .trailing) {
+                Button(role: .destructive) {
+                    viewModel.removeRecentSearch(search)
+                } label: {
+                    Label("Delete", systemImage: EnsembleDesign.Icon.delete)
+                }
+            }
+        }
+    }
+
+    private func legacyRecentSearchesList(_ items: [String]) -> some View {
+        let listHeight = CGFloat(items.count) * EnsembleScaffold.Discovery.recentSearchRowHeight
+            + EnsembleScaffold.Discovery.recentSearchExtraHeight
         let list = List {
             ForEach(items, id: \.self) { search in
                 Button {
@@ -447,7 +500,7 @@ public struct SearchView: View {
         .listStyle(.plain)
         .frame(height: listHeight)
 
-        if #available(iOS 16.0, macOS 13.0, *) {
+        if #available(iOS 16.0, macOS 13.0, watchOS 9.0, *) {
             return AnyView(list.scrollDisabled(true))
         } else {
             return AnyView(list)
@@ -577,14 +630,54 @@ public struct SearchView: View {
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .padding(.horizontal)
             } else {
-                LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
-                    ForEach(displayItems) { pin in
-                        pinnedItemCard(pin)
-                    }
+                if #available(iOS 27.0, macOS 27.0, *) {
+                    nativePinnedGrid(displayItems)
+                } else {
+                    legacyPinnedGrid(displayItems)
                 }
-                .padding(.horizontal)
             }
         }
+    }
+
+    @available(iOS 27.0, macOS 27.0, *)
+    private func nativePinnedGrid(_ displayItems: [ResolvedPin]) -> some View {
+        let items = displayItems.map { PinnedReorderTransfer(id: $0.id) }
+
+        return LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
+            ForEach(items) { item in
+                if let pin = pinnedVM.resolvedPins.first(where: { $0.id == item.id }) {
+                    pinnedItemCard(pin, usesNativeReordering: true)
+                }
+            }
+            .reorderable()
+        }
+        .reorderContainer(for: PinnedReorderTransfer.self) { difference in
+            let destinationID: String?
+            switch difference.destination.position {
+            case let .before(id):
+                destinationID = id
+            case .end:
+                destinationID = nil
+            }
+            pinnedVM.move(itemIDs: difference.sources, before: destinationID)
+            finishPinDrag(persistsOrder: false)
+        }
+        .dragContainer(for: PinnedReorderTransfer.self) { draggedID -> [PinnedReorderTransfer] in
+            guard let pin = pinnedVM.resolvedPins.first(where: { $0.id == draggedID }) else { return [] }
+            pinDragSource = pin
+            beginPinDrag()
+            return [PinnedReorderTransfer(id: draggedID)]
+        }
+        .padding(.horizontal)
+    }
+
+    private func legacyPinnedGrid(_ displayItems: [ResolvedPin]) -> some View {
+        LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
+            ForEach(displayItems) { pin in
+                pinnedItemCard(pin)
+            }
+        }
+        .padding(.horizontal)
     }
 
     /// Background drop delegate to ensure dragging state is cleared even if dropped outside an item
@@ -622,13 +715,14 @@ public struct SearchView: View {
 
     /// Renders the appropriate route-owned card for a resolved pin.
     @ViewBuilder
-    private func pinnedItemCard(_ pin: ResolvedPin) -> some View {
+    private func pinnedItemCard(_ pin: ResolvedPin, usesNativeReordering: Bool = false) -> some View {
         switch pin {
         case let .album(album, _):
             navigationCoordinator.routeLink(to: .albumDetail(.single(album))) {
                 pinnedItemCardLabel(
                     AlbumCard(album: album, allowsDragExport: false),
-                    pin: pin
+                    pin: pin,
+                    usesNativeReordering: usesNativeReordering
                 )
             }
             .buttonStyle(.plain)
@@ -636,25 +730,31 @@ public struct SearchView: View {
             navigationCoordinator.routeLink(to: .albumDetail(displayAlbum)) {
                 pinnedItemCardLabel(
                     AlbumCard(displayAlbum: displayAlbum, allowsDragExport: false),
-                    pin: pin
+                    pin: pin,
+                    usesNativeReordering: usesNativeReordering
                 )
             }
             .buttonStyle(.plain)
         case let .artist(artist, _):
             navigationCoordinator.routeLink(to: .artistDetail(artist)) {
-                pinnedItemCardLabel(ArtistCard(artist: artist), pin: pin)
+                pinnedItemCardLabel(ArtistCard(artist: artist), pin: pin, usesNativeReordering: usesNativeReordering)
             }
             .buttonStyle(.plain)
         case let .mergedArtist(displayArtist, _):
             navigationCoordinator.routeLink(to: .displayArtist(id: displayArtist.id)) {
-                pinnedItemCardLabel(ArtistCard(artist: displayArtist.primaryArtist), pin: pin)
+                pinnedItemCardLabel(
+                    ArtistCard(artist: displayArtist.primaryArtist),
+                    pin: pin,
+                    usesNativeReordering: usesNativeReordering
+                )
             }
             .buttonStyle(.plain)
         case let .playlist(playlist, _):
             navigationCoordinator.routeLink(to: .playlistDetail(playlist)) {
                 pinnedItemCardLabel(
                     PlaylistCard(playlist: playlist, allowsDragExport: false),
-                    pin: pin
+                    pin: pin,
+                    usesNativeReordering: usesNativeReordering
                 )
             }
             .buttonStyle(.plain)
@@ -664,15 +764,21 @@ public struct SearchView: View {
             ) {
                 pinnedItemCardLabel(
                     DisplayPlaylistCard(displayPlaylist: displayPlaylist),
-                    pin: pin
+                    pin: pin,
+                    usesNativeReordering: usesNativeReordering
                 )
             }
             .buttonStyle(.plain)
         }
     }
 
-    private func pinnedItemCardLabel<Content: View>(_ content: Content, pin: ResolvedPin) -> some View {
-        content
+    @ViewBuilder
+    private func pinnedItemCardLabel<Content: View>(
+        _ content: Content,
+        pin: ResolvedPin,
+        usesNativeReordering: Bool
+    ) -> some View {
+        let label = content
             .contextMenu {
                 Button(role: .destructive) {
                     pinnedVM.unpinAll(pin)
@@ -681,7 +787,11 @@ public struct SearchView: View {
                 }
             }
             .opacity(pinnedVM.draggingPinId == pin.id ? 0.1 : 1.0)
-            .onDrag {
+
+        if usesNativeReordering {
+            label
+        } else {
+            label.onDrag {
                 pinDragSource = pin
                 return NSItemProvider(object: pin.pinnedItem.id as NSString)
             }
@@ -691,9 +801,10 @@ public struct SearchView: View {
                     item: pin,
                     viewModel: pinnedVM,
                     begin: beginPinDrag,
-                    finish: finishPinDrag
+                    finish: { finishPinDrag() }
                 )
             )
+        }
     }
 
     /// Delegate for handling interactive grid reordering
@@ -739,8 +850,10 @@ public struct SearchView: View {
         }
     }
 
-    private func finishPinDrag() {
-        pinnedVM.persistOrder()
+    private func finishPinDrag(persistsOrder: Bool = true) {
+        if persistsOrder {
+            pinnedVM.persistOrder()
+        }
         pinnedVM.draggingPin = nil
         pinnedVM.draggingPinId = nil
         pinDragSource = nil

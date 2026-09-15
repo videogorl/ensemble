@@ -88,6 +88,7 @@ public struct ArtistsView: View {
                 artistSortMenu
             }
         }
+        .ensembleBrowseToolbarMinimization()
         .if(selectedArtist == nil) { view in
             view.toolbarMaterialBackground()
         }

@@ -114,6 +114,7 @@ public struct AlbumsView: View {
                 albumSortMenu
             }
         }
+        .ensembleBrowseToolbarMinimization()
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: albumFilterOptions,

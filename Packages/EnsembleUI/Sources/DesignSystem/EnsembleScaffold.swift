@@ -596,10 +596,21 @@ public struct EnsembleBrowseToolbar<Content: View>: ToolbarContent {
 
     public var body: some ToolbarContent {
         #if os(iOS)
-        ToolbarItem(placement: .navigationBarTrailing) {
-            if isVisible {
-                HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
-                    content()
+        if #available(iOS 27.0, *) {
+            ToolbarItem(placement: .topBarPinnedTrailing) {
+                if isVisible {
+                    HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                        content()
+                    }
+                }
+            }
+            .visibilityPriority(.high)
+        } else {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if isVisible {
+                    HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                        content()
+                    }
                 }
             }
         }
@@ -626,9 +637,18 @@ public struct EnsembleDetailToolbarActions<Content: View>: ToolbarContent {
 
     public var body: some ToolbarContent {
         #if os(iOS)
-        ToolbarItem(placement: .navigationBarTrailing) {
-            HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
-                content()
+        if #available(iOS 27.0, *) {
+            ToolbarItem(placement: .topBarPinnedTrailing) {
+                HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                    content()
+                }
+            }
+            .visibilityPriority(.high)
+        } else {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                    content()
+                }
             }
         }
         #else
@@ -638,6 +658,22 @@ public struct EnsembleDetailToolbarActions<Content: View>: ToolbarContent {
                 content()
             }
         }
+        #endif
+    }
+}
+
+public extension View {
+    @ViewBuilder
+    func ensembleBrowseToolbarMinimization() -> some View {
+        #if os(iOS)
+        if #available(iOS 27.0, *) {
+            toolbarMinimizationBehavior(.onScrollDown, for: .navigationBar)
+                .toolbarMinimizationRestoration(.atScrollEdge, for: .navigationBar)
+        } else {
+            self
+        }
+        #else
+        self
         #endif
     }
 }

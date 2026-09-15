@@ -80,6 +80,19 @@ extension ResolvedPin: LibraryVisibilitySourceIdentifiable {
     }
 }
 
+enum PinnedReorderPlan {
+    static func orderedIDs(currentIDs: [String], movingIDs: [String], before destinationID: String?) -> [String] {
+        let movingIDSet = Set(movingIDs)
+        let moving = currentIDs.filter { movingIDSet.contains($0) }
+        guard !moving.isEmpty else { return currentIDs }
+
+        var remaining = currentIDs.filter { !movingIDSet.contains($0) }
+        let destinationIndex = destinationID.flatMap { remaining.firstIndex(of: $0) } ?? remaining.endIndex
+        remaining.insert(contentsOf: moving, at: destinationIndex)
+        return remaining
+    }
+}
+
 /// Resolves pin references into domain objects for display
 @MainActor
 public final class PinnedViewModel: ObservableObject {
@@ -412,6 +425,19 @@ public final class PinnedViewModel: ObservableObject {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             resolvedPins.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
         }
+    }
+
+    /// Applies an identifier-based move from SwiftUI's native reorder container.
+    public func move(itemIDs: [String], before destinationID: String?) {
+        let pinsByID = Dictionary(uniqueKeysWithValues: resolvedPins.map { ($0.id, $0) })
+        let orderedIDs = PinnedReorderPlan.orderedIDs(
+            currentIDs: resolvedPins.map(\.id),
+            movingIDs: itemIDs,
+            before: destinationID
+        )
+        guard orderedIDs != resolvedPins.map(\.id) else { return }
+        resolvedPins = orderedIDs.compactMap { pinsByID[$0] }
+        persistOrder()
     }
 
     /// Persist the current resolved order to the PinManager

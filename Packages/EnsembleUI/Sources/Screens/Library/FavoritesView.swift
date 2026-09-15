@@ -62,6 +62,7 @@ public struct FavoritesView: View {
                 moreMenu
             }
         }
+        .ensembleBrowseToolbarMinimization()
         .onReceive(nowPlayingVM.$currentTrack) { track in
             let id = track?.playbackIdentity
             if id != currentTrackId { currentTrackId = id }

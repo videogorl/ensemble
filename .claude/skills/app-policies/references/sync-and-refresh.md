@@ -44,6 +44,7 @@
 - Provider mutations update the exact local row optimistically and protect it
   from older concurrent sync snapshots until authoritative reconciliation.
 - Siri/Spotlight indexing is source-scoped, coalesced, and material-change-only.
+- On iOS 27+, Now Playing relevance exposes only the current source-scoped track and removes it when playback has no current track.
   No-op syncs do not rewrite an identical shared index; bounded healing remains
   available for lost system state.
 - Nonessential sync, indexing, artwork healing, and analysis yield to launch,

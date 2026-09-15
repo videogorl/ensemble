@@ -120,6 +120,7 @@ public struct SongsView: View {
                 songsMoreMenu
             }
         }
+        .ensembleBrowseToolbarMinimization()
         .if(!isStageFlowActive) { view in
             view.toolbarMaterialBackground()
         }

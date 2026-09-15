@@ -267,29 +267,13 @@ public struct AlbumGrid: View {
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         .metadataEditorSheet(request: $metadataEditorRequest)
-        .confirmationDialog(
-            "Delete Album?",
-            isPresented: Binding(
-                get: { pendingAlbumDeletion != nil },
-                set: { if !$0 { pendingAlbumDeletion = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let album = pendingAlbumDeletion {
-                Button("Delete Album", role: .destructive) {
-                    Task {
-                        await deleteAlbum(album)
-                    }
+        .modifier(
+            AlbumDeletionConfirmationModifier(album: $pendingAlbumDeletion) { album in
+                Task {
+                    await deleteAlbum(album)
                 }
             }
-            Button("Cancel", role: .cancel) {
-                pendingAlbumDeletion = nil
-            }
-        } message: {
-            if let album = pendingAlbumDeletion {
-                Text("This permanently deletes \"\(album.title)\" from the Plex server and removes its local cache.")
-            }
-        }
+        )
     }
 
     @ViewBuilder
@@ -374,5 +358,54 @@ public struct AlbumGrid: View {
                 pendingAlbumDeletion = nil
             }
         }
+    }
+}
+
+private struct AlbumDeletionConfirmationModifier: ViewModifier {
+    @Binding var album: Album?
+    let delete: (Album) -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 27.0, macOS 27.0, watchOS 27.0, *) {
+            content.confirmationDialog(
+                "Delete Album?",
+                item: $album,
+                titleVisibility: .visible
+            ) { album in
+                Button("Delete Album", role: .destructive) {
+                    delete(album)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { album in
+                deletionMessage(for: album)
+            }
+        } else {
+            content.confirmationDialog(
+                "Delete Album?",
+                isPresented: Binding(
+                    get: { album != nil },
+                    set: { if !$0 { album = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let album {
+                    Button("Delete Album", role: .destructive) {
+                        delete(album)
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    album = nil
+                }
+            } message: {
+                if let album {
+                    deletionMessage(for: album)
+                }
+            }
+        }
+    }
+
+    private func deletionMessage(for album: Album) -> Text {
+        Text("This permanently deletes \"\(album.title)\" from the Plex server and removes its local cache.")
     }
 }

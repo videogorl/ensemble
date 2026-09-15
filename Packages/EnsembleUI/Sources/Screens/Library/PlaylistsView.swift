@@ -332,6 +332,7 @@ public struct PlaylistsView: View {
                     playlistSortMenu
                 }
             }
+            .ensembleBrowseToolbarMinimization()
             // Keep modal presenters outside search/toolbar/chrome modifiers so
             // field focus does not rebuild the sheet host.
             .sheet(isPresented: $showCreatePlaylistPush) {
