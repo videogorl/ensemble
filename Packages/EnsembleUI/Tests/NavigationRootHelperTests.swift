@@ -3,6 +3,21 @@ import XCTest
 import EnsembleCore
 
 final class NavigationRootHelperTests: XCTestCase {
+    func testStageFlowOnlyActivatesForEligibleCompactLandscapeWindows() {
+        let cases: [(CGSize, Bool, Bool, Bool)] = [
+            (CGSize(width: 874, height: 402), true, true, true),
+            (CGSize(width: 967, height: 725), true, false, false),
+            (CGSize(width: 402, height: 874), true, false, false),
+            (CGSize(width: 402, height: 402), true, true, false),
+            (CGSize(width: 874, height: 402), false, true, false)
+        ]
+        for (size, eligible, compact, expected) in cases {
+            XCTAssertEqual(MainTabStageFlowPolicy.isActive(
+                size: size, hasEligibleRoot: eligible, isCompactHeight: compact
+            ), expected, "size=\(size), eligible=\(eligible), compact=\(compact)")
+        }
+    }
+
     func testNativeChromeUsesSidebarHorizontalSpanOutsideRootSafeArea() {
         let layout = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 820, height: 1128),

@@ -367,7 +367,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     private func renderScaleFactor(for view: MTKView) -> CGFloat {
         #if canImport(UIKit)
         // Half the native pixel density shades one quarter as many pixels for this soft glow.
-        return max(1, view.window?.screen.scale ?? UIScreen.main.scale) * 0.5
+        return max(1, view.traitCollection.displayScale) * 0.5
         #elseif canImport(AppKit)
         let converted = view.convertToBacking(CGSize(width: 1, height: 1))
         if converted.width > 0 {

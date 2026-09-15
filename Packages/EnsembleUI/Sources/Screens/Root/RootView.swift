@@ -368,6 +368,7 @@ public struct RootView: View {
 
     private var usesFullScreenNowPlayingPresentation: Bool {
         #if os(iOS)
+        if #available(iOS 27.0, *) { return true }
         if #available(iOS 16.0, *) {
             return UIDevice.current.userInterfaceIdiom == .pad
         }

@@ -1,8 +1,5 @@
 import EnsembleCore
 import SwiftUI
-#if os(iOS)
-import UIKit
-#endif
 
 struct RootMiniPlayerOverlay: View {
     let nowPlayingVM: NowPlayingViewModel
@@ -13,18 +10,6 @@ struct RootMiniPlayerOverlay: View {
     var surfaceStyle: MiniPlayer.SurfaceStyle = .automatic
     let presentNowPlaying: () -> Void
 
-    private var isPhoneLayout: Bool {
-        #if os(iOS)
-        UIDevice.current.userInterfaceIdiom == .phone
-        #else
-        false
-        #endif
-    }
-
-    private var miniPlayerHorizontalPadding: CGFloat {
-        isPhoneLayout ? 8 : 20
-    }
-
     private var miniPlayerHeight: CGFloat {
         max(
             EnsembleScaffold.MiniPlayer.artworkDimension,
@@ -33,7 +18,8 @@ struct RootMiniPlayerOverlay: View {
     }
 
     var body: some View {
-        let miniPlayerWidth = miniPlayerWidth(for: layout)
+        let miniPlayerWidth = min(620, max(layout.frame.width - 28, 0))
+        let usesExpandedLayout = miniPlayerWidth >= 500
         let miniPlayerPosition = miniPlayerPosition(
             for: layout,
             miniPlayerHeight: miniPlayerHeight
@@ -43,9 +29,9 @@ struct RootMiniPlayerOverlay: View {
             MiniPlayer(
                 viewModel: nowPlayingVM,
                 isFloating: true,
-                showsWaveform: !isPhoneLayout && miniPlayerWidth >= 280,
+                showsWaveform: usesExpandedLayout,
                 waveformColor: accentColor,
-                horizontalPadding: miniPlayerHorizontalPadding,
+                horizontalPadding: usesExpandedLayout ? 20 : 8,
                 surfaceStyle: surfaceStyle,
                 usesGlassEffectIdentity: false,
                 namespace: namespace,
@@ -65,15 +51,6 @@ struct RootMiniPlayerOverlay: View {
             }
             .transition(.identity)
         }
-    }
-
-    private func miniPlayerWidth(for layout: RootChromeLayout) -> CGFloat {
-        if isPhoneLayout {
-            // Keep the mini player aligned to the tab bar capsule while leaving
-            // just enough extra width to avoid looking visually under-hung.
-            return max(layout.frame.width - 28, 0)
-        }
-        return min(620, max(layout.frame.width - 32, 0))
     }
 
     private func miniPlayerPosition(

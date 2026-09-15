@@ -1381,7 +1381,7 @@ public struct MediaTrackList: UIViewRepresentable {
             if tableHeaderContent != nil, indexPath.section == 0, let tableHeaderContent {
                 let targetWidth = tableView.bounds.width > 1
                     ? tableView.bounds.width
-                    : UIScreen.main.bounds.width
+                    : (tableView.superview?.bounds.width ?? 0)
                 let cell = tableView.dequeueReusableCell(
                     withIdentifier: HostedContentCell.reuseIdentifier,
                     for: indexPath

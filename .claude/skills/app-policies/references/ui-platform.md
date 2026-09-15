@@ -1,8 +1,13 @@
 # UI Platform Policy
 
-- Root shells own platform navigation and persistent chrome: tabs on iPhone and
-  native split/sidebar behavior on regular-width iPadOS/macOS. Navigation and
-  auxiliary presentation are scene/window-scoped.
+- Root shells own platform navigation and persistent chrome. iOS 27 iPhone tabs
+  adapt to a sidebar when space permits; older iPhones keep tabs. iPadOS/macOS
+  retain native split/sidebar navigation. Navigation and auxiliary presentation
+  are scene/window-scoped, and resizing preserves the active route.
+- Player layout follows available content space across iPhone, iPad and Mac.
+  Narrow content uses compact mini-player controls; wider content uses a bounded
+  expanded player. StageFlow is limited to eligible compact-height landscape
+  iPhone views; large windows retain normal browsing.
 - Typed media routes append to the active scene stack. Feed/list refreshes do not
   pop a destination, opening a shared link does not start playback, and an
   existing macOS main window handles incoming navigation when available.

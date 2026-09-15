@@ -1295,18 +1295,6 @@ public struct ArtistDetailView: View {
         }
     }
 
-    private func compactHeroHeight(containerWidth: CGFloat) -> CGFloat {
-        if containerWidth > 0 {
-            return containerWidth
-        }
-
-        #if os(iOS)
-        return UIScreen.main.bounds.width
-        #else
-        return EnsembleScaffold.ArtistDetail.wideHeaderThreshold
-        #endif
-    }
-
     static func compactHeroOverscroll(globalMinY: CGFloat) -> CGFloat {
         max(globalMinY, 0)
     }
@@ -1382,7 +1370,7 @@ public struct ArtistDetailView: View {
                 .offset(y: -overscroll)
             }
         }
-        .frame(height: compactHeroHeight(containerWidth: containerWidth))
+        .frame(height: max(containerWidth, 0))
         .frame(maxWidth: .infinity)
     }
 

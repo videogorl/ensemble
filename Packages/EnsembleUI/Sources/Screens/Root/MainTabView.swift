@@ -22,6 +22,7 @@ public struct MainTabView: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @Environment(\.isSoftwareKeyboardVisible) private var isSoftwareKeyboardVisible
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var didSetInitialTab = false
     // Extracted observation state — avoids full root invalidation from singleton publishers
     @State private var networkState: NetworkState = DependencyContainer.shared.networkMonitor.networkState
@@ -106,7 +107,10 @@ public struct MainTabView: View {
 
     private func isStageFlowActive(for size: CGSize, activeTab: TabItem?) -> Bool {
         #if os(iOS)
-        return activeTab != nil && size.width > size.height
+        return MainTabStageFlowPolicy.isActive(
+            size: size, hasEligibleRoot: activeTab != nil,
+            isCompactHeight: verticalSizeClass == .compact
+        )
         #else
         return false
         #endif
@@ -151,7 +155,10 @@ public struct MainTabView: View {
                     },
                     isHidden: rootChromeSuppressed
                 )
-                .applyTabViewStyle(sidebarAdaptable: useSidebarAdaptable)
+                .applyTabViewStyle(
+                    sidebarAdaptable: useSidebarAdaptable,
+                    prefersSidebar: verticalSizeClass != .compact
+                )
             }
                 // iOS 15: set additionalSafeAreaInsets on each tab's navigation controller
                 // so content scrolls behind the tab bar with proper mini player clearance.
@@ -226,13 +233,10 @@ public struct MainTabView: View {
         #endif
     }
 
-    /// Whether to use .sidebarAdaptable TabView style (iPad only on iOS 18+).
-    /// On iPhone, .sidebarAdaptable has a known bug (FB11710323) where
-    /// NavigationStack doesn't observe programmatic state changes until
-    /// a tab switch occurs. It gives the same visual tab bar as .automatic
-    /// on iPhone, so there's no downside to skipping it there.
+    /// Keep the older iPhone navigation workaround; iOS 27 supports adaptive sidebars.
     private var useSidebarAdaptable: Bool {
         #if os(iOS)
+        if #available(iOS 27.0, *) { return true }
         if #available(iOS 18.0, *) {
             return UIDevice.current.userInterfaceIdiom == .pad
         }
@@ -360,6 +364,10 @@ public struct MainTabView: View {
                 #endif
             }
         }
+        .adaptiveTabChrome(
+            isSelected: selectedRootTab == tab,
+            showsMiniPlayer: !isShowingNowPlaying && !rootChromeSuppressed && !isSoftwareKeyboardVisible
+        )
         .environment(\.mediaNavigationTransitionNamespace, mediaNavigationNamespace)
         .environment(\.isStageFlowActive, isStageFlowActive)
         .tabBarVisibility(isHidden: rootChromeSuppressed)
@@ -484,6 +492,10 @@ private extension View {
 }
 
 enum MainTabStageFlowPolicy {
+    static func isActive(size: CGSize, hasEligibleRoot: Bool, isCompactHeight: Bool) -> Bool {
+        hasEligibleRoot && isCompactHeight && size.width > size.height
+    }
+
     static func activeRootTab(
         selectedRootTab: TabItem,
         navigationPath: [NavigationCoordinator.Destination],

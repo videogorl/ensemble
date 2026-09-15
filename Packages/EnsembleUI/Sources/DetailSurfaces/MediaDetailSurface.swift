@@ -741,16 +741,14 @@ extension MediaDetailSurface {
                 adaptiveBody
             }
             .background {
-                if nativeTrackListHeaderWidth <= 1 {
-                    GeometryReader { geometry in
-                        Color.clear
-                            .onAppear {
-                                updateContainerWidth(geometry.size.width)
-                            }
-                            .onChange(of: geometry.size.width) { newWidth in
-                                updateContainerWidth(newWidth)
-                            }
-                    }
+                GeometryReader { geometry in
+                    Color.clear
+                        .onAppear {
+                            updateContainerWidth(geometry.size.width)
+                        }
+                        .onChange(of: geometry.size.width) { newWidth in
+                            updateContainerWidth(newWidth)
+                        }
                 }
             }
         }
@@ -803,7 +801,7 @@ extension MediaDetailSurface {
         }
 
         private var effectiveContainerWidth: CGFloat {
-            nativeTrackListHeaderWidth > 1 ? nativeTrackListHeaderWidth : containerWidth
+            containerWidth > 1 ? containerWidth : nativeTrackListHeaderWidth
         }
 
         private var estimatedActionColumnWidth: CGFloat {
