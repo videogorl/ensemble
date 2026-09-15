@@ -54,6 +54,8 @@ final class PlexAPIClientTests: XCTestCase {
             let uri = try XCTUnwrap(query?.first(where: { $0.name == "uri" })?.value)
             XCTAssertTrue(uri.hasPrefix("server://server/com.plexapp.plugins.library/library/metadata/123/station/"))
             XCTAssertTrue(uri.hasSuffix("?type=10&includeSharedContent=1&maxDegreesOfSeparation=-1"))
+            let stationID = try XCTUnwrap(uri.split(separator: "?").first?.split(separator: "/").last)
+            XCTAssertEqual(stationID, Substring(stationID.lowercased()))
 
             return (200, Data(#"{"MediaContainer":{"Metadata":[{"ratingKey":"123","key":"/library/metadata/123","title":"Seed"},{"ratingKey":"456","key":"/library/metadata/456","title":"Recommendation"}]}}"#.utf8))
         }

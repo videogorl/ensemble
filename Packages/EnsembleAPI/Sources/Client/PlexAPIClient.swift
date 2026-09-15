@@ -567,7 +567,8 @@ public actor PlexAPIClient {
 
     /// Creates a fresh Plex Track Radio window and returns its recommendations.
     public func getTrackRadio(ratingKey: String) async throws -> [PlexTrack] {
-        let stationURI = "server://\(serverConnection.identifier)/com.plexapp.plugins.library/library/metadata/\(ratingKey)/station/\(UUID().uuidString)?type=10&includeSharedContent=1&maxDegreesOfSeparation=-1"
+        let stationID = UUID().uuidString.lowercased()
+        let stationURI = "server://\(serverConnection.identifier)/com.plexapp.plugins.library/library/metadata/\(ratingKey)/station/\(stationID)?type=10&includeSharedContent=1&maxDegreesOfSeparation=-1"
         let data = try await serverRequestPOST(
             path: "/playQueues",
             query: ["type": "audio", "uri": stationURI]
