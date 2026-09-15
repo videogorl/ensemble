@@ -146,6 +146,19 @@ final class PlaybackQueueStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: snapshotURL.path))
     }
 
+    func testUnreadableSnapshotIsPreservedAndPendingMutationWinsLoad() throws {
+        let store = makeStore(snapshotSaveDelay: 60)
+        let malformed = Data("invalid snapshot".utf8)
+        try malformed.write(to: snapshotURL)
+        XCTAssertThrowsError(try store.load())
+        XCTAssertEqual(try Data(contentsOf: snapshotURL), malformed)
+
+        store.save(queue: [], history: [], currentIndex: -1, currentTime: 0)
+        let cleared = try XCTUnwrap(store.load())
+        XCTAssertTrue(cleared.queue.isEmpty)
+        XCTAssertTrue(cleared.history.isEmpty)
+    }
+
     private func makeStore(snapshotSaveDelay: TimeInterval = 0) -> PlaybackQueueStore {
         PlaybackQueueStore(
             defaults: defaults,

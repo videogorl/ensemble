@@ -36,13 +36,12 @@ extension AppDelegate {
         }
     }
 
-    func startPlaybackRestoreTaskAfterHealthChecks() {
-        // Restore playback state after health checks complete (needs server connectivity).
+    func startPlaybackRestoreTask() {
+        // Local queue hydration does not require server connectivity.
         // Skip restoration if a Siri playback execution is already in-flight — the Siri
         // handler's intent arrives before restoration completes, so restoring would
         // overwrite the Siri-initiated queue with the previous session's track.
-        playbackRestoreTask = Task.detached(priority: .utility) {
-            await self.earlyHealthCheckTask?.value
+        playbackRestoreTask = Task.detached(priority: .userInitiated) {
 
             let hasPending = await MainActor.run { (UIApplication.shared.delegate as? AppDelegate)?.hasPendingSiriIntent ?? false }
             if hasPending || SiriPlaybackExecutionGate.isExecuting {

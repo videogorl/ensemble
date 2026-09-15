@@ -63,7 +63,7 @@ extension AppDelegate {
         logLaunchPhase("serverHealth.prepopulated")
 
         startEarlyHealthCheckTask()
-        startPlaybackRestoreTaskAfterHealthChecks()
+        startPlaybackRestoreTask()
         startSiriIndexAndContextRefreshAfterHealthChecks()
         startWebSocketConnectionsAfterHealthChecks()
         startStartupSyncTaskAfterHealthChecks()

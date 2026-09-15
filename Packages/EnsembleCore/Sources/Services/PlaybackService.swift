@@ -2749,6 +2749,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     // MARK: - Playback Control
 
     private func resetHandoffForUserPlaybackIntent() {
+        startupCoordinator.recordMutation()
         _ = handoffCoordinator.handle(.explicitPlaybackStart, playbackState: playbackState)
         isInterrupted = false
         isRouteChangeInProgress = false
@@ -6032,6 +6033,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         pendingPreBufferTime = nil
+        let generation = playbackGenerationCounter
 
         guard prepareAudioEngineForPlaybackIfNeeded() else {
             return
@@ -6042,8 +6044,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         do {
             let fileURL = try await resolveAudioFile(for: track)
 
-            // Bail if user already tapped play while we were downloading
-            guard playbackState == .paused else { return }
+            guard playbackState == .paused,
+                  generation == playbackGenerationCounter,
+                  currentTrack?.playbackIdentity == track.playbackIdentity else { return }
 
             // Load into engine without playing
             try audioEngine?.load(fileURL: fileURL, trackId: track.playbackIdentity)
@@ -7052,6 +7055,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// offloads the JSON encoding and disk write to a background thread so the
     /// main/audio thread is never blocked.
     private func savePlaybackState() {
+        startupCoordinator.recordMutation()
         lastPlaybackSnapshotTime = currentTime
         let currentItemID = queue.indices.contains(currentQueueIndex) ? queue[currentQueueIndex].id : nil
         let persistedQueue = PlaybackQueueController.queueForPersistence(
@@ -7087,104 +7091,81 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     public func persistPlaybackStateSnapshot() {
+        guard startupCoordinator.canPersist else {
+            EnsembleLogger.debug("Playback snapshot deferred until local restoration resolves")
+            return
+        }
         savePlaybackState()
         queueController.flushSnapshot()
     }
 
-    /// Restore playback state from UserDefaults
+    /// Restore local metadata before network-dependent playback preparation.
+    @MainActor
     public func restorePlaybackState() async {
+        guard startupCoordinator.beginRestoration() else { return }
         EnsembleLogger.debug("🔄 restorePlaybackState() called")
-        startupRestoreStatus = .notAttempted
-
-        guard let storedSnapshot = queueController.loadSnapshot() else {
-            EnsembleLogger.debug("🔄 No queue snapshot found in queue store")
-            startupRestoreStatus = .noSnapshot
+        let storedSnapshot: PlaybackQueueSnapshot?
+        do {
+            storedSnapshot = try await Task.detached(priority: .userInitiated) { [queueStore] in
+                try queueStore.load()
+            }.value
+        } catch {
+            startupCoordinator.finishRestoration(succeeded: false)
+            startupRestoreStatus = .readFailed
+            EnsembleLogger.error("Playback snapshot could not be read; preserving saved state: \(error)")
             return
         }
 
-        let configuration = await MainActor.run {
-            syncCoordinator.accountManager.sourceConfigurationSnapshot
+        guard startupCoordinator.restorationState == .restoring else {
+            startupCoordinator.finishRestoration(succeeded: true)
+            startupRestoreStatus = .skippedBecausePlaybackAlreadyActive
+            return
         }
-        let snapshot = Self.pruningRestoredSnapshot(
-            storedSnapshot,
-            configuration: configuration
-        )
-        let removedQueueItemCount = storedSnapshot.queue.count - snapshot.queue.count
-        let removedHistoryItemCount = storedSnapshot.history.count - snapshot.history.count
-        if snapshot != storedSnapshot {
-            EnsembleLogger.debug(
-                "🔄 Pruned unavailable restored items queue=\(removedQueueItemCount) history=\(removedHistoryItemCount)"
-            )
-            queueController.saveSnapshot(
-                queue: snapshot.queue,
-                history: snapshot.history,
-                currentIndex: snapshot.currentIndex,
-                currentTime: snapshot.currentTime,
-                originalQueue: snapshot.originalQueue,
-                shuffleEnabled: snapshot.shuffleEnabled,
-                hasUserQueueEdits: snapshot.hasUserQueueEdits
-            )
+        guard let storedSnapshot else {
+            startupCoordinator.finishRestoration(succeeded: true)
+            startupRestoreStatus = .noSnapshot
+            EnsembleLogger.debug("🔄 No queue snapshot found in queue store")
+            return
+        }
+        let requestedTrack = storedSnapshot.queue.indices.contains(storedSnapshot.currentIndex)
+            ? storedSnapshot.queue[storedSnapshot.currentIndex].track : nil
+        let resolvedTrack: Track?
+        if let requestedTrack {
+            resolvedTrack = await resolveTrackForPlaybackIfNeeded(requestedTrack)
+        } else {
+            resolvedTrack = nil
+        }
+        guard startupCoordinator.restorationState == .restoring else {
+            startupCoordinator.finishRestoration(succeeded: true)
+            startupRestoreStatus = .skippedBecausePlaybackAlreadyActive
+            return
         }
 
-        await MainActor.run {
-            playbackHistory = snapshot.history
+        let snapshot = Self.pruningRestoredSnapshot(
+            storedSnapshot,
+            configuration: syncCoordinator.accountManager.sourceConfigurationSnapshot
+        )
+        // No suspension between accepting the saved state and publishing it.
+        startupCoordinator.finishRestoration(succeeded: true)
+        guard queue.isEmpty, playbackState != .playing, playbackState != .loading else {
+            startupRestoreStatus = .skippedBecausePlaybackAlreadyActive
+            return
         }
-        if !snapshot.history.isEmpty {
-            EnsembleLogger.debug("🔄 Restored \(snapshot.history.count) history items")
-        }
-        guard !snapshot.queue.isEmpty else {
-            EnsembleLogger.debug("🔄 Queue store contained history only")
+        playbackHistory = snapshot.history
+        persistRestoredSnapshotRepair(snapshot, comparedTo: storedSnapshot)
+        guard snapshot.queue.indices.contains(snapshot.currentIndex) else {
             startupRestoreStatus = .historyOnly(count: snapshot.history.count)
             return
         }
-
+        let savedTrack = snapshot.queue[snapshot.currentIndex].track
+        let track: Track
+        if let resolvedTrack, resolvedTrack.playbackIdentity == savedTrack.playbackIdentity {
+            track = resolvedTrack
+        } else {
+            track = savedTrack
+        }
         EnsembleLogger.debug("🔄 Decoded \(snapshot.queue.count) queue items from queue store")
         EnsembleLogger.debug("🔄 Restoring: index \(snapshot.currentIndex), time \(snapshot.currentTime)s")
-        await applyRestoredSnapshot(snapshot)
-    }
-
-    @MainActor
-    private func applyRestoredSnapshot(_ proposedSnapshot: PlaybackQueueSnapshot) async {
-        let initialConfiguration = syncCoordinator.accountManager.sourceConfigurationSnapshot
-        var snapshot = Self.pruningRestoredSnapshot(
-            proposedSnapshot,
-            configuration: initialConfiguration
-        )
-        persistRestoredSnapshotRepair(snapshot, comparedTo: proposedSnapshot)
-        playbackHistory = snapshot.history
-
-        guard snapshot.currentIndex >= 0, snapshot.currentIndex < snapshot.queue.count else {
-            startupRestoreStatus = snapshot.history.isEmpty
-                ? .noSnapshot
-                : .historyOnly(count: snapshot.history.count)
-            return
-        }
-
-        let requestedTrack = snapshot.queue[snapshot.currentIndex].track
-        let track = await resolveTrackForPlaybackIfNeeded(requestedTrack)
-
-        let latestConfiguration = syncCoordinator.accountManager.sourceConfigurationSnapshot
-        let latestSnapshot = Self.pruningRestoredSnapshot(
-            snapshot,
-            configuration: latestConfiguration
-        )
-        persistRestoredSnapshotRepair(latestSnapshot, comparedTo: snapshot)
-        playbackHistory = latestSnapshot.history
-
-        guard latestSnapshot.currentIndex >= 0,
-              latestSnapshot.currentIndex < latestSnapshot.queue.count else {
-            startupRestoreStatus = latestSnapshot.history.isEmpty
-                ? .noSnapshot
-                : .historyOnly(count: latestSnapshot.history.count)
-            return
-        }
-        guard latestSnapshot.queue[latestSnapshot.currentIndex].track.playbackIdentity
-            == requestedTrack.playbackIdentity else {
-            await applyRestoredSnapshot(latestSnapshot)
-            return
-        }
-        snapshot = latestSnapshot
-
         let serverReady = syncCoordinator.lastHealthCheckCompletion != nil
         guard let decision = startupCoordinator.makeRestoreDecision(
             snapshot: snapshot,

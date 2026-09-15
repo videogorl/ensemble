@@ -2,6 +2,27 @@ import XCTest
 @testable import EnsembleCore
 
 final class PlaybackStartupCoordinatorTests: XCTestCase {
+    func testRestorationOwnershipProtectsPendingAndFailedStateAndHonorsNewMutations() {
+        for succeeds in [true, false] {
+            let coordinator = PlaybackStartupCoordinator()
+            XCTAssertFalse(coordinator.canPersist)
+            XCTAssertTrue(coordinator.beginRestoration())
+            XCTAssertFalse(coordinator.beginRestoration())
+            XCTAssertFalse(coordinator.canPersist)
+            coordinator.finishRestoration(succeeded: succeeds)
+            XCTAssertEqual(coordinator.canPersist, succeeds)
+            coordinator.recordMutation() // Includes an intentional empty queue.
+            XCTAssertTrue(coordinator.canPersist)
+            XCTAssertFalse(coordinator.beginRestoration())
+        }
+        let coordinator = PlaybackStartupCoordinator()
+        XCTAssertTrue(coordinator.beginRestoration())
+        coordinator.recordMutation()
+        XCTAssertNotEqual(coordinator.restorationState, .restoring)
+        coordinator.finishRestoration(succeeded: false) // Stale read completion.
+        XCTAssertTrue(coordinator.canPersist)
+    }
+
     func testRestoreDecisionSkipsWhenPlaybackAlreadyActive() {
         let coordinator = PlaybackStartupCoordinator()
         let snapshot = PlaybackQueueSnapshot(

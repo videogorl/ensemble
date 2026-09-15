@@ -588,7 +588,4 @@ final class PlaybackQueueController {
         queueStore.flush()
     }
 
-    func loadSnapshot() -> PlaybackQueueSnapshot? {
-        queueStore.load()
-    }
 }

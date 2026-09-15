@@ -10,6 +10,7 @@ enum PlaybackStartupPrebufferMode: Equatable {
 enum PlaybackStartupRestoreStatus: Equatable {
     case notAttempted
     case noSnapshot
+    case readFailed
     case historyOnly(count: Int)
     case skippedBecausePlaybackAlreadyActive
     case restored(trackID: String, time: TimeInterval, mode: PlaybackStartupPrebufferMode)
@@ -29,6 +30,26 @@ struct PlaybackStartupRestoreDecision: Equatable {
 /// Owns restored-startup decision making so PlaybackService can apply the plan
 /// without also carrying all queue-restoration policy.
 final class PlaybackStartupCoordinator {
+    enum RestorationState { case pending, restoring, ready, failed }
+    private(set) var restorationState: RestorationState = .pending
+
+    var canPersist: Bool { restorationState == .ready }
+
+    func beginRestoration() -> Bool {
+        guard restorationState == .pending else { return false }
+        restorationState = .restoring
+        return true
+    }
+
+    func finishRestoration(succeeded: Bool) {
+        guard restorationState == .restoring else { return }
+        restorationState = succeeded ? .ready : .failed
+    }
+
+    func recordMutation() {
+        restorationState = .ready
+    }
+
     func makeRestoreDecision(
         snapshot: PlaybackQueueSnapshot,
         resolvedTrack: Track,

@@ -141,13 +141,25 @@ final class PlaybackQueueStore {
         }
     }
 
-    func load() -> PlaybackQueueSnapshot? {
+    func load() throws -> PlaybackQueueSnapshot? {
+        try persistenceQueue.sync {
+            if let pendingSave {
+                return pendingSave.snapshot.updating(currentTime: pendingSave.progress)
+            }
+            return try loadPersistedSnapshot()
+        }
+    }
+
+    private func loadPersistedSnapshot() throws -> PlaybackQueueSnapshot? {
         let decoder = JSONDecoder()
 
-        if let snapshotData = try? Data(contentsOf: snapshotURL),
-           let snapshot = try? decoder.decode(PlaybackQueueSnapshot.self, from: snapshotData) {
+        do {
+            let snapshotData = try Data(contentsOf: snapshotURL)
+            let snapshot = try decoder.decode(PlaybackQueueSnapshot.self, from: snapshotData)
             removeLegacyDefaults()
             return snapshot.updating(currentTime: loadProgress() ?? snapshot.currentTime)
+        } catch CocoaError.fileReadNoSuchFile {
+            // Only a missing file may fall back to the legacy format.
         }
 
         guard let snapshot = loadLegacySnapshot(decoder: decoder) else { return nil }

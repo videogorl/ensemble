@@ -792,6 +792,8 @@ public final class DependencyContainer: @unchecked Sendable {
                             restoreOutcome = "not-attempted"
                         case .noSnapshot:
                             restoreOutcome = "no-snapshot"
+                        case .readFailed:
+                            restoreOutcome = "snapshot-read-failed"
                         case .historyOnly(let count):
                             restoreOutcome = "history-only(\(count))"
                         case .skippedBecausePlaybackAlreadyActive:

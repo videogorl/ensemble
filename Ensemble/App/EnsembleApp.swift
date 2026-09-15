@@ -353,8 +353,8 @@ struct EnsembleApp: App {
 
                 // macOS does not go through UIApplication/AppDelegate startup,
                 // so we need to mirror the iPhone launch sequence here once:
-                // load accounts/providers, run health checks, then restore the
-                // persisted queue/current track before the first startup sync.
+                // load accounts/providers and restore local playback before
+                // network health checks and the first startup sync.
                 if isInitialActivation {
                     hasStartedPlaybackRestore = true
 
@@ -373,6 +373,11 @@ struct EnsembleApp: App {
                             dependencyContainer.syncCoordinator.refreshProviders()
                         }
 
+                        AppLogger.debug("💻 macOS: Restoring persisted playback state...")
+                        let playbackService = await MainActor.run { dependencyContainer.playbackService }
+                        await playbackService.restorePlaybackState()
+                        AppLogger.debug("💻 macOS: Playback state restoration complete")
+
                         let networkMonitor = await MainActor.run { dependencyContainer.networkMonitor }
                         if await MainActor.run(body: { networkMonitor.networkState == .unknown }) {
                             for _ in 0..<10 {
@@ -383,14 +388,10 @@ struct EnsembleApp: App {
                             }
                         }
 
-                        AppLogger.debug("💻 macOS: Running startup health checks before playback restore...")
+
+                        AppLogger.debug("💻 macOS: Running startup health checks after local playback restore...")
                         let syncCoordinator = await MainActor.run { dependencyContainer.syncCoordinator }
                         await syncCoordinator.performStartupHealthChecks()
-
-                        AppLogger.debug("💻 macOS: Restoring persisted playback state...")
-                        let playbackService = await MainActor.run { dependencyContainer.playbackService }
-                        await playbackService.restorePlaybackState()
-                        AppLogger.debug("💻 macOS: Playback state restoration complete")
                     }
                 }
 
