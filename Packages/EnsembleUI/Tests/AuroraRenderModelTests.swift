@@ -1,7 +1,20 @@
 import XCTest
+import MetalKit
 @testable import EnsembleUI
 
 final class AuroraRenderModelTests: XCTestCase {
+    @MainActor
+    func testDrawingDoesNotReenterThroughPausedResizeCallback() {
+        let renderer = AuroraMetalRenderer(renderModel: AuroraRenderModel())
+        let view = ResizeDuringDrawView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        view.isPaused = true
+        view.delegate = renderer
+        renderer.draw(in: view)
+        XCTAssertEqual(view.drawableRequests, 1)
+        renderer.draw(in: view)
+        XCTAssertEqual(view.drawableRequests, 2, "The next independent draw must still run")
+    }
+
     func testDisplaySamplingTrimsSparseLowsAndMirrorsActiveRangeWithWidth() {
         let model = AuroraRenderModel()
         model.advance(targetBands: (0..<24).map { Double($0) / 23 }, at: 0)
@@ -39,5 +52,22 @@ final class AuroraRenderModelTests: XCTestCase {
             }
             XCTAssertEqual(model.renderedBands[12], 0.1 + (peak - 0.1) * exp(-1 / 0.15), accuracy: 0.000001)
         }
+    }
+}
+
+private final class ResizeDuringDrawView: MTKView {
+    var drawableRequests = 0
+
+    override var currentDrawable: CAMetalDrawable? {
+        drawableRequests += 1
+        // Bound the regression so a missing guard fails instead of overflowing the test stack.
+        if drawableRequests < 3 {
+            delegate?.mtkView(self, drawableSizeWillChange: drawableSize)
+        }
+        return nil
+    }
+
+    override func draw() {
+        delegate?.draw(in: self)
     }
 }

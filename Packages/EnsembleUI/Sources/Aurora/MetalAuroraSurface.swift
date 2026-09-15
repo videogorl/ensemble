@@ -171,6 +171,7 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     private var uniforms = Uniforms()
     private let preparationPipeline: MTLComputePipelineState?
     private var preparedBandBuffer: MTLBuffer?
+    private var isDrawing = false
 
     init(renderModel: AuroraRenderModel) {
         self.renderModel = renderModel
@@ -273,6 +274,11 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     }
 
     func draw(in view: MTKView) {
+        // Changing drawableSize can synchronously request another draw while paused.
+        guard !isDrawing else { return }
+        isDrawing = true
+        defer { isDrawing = false }
+
         #if canImport(UIKit)
         let scale = renderScaleFactor(for: view)
         let size = CGSize(width: (view.bounds.width * scale).rounded(.down),
