@@ -1068,11 +1068,22 @@ private func performBackgroundRefresh() async {
 private struct ToastInteractionFixture: View {
     @State private var result = "No action"
     @State private var showingSheet = false
+    @State private var behindTapCount = 0
 
     var body: some View {
         VStack(spacing: 24) {
             controls(context: "root")
             Button("Open sheet") { showingSheet = true }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            Button {
+                behindTapCount += 1
+            } label: {
+                Color.clear.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Behind toast")
         }
         .sheet(isPresented: $showingSheet) { controls(context: "sheet") }
     }
@@ -1080,6 +1091,7 @@ private struct ToastInteractionFixture: View {
     private func controls(context: String) -> some View {
         VStack(spacing: 24) {
             Text(result).accessibilityIdentifier("toast.fixture.result")
+            Text("Behind taps: \(behindTapCount)")
             Button("Outside button") { result = "Outside confirmed" }
             Button("Show toast") {
                 result = "No action"

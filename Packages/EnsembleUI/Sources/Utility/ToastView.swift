@@ -165,7 +165,8 @@ private final class PassthroughWindow: UIWindow {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         // SwiftUI can return its hosting root for a touch inside the banner.
         guard toastFrame.contains(point) else { return nil }
-        return super.hitTest(point, with: event)
+        // Consume empty padding too, rather than forwarding it to the window below.
+        return super.hitTest(point, with: event) ?? self
     }
 }
 
@@ -279,6 +280,7 @@ public struct ToastBannerView: View {
             toastCenter.dismiss(id: toast.id)
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("toast.banner")
         .accessibilityAction(.escape) {
             toastCenter.dismiss(id: toast.id)
         }

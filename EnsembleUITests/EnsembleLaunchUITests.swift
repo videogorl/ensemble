@@ -16,6 +16,10 @@ final class EnsembleLaunchUITests: XCTestCase {
         showToast.tap()
         let toast = app.staticTexts["Interaction test"].firstMatch
         XCTAssertTrue(toast.waitForExistence(timeout: 5))
+        let banner = app.descendants(matching: .any)["toast.banner"].firstMatch
+        let coveredPoint = app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: banner.frame.midX, dy: banner.frame.midY)
+        )
         toast.swipeRight()
         XCTAssertTrue(toast.exists, "Right swipe must not dismiss the toast")
         let before = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -25,12 +29,25 @@ final class EnsembleLaunchUITests: XCTestCase {
         toast.swipeLeft()
         XCTAssertTrue(toast.waitForNonExistence(timeout: 3), "Left swipe must dismiss the persistent toast")
         XCTAssertTrue(app.staticTexts["No action"].exists, "Swiping must not invoke the action or tap handler")
+        XCTAssertTrue(app.staticTexts["Behind taps: 0"].exists)
         let after = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         after.name = "toast-after-left-swipe"
         after.lifetime = .keepAlways
         add(after)
 
+        coveredPoint.tap()
+        XCTAssertTrue(app.staticTexts["Behind taps: 1"].exists, "The covered control must be tappable without a toast")
         showToast.tap()
+        XCTAssertTrue(banner.waitForExistence(timeout: 5))
+        // The corners and padding must consume taps even outside the capsule's content shape.
+        for offset in [CGVector(dx: 0.01, dy: 0.01), CGVector(dx: 0.99, dy: 0.99)] {
+            banner.coordinate(withNormalizedOffset: offset).tap()
+            XCTAssertTrue(app.staticTexts["Behind taps: 1"].exists, "Toast taps must not activate the covered control")
+            if !toast.exists {
+                showToast.tap()
+                XCTAssertTrue(banner.waitForExistence(timeout: 5))
+            }
+        }
         app.buttons["Outside button"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Outside confirmed"].exists)
         XCTAssertTrue(toast.exists, "Outside touches must pass through without dismissing the toast")
