@@ -132,7 +132,9 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
             window.backgroundColor = .clear
             window.windowLevel = .alert + 1
 
-            let host = UIHostingController(rootView: GlobalToastOverlayRootView(toastCenter: toastCenter))
+            let host = UIHostingController(rootView: GlobalToastOverlayRootView(toastCenter: toastCenter) { [weak window] frame in
+                window?.toastFrame = frame
+            })
             host.view.backgroundColor = .clear
             window.rootViewController = host
             window.isHidden = false
@@ -141,8 +143,11 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
         }
 
         fileprivate func refreshRootView() {
-            guard let host = overlayWindow?.rootViewController as? UIHostingController<GlobalToastOverlayRootView> else { return }
-            host.rootView = GlobalToastOverlayRootView(toastCenter: toastCenter)
+            guard let window = overlayWindow,
+                  let host = window.rootViewController as? UIHostingController<GlobalToastOverlayRootView> else { return }
+            host.rootView = GlobalToastOverlayRootView(toastCenter: toastCenter) { [weak window] frame in
+                window?.toastFrame = frame
+            }
         }
 
         fileprivate func detach() {
@@ -155,17 +160,27 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
 }
 
 private final class PassthroughWindow: UIWindow {
+    var toastFrame = CGRect.zero
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let hitView = super.hitTest(point, with: event)
-        if hitView === rootViewController?.view {
-            return nil
-        }
-        return hitView
+        // SwiftUI can return its hosting root for a touch inside the banner.
+        guard toastFrame.contains(point) else { return nil }
+        return super.hitTest(point, with: event)
+    }
+}
+
+private struct ToastFramePreference: PreferenceKey {
+    static let defaultValue = CGRect.zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if !next.isEmpty { value = next }
     }
 }
 
 private struct GlobalToastOverlayRootView: View {
     @ObservedObject var toastCenter: ToastCenter
+    let onToastFrameChange: (CGRect) -> Void
 
     var body: some View {
         GeometryReader { geometry in
@@ -181,6 +196,7 @@ private struct GlobalToastOverlayRootView: View {
                 }
                 .ignoresSafeArea()
         }
+        .onPreferenceChange(ToastFramePreference.self, perform: onToastFrameChange)
     }
 
     private var baseBottomPadding: CGFloat {
@@ -234,6 +250,16 @@ public struct ToastBannerView: View {
         .padding(.horizontal, EnsembleScaffold.Toast.horizontalPadding)
         .padding(.vertical, EnsembleScaffold.Toast.verticalPadding)
         .ensembleCapsuleMaterial(.popover, strokeColor: borderColor)
+        #if os(iOS)
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(
+                    key: ToastFramePreference.self,
+                    value: geometry.frame(in: .global)
+                )
+            }
+        }
+        #endif
         .contentShape(Capsule())
         .simultaneousGesture(
             DragGesture(minimumDistance: 20)

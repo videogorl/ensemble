@@ -35,9 +35,22 @@ struct EnsembleApp: App {
     @State private var hasScheduledBackgroundRefresh = false
     #endif
 
+    @ViewBuilder
+    private var rootContent: some View {
+        #if DEBUG && os(iOS)
+        if ProcessInfo.processInfo.arguments.contains("-EnsembleAutomationToast") {
+            ToastInteractionFixture()
+        } else {
+            RootView()
+        }
+        #else
+        RootView()
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
-            RootView()
+            rootContent
                 .environment(\.dependencies, DependencyContainer.shared)
                 .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
                 .onAppear {
@@ -1047,5 +1060,40 @@ private func performBackgroundRefresh() async {
     await refreshCoordinator.performAppRefresh()
 
     AppLogger.debug("✅ Background refresh complete")
+}
+#endif
+
+#if DEBUG && os(iOS)
+/// Exercises the production overlay without library or provider mutations.
+private struct ToastInteractionFixture: View {
+    @State private var result = "No action"
+    @State private var showingSheet = false
+
+    var body: some View {
+        VStack(spacing: 24) {
+            controls(context: "root")
+            Button("Open sheet") { showingSheet = true }
+        }
+        .sheet(isPresented: $showingSheet) { controls(context: "sheet") }
+    }
+
+    private func controls(context: String) -> some View {
+        VStack(spacing: 24) {
+            Text(result).accessibilityIdentifier("toast.fixture.result")
+            Button("Outside button") { result = "Outside confirmed" }
+            Button("Show toast") {
+                result = "No action"
+                DependencyContainer.shared.toastCenter.show(ToastPayload(
+                    style: .info,
+                    iconSystemName: "info.circle",
+                    title: "Interaction test",
+                    action: ToastAction(title: "Confirm") { result = "Action confirmed" },
+                    tapHandler: { result = "Tap confirmed" },
+                    isPersistent: true
+                ))
+            }
+            .accessibilityIdentifier("toast.fixture.\(context).show")
+        }
+    }
 }
 #endif

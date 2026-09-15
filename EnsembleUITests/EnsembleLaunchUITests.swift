@@ -5,6 +5,50 @@ final class EnsembleLaunchUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testToastOverlayInteractions() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-EnsembleAutomationMode", "YES", "-EnsembleAutomationToast"]
+        app.launch()
+        defer { app.terminate() }
+
+        let showToast = app.buttons["toast.fixture.root.show"]
+        XCTAssertTrue(showToast.waitForExistence(timeout: 20))
+        showToast.tap()
+        let toast = app.staticTexts["Interaction test"].firstMatch
+        XCTAssertTrue(toast.waitForExistence(timeout: 5))
+        toast.swipeRight()
+        XCTAssertTrue(toast.exists, "Right swipe must not dismiss the toast")
+        let before = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        before.name = "toast-before-left-swipe"
+        before.lifetime = .keepAlways
+        add(before)
+        toast.swipeLeft()
+        XCTAssertTrue(toast.waitForNonExistence(timeout: 3), "Left swipe must dismiss the persistent toast")
+        XCTAssertTrue(app.staticTexts["No action"].exists, "Swiping must not invoke the action or tap handler")
+        let after = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        after.name = "toast-after-left-swipe"
+        after.lifetime = .keepAlways
+        add(after)
+
+        showToast.tap()
+        app.buttons["Outside button"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Outside confirmed"].exists)
+        XCTAssertTrue(toast.exists, "Outside touches must pass through without dismissing the toast")
+        app.buttons["Open sheet"].tap()
+        let sheetShowToast = app.buttons["toast.fixture.sheet.show"]
+        XCTAssertTrue(sheetShowToast.waitForExistence(timeout: 3))
+        XCTAssertTrue(toast.exists, "Toast must stay above the sheet")
+        app.buttons["Confirm"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Action confirmed"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertFalse(toast.exists)
+
+        sheetShowToast.tap()
+        XCTAssertTrue(toast.waitForExistence(timeout: 5))
+        toast.tap()
+        XCTAssertTrue(app.staticTexts["Tap confirmed"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertFalse(toast.exists)
+    }
+
     func testAppLaunchesToReachableRootSurface() throws {
         let app = XCUIApplication()
         app.launch()

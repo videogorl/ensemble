@@ -50,6 +50,13 @@ test. Do not disable animations for animation or performance checks, deep-link
 past navigation that is being verified, or use offline simulation as proof of
 real network loss.
 
+For toast interactions, launch a Debug build with `-EnsembleAutomationToast`.
+This opens a fixture using the production global toast window, with persistent
+toasts, action/tap feedback, and a sheet. Run
+`EnsembleUITests/EnsembleLaunchUITests/testToastOverlayInteractions` to verify
+swipe dismissal, action taps, and outside touch pass-through without a timeout
+or provider mutation.
+
 ## Extend The Debug Framework
 
 When repeated testing requires the same fragile setup, improve Ensemble instead
