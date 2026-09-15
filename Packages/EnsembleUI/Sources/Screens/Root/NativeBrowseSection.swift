@@ -72,7 +72,7 @@ struct NativeBrowseSection<Sidebar: View>: View {
     }
 
     private var detailStack: some View {
-        NavigationStack(path: navigationCoordinator.pathBinding(for: tab, isActive: { rootSelection == .library(tab) })) {
+        NavigationStack(path: navigationCoordinator.pathBinding(for: tab, isActive: { rootSelection == .library(tab) && !navigationCoordinator.routesHiddenTabsThroughMore })) {
             detailRoot
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                     NavigationDestinationFactory.destinationContent(

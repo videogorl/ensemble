@@ -69,7 +69,7 @@ Dependency flow is one-way:
 
 ## UI Ownership Rules
 
-- Root shells own platform navigation: tab shell on iPhone, split/sidebar shell on iPad/macOS where supported.
+- Root shells own platform navigation: tabs on compact iPhone, the shared split/sidebar shell on expanded iOS 27 iPhone and supported iPad/macOS.
 - Persistent list/detail surfaces should observe focused projections or local state snapshots, not broad high-frequency singleton objects.
 - Keep native platform owners for behavior SwiftUI does not expose: UIKit/AppKit track tables, AirPlay picker, Metal aurora, global toast window, native share/menu hosts, iOS 15 tab/mini-player bridges.
 - Treat new safe-area compensation, delayed layout tasks, custom scroll detectors, leaf-level navigation-bar hiding, and root-chrome mutation as suspect until a current simulator/macOS repro proves native behavior is broken.

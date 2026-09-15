@@ -3,6 +3,69 @@ import XCTest
 import EnsembleCore
 
 final class NavigationRootHelperTests: XCTestCase {
+    @MainActor
+    func testPhoneBrowseRoundTripPreservesRoutesAndHonorsCompactBackNavigation() {
+        for (size, expanded) in [
+            (CGSize(width: 1280, height: 960), true),
+            (CGSize(width: 967, height: 725), true),
+            (CGSize(width: 402, height: 874), false),
+            (CGSize(width: 874, height: 402), false)
+        ] {
+            XCTAssertEqual(PhoneBrowseNavigation.usesSidebar(size: size), expanded)
+        }
+        let artist = NavigationCoordinator.Destination.displayArtist(id: "artist")
+        let album = NavigationCoordinator.Destination.album(id: "album", sourceKey: "server/library")
+        for useMore in [false, true] {
+            for popRoot in [false, true] {
+                let coordinator = NavigationCoordinator()
+                coordinator.selectedTab = .artists
+                coordinator.artistsPath = [album]
+                var handoff = PhoneBrowseNavigation()
+                handoff.enterTabs(coordinator: coordinator, selection: .library(.artists), browseRoots: [.artists: artist])
+                XCTAssertEqual(coordinator.artistsPath, [artist, album])
+                XCTAssertTrue(coordinator.routesHiddenTabsThroughMore)
+                let compactPath: [NavigationCoordinator.Destination] = popRoot ? [] : [artist, album]
+                if useMore {
+                    coordinator.artistsPath = []
+                    coordinator.settingsPath = [.view(.artists)] + compactPath
+                    coordinator.selectedTab = .settings
+                } else {
+                    coordinator.artistsPath = compactPath
+                }
+                let restored = handoff.enterSidebar(coordinator: coordinator)
+                XCTAssertEqual(restored.selection, .library(.artists))
+                XCTAssertEqual(coordinator.selectedTab, .artists)
+                XCTAssertEqual(coordinator.artistsPath, popRoot ? [] : [album])
+                XCTAssertEqual(restored.clearedRoots.contains(.artists), popRoot)
+                XCTAssertFalse(coordinator.routesHiddenTabsThroughMore)
+            }
+        }
+        for selection: SidebarSelection in [
+            .pin(id: "album", sourceKey: "server/library", type: .album),
+            .playlist(id: "playlist", sourceKey: "server/library"),
+            .mergedPlaylist(title: "Mix", isSmart: true), .hidden
+        ] {
+            let coordinator = NavigationCoordinator()
+            let tab = selection.correspondingTab ?? .settings
+            coordinator.selectedTab = tab
+            coordinator.setPath([album], for: tab)
+            var handoff = PhoneBrowseNavigation()
+            handoff.enterTabs(coordinator: coordinator, selection: selection, browseRoots: [:])
+            XCTAssertEqual(coordinator.pathSnapshot(for: tab), [selection.compactDestination!, album])
+            let restored = handoff.enterSidebar(coordinator: coordinator)
+            XCTAssertEqual(restored.selection, selection)
+            XCTAssertEqual(coordinator.pathSnapshot(for: tab), [album])
+        }
+        let coordinator = NavigationCoordinator()
+        let pin = SidebarSelection.pin(id: "source-artist", sourceKey: "server/library", type: .artist)
+        coordinator.selectedTab = .artists
+        var handoff = PhoneBrowseNavigation()
+        handoff.enterTabs(coordinator: coordinator, selection: pin, browseRoots: [:], sidebarDestination: artist)
+        XCTAssertEqual(coordinator.artistsPath, [artist])
+        XCTAssertEqual(handoff.enterSidebar(coordinator: coordinator).selection, pin)
+        XCTAssertTrue(coordinator.artistsPath.isEmpty)
+    }
+
     func testStageFlowOnlyActivatesForEligibleCompactLandscapeWindows() {
         let cases: [(CGSize, Bool, Bool, Bool)] = [
             (CGSize(width: 874, height: 402), true, true, true),

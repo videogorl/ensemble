@@ -25,6 +25,22 @@ public enum SidebarSelection: Hashable {
         }
     }
 
+    /// A sidebar-only root becomes the first pushed destination in compact tabs.
+    var compactDestination: NavigationCoordinator.Destination? {
+        switch self {
+        case .library: return nil
+        case .playlist(let id, let sourceKey): return .playlist(id: id, sourceKey: sourceKey)
+        case .mergedPlaylist(let title, let isSmart): return .mergedPlaylist(title: title, isSmart: isSmart)
+        case .pin(let id, let sourceKey, let type):
+            switch type {
+            case .artist: return .artist(id: id, sourceKey: sourceKey)
+            case .album: return .album(id: id, sourceKey: sourceKey)
+            case .playlist: return .playlist(id: id, sourceKey: sourceKey)
+            }
+        case .hidden: return .hidden
+        }
+    }
+
     var isPinnedDetailSelection: Bool {
         if case .pin = self {
             return true

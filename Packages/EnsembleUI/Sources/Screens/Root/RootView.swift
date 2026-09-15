@@ -14,6 +14,7 @@ import AppKit
 @available(iOS 15.0, macOS 12.0, *)
 public struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @State private var usesExpandedPhoneBrowse = false
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @StateObject private var navigationCoordinator: NavigationCoordinator
@@ -36,7 +37,7 @@ public struct RootView: View {
 
     private var showsRootAurora: Bool {
         #if os(iOS)
-        UIDevice.current.userInterfaceIdiom != .phone
+        UIDevice.current.userInterfaceIdiom != .phone || usesExpandedPhoneBrowse
         #else
         true
         #endif
@@ -344,12 +345,38 @@ public struct RootView: View {
                 MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
             }
         case .tabs:
-            MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
+            if #available(iOS 27.0, macOS 27.0, *), supportsAdaptivePhoneBrowse {
+                GeometryReader { geometry in
+                    let expanded = PhoneBrowseNavigation.usesSidebar(size: geometry.size)
+                    SidebarView(
+                        nowPlayingVM: nowPlayingVM,
+                        viewModels: screenModels,
+                        selection: $sidebarSelection,
+                        usesNativeBrowse: true,
+                        adaptsToPhone: true,
+                        wantsPhoneTabs: !expanded,
+                        rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
+                    )
+                    .onAppear { usesExpandedPhoneBrowse = expanded }
+                    .onChange(of: expanded) { usesExpandedPhoneBrowse = $0 }
+                }
+            } else {
+                MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
+            }
         }
     }
 
+    private var supportsAdaptivePhoneBrowse: Bool {
+        #if os(iOS)
+        if #available(iOS 27.0, *) {
+            return UIDevice.current.userInterfaceIdiom == .phone
+        }
+        #endif
+        return false
+    }
+
     private var usesNativeBrowse: Bool {
-        EnsemblePlatformFeaturePolicy.current.usesNativeBrowse
+        EnsemblePlatformFeaturePolicy.current.usesNativeBrowse || usesExpandedPhoneBrowse
     }
 
     private func updateRootSidebarChromeRegistration(_ registration: RootSidebarChromeRegistration) {
@@ -386,7 +413,7 @@ public struct RootView: View {
     }
 
     private var usesSidebarRootNavigationShell: Bool {
-        EnsemblePlatformFeaturePolicy.current.usesSidebarRootNavigation
+        EnsemblePlatformFeaturePolicy.current.usesSidebarRootNavigation || usesExpandedPhoneBrowse
     }
 
     private var nowPlayingPresentationContent: some View {

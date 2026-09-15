@@ -1,8 +1,9 @@
 # UI Platform Policy
 
-- Root shells own platform navigation and persistent chrome. iOS 27 iPhone tabs
-  adapt to a sidebar when space permits; older iPhones keep tabs. iPadOS/macOS
-  retain native split/sidebar navigation. Navigation and auxiliary presentation
+- Root shells own platform navigation and persistent chrome. Expanded iOS 27
+  iPhone windows share the iPad sidebar, including pins and playlist actions, and
+  Artists/Genres/Playlists list-detail browsing. Compact and older iPhones keep
+  tabs. iPadOS/macOS retain native split/sidebar navigation. Navigation and auxiliary presentation
   are scene/window-scoped, and resizing preserves the active route.
 - Player layout follows available content space across iPhone, iPad and Mac.
   Narrow content uses compact mini-player controls; wider content uses a bounded

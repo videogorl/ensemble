@@ -10,10 +10,13 @@
 - iOS 16+ uses `NavigationStack`; iOS 15 keeps the existing mounted
   `NestedNavigationLink` bridge. Add availability branches only at the shared
   owner, not at every caller.
-- iPhone keeps one tab container, using the native adaptive sidebar on iOS 27
-  when space permits; regular-width iPadOS/macOS use the native root split/sidebar
-  shell. Preserve compact push navigation. Keep selection outside
-  replaceable detail subtrees so resizing or section changes do not reset it.
+- Expanded iOS 27 iPhone windows reuse the iPad sidebar and native browse split;
+  compact phones retain tabs and push navigation. Keep split selections and
+  navigation state above the adaptive containers. Convert sidebar-only roots to
+  compact routes when narrowing and restore them when expanding; respect Back
+  navigation performed while compact. Mirrored phones can retain a compact width
+  class at large window widths, so the expanded split receives a regular width
+  class based on measured available space. iPadOS/macOS retain their native shell.
 - Keep root profile/search/tab/mini-player/Now Playing chrome at the root owner.
   Leaf views must not compensate for root safe areas, hide global chrome, or
   mutate UIKit/AppKit appearance to repair a local transition.

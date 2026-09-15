@@ -9,6 +9,7 @@ import AppKit
 
 /// Main tab bar view for iPhone (5-tab classic iOS style)
 public struct MainTabView: View {
+    var isAdaptivePhoneRoot = false
     let viewModels: RootScreenModels
     private let nowPlayingVM: NowPlayingViewModel
     @Namespace private var mediaNavigationNamespace
@@ -52,7 +53,8 @@ public struct MainTabView: View {
         )
     }
 
-    init(nowPlayingVM: NowPlayingViewModel, viewModels: RootScreenModels) {
+    init(nowPlayingVM: NowPlayingViewModel, viewModels: RootScreenModels, isAdaptivePhoneRoot: Bool = false) {
+        self.isAdaptivePhoneRoot = isAdaptivePhoneRoot
         self.nowPlayingVM = nowPlayingVM
         self.viewModels = viewModels
     }
@@ -155,10 +157,7 @@ public struct MainTabView: View {
                     },
                     isHidden: rootChromeSuppressed
                 )
-                .applyTabViewStyle(
-                    sidebarAdaptable: useSidebarAdaptable,
-                    prefersSidebar: verticalSizeClass != .compact
-                )
+                .tabViewStyle(.automatic)
             }
                 // iOS 15: set additionalSafeAreaInsets on each tab's navigation controller
                 // so content scrolls behind the tab bar with proper mini player clearance.
@@ -233,17 +232,6 @@ public struct MainTabView: View {
         #endif
     }
 
-    /// Keep the older iPhone navigation workaround; iOS 27 supports adaptive sidebars.
-    private var useSidebarAdaptable: Bool {
-        #if os(iOS)
-        if #available(iOS 27.0, *) { return true }
-        if #available(iOS 18.0, *) {
-            return UIDevice.current.userInterfaceIdiom == .pad
-        }
-        #endif
-        return false
-    }
-    
     private var tabBinding: Binding<TabItem> {
         Binding(
             get: { selectedRootTab },
@@ -341,7 +329,9 @@ public struct MainTabView: View {
     ) -> some View {
         Group {
             if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationStack(path: navigationCoordinator.pathBinding(for: tab)) {
+                NavigationStack(path: navigationCoordinator.pathBinding(for: tab, isActive: {
+                    !isAdaptivePhoneRoot || navigationCoordinator.routesHiddenTabsThroughMore
+                })) {
                     tabContentView(for: tab, isMoreRoot: isMoreRoot)
                 }
             } else {
@@ -586,6 +576,10 @@ enum RootSidebarColumnWidth {
 @available(iOS 16.0, macOS 13.0, *)
 public struct SidebarView: View {
     var usesNativeBrowse = false
+    var adaptsToPhone = false
+    var wantsPhoneTabs = false
+    @State private var showsPhoneTabs = false
+    @State private var phoneNavigation = PhoneBrowseNavigation()
     @State private var selectedArtist: DisplayArtist?
     @State private var selectedGenre: DisplayGenre?
     @State private var selectedPlaylist: DisplayPlaylist?
@@ -647,6 +641,8 @@ public struct SidebarView: View {
         viewModels: RootScreenModels,
         selection: Binding<SidebarSelection?>,
         usesNativeBrowse: Bool = false,
+        adaptsToPhone: Bool = false,
+        wantsPhoneTabs: Bool = false,
         rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)? = nil
     ) {
         self.nowPlayingVM = nowPlayingVM
@@ -654,6 +650,8 @@ public struct SidebarView: View {
         self.pinnedVM = viewModels.pinned
         self._selection = selection
         self.usesNativeBrowse = usesNativeBrowse
+        self.adaptsToPhone = adaptsToPhone
+        self.wantsPhoneTabs = wantsPhoneTabs
         self._columnVisibility = State(initialValue: usesNativeBrowse ? .all : .automatic)
         self.rootSidebarChromeRegistrationHandler = rootSidebarChromeRegistrationHandler
     }
@@ -1016,7 +1014,11 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        splitNavigationView
+        adaptiveNavigationView
+        .onChange(of: wantsPhoneTabs) { wantsTabs in
+            updatePhoneLayout(wantsTabs: wantsTabs)
+        }
+        .onAppear { updatePhoneLayout(wantsTabs: wantsPhoneTabs) }
         .onReceive(settingsManager.objectWillChange) { _ in
             updateSettingsSnapshot()
         }
@@ -1178,7 +1180,7 @@ public struct SidebarView: View {
     }
 
     private func publishRootSidebarChromeRegistration(frame: CGRect? = nil, fallbackWidth: CGFloat? = nil) {
-        guard isSidebarChromeVisible else {
+        guard !showsPhoneTabs, isSidebarChromeVisible else {
             rootSidebarChromeRegistrationHandler?(.hidden)
             return
         }
@@ -1416,6 +1418,7 @@ public struct SidebarView: View {
     }
 
     private func setActiveDetailPath(_ newPath: [NavigationCoordinator.Destination]) {
+        guard !adaptsToPhone || !navigationCoordinator.routesHiddenTabsThroughMore else { return }
         switch selection {
         case .library(let tab):
             let currentPath = navigationCoordinator.pathSnapshot(for: tab)
@@ -1500,6 +1503,91 @@ public struct SidebarView: View {
     }
 
     @ViewBuilder
+    private var adaptiveNavigationView: some View {
+        if #available(iOS 18.0, macOS 15.0, *), adaptsToPhone {
+            // This owner retains split selections and scroll anchors across tab/split changes.
+            NativeBrowseScrollState(tab: nativeBrowseTab) {
+                if showsPhoneTabs {
+                    MainTabView(nowPlayingVM: nowPlayingVM, viewModels: viewModels, isAdaptivePhoneRoot: true)
+                } else {
+                    splitNavigationView
+                        // Mirrored iPhone scenes can remain compact even at desktop widths.
+                        .environment(\.horizontalSizeClass, .regular)
+                }
+            }
+        } else {
+            splitNavigationView
+        }
+    }
+
+    private func updatePhoneLayout(wantsTabs: Bool) {
+        guard adaptsToPhone, showsPhoneTabs != wantsTabs else { return }
+        if wantsTabs {
+            var roots: [TabItem: NavigationCoordinator.Destination] = [:]
+            if let selectedArtist { roots[.artists] = .displayArtist(id: selectedArtist.id) }
+            if let selectedGenre { roots[.genres] = .displayGenre(id: selectedGenre.id) }
+            if let selectedPlaylist {
+                roots[.playlists] = selectedPlaylist.isMerged
+                    ? .mergedPlaylist(title: selectedPlaylist.title, isSmart: selectedPlaylist.isSmart)
+                    : .playlistDetail(selectedPlaylist.primaryPlaylist)
+            }
+            phoneNavigation.enterTabs(coordinator: navigationCoordinator, selection: selection, browseRoots: roots, sidebarDestination: compactSidebarDestination)
+            rootSidebarChromeRegistrationHandler?(.hidden)
+        } else {
+            let restored = phoneNavigation.enterSidebar(coordinator: navigationCoordinator)
+            if restored.clearedRoots.contains(.artists) { selectedArtist = nil }
+            if restored.clearedRoots.contains(.genres) { selectedGenre = nil }
+            if restored.clearedRoots.contains(.playlists) { selectedPlaylist = nil }
+            selection = restored.selection
+            promoteCompactBrowseSelection()
+        }
+        showsPhoneTabs = wantsTabs
+    }
+
+    private var compactSidebarDestination: NavigationCoordinator.Destination? {
+        guard case .pin(let id, let sourceKey, let type) = selection,
+              let pin = resolvedPin(id: id, sourceKey: sourceKey, type: type) else {
+            return selection?.compactDestination
+        }
+        switch pin {
+        case .album(let album, _): return .albumDetail(.single(album))
+        case .mergedAlbum(let album, _): return .albumDetail(album)
+        case .artist(let artist, _): return .artistDetail(artist)
+        case .mergedArtist(let artist, _): return .displayArtist(id: artist.id)
+        case .playlist(let playlist, _): return .playlistDetail(playlist)
+        case .mergedPlaylist(let playlist, _): return .mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart)
+        }
+    }
+
+    /// A detail opened while compact becomes the selected row in the wide list.
+    private func promoteCompactBrowseSelection() {
+        guard let tab = nativeBrowseTab,
+              let destination = navigationCoordinator.pathSnapshot(for: tab).first else { return }
+        switch (tab, destination) {
+        case (.artists, .displayArtist(let id)):
+            guard let artist = libraryVM.displayArtists.first(where: { $0.id == id }) else { return }
+            selectedArtist = artist
+        case (.genres, .displayGenre(let id)):
+            guard let genre = libraryVM.genreBrowseSnapshot.displayGenres.first(where: { $0.id == id }) else { return }
+            selectedGenre = genre
+        case (.playlists, .playlistDetail(let playlist, false)):
+            selectedPlaylist = .single(playlist)
+        case (.playlists, .playlist(let id, let sourceKey)):
+            guard let playlist = playlistsVM.playlists.first(where: {
+                $0.id == id && $0.sourceCompositeKey == sourceKey
+            }) else { return }
+            selectedPlaylist = .single(playlist)
+        case (.playlists, .mergedPlaylist(let title, let isSmart)):
+            guard let playlist = playlistsVM.sortedDisplayPlaylists.first(where: {
+                $0.title == title && $0.isSmart == isSmart && $0.isMerged
+            }) else { return }
+            selectedPlaylist = playlist
+        default: return
+        }
+        navigationCoordinator.setPath(Array(navigationCoordinator.pathSnapshot(for: tab).dropFirst()), for: tab)
+    }
+
+    @ViewBuilder
     private var splitNavigationView: some View {
         if #available(iOS 18.0, macOS 15.0, *), usesNativeBrowse {
             nativeExplorerNavigationView
@@ -1520,22 +1608,32 @@ public struct SidebarView: View {
 
     @available(iOS 18.0, macOS 15.0, *)
     private var nativeExplorerNavigationView: some View {
-        NativeBrowseScrollState(tab: nativeBrowseTab) {
-            if let tab = nativeBrowseTab {
-                NativeBrowseSection(
-                    tab: tab, sidebar: sidebarColumn,
-                    nowPlayingVM: nowPlayingVM, viewModels: viewModels,
-                    rootSelection: $selection,
-                    artist: $selectedArtist, genre: $selectedGenre, playlist: $selectedPlaylist,
-                    columnVisibility: $columnVisibility
-                )
-                .id(tab)
+        Group {
+            if adaptsToPhone {
+                nativeExplorerColumns
             } else {
-                splitNavigationViewWithCompactColumn
+                NativeBrowseScrollState(tab: nativeBrowseTab) { nativeExplorerColumns }
             }
         }
         .modifier(NativeBrowseChrome())
         .environment(\.mediaNavigationTransitionNamespace, mediaNavigationNamespace)
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    @ViewBuilder
+    private var nativeExplorerColumns: some View {
+        if let tab = nativeBrowseTab {
+            NativeBrowseSection(
+                tab: tab, sidebar: sidebarColumn,
+                nowPlayingVM: nowPlayingVM, viewModels: viewModels,
+                rootSelection: $selection,
+                artist: $selectedArtist, genre: $selectedGenre, playlist: $selectedPlaylist,
+                columnVisibility: $columnVisibility
+            )
+            .id(tab)
+        } else {
+            splitNavigationViewWithCompactColumn
+        }
     }
 
 
