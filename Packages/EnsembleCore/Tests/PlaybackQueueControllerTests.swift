@@ -552,6 +552,30 @@ final class PlaybackQueueControllerTests: XCTestCase {
         XCTAssertEqual(indices.map { queue[$0].track.id }, ["autoplay-6", "autoplay-7"])
     }
 
+    func testAutoplayFillsOnlyOpenFutureSlotsAndSkipsQueuedTracks() {
+        let queue = [
+            makeItem(id: "current"),
+            makeItem(id: "manual-1"),
+            makeItem(id: "manual-2"),
+            makeItem(id: "queued-recommendation", source: .autoplay),
+        ]
+        let recommendations = [
+            makeTrack(id: "queued-recommendation"),
+            makeTrack(id: "new-1"),
+            makeTrack(id: "new-2"),
+            makeTrack(id: "new-3"),
+        ]
+
+        let tracks = PlaybackQueueController.autoplayTracksToAppend(
+            from: recommendations,
+            queue: queue,
+            currentQueueIndex: 0,
+            maximumFutureCount: 5
+        )
+
+        XCTAssertEqual(tracks.map(\.id), ["new-1", "new-2"])
+    }
+
     func testQueueForPersistenceRemovesOnlyFutureAutoplayItems() {
         let queue = [
             QueueItem(id: "current", track: makeTrack(id: "current"), source: .continuePlaying),

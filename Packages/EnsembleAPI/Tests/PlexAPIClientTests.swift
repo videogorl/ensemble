@@ -69,7 +69,7 @@ final class PlexAPIClientTests: XCTestCase {
 
         let tracks = try await client.getTrackRadio(ratingKey: "123")
 
-        XCTAssertEqual(tracks?.map(\.ratingKey), ["456"])
+        XCTAssertEqual(tracks.map(\.ratingKey), ["456"])
     }
 
     func testDownloadQueueReusesPreparedJobAfterTransientMediaFailure() async throws {

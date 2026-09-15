@@ -566,24 +566,17 @@ public actor PlexAPIClient {
     // MARK: - Radio & Recommendations
 
     /// Creates a fresh Plex Track Radio window and returns its recommendations.
-    public func getTrackRadio(ratingKey: String, limit: Int = 10) async throws -> [PlexTrack]? {
+    public func getTrackRadio(ratingKey: String) async throws -> [PlexTrack] {
         let stationURI = "server://\(serverConnection.identifier)/com.plexapp.plugins.library/library/metadata/\(ratingKey)/station/\(UUID().uuidString)?type=10&includeSharedContent=1&maxDegreesOfSeparation=-1"
-        do {
-            let data = try await serverRequestPOST(
-                path: "/playQueues",
-                query: ["type": "audio", "uri": stationURI]
-            )
-            let container = try JSONDecoder().decode(
-                PlexMediaContainer<PlexTrack>.self,
-                from: data
-            )
-            return Array(container.mediaContainer.items
-                .filter { $0.ratingKey != ratingKey }
-                .prefix(max(0, limit)))
-        } catch {
-            EnsembleLogger.debug("Track Radio request failed: \(error.localizedDescription)")
-            return nil
-        }
+        let data = try await serverRequestPOST(
+            path: "/playQueues",
+            query: ["type": "audio", "uri": stationURI]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexTrack>.self,
+            from: data
+        )
+        return container.mediaContainer.items.filter { $0.ratingKey != ratingKey }
     }
 
     /// Fetch lyrics without XML/JSON transformation. Local sidecar chord files need

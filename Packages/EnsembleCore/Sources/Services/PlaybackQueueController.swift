@@ -405,6 +405,22 @@ final class PlaybackQueueController {
         return Array(autoplayIndices.dropFirst(max(0, maximumCount)))
     }
 
+    static func autoplayTracksToAppend(
+        from recommendations: [Track],
+        queue: [QueueItem],
+        currentQueueIndex: Int,
+        maximumFutureCount: Int
+    ) -> [Track] {
+        let futureCount = max(0, queue.count - currentQueueIndex - 1)
+        let openSlots = max(0, maximumFutureCount - futureCount)
+        guard openSlots > 0 else { return [] }
+
+        let existingTrackIDs = Set(queue.map { $0.track.playbackIdentity })
+        return Array(recommendations.lazy
+            .filter { !existingTrackIDs.contains($0.playbackIdentity) }
+            .prefix(openSlots))
+    }
+
     static func pruneFutureAutoplayItems(
         queue: [QueueItem],
         currentQueueIndex: Int

@@ -648,12 +648,11 @@ public actor EnsemblePlexCatalogService {
         in libraries: [EnsemblePlexLibrary],
         limit: Int = 10
     ) async throws -> [EnsembleTrack] {
-        guard let library = Self.library(for: track.sourceKey, in: libraries),
-              let recommendations = try await EnsemblePlexDiscoveryService.client(for: library)
-                .getTrackRadio(ratingKey: track.id, limit: limit) else {
-            return []
-        }
-        return recommendations.map { $0.watchTrack(sourceKey: track.sourceKey) }
+        guard let library = Self.library(for: track.sourceKey, in: libraries) else { return [] }
+        return try await EnsemblePlexDiscoveryService.client(for: library)
+            .getTrackRadio(ratingKey: track.id)
+            .prefix(max(0, limit))
+            .map { $0.watchTrack(sourceKey: track.sourceKey) }
     }
 
     public func playlistTargets(in libraries: [EnsemblePlexLibrary]) async throws -> [EnsemblePlexPlaylistTarget] {

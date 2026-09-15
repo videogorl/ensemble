@@ -4505,136 +4505,64 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func refreshAutoplayQueue() async {
-        EnsembleLogger.debug("\n🔄 ═══════════════════════════════════════════════════════════")
-        EnsembleLogger.debug("🔄 PlaybackService.refreshAutoplayQueue() called")
-        EnsembleLogger.debug("📊 State:")
-        EnsembleLogger.debug("  - isAutoplayEnabled: \(isAutoplayEnabled)")
-        EnsembleLogger.debug("  - Queue size: \(queue.count)")
-        EnsembleLogger.debug("  - Current index: \(currentQueueIndex)")
-        EnsembleLogger.debug("  - Current autoplayTracks: \(autoplayTracks.count)")
-
-        guard isAutoplayEnabled else {
-            EnsembleLogger.debug("❌ Early return: autoplay not enabled")
-            EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
-            return
-        }
+        guard isAutoplayEnabled else { return }
 
         removeDuplicateFutureAutoplayItemsIfNeeded(shouldInvalidateGaplessSchedule: true)
-
-        // First, trim any excess auto-generated tracks that may have accumulated
         trimAutoplayQueue()
 
-        // Check if we already have enough upcoming tracks queued
         let futureTracksCount = max(0, queue.count - currentQueueIndex - 1)
-        if futureTracksCount >= maxQueueLookahead {
-            EnsembleLogger.debug("⚠️ Queue already has \(futureTracksCount) future tracks (max: \(maxQueueLookahead))")
-            EnsembleLogger.debug("   Skipping refresh to maintain queue limit")
-            EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
-            return
-        }
-        EnsembleLogger.debug("   Future tracks: \(futureTracksCount)/\(maxQueueLookahead)")
+        guard futureTracksCount < maxQueueLookahead else { return }
 
-        // Determine the seed track: use last non-autoplay track in queue
-        // This ensures autoplay generates from the last "real" track
-        let seedTrack: Track?
+        let seedTrack: Track
+        let seedQueueItemID: String?
         if let lastRealIdx = lastRealTrackIndex {
             seedTrack = queue[lastRealIdx].track
-            EnsembleLogger.debug("\n🎵 Seed track selection:")
-            EnsembleLogger.debug("  - Method: Last non-autoplay track in queue")
-            EnsembleLogger.debug("  - Title: \(seedTrack?.title ?? "nil")")
-            EnsembleLogger.debug("  - ID: \(seedTrack?.id ?? "nil")")
-            EnsembleLogger.debug("  - sourceCompositeKey: \(seedTrack?.sourceCompositeKey ?? "nil")")
+            seedQueueItemID = queue[lastRealIdx].id
         } else if let currentTrack = currentTrack {
             seedTrack = currentTrack
-            EnsembleLogger.debug("\n🎵 Seed track selection:")
-            EnsembleLogger.debug("  - Method: Current track (no non-autoplay tracks in queue)")
-            EnsembleLogger.debug("  - Title: \(seedTrack?.title ?? "nil")")
-            EnsembleLogger.debug("  - sourceCompositeKey: \(seedTrack?.sourceCompositeKey ?? "nil")")
+            seedQueueItemID = nil
         } else {
-            seedTrack = nil
-            EnsembleLogger.debug("\n🎵 Seed track selection: FAILED - no queue or current track")
-        }
-
-        guard let seedTrack = seedTrack else {
-            EnsembleLogger.debug("\n❌ Early return: no seed track available")
-            EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
             return
         }
 
-        // Get radio provider for seed track's source
-        guard let sourceKey = seedTrack.sourceCompositeKey else {
-            EnsembleLogger.debug("\n❌ Early return: Seed track has NO sourceCompositeKey")
-            EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
-            return
-        }
-        EnsembleLogger.debug("\n✅ Seed track has sourceCompositeKey: \(sourceKey)")
-
-        EnsembleLogger.debug("\n🔄 Creating radio provider...")
-        // sourceCompositeKey is already in format: sourceType:accountId:serverId:libraryId
+        guard let sourceKey = seedTrack.sourceCompositeKey else { return }
         guard let provider = await MainActor.run(body: {
             syncCoordinator.makeRadioProvider(for: sourceKey)
-        }) else {
-            EnsembleLogger.debug("❌ Early return: makeRadioProvider returned nil for key: \(sourceKey)")
-            EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
+        }) else { return }
+
+        let recommendations = await provider.getRecommendedTracks(basedOn: seedTrack, limit: 10)
+        guard !Task.isCancelled, isAutoplayEnabled else { return }
+        if let seedQueueItemID {
+            guard lastRealTrackIndex.map({ queue[$0].id }) == seedQueueItemID else {
+                EnsembleLogger.debug("Discarding Track Radio response after queue boundary changed")
+                return
+            }
+        } else {
+            guard currentTrack?.playbackIdentity == seedTrack.playbackIdentity else {
+                EnsembleLogger.debug("Discarding Track Radio response after current track changed")
+                return
+            }
+        }
+        guard let tracks = recommendations else {
+            autoplayTracks = []
+            recommendationsExhausted = true
             return
         }
-        EnsembleLogger.debug("✅ Radio provider created successfully")
+        guard max(0, queue.count - currentQueueIndex - 1) < maxQueueLookahead else { return }
 
-        // Always use sonically similar for continuous radio (like Plexamp)
-        EnsembleLogger.debug("\n🔄 Calling provider.getRecommendedTracks()...")
-        EnsembleLogger.debug("  - Seed: \(seedTrack.title) (id: \(seedTrack.id))")
-        EnsembleLogger.debug("  - Limit: 10 (fetching extra to filter duplicates)")
-        // Ask for more than we need since we'll filter out any already in queue
-        let recommendations = await provider.getRecommendedTracks(basedOn: seedTrack, limit: 10)
+        let newTracks = PlaybackQueueController.autoplayTracksToAppend(
+            from: tracks,
+            queue: queue,
+            currentQueueIndex: currentQueueIndex,
+            maximumFutureCount: maxQueueLookahead
+        )
 
-        if let tracks = recommendations {
-            EnsembleLogger.debug("\n✅ Got recommendations: \(tracks.count) tracks")
-
-            // Filter out tracks already in queue
-            let existingQueueIds = Set(queue.map { $0.track.playbackIdentity })
-            let uniqueNewTracks = tracks.filter { track in
-                !existingQueueIds.contains(track.playbackIdentity)
-            }
-
-            if uniqueNewTracks.isEmpty {
-                EnsembleLogger.debug("⚠️ All recommended tracks already in queue")
-                recommendationsExhausted = true
-            } else {
-                for track in uniqueNewTracks.prefix(3) {
-                    EnsembleLogger.debug("  ✅ Adding to queue: \(track.title) by \(track.artistName ?? "Unknown")")
-                }
-                if uniqueNewTracks.count > 3 {
-                    EnsembleLogger.debug("  ... and \(uniqueNewTracks.count - 3) more tracks")
-                }
-
-                // Add as autoplay items (appended to end of queue)
-                EnsembleLogger.debug("\n🔄 Adding \(uniqueNewTracks.count) autoplay tracks to queue...")
-                for track in uniqueNewTracks {
-                    let item = makeQueueItem(track: track, source: .autoplay)
-                    queue.append(item)
-                    queueController.markAutoGeneratedTrack(id: track.playbackIdentity)
-                }
-                EnsembleLogger.debug("✅ Queue now has \(queue.count) total tracks")
-
-                // Trim if we exceeded the limit
-                trimAutoplayQueue()
-                recommendationsExhausted = false
-            }
-
-            // Also keep autoplayTracks as a buffer for continuous playback
-            autoplayTracks = tracks
-            EnsembleLogger.debug("\n✅ SUCCESS - \(uniqueNewTracks.count) new auto-generated tracks added to queue")
-        } else {
-            EnsembleLogger.debug("\n❌ provider.getRecommendedTracks() returned nil")
-            EnsembleLogger.debug("   This could mean:")
-            EnsembleLogger.debug("   1. Track Radio play queue request failed")
-            EnsembleLogger.debug("   2. The server has no sonic analysis for this track")
-            EnsembleLogger.debug("   3. Network error or permission issue")
-            autoplayTracks = []
-            // Mark recommendations as exhausted if API returns nothing
-            recommendationsExhausted = true
+        autoplayTracks = tracks
+        recommendationsExhausted = newTracks.isEmpty
+        for track in newTracks {
+            queue.append(makeQueueItem(track: track, source: .autoplay))
+            queueController.markAutoGeneratedTrack(id: track.playbackIdentity)
         }
-        EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
     }
 
     static func autoplayAdvanceIndex(
