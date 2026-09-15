@@ -565,71 +565,23 @@ public actor PlexAPIClient {
 
     // MARK: - Radio & Recommendations
 
-    /// Get sonically similar tracks for radio recommendations
-    /// Returns nil if sonic analysis not performed or Plex Pass not active
-    /// - Parameters:
-    ///   - ratingKey: The track's rating key to find similar tracks for
-    ///   - limit: Maximum number of similar tracks to return (default: 50)
-    ///   - maxDistance: Maximum sonic distance (0.0-1.0, default: 0.25). Lower = more similar
-    public func getSimilarTracks(
-        ratingKey: String,
-        limit: Int = 50,
-        maxDistance: Double = 0.25
-    ) async throws -> [PlexTrack]? {
-        EnsembleLogger.debug("\n🎵 PlexAPIClient.getSimilarTracks()")
-        EnsembleLogger.debug("  - ratingKey: \(ratingKey)")
-        EnsembleLogger.debug("  - limit: \(limit)")
-        EnsembleLogger.debug("  - maxDistance: \(maxDistance)")
-
-        let path = "/library/metadata/\(ratingKey)/nearest"
-        let query = [
-            "limit": String(limit),
-            "maxDistance": String(maxDistance)
-        ]
-        EnsembleLogger.debug("  - path: \(path)")
-        EnsembleLogger.debug("  - query: \(query)")
-
+    /// Creates a fresh Plex Track Radio window and returns its recommendations.
+    public func getTrackRadio(ratingKey: String, limit: Int = 10) async throws -> [PlexTrack]? {
+        let stationURI = "server://\(serverConnection.identifier)/com.plexapp.plugins.library/library/metadata/\(ratingKey)/station/\(UUID().uuidString)?type=10&includeSharedContent=1&maxDegreesOfSeparation=-1"
         do {
-            EnsembleLogger.debug("🔄 Making serverRequest...")
-            let data = try await serverRequest(path: path, query: query)
-            EnsembleLogger.debug("✅ Received response data (\(data.count) bytes)")
-            
-            EnsembleLogger.debug("🔄 Decoding JSON...")
+            let data = try await serverRequestPOST(
+                path: "/playQueues",
+                query: ["type": "audio", "uri": stationURI]
+            )
             let container = try JSONDecoder().decode(
                 PlexMediaContainer<PlexTrack>.self,
                 from: data
             )
-            let tracks = container.mediaContainer.items
-            EnsembleLogger.debug("✅ Successfully decoded \(tracks.count) PlexTrack objects")
-            
-            if tracks.isEmpty {
-                EnsembleLogger.debug("⚠️ WARNING: API returned empty track list (no sonic analysis available)")
-            } else {
-                // Log first few results as confirmation
-                for track in tracks.prefix(3) {
-                    EnsembleLogger.debug("  ✅ Recommended: \(track.title) by \(track.grandparentTitle ?? "Unknown")")
-                }
-                if tracks.count > 3 {
-                    EnsembleLogger.debug("  ... and \(tracks.count - 3) more tracks")
-                }
-            }
-            
-            return tracks
+            return Array(container.mediaContainer.items
+                .filter { $0.ratingKey != ratingKey }
+                .prefix(max(0, limit)))
         } catch {
-            EnsembleLogger.debug("❌ Error in getSimilarTracks:")
-            EnsembleLogger.debug("   Type: \(type(of: error))")
-            EnsembleLogger.debug("   Message: \(error.localizedDescription)")
-            
-            let nsError = error as NSError
-            EnsembleLogger.debug("   NSError domain: \(nsError.domain)")
-            EnsembleLogger.debug("   Code: \(nsError.code)")
-            EnsembleLogger.debug("   UserInfo: \(nsError.userInfo)")
-            
-            // Check if it's a 404 (no sonic analysis)
-            if let urlError = error as? URLError, urlError.code == .fileDoesNotExist {
-                EnsembleLogger.debug("   → This is a 404: No sonic analysis available for this track")
-            }
-            
+            EnsembleLogger.debug("Track Radio request failed: \(error.localizedDescription)")
             return nil
         }
     }

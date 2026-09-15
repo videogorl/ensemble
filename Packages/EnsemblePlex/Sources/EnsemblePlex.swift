@@ -650,7 +650,7 @@ public actor EnsemblePlexCatalogService {
     ) async throws -> [EnsembleTrack] {
         guard let library = Self.library(for: track.sourceKey, in: libraries),
               let recommendations = try await EnsemblePlexDiscoveryService.client(for: library)
-                .getSimilarTracks(ratingKey: track.id, limit: limit) else {
+                .getTrackRadio(ratingKey: track.id, limit: limit) else {
             return []
         }
         return recommendations.map { $0.watchTrack(sourceKey: track.sourceKey) }

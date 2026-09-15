@@ -29,18 +29,16 @@ public final class PlexRadioProvider: MusicSourceRadioProviding, @unchecked Send
         EnsembleLogger.debug("  - limit: \(limit)")
         
         do {
-            EnsembleLogger.debug("🔄 Calling apiClient.getSimilarTracks()...")
-            // Use Plex's /nearest endpoint for sonic recommendations
-            guard let plexTracks = try await apiClient.getSimilarTracks(
+            EnsembleLogger.debug("🔄 Calling apiClient.getTrackRadio()...")
+            guard let plexTracks = try await apiClient.getTrackRadio(
                 ratingKey: track.id,
-                limit: limit,
-                maxDistance: 0.25  // Lower = more similar (0.0-1.0)
+                limit: limit
             ) else {
-                EnsembleLogger.debug("⚠️ getSimilarTracks returned nil (no sonic analysis available)")
+                EnsembleLogger.debug("⚠️ getTrackRadio returned nil")
                 return nil
             }
 
-            EnsembleLogger.debug("✅ getSimilarTracks returned \(plexTracks.count) plex tracks")
+            EnsembleLogger.debug("✅ getTrackRadio returned \(plexTracks.count) plex tracks")
             
             // Convert PlexTrack to Track domain models
             let tracks = plexTracks.map { Track(from: $0, sourceKey: sourceKey) }

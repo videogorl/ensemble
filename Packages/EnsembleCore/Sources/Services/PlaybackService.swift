@@ -4627,7 +4627,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         } else {
             EnsembleLogger.debug("\n❌ provider.getRecommendedTracks() returned nil")
             EnsembleLogger.debug("   This could mean:")
-            EnsembleLogger.debug("   1. getSimilarTracks API call failed")
+            EnsembleLogger.debug("   1. Track Radio play queue request failed")
             EnsembleLogger.debug("   2. The server has no sonic analysis for this track")
             EnsembleLogger.debug("   3. Network error or permission issue")
             autoplayTracks = []

@@ -44,6 +44,34 @@ private final class PlexAPIClientURLProtocol: URLProtocol {
 
 final class PlexAPIClientTests: XCTestCase {
 
+    func testTrackRadioCreatesFreshStationAndOmitsSeed() async throws {
+        PlexAPIClientURLProtocol.install { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/playQueues")
+
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+            XCTAssertEqual(query?.first(where: { $0.name == "type" })?.value, "audio")
+            let uri = try XCTUnwrap(query?.first(where: { $0.name == "uri" })?.value)
+            XCTAssertTrue(uri.hasPrefix("server://server/com.plexapp.plugins.library/library/metadata/123/station/"))
+            XCTAssertTrue(uri.hasSuffix("?type=10&includeSharedContent=1&maxDegreesOfSeparation=-1"))
+
+            return (200, Data(#"{"MediaContainer":{"Metadata":[{"ratingKey":"123","key":"/library/metadata/123","title":"Seed"},{"ratingKey":"456","key":"/library/metadata/456","title":"Recommendation"}]}}"#.utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(url: "https://example.com", token: "test", identifier: "server", name: "Server"),
+            keychain: TestKeychain(),
+            urlSession: session
+        )
+
+        let tracks = try await client.getTrackRadio(ratingKey: "123")
+
+        XCTAssertEqual(tracks?.map(\.ratingKey), ["456"])
+    }
+
     func testDownloadQueueReusesPreparedJobAfterTransientMediaFailure() async throws {
         let lock = NSLock()
         var adds = 0
