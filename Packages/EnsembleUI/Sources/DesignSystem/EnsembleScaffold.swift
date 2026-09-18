@@ -667,8 +667,7 @@ public extension View {
     func ensembleBrowseToolbarMinimization() -> some View {
         #if os(iOS)
         if #available(iOS 27.0, *) {
-            toolbarMinimizationBehavior(.onScrollDown, for: .navigationBar)
-                .toolbarMinimizationRestoration(.atScrollEdge, for: .navigationBar)
+            toolbarMinimizationBehavior(.never, for: .navigationBar)
         } else {
             self
         }
