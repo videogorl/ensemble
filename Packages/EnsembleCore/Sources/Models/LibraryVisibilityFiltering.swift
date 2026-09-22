@@ -21,7 +21,21 @@ extension Playlist: LibraryVisibilitySourceIdentifiable {
     func isHidden(in snapshot: HiddenMediaSnapshot) -> Bool { snapshot.isHidden(self) }
 }
 
-enum LibraryVisibilityFiltering {
+public enum LibraryVisibilityFiltering {
+    public static func visibleArtists(
+        _ artists: [Artist],
+        hiddenSourceCompositeKeys: Set<String>,
+        sourceConfiguration: SourceConfigurationSnapshot?,
+        hiddenMedia: HiddenMediaSnapshot
+    ) -> [Artist] {
+        visibleItems(
+            artists,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: sourceConfiguration,
+            hiddenMedia: hiddenMedia
+        )
+    }
+
     static func visibleItems<Item: LibraryVisibilitySourceIdentifiable>(
         _ items: [Item],
         hiddenSourceCompositeKeys: Set<String>,

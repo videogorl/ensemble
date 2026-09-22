@@ -1455,7 +1455,7 @@ public struct SidebarView: View {
             case .mergedAlbum(let displayAlbum, _):
                 AlbumDetailView(displayAlbum: displayAlbum, nowPlayingVM: nowPlayingVM)
             case .artist(let artist, _):
-                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+                ArtistDetailLoader(artist: artist, nowPlayingVM: nowPlayingVM)
             case .mergedArtist(let displayArtist, _):
                 ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
             case .playlist(let playlist, _):

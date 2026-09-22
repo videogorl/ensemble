@@ -69,7 +69,7 @@ struct NavigationDestinationFactory {
                 EnsembleStateScaffold(kind: .empty, title: "Genre not found")
             }
         case .artistDetail(let artist, let includesHidden):
-            let detailView = ArtistDetailView(
+            let detailView = ArtistDetailLoader(
                 artist: artist,
                 nowPlayingVM: nowPlayingVM,
                 includesHidden: includesHidden
