@@ -10,20 +10,9 @@ struct RootMiniPlayerOverlay: View {
     var surfaceStyle: MiniPlayer.SurfaceStyle = .automatic
     let presentNowPlaying: () -> Void
 
-    private var miniPlayerHeight: CGFloat {
-        max(
-            EnsembleScaffold.MiniPlayer.artworkDimension,
-            EnsembleScaffold.MiniPlayer.largeRowMinimumHeight
-        ) + (TrackListLayoutMetrics.rowVerticalPadding * 2)
-    }
-
     var body: some View {
         let miniPlayerWidth = min(620, max(layout.frame.width - 28, 0))
         let usesExpandedLayout = miniPlayerWidth >= 500
-        let miniPlayerPosition = miniPlayerPosition(
-            for: layout,
-            miniPlayerHeight: miniPlayerHeight
-        )
 
         if layout.showsMiniPlayer && layout.hasRenderableFrame && miniPlayerWidth > 0 {
             MiniPlayer(
@@ -43,7 +32,13 @@ struct RootMiniPlayerOverlay: View {
             }
             .accentColor(accentColor)
             .frame(width: miniPlayerWidth)
-            .position(miniPlayerPosition)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(
+                width: layout.frame.width,
+                height: max(0, layout.frame.maxY - layout.bottomPadding),
+                alignment: .bottom
+            )
+            .offset(x: layout.frame.minX + layout.horizontalOffset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .transaction { transaction in
                 transaction.animation = nil
@@ -52,15 +47,4 @@ struct RootMiniPlayerOverlay: View {
             .transition(.identity)
         }
     }
-
-    private func miniPlayerPosition(
-        for layout: RootChromeLayout,
-        miniPlayerHeight: CGFloat
-    ) -> CGPoint {
-        CGPoint(
-            x: layout.frame.midX + layout.horizontalOffset,
-            y: layout.frame.maxY - layout.bottomPadding - (miniPlayerHeight / 2)
-        )
-    }
-
 }
