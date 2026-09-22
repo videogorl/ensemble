@@ -19,7 +19,7 @@ struct RootMiniPlayerOverlay: View {
                 viewModel: nowPlayingVM,
                 isFloating: true,
                 showsWaveform: usesExpandedLayout,
-                waveformColor: accentColor,
+                waveformColor: .accentColor,
                 horizontalPadding: usesExpandedLayout ? 20 : 8,
                 surfaceStyle: surfaceStyle,
                 usesGlassEffectIdentity: false,

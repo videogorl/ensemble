@@ -3,6 +3,33 @@ import XCTest
 
 @MainActor
 final class LibraryVisibilityProfileTests: XCTestCase {
+    func testServerIsolationPreservesOtherPreferencesAndFocus() {
+        let suiteName = "LibraryVisibilityProfileTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = LibraryVisibilityStore(userDefaults: defaults)
+        let selected = "plex:a:server:music"
+        let sibling = "plex:a:server:classical"
+        let otherServer = "plex:a:other:music"
+        let otherAccount = "plex:b:server:music"
+        let enabled: Set<String> = [selected, sibling, otherServer, otherAccount]
+
+        for initialHidden: Set<String> in [[], [selected, sibling]] {
+            store.setHiddenSourceCompositeKeys(initialHidden.union(["disabled-source"]))
+            store.showOnlyServer(containing: selected, enabledSourceCompositeKeys: enabled)
+            let expected: Set<String> = [otherServer, otherAccount, "disabled-source"]
+            XCTAssertEqual(store.hiddenSourceCompositeKeys, expected)
+            XCTAssertEqual(LibraryVisibilityStore(userDefaults: defaults).hiddenSourceCompositeKeys, expected)
+            store.showOnlyServer(containing: "malformed", enabledSourceCompositeKeys: enabled)
+            XCTAssertEqual(store.hiddenSourceCompositeKeys, expected)
+        }
+
+        store.setFocusVisibleSourceCompositeKeys([otherServer])
+        let hidden = store.hiddenSourceCompositeKeys
+        store.showOnlyServer(containing: otherServer, enabledSourceCompositeKeys: enabled)
+        XCTAssertEqual(store.hiddenSourceCompositeKeys, hidden)
+    }
+
     func testFocusAllowlistTemporarilyOverridesManualVisibility() {
         let suiteName = "LibraryVisibilityProfileTests.\(UUID().uuidString)"
         guard let userDefaults = UserDefaults(suiteName: suiteName) else {

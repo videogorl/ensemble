@@ -81,7 +81,11 @@ public struct AuroraVisualizationView: View {
         #endif
         self.playbackService = playbackService
         self.consumer = consumer
+        #if os(macOS)
+        self.accentColor = .accentColor
+        #else
         self.accentColor = accentColor
+        #endif
         self.isPaused = isPaused
         self.isLowPowerMode = isLowPowerMode
         self.expandsBeyondBounds = expandsBeyondBounds

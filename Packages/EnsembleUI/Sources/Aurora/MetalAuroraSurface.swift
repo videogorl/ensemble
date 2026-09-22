@@ -35,9 +35,14 @@ struct MetalAuroraSurface: View {
     let poolHeight: CGFloat
 
     var body: some View {
+        #if os(macOS)
+        let renderColor = Color.white
+        #else
+        let renderColor = accentColor
+        #endif
         Representable(
             renderModel: renderModel,
-            accentColor: accentColor,
+            accentColor: renderColor,
             colorScheme: colorScheme,
             preferredFrameInterval: preferredFrameInterval,
             isPaused: isPaused,
@@ -49,6 +54,10 @@ struct MetalAuroraSurface: View {
             minHeight: minHeight,
             poolHeight: poolHeight
         )
+        #if os(macOS)
+        // Resolve the native accent in SwiftUI, including the user's macOS override.
+        .colorMultiply(accentColor)
+        #endif
     }
 }
 

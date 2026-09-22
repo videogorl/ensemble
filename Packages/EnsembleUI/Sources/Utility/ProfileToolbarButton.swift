@@ -165,6 +165,15 @@ public struct ProfileToolbarButton: View {
             isOn: Binding(
                 get: { !effectiveHiddenSourceKeys.contains(source.compositeKey) },
                 set: {
+                    #if os(macOS)
+                    if NSEvent.modifierFlags.contains(.option) {
+                        visibilityStore.showOnlyServer(
+                            containing: source.compositeKey,
+                            enabledSourceCompositeKeys: enabledSourceKeys
+                        )
+                        return
+                    }
+                    #endif
                     visibilityStore.setSourceVisibility(
                         sourceCompositeKey: source.compositeKey,
                         isVisible: $0

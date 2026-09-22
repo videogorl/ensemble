@@ -177,6 +177,20 @@ public final class LibraryVisibilityStore: ObservableObject {
         persist()
     }
 
+    public func showOnlyServer(
+        containing sourceCompositeKey: String,
+        enabledSourceCompositeKeys: Set<String>
+    ) {
+        guard !isFocusFilterEnabled else { return }
+        let serverSources = enabledSourceCompositeKeys.filter {
+            MediaSourceIdentity.isSameServer($0, sourceCompositeKey)
+        }
+        guard !serverSources.isEmpty else { return }
+        setHiddenSourceCompositeKeys(
+            hiddenSourceCompositeKeys.union(enabledSourceCompositeKeys).subtracting(serverSources)
+        )
+    }
+
     private func persist() {
         if let encoded = try? encoder.encode(profiles) {
             userDefaults.set(encoded, forKey: profilesKey)

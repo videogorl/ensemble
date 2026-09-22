@@ -238,7 +238,7 @@ public struct MainTabView: View {
             set: { handleTabTap($0) }
         )
     }
-    
+
     private func handleTabTap(_ tag: TabItem) {
         markTabInteraction()
 
@@ -319,7 +319,7 @@ public struct MainTabView: View {
             navigationCoordinator.selectedTab = .settings
         }
     }
-    
+
     @ViewBuilder
     private func tabRootView(
         for tab: TabItem,
@@ -1199,52 +1199,56 @@ public struct SidebarView: View {
 
     private var sidebarColumn: some View {
         List(selection: sidebarSelectionBinding) {
-            // Search always appears first
-            sidebarLibraryRow("Search", systemImage: EnsembleDesign.Icon.search, tab: .search)
+            Group {
+                // Search always appears first
+                sidebarLibraryRow("Search", systemImage: EnsembleDesign.Icon.search, tab: .search)
 
-            // Library section (non-collapsible)
-            Section("Library") {
-                sidebarLibraryRow("Home", systemImage: EnsembleDesign.Icon.home, tab: .home)
-                sidebarLibraryRow("Songs", systemImage: EnsembleDesign.Icon.musicNote, tab: .songs)
-                sidebarLibraryRow("Artists", systemImage: EnsembleDesign.Icon.artist, tab: .artists)
-                sidebarLibraryRow("Albums", systemImage: EnsembleDesign.Icon.album, tab: .albums)
-                sidebarLibraryRow("Genres", systemImage: EnsembleDesign.Icon.genreEmpty, tab: .genres)
-                sidebarLibraryRow("Favorites", systemImage: EnsembleDesign.Icon.favoriteFilled, tab: .favorites)
-                Label("Hidden", systemImage: "eye.slash")
-                    .tag(SidebarSelection.hidden)
-                    .sidebarAccessibilityAction { selectSidebar(.hidden) }
-            }
+                // Library section (non-collapsible)
+                Section("Library") {
+                    sidebarLibraryRow("Home", systemImage: EnsembleDesign.Icon.home, tab: .home)
+                    sidebarLibraryRow("Songs", systemImage: EnsembleDesign.Icon.musicNote, tab: .songs)
+                    sidebarLibraryRow("Artists", systemImage: EnsembleDesign.Icon.artist, tab: .artists)
+                    sidebarLibraryRow("Albums", systemImage: EnsembleDesign.Icon.album, tab: .albums)
+                    sidebarLibraryRow("Genres", systemImage: EnsembleDesign.Icon.genreEmpty, tab: .genres)
+                    sidebarLibraryRow("Favorites", systemImage: EnsembleDesign.Icon.favoriteFilled, tab: .favorites)
+                    Label("Hidden", systemImage: "eye.slash")
+                        .tag(SidebarSelection.hidden)
+                        .sidebarAccessibilityAction { selectSidebar(.hidden) }
+                }
 
-            // Pins section (collapsible — native Section header style)
-            if !pinnedVM.resolvedPins.isEmpty {
-                collapsibleSidebarSection("Pins", isExpanded: $isPinsExpanded) {
-                    ForEach(pinnedVM.resolvedPins) { pin in
-                        sidebarPinRow(pin)
-                    }
-                    .onMove { source, destination in
-                        pinnedVM.move(fromOffsets: source, toOffset: destination)
+                // Pins section (collapsible — native Section header style)
+                if !pinnedVM.resolvedPins.isEmpty {
+                    collapsibleSidebarSection("Pins", isExpanded: $isPinsExpanded) {
+                        ForEach(pinnedVM.resolvedPins) { pin in
+                            sidebarPinRow(pin)
+                        }
+                        .onMove { source, destination in
+                            pinnedVM.move(fromOffsets: source, toOffset: destination)
+                        }
                     }
                 }
-            }
 
-            // Smart Playlists section (collapsible)
-            if !cachedSmartPlaylists.isEmpty {
-                collapsibleSidebarSection("Smart Playlists", isExpanded: $isSmartPlaylistsExpanded) {
-                    ForEach(cachedSmartPlaylists) { playlist in
+                // Smart Playlists section (collapsible)
+                if !cachedSmartPlaylists.isEmpty {
+                    collapsibleSidebarSection("Smart Playlists", isExpanded: $isSmartPlaylistsExpanded) {
+                        ForEach(cachedSmartPlaylists) { playlist in
+                            sidebarPlaylistRow(playlist)
+                        }
+                    }
+                }
+
+                // Playlists section (collapsible)
+                collapsibleSidebarSection("Playlists", isExpanded: $isPlaylistsExpanded) {
+                    sidebarLibraryRow("All Playlists", systemImage: EnsembleDesign.Icon.playlist, tab: .playlists)
+
+                    ForEach(cachedRegularPlaylists) { playlist in
                         sidebarPlaylistRow(playlist)
                     }
                 }
             }
-
-            // Playlists section (collapsible)
-            collapsibleSidebarSection("Playlists", isExpanded: $isPlaylistsExpanded) {
-                sidebarLibraryRow("All Playlists", systemImage: EnsembleDesign.Icon.playlist, tab: .playlists)
-
-                ForEach(cachedRegularPlaylists) { playlist in
-                    sidebarPlaylistRow(playlist)
-                }
-            }
-
+            #if os(macOS)
+            .listItemTint(.preferred(accentColor.color))
+            #endif
         }
         .listStyle(.sidebar)
         .accessibilityIdentifier("sidebar.browse")
