@@ -158,7 +158,7 @@ public final class PlaylistMutationWorkflow {
     public func addTracks(
         _ tracks: [Track],
         to playlist: Playlist,
-        tapHandler: (() -> Void)? = nil
+        openPlaylist: (() -> Void)? = nil
     ) async throws -> PlaylistAddWorkflowResult {
         let (resultOrNil, outcome) = try await mutator.addTracksToPlaylist(tracks, playlist: playlist)
 
@@ -174,14 +174,14 @@ public final class PlaylistMutationWorkflow {
         return PlaylistAddWorkflowResult(
             mutationResult: result,
             outcome: outcome,
-            toast: addToast(playlist: playlist, result: result, tapHandler: tapHandler)
+            toast: addToast(playlist: playlist, result: result, openPlaylist: openPlaylist)
         )
     }
 
     public func addTracksOptimistically(
         _ tracks: [Track],
         to playlist: Playlist,
-        tapHandler: (() -> Void)? = nil
+        openPlaylist: (() -> Void)? = nil
     ) async throws -> PlaylistOptimisticAddWorkflowResult {
         guard !tracks.isEmpty else {
             throw PlaylistMutationError.emptySelection
@@ -194,7 +194,7 @@ public final class PlaylistMutationWorkflow {
                 playlist: playlist,
                 addedCount: tracks.count,
                 outcome: outcome,
-                tapHandler: tapHandler
+                openPlaylist: openPlaylist
             )
         )
     }
@@ -512,7 +512,7 @@ public final class PlaylistMutationWorkflow {
     private func addToast(
         playlist: Playlist,
         result: PlaylistMutationResult,
-        tapHandler: (() -> Void)?
+        openPlaylist: (() -> Void)?
     ) -> ToastPayload {
         if result.skippedCount > 0 {
             return ToastPayload(
@@ -520,7 +520,7 @@ public final class PlaylistMutationWorkflow {
                 iconSystemName: Icon.warning,
                 title: "Added to \(playlist.title)",
                 message: "Added \(result.addedCount), skipped \(result.skippedCount) incompatible.",
-                tapHandler: tapHandler,
+                action: openPlaylist.map { ToastAction(title: "View", handler: $0) },
                 dedupeKey: "playlist-add-\(playlist.id)"
             )
         }
@@ -530,7 +530,7 @@ public final class PlaylistMutationWorkflow {
             iconSystemName: Icon.success,
             title: "Added to \(playlist.title)",
             message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
-            tapHandler: tapHandler,
+            action: openPlaylist.map { ToastAction(title: "View", handler: $0) },
             dedupeKey: "playlist-add-\(playlist.id)"
         )
     }
@@ -539,7 +539,7 @@ public final class PlaylistMutationWorkflow {
         playlist: Playlist,
         addedCount: Int,
         outcome: MutationOutcome,
-        tapHandler: (() -> Void)?
+        openPlaylist: (() -> Void)?
     ) -> ToastPayload {
         if outcome == .queued {
             return queuedAddToast(playlist: playlist)
@@ -550,7 +550,7 @@ public final class PlaylistMutationWorkflow {
             iconSystemName: Icon.success,
             title: "Added to \(playlist.title)",
             message: addedCount == 1 ? "1 track queued for sync." : "\(addedCount) tracks queued for sync.",
-            tapHandler: tapHandler,
+            action: openPlaylist.map { ToastAction(title: "View", handler: $0) },
             dedupeKey: "playlist-add-optimistic-\(playlist.id)"
         )
     }

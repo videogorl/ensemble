@@ -515,7 +515,7 @@ enum MediaMenuCatalog {
             sections.append(section(.sharing, [.shareEnsembleLink]))
         }
 
-        var management: [MediaMenuActionID] = []
+        var management: [MediaMenuActionID] = availability.canGetInfo ? [.getInfo] : []
         if context.allowsPlaylistManagement, availability.canRename {
             management.append(.rename)
         }

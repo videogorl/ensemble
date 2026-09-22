@@ -564,9 +564,9 @@ public struct ControlsCard: View {
 
     /// Navigate to album detail — store intent, then dismiss.
     private func handleAlbumTap(track: Track) {
-        if let albumId = track.albumRatingKey {
+        if let destination = NavigationCoordinator.Destination.album(for: track) {
             navigationCoordinator.navigateFromNowPlaying(
-                to: .album(id: albumId, sourceKey: track.sourceCompositeKey)
+                to: destination
             )
             closeNowPlaying()
         }

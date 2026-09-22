@@ -520,6 +520,7 @@ public struct PlaylistsView: View {
                                 MergedPlaylistActionsContextMenu(
                                     displayPlaylist: dp,
                                     nowPlayingVM: nowPlayingVM,
+                                    onGetInfo: { libraryItemInfoRequest = .playlist(dp.primaryPlaylist, sources: dp.playlists) },
                                     onRename: { playlists in
                                         presentRenameAlert(for: playlists)
                                     },

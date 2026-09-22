@@ -8,6 +8,9 @@ public struct LibraryItemInfoView: View {
 
     @StateObject private var viewModel: LibraryItemInfoViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @State private var isLyricsExpanded = false
+    @State private var lyrics: LyricsState = .loading
+    @Environment(\.dependencies) private var deps
     @Environment(\.dismiss) private var dismiss
 
     public init(request: LibraryItemInfoRequest) {
@@ -21,6 +24,7 @@ public struct LibraryItemInfoView: View {
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xl) {
                 header
                 itemSection
+                lyricsSection
                 fileSection
                 sourceSection
             }
@@ -42,6 +46,36 @@ public struct LibraryItemInfoView: View {
         #endif
         .task(id: viewModel.request.id) {
             await viewModel.load()
+        }
+    }
+
+    @ViewBuilder
+    private var lyricsSection: some View {
+        if case .track(let track) = viewModel.request {
+            DisclosureGroup("Lyrics", isExpanded: $isLyricsExpanded) {
+                if isLyricsExpanded {
+                    Group {
+                        switch lyrics {
+                        case .loading:
+                            ProgressView("Loading lyrics…")
+                        case .notAvailable:
+                            Text("Lyrics aren’t available for this track.")
+                                .foregroundColor(.secondary)
+                        case .available(let parsed):
+                            Text(parsed.lines.map(\.text).joined(separator: "\n"))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .padding(.top, EnsembleDesign.Spacing.sm)
+                    .task {
+                        let result = await deps.lyricsService.lyrics(for: track)
+                        guard !Task.isCancelled else { return }
+                        lyrics = result
+                    }
+                }
+            }
+            .accessibilityIdentifier("info.lyrics")
         }
     }
 
@@ -82,7 +116,7 @@ public struct LibraryItemInfoView: View {
                 sourcePath: viewModel.resolvedArtworkPath,
                 dateModified: album.dateModified
             )
-        case .playlist(let playlist):
+        case .playlist(let playlist, _):
             return ArtworkRequest.Identity(
                 ratingKey: viewModel.resolvedArtworkRatingKey,
                 kind: .playlist,
@@ -127,7 +161,7 @@ public struct LibraryItemInfoView: View {
                 optionalRow(label: "Duration", value: formatDuration(viewModel.aggregateDuration))
                 optionalRow(label: "Added", value: formatDate(album.dateAdded))
 
-            case .playlist(let playlist):
+            case .playlist(let playlist, _):
                 infoRow(label: "Title", value: playlist.title)
                 infoRow(label: "Type", value: playlist.isSmart ? "Smart Playlist" : "Playlist")
                 infoRow(label: "Tracks", value: String(playlistTrackCount(for: playlist)))
@@ -196,7 +230,7 @@ public struct LibraryItemInfoView: View {
             return "Track"
         case .album:
             return "Album"
-        case .playlist(let playlist):
+        case .playlist(let playlist, _):
             return playlist.isSmart ? "Smart Playlist" : "Playlist"
         }
     }

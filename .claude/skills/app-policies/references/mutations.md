@@ -21,8 +21,9 @@
   constituents; other mutations select one exact-source constituent. Merged playlist
   playback and queueing include all constituent tracks, respecting active filters
   in detail views. Adding media to a playlist selects the
-  media source first; the recent-playlist shortcut uses the preferred source's
-  most recently created or added-to playlist.
+  media source first; missing source copies require confirmation before creation.
+  The recent-playlist shortcut uses the preferred source's most recently created
+  or added-to playlist.
 - Merging is presentation-only: exact source records remain stored and reappear
   when disabled. Preferred source order may choose among proven copies but never
   reroutes an explicit mutation, rating, download, or playback owner.

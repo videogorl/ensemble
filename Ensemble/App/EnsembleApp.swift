@@ -54,6 +54,18 @@ struct EnsembleApp: App {
                 .environment(\.dependencies, DependencyContainer.shared)
                 .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
                 .onAppear {
+                    #if DEBUG && os(iOS)
+                    if ProcessInfo.processInfo.arguments.contains("-EnsembleAutomationToastOverlay") {
+                        DependencyContainer.shared.toastCenter.show(ToastPayload(
+                            style: .info,
+                            iconSystemName: "info.circle",
+                            title: "Toast layout test",
+                            action: ToastAction(title: "Confirm") {},
+                            isPersistent: true,
+                            dedupeKey: "automation-toast-overlay"
+                        ))
+                    }
+                    #endif
                     startPersistentLogSessionIfNeeded()
                     AppLogger.info("SIRI_APP: RootView.onAppear - app UI is visible")
                     UserJourneyLogger.log(context: "app", event: "rootVisible")
@@ -1101,7 +1113,6 @@ private struct ToastInteractionFixture: View {
                     iconSystemName: "info.circle",
                     title: "Interaction test",
                     action: ToastAction(title: "Confirm") { result = "Action confirmed" },
-                    tapHandler: { result = "Tap confirmed" },
                     isPersistent: true
                 ))
             }

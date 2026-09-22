@@ -97,9 +97,9 @@ public struct MiniPlayer: View {
                         playlistActionRequest = PlaylistActionPresentationHost.request(for: [selectedTrack])
                     },
                     onGoToAlbum: {
-                        if let albumId = track.albumRatingKey {
+                        if let destination = NavigationCoordinator.Destination.album(for: track) {
                             navigationCoordinator.navigateFromMenu(
-                                to: .album(id: albumId, sourceKey: track.sourceCompositeKey)
+                                to: destination
                             )
                         }
                     },

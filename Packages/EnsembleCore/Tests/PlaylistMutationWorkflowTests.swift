@@ -113,7 +113,7 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         XCTAssertTrue(start?.pendingToast.showsActivityIndicator == true)
     }
 
-    func testAddTracksBuildsSuccessToastAndTapHandler() async throws {
+    func testAddTracksBuildsSuccessToastWithExplicitNavigationAction() async throws {
         let stub = StubMutator()
         stub.addResult = PlaylistMutationResult(addedCount: 2, skippedCount: 0)
         let workflow = PlaylistMutationWorkflow(mutator: stub)
@@ -123,7 +123,7 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         let result = try await workflow.addTracks(
             [makeTrack(id: "track-1"), makeTrack(id: "track-2")],
             to: playlist,
-            tapHandler: { didTap = true }
+            openPlaylist: { didTap = true }
         )
 
         XCTAssertEqual(stub.addedPlaylistID, playlist.id)
@@ -132,7 +132,13 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         XCTAssertEqual(result.toast.style, .success)
         XCTAssertEqual(result.toast.title, "Added to Road Trip")
         XCTAssertEqual(result.toast.message, "2 tracks added.")
-        result.toast.tapHandler?()
+        XCTAssertEqual(result.toast.action?.title, "View")
+        let center = ToastCenter()
+        center.show(result.toast)
+        center.dismiss(id: result.toast.id)
+        XCTAssertFalse(didTap, "Dismissing the toast must not navigate")
+        center.show(result.toast)
+        center.triggerAction(for: result.toast.id)
         XCTAssertTrue(didTap)
     }
 

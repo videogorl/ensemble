@@ -97,6 +97,12 @@ struct RootSceneLayerHost<Content: View>: View {
                         .offset(x: layout.frame.midX + layout.horizontalOffset - proxy.size.width / 2)
                     }
 
+                    Color.clear.preference(
+                        key: ToastBottomLimitPreference.self,
+                        value: layout.hasRenderableFrame
+                            ? proxy.frame(in: .global).minY + layout.frame.maxY - layout.bottomPadding
+                            : nil
+                    )
                     rootMiniPlayerLayer(layout: layout)
                 }
             }

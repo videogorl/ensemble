@@ -449,9 +449,9 @@ public struct QueueCard: View {
                     presentPlaylistPicker(with: [selectedTrack], title: "Add to Playlist")
                 },
                 onGoToAlbum: {
-                    if let albumId = item.track.albumRatingKey {
+                    if let destination = NavigationCoordinator.Destination.album(for: item.track) {
                         navigateFromNowPlaying(
-                            to: .album(id: albumId, sourceKey: item.track.sourceCompositeKey)
+                            to: destination
                         )
                     }
                 },

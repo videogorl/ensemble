@@ -643,7 +643,8 @@ struct HubItemCard: View {
                 displayPlaylist: displayPlaylist,
                 nowPlayingVM: nowPlayingVM,
                 toastNamespace: "hub-merged-playlist-menu",
-                context: .search
+                context: .search,
+                onGetInfo: { libraryItemInfoRequest = .playlist(displayPlaylist.primaryPlaylist, sources: displayPlaylist.playlists) }
             )
         } else {
             PlaylistActionsContextMenu(
@@ -671,9 +672,9 @@ struct HubItemCard: View {
                 playlistActionRequest = PlaylistActionPresentationHost.request(for: [selectedTrack])
             },
             onGoToAlbum: {
-                if let albumId = track.albumRatingKey {
+                if let destination = NavigationCoordinator.Destination.album(for: track) {
                     navigationCoordinator.routeFromMenu(
-                        to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                        to: destination,
                         in: navigationCoordinator.selectedTab
                     )
                 }

@@ -569,6 +569,12 @@ public final class LyricsService: ObservableObject {
         }
     }
 
+    /// Resolves lyrics for inspection without changing the current playback lyrics.
+    public func lyrics(for track: Track) async -> LyricsState {
+        guard !track.isAppleMusic else { return .notAvailable }
+        return await fetchLyrics(for: track).normalState
+    }
+
     private func fetchLyrics(for track: Track) async -> LyricsBundle {
         EnsembleLogger.debug("Lyrics: starting fetch for track \(track.id) (\(track.title))")
 

@@ -1098,7 +1098,8 @@ public struct SearchView: View {
                 displayPlaylist: displayPlaylist,
                 nowPlayingVM: nowPlayingVM,
                 toastNamespace: "search-merged-playlist-menu",
-                context: .search
+                context: .search,
+                onGetInfo: { libraryItemInfoRequest = .playlist(displayPlaylist.primaryPlaylist, sources: displayPlaylist.playlists) }
             )
         } else {
             let playlist = displayPlaylist.primaryPlaylist

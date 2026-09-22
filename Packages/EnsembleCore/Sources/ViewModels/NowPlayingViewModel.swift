@@ -1434,7 +1434,7 @@ public final class NowPlayingViewModel: ObservableObject {
         let workflowResult = try await playlistMutationWorkflow.addTracks(
             tracks,
             to: playlist,
-            tapHandler: playlistToastTapHandler(for: playlist)
+            openPlaylist: playlistToastOpenHandler(for: playlist)
         )
         toastCenter.show(workflowResult.toast)
         return workflowResult.mutationResult
@@ -1451,7 +1451,7 @@ public final class NowPlayingViewModel: ObservableObject {
         let workflowResult = try await playlistMutationWorkflow.addTracksOptimistically(
             tracks,
             to: playlist,
-            tapHandler: playlistToastTapHandler(for: playlist)
+            openPlaylist: playlistToastOpenHandler(for: playlist)
         )
         toastCenter.show(workflowResult.toast)
         return workflowResult.outcome
@@ -1908,7 +1908,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
     // MARK: - Helpers
 
-    private func playlistToastTapHandler(for playlist: Playlist) -> (() -> Void) {
+    private func playlistToastOpenHandler(for playlist: Playlist) -> (() -> Void) {
         { [weak self] in
             self?.navigationCoordinator.navigateFromNowPlaying(
                 to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)

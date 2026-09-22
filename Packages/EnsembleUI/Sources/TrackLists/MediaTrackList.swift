@@ -38,6 +38,7 @@ import UIKit
 class DeferredLayoutTableView: UITableView {
     private var hasAppearedInWindow = false
     var defersLayoutUntilWindow = true
+    var onLayout: (() -> Void)?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -55,6 +56,7 @@ class DeferredLayoutTableView: UITableView {
         // unnecessary work and "layout outside view hierarchy" warnings.
         guard !defersLayoutUntilWindow || window != nil else { return }
         super.layoutSubviews()
+        onLayout?()
     }
 }
 
@@ -862,10 +864,14 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.dragDelegate = context.coordinator
         tableView.dragInteractionEnabled = true
         context.coordinator.tableView = tableView
+        tableView.onLayout = { [weak coordinator = context.coordinator] in
+            coordinator?.selectRequestedTrack()
+        }
         return tableView
     }
     
     public func updateUIView(_ tableView: UITableView, context: Context) {
+        context.coordinator.selectedTrackId = selectedTrackId
         if managesOwnScrolling,
            context.coordinator.contentScrollViewOwner == nil,
            tableView.window != nil {
@@ -926,6 +932,9 @@ public struct MediaTrackList: UIViewRepresentable {
             : context.coordinator.favoriteStateSignature
         let favoriteStateChanged = !dataChanged && context.coordinator.favoriteStateSignature != newFavoriteStateSignature
 
+        let selectedRowIdentity = tableView.indexPathForSelectedRow
+            .flatMap { context.coordinator.track(at: $0)?.playbackIdentity }
+
         // Update coordinator state
         context.coordinator.tracks = tracks
         context.coordinator.sections = sections
@@ -977,6 +986,10 @@ public struct MediaTrackList: UIViewRepresentable {
         if tableView.window != nil && dataChanged {
             tableView.reloadData()
             tableView.reloadSectionIndexTitles()
+            if let selectedRowIdentity,
+               let indexPath = context.coordinator.indexPath(forTrackId: selectedRowIdentity) {
+                tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+            }
         }
 
         if let tableFooterContent,
@@ -1009,12 +1022,7 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
-        if let selectedTrackId,
-           context.coordinator.consumedSelectedTrackId != selectedTrackId,
-           let indexPath = context.coordinator.indexPath(forTrackId: selectedTrackId) {
-            context.coordinator.consumedSelectedTrackId = selectedTrackId
-            tableView.selectRow(at: indexPath, animated: false, scrollPosition: .middle)
-        }
+        context.coordinator.selectRequestedTrack()
 
         if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged || supplementalMetadataWidthChanged || trackSourceLabelsChanged || favoriteStateChanged) {
             // Reconfigure visible cells when track state or adaptive metadata width changes.
@@ -1165,6 +1173,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var recentPlaylistTitle: String?
         var showsNativeSectionIndex: Bool
         var consumedSectionScrollRequestID: Int?
+        var selectedTrackId: String?
         var consumedSelectedTrackId: String?
         var interactionModel: TrackRowInteractionModel
         var supplementalMetadataWidth: CGFloat?
@@ -1315,7 +1324,7 @@ public struct MediaTrackList: UIViewRepresentable {
         /// Safely access a track, returning nil if indices are out of bounds.
         /// Protects against race conditions where UIKit requests cells for stale index paths
         /// after groupedTracks has been updated but before reloadData completes.
-        private func track(at indexPath: IndexPath) -> Track? {
+        fileprivate func track(at indexPath: IndexPath) -> Track? {
             indexedTrack(at: indexPath)?.track
         }
 
@@ -1351,6 +1360,19 @@ public struct MediaTrackList: UIViewRepresentable {
 
         func sectionIndex(forID sectionID: String) -> Int? {
             groupedTracks.firstIndex { $0.id == sectionID }.map(tableSection(forGroupIndex:))
+        }
+
+        // SwiftUI can supply the request before the table enters its window.
+        // Consume it only once UIKit has laid out the destination's rows.
+        func selectRequestedTrack() {
+            guard let tableView, tableView.window != nil,
+                  tableView.bounds.width > 0, tableView.bounds.height > 0,
+                  let selectedTrackId, consumedSelectedTrackId != selectedTrackId,
+                  let indexPath = indexPath(forTrackId: selectedTrackId),
+                  indexPath.section < tableView.numberOfSections,
+                  indexPath.row < tableView.numberOfRows(inSection: indexPath.section) else { return }
+            consumedSelectedTrackId = selectedTrackId
+            tableView.selectRow(at: indexPath, animated: false, scrollPosition: .middle)
         }
 
         func indexPath(forTrackId id: String) -> IndexPath? {

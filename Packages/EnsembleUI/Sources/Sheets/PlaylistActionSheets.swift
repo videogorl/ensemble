@@ -15,6 +15,8 @@ public struct PlaylistPickerSheet: View {
     @State private var inferredServerSourceKey: String?
     @State private var isSubmitting = false
     @State private var searchText = ""
+    @State private var pendingMissingPlaylist: DisplayPlaylist?
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @State private var playlistsContainingSelection = Set<String>()
 
     public init(
@@ -36,6 +38,15 @@ public struct PlaylistPickerSheet: View {
                     inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
                 }
                 await loadPlaylists()
+            }
+            .alert("Create missing playlist?", isPresented: Binding(
+                get: { pendingMissingPlaylist != nil },
+                set: { if !$0 { pendingMissingPlaylist = nil } }
+            ), presenting: pendingMissingPlaylist) { playlist in
+                Button("Create and Add") { submit(playlist) }
+                Button("Cancel", role: .cancel) {}
+            } message: { playlist in
+                Text("Create \"\(playlist.title)\" on \(missingSourceNames(for: playlist)) and add the compatible selected tracks?")
             }
             .overlay {
                 if isSubmitting {
@@ -118,6 +129,15 @@ public struct PlaylistPickerSheet: View {
 
     private var playlistList: some View {
         List {
+            if !createsPlaylistAcrossSources, compatibleServerOptions.count > 1 {
+                Section {
+                    Picker("Add from", selection: $inferredServerSourceKey) {
+                        ForEach(compatibleServerOptions) { source in
+                            Text(source.name).tag(Optional(source.id))
+                        }
+                    }
+                }
+            }
             Section("Playlists") {
                 if isLoading {
                     ProgressView("Loading playlists...")
@@ -128,7 +148,7 @@ public struct PlaylistPickerSheet: View {
                     Text("No playlists found.")
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 } else {
-                    ForEach(filteredPlaylists, id: \.sourceScopedID) { playlist in
+                    ForEach(filteredPlaylists) { playlist in
                         playlistRow(for: playlist)
                     }
                 }
@@ -150,48 +170,79 @@ public struct PlaylistPickerSheet: View {
         }
     }
 
-    private func playlistRow(for playlist: Playlist) -> some View {
-        let addAvailability = playlist.actionAvailability(for: .addItems)
+    private func playlistRow(for playlist: DisplayPlaylist) -> some View {
+        let target = targetPlaylist(for: playlist)
+        let availability = target?.actionAvailability(for: .addItems)
+        let alreadyAdded = target.map(playlistContainsSelection) == true && !createsPlaylistAcrossSources
+        let requiresCreation = !missingSourceKeys(for: playlist).isEmpty
 
         return Button {
-            addToPlaylist(playlist)
+            if requiresCreation {
+                pendingMissingPlaylist = playlist
+            } else {
+                submit(playlist)
+            }
         } label: {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                ArtworkView(
-                    playlist: playlist,
-                    size: .tiny,
-                    cornerRadius: ArtworkCornerRadius.square(for: .tiny)
-                )
-
+                ArtworkView(playlist: playlist.primaryPlaylist, size: .tiny,
+                            cornerRadius: ArtworkCornerRadius.square(for: .tiny))
                 VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                     Text(playlist.title)
-                    Text(
-                        addAvailability.reason
-                            ?? (playlistContainsSelection(playlist) && !createsPlaylistAcrossSources
-                                ? "Already added"
-                                : "\(playlist.trackCount) songs")
-                    )
+                    Text(availability?.reason ?? (alreadyAdded ? "Already added" :
+                        requiresCreation ? "Create on \(missingSourceNames(for: playlist))…" :
+                        "\(playlist.trackCount) songs" + (playlist.isMerged ? " · \(playlist.playlists.count) sources" : "")))
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
-
                 Spacer()
             }
         }
-        .disabled(
-            isSubmitting ||
-            (playlistContainsSelection(playlist) && !createsPlaylistAcrossSources) ||
-            nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0 ||
-            !addAvailability.isAvailable
-        )
-        .accessibilityHint(addAvailability.reason ?? "")
+        .disabled(isSubmitting || alreadyAdded || playlistCreationSourceKeys.isEmpty ||
+                  (!createsPlaylistAcrossSources && availability?.isAvailable == false) ||
+                  (requiresCreation && deps.syncCoordinator.isOffline))
+        .accessibilityHint(availability?.reason ?? "")
     }
 
-    private var filteredPlaylists: [Playlist] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return playlists }
-        let lower = trimmed.lowercased()
-        return playlists.filter { $0.title.lowercased().contains(lower) }
+    private var filteredPlaylists: [DisplayPlaylist] {
+        let preferences = settingsManager.mergingPreferences
+        let grouped = DisplayPlaylist.group(playlists,
+            merge: preferences.isEnabled && preferences.mergePlaylists, preferences: preferences)
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.isEmpty ? grouped : grouped.filter { $0.title.localizedCaseInsensitiveContains(query) }
+    }
+
+    private var compatibleServerOptions: [PlaylistServerOption] {
+        nowPlayingVM.playlistServerOptions().filter {
+            nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: $0.id) > 0
+        }
+    }
+
+    private func targetPlaylist(for playlist: DisplayPlaylist) -> Playlist? {
+        guard let sourceKey = inferredServerSourceKey else { return nil }
+        return PlaylistActionService().playlist(named: playlist.title, forServerSourceKey: sourceKey,
+            in: playlist.playlists) ?? PlaylistActionService().playlist(named: playlist.title,
+                forServerSourceKey: sourceKey, in: playlists)
+    }
+
+    private func missingSourceKeys(for playlist: DisplayPlaylist) -> [String] {
+        playlistCreationSourceKeys.filter { key in
+            PlaylistActionService().playlist(named: playlist.title, forServerSourceKey: key, in: playlists) == nil
+        }
+    }
+
+    private func missingSourceNames(for playlist: DisplayPlaylist) -> String {
+        let keys = Set(missingSourceKeys(for: playlist))
+        return compatibleServerOptions.filter { keys.contains($0.id) }.map(\.name).joined(separator: ", ")
+    }
+
+    private func submit(_ playlist: DisplayPlaylist) {
+        if createsPlaylistAcrossSources {
+            Task { await addAcrossSources(toNamedPlaylist: playlist.primaryPlaylist) }
+        } else if let target = targetPlaylist(for: playlist) {
+            addToPlaylist(target)
+        } else {
+            Task { await createPlaylist(named: playlist.title) }
+        }
     }
 
     private var newPlaylistName: String {
@@ -233,7 +284,7 @@ public struct PlaylistPickerSheet: View {
         do {
             let filters = FilterPersistence.load(for: "Playlists")
             let sortOption = PlaylistSortOption(rawValue: filters.sortBy) ?? .title
-            playlists = try await nowPlayingVM.loadPlaylists(forServerSourceKey: inferredServerSourceKey)
+            playlists = try await nowPlayingVM.loadPlaylists()
                 .filter { !$0.isSmart }
             playlists = PlaylistViewModel.sortPlaylists(
                 playlists,

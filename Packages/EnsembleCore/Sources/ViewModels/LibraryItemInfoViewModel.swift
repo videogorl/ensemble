@@ -155,7 +155,7 @@ public final class LibraryItemInfoViewModel: ObservableObject {
                     fetchedTrackFallbackRatingKey: artworkFallback?.album?.ratingKey
                 )
             )
-        case .playlist(let playlist):
+        case .playlist(let playlist, _):
             guard let cdPlaylist = try? await playlistRepository.fetchPlaylist(
                 ratingKey: playlist.id,
                 sourceCompositeKey: playlist.sourceCompositeKey

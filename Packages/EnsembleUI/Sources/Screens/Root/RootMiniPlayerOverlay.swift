@@ -33,6 +33,14 @@ struct RootMiniPlayerOverlay: View {
             .accentColor(accentColor)
             .frame(width: miniPlayerWidth)
             .fixedSize(horizontal: false, vertical: true)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: ToastBottomLimitPreference.self,
+                        value: geometry.frame(in: .global).minY
+                    )
+                }
+            }
             .frame(
                 width: layout.frame.width,
                 height: max(0, layout.frame.maxY - layout.bottomPadding),

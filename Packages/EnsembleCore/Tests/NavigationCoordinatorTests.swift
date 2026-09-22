@@ -3,6 +3,16 @@ import Combine
 @testable import EnsembleCore
 
 final class NavigationCoordinatorTests: XCTestCase {
+    func testGoToAlbumPreservesExactTrackSelection() {
+        for source in ["plex:account:a:music", "plex:account:b:music"] {
+            let track = Track(id: "same-id", key: "/tracks/same-id", title: "Song",
+                              albumRatingKey: "album", sourceCompositeKey: source)
+            XCTAssertEqual(NavigationCoordinator.Destination.album(for: track),
+                           .album(id: "album", sourceKey: source, selectedTrackId: track.playbackIdentity))
+        }
+        XCTAssertNil(NavigationCoordinator.Destination.album(for: Track(id: "orphan", key: "", title: "Song")))
+    }
+
     func testDestinationTargetTabs() {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .displayArtist(id: "merged:ajr")), .artists)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .displayGenre(id: "merged:rock")), .genres)

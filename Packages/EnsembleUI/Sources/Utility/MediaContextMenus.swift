@@ -181,9 +181,9 @@ struct TrackActionsContextMenu: View {
                 goToAlbum: {
                     if let onGoToAlbum {
                         onGoToAlbum()
-                    } else if let albumId = track.albumRatingKey {
+                    } else if let destination = NavigationCoordinator.Destination.album(for: track) {
                         navigationCoordinator.routeFromMenu(
-                            to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                            to: destination,
                             in: navigationCoordinator.selectedTab
                         )
                     }
@@ -1100,6 +1100,7 @@ struct MergedPlaylistActionsContextMenu: View {
     let nowPlayingVM: NowPlayingViewModel
     var toastNamespace: String = "merged-playlist-menu"
     var context: MediaMenuContext = .library
+    var onGetInfo: (() -> Void)? = nil
     var onRename: (([Playlist]) -> Void)? = nil
     var onDelete: ((Playlist) -> Void)? = nil
     var onUnpinAll: (() -> Void)? = nil
@@ -1191,6 +1192,7 @@ struct MergedPlaylistActionsContextMenu: View {
                         nowPlayingVM.playLast(tracks)
                     }
                 },
+                getInfo: onGetInfo,
                 rename: onRename.flatMap { callback in
                     sourceMutationAction(
                         title: "Rename Playlist",

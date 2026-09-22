@@ -1313,6 +1313,25 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         XCTAssertEqual(viewModel.ratingProjection.displayRatingsRevision, 1)
     }
 
+    func testInspectingLyricsPreservesPlaybackLyricsAndQueue() async {
+        let currentTrack = Track(id: "playing", key: "", title: "Playing")
+        let fixture = makeViewModel(initialTrack: currentTrack)
+        await waitForProjectionPropagation()
+        let currentLyrics = LyricsState.available(ParsedLyrics(
+            lines: [LyricsLine(timestamp: 0, text: "Current song")], isTimed: true))
+        fixture.lyricsService.setLyricsStateForTesting(currentLyrics)
+        let queue = fixture.playbackService.queue
+        for source in [nil, Optional(MusicSourceIdentifier.appleMusic.compositeKey)] {
+            let result = await fixture.lyricsService.lyrics(for:
+                Track(id: "inspected", key: "", title: "Inspected", sourceCompositeKey: source))
+            XCTAssertEqual(result, .notAvailable)
+            XCTAssertEqual(fixture.lyricsService.currentLyrics, currentLyrics)
+            XCTAssertEqual(fixture.lyricsService.currentLyricsSource, .server)
+            XCTAssertEqual(fixture.playbackService.currentTrack, currentTrack)
+            XCTAssertEqual(fixture.playbackService.queue.map(\.id), queue.map(\.id))
+        }
+    }
+
     func testLyricsProjectionTracksCurrentLine() async {
         let viewModelTuple = makeViewModel()
         let viewModel = viewModelTuple.viewModel

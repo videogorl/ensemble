@@ -383,7 +383,7 @@ public struct AlbumDetailView: View {
             groupByDisc: true,
             showFilter: false,
             mediaType: .album,
-            selectedTrackId: selectedTrackId,
+            selectedTrackId: viewModel.displayedTrackIdentity(for: selectedTrackId),
             hiddenCandidates: displayAlbum.albums.compactMap { $0.hiddenCandidate(deps: deps) },
             hiddenIdentity: displayAlbum.isMerged ? nil : HiddenMediaIdentity(album),
             includesHidden: includesHidden,

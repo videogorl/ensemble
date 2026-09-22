@@ -315,8 +315,8 @@ extension TrackRowInteractionModel {
         let goToAlbum: ((Track) -> Void)?
         if includeAlbumNavigation, let navigate {
             goToAlbum = { track in
-                guard let albumId = track.albumRatingKey else { return }
-                navigate(.album(id: albumId, sourceKey: track.sourceCompositeKey))
+                guard let destination = NavigationCoordinator.Destination.album(for: track) else { return }
+                navigate(destination)
             }
         } else {
             goToAlbum = nil

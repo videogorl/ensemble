@@ -5,22 +5,28 @@ import SwiftUI
 import UIKit
 #endif
 
+/// Lowest unobstructed point in this scene, measured by the root chrome and mini-player.
+struct ToastBottomLimitPreference: PreferenceKey {
+    static let defaultValue: CGFloat? = nil
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        guard let next = nextValue() else { return }
+        value = value.map { min($0, next) } ?? next
+    }
+}
+
 public struct ToastHostView: View {
     @ObservedObject var toastCenter: ToastCenter
     let horizontalPadding: CGFloat
     let bottomPadding: CGFloat
-    let onToastTap: (() -> Void)?
 
     public init(
         toastCenter: ToastCenter,
         horizontalPadding: CGFloat = EnsembleScaffold.Toast.hostHorizontalPadding,
-        bottomPadding: CGFloat = EnsembleScaffold.Toast.hostBottomPadding,
-        onToastTap: (() -> Void)? = nil
+        bottomPadding: CGFloat = EnsembleScaffold.Toast.hostBottomPadding
     ) {
         self.toastCenter = toastCenter
         self.horizontalPadding = horizontalPadding
         self.bottomPadding = bottomPadding
-        self.onToastTap = onToastTap
     }
 
     public var body: some View {
@@ -28,8 +34,7 @@ public struct ToastHostView: View {
             if let toast = toastCenter.currentToast {
                 ToastBannerView(
                     toast: toast,
-                    toastCenter: toastCenter,
-                    onToastTap: onToastTap
+                    toastCenter: toastCenter
                 )
                     .padding(.horizontal, horizontalPadding)
                     .padding(.bottom, bottomPadding)
@@ -44,13 +49,11 @@ public extension View {
     @ViewBuilder
     func installGlobalToastWindow(toastCenter: ToastCenter) -> some View {
         #if os(iOS)
-        background(
-            GlobalToastWindowHost(toastCenter: toastCenter)
-                .frame(
-                    width: EnsembleScaffold.Toast.hiddenHostDimension,
-                    height: EnsembleScaffold.Toast.hiddenHostDimension
-                )
-        )
+        overlayPreferenceValue(ToastBottomLimitPreference.self) { bottomLimit in
+            GlobalToastWindowHost(toastCenter: toastCenter, bottomLimit: bottomLimit)
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+        }
         #else
         self
         #endif
@@ -61,9 +64,11 @@ public extension View {
 /// Installs a dedicated top-level toast window so toasts appear above sheets and app chrome.
 public struct GlobalToastWindowHost: UIViewControllerRepresentable {
     private let toastCenter: ToastCenter
+    private let bottomLimit: CGFloat?
 
-    public init(toastCenter: ToastCenter) {
+    public init(toastCenter: ToastCenter, bottomLimit: CGFloat? = nil) {
         self.toastCenter = toastCenter
+        self.bottomLimit = bottomLimit
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -81,12 +86,15 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
 
     public func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
         context.coordinator.toastCenter = toastCenter
+        context.coordinator.bottomLimit = bottomLimit
+        context.coordinator.contentWindow = uiViewController.view.window
         context.coordinator.refreshRootView()
 
         if let probeView = uiViewController.view as? SceneProbeView {
             let coordinator = context.coordinator
-            probeView.onSceneChange = { [weak coordinator] scene in
-                coordinator?.attach(to: scene)
+            probeView.onSceneChange = { [weak coordinator] window in
+                coordinator?.contentWindow = window
+                coordinator?.attach(to: window?.windowScene)
             }
         }
         context.coordinator.attach(to: uiViewController.view.window?.windowScene)
@@ -97,16 +105,18 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
     }
 
     final class SceneProbeView: UIView {
-        var onSceneChange: ((UIWindowScene?) -> Void)?
+        var onSceneChange: ((UIWindow?) -> Void)?
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            onSceneChange?(window?.windowScene)
+            onSceneChange?(window)
         }
     }
 
     public final class Coordinator {
         fileprivate var toastCenter: ToastCenter
+        fileprivate var bottomLimit: CGFloat?
+        fileprivate weak var contentWindow: UIWindow?
         private var overlayWindow: PassthroughWindow?
         private weak var attachedScene: UIWindowScene?
 
@@ -132,7 +142,9 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
             window.backgroundColor = .clear
             window.windowLevel = .alert + 1
 
-            let host = UIHostingController(rootView: GlobalToastOverlayRootView(toastCenter: toastCenter) { [weak window] frame in
+            let host = UIHostingController(rootView: GlobalToastOverlayRootView(toastCenter: toastCenter, bottomLimit: bottomLimit, isSheetPresented: { [weak self] in
+                self?.contentWindow?.rootViewController?.presentedViewController != nil
+            }) { [weak window] frame in
                 window?.toastFrame = frame
             })
             host.view.backgroundColor = .clear
@@ -145,7 +157,9 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
         fileprivate func refreshRootView() {
             guard let window = overlayWindow,
                   let host = window.rootViewController as? UIHostingController<GlobalToastOverlayRootView> else { return }
-            host.rootView = GlobalToastOverlayRootView(toastCenter: toastCenter) { [weak window] frame in
+            host.rootView = GlobalToastOverlayRootView(toastCenter: toastCenter, bottomLimit: bottomLimit, isSheetPresented: { [weak self] in
+                self?.contentWindow?.rootViewController?.presentedViewController != nil
+            }) { [weak window] frame in
                 window?.toastFrame = frame
             }
         }
@@ -181,6 +195,8 @@ private struct ToastFramePreference: PreferenceKey {
 
 private struct GlobalToastOverlayRootView: View {
     @ObservedObject var toastCenter: ToastCenter
+    let bottomLimit: CGFloat?
+    let isSheetPresented: () -> Bool
     let onToastFrameChange: (CGRect) -> Void
 
     var body: some View {
@@ -190,26 +206,22 @@ private struct GlobalToastOverlayRootView: View {
                     ToastHostView(
                         toastCenter: toastCenter,
                         horizontalPadding: EnsembleScaffold.Toast.globalHorizontalPadding,
-                        // Account for safe-area when rendering in a window that
-                        // ignores safe areas so the toast stays above mini player.
-                        bottomPadding: baseBottomPadding + geometry.safeAreaInsets.bottom
+                        bottomPadding: max(
+                            0,
+                            isSheetPresented() ? 0 : bottomLimit.map { geometry.frame(in: .global).maxY - $0 } ?? 0
+                        ) + EnsembleScaffold.Toast.hostBottomPadding
                     )
                 }
-                .ignoresSafeArea()
         }
         .onPreferenceChange(ToastFramePreference.self, perform: onToastFrameChange)
     }
 
-    private var baseBottomPadding: CGFloat {
-        UIDevice.current.userInterfaceIdiom == .pad ? 74 : 130
-    }
 }
 #endif
 
 public struct ToastBannerView: View {
     let toast: ToastPayload
     let toastCenter: ToastCenter
-    let onToastTap: (() -> Void)?
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
 
     public var body: some View {
@@ -270,13 +282,6 @@ public struct ToastBannerView: View {
                 }
         )
         .onTapGesture {
-            if toast.tapHandler != nil {
-                toastCenter.triggerTap(for: toast.id)
-                onToastTap?()
-                return
-            }
-            // Allow full-toast dismissal only for non-action toasts.
-            guard toast.action == nil else { return }
             toastCenter.dismiss(id: toast.id)
         }
         .accessibilityElement(children: .combine)

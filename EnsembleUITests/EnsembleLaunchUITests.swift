@@ -28,7 +28,7 @@ final class EnsembleLaunchUITests: XCTestCase {
         add(before)
         toast.swipeLeft()
         XCTAssertTrue(toast.waitForNonExistence(timeout: 3), "Left swipe must dismiss the persistent toast")
-        XCTAssertTrue(app.staticTexts["No action"].exists, "Swiping must not invoke the action or tap handler")
+        XCTAssertTrue(app.staticTexts["No action"].exists, "Swiping must not invoke the action")
         XCTAssertTrue(app.staticTexts["Behind taps: 0"].exists)
         let after = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         after.name = "toast-after-left-swipe"
@@ -62,7 +62,7 @@ final class EnsembleLaunchUITests: XCTestCase {
         sheetShowToast.tap()
         XCTAssertTrue(toast.waitForExistence(timeout: 5))
         toast.tap()
-        XCTAssertTrue(app.staticTexts["Tap confirmed"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["No action"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertFalse(toast.exists)
     }
 

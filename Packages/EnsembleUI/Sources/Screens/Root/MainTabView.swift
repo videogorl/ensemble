@@ -2006,6 +2006,7 @@ public struct SidebarView: View {
                 nowPlayingVM: nowPlayingVM,
                 toastNamespace: "sidebar-merged-playlist-menu",
                 context: .sidebar,
+                onGetInfo: { libraryItemInfoRequest = .playlist(displayPlaylist.primaryPlaylist, sources: displayPlaylist.playlists) },
                 onRename: { playlists in
                     guard let first = playlists.first else { return }
                     playlistPendingRenameTitle = first.title

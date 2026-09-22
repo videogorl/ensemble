@@ -41,7 +41,7 @@ public final class NavigationCoordinator: ObservableObject {
         case displayGenre(id: String)
         case artistDetail(Artist, includesHidden: Bool = false)
         case artist(id: String, sourceKey: String? = nil)
-        case album(id: String, sourceKey: String? = nil)
+        case album(id: String, sourceKey: String? = nil, selectedTrackId: String? = nil)
         case albumDetail(DisplayAlbum, includesHidden: Bool = false, selectedTrackId: String? = nil)
         case song(id: String, sourceKey: String? = nil)
         case playlist(id: String, sourceKey: String?)
@@ -51,6 +51,11 @@ public final class NavigationCoordinator: ObservableObject {
         case moodTracks(mood: Mood)
         case searchResults(section: SearchSection)
         case view(TabItem) // For pushing library views from the More menu
+
+        public static func album(for track: Track) -> Destination? {
+            guard let albumID = track.albumRatingKey else { return nil }
+            return .album(id: albumID, sourceKey: track.sourceCompositeKey, selectedTrackId: track.playbackIdentity)
+        }
 
         var journeyLogDescription: String {
             switch self {

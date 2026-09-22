@@ -88,8 +88,8 @@ struct NavigationDestinationFactory {
             #endif
         case .artist(let id, let sourceKey):
             ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .album(let id, let sourceKey):
-            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+        case .album(let id, let sourceKey, let selectedTrackId):
+            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, selectedTrackId: selectedTrackId, nowPlayingVM: nowPlayingVM)
         case .albumDetail(let displayAlbum, let includesHidden, let selectedTrackId):
             let detailView = AlbumDetailView(
                 displayAlbum: displayAlbum,

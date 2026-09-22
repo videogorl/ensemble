@@ -41,6 +41,10 @@
   source IDs. They resolve against enabled, visible cached libraries and the
   Apple Music fallback above, then navigate without autoplay; unresolved links
   fail non-destructively into Search.
+- Toast bodies dismiss; explicit trailing buttons perform actions or navigation.
+  Toasts clear the current scene's chrome and remain usable above sheets.
+- Get Info source selection keeps each merged playlist's metadata source-exact.
+  Lyrics load on expansion without changing playback or Now Playing lyrics.
 - File/library info may expose Plex media paths only outside Demo Mode. It does
   not mix static library metadata with live Now Playing/connection state.
 - Artwork-backed surfaces use source/identity-scoped durable artwork and cached

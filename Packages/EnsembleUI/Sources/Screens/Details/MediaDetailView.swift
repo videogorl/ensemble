@@ -820,7 +820,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     sourceCompositeKey: sourceKey
                 )
                 Button {
-                    libraryItemInfoRequest = .playlist(playlist)
+                    if let merged = viewModel as? MergedPlaylistDetailViewModel {
+                        let sources = merged.displayPlaylist.playlists
+                        libraryItemInfoRequest = .playlist(merged.displayPlaylist.primaryPlaylist, sources: sources)
+                    } else {
+                        libraryItemInfoRequest = .playlist((viewModel as? PlaylistDetailViewModel)?.playlist ?? playlist)
+                    }
                 } label: {
                     MediaActionLabel(kind: .getInfo)
                 }
@@ -1469,9 +1474,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             },
             onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : { track in
-                if let albumId = track.albumRatingKey {
+                if let destination = NavigationCoordinator.Destination.album(for: track) {
                     navigationCoordinator.routeFromMenu(
-                        to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                        to: destination,
                         in: navigationCoordinator.selectedTab
                     )
                 }

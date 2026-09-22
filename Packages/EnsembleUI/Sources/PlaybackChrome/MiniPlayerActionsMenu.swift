@@ -179,9 +179,9 @@ struct MiniPlayerActionsMenuButton: View {
 
     private func goToAlbum() {
         guard let track = playbackProjection.currentTrack,
-              let albumId = track.albumRatingKey else { return }
+              let destination = NavigationCoordinator.Destination.album(for: track) else { return }
         navigationCoordinator.navigateFromMenu(
-            to: .album(id: albumId, sourceKey: track.sourceCompositeKey)
+            to: destination
         )
     }
 

@@ -1698,6 +1698,12 @@ final class PlaylistDetailViewModelTests: XCTestCase {
                 let preferences = EnsembleMergingPreferences(mergeTracks: mergeTracks, preferredSourceKeys: preferredSources)
                 settings.setMergingPreferences(preferences)
                 let queue = detail.playableTracks
+                for sourceTrack in tracks {
+                    let displayed = try XCTUnwrap(queue.first {
+                        mergeTracks ? $0.title == sourceTrack.title : $0.playbackIdentity == sourceTrack.playbackIdentity
+                    })
+                    XCTAssertEqual(viewModel.displayedTrackIdentity(for: sourceTrack.playbackIdentity), displayed.playbackIdentity)
+                }
                 XCTAssertEqual(queue.count, mergeTracks ? 3 : 5)
                 XCTAssertTrue(queue.contains { $0.id == "track-3" && $0.sourceCompositeKey == sources[1] })
                 XCTAssertEqual(queue.first?.sourceCompositeKey, preferredSources[0])

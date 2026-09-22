@@ -157,6 +157,16 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         isLoading = false
     }
 
+    public func displayedTrackIdentity(for selectedTrackId: String?) -> String? {
+        guard let selectedTrackId else { return nil }
+        if tracks.contains(where: { $0.playbackIdentity == selectedTrackId }) { return selectedTrackId }
+        guard settingsManager.mergingPreferences.isEnabled,
+              settingsManager.mergingPreferences.mergeTracks,
+              let source = sourceTracks.first(where: { $0.playbackIdentity == selectedTrackId }),
+              let identity = MergingProjection.trackIdentity(source) else { return selectedTrackId }
+        return tracks.first { MergingProjection.trackIdentity($0) == identity }?.playbackIdentity ?? selectedTrackId
+    }
+
     public func mutationCandidates(for track: Track) -> [Track] {
         MergingProjection.mutationCandidates(
             for: track,

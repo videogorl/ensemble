@@ -1482,7 +1482,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .offline), [.download])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink])
-        XCTAssertEqual(sections.actions(in: .management), [.toggleHidden])
+        XCTAssertEqual(sections.actions(in: .management), [.getInfo, .toggleHidden])
     }
 
     func testMediaMenuCatalogRetainsSmartPlaylistManagementActionsAsReadOnly() throws {
@@ -1541,7 +1541,7 @@ final class EnsembleUITests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(sections.actions(in: .management), [.rename, .toggleHidden, .deletePlaylist])
+        XCTAssertEqual(sections.actions(in: .management), [.getInfo, .rename, .toggleHidden, .deletePlaylist])
         for actionID in [MediaMenuActionID.rename, .deletePlaylist] {
             let action = try XCTUnwrap(sections.flatMap(\.actions).first { $0.id == actionID })
             XCTAssertEqual(action.availability, readOnly)
@@ -1646,7 +1646,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .pinning), [.unpinAll])
         XCTAssertEqual(sections.role(for: .unpinAll), .destructive)
-        XCTAssertEqual(sections.actions(in: .management), [.rename, .toggleHidden, .deletePlaylist])
+        XCTAssertEqual(sections.actions(in: .management), [.getInfo, .rename, .toggleHidden, .deletePlaylist])
     }
 
     func testTrackActionPresentationUsesSharedFavoriteState() {

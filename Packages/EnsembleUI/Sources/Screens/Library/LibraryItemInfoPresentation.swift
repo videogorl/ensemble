@@ -19,7 +19,7 @@ private struct LibraryItemInfoPresentationModifier: ViewModifier {
         #else
         content
             .sheet(item: $request) { request in
-                LibraryItemInfoView(request: request)
+                LibraryItemInfoSourcePicker(request: request)
                     .nativeSheetNavigationContainer()
             }
         #endif
@@ -30,6 +30,43 @@ public extension View {
     /// Presents the library Get Info panel using the platform-native surface.
     func libraryItemInfoPresentation(request: Binding<LibraryItemInfoRequest?>) -> some View {
         modifier(LibraryItemInfoPresentationModifier(request: request))
+    }
+}
+
+private struct LibraryItemInfoSourcePicker: View {
+    let request: LibraryItemInfoRequest
+    @State private var selectedSourceID: String?
+    @Environment(\.dependencies) private var deps
+
+    var body: some View {
+        if case .playlist(let primary, let sources) = request, sources.count > 1 {
+            let selected = sources.first { $0.sourceScopedID == selectedSourceID } ?? primary
+            VStack(spacing: 0) {
+                Picker("Source", selection: Binding(
+                    get: { selected.sourceScopedID },
+                    set: { selectedSourceID = $0 }
+                )) {
+                    ForEach(sources, id: \.sourceScopedID) { playlist in
+                        Text(sourceName(playlist)).tag(playlist.sourceScopedID)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding()
+                .accessibilityIdentifier("info.sources")
+                LibraryItemInfoView(request: .playlist(selected))
+                    .id(selected.sourceScopedID)
+            }
+        } else {
+            LibraryItemInfoView(request: request)
+        }
+    }
+
+    private func sourceName(_ playlist: Playlist) -> String {
+        guard let source = deps.accountManager.sourcePresentation(for: playlist.sourceCompositeKey) else {
+            return "Unknown source"
+        }
+        return DemoModeRedaction.serverName(source.serverName, isEnabled: deps.settingsManager.demoModeEnabled)
+            + " · " + source.libraryName
     }
 }
 
@@ -47,7 +84,7 @@ private final class MacLibraryItemInfoWindowPresenter {
                 idealHeight: 560
             )
         ) {
-            LibraryItemInfoView(request: request)
+            LibraryItemInfoSourcePicker(request: request)
         }
         .environment(\.dependencies, DependencyContainer.shared)
         .accentColor(DependencyContainer.shared.settingsManager.accentColor.color)
