@@ -12,8 +12,6 @@ struct StageFlowLayoutMetrics: Equatable {
     let centerScale: CGFloat
     let siblingScale: CGFloat
     let wingScale: CGFloat
-    let siblingOpacity: Double
-    let wingOpacity: Double
     let siblingRotation: Double
     let wingRotation: Double
 
@@ -23,8 +21,6 @@ struct StageFlowLayoutMetrics: Equatable {
         centerScale: 1.16,
         siblingScale: 0.92,
         wingScale: 0.78,
-        siblingOpacity: 0.94,
-        wingOpacity: 0.68,
         siblingRotation: 52,
         wingRotation: 64
     )
@@ -63,7 +59,6 @@ private enum StageFlowChromeMetrics {
 struct StageFlowItemLayout: Equatable {
     let xOffset: CGFloat
     let scale: CGFloat
-    let opacity: Double
     let rotation: Double
     let zIndex: Double
 }
@@ -75,17 +70,6 @@ enum StageFlowLayoutModel {
         let upperBound = Double(itemCount - 1)
         let clamped = min(max(proposedIndex, 0), upperBound)
         return Int(clamped.rounded())
-    }
-
-    static func projectedReleaseIndex(
-        baseIndex: Double,
-        dragDelta: Double,
-        predictedTotalDelta: Double
-    ) -> Double {
-        let releasedIndex = baseIndex + dragDelta
-        let residualMomentum = predictedTotalDelta - dragDelta
-        let momentumProjection = residualMomentum * momentumProjectionFactor(for: abs(residualMomentum))
-        return releasedIndex + momentumProjection
     }
 
     static func layout(for relativeIndex: Double, metrics: StageFlowLayoutMetrics) -> StageFlowItemLayout {
@@ -104,29 +88,24 @@ enum StageFlowLayoutModel {
         }()
 
         let scale: CGFloat
-        let opacity: Double
         let rotationMagnitude: Double
 
         switch absoluteDistance {
         case ..<1:
             scale = interpolate(metrics.centerScale, metrics.siblingScale, progress: absoluteDistance)
-            opacity = interpolate(1.0, metrics.siblingOpacity, progress: absoluteDistance)
             rotationMagnitude = interpolate(0, metrics.siblingRotation, progress: absoluteDistance)
         case ..<2:
             let progress = absoluteDistance - 1
             scale = interpolate(metrics.siblingScale, metrics.wingScale, progress: progress)
-            opacity = interpolate(metrics.siblingOpacity, metrics.wingOpacity, progress: progress)
             rotationMagnitude = interpolate(metrics.siblingRotation, metrics.wingRotation, progress: progress)
         default:
             scale = metrics.wingScale
-            opacity = metrics.wingOpacity
             rotationMagnitude = metrics.wingRotation
         }
 
         return StageFlowItemLayout(
             xOffset: xOffset,
             scale: scale,
-            opacity: opacity,
             rotation: -direction * rotationMagnitude,
             zIndex: absoluteDistance < 0.001 ? 200 : 100 - absoluteDistance
         )
@@ -138,19 +117,6 @@ enum StageFlowLayoutModel {
 
     private static func interpolate(_ start: Double, _ end: Double, progress: Double) -> Double {
         start + (end - start) * progress
-    }
-
-    private static func momentumProjectionFactor(for residualMomentum: Double) -> Double {
-        switch residualMomentum {
-        case ..<0.2:
-            return 0
-        case ..<0.6:
-            return 0.35
-        case ..<1.2:
-            return 0.72
-        default:
-            return 0.98
-        }
     }
 }
 
@@ -165,9 +131,6 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     let resolvePlaybackTracks: (Item) async -> [Track]
     @Binding var selectedItem: Item?
 
-    @State private var scrollIndex: Double = 0
-    @State private var dragIndexDelta: Double = 0
-    @State private var releaseVisualIntensity: Double = 0
     @State private var isPanelPresented = false
     @State private var isPlaying = false
     @State private var isTransportLoading = false
@@ -182,7 +145,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             ZStack {
                 stageBackground
 
-                stageLayer(in: geometry)
+                stageLayer
 
                 footerLayer
 
@@ -209,7 +172,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             syncSelectionWithItems(closePanel: true)
         }
         .onChange(of: selectedItem?.id) { _ in
-            handleExternalSelectionChange()
+            isPanelPresented = false
         }
         .onReceive(nowPlayingVM.$playbackState) { playbackState in
             updateTransportState(
@@ -249,90 +212,30 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         }
     }
 
-    private func stageLayer(in geometry: GeometryProxy) -> some View {
-        let baseItemSize = baseItemSize(for: geometry)
-        let currentIndex = scrollIndex + dragIndexDelta
-        let centerX = stageCenterX(for: geometry)
-        let centeredIndex = StageFlowLayoutModel.snappedIndex(for: scrollIndex, itemCount: items.count)
-        let dragVisualIntensity = max(min(abs(dragIndexDelta), 3), releaseVisualIntensity)
-        let stageDragGesture = DragGesture()
-            .onChanged { value in
-                releaseVisualIntensity = 0
-                dragIndexDelta = -Double(value.translation.width / dragSensitivity(for: baseItemSize))
-            }
-            .onEnded { value in
-                handleDragEnded(value, itemSize: baseItemSize)
-            }
-
-        return ZStack {
-            Color.clear
-                .contentShape(Rectangle())
-                .allowsHitTesting(false)
-
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                if !(isPanelPresented && index == centeredIndex) {
-                    let relativeIndex = Double(index) - currentIndex
-
-                    if abs(relativeIndex) < 4 {
-                        let itemLayout = StageFlowLayoutModel.layout(for: relativeIndex, metrics: layoutMetrics)
-                        stageCard(
-                            for: item,
-                            itemSize: baseItemSize,
-                            layout: itemLayout,
-                            dragVisualIntensity: dragVisualIntensity
-                        )
-                        #if os(iOS)
-                            .accessibilityIdentifier("stageflow.item.\(index)")
-                        #endif
-
-                        stageTapTarget(
-                            for: item,
-                            at: index,
-                            relativeIndex: relativeIndex,
-                            baseItemSize: baseItemSize,
-                            layout: itemLayout
-                        )
-                    }
+    @ViewBuilder
+    private var stageLayer: some View {
+        #if os(iOS)
+        StageFlowCarousel(
+            items: items,
+            selectedID: selectedItem?.id,
+            hidesSelectedItem: isPanelPresented,
+            itemView: { itemView($0).id($0.id) },
+            title: titleContent,
+            onSelection: { selectedItem = $0 },
+            onActivate: { item in
+                selectedItem = item
+                withAnimation(.interactiveSpring(response: 0.36, dampingFraction: 0.88)) {
+                    isPanelPresented.toggle()
                 }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .position(x: centerX, y: stageCenterY(for: geometry))
-        .contentShape(Rectangle())
+        )
         .allowsHitTesting(!isPanelPresented)
-        .highPriorityGesture(stageDragGesture)
-    }
-
-    private func stageCard(
-        for item: Item,
-        itemSize: CGFloat,
-        layout: StageFlowItemLayout,
-        dragVisualIntensity: Double
-    ) -> some View {
-        itemView(item)
-            .frame(width: itemSize, height: itemSize)
-            .scaleEffect(layout.scale)
-            .opacity(displayOpacity(for: layout.opacity, dragVisualIntensity: dragVisualIntensity))
-            .rotation3DEffect(
-                .degrees(layout.rotation),
-                axis: (x: 0, y: 1, z: 0),
-                perspective: 0.58
-            )
-            .offset(x: layout.xOffset)
-            .zIndex(layout.zIndex)
-            .allowsHitTesting(false)
-    }
-
-    /// Keep the wings more present during fast swipes so motion reads as artwork
-    /// flying by instead of a stack of dim fading cards.
-    private func displayOpacity(for baseOpacity: Double, dragVisualIntensity: Double) -> Double {
-        let minimumOpacity = 0.72 + (dragVisualIntensity * 0.08)
-        return min(1, max(baseOpacity, minimumOpacity))
+        #endif
     }
 
     @ViewBuilder
     private var footerLayer: some View {
-        if let liveCenteredItem {
+        if let liveCenteredItem = centeredItem {
             VStack(spacing: StageFlowChromeMetrics.footerSpacing) {
                 Spacer()
                 Text(titleContent(liveCenteredItem))
@@ -477,19 +380,8 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         .zIndex(StageFlowChromeMetrics.transportZIndex)
     }
 
-    private var liveCenteredItem: Item? {
-        guard !items.isEmpty else { return nil }
-        let centeredIndex = StageFlowLayoutModel.snappedIndex(
-            for: scrollIndex + dragIndexDelta,
-            itemCount: items.count
-        )
-        return items[centeredIndex]
-    }
-
     private var centeredItem: Item? {
-        guard !items.isEmpty else { return nil }
-        let centeredIndex = StageFlowLayoutModel.snappedIndex(for: scrollIndex, itemCount: items.count)
-        return items[centeredIndex]
+        selectedItem.flatMap { selected in items.first { $0.id == selected.id } } ?? items.first
     }
 
     private var stagePanelBackground: Color {
@@ -500,10 +392,6 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         #else
         return Color.gray
         #endif
-    }
-
-    private func dragSensitivity(for itemSize: CGFloat) -> CGFloat {
-        max(itemSize * 0.78, 1)
     }
 
     private func baseItemSize(for geometry: GeometryProxy) -> CGFloat {
@@ -518,51 +406,12 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         min(max(geometry.size.width * 0.42, 300), 380)
     }
 
-    private func stageCenterX(for geometry: GeometryProxy) -> CGFloat {
-        geometry.size.width * 0.5
-    }
-
     private func stageCenterY(for geometry: GeometryProxy) -> CGFloat {
         geometry.size.height * 0.45
     }
 
     private func detailSurfaceCenterY(for geometry: GeometryProxy) -> CGFloat {
         stageCenterY(for: geometry)
-    }
-
-    private func stageTapTarget(
-        for item: Item,
-        at index: Int,
-        relativeIndex: Double,
-        baseItemSize: CGFloat,
-        layout: StageFlowItemLayout
-    ) -> some View {
-        Color.clear
-            .frame(
-                width: stageTapTargetWidth(for: relativeIndex, baseItemSize: baseItemSize),
-                height: baseItemSize * 0.98
-            )
-            .contentShape(Rectangle())
-            .offset(x: layout.xOffset, y: 0)
-            .zIndex(layout.zIndex + 0.2)
-            // Use a simultaneous tap recognizer so horizontal drags still belong
-            // to the stage gesture instead of being swallowed by the tap target.
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    handleTap(on: item, at: index)
-                }
-            )
-    }
-
-    private func stageTapTargetWidth(for relativeIndex: Double, baseItemSize: CGFloat) -> CGFloat {
-        switch abs(relativeIndex) {
-        case ..<0.5:
-            return baseItemSize * 0.84
-        case ..<1.5:
-            return baseItemSize * 0.42
-        default:
-            return baseItemSize * 0.26
-        }
     }
 
     /// Mirrors the main transport control: show a spinner while loading/buffering.
@@ -583,44 +432,6 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         case .stopped, .paused, .failed:
             isPlaying = false
             isTransportLoading = false
-        }
-    }
-
-    private func handleDragEnded(_ value: DragGesture.Value, itemSize: CGFloat) {
-        let releasedIndex = scrollIndex + dragIndexDelta
-        let predictedTotalDelta = -Double(value.predictedEndTranslation.width / dragSensitivity(for: itemSize))
-        let projectedIndex = StageFlowLayoutModel.projectedReleaseIndex(
-            baseIndex: scrollIndex,
-            dragDelta: dragIndexDelta,
-            predictedTotalDelta: predictedTotalDelta
-        )
-        let targetIndex = StageFlowLayoutModel.snappedIndex(
-            for: projectedIndex,
-            itemCount: items.count
-        )
-        let carriedVisualIntensity = min(abs(dragIndexDelta), 3)
-
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            scrollIndex = releasedIndex
-            dragIndexDelta = 0
-            releaseVisualIntensity = carriedVisualIntensity
-        }
-
-        snap(to: targetIndex, closePanel: true)
-    }
-
-    private func handleTap(on item: Item, at index: Int) {
-        let centeredIndex = StageFlowLayoutModel.snappedIndex(for: scrollIndex, itemCount: items.count)
-        guard centeredIndex == index else {
-            snap(to: index, closePanel: true)
-            return
-        }
-
-        selectedItem = item
-        withAnimation(.interactiveSpring(response: 0.36, dampingFraction: 0.88)) {
-            isPanelPresented.toggle()
         }
     }
 
@@ -645,73 +456,8 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     }
 
     private func syncSelectionWithItems(closePanel: Bool) {
-        guard !items.isEmpty else {
-            selectedItem = nil
-            scrollIndex = 0
-            dragIndexDelta = 0
-            if closePanel {
-                isPanelPresented = false
-            }
-            return
-        }
-
-        if let selectedItem,
-           let existingIndex = items.firstIndex(where: { $0.id == selectedItem.id }) {
-            scrollIndex = Double(existingIndex)
-            dragIndexDelta = 0
-            if closePanel {
-                isPanelPresented = false
-            }
-            return
-        }
-
-        let nearestIndex = StageFlowLayoutModel.snappedIndex(for: scrollIndex, itemCount: items.count)
-        scrollIndex = Double(nearestIndex)
-        dragIndexDelta = 0
-        selectedItem = items[nearestIndex]
-        if closePanel {
-            isPanelPresented = false
-        }
-    }
-
-    private func handleExternalSelectionChange() {
-        guard !items.isEmpty else { return }
-
-        guard let selectedItem else {
-            syncSelectionWithItems(closePanel: true)
-            return
-        }
-
-        guard let targetIndex = items.firstIndex(where: { $0.id == selectedItem.id }) else {
-            syncSelectionWithItems(closePanel: true)
-            return
-        }
-
-        snap(to: targetIndex, closePanel: true, animate: false)
-    }
-
-    private func snap(to index: Int, closePanel: Bool, animate: Bool = true) {
-        guard items.indices.contains(index) else { return }
-
-        let update = {
-            scrollIndex = Double(index)
-            selectedItem = items[index]
-            releaseVisualIntensity = 0
-            if closePanel {
-                isPanelPresented = false
-            }
-        }
-
-        let targetIndex = Double(index)
-        let correctionDistance = abs(scrollIndex - targetIndex)
-
-        if animate, correctionDistance > 0.001 {
-            withAnimation(snapAnimation(for: correctionDistance)) {
-                update()
-            }
-        } else {
-            update()
-        }
+        selectedItem = centeredItem
+        if closePanel { isPanelPresented = false }
     }
 
     private func closePanel() {
@@ -724,9 +470,4 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         hasPlaybackContext = currentTrack != nil || queueCount > 0
     }
 
-    /// Applies a short residual correction after release instead of a second inertial flourish.
-    private func snapAnimation(for correctionDistance: Double) -> Animation {
-        let duration = min(max(0.08 + (correctionDistance * 0.045), 0.11), 0.18)
-        return .easeOut(duration: duration)
-    }
 }
