@@ -175,6 +175,25 @@ struct AlbumBrowseItem: Identifiable {
     }
 }
 
+struct AlbumGridBoundsKey: PreferenceKey {
+    static let defaultValue: [String: Anchor<CGRect>] = [:]
+
+    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct TracksAlbumGridPositionKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var tracksAlbumGridPosition: Bool {
+        get { self[TracksAlbumGridPositionKey.self] }
+        set { self[TracksAlbumGridPositionKey.self] = newValue }
+    }
+}
+
 public struct AlbumGrid: View {
     let albums: [DisplayAlbum]
     let rawAlbums: [Album]?
@@ -185,6 +204,7 @@ public struct AlbumGrid: View {
     let horizontalPadding: CGFloat
     let includesHidden: Bool
 
+    @Environment(\.tracksAlbumGridPosition) private var tracksPosition
     @Environment(\.dependencies) private var deps
     @ObservedObject private var settingsManager: SettingsManager
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -240,26 +260,32 @@ public struct AlbumGrid: View {
         LazyVGrid(columns: layout.gridColumns, spacing: layout.rowSpacing) {
             ForEach(AlbumBrowseItem.identify(displayedAlbums)) { item in
                 let displayAlbum = item.displayAlbum
-                if let onAlbumTap {
-                    Button {
-                        onAlbumTap(displayAlbum)
-                    } label: {
-                        AlbumCard(displayAlbum: displayAlbum, layout: layout)
+                Group {
+                    if let onAlbumTap {
+                        Button {
+                            onAlbumTap(displayAlbum)
+                        } label: {
+                            AlbumCard(displayAlbum: displayAlbum, layout: layout)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            albumContextMenu(for: displayAlbum)
+                        }
+                    } else {
+                        navigationCoordinator.routeLink(
+                            to: .albumDetail(displayAlbum, includesHidden: includesHidden)
+                        ) {
+                            AlbumCard(displayAlbum: displayAlbum, layout: layout)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            albumContextMenu(for: displayAlbum)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        albumContextMenu(for: displayAlbum)
-                    }
-                } else {
-                    navigationCoordinator.routeLink(
-                        to: .albumDetail(displayAlbum, includesHidden: includesHidden)
-                    ) {
-                        AlbumCard(displayAlbum: displayAlbum, layout: layout)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        albumContextMenu(for: displayAlbum)
-                    }
+                }
+                .id(item.id)
+                .anchorPreference(key: AlbumGridBoundsKey.self, value: .bounds) {
+                    tracksPosition ? [item.id: $0] : [:]
                 }
             }
         }

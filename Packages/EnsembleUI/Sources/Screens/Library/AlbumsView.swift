@@ -9,6 +9,7 @@ public struct AlbumsView: View {
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
+    @State private var visibleAlbumID: String?
     @State private var selectedAlbum: DisplayAlbum?
     @StateObject private var albumSnapshotCache = BrowseSnapshotCache(AlbumBrowseSnapshot.empty)
 
@@ -81,17 +82,21 @@ public struct AlbumsView: View {
                 loadingView
             } else if !hasLibraryContent {
                 emptyView
-            } else if isStageFlowActive {
-                stageFlowView
             } else {
-                albumGridView
+                ZStack {
+                    albumGridView
+                        .opacity(isStageFlowActive ? 0 : 1)
+                        .allowsHitTesting(!isStageFlowActive)
+                        .accessibilityHidden(isStageFlowActive)
+                    if isStageFlowActive { stageFlowView }
+                }
             }
         }
         #if os(iOS)
         .navigationBarHidden(isStageFlowActive)
-        .if(isStageFlowActive) { view in
+        .if(true) { view in
             if #available(iOS 16.0, *) {
-                view.toolbar(.hidden, for: .navigationBar)
+                view.toolbar(isStageFlowActive ? .hidden : .automatic, for: .navigationBar)
             } else {
                 view
             }
@@ -99,9 +104,7 @@ public struct AlbumsView: View {
         .statusBar(hidden: isStageFlowActive)
         #endif
         .navigationTitle(isStageFlowActive ? "" : "Albums")
-        .if(!isStageFlowActive) { view in
-            view.searchable(text: albumFilterOptions.searchText, prompt: "Filter albums")
-        }
+        .searchable(text: albumFilterOptions.searchText, prompt: "Filter albums")
         .refreshable {
             await libraryVM.refreshFromServer()
         }
@@ -213,6 +216,33 @@ public struct AlbumsView: View {
                             bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
                         )
                     }
+                }
+                .environment(\.tracksAlbumGridPosition, true)
+                .overlayPreferenceValue(AlbumGridBoundsKey.self) { bounds in
+                    GeometryReader { viewport in
+                        let visibleID = bounds.compactMap { id, anchor -> (String, CGRect)? in
+                            let frame = viewport[anchor]
+                            return frame.intersects(CGRect(origin: .zero, size: viewport.size)) ? (id, frame) : nil
+                        }.min {
+                            $0.1.minY == $1.1.minY ? $0.1.minX < $1.1.minX : $0.1.minY < $1.1.minY
+                        }?.0
+                        Color.clear
+                            .onChange(of: visibleID) { id in
+                                guard !isStageFlowActive else { return }
+                                visibleAlbumID = id
+                            }
+                    }
+                    .allowsHitTesting(false)
+                }
+                .onChange(of: isStageFlowActive) { active in
+                    if active {
+                        selectedAlbum = albumSnapshot.albums.first { $0.id == visibleAlbumID }
+                    } else if let id = selectedAlbum?.id {
+                        proxy.scrollTo(id, anchor: .top)
+                    }
+                }
+                .onChange(of: geometry.size) { _ in
+                    if !isStageFlowActive, let id = selectedAlbum?.id { proxy.scrollTo(id, anchor: .top) }
                 }
                 .miniPlayerBottomSpacing()
                 .libraryScrollIndexOverlay {
