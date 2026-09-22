@@ -627,6 +627,53 @@ final class EnsembleUITests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testMacTrackRowDefersMutationCandidatesUntilMenuOpens() {
+        let track = Track(
+            id: "track-1",
+            key: "/tracks/1",
+            title: "Track",
+            sourceCompositeKey: "plex:account:server:library"
+        )
+        var candidateLookups = 0
+        let dependencies = DependencyContainer.shared
+        let coordinator = MacNativeTrackTableView.Coordinator(
+            sections: [NativeTrackListSection(id: "all", title: "", tracks: [track])],
+            showArtwork: false,
+            showTrackNumbers: false,
+            showAlbumName: true,
+            tableHeaderContent: nil,
+            tableFooterContent: nil,
+            currentTrackId: nil,
+            availabilityGeneration: 0,
+            activeDownloadTrackIdentities: [],
+            bottomContentInset: 0,
+            tableHeaderExtraHeight: 0,
+            usesDynamicTableHeaderHeight: false,
+            supplementalMetadataWidth: nil,
+            trackSourceLabels: [:],
+            rowHeight: 48,
+            interactionModel: TrackRowInteractionModel(
+                onPlayNext: { _ in },
+                mutationCandidates: { track in
+                    candidateLookups += 1
+                    return [track]
+                }
+            ),
+            artworkLoader: dependencies.artworkLoader,
+            shareService: dependencies.shareService,
+            toastCenter: dependencies.toastCenter,
+            trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
+            onRemoveFromPlaylist: nil,
+            onTrackTap: { _, _ in }
+        )
+
+        XCTAssertNotNil(coordinator.tableView(NSTableView(), viewFor: nil, row: 0))
+        XCTAssertEqual(candidateLookups, 0)
+        XCTAssertNotNil(coordinator.contextMenu(forRow: 0))
+        XCTAssertEqual(candidateLookups, 1)
+    }
+
     #endif
 
     func testArtworkSizeValues() {

@@ -434,7 +434,6 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                   let view = view as? MacNativeTrackTableCell,
                   case let .track(track, globalIndex) = rows[row] else { return }
 
-            let resolvedActions = interactionModel.resolve(for: track)
             view.configure(
                 track: track,
                 showArtwork: showArtwork,
@@ -443,12 +442,17 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 isPlaying: track.playbackIdentity == currentTrackId,
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadTrackIdentities.contains(track.sourceScopedID),
-                isFavorited: resolvedActions.isFavorited,
+                isFavorited: interactionModel.isFavorited(track),
                 supplementalMetadataWidth: supplementalMetadataWidth,
                 sourceLabel: track.sourceCompositeKey.flatMap { trackSourceLabels[$0] },
                 artworkLoader: artworkLoader,
                 menuProvider: { [weak self] in
-                    self?.makeMenu(for: track, globalIndex: globalIndex, resolvedActions: resolvedActions)
+                    guard let self else { return nil }
+                    return self.makeMenu(
+                        for: track,
+                        globalIndex: globalIndex,
+                        resolvedActions: self.interactionModel.resolve(for: track)
+                    )
                 }
             )
         }
