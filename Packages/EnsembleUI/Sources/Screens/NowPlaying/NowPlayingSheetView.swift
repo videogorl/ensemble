@@ -1,7 +1,8 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
-/// Main sheet container for iPhone-style Now Playing presentation.
+/// Shared iOS Now Playing content for native sheets.
 /// macOS viewport presentation lives in `NowPlayingViewportRoot`.
 public struct NowPlayingSheetView: View {
     let viewModel: NowPlayingViewModel
@@ -21,22 +22,24 @@ public struct NowPlayingSheetView: View {
 
     public var body: some View {
         GeometryReader { geometry in
+            let usesWideLayout = usesWideNowPlayingLayout(for: geometry.size)
             ZStack {
                 backgroundView
 
                 VStack(spacing: EnsembleDesign.Spacing.none) {
-                    dismissPill
-                        .padding(.top, EnsembleScaffold.NowPlaying.dismissPillTopPadding)
-                        .padding(.bottom, EnsembleDesign.Spacing.sm)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            handleDismiss()
+                    if !usesWideLayout {
+                        Button(action: handleDismiss) {
+                            dismissPill.frame(maxWidth: .infinity, minHeight: 44)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Close Now Playing")
+                    }
 
-                    if usesWideNowPlayingLayout(for: geometry.size) {
+                    if usesWideLayout {
                         NowPlayingWidePanelLayout(
                             viewModel: viewModel,
                             currentPage: currentPageBinding,
+                            dismissAction: handleDismiss,
                             centersContentInAvailableSpace: true
                         )
                     } else {

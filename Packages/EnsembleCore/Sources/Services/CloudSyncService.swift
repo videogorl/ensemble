@@ -1,5 +1,9 @@
 import CloudKit
+import EnsembleDomain
 import Foundation
+#if os(macOS)
+import Security
+#endif
 
 /// Manages CloudKit synchronization for user profile data.
 /// Uses the private database in the app's iCloud container.
@@ -12,13 +16,14 @@ public actor CloudSyncService {
         case networkUnavailable
         case quotaExceeded
         case rateLimited
+        case unavailable
         case error
     }
 
     // MARK: - CloudKit Configuration
 
-    private let container: CKContainer
-    private let database: CKDatabase
+    private let container: CKContainer?
+    private let database: CKDatabase?
     private static let profileSubscriptionID = "profile-changes"
 
     /// CloudKit record type for user profile
@@ -26,12 +31,19 @@ public actor CloudSyncService {
 
     /// Fixed record ID for the single user profile record
     private static let profileRecordID = CKRecord.ID(recordName: "currentUserProfile")
+    // ponytail: one record keeps v1 reconciliation atomic; split by identity if its payload approaches CloudKit limits.
+    private static let hiddenMediaRecordType = "HiddenMediaState"
+    private static let hiddenMediaRecordID = CKRecord.ID(recordName: "currentHiddenMediaState")
 
     /// Field keys for the profile record
     private enum ProfileField {
         static let displayName = "displayName"
         static let profileImage = "profileImage"
         static let lastModified = "lastModified"
+    }
+
+    private enum HiddenMediaField {
+        static let mutations = "mutations"
     }
 
     // MARK: - State
@@ -44,17 +56,39 @@ public actor CloudSyncService {
 
     /// Called on the main actor when a remote profile change is received
     public var onRemoteProfileChanged: (@Sendable (UserProfile, Data?) async -> Void)?
+    public var onRemoteHiddenMediaChanged: (@Sendable ([HiddenMediaMutation]) async -> Void)?
 
     // MARK: - Initialization
 
-    public init(containerIdentifier: String = "iCloud.com.videogorl.ensemble") {
-        container = CKContainer(identifier: containerIdentifier)
+    public init(
+        containerIdentifier: String = "iCloud.com.videogorl.ensemble",
+        isCloudKitAvailable: Bool? = nil
+    ) {
+        let isAvailable = isCloudKitAvailable ?? Self.hasContainerEntitlement(containerIdentifier)
+        guard isAvailable else {
+            container = nil
+            database = nil
+            profileTransportState = .unavailable
+            EnsembleLogger.error(
+                "CloudKit disabled because the app lacks the \(containerIdentifier) container entitlement"
+            )
+            return
+        }
+
+        let container = CKContainer(identifier: containerIdentifier)
+        self.container = container
         database = container.privateCloudDatabase
     }
 
     /// Set the remote change callback (actor-isolated setter)
     public func setRemoteChangeHandler(_ handler: @escaping @Sendable (UserProfile, Data?) async -> Void) {
         onRemoteProfileChanged = handler
+    }
+
+    public func setHiddenMediaChangeHandler(
+        _ handler: @escaping @Sendable ([HiddenMediaMutation]) async -> Void
+    ) {
+        onRemoteHiddenMediaChanged = handler
     }
 
     public func currentProfileTransportState() -> ProfileTransportState {
@@ -64,6 +98,7 @@ public actor CloudSyncService {
     /// Probe the user's iCloud account availability so callers can distinguish
     /// authentication failures from transient CloudKit fetch issues.
     public func currentAccountStatus() async -> CKAccountStatus {
+        guard let container else { return .couldNotDetermine }
         do {
             return try await container.accountStatus()
         } catch {
@@ -76,6 +111,7 @@ public actor CloudSyncService {
 
     /// Push the local profile to CloudKit
     public func pushProfile(_ profile: UserProfile, imageData: Data?) async {
+        guard let database else { return }
         do {
             // Fetch existing record or create new one
             let record: CKRecord
@@ -127,6 +163,7 @@ public actor CloudSyncService {
 
     /// Pull the latest profile from CloudKit
     public func pullProfile() async -> (profile: UserProfile, imageData: Data?)? {
+        guard database != nil else { return nil }
         if let nextAllowed = nextProfilePullAllowedAt, nextAllowed > Date() {
             // Preserve auth-related states during local cooldown windows so
             // iOS 15 devices don't flap between "Sign In Required" and
@@ -160,6 +197,7 @@ public actor CloudSyncService {
     }
 
     private func performProfilePullRequest() async -> (profile: UserProfile, imageData: Data?)? {
+        guard let database else { return nil }
         do {
             let record = try await database.record(for: Self.profileRecordID)
             profileTransportState = .available
@@ -180,6 +218,7 @@ public actor CloudSyncService {
 
     /// Subscribe to remote profile changes via silent push notifications
     public func subscribeToChanges() async {
+        guard let database else { return }
         guard !isSubscribed else { return }
 
         do {
@@ -199,7 +238,7 @@ public actor CloudSyncService {
             notificationInfo.shouldSendContentAvailable = true // Silent push
             subscription.notificationInfo = notificationInfo
 
-            try await database.save(subscription)
+            _ = try await database.save(subscription)
             isSubscribed = true
             profileTransportState = .available
             nextProfilePullAllowedAt = nil
@@ -212,8 +251,12 @@ public actor CloudSyncService {
 
     /// Handle a CloudKit remote notification — fetches changes and calls the callback
     public func handleRemoteNotification() async {
-        guard let result = await pullProfile() else { return }
-        await onRemoteProfileChanged?(result.profile, result.imageData)
+        if let result = await pullProfile() {
+            await onRemoteProfileChanged?(result.profile, result.imageData)
+        }
+        if let mutations = await pullHiddenMedia() {
+            await onRemoteHiddenMediaChanged?(mutations)
+        }
     }
 
     /// Handles an iOS remote notification payload and returns true when it matches
@@ -235,6 +278,65 @@ public actor CloudSyncService {
     public func refreshProfileFromCloud() async {
         guard let result = await pullProfile() else { return }
         await onRemoteProfileChanged?(result.profile, result.imageData)
+    }
+
+    // MARK: - Hidden Media Sync
+
+    public func pullHiddenMedia() async -> [HiddenMediaMutation]? {
+        guard let database else { return nil }
+        do {
+            let record = try await database.record(for: Self.hiddenMediaRecordID)
+            guard let data = record[HiddenMediaField.mutations] as? Data else { return [] }
+            return try JSONDecoder().decode([HiddenMediaMutation].self, from: data)
+        } catch let error as CKError where error.code == .unknownItem {
+            return []
+        } catch {
+            await updateTransportState(for: error)
+            Self.logCloudKitError(error, context: "pullHiddenMedia")
+            return nil
+        }
+    }
+
+    public func pushHiddenMedia(_ local: [HiddenMediaMutation]) async -> [HiddenMediaMutation]? {
+        guard let database else { return nil }
+        for attempt in 0..<3 {
+            do {
+                let record: CKRecord
+                do {
+                    record = try await database.record(for: Self.hiddenMediaRecordID)
+                } catch let error as CKError where error.code == .unknownItem {
+                    record = CKRecord(recordType: Self.hiddenMediaRecordType, recordID: Self.hiddenMediaRecordID)
+                }
+
+                let remote: [HiddenMediaMutation]
+                if let data = record[HiddenMediaField.mutations] as? Data {
+                    remote = (try? JSONDecoder().decode([HiddenMediaMutation].self, from: data)) ?? []
+                } else {
+                    remote = []
+                }
+                let merged = Self.mergeHiddenMedia(local, remote)
+                record[HiddenMediaField.mutations] = try JSONEncoder().encode(merged) as CKRecordValue
+                _ = try await database.save(record)
+                profileTransportState = .available
+                return merged
+            } catch let error as CKError where error.code == .serverRecordChanged && attempt < 2 {
+                continue
+            } catch {
+                await updateTransportState(for: error)
+                Self.logCloudKitError(error, context: "pushHiddenMedia")
+                return nil
+            }
+        }
+        return nil
+    }
+
+    public static func mergeHiddenMedia(
+        _ lhs: [HiddenMediaMutation],
+        _ rhs: [HiddenMediaMutation]
+    ) -> [HiddenMediaMutation] {
+        Dictionary((lhs + rhs).map { ($0.identity, $0) }, uniquingKeysWith: { current, candidate in
+            current.modifiedAt >= candidate.modifiedAt ? current : candidate
+        }).values.sorted { $0.identity.id < $1.identity.id }
     }
 
     // MARK: - Helpers
@@ -342,6 +444,7 @@ public actor CloudSyncService {
     }
 
     private func accountStatusForTransportDecision() async -> CKAccountStatus {
+        guard let container else { return .couldNotDetermine }
         do {
             return try await container.accountStatus()
         } catch {
@@ -364,5 +467,21 @@ public actor CloudSyncService {
         @unknown default:
             return "unknown"
         }
+    }
+
+    private static func hasContainerEntitlement(_ containerIdentifier: String) -> Bool {
+#if os(macOS)
+        guard let task = SecTaskCreateFromSelf(nil),
+              let identifiers = SecTaskCopyValueForEntitlement(
+                  task,
+                  "com.apple.developer.icloud-container-identifiers" as CFString,
+                  nil
+              ) as? [String] else {
+            return false
+        }
+        return identifiers.contains(containerIdentifier)
+#else
+        return true
+#endif
     }
 }

@@ -24,6 +24,66 @@ Use this checklist for broad visual sweeps. Data-dependent rows can vary by test
 - Genre chips: verify spacing, wrapping/scrolling, selected/unselected state, reset behavior, and filtering on Songs, Genres, artist detail, favorites/mood/virtual collections, and compact vs regular layouts where data exists.
 - Scroll boundaries: for every long list/grid/table, scroll to bottom and back to top, checking mini-player clearance, final-row reachability, section headers, scroll index overlays, and toolbar/search collapse behavior.
 - Empty/data transition states: for every screen that can be empty, filtered empty, loading, syncing, offline, or no-results, capture at least one reachable representative state or record the blocker.
+- Plex mutation convergence: only with explicit live-Plex authorization, run the disposable-fixture foreground/cold-start add, edit, playlist-membership, removal, artifact-cleanup, and no-op efficiency matrix in [physical-download-sweep.md](physical-download-sweep.md).
+
+## Multi-Source And Apple Music Journeys
+
+Run this section on iOS/iPadOS when Apple Music or another non-Plex source is enabled. Use a physical device for authorization, DRM playback, AirPlay, Siri, background playback, and live mutations. Record which checks used cached data versus the live provider.
+
+Source lifecycle:
+- Open Profile > Music Sources. Verify every source has its official icon, provider name, sync state, and a navigable source-detail sheet.
+- Open Add Source. Verify the chooser has no phantom controls, Plex and Apple Music are distinct options, and unsupported OS/platform states are gated without affecting Plex. Check the supported iOS/iPadOS version plus one unsupported OS or platform when feasible.
+- Verify Apple Music enablement is device-local: it must not appear as a synced source on another device, macOS, or Watch, while Plex source synchronization remains unchanged.
+- Add Apple Music and confirm the app returns to usable UI before the initial sync finishes. Browse another surface during sync; progress must advance, complete, or surface an actionable error rather than sticking indefinitely.
+- Refresh and relaunch during or after sync. Confirm provider state, enabled-library scope, and cached content converge without duplicating media.
+- If removal is explicitly authorized, inventory Apple-scoped rows, provider state, artwork, and queue references before removal. Remove Apple Music, confirm its content and caches disappear without deleting Plex data, then re-add it and verify recovery.
+
+Normalized browse and identity:
+- Compare representative Plex and Apple rows in Songs, Albums, Artists, Playlists, Favorites, Feed hubs, search, Queue, and Now Playing. Provider labels, artwork, dates, capabilities, and source/server text must come from normalized models rather than screen-specific shims.
+- Exercise every supported sort on Apple songs, albums, artists, and playlists in both directions. Verify real provider metadata orders correctly, unknown values always sort last, and equal or unknown values use a deterministic tie-breaker.
+- Trigger a metadata-only refresh where stable item IDs gain or change artwork, added dates, favorites, last-played dates, or play counts. Verify visible rows and active sorting update without a relaunch or unrelated identity change.
+- Sort merged artists and playlists by every aggregate field they expose. Their position must use the count, duration, or latest date displayed by the merged row rather than one constituent source.
+- Open a merged artist that exists in both sources. Apple sections must be library-scoped, identify the Apple library correctly, and separate albums, EPs, and singles without expanding into the artist's entire catalog.
+- Check same-named and colliding-ID media across sources. Navigation, artwork, favorites, playlist membership, and mutations must remain source-scoped.
+- Verify Recently Added, Recently Played, and Most Played use explicit normalized hub semantics, merge eligible sources, deduplicate correctly, and sort globally rather than in provider-sized blocks.
+
+Search and catalog:
+- Before focusing Search, verify no Library/Apple Music scope tabs are shown. Focus the field with Apple Music enabled and verify the Apple-style scope tabs appear; remove/disable Apple Music and verify the extra scope disappears.
+- Search Library and Apple Music for the same term. Verify category previews expose Show All when more results exist, the expanded view is not capped at the preview count, and switching/clearing scopes does not leave stale results.
+- Play an Apple catalog song that is not yet in the library. It must remain the selected/playing item instead of immediately skipping, and artwork plus normalized Now Playing metadata must populate.
+- Open row swipes and context menus in both scopes. Play Next/Last availability must respect the active playback engine; Add to Library appears only for eligible catalog items and disappears or updates after confirmed convergence.
+- Mutate the Apple library, return to Search, and verify Search remains usable while refresh/sync occurs. Inventory caches before and after repeated catalog searches: search artwork must use bounded transient caching and must not create durable library-artwork entries, while synced library artwork remains reusable by browse and detail surfaces.
+
+Playlists and merging:
+- Verify Apple playlists populate with artwork and merge with same-named Plex playlists across source types. Open the merged playlist and confirm each source remains identifiable and its unsupported mutations remain disabled.
+- Compare one user-created Apple playlist with one Apple editorial/generated playlist. Classification and action availability must follow item-level capabilities: editable content is a regular playlist; curated/generated read-only content may be presented as smart/read-only.
+- Open Edit on a merged playlist. Every contributing source appears in the source picker; unsupported operations stay visible but disabled with their reason.
+- With disposable data and explicit mutation authorization, create an Apple playlist, add Apple songs, reorder/rename where the provider reports support, and confirm the optimistic local state, remote Apple Music result, and eventual reconciled state. Record acceptance and convergence timing; an older refresh must not roll back the optimistic mutation. Keep Plex tracks disabled as Apple-playlist targets.
+- Exercise add-to-playlist from Search, track rows, albums, Queue/History, mini-player, and Now Playing. Verify compatible targets, duplicate handling, recent-target updates, delayed success feedback, and provider-scoped refresh.
+
+Now Playing and media actions:
+- Compare a Plex track and an Apple Music track in mini-player and Now Playing. Artwork must populate in Controls, Queue, Lock Screen/Control Center, and source-aware info surfaces.
+- For Apple Music, verify the progress treatment remains continuous when no waveform exists, the waveform does not falsely animate, Lyrics explicitly reports unsupported, and Get Info agrees with the Now Playing Info card.
+- Verify normalized Source/Server/downloaded-state values. A downloaded Apple item may report device availability, while Server remains Apple Music; unsupported file/codec metadata must be disabled rather than spun indefinitely.
+- For an Apple catalog song outside the library, verify Add to Library from both its context menu and Now Playing. Confirm the remote mutation and refreshed action state.
+- Verify an existing Apple favorite shows a filled heart in rows and Now Playing. Favoriting through Ensemble must add the song to Apple's Favorite Songs; unfavorite remains disabled with a provider-managed explanation while the public API lacks that action.
+- Share an Apple song and verify Ensemble still resolves through its song.link flow, with the Apple Music URL/plain text used only as fallbacks.
+- Open SmartMix settings with Apple Music configured and verify the cross-service transition limitation is disclosed.
+
+Playback engine affinity and continuity:
+- Establish audible/system-progress baselines with one Plex track and one Apple Music track before diagnosing mixed-source behavior.
+- Queue at least two consecutive Apple tracks. With SmartMix off, verify MusicKit-owned continuity; with SmartMix on, verify the configured Apple crossfade where the OS supports it. Never require or attempt an Apple-to-other-service crossfade.
+- Start a mixed candidate collection such as shuffled merged Favorites. The first playable track selects the engine; incompatible queue items are removed before playback, the Queue title/card discloses the removed count, and all remaining items use the selected engine.
+- Repeat the mixed shuffle until Plex starts first and until Apple Music starts first. Verify both filtering directions and confirm music never pauses merely because incompatible candidates existed.
+- With playback active, verify incompatible Play Next/Play Last actions are disabled. Mutate the compatible queue through Play Next/Last, reorder, remove, and destructive replacement; confirm playback state, current-item identity, warning count, and persisted queue stay coherent.
+- Background or lock the phone before a real track boundary. Audio and system Now Playing progress must continue into the next compatible track without relying on a cross-engine handoff.
+- At queue end, verify provider-matched autoplay: Plex uses Plex recommendations and Apple Music uses an Apple station/recommendation seeded from the final Apple track. Generated tracks must become visible in Queue, avoid duplicates, and never switch playback engines silently.
+- Exercise pause/play/skip during Apple queue preparation and rapid queue replacement. Stale MusicKit completions must not resume, pause, stop, or replace newer user intent.
+
+System integrations:
+- Route both providers through AirPlay, then return to the device route. Verify controls, elapsed time, current item, and queue survive the route change.
+- Invoke a representative Siri request for Apple-only, Plex-only, and ambiguous content when available. Confirm enabled-source scoping, selected provider, queue affinity, and background playback.
+- Treat watchOS as an iPhone remote for Apple playback unless its policy changes; do not require Apple library data to be synced into the Watch UI.
 
 ## iPhone Compact
 
@@ -40,7 +100,7 @@ More-routed library screens:
 - Albums: grid/list, sort/filter sheet, album detail, metadata/get-info sheet if available.
 - Genres: genre list, genre detail, track list.
 - Favorites: favorite tracks/albums/artists/playlists sections or empty state, sorting/filtering, genre/filter chips if present, row/card menus.
-- Downloads: libraries section, items section, pending mutations if present, Download Manager settings.
+- Downloads: libraries section, items section, pending mutations if present, Download Manager settings. When a physical-device download sweep is requested and local download mutation is authorized, run [physical-download-sweep.md](physical-download-sweep.md).
 
 iPhone-only/compact checks:
 - Rotate Songs or Playlists to landscape and verify StageFlow if available.

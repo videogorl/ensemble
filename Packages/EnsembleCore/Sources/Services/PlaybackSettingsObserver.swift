@@ -3,10 +3,6 @@ import Foundation
 struct PlaybackSettingsChange: Equatable {
     let visualizerEnabled: Bool?
     let streamingQuality: String?
-
-    var isEmpty: Bool {
-        visualizerEnabled == nil && streamingQuality == nil
-    }
 }
 
 /// Observes playback-related UserDefaults keys and emits only material setting changes.
@@ -24,7 +20,7 @@ final class PlaybackSettingsObserver {
         self.defaults = defaults
         self.notificationCenter = notificationCenter
         self.lastKnownVisualizerEnabled = Self.visualizerEnabled(in: defaults)
-        self.lastObservedStreamingQuality = defaults.string(forKey: Self.streamingQualityKey) ?? Self.defaultStreamingQuality
+        self.lastObservedStreamingQuality = AudioQualityPreference.storedStreamingQuality(in: defaults)
     }
 
     deinit {
@@ -69,7 +65,7 @@ final class PlaybackSettingsObserver {
             changedVisualizerEnabled = nil
         }
 
-        let streamingQuality = defaults.string(forKey: Self.streamingQualityKey) ?? Self.defaultStreamingQuality
+        let streamingQuality = AudioQualityPreference.storedStreamingQuality(in: defaults)
         let changedStreamingQuality: String?
         if streamingQuality != lastObservedStreamingQuality {
             lastObservedStreamingQuality = streamingQuality
@@ -85,14 +81,6 @@ final class PlaybackSettingsObserver {
     }
 
     static func visualizerEnabled(in defaults: UserDefaults) -> Bool {
-        guard defaults.object(forKey: visualizerEnabledKey) != nil else {
-            return defaultVisualizerEnabled
-        }
-        return defaults.bool(forKey: visualizerEnabledKey)
+        AuroraVisualizationPreference.storedEnabled(in: defaults)
     }
-
-    private static let visualizerEnabledKey = "auroraVisualizationEnabled"
-    private static let defaultVisualizerEnabled = true
-    private static let streamingQualityKey = "streamingQuality"
-    private static let defaultStreamingQuality = "high"
 }

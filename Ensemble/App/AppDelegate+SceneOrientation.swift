@@ -1,6 +1,7 @@
 #if os(iOS)
 import UIKit
 import EnsembleCore
+import EnsembleUI
 
 extension AppDelegate {
     // MARK: - Scene Will Connect (iOS 13+ scene lifecycle)
@@ -39,12 +40,6 @@ extension AppDelegate {
         return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
     }
 
-    // NOTE: These methods are NOT called in SwiftUI lifecycle apps using @main App.
-    // Background/foreground handling lives in EnsembleApp.handleScenePhaseChange()
-    // via the scenePhase environment value. Keeping these as no-ops for documentation.
-    func applicationDidEnterBackground(_ application: UIApplication) {}
-    func applicationWillEnterForeground(_ application: UIApplication) {}
-
     func application(
         _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?
@@ -81,7 +76,10 @@ extension AppDelegate {
     }
 
     private var currentSupportedInterfaceOrientations: UIInterfaceOrientationMask {
-        stageFlowRotationSupportTokens.isEmpty ? .portrait : .allButUpsideDown
+        if EnsemblePlatformFeaturePolicy.current.usesNativeBrowse {
+            return .all
+        }
+        return stageFlowRotationSupportTokens.isEmpty ? .portrait : .allButUpsideDown
     }
 
     private func refreshSupportedOrientations() {

@@ -13,8 +13,11 @@ final class PlaybackSettingsObserverTests: XCTestCase {
 
     func testPollChangesIgnoresUnchangedSettings() {
         let defaults = makeDefaults()
-        defaults.set(false, forKey: "auroraVisualizationEnabled")
-        defaults.set("high", forKey: "streamingQuality")
+        defaults.set(false, forKey: AuroraVisualizationPreference.enabledKey)
+        defaults.set(
+            AudioQualityPreference.defaultStreamingQuality,
+            forKey: AudioQualityPreference.streamingQualityKey
+        )
 
         let observer = PlaybackSettingsObserver(defaults: defaults)
 
@@ -23,14 +26,50 @@ final class PlaybackSettingsObserverTests: XCTestCase {
 
     func testPollChangesReportsOnlyChangedSettings() {
         let defaults = makeDefaults()
-        defaults.set("high", forKey: "streamingQuality")
+        defaults.set(
+            AudioQualityPreference.defaultStreamingQuality,
+            forKey: AudioQualityPreference.streamingQualityKey
+        )
         let observer = PlaybackSettingsObserver(defaults: defaults)
 
-        defaults.set(false, forKey: "auroraVisualizationEnabled")
+        defaults.set(false, forKey: AuroraVisualizationPreference.enabledKey)
         XCTAssertEqual(observer.pollChanges(), PlaybackSettingsChange(visualizerEnabled: false, streamingQuality: nil))
 
-        defaults.set("low", forKey: "streamingQuality")
+        defaults.set("low", forKey: AudioQualityPreference.streamingQualityKey)
         XCTAssertEqual(observer.pollChanges(), PlaybackSettingsChange(visualizerEnabled: nil, streamingQuality: "low"))
+    }
+
+    func testStoredStreamingQualityDefaultsToHighWhenUnset() {
+        let defaults = makeDefaults()
+
+        XCTAssertEqual(
+            AudioQualityPreference.storedStreamingQuality(in: defaults),
+            AudioQualityPreference.defaultStreamingQuality
+        )
+    }
+
+    func testCellularStreamingDefaultsToEnabledWhenUnset() {
+        let defaults = makeDefaults()
+
+        XCTAssertTrue(AudioQualityPreference.storedAllowStreamingOnCellular(in: defaults))
+    }
+
+    func testStoredDownloadQualityDefaultsToHighWhenUnset() {
+        let defaults = makeDefaults()
+
+        XCTAssertEqual(
+            AudioQualityPreference.storedDownloadQuality(in: defaults),
+            AudioQualityPreference.defaultDownloadQuality
+        )
+    }
+
+    func testAuroraVisualizationDefaultsToEnabledWhenUnset() {
+        let defaults = makeDefaults()
+
+        XCTAssertEqual(
+            AuroraVisualizationPreference.storedEnabled(in: defaults),
+            AuroraVisualizationPreference.defaultEnabled
+        )
     }
 
     private func makeDefaults() -> UserDefaults {

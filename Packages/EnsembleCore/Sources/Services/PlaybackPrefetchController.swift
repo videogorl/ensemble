@@ -10,6 +10,13 @@ struct PlaybackStreamCacheContext {
 
 /// Owns resolved-file cache updates and temporary stream-cache cleanup policy.
 final class PlaybackPrefetchController {
+    private let artifactCache: PlaybackArtifactCache
+    private var deferredSmartMixPrefetch: (outgoingTrackID: String, incomingTrackID: String, retryAt: TimeInterval)?
+
+    init(artifactCache: PlaybackArtifactCache = .shared) {
+        self.artifactCache = artifactCache
+    }
+
     func upcomingQueueIndices(
         queueCount: Int,
         currentQueueIndex: Int,
@@ -20,7 +27,7 @@ final class PlaybackPrefetchController {
         guard currentQueueIndex >= 0, currentQueueIndex < queueCount else { return [] }
 
         if repeatMode == .one {
-            return [currentQueueIndex]
+            return []
         }
 
         var indices: [Int] = []
@@ -57,6 +64,49 @@ final class PlaybackPrefetchController {
         guard playbackState == .playing else { return false }
         guard duration.isFinite, duration > 0 else { return false }
         return max(0, duration - currentTime) <= leadTime
+    }
+
+    static func shouldUseSmartMix(
+        outgoingTrack: Track,
+        incomingTrack: Track,
+        isDisabledForAlbums: Bool
+    ) -> Bool {
+        guard isDisabledForAlbums,
+              let outgoingAlbumID = outgoingTrack.albumRatingKey,
+              let incomingAlbumID = incomingTrack.albumRatingKey
+        else {
+            return true
+        }
+
+        return outgoingAlbumID != incomingAlbumID
+            || outgoingTrack.sourceCompositeKey != incomingTrack.sourceCompositeKey
+    }
+
+    func shouldDeferSmartMixPrefetch(
+        outgoingTrackID: String,
+        incomingTrackID: String,
+        currentTime: TimeInterval
+    ) -> Bool {
+        guard let deferredSmartMixPrefetch else { return false }
+        guard deferredSmartMixPrefetch.outgoingTrackID == outgoingTrackID,
+              deferredSmartMixPrefetch.incomingTrackID == incomingTrackID
+        else {
+            self.deferredSmartMixPrefetch = nil
+            return false
+        }
+        guard currentTime < deferredSmartMixPrefetch.retryAt else {
+            self.deferredSmartMixPrefetch = nil
+            return false
+        }
+        return true
+    }
+
+    func deferSmartMixPrefetch(
+        outgoingTrackID: String,
+        incomingTrackID: String,
+        until retryAt: TimeInterval
+    ) {
+        deferredSmartMixPrefetch = (outgoingTrackID, incomingTrackID, retryAt)
     }
 
     func shouldInvalidateScheduledTracks(
@@ -147,8 +197,6 @@ final class PlaybackPrefetchController {
         using context: PlaybackStreamCacheContext,
         cacheDir: URL = PlaybackStreamCacheIdentity.streamCacheDirectory
     ) {
-        guard FileManager.default.fileExists(atPath: cacheDir.path) else { return }
-
         var keepIds = Set(context.resolvedFileURLs.keys)
         if context.currentQueueIndex >= 0, !context.queue.isEmpty {
             var neighborhood = Set<String>()
@@ -169,22 +217,9 @@ final class PlaybackPrefetchController {
 
         keepIds.formUnion(context.scheduledTrackIDs)
         keepIds.formUnion(context.activeLoaderTrackIDs)
-
-        guard let files = try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path) else {
-            try? FileManager.default.removeItem(at: cacheDir)
-            return
-        }
-
-        var removedCount = 0
-        for file in files {
-            if !PlaybackStreamCacheIdentity.shouldKeep(fileName: file, keepIdentities: keepIds) {
-                try? FileManager.default.removeItem(at: cacheDir.appendingPathComponent(file))
-                removedCount += 1
-            }
-        }
-
-        if removedCount > 0 {
-            EnsembleLogger.debug("🗑️ Stream cache cleanup: removed \(removedCount), kept \(files.count - removedCount)")
-        }
+        let cache = cacheDir.standardizedFileURL == artifactCache.directory.standardizedFileURL
+            ? artifactCache
+            : PlaybackArtifactCache(directory: cacheDir, byteBudget: artifactCache.byteBudget)
+        cache.trim(keepingTrackIdentities: keepIds)
     }
 }

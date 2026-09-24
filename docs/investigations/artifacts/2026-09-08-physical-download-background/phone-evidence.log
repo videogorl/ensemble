@@ -1,0 +1,332 @@
+[06:42:10.295] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=active
+[06:42:11.233] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11823 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:11.393] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8778 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:12.120] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14899 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:12.688] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14138 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:13.389] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10800 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:14.411] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11925 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:15.272] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12966 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:15.973] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11691 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:16.419] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8834 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:16.872] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12057 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:17.304] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13182 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:17.392] [DEBUG] [core] ⬇️ Offline download response: track=11688 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:17.395] [DEBUG] [core] ✅ Offline download stored: track=11688 path=<file> size=20974712 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:17.742] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12507 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:18.712] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=15186 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:19.463] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12724 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:26.135] [DEBUG] [core] 📦 Offline continued processing execution granted
+[06:42:26.315] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8840 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:26.722] [DEBUG] [core] ⬇️ Offline download response: track=11612 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:26.725] [DEBUG] [core] ✅ Offline download stored: track=11612 path=<file> size=4199780 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:42:26.838] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12505 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:27.418] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12984 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:27.910] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10089 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:28.270] [DEBUG] [core] ⬇️ Offline download response: track=11862 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:28.272] [DEBUG] [core] ✅ Offline download stored: track=11862 path=<file> size=9966980 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:42:28.769] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12977 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:29.967] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11684 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:31.344] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8827 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:31.674] [DEBUG] [core] ⬇️ Offline download response: track=11861 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:31.677] [DEBUG] [core] ✅ Offline download stored: track=11861 path=<file> size=19354054 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:32.423] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13505 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:33.498] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10458 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:33.739] [DEBUG] [core] ⬇️ Offline download response: track=10014 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:33.742] [DEBUG] [core] ✅ Offline download stored: track=10014 path=<file> size=9913991 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:42:34.315] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13436 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:35.314] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13863 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:35.919] [DEBUG] [core] ⬇️ Offline download response: track=13697 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:35.922] [DEBUG] [core] ✅ Offline download stored: track=13697 path=<file> size=4567459 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:42:36.129] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13825 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:36.751] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12943 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:37.385] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12939 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:38.332] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12945 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:39.068] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12937 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:40.048] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12946 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:41.505] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12942 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:42.597] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12938 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:43.209] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11823 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:42:43.834] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8778 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:42:44.679] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14899 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:42:45.419] [DEBUG] [core] ⬇️ Offline download response: track=10800 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:45.421] [DEBUG] [core] ✅ Offline download stored: track=10800 path=<file> size=25968737 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:45.443] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14138 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:42:45.805] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11925 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:42:45.938] [DEBUG] [core] ⬇️ Offline download response: track=12966 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:45.941] [DEBUG] [core] ✅ Offline download stored: track=12966 path=<file> size=31205407 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:46.379] [DEBUG] [core] ⬇️ Offline download response: track=11698 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:46.382] [DEBUG] [core] ✅ Offline download stored: track=11698 path=<file> size=32165037 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:46.947] [DEBUG] [core] ⬇️ Offline download response: track=24391 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:46.950] [DEBUG] [core] ✅ Offline download stored: track=24391 path=<file> size=38495372 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:47.131] [DEBUG] [core] ⬇️ Offline download response: track=8834 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:47.134] [DEBUG] [core] ✅ Offline download stored: track=8834 path=<file> size=25215067 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:48.184] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11691 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:42:48.717] [DEBUG] [core] ⬇️ Offline download response: track=12057 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:48.720] [DEBUG] [core] ✅ Offline download stored: track=12057 path=<file> size=35271854 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:48.815] [DEBUG] [core] ⬇️ Offline download response: track=13182 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:48.818] [DEBUG] [core] ✅ Offline download stored: track=13182 path=<file> size=29613944 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:49.000] [DEBUG] [core] ⬇️ Offline download response: track=15186 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:49.003] [DEBUG] [core] ✅ Offline download stored: track=15186 path=<file> size=30422906 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:49.338] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12507 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:42:50.459] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8251 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:51.128] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10774 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:51.634] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12724 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:42:52.347] [DEBUG] [core] ⬇️ Offline download response: track=12214 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:52.351] [DEBUG] [core] ✅ Offline download stored: track=12214 path=<file> size=22918423 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:52.921] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11729 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:53.012] [DEBUG] [core] ⬇️ Offline download response: track=13808 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:53.015] [DEBUG] [core] ✅ Offline download stored: track=13808 path=<file> size=33859305 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:53.132] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8863 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:53.250] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14902 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:53.483] [DEBUG] [core] ⬇️ Offline download response: track=12323 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:42:53.486] [DEBUG] [core] ✅ Offline download stored: track=12323 path=<file> size=27756163 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:42:53.926] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13725 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:54.791] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8254 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:55.412] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11833 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:55.706] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13729 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:56.310] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11827 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:57.195] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13852 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:42:58.243] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8840 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:42:59.187] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12505 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:43:00.620] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12984 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:43:00.637] [DEBUG] [core] ⬇️ Offline download response: track=10089 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:43:00.639] [DEBUG] [core] ✅ Offline download stored: track=10089 path=<file> size=22464388 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:43:00.680] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12977 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:43:00.721] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11684 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:43:00.760] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=15193 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:00.813] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12766 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:00.856] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11777 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:00.891] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13837 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:00.923] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11714 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.006] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10120 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.068] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=9174 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.109] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10778 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.170] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10125 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.210] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12842 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.255] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8990 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.297] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12206 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.345] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13699 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.529] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=16204 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.687] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8827 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:43:01.771] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12055 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.817] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10031 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.847] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12051 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.900] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11768 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.941] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12307 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:01.976] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=9326 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.013] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13514 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.060] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11047 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.099] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11039 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.200] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=6801 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.249] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=9232 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.282] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13634 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.321] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=6290 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.367] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13648 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.422] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13416 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.465] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11849 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.500] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13505 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:43:02.532] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=7264 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.571] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13723 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.603] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=7159 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.663] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12111 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.709] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8977 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.760] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=7114 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.797] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12758 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.835] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11686 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.882] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=9270 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.915] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=7297 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:02.970] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11622 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:03.003] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14500 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:03.062] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11155 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:03.110] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11709 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:03.155] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13783 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:03.203] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11780 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:03.252] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14512 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:03.289] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10007 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:43:05.847] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=background
+[06:43:10.050] [DEBUG] [core] ⬇️ Offline download response: track=8869 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:43:10.058] [DEBUG] [core] ✅ Offline download stored: track=8869 path=<file> size=32707663 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:43:13.995] [DEBUG] [core] ⬇️ Offline download response: track=24395 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:43:14.024] [DEBUG] [core] ✅ Offline download stored: track=24395 path=<file> size=41253883 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:43:14.587] [DEBUG] [core] ⬇️ Offline download response: track=10458 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:43:14.621] [DEBUG] [core] ✅ Offline download stored: track=10458 path=<file> size=24306306 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:43:19.151] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13436 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:43:25.358] [DEBUG] [core] ⬇️ Offline download response: track=13825 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:43:25.375] [DEBUG] [core] ✅ Offline download stored: track=13825 path=<file> size=23528814 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:43:26.872] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13863 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:43:29.878] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12943 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:43:35.742] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12939 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:43:37.917] [DEBUG] [core] ⬇️ Offline download response: track=12945 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:43:37.940] [DEBUG] [core] ✅ Offline download stored: track=12945 path=<file> size=35805250 mode=direct-original contentType=audio/mp4 requestedQuality=original effectiveQuality=original
+[06:43:38.288] [DEBUG] [core] ⬇️ Offline download response: track=12946 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:43:38.300] [DEBUG] [core] ✅ Offline download stored: track=12946 path=<file> size=16806848 mode=direct-original contentType=audio/mp4 requestedQuality=original effectiveQuality=original
+[06:43:39.937] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12937 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:43:40.004] [DEBUG] [core] ⬇️ Offline download response: track=12942 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:43:40.015] [DEBUG] [core] ✅ Offline download stored: track=12942 path=<file> size=23997181 mode=direct-original contentType=audio/mp4 requestedQuality=original effectiveQuality=original
+[06:43:40.310] [DEBUG] [core] ⬇️ Offline download response: track=12938 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:43:40.323] [DEBUG] [core] ✅ Offline download stored: track=12938 path=<file> size=20343366 mode=direct-original contentType=audio/mp4 requestedQuality=original effectiveQuality=original
+[06:43:41.026] [DEBUG] [core] ⬇️ Offline download response: track=10774 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:43:41.046] [DEBUG] [core] ✅ Offline download stored: track=10774 path=<file> size=30795422 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:43:42.203] [DEBUG] [core] ⬇️ Offline download response: track=11729 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:43:42.224] [DEBUG] [core] ✅ Offline download stored: track=11729 path=<file> size=33189673 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:43:43.365] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8251 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:43:44.207] [DEBUG] [core] ⬇️ Offline download response: track=8863 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:43:44.222] [DEBUG] [core] ✅ Offline download stored: track=8863 path=<file> size=32156599 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:43:45.295] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11823 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:43:47.215] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8778 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:43:52.744] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14899 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:44:07.342] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14138 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:44:09.226] [DEBUG] [core] ⬇️ Offline download response: track=11925 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:44:09.240] [DEBUG] [core] ✅ Offline download stored: track=11925 path=<file> size=42768698 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:44:10.752] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11691 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:44:12.042] [DEBUG] [core] ⬇️ Offline download response: track=12724 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:44:12.056] [DEBUG] [core] ✅ Offline download stored: track=12724 path=<file> size=35221779 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:44:13.854] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12507 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:44:14.350] [DEBUG] [core] ⬇️ Offline download response: track=8840 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:44:14.366] [DEBUG] [core] ✅ Offline download stored: track=8840 path=<file> size=41784827 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:44:20.538] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12505 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:44:26.435] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12984 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:44:28.879] [DEBUG] [core] ⬇️ Offline download response: track=11684 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:44:28.888] [DEBUG] [core] ✅ Offline download stored: track=11684 path=<file> size=30721053 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:44:30.082] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12977 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:44:30.176] [DEBUG] [core] ⬇️ Offline download response: track=8827 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:44:30.183] [DEBUG] [core] ✅ Offline download stored: track=8827 path=<file> size=32306805 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:44:36.613] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13505 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:44:38.575] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13436 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:44:39.873] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13863 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:44:41.291] [DEBUG] [core] ⬇️ Offline download response: track=12939 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:44:41.303] [DEBUG] [core] ✅ Offline download stored: track=12939 path=<file> size=29252732 mode=direct-original contentType=audio/mp4 requestedQuality=original effectiveQuality=original
+[06:44:41.449] [DEBUG] [core] ⬇️ Offline download response: track=12937 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:44:41.460] [DEBUG] [core] ✅ Offline download stored: track=12937 path=<file> size=27377882 mode=direct-original contentType=audio/mp4 requestedQuality=original effectiveQuality=original
+[06:44:42.006] [DEBUG] [core] ⬇️ Offline download response: track=14902 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:44:42.018] [DEBUG] [core] ✅ Offline download stored: track=14902 path=<file> size=27416408 mode=direct-original contentType=audio/mp4 requestedQuality=original effectiveQuality=original
+[06:44:43.802] [DEBUG] [core] ⬇️ Offline download response: track=13725 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:44:43.814] [DEBUG] [core] ✅ Offline download stored: track=13725 path=<file> size=25319935 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:44:45.119] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12943 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:44:45.631] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8251 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:44:50.832] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8254 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:44:51.507] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11833 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:44:56.544] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13729 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:01.333] [DEBUG] [core] ⬇️ Offline download response: track=13852 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:45:01.349] [DEBUG] [core] ✅ Offline download stored: track=13852 path=<file> size=29160989 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:45:03.508] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11827 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:08.885] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=15193 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:14.074] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12766 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:14.831] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=active
+[06:45:15.290] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11777 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:16.071] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13837 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:16.476] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11714 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:16.612] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10120 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:16.808] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=9174 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:16.883] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10778 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:16.919] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10125 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:16.959] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12842 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:17.024] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8990 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:17.096] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12206 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:17.160] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13699 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:17.274] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=16204 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:17.682] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12055 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:18.060] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10031 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:18.573] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12051 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:19.193] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11768 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:19.239] [DEBUG] [core] ⬇️ Offline download response: track=12307 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:45:19.241] [DEBUG] [core] ✅ Offline download stored: track=12307 path=<file> size=8017501 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:45:19.886] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=9326 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:20.352] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13514 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:20.556] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11047 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:20.598] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11039 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:20.637] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=6801 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:20.671] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=9232 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:20.709] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13634 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:20.752] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=6290 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:20.804] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13648 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:20.852] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13416 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:20.902] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11849 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:20.943] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=7264 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:20.977] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13723 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.015] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=7159 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.064] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12111 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.113] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8977 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.149] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=7114 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.184] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12758 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.218] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11686 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.257] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=9270 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.294] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=7297 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.330] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11622 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.370] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14500 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.417] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11155 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.483] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11709 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.554] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13783 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.600] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11780 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.652] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14512 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.699] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10007 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:21.744] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10775 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:21.783] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=15388 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:21.834] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8972 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:21.877] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13836 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:21.908] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=6179 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:21.944] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13685 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:21.982] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13434 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:22.012] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=6129 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:22.044] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8899 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:22.142] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=9231 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:22.299] [DEBUG] [core] ⬇️ Offline download response: track=6356 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:22.301] [DEBUG] [core] ✅ Offline download stored: track=6356 path=<file> size=2468466 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:45:22.683] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=6996 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:23.825] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14287 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:24.843] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13179 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:25.362] [DEBUG] [core] ⬇️ Offline download response: track=6163 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:25.364] [DEBUG] [core] ✅ Offline download stored: track=6163 path=<file> size=12215901 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:45:25.577] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8870 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:26.407] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11855 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:27.012] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11161 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:27.938] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13840 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:29.111] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12358 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:29.348] [DEBUG] [core] ⬇️ Offline download response: track=7033 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:29.350] [DEBUG] [core] ✅ Offline download stored: track=7033 path=<file> size=9182563 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:45:30.110] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14517 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:30.779] [DEBUG] [core] ⬇️ Offline download response: track=6125 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:30.782] [DEBUG] [core] ✅ Offline download stored: track=6125 path=<file> size=11280717 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:45:31.320] [DEBUG] [core] ⬇️ Offline download response: track=6372 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:31.322] [DEBUG] [core] ✅ Offline download stored: track=6372 path=<file> size=8686235 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:45:34.724] [DEBUG] [core] ⬇️ Offline download response: track=21222 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:34.727] [DEBUG] [core] ✅ Offline download stored: track=21222 path=<file> size=29962122 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:45:35.508] [DEBUG] [core] ⬇️ Offline download response: track=10020 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:35.511] [DEBUG] [core] ✅ Offline download stored: track=10020 path=<file> size=43317502 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:45:37.208] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12514 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:38.634] [DEBUG] [core] ⬇️ Offline download response: track=13614 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:38.637] [DEBUG] [core] ✅ Offline download stored: track=13614 path=<file> size=25347998 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:45:40.157] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14505 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:41.742] [DEBUG] [core] ⬇️ Offline download response: track=10132 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:41.745] [DEBUG] [core] ✅ Offline download stored: track=10132 path=<file> size=11186427 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:45:42.446] [DEBUG] [core] ⬇️ Offline download response: track=13176 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:42.448] [DEBUG] [core] ✅ Offline download stored: track=13176 path=<file> size=29423588 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:45:42.563] [DEBUG] [core] ⬇️ Offline download response: track=12306 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:42.565] [DEBUG] [core] ✅ Offline download stored: track=12306 path=<file> size=7169044 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:45:42.772] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8980 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:43.479] [DEBUG] [core] ⬇️ Offline download response: track=7068 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:43.482] [DEBUG] [core] ✅ Offline download stored: track=7068 path=<file> size=4592952 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:45:44.656] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=12988 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:45.952] [DEBUG] [core] ⬇️ Offline download response: track=11711 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:45.955] [DEBUG] [core] ✅ Offline download stored: track=11711 path=<file> size=20080953 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:45:49.137] [DEBUG] [core] ⬇️ Offline download response: track=11823 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:45:49.140] [DEBUG] [core] ✅ Offline download stored: track=11823 path=<file> size=51565261 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:45:49.409] [DEBUG] [core] ⬇️ Offline download response: track=24393 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:49.412] [DEBUG] [core] ✅ Offline download stored: track=24393 path=<file> size=46252015 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:45:50.124] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8778 source=<source> retrySeconds=240 reason=The network connection was lost.
+[06:45:50.924] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11157 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:51.622] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=11596 source=<source> retrySeconds=30 reason=The network connection was lost.
+[06:45:52.514] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=8254 source=<source> retrySeconds=120 reason=The network connection was lost.
+[06:45:52.787] [DEBUG] [core] ⬇️ Offline download response: track=11833 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:45:52.789] [DEBUG] [core] ✅ Offline download stored: track=11833 path=<file> size=35712807 mode=direct-original contentType=audio/flac requestedQuality=original effectiveQuality=original
+[06:45:52.915] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=10775 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:53.180] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=14899 source=<source> retrySeconds=240 reason=The network connection was lost.
+[06:45:53.768] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=15388 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:54.248] [DEBUG] [core] ⬇️ Offline download response: track=8972 status=206 quality=original effectiveQuality=original mode=direct-original
+[06:45:54.251] [DEBUG] [core] ✅ Offline download stored: track=8972 path=<file> size=7260078 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:45:54.900] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13836 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:45:55.538] [DEBUG] [core] ⬇️ Offline download response: track=6179 status=200 quality=original effectiveQuality=original mode=direct-original
+[06:45:55.540] [DEBUG] [core] ✅ Offline download stored: track=6179 path=<file> size=8925517 mode=direct-original contentType=audio/mpeg requestedQuality=original effectiveQuality=original
+[06:45:56.161] [DEBUG] [core] ⏸️ Offline download deferred (transient failure): track=13685 source=<source> retrySeconds=60 reason=The network connection was lost.
+[06:46:18.554] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=active
+[06:46:18.773] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=background

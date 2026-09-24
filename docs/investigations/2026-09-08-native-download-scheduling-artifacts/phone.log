@@ -1,0 +1,418 @@
+[13:23:28.435] [DEBUG] [api] Native download scheduled task=-1 transport=immediate
+[13:23:28.441] [DEBUG] [api] Native download scheduled task=-2 transport=immediate
+[13:23:28.699] [DEBUG] [api] Native download completed bytes=5319675 resumedFrom=0 status=200
+[13:23:28.817] [DEBUG] [api] Native download completed bytes=9557813 resumedFrom=0 status=200
+[13:23:29.316] [DEBUG] [core] Offline download installed track=8428 quality=high bytes=5319675 playbackCache=false
+[13:23:29.502] [DEBUG] [core] Offline download installed track=11178 quality=high bytes=9557813 playbackCache=false
+[13:23:36.870] [DEBUG] [api] Native download scheduled task=-3 transport=immediate
+[13:23:36.877] [DEBUG] [api] Native download scheduled task=-4 transport=immediate
+[13:23:37.044] [DEBUG] [api] Native download completed bytes=6230018 resumedFrom=0 status=200
+[13:23:37.053] [DEBUG] [api] Native download completed bytes=6466203 resumedFrom=0 status=200
+[13:23:37.269] [DEBUG] [core] Offline download installed track=12546 quality=high bytes=6466203 playbackCache=false
+[13:23:37.290] [DEBUG] [core] Offline download installed track=8271 quality=high bytes=6230018 playbackCache=false
+[13:23:49.859] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=background
+[13:23:53.039] [DEBUG] [api] Native download scheduled task=-5 transport=immediate
+[13:23:53.123] [DEBUG] [api] Native download completed bytes=1449822 resumedFrom=0 status=200
+[13:23:53.386] [DEBUG] [core] Offline download installed track=11197 quality=high bytes=1449822 playbackCache=false
+[13:24:00.858] [DEBUG] [api] Native download scheduled task=-6 transport=immediate
+[13:24:01.014] [DEBUG] [api] Native download completed bytes=7789376 resumedFrom=0 status=200
+[13:24:08.785] [DEBUG] [api] Native download scheduled task=-7 transport=immediate
+[13:24:08.899] [DEBUG] [api] Native download completed bytes=7082659 resumedFrom=0 status=200
+[13:24:08.956] [DEBUG] [core] Offline download installed track=10567 quality=high bytes=7789376 playbackCache=false
+[13:24:16.073] [DEBUG] [api] Native download scheduled task=-8 transport=immediate
+[13:24:16.363] [DEBUG] [api] Native download completed bytes=8873107 resumedFrom=0 status=200
+[13:24:18.255] [DEBUG] [core] Offline download installed track=10578 quality=high bytes=7082659 playbackCache=false
+[13:24:19.304] [DEBUG] [core] Offline download installed track=8339 quality=high bytes=8873107 playbackCache=false
+[13:26:28.731] [DEBUG] [api] Native download scheduled task=-9 transport=immediate
+[13:26:28.739] [DEBUG] [api] Native download scheduled task=-10 transport=immediate
+[13:26:29.009] [DEBUG] [api] Native download completed bytes=7667979 resumedFrom=0 status=200
+[13:26:29.115] [DEBUG] [api] Native download completed bytes=7500760 resumedFrom=0 status=200
+[13:26:29.286] [DEBUG] [core] Offline download installed track=10477 quality=high bytes=7667979 playbackCache=false
+[13:26:29.349] [DEBUG] [core] Offline download installed track=8306 quality=high bytes=7500760 playbackCache=false
+[13:26:36.537] [DEBUG] [api] Native download scheduled task=-11 transport=immediate
+[13:26:36.686] [DEBUG] [api] Native download scheduled task=-12 transport=immediate
+[13:26:36.830] [DEBUG] [api] Native download completed bytes=8565401 resumedFrom=0 status=200
+[13:26:36.955] [DEBUG] [api] Native download completed bytes=7129993 resumedFrom=0 status=200
+[13:26:37.108] [DEBUG] [core] Offline download installed track=10579 quality=high bytes=8565401 playbackCache=false
+[13:26:37.217] [DEBUG] [core] Offline download installed track=8455 quality=high bytes=7129993 playbackCache=false
+[13:26:44.335] [DEBUG] [api] Native download scheduled task=-13 transport=immediate
+[13:26:44.435] [DEBUG] [api] Native download completed bytes=6955901 resumedFrom=0 status=200
+[13:26:44.523] [DEBUG] [api] Native download scheduled task=-14 transport=immediate
+[13:26:44.614] [DEBUG] [api] Native download completed bytes=7618384 resumedFrom=0 status=200
+[13:26:44.692] [DEBUG] [core] Offline download installed track=8415 quality=high bytes=6955901 playbackCache=false
+[13:26:44.888] [DEBUG] [core] Offline download installed track=8452 quality=high bytes=7618384 playbackCache=false
+[13:26:47.910] [DEBUG] [api] Native download scheduled task=-15 transport=immediate
+[13:26:48.078] [DEBUG] [api] Native download scheduled task=-16 transport=immediate
+[13:26:48.087] [DEBUG] [api] Native download completed bytes=6902876 resumedFrom=0 status=200
+[13:26:48.232] [DEBUG] [api] Native download completed bytes=7280888 resumedFrom=0 status=200
+[13:26:48.317] [DEBUG] [core] Offline download installed track=8319 quality=high bytes=6902876 playbackCache=false
+[13:26:48.453] [DEBUG] [core] Offline download installed track=10481 quality=high bytes=7280888 playbackCache=false
+[13:26:58.496] [DEBUG] [core] 📦 Submitted BG continued processing request for 362 tracks
+[13:26:58.501] [DEBUG] [core] 📦 Offline continued processing progress units=0/362000
+[13:26:58.502] [DEBUG] [core] 📦 Offline continued processing execution granted
+[13:26:58.545] [DEBUG] [api] Native download scheduled task=-17 transport=immediate
+[13:26:58.612] [DEBUG] [api] Native download scheduled task=-18 transport=immediate
+[13:26:58.659] [DEBUG] [api] Native download completed bytes=8317710 resumedFrom=0 status=200
+[13:26:58.811] [DEBUG] [api] Native download completed bytes=8904694 resumedFrom=0 status=200
+[13:26:58.918] [DEBUG] [core] Offline download installed track=10629 quality=high bytes=8317710 playbackCache=false
+[13:26:59.183] [DEBUG] [core] Offline download installed track=8437 quality=high bytes=8904694 playbackCache=false
+[13:27:02.029] [DEBUG] [api] Native download scheduled task=-19 transport=immediate
+[13:27:02.038] [DEBUG] [core] 📦 Offline continued processing progress units=2012/362000
+[13:27:02.115] [DEBUG] [api] Native download completed bytes=6833676 resumedFrom=0 status=200
+[13:27:02.346] [DEBUG] [core] Offline download installed track=12540 quality=high bytes=6833676 playbackCache=false
+[13:27:05.545] [DEBUG] [api] Native download scheduled task=-20 transport=immediate
+[13:27:05.649] [DEBUG] [api] Native download completed bytes=6655923 resumedFrom=0 status=200
+[13:27:05.878] [DEBUG] [core] Offline download installed track=10632 quality=high bytes=6655923 playbackCache=false
+[13:27:06.386] [DEBUG] [api] Native download scheduled task=-21 transport=immediate
+[13:27:06.470] [DEBUG] [api] Native download completed bytes=6567943 resumedFrom=0 status=200
+[13:27:06.787] [DEBUG] [core] Offline download installed track=8459 quality=high bytes=6567943 playbackCache=false
+[13:27:09.002] [DEBUG] [api] Native download scheduled task=-22 transport=immediate
+[13:27:09.079] [DEBUG] [api] Native download completed bytes=4874590 resumedFrom=0 status=200
+[13:27:09.253] [DEBUG] [core] Offline download installed track=10609 quality=high bytes=4874590 playbackCache=false
+[13:27:10.000] [DEBUG] [api] Native download scheduled task=-23 transport=immediate
+[13:27:10.073] [DEBUG] [api] Native download completed bytes=5384073 resumedFrom=0 status=200
+[13:27:10.301] [DEBUG] [core] Offline download installed track=10645 quality=high bytes=5384073 playbackCache=false
+[13:27:12.338] [DEBUG] [api] Native download scheduled task=-24 transport=immediate
+[13:27:12.435] [DEBUG] [api] Native download completed bytes=6959624 resumedFrom=0 status=200
+[13:27:12.677] [DEBUG] [core] Offline download installed track=10552 quality=high bytes=6959624 playbackCache=false
+[13:27:17.527] [DEBUG] [api] Native download scheduled task=-25 transport=immediate
+[13:27:17.631] [DEBUG] [api] Native download completed bytes=7533824 resumedFrom=0 status=200
+[13:27:17.909] [DEBUG] [core] Offline download installed track=8515 quality=high bytes=7533824 playbackCache=false
+[13:27:19.886] [DEBUG] [api] Native download scheduled task=-26 transport=immediate
+[13:27:20.042] [DEBUG] [api] Native download completed bytes=10934989 resumedFrom=0 status=200
+[13:27:20.467] [DEBUG] [core] Offline download installed track=8501 quality=high bytes=10934989 playbackCache=false
+[13:27:21.091] [DEBUG] [api] Native download scheduled task=-27 transport=immediate
+[13:27:21.183] [DEBUG] [api] Native download completed bytes=8023124 resumedFrom=0 status=200
+[13:27:21.446] [DEBUG] [core] Offline download installed track=10545 quality=high bytes=8023124 playbackCache=false
+[13:27:23.551] [DEBUG] [api] Native download scheduled task=-28 transport=immediate
+[13:27:23.650] [DEBUG] [api] Native download completed bytes=7024524 resumedFrom=0 status=200
+[13:27:23.894] [DEBUG] [core] Offline download installed track=8359 quality=high bytes=7024524 playbackCache=false
+[13:27:27.106] [DEBUG] [api] Native download scheduled task=-29 transport=immediate
+[13:27:27.229] [DEBUG] [api] Native download completed bytes=6245547 resumedFrom=0 status=200
+[13:27:27.451] [DEBUG] [core] Offline download installed track=8546 quality=high bytes=6245547 playbackCache=false
+[13:27:28.693] [DEBUG] [api] Native download scheduled task=-30 transport=immediate
+[13:27:28.819] [DEBUG] [api] Native download completed bytes=9472947 resumedFrom=0 status=200
+[13:27:29.152] [DEBUG] [core] Offline download installed track=8475 quality=high bytes=9472947 playbackCache=false
+[13:27:30.633] [DEBUG] [api] Native download scheduled task=-31 transport=immediate
+[13:27:30.769] [DEBUG] [api] Native download completed bytes=6802664 resumedFrom=0 status=200
+[13:27:31.007] [DEBUG] [core] Offline download installed track=8358 quality=high bytes=6802664 playbackCache=false
+[13:27:32.298] [DEBUG] [api] Native download scheduled task=-32 transport=immediate
+[13:27:32.390] [DEBUG] [api] Native download completed bytes=5079723 resumedFrom=0 status=200
+[13:27:32.576] [DEBUG] [core] Offline download installed track=10544 quality=high bytes=5079723 playbackCache=false
+[13:27:34.093] [DEBUG] [api] Native download scheduled task=-33 transport=immediate
+[13:27:34.161] [DEBUG] [api] Native download completed bytes=5562801 resumedFrom=0 status=200
+[13:27:34.350] [DEBUG] [core] Offline download installed track=12542 quality=high bytes=5562801 playbackCache=false
+[13:27:35.679] [DEBUG] [api] Native download scheduled task=-34 transport=immediate
+[13:27:35.811] [DEBUG] [api] Native download completed bytes=6341338 resumedFrom=0 status=200
+[13:27:36.024] [DEBUG] [core] Offline download installed track=8328 quality=high bytes=6341338 playbackCache=false
+[13:27:37.440] [DEBUG] [api] Native download scheduled task=-35 transport=immediate
+[13:27:37.588] [DEBUG] [api] Native download completed bytes=6331372 resumedFrom=0 status=200
+[13:27:37.844] [DEBUG] [core] Offline download installed track=10655 quality=high bytes=6331372 playbackCache=false
+[13:27:39.204] [DEBUG] [api] Native download scheduled task=-36 transport=immediate
+[13:27:39.283] [DEBUG] [api] Native download completed bytes=6331356 resumedFrom=0 status=200
+[13:27:39.498] [DEBUG] [core] Offline download installed track=10550 quality=high bytes=6331356 playbackCache=false
+[13:27:45.189] [DEBUG] [api] Native download scheduled task=-37 transport=immediate
+[13:27:45.292] [DEBUG] [api] Native download completed bytes=7861457 resumedFrom=0 status=200
+[13:27:45.610] [DEBUG] [core] Offline download installed track=8480 quality=high bytes=7861457 playbackCache=false
+[13:27:46.718] [DEBUG] [api] Native download scheduled task=-38 transport=immediate
+[13:27:46.827] [DEBUG] [api] Native download completed bytes=8384704 resumedFrom=0 status=200
+[13:27:47.099] [DEBUG] [core] Offline download installed track=10521 quality=high bytes=8384704 playbackCache=false
+[13:27:48.788] [DEBUG] [api] Native download scheduled task=-39 transport=immediate
+[13:27:48.889] [DEBUG] [api] Native download completed bytes=5865795 resumedFrom=0 status=200
+[13:27:49.119] [DEBUG] [core] Offline download installed track=8485 quality=high bytes=5865795 playbackCache=false
+[13:27:49.861] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=background
+[13:27:55.361] [DEBUG] [api] Native download scheduled task=-40 transport=immediate
+[13:27:56.215] [DEBUG] [api] Native download completed bytes=9258461 resumedFrom=0 status=200
+[13:27:56.760] [DEBUG] [api] Native download scheduled task=-41 transport=immediate
+[13:27:57.004] [DEBUG] [api] Native download completed bytes=13033437 resumedFrom=0 status=200
+[13:27:58.854] [DEBUG] [core] Offline download installed track=10661 quality=high bytes=9258461 playbackCache=false
+[13:28:00.170] [DEBUG] [core] 📦 Offline continued processing progress units=24971/362000
+[13:28:01.271] [DEBUG] [core] Offline download installed track=10478 quality=high bytes=13033437 playbackCache=false
+[13:28:02.292] [DEBUG] [api] Native download scheduled task=-42 transport=immediate
+[13:28:02.382] [DEBUG] [api] Native download completed bytes=4550701 resumedFrom=0 status=200
+[13:28:03.554] [DEBUG] [core] Offline download installed track=8458 quality=high bytes=4550701 playbackCache=false
+[13:28:08.903] [DEBUG] [api] Native download scheduled task=-43 transport=immediate
+[13:28:09.446] [DEBUG] [api] Native download completed bytes=10558218 resumedFrom=0 status=200
+[13:28:10.994] [DEBUG] [api] Native download scheduled task=-44 transport=immediate
+[13:28:11.481] [DEBUG] [api] Native download completed bytes=10619181 resumedFrom=0 status=200
+[13:28:12.834] [DEBUG] [core] Offline download installed track=8514 quality=high bytes=10558218 playbackCache=false
+[13:28:14.338] [DEBUG] [core] Offline download installed track=8410 quality=high bytes=10619181 playbackCache=false
+[13:28:16.089] [DEBUG] [api] Native download scheduled task=-45 transport=immediate
+[13:28:16.312] [DEBUG] [api] Native download completed bytes=6920161 resumedFrom=0 status=200
+[13:28:17.625] [DEBUG] [api] Native download scheduled task=-46 transport=immediate
+[13:28:17.834] [DEBUG] [api] Native download completed bytes=8056787 resumedFrom=0 status=200
+[13:28:18.398] [DEBUG] [core] Offline download installed track=8496 quality=high bytes=6920161 playbackCache=false
+[13:28:19.471] [DEBUG] [core] Offline download installed track=8270 quality=high bytes=8056787 playbackCache=false
+[13:28:20.723] [DEBUG] [api] Native download scheduled task=-47 transport=immediate
+[13:28:20.792] [DEBUG] [api] Native download completed bytes=334605 resumedFrom=0 status=200
+[13:28:20.953] [DEBUG] [core] Offline download installed track=11190 quality=high bytes=334605 playbackCache=false
+[13:28:21.736] [DEBUG] [api] Native download scheduled task=-48 transport=immediate
+[13:28:21.909] [DEBUG] [api] Native download completed bytes=6057137 resumedFrom=0 status=200
+[13:28:24.452] [DEBUG] [core] Offline download installed track=8474 quality=high bytes=6057137 playbackCache=false
+[13:28:27.793] [DEBUG] [api] Native download scheduled task=-49 transport=immediate
+[13:28:27.981] [DEBUG] [api] Native download completed bytes=7759942 resumedFrom=0 status=200
+[13:28:28.801] [DEBUG] [api] Native download scheduled task=-50 transport=immediate
+[13:28:29.033] [DEBUG] [api] Native download completed bytes=8500696 resumedFrom=0 status=200
+[13:28:30.259] [DEBUG] [core] Offline download installed track=10563 quality=high bytes=7759942 playbackCache=false
+[13:28:31.789] [DEBUG] [core] Offline download installed track=8510 quality=high bytes=8500696 playbackCache=false
+[13:28:33.543] [DEBUG] [api] Native download scheduled task=-51 transport=immediate
+[13:28:33.716] [DEBUG] [api] Native download completed bytes=6270322 resumedFrom=0 status=200
+[13:28:35.174] [DEBUG] [api] Native download scheduled task=-52 transport=immediate
+[13:28:35.534] [DEBUG] [api] Native download completed bytes=8407577 resumedFrom=0 status=200
+[13:28:36.235] [DEBUG] [core] Offline download installed track=10543 quality=high bytes=6270322 playbackCache=false
+[13:28:38.360] [DEBUG] [core] Offline download installed track=8302 quality=high bytes=8407577 playbackCache=false
+[13:28:40.739] [DEBUG] [api] Native download scheduled task=-53 transport=immediate
+[13:28:40.913] [DEBUG] [api] Native download completed bytes=4598311 resumedFrom=0 status=200
+[13:28:41.963] [DEBUG] [api] Native download scheduled task=-54 transport=immediate
+[13:28:42.126] [DEBUG] [api] Native download completed bytes=4505373 resumedFrom=0 status=200
+[13:28:43.529] [DEBUG] [core] Offline download installed track=8543 quality=high bytes=4598311 playbackCache=false
+[13:28:44.098] [DEBUG] [core] Offline download installed track=8457 quality=high bytes=4505373 playbackCache=false
+[13:28:50.973] [DEBUG] [api] Native download scheduled task=-55 transport=immediate
+[13:28:51.156] [DEBUG] [api] Native download completed bytes=10108173 resumedFrom=0 status=200
+[13:28:51.698] [DEBUG] [api] Native download scheduled task=-56 transport=immediate
+[13:28:51.923] [DEBUG] [api] Native download completed bytes=10902515 resumedFrom=0 status=200
+[13:28:53.976] [DEBUG] [core] Offline download installed track=8416 quality=high bytes=10108173 playbackCache=false
+[13:28:57.370] [DEBUG] [core] Offline download installed track=8282 quality=high bytes=10902515 playbackCache=false
+[13:28:57.642] [DEBUG] [api] Native download scheduled task=-57 transport=immediate
+[13:28:57.778] [DEBUG] [api] Native download completed bytes=6488952 resumedFrom=0 status=200
+[13:28:58.842] [DEBUG] [core] Offline download installed track=8286 quality=high bytes=6488952 playbackCache=false
+[13:29:00.833] [DEBUG] [api] Native download scheduled task=-58 transport=immediate
+[13:29:00.851] [DEBUG] [core] 📦 Offline continued processing progress units=41037/362000
+[13:29:00.943] [DEBUG] [api] Native download completed bytes=5113302 resumedFrom=0 status=200
+[13:29:01.870] [DEBUG] [core] Offline download installed track=10648 quality=high bytes=5113302 playbackCache=false
+[13:29:02.158] [DEBUG] [api] Native download scheduled task=-59 transport=immediate
+[13:29:02.343] [DEBUG] [api] Native download completed bytes=8242149 resumedFrom=0 status=200
+[13:29:03.697] [DEBUG] [core] Offline download installed track=10603 quality=high bytes=8242149 playbackCache=false
+[13:29:05.205] [DEBUG] [api] Native download scheduled task=-60 transport=immediate
+[13:29:05.381] [DEBUG] [api] Native download completed bytes=7935376 resumedFrom=0 status=200
+[13:29:06.984] [DEBUG] [api] Native download scheduled task=-61 transport=immediate
+[13:29:07.059] [DEBUG] [api] Native download completed bytes=3322738 resumedFrom=0 status=200
+[13:29:07.669] [DEBUG] [core] Offline download installed track=8326 quality=high bytes=7935376 playbackCache=false
+[13:29:07.996] [DEBUG] [core] Offline download installed track=8490 quality=high bytes=3322738 playbackCache=false
+[13:29:11.329] [DEBUG] [api] Native download scheduled task=-62 transport=immediate
+[13:29:13.308] [DEBUG] [api] Native download scheduled task=-63 transport=immediate
+[13:29:14.313] [DEBUG] [api] Native download completed bytes=8299735 resumedFrom=0 status=200
+[13:29:16.965] [DEBUG] [api] Native download completed bytes=6289454 resumedFrom=0 status=200
+[13:29:19.891] [DEBUG] [core] Offline download installed track=10717 quality=high bytes=6289454 playbackCache=false
+[13:29:20.608] [DEBUG] [core] Offline download installed track=8274 quality=high bytes=8299735 playbackCache=false
+[13:29:21.145] [DEBUG] [api] Native download scheduled task=-64 transport=immediate
+[13:29:21.262] [DEBUG] [api] Native download completed bytes=642452 resumedFrom=0 status=200
+[13:29:21.499] [DEBUG] [core] Offline download installed track=8285 quality=high bytes=642452 playbackCache=false
+[13:29:24.052] [DEBUG] [api] Native download scheduled task=-65 transport=immediate
+[13:29:24.300] [DEBUG] [api] Native download completed bytes=2679053 resumedFrom=0 status=200
+[13:29:24.743] [DEBUG] [api] Native download scheduled task=-66 transport=immediate
+[13:29:25.089] [DEBUG] [api] Native download completed bytes=6127306 resumedFrom=0 status=200
+[13:29:25.486] [DEBUG] [core] Offline download installed track=8541 quality=high bytes=2679053 playbackCache=false
+[13:29:28.148] [DEBUG] [core] Offline download installed track=8450 quality=high bytes=6127306 playbackCache=false
+[13:29:28.888] [DEBUG] [api] Native download scheduled task=-67 transport=immediate
+[13:29:29.141] [DEBUG] [api] Native download completed bytes=6785281 resumedFrom=0 status=200
+[13:29:31.200] [DEBUG] [core] Offline download installed track=10503 quality=high bytes=6785281 playbackCache=false
+[13:29:34.577] [DEBUG] [api] Native download scheduled task=-68 transport=immediate
+[13:29:34.808] [DEBUG] [api] Native download completed bytes=8410292 resumedFrom=0 status=200
+[13:29:35.590] [DEBUG] [api] Native download scheduled task=-69 transport=immediate
+[13:29:35.844] [DEBUG] [api] Native download completed bytes=10067133 resumedFrom=0 status=200
+[13:29:36.789] [DEBUG] [core] Offline download installed track=8300 quality=high bytes=8410292 playbackCache=false
+[13:29:38.273] [DEBUG] [core] Offline download installed track=8478 quality=high bytes=10067133 playbackCache=false
+[13:29:41.509] [DEBUG] [api] Native download scheduled task=-70 transport=immediate
+[13:29:41.702] [DEBUG] [api] Native download completed bytes=7914536 resumedFrom=0 status=200
+[13:29:42.926] [DEBUG] [core] Offline download installed track=8301 quality=high bytes=7914536 playbackCache=false
+[13:29:44.438] [DEBUG] [api] Native download scheduled task=-71 transport=immediate
+[13:29:44.608] [DEBUG] [api] Native download completed bytes=7249825 resumedFrom=0 status=200
+[13:29:45.882] [DEBUG] [core] Offline download installed track=8502 quality=high bytes=7249825 playbackCache=false
+[13:29:46.138] [DEBUG] [api] Native download scheduled task=-72 transport=immediate
+[13:29:46.288] [DEBUG] [api] Native download completed bytes=6997974 resumedFrom=0 status=200
+[13:29:47.323] [DEBUG] [core] Offline download installed track=8314 quality=high bytes=6997974 playbackCache=false
+[13:29:53.216] [DEBUG] [api] Native download scheduled task=-73 transport=immediate
+[13:29:53.461] [DEBUG] [api] Native download completed bytes=11551105 resumedFrom=0 status=200
+[13:29:54.808] [DEBUG] [api] Native download scheduled task=-74 transport=immediate
+[13:29:55.010] [DEBUG] [api] Native download completed bytes=10402425 resumedFrom=0 status=200
+[13:29:55.750] [DEBUG] [core] Offline download installed track=8528 quality=high bytes=11551105 playbackCache=false
+[13:29:56.770] [DEBUG] [core] Offline download installed track=8470 quality=high bytes=10402425 playbackCache=false
+[13:29:59.893] [DEBUG] [api] Native download scheduled task=-75 transport=immediate
+[13:30:00.032] [DEBUG] [api] Native download completed bytes=7527561 resumedFrom=0 status=200
+[13:30:00.045] [DEBUG] [core] 📦 Offline continued processing progress units=58900/362000
+[13:30:00.810] [DEBUG] [core] Offline download installed track=10619 quality=high bytes=7527561 playbackCache=false
+[13:30:03.035] [DEBUG] [api] Native download scheduled task=-76 transport=immediate
+[13:30:03.209] [DEBUG] [api] Native download completed bytes=9058679 resumedFrom=0 status=200
+[13:30:04.624] [DEBUG] [core] Offline download installed track=8513 quality=high bytes=9058679 playbackCache=false
+[13:30:05.793] [DEBUG] [api] Native download scheduled task=-77 transport=immediate
+[13:30:05.839] [DEBUG] [api] Native download completed bytes=1556624 resumedFrom=0 status=200
+[13:30:06.170] [DEBUG] [core] Offline download installed track=11191 quality=high bytes=1556624 playbackCache=false
+[13:30:08.087] [DEBUG] [api] Native download scheduled task=-78 transport=immediate
+[13:30:08.284] [DEBUG] [api] Native download completed bytes=10243043 resumedFrom=0 status=200
+[13:30:09.358] [DEBUG] [api] Native download scheduled task=-79 transport=immediate
+[13:30:09.495] [DEBUG] [api] Native download completed bytes=7247651 resumedFrom=0 status=200
+[13:30:10.359] [DEBUG] [core] Offline download installed track=8500 quality=high bytes=10243043 playbackCache=false
+[13:30:10.807] [DEBUG] [core] Offline download installed track=10671 quality=high bytes=7247651 playbackCache=false
+[13:30:13.695] [DEBUG] [api] Native download scheduled task=-80 transport=immediate
+[13:30:13.812] [DEBUG] [api] Native download completed bytes=6240582 resumedFrom=0 status=200
+[13:30:15.083] [DEBUG] [core] Offline download installed track=8427 quality=high bytes=6240582 playbackCache=false
+[13:30:18.225] [DEBUG] [api] Native download scheduled task=-81 transport=immediate
+[13:30:18.610] [DEBUG] [api] Native download completed bytes=8307324 resumedFrom=0 status=200
+[13:30:19.829] [DEBUG] [core] Offline download installed track=10565 quality=high bytes=8307324 playbackCache=false
+[13:30:22.513] [DEBUG] [api] Native download scheduled task=-82 transport=immediate
+[13:30:22.749] [DEBUG] [api] Native download completed bytes=11853945 resumedFrom=0 status=200
+[13:30:23.101] [DEBUG] [api] Native download scheduled task=-83 transport=immediate
+[13:30:23.271] [DEBUG] [api] Native download completed bytes=7922314 resumedFrom=0 status=200
+[13:30:24.200] [DEBUG] [core] Offline download installed track=8317 quality=high bytes=7922314 playbackCache=false
+[13:30:24.417] [DEBUG] [core] Offline download installed track=8296 quality=high bytes=11853945 playbackCache=false
+[13:30:25.339] [DEBUG] [api] Native download scheduled task=-84 transport=immediate
+[13:30:25.374] [DEBUG] [api] Native download completed bytes=565886 resumedFrom=0 status=200
+[13:30:25.868] [DEBUG] [api] Native download scheduled task=-85 transport=immediate
+[13:30:25.886] [DEBUG] [core] Offline download installed track=11192 quality=high bytes=565886 playbackCache=false
+[13:30:25.926] [DEBUG] [api] Native download completed bytes=1709956 resumedFrom=0 status=200
+[13:30:26.427] [DEBUG] [core] Offline download installed track=11193 quality=high bytes=1709956 playbackCache=false
+[13:30:29.649] [DEBUG] [api] Native download scheduled task=-86 transport=immediate
+[13:30:29.796] [DEBUG] [api] Native download completed bytes=6521822 resumedFrom=0 status=200
+[13:30:31.002] [DEBUG] [core] Offline download installed track=8539 quality=high bytes=6521822 playbackCache=false
+[13:30:33.340] [DEBUG] [api] Native download scheduled task=-87 transport=immediate
+[13:30:33.539] [DEBUG] [api] Native download completed bytes=10754102 resumedFrom=0 status=200
+[13:30:35.649] [DEBUG] [core] Offline download installed track=8453 quality=high bytes=10754102 playbackCache=false
+[13:30:38.559] [DEBUG] [api] Native download scheduled task=-88 transport=immediate
+[13:30:38.722] [DEBUG] [api] Native download completed bytes=8633013 resumedFrom=0 status=200
+[13:30:38.889] [DEBUG] [api] Native download scheduled task=-89 transport=immediate
+[13:30:39.041] [DEBUG] [api] Native download completed bytes=6646395 resumedFrom=0 status=200
+[13:30:40.780] [DEBUG] [core] Offline download installed track=10487 quality=high bytes=6646395 playbackCache=false
+[13:30:41.110] [DEBUG] [core] Offline download installed track=8499 quality=high bytes=8633013 playbackCache=false
+[13:30:44.198] [DEBUG] [api] Native download scheduled task=-90 transport=immediate
+[13:30:44.352] [DEBUG] [api] Native download completed bytes=7902651 resumedFrom=0 status=200
+[13:30:45.736] [DEBUG] [core] Offline download installed track=8291 quality=high bytes=7902651 playbackCache=false
+[13:30:48.387] [DEBUG] [api] Native download scheduled task=-91 transport=immediate
+[13:30:48.552] [DEBUG] [api] Native download completed bytes=7766114 resumedFrom=0 status=200
+[13:30:48.989] [DEBUG] [api] Native download scheduled task=-92 transport=immediate
+[13:30:49.124] [DEBUG] [api] Native download completed bytes=6805500 resumedFrom=0 status=200
+[13:30:50.278] [DEBUG] [core] Offline download installed track=10703 quality=high bytes=7766114 playbackCache=false
+[13:30:50.710] [DEBUG] [core] Offline download installed track=10708 quality=high bytes=6805500 playbackCache=false
+[13:30:53.921] [DEBUG] [api] Native download scheduled task=-93 transport=immediate
+[13:30:54.047] [DEBUG] [api] Native download completed bytes=5892792 resumedFrom=0 status=200
+[13:30:55.058] [DEBUG] [core] Offline download installed track=10604 quality=high bytes=5892792 playbackCache=false
+[13:30:57.636] [DEBUG] [api] Native download scheduled task=-94 transport=immediate
+[13:30:57.798] [DEBUG] [api] Native download completed bytes=7953563 resumedFrom=0 status=200
+[13:30:58.273] [DEBUG] [api] Native download scheduled task=-95 transport=immediate
+[13:30:58.514] [DEBUG] [api] Native download completed bytes=5477769 resumedFrom=0 status=200
+[13:30:59.483] [DEBUG] [core] Offline download installed track=8542 quality=high bytes=7953563 playbackCache=false
+[13:31:00.037] [DEBUG] [core] 📦 Offline continued processing progress units=78990/362000
+[13:31:00.060] [DEBUG] [core] Offline download installed track=8525 quality=high bytes=5477769 playbackCache=false
+[13:31:03.382] [DEBUG] [api] Native download scheduled task=-96 transport=immediate
+[13:31:03.521] [DEBUG] [api] Native download completed bytes=6248123 resumedFrom=0 status=200
+[13:31:04.430] [DEBUG] [core] Offline download installed track=10618 quality=high bytes=6248123 playbackCache=false
+[13:31:06.836] [DEBUG] [api] Native download scheduled task=-97 transport=immediate
+[13:31:07.028] [DEBUG] [api] Native download completed bytes=10527459 resumedFrom=0 status=200
+[13:31:07.645] [DEBUG] [api] Native download scheduled task=-98 transport=immediate
+[13:31:07.782] [DEBUG] [api] Native download completed bytes=6586464 resumedFrom=0 status=200
+[13:31:09.144] [DEBUG] [core] Offline download installed track=10588 quality=high bytes=6586464 playbackCache=false
+[13:31:09.550] [DEBUG] [core] Offline download installed track=8495 quality=high bytes=10527459 playbackCache=false
+[13:31:10.926] [DEBUG] [api] Native download scheduled task=-99 transport=immediate
+[13:31:11.007] [DEBUG] [api] Native download completed bytes=2054493 resumedFrom=0 status=200
+[13:31:11.550] [DEBUG] [core] Offline download installed track=11185 quality=high bytes=2054493 playbackCache=false
+[13:31:12.441] [DEBUG] [api] Native download scheduled task=-100 transport=immediate
+[13:31:12.611] [DEBUG] [api] Native download completed bytes=7998556 resumedFrom=0 status=200
+[13:31:13.720] [DEBUG] [core] Offline download installed track=10472 quality=high bytes=7998556 playbackCache=false
+[13:31:14.831] [DEBUG] [api] Native download scheduled task=-101 transport=immediate
+[13:31:14.946] [DEBUG] [api] Native download completed bytes=6312316 resumedFrom=0 status=200
+[13:31:15.991] [DEBUG] [core] Offline download installed track=8363 quality=high bytes=6312316 playbackCache=false
+[13:31:19.210] [DEBUG] [api] Native download scheduled task=-102 transport=immediate
+[13:31:19.371] [DEBUG] [api] Native download completed bytes=7887672 resumedFrom=0 status=200
+[13:31:20.537] [DEBUG] [core] Offline download installed track=10620 quality=high bytes=7887672 playbackCache=false
+[13:31:21.119] [DEBUG] [api] Native download scheduled task=-103 transport=immediate
+[13:31:21.308] [DEBUG] [api] Native download completed bytes=7651830 resumedFrom=0 status=200
+[13:31:22.798] [DEBUG] [core] Offline download installed track=8338 quality=high bytes=7651830 playbackCache=false
+[13:31:23.801] [DEBUG] [api] Native download scheduled task=-104 transport=immediate
+[13:31:23.960] [DEBUG] [api] Native download completed bytes=8956704 resumedFrom=0 status=200
+[13:31:25.335] [DEBUG] [core] Offline download installed track=11179 quality=high bytes=8956704 playbackCache=false
+[13:31:25.992] [DEBUG] [api] Native download scheduled task=-105 transport=immediate
+[13:31:26.123] [DEBUG] [api] Native download completed bytes=6666996 resumedFrom=0 status=200
+[13:31:27.121] [DEBUG] [core] Offline download installed track=10676 quality=high bytes=6666996 playbackCache=false
+[13:31:28.536] [DEBUG] [api] Native download scheduled task=-106 transport=immediate
+[13:31:28.595] [DEBUG] [api] Native download completed bytes=2084144 resumedFrom=0 status=200
+[13:31:28.995] [DEBUG] [core] Offline download installed track=11183 quality=high bytes=2084144 playbackCache=false
+[13:31:30.377] [DEBUG] [api] Native download scheduled task=-107 transport=immediate
+[13:31:30.473] [DEBUG] [api] Native download completed bytes=6101033 resumedFrom=0 status=200
+[13:31:31.209] [DEBUG] [core] Offline download installed track=8327 quality=high bytes=6101033 playbackCache=false
+[13:31:32.286] [DEBUG] [api] Native download scheduled task=-108 transport=immediate
+[13:31:32.398] [DEBUG] [api] Native download completed bytes=7085031 resumedFrom=0 status=200
+[13:31:33.306] [DEBUG] [core] Offline download installed track=10476 quality=high bytes=7085031 playbackCache=false
+[13:31:34.387] [DEBUG] [api] Native download scheduled task=-109 transport=immediate
+[13:31:34.494] [DEBUG] [api] Native download completed bytes=6856497 resumedFrom=0 status=200
+[13:31:35.472] [DEBUG] [core] Offline download installed track=8439 quality=high bytes=6856497 playbackCache=false
+[13:31:36.506] [DEBUG] [api] Native download scheduled task=-110 transport=immediate
+[13:31:36.622] [DEBUG] [api] Native download completed bytes=6326112 resumedFrom=0 status=200
+[13:31:37.462] [DEBUG] [core] Offline download installed track=10716 quality=high bytes=6326112 playbackCache=false
+[13:31:38.740] [DEBUG] [api] Native download scheduled task=-111 transport=immediate
+[13:31:38.880] [DEBUG] [api] Native download completed bytes=7282660 resumedFrom=0 status=200
+[13:31:39.728] [DEBUG] [core] Offline download installed track=12556 quality=high bytes=7282660 playbackCache=false
+[13:31:40.700] [DEBUG] [api] Native download scheduled task=-112 transport=immediate
+[13:31:40.866] [DEBUG] [api] Native download completed bytes=7289393 resumedFrom=0 status=200
+[13:31:41.737] [DEBUG] [core] Offline download installed track=10580 quality=high bytes=7289393 playbackCache=false
+[13:31:45.095] [DEBUG] [api] Native download scheduled task=-113 transport=immediate
+[13:31:45.231] [DEBUG] [api] Native download completed bytes=6170589 resumedFrom=0 status=200
+[13:31:46.098] [DEBUG] [core] Offline download installed track=10509 quality=high bytes=6170589 playbackCache=false
+[13:31:47.095] [DEBUG] [api] Native download scheduled task=-114 transport=immediate
+[13:31:47.226] [DEBUG] [api] Native download completed bytes=6765404 resumedFrom=0 status=200
+[13:31:48.274] [DEBUG] [core] Offline download installed track=8508 quality=high bytes=6765404 playbackCache=false
+[13:31:49.287] [DEBUG] [api] Native download scheduled task=-115 transport=immediate
+[13:31:49.438] [DEBUG] [api] Native download scheduled task=-116 transport=immediate
+[13:31:49.449] [DEBUG] [api] Native download completed bytes=6914218 resumedFrom=0 status=200
+[13:31:49.511] [DEBUG] [api] Native download completed bytes=1196769 resumedFrom=0 status=200
+[13:31:49.888] [DEBUG] [core] Offline download installed track=11187 quality=high bytes=1196769 playbackCache=false
+[13:31:50.807] [DEBUG] [core] Offline download installed track=8307 quality=high bytes=6914218 playbackCache=false
+[13:31:54.138] [DEBUG] [api] Native download scheduled task=-117 transport=immediate
+[13:31:54.285] [DEBUG] [api] Native download completed bytes=7049064 resumedFrom=0 status=200
+[13:31:55.332] [DEBUG] [core] Offline download installed track=10591 quality=high bytes=7049064 playbackCache=false
+[13:31:57.222] [DEBUG] [api] Native download scheduled task=-118 transport=immediate
+[13:31:57.396] [DEBUG] [api] Native download completed bytes=7512565 resumedFrom=0 status=200
+[13:31:58.917] [DEBUG] [core] Offline download installed track=8494 quality=high bytes=7512565 playbackCache=false
+[13:32:02.117] [DEBUG] [api] Native download scheduled task=-119 transport=immediate
+[13:32:02.133] [DEBUG] [core] 📦 Offline continued processing progress units=102034/362000
+[13:32:02.244] [DEBUG] [api] Native download completed bytes=6920445 resumedFrom=0 status=200
+[13:32:02.718] [DEBUG] [api] Native download scheduled task=-120 transport=immediate
+[13:32:02.936] [DEBUG] [api] Native download completed bytes=11124873 resumedFrom=0 status=200
+[13:32:03.626] [DEBUG] [core] Offline download installed track=10548 quality=high bytes=6920445 playbackCache=false
+[13:32:05.974] [DEBUG] [core] Offline download installed track=8512 quality=high bytes=11124873 playbackCache=false
+[13:32:06.873] [DEBUG] [api] Native download scheduled task=-121 transport=immediate
+[13:32:07.176] [DEBUG] [api] Native download completed bytes=7538151 resumedFrom=0 status=200
+[13:32:09.426] [DEBUG] [api] Native download scheduled task=-122 transport=immediate
+[13:32:09.602] [DEBUG] [api] Native download completed bytes=3724968 resumedFrom=0 status=200
+[13:32:10.371] [DEBUG] [core] Offline download installed track=10485 quality=high bytes=7538151 playbackCache=false
+[13:32:12.168] [DEBUG] [core] Offline download installed track=8281 quality=high bytes=3724968 playbackCache=false
+[13:32:13.843] [DEBUG] [api] Native download scheduled task=-123 transport=immediate
+[13:32:14.083] [DEBUG] [api] Native download completed bytes=8186543 resumedFrom=0 status=200
+[13:32:15.798] [DEBUG] [api] Native download scheduled task=-124 transport=immediate
+[13:32:16.036] [DEBUG] [api] Native download completed bytes=6298362 resumedFrom=0 status=200
+[13:32:21.267] [DEBUG] [core] Offline download installed track=8325 quality=high bytes=8186543 playbackCache=false
+[13:32:21.929] [DEBUG] [core] Offline download installed track=10500 quality=high bytes=6298362 playbackCache=false
+[13:32:29.001] [DEBUG] [api] Native download scheduled task=-125 transport=immediate
+[13:32:29.159] [DEBUG] [api] Native download completed bytes=6897597 resumedFrom=0 status=200
+[13:32:29.597] [DEBUG] [api] Native download scheduled task=-126 transport=immediate
+[13:32:29.822] [DEBUG] [api] Native download completed bytes=8585029 resumedFrom=0 status=200
+[13:32:30.803] [DEBUG] [core] Offline download installed track=8461 quality=high bytes=6897597 playbackCache=false
+[13:32:31.646] [DEBUG] [core] Offline download installed track=10642 quality=high bytes=8585029 playbackCache=false
+[13:32:38.336] [DEBUG] [api] Native download scheduled task=-127 transport=immediate
+[13:32:38.504] [DEBUG] [api] Native download completed bytes=9416363 resumedFrom=0 status=200
+[13:32:38.940] [DEBUG] [api] Native download scheduled task=-128 transport=immediate
+[13:32:39.117] [DEBUG] [api] Native download completed bytes=9246926 resumedFrom=0 status=200
+[13:32:40.677] [DEBUG] [core] Offline download installed track=8479 quality=high bytes=9416363 playbackCache=false
+[13:32:40.903] [DEBUG] [core] Offline download installed track=10547 quality=high bytes=9246926 playbackCache=false
+[13:32:43.978] [DEBUG] [api] Native download scheduled task=-129 transport=immediate
+[13:32:44.089] [DEBUG] [api] Native download completed bytes=5878062 resumedFrom=0 status=200
+[13:32:44.331] [DEBUG] [api] Native download scheduled task=-130 transport=immediate
+[13:32:44.464] [DEBUG] [api] Native download completed bytes=6544715 resumedFrom=0 status=200
+[13:32:45.082] [DEBUG] [core] Offline download installed track=10672 quality=high bytes=5878062 playbackCache=false
+[13:32:45.618] [DEBUG] [core] Offline download installed track=8352 quality=high bytes=6544715 playbackCache=false
+[13:32:52.556] [DEBUG] [api] Native download scheduled task=-131 transport=immediate
+[13:32:52.718] [DEBUG] [api] Native download completed bytes=7285184 resumedFrom=0 status=200
+[13:32:52.994] [DEBUG] [api] Native download scheduled task=-132 transport=immediate
+[13:32:53.155] [DEBUG] [api] Native download completed bytes=7987121 resumedFrom=0 status=200
+[13:32:54.490] [DEBUG] [core] Offline download installed track=8493 quality=high bytes=7285184 playbackCache=false
+[13:32:54.712] [DEBUG] [core] Offline download installed track=10705 quality=high bytes=7987121 playbackCache=false
+[13:32:58.140] [DEBUG] [api] Native download scheduled task=-133 transport=immediate
+[13:32:58.294] [DEBUG] [api] Native download completed bytes=8321264 resumedFrom=0 status=200
+[13:32:59.340] [DEBUG] [core] Offline download installed track=8312 quality=high bytes=8321264 playbackCache=false
+[13:33:02.346] [DEBUG] [api] Native download scheduled task=-134 transport=immediate
+[13:33:02.377] [DEBUG] [core] 📦 Offline continued processing progress units=117061/362000
+[13:33:02.489] [DEBUG] [api] Native download completed bytes=7675808 resumedFrom=0 status=200
+[13:33:02.649] [DEBUG] [api] Native download scheduled task=-135 transport=immediate
+[13:33:02.796] [DEBUG] [api] Native download completed bytes=7549440 resumedFrom=0 status=200
+[13:33:05.045] [DEBUG] [core] Offline download installed track=8524 quality=high bytes=7675808 playbackCache=false
+[13:33:05.315] [DEBUG] [core] Offline download installed track=8442 quality=high bytes=7549440 playbackCache=false
+[13:33:05.350] [DEBUG] [core] 📦 Offline continued processing progress units=119000/362000

@@ -3,6 +3,16 @@ import Combine
 @testable import EnsembleCore
 
 final class NavigationCoordinatorTests: XCTestCase {
+    func testGoToAlbumPreservesExactTrackSelection() {
+        for source in ["plex:account:a:music", "plex:account:b:music"] {
+            let track = Track(id: "same-id", key: "/tracks/same-id", title: "Song",
+                              albumRatingKey: "album", sourceCompositeKey: source)
+            XCTAssertEqual(NavigationCoordinator.Destination.album(for: track),
+                           .album(id: "album", sourceKey: source, selectedTrackId: track.playbackIdentity))
+        }
+        XCTAssertNil(NavigationCoordinator.Destination.album(for: Track(id: "orphan", key: "", title: "Song")))
+    }
+
     func testDestinationTargetTabs() {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .displayArtist(id: "merged:ajr")), .artists)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .displayGenre(id: "merged:rock")), .genres)
@@ -15,7 +25,23 @@ final class NavigationCoordinatorTests: XCTestCase {
             NavigationCoordinator.targetTab(for: .moodTracks(mood: Mood(id: "focus", key: "/moods/focus", title: "Focus"))),
             .home
         )
+        XCTAssertEqual(NavigationCoordinator.targetTab(for: .searchResults(section: .songs)), .search)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .view(.favorites)), .favorites)
+    }
+
+    func testJourneyLogDescriptionsStayRedacted() {
+        XCTAssertEqual(
+            NavigationCoordinator.Destination.album(id: "private-album-id", sourceKey: "private-source").journeyLogDescription,
+            "album"
+        )
+        XCTAssertEqual(
+            NavigationCoordinator.Destination.mergedPlaylist(title: "Private Playlist Title", isSmart: true).journeyLogDescription,
+            "smartPlaylist"
+        )
+        XCTAssertEqual(
+            NavigationCoordinator.Destination.view(.albums).journeyLogDescription,
+            "view(Albums)"
+        )
     }
 
     func testSystemMediaDestinationMapsSourceScopedIdentifiers() {
@@ -35,7 +61,7 @@ final class NavigationCoordinatorTests: XCTestCase {
             NavigationCoordinator.systemMediaDestination(
                 fromSourceScopedIdentifier: "track||track-1||plex://server.one/library"
             ),
-            .view(.songs)
+            .song(id: "track-1", sourceKey: "plex://server.one/library")
         )
     }
 
@@ -112,6 +138,26 @@ final class NavigationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testNavigationMarksForegroundWorkSchedulerAsNavigating() async {
+        let scheduler = RecordingForegroundWorkScheduler()
+        let coordinator = NavigationCoordinator(
+            foregroundWorkScheduler: scheduler,
+            navigationInteractionDurationNanoseconds: 10_000_000
+        )
+
+        coordinator.markNavigationInteraction() // Menu presentation starts the same interaction.
+        coordinator.push(.album(id: "album", sourceKey: nil), in: .albums)
+
+        XCTAssertEqual(scheduler.beginStates, [.navigating, .navigating])
+        XCTAssertTrue(scheduler.activeStates.contains(.navigating))
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        XCTAssertEqual(scheduler.endStates, [.navigating])
+        XCTAssertFalse(scheduler.activeStates.contains(.navigating))
+    }
+
+    @MainActor
     func testRouteTransitionFlagClearsAfterDuration() async {
         let coordinator = NavigationCoordinator()
 
@@ -136,7 +182,85 @@ final class NavigationCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.selectedTab, .albums)
         XCTAssertEqual(coordinator.pathSnapshot(for: .albums), [destination])
+        XCTAssertEqual(coordinator.externalRouteSequence, 1)
         XCTAssertTrue(coordinator.pathSnapshot(for: .home).isEmpty)
+        XCTAssertTrue(coordinator.isRouteTransitionActive(for: .albums))
+    }
+
+    @MainActor
+    func testHandleMediaDeepLinkRoutesThroughOwningTab() throws {
+        let coordinator = NavigationCoordinator()
+        coordinator.selectedTab = .home
+        coordinator.albumsPath = [.artist(id: "stale", sourceKey: nil)]
+        let url = try XCTUnwrap(URL(string: "ensemble://album/album-1?sourceKey=server%2Flibrary"))
+
+        XCTAssertTrue(coordinator.handleDeepLink(url))
+
+        XCTAssertEqual(coordinator.selectedTab, .albums)
+        XCTAssertEqual(
+            coordinator.pathSnapshot(for: .albums),
+            [.album(id: "album-1", sourceKey: "server/library")]
+        )
+    }
+
+    @MainActor
+    func testAutomationDeepLinkRoutesKnownSurface() throws {
+        let coordinator = NavigationCoordinator()
+        coordinator.selectedTab = .albums
+        coordinator.songsPath = [.album(id: "stale", sourceKey: nil)]
+        let url = try XCTUnwrap(URL(string: "ensemble://debug/open?surface=songs"))
+
+        XCTAssertTrue(
+            coordinator.handleDeepLink(
+                url,
+                automationOptions: AutomationLaunchOptions(isEnabled: true)
+            )
+        )
+
+        XCTAssertEqual(coordinator.selectedTab, .songs)
+        XCTAssertTrue(coordinator.pathSnapshot(for: .songs).isEmpty)
+    }
+
+    @MainActor
+    func testAutomationDeepLinkRoutesHiddenSurfaceThroughMore() throws {
+        let coordinator = NavigationCoordinator()
+        coordinator.visibleTabs = [.home, .artists, .playlists, .search]
+        coordinator.routesHiddenTabsThroughMore = true
+        let url = try XCTUnwrap(URL(string: "ensemble://debug/open?surface=songs"))
+
+        XCTAssertTrue(
+            coordinator.handleDeepLink(
+                url,
+                automationOptions: AutomationLaunchOptions(isEnabled: true)
+            )
+        )
+
+        XCTAssertEqual(coordinator.selectedTab, .settings)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .settings), [.view(.songs)])
+        XCTAssertTrue(coordinator.pathSnapshot(for: .songs).isEmpty)
+    }
+
+    @MainActor
+    func testAutomationDeepLinkOpensProfilePresentation() throws {
+        let coordinator = NavigationCoordinator()
+        let url = try XCTUnwrap(URL(string: "ensemble://debug/open?surface=profile-storage"))
+
+        XCTAssertTrue(
+            coordinator.handleDeepLink(
+                url,
+                automationOptions: AutomationLaunchOptions(isEnabled: true)
+            )
+        )
+
+        XCTAssertEqual(coordinator.activeAuxiliaryPresentation, .profile)
+    }
+
+    @MainActor
+    func testAutomationRoutePresentsAddSource() {
+        let coordinator = NavigationCoordinator()
+
+        XCTAssertTrue(coordinator.routeAutomationSurface(.addSource, source: "test"))
+        XCTAssertTrue(coordinator.showingAddAccount)
     }
 
     @MainActor
@@ -219,5 +343,40 @@ final class NavigationCoordinatorTests: XCTestCase {
 
     private static func artist() -> Artist {
         Artist(id: "artist", key: "/library/metadata/artist", name: "Artist")
+    }
+}
+
+@MainActor
+private final class RecordingForegroundWorkScheduler: ForegroundWorkScheduling, @unchecked Sendable {
+    var activeStates: Set<ForegroundInteractionState> = []
+    var beginStates: [ForegroundInteractionState] = []
+    var endStates: [ForegroundInteractionState] = []
+    var startupSyncInFlight = false
+    var isForegroundActive = true
+
+    var isIdleForNonessentialWork: Bool {
+        activeStates.isEmpty && !startupSyncInFlight && isForegroundActive
+    }
+
+    func beginInteraction(_ state: ForegroundInteractionState) {
+        beginStates.append(state)
+        activeStates.insert(state)
+    }
+
+    func endInteraction(_ state: ForegroundInteractionState) {
+        endStates.append(state)
+        activeStates.remove(state)
+    }
+
+    func setStartupSyncInFlight(_ inFlight: Bool) {
+        startupSyncInFlight = inFlight
+    }
+
+    func setForegroundActive(_ active: Bool) {
+        isForegroundActive = active
+    }
+
+    func waitUntilAllowed(_ kind: ForegroundWorkKind, policy: ForegroundWorkPolicy) async -> Bool {
+        isIdleForNonessentialWork
     }
 }

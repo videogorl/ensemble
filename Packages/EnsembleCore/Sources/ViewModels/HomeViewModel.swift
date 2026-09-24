@@ -13,7 +13,7 @@ public final class HomeViewModel: ObservableObject {
     }
 
     @Published public private(set) var hubs: [Hub] = []
-    @Published public private(set) var isLoading = false
+    @Published public private(set) var isLoading = true
     @Published public private(set) var error: String?
     @Published public private(set) var hasConfiguredAccounts = false
     @Published public private(set) var hasEnabledLibraries = false
@@ -32,6 +32,7 @@ public final class HomeViewModel: ObservableObject {
     private let hubLoader: HomeHubLoaderProtocol
     private let hubOrderManager: HubOrderManager
     private let visibilityStore: LibraryVisibilityStore
+    private let hiddenMediaStore: HiddenMediaStore
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let appReadinessCoordinator: AppReadinessCoordinator?
@@ -39,14 +40,15 @@ public final class HomeViewModel: ObservableObject {
     private var refreshTriggerCancellables = Set<AnyCancellable>()
     private var cachedSnapshotRestoreTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
+    private var contentGeneration: UInt64 = 0
     private var lastLoadTime: Date?
-    private var currentSourceKey: String?
     private var isViewVisible = false
     private var pendingAutoRefreshReasons = Set<AutoRefreshReason>()
-    // Preserve the server snapshot separately so Feed can stay a local-library
-    // projection without mutating the cached hub payload itself.
-    private var rawHubSnapshot: [Hub] = []
     private var unfilteredHubs: [Hub] = []
+    private var lastConfiguredSourceKeys = Set<String>()
+    private var lastEnabledSourceKeys = Set<String>()
+    private var lastSourceConfigurationHadSources = false
+    private var preservesAuthoritativeEmptySourceSnapshot = true
 
     // Startup suppression: the explicit .task load IS the startup load;
     // auto-refresh should not fire additional loads until it completes.
@@ -90,6 +92,7 @@ public final class HomeViewModel: ObservableObject {
         playlistRepository: PlaylistRepositoryProtocol,
         hubOrderManager: HubOrderManager = HubOrderManager(),
         visibilityStore: LibraryVisibilityStore? = nil,
+        hiddenMediaStore: HiddenMediaStore? = nil,
         appReadinessCoordinator: AppReadinessCoordinator? = nil
     ) {
         self.accountManager = accountManager
@@ -99,9 +102,18 @@ public final class HomeViewModel: ObservableObject {
         self.playlistRepository = playlistRepository
         self.hubOrderManager = hubOrderManager
         self.visibilityStore = visibilityStore ?? .shared
+        self.hiddenMediaStore = hiddenMediaStore ?? .shared
         self.appReadinessCoordinator = appReadinessCoordinator
         self.readinessSnapshot = appReadinessCoordinator?.snapshot ?? AppReadinessSnapshot()
-        updateSourceAvailability()
+        let initialSourceConfiguration = accountManager.sourceConfigurationSnapshot
+        self.lastConfiguredSourceKeys = Set(initialSourceConfiguration.configuredSources.map(\.compositeKey))
+        self.lastEnabledSourceKeys = initialSourceConfiguration.enabledSourceKeys
+        self.lastSourceConfigurationHadSources = initialSourceConfiguration.hasAnySources
+        updateSourceAvailability(initialSourceConfiguration)
+
+        self.hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            self?.applyVisibilityToPublishedHubs()
+        }.store(in: &cancellables)
 
         appReadinessCoordinator?.$snapshot
             .receive(on: DispatchQueue.main)
@@ -117,17 +129,39 @@ public final class HomeViewModel: ObservableObject {
         accountManager.$isAwaitingCloudSources
             .receive(on: DispatchQueue.main)
             .assign(to: &$isRestoringCloudSources)
-        
-        // Load cached hubs immediately for offline-first experience.
-        cachedSnapshotRestoreTask = Task { @MainActor [weak self] in
-            await self?.restoreCachedHubs()
-        }
-        
-        self.visibilityStore.$profiles
-            .combineLatest(self.visibilityStore.$activeProfileID)
+
+        accountManager.sourceConfigurationPublisher
             .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _ in
+            .sink { [weak self] configuration in
+                self?.handleSourceConfigurationChange(configuration)
+            }
+            .store(in: &cancellables)
+
+        syncCoordinator.$isOffline
+            .removeDuplicates()
+            .dropFirst()
+            .filter { !$0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.flushDeferredAutoRefreshIfVisible()
+            }
+            .store(in: &cancellables)
+        
+        // Load cached hubs immediately for offline-first experience.
+        let cacheRestoreGeneration = contentGeneration
+        cachedSnapshotRestoreTask = Task { @MainActor [weak self] in
+            await self?.restoreCachedHubs(generation: cacheRestoreGeneration)
+        }
+        
+        Publishers.CombineLatest3(
+            self.visibilityStore.$profiles,
+            self.visibilityStore.$activeProfileID,
+            self.visibilityStore.$focusFilter
+        )
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
                 self?.applyVisibilityToPublishedHubs()
             }
             .store(in: &cancellables)
@@ -137,9 +171,16 @@ public final class HomeViewModel: ObservableObject {
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 15_000_000_000)
             guard let self, !self.initialLoadCompleted else { return }
-            self.initialLoadCompleted = true
+            self.markInitialLoadCompleted()
             self.appReadinessCoordinator?.markBootstrapSettled()
             EnsembleLogger.debug("🏠 Home initial load safety timeout — unblocking auto-refresh")
+        }
+
+        ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
+            self?.handleLibraryDataCleared()
+        }
+        ViewModelNotificationObserver.observeSourceCleanupCompleted(storingIn: &cancellables) { [weak self] in
+            self?.handleSourceCleanupCompleted()
         }
     }
     
@@ -161,9 +202,10 @@ public final class HomeViewModel: ObservableObject {
 
         await cachedSnapshotRestoreTask?.value
 
-        guard hubs.isEmpty else {
-            initialLoadCompleted = true
-            EnsembleLogger.debug("🏠 Feed automatic load skipped detail=cachedContent")
+        if !hubs.isEmpty, !shouldRefreshHubsForAutomaticLoad {
+            markInitialLoadCompleted()
+            isLoading = false
+            EnsembleLogger.debug("🏠 Feed automatic load skipped detail=freshCachedContent")
             return
         }
 
@@ -193,7 +235,10 @@ public final class HomeViewModel: ObservableObject {
             return
         }
         
-        // Cancel any existing load task
+        // Invalidate any response that started before this load. Providers may
+        // complete work after cancellation, so cancellation alone is insufficient.
+        contentGeneration &+= 1
+        let generation = contentGeneration
         loadTask?.cancel()
         
         // Record load time for debouncing
@@ -204,22 +249,27 @@ public final class HomeViewModel: ObservableObject {
             return
         }
 
-        loadTask = Task { @MainActor in
+        let task = Task { @MainActor in
             isLoading = true
             error = nil
 
-            guard let snapshot = await hubLoader.loadSnapshot(
+            let snapshot = await hubLoader.loadSnapshot(
                 applySavedOrder: applySavedOrder,
                 hubCount: self.currentHubCount
-            ) else {
+            )
+            guard generation == contentGeneration, !Task.isCancelled else { return }
+
+            guard let snapshot else {
                 if hubs.isEmpty {
                     appReadinessCoordinator?.updateCachedFeedReadiness(hasContent: false)
+                    loadTask = nil
                     clearHubContentIfUnavailableSourcesAreSettled()
+                    markInitialLoadCompleted()
                 } else {
                     isLoading = false
                     isFeedCacheStale = true
-                    initialLoadCompleted = true
                     loadTask = nil
+                    markInitialLoadCompleted()
                     EnsembleLogger.debug("🏠 Feed preserving cached hubs after unavailable network snapshot")
                 }
                 return
@@ -228,35 +278,42 @@ public final class HomeViewModel: ObservableObject {
             guard !snapshot.orderedHubs.isEmpty else {
                 if hubs.isEmpty {
                     appReadinessCoordinator?.updateCachedFeedReadiness(hasContent: false)
+                    loadTask = nil
                     clearHubContentIfUnavailableSourcesAreSettled()
+                    markInitialLoadCompleted()
                 } else {
                     isLoading = false
                     isFeedCacheStale = true
-                    initialLoadCompleted = true
                     loadTask = nil
+                    markInitialLoadCompleted()
                     EnsembleLogger.debug("🏠 Feed preserving cached hubs after empty network snapshot")
                 }
                 return
             }
 
-            currentSourceKey = snapshot.metadata.currentSourceKey
             currentSourceName = snapshot.metadata.currentSourceName
             appReadinessCoordinator?.updateCachedFeedReadiness(hasContent: true)
             if isViewVisible || hubs.isEmpty {
-                await applyHubSnapshot(snapshot.orderedHubs, source: "network")
+                await applyHubSnapshot(
+                    snapshot.orderedHubs,
+                    source: "network",
+                    generation: generation
+                )
             } else {
                 EnsembleLogger.debug("🏠 Feed preserving visible hubs after hidden network refresh")
             }
+            guard generation == contentGeneration, !Task.isCancelled else { return }
 
             isLoading = false
-            initialLoadCompleted = true
             lastNetworkHubFetchTime = snapshot.metadata.networkFetchCompletedAt
             lastFeedCacheRefreshDate = snapshot.metadata.networkFetchCompletedAt
             isFeedCacheStale = false
             loadTask = nil
+            markInitialLoadCompleted()
         }
+        loadTask = task
 
-        await loadTask?.value
+        await task.value
     }
 
     /// Prevent the first Feed network fetch from racing ahead of startup
@@ -297,10 +354,10 @@ public final class HomeViewModel: ObservableObject {
         )
     }
 
-    private func restoreCachedHubs() async {
+    private func restoreCachedHubs(generation: UInt64) async {
         do {
             let cachedSnapshot = try await hubLoader.loadCachedSnapshot()
-            currentSourceKey = cachedSnapshot.metadata.currentSourceKey
+            guard generation == contentGeneration, !Task.isCancelled else { return }
             currentSourceName = cachedSnapshot.metadata.currentSourceName
             lastFeedCacheRefreshDate = cachedSnapshot.metadata.cacheFetchedAt
             let cacheIsStale = isCachedFeedStale(cachedSnapshot.metadata)
@@ -309,22 +366,26 @@ public final class HomeViewModel: ObservableObject {
 
             if !cachedSnapshot.orderedHubs.isEmpty {
                 appReadinessCoordinator?.updateCachedFeedReadiness(hasContent: true)
-                rawHubSnapshot = cachedSnapshot.orderedHubs
                 let availableHubs = await filterHubsForLocalAvailability(cachedSnapshot.orderedHubs)
+                guard generation == contentGeneration, !Task.isCancelled else { return }
                 unfilteredHubs = availableHubs
+                let sourceConfiguration = accountManager.sourceConfigurationSnapshot
                 hubs = Self.filterHubsForVisibility(
                     availableHubs,
-                    hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys
+                    hiddenSourceCompositeKeys: visibilityStore.effectiveHiddenSourceCompositeKeys(
+                        enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
+                    ),
+                    sourceConfiguration: sourceConfiguration,
+                    preservesAuthoritativeEmptySourceSnapshot: preservesAuthoritativeEmptySourceSnapshot,
+                    hiddenMedia: hiddenMediaStore.snapshot
                 )
-                if lastNetworkHubFetchTime == nil {
-                    lastAutomaticHubRefreshAttemptTime = Date()
-                }
                 EnsembleStartupTiming.logTTFMP(milestone: "Cached hubs visible (\(hubs.count) hubs)")
             } else {
                 appReadinessCoordinator?.updateCachedFeedReadiness(hasContent: false)
                 clearHubContentIfUnavailableSourcesAreSettled()
             }
         } catch {
+            guard generation == contentGeneration, !Task.isCancelled else { return }
             EnsembleLogger.debug("[HomeViewModel] Failed to load cached hubs: \(error.localizedDescription)")
         }
     }
@@ -339,6 +400,13 @@ public final class HomeViewModel: ObservableObject {
         await loadHubs()
     }
 
+    /// Retries macOS Keychain hydration and resumes Feed loading if sources become available.
+    public func retryCredentialLoad() async {
+        await accountManager.loadAccountsAsync()
+        updateSourceAvailability()
+        await loadHubsIfNeeded()
+    }
+
     public func handleViewVisibilityChange(isVisible: Bool) {
         guard isViewVisible != isVisible else { return }
         isViewVisible = isVisible
@@ -351,25 +419,27 @@ public final class HomeViewModel: ObservableObject {
         } else {
             stopRefreshTriggerObservation()
             stopPeriodicRefresh()
-            pendingAutoRefreshReasons.removeAll()
+            pendingAutoRefreshReasons = pendingAutoRefreshReasons.filter { $0 == .accountChange }
         }
     }
 
     private func requestAutoRefresh(reason: AutoRefreshReason) {
         guard hasEnabledLibraries else {
-            clearHubContentForUnavailableSources()
+            clearHubContentIfUnavailableSourcesAreSettled()
             return
         }
 
         // Suppress auto-refresh until the initial .task load completes.
         // The explicit loadHubs() from HomeView.task IS the startup load.
         guard initialLoadCompleted else {
-            EnsembleLogger.debug("🏠 Home auto-refresh skipped reason=\(reason.rawValue) detail=initialLoadInFlight")
+            retainAccountRefreshIfNeeded(reason)
+            EnsembleLogger.debug("🏠 Home auto-refresh deferred reason=\(reason.rawValue) detail=initialLoadInFlight")
             return
         }
 
         guard !syncCoordinator.isOffline else {
-            EnsembleLogger.debug("🏠 Home auto-refresh skipped reason=\(reason.rawValue) detail=offline")
+            retainAccountRefreshIfNeeded(reason)
+            EnsembleLogger.debug("🏠 Home auto-refresh deferred reason=\(reason.rawValue) detail=offline")
             return
         }
 
@@ -390,11 +460,13 @@ public final class HomeViewModel: ObservableObject {
 
         // Coalesce immediate refreshes: if a load is already in progress, skip
         guard loadTask == nil else {
+            retainAccountRefreshIfNeeded(reason)
             EnsembleLogger.debug("🏠 Home auto-refresh coalesced (load in progress) reason=\(reason.rawValue)")
             return
         }
 
         EnsembleLogger.debug("🏠 Home auto-refresh scheduled reason=\(reason.rawValue)")
+        pendingAutoRefreshReasons.removeAll()
 
         Task { @MainActor [weak self] in
             await self?.performAutoRefresh(triggeringReason: reason)
@@ -402,8 +474,6 @@ public final class HomeViewModel: ObservableObject {
     }
 
     private func performAutoRefresh(triggeringReason reason: AutoRefreshReason) async {
-        pendingAutoRefreshReasons.removeAll()
-
         if let autoRefreshRunnerForTesting {
             await autoRefreshRunnerForTesting(reason)
             return
@@ -415,24 +485,40 @@ public final class HomeViewModel: ObservableObject {
     }
 
     private func flushDeferredAutoRefreshIfVisible() {
-        guard isViewVisible else { return }
-
-        if !pendingAutoRefreshReasons.isEmpty {
-            let reason = pendingAutoRefreshReasons.first ?? .periodicTimer
-            pendingAutoRefreshReasons.removeAll()
-            Task { @MainActor [weak self] in
-                await self?.performAutoRefresh(triggeringReason: reason)
-            }
-        }
+        guard isViewVisible, !pendingAutoRefreshReasons.isEmpty else { return }
+        let reason: AutoRefreshReason = pendingAutoRefreshReasons.contains(.accountChange)
+            ? .accountChange
+            : pendingAutoRefreshReasons.first ?? .periodicTimer
+        requestAutoRefresh(reason: reason)
     }
 
-    private func applyHubSnapshot(_ snapshot: [Hub], source: String) async {
-        rawHubSnapshot = snapshot
+    private func retainAccountRefreshIfNeeded(_ reason: AutoRefreshReason) {
+        guard reason == .accountChange else { return }
+        pendingAutoRefreshReasons.insert(reason)
+    }
+
+    private func markInitialLoadCompleted() {
+        initialLoadCompleted = true
+        flushDeferredAutoRefreshIfVisible()
+    }
+
+    private func applyHubSnapshot(
+        _ snapshot: [Hub],
+        source: String,
+        generation: UInt64
+    ) async {
         let availableSnapshot = await filterHubsForLocalAvailability(snapshot)
+        guard generation == contentGeneration, !Task.isCancelled else { return }
         unfilteredHubs = availableSnapshot
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
         let visibleSnapshot = Self.filterHubsForVisibility(
             availableSnapshot,
-            hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys
+            hiddenSourceCompositeKeys: visibilityStore.effectiveHiddenSourceCompositeKeys(
+                enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
+            ),
+            sourceConfiguration: sourceConfiguration,
+            preservesAuthoritativeEmptySourceSnapshot: preservesAuthoritativeEmptySourceSnapshot,
+            hiddenMedia: hiddenMediaStore.snapshot
         )
 
         EnsembleLogger.debug("🏠 Applying hub snapshot source=\(source) count=\(visibleSnapshot.count)")
@@ -441,9 +527,15 @@ public final class HomeViewModel: ObservableObject {
     }
 
     private func applyVisibilityToPublishedHubs() {
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
         let visibleHubs = Self.filterHubsForVisibility(
             unfilteredHubs,
-            hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys
+            hiddenSourceCompositeKeys: visibilityStore.effectiveHiddenSourceCompositeKeys(
+                enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
+            ),
+            sourceConfiguration: sourceConfiguration,
+            preservesAuthoritativeEmptySourceSnapshot: preservesAuthoritativeEmptySourceSnapshot,
+            hiddenMedia: hiddenMediaStore.snapshot
         )
 
         hubs = visibleHubs
@@ -464,11 +556,10 @@ public final class HomeViewModel: ObservableObject {
 
     /// Mark the initial load as complete so auto-refresh tests can proceed
     internal func markInitialLoadCompletedForTesting() {
-        initialLoadCompleted = true
+        markInitialLoadCompleted()
     }
 
     internal func seedHubsForTesting(_ hubs: [Hub]) {
-        rawHubSnapshot = hubs
         unfilteredHubs = hubs
         self.hubs = hubs
     }
@@ -488,21 +579,6 @@ public final class HomeViewModel: ObservableObject {
 
     private func startRefreshTriggerObservation() {
         guard refreshTriggerCancellables.isEmpty else { return }
-
-        accountManager.$plexAccounts
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] accounts in
-                guard let self else { return }
-                self.updateSourceAvailability(from: accounts)
-                self.hubLoader.clearFailedHubKeys()
-                guard self.hasEnabledLibraries else {
-                    self.clearHubContentIfUnavailableSourcesAreSettled()
-                    return
-                }
-                self.requestAutoRefresh(reason: .accountChange)
-            }
-            .store(in: &refreshTriggerCancellables)
 
         // Feed reloads only follow actual library/playlist mutations.
         // Transport, health, and progress churn stays on sourceStatuses.
@@ -525,17 +601,39 @@ public final class HomeViewModel: ObservableObject {
 
     internal static func filterHubsForVisibility(
         _ hubs: [Hub],
-        hiddenSourceCompositeKeys: Set<String>
+        hiddenSourceCompositeKeys: Set<String>,
+        sourceConfiguration: SourceConfigurationSnapshot? = nil,
+        preservesAuthoritativeEmptySourceSnapshot: Bool = true,
+        hiddenMedia: HiddenMediaSnapshot = .empty
     ) -> [Hub] {
-        guard !hiddenSourceCompositeKeys.isEmpty else { return hubs }
-
+        // A fully authoritative empty credential snapshot does not prove that
+        // last-good browse data was deleted. Explicit source cleanup owns that.
+        let sourceConfiguration = sourceConfiguration.flatMap { configuration in
+            configuration.hasAnySources ||
+                !configuration.isAuthoritative ||
+                !preservesAuthoritativeEmptySourceSnapshot ? configuration : nil
+        }
         return hubs.compactMap { hub in
             let visibleItems = hub.items.filter { item in
-                !hiddenSourceCompositeKeys.contains(item.sourceCompositeKey)
+                MediaSourceIdentity.parse(item.sourceCompositeKey) != nil &&
+                    (sourceConfiguration?.shouldPreserveSourceKey(item.sourceCompositeKey) ?? true) &&
+                    !hiddenSourceCompositeKeys.contains(item.sourceCompositeKey) &&
+                    item.album.map { !hiddenMedia.isHidden($0) } ?? true &&
+                    item.track.map { !hiddenMedia.isHidden($0) } ?? true &&
+                    item.artist.map { !hiddenMedia.isHidden($0) } ?? true &&
+                    item.playlist.map { !hiddenMedia.isHidden($0) } ?? true
             }
 
             guard !visibleItems.isEmpty else { return nil }
-            return Hub(id: hub.id, title: hub.title, type: hub.type, items: visibleItems, context: hub.context)
+            return Hub(
+                id: hub.id,
+                title: hub.title,
+                type: hub.type,
+                items: visibleItems,
+                context: hub.context,
+                semanticKind: hub.semanticKind,
+                sourceScope: hub.sourceScope
+            )
         }
     }
 
@@ -562,6 +660,8 @@ public final class HomeViewModel: ObservableObject {
             for item in hub.items {
                 if let resolved = try await resolvedItem(item) {
                     availableItems.append(resolved)
+                } else if Self.retainsHubItemWithoutLocalCache(item) {
+                    availableItems.append(item)
                 }
             }
 
@@ -572,7 +672,9 @@ public final class HomeViewModel: ObservableObject {
                     title: hub.title,
                     type: hub.type,
                     items: availableItems,
-                    context: hub.context
+                    context: hub.context,
+                    semanticKind: hub.semanticKind,
+                    sourceScope: hub.sourceScope
                 )
             )
         }
@@ -580,14 +682,36 @@ public final class HomeViewModel: ObservableObject {
         return filteredHubs
     }
 
+    private nonisolated static func retainsHubItemWithoutLocalCache(_ item: HubItem) -> Bool {
+        guard let sourceType = MediaSourceIdentity.parse(item.sourceCompositeKey)?.sourceType else {
+            return false
+        }
+        return sourceType.capabilities.retainsHubItemsWithoutLocalCache
+    }
+
     private func filterHubsForLocalAvailability(_ hubs: [Hub]) async -> [Hub] {
         do {
-            let filteredHubs = try await Self.filterHubsForLocalAvailability(hubs) { [libraryRepository, playlistRepository] item in
-                try await Self.resolveHubItemFromLocalLibrary(
-                    item,
-                    libraryRepository: libraryRepository,
-                    playlistRepository: playlistRepository
-                )
+            async let albumsByKeyTask = libraryRepository.fetchAlbums(
+                forReferences: Self.sourceScopedReferences(in: hubs, itemType: "album")
+            )
+            async let artistsByKeyTask = libraryRepository.fetchArtists(
+                forReferences: Self.sourceScopedReferences(in: hubs, itemType: "artist")
+            )
+            async let playlistsByKeyTask = playlistRepository.fetchPlaylistHeaders(
+                forReferences: Self.sourceScopedReferences(in: hubs, itemType: "playlist")
+            )
+            async let tracksByKeyTask = libraryRepository.fetchTracksBatch(
+                forReferences: Self.trackReferences(in: hubs)
+            )
+
+            let lookup = try await LocalHubItemLookup(
+                albumsByKey: albumsByKeyTask.mapValues(Album.init(from:)),
+                artistsByKey: artistsByKeyTask.mapValues(Artist.init(from:)),
+                playlistsByKey: playlistsByKeyTask.mapValues(Playlist.init(from:)),
+                tracksByKey: tracksByKeyTask.mapValues(Track.init(from:))
+            )
+            let filteredHubs = await Self.filterHubsForLocalAvailability(hubs) { item in
+                Self.resolveHubItemFromLocalLibrary(item, lookup: lookup)
             }
 
             let filteredItemCount = filteredHubs.reduce(into: 0) { $0 += $1.items.count }
@@ -605,18 +729,47 @@ public final class HomeViewModel: ObservableObject {
         }
     }
 
-    private static func resolveHubItemFromLocalLibrary(
-        _ item: HubItem,
-        libraryRepository: LibraryRepositoryProtocol,
-        playlistRepository: PlaylistRepositoryProtocol
-    ) async throws -> HubItem? {
-        switch item.type {
-        case "album":
-            guard let cdAlbum = try await libraryRepository.fetchAlbum(
+    private struct LocalHubItemLookup {
+        let albumsByKey: [String: Album]
+        let artistsByKey: [String: Artist]
+        let playlistsByKey: [String: Playlist]
+        let tracksByKey: [String: Track]
+    }
+
+    private nonisolated static func sourceScopedReferences(
+        in hubs: [Hub],
+        itemType: String
+    ) -> [SourceScopedArtworkReference] {
+        Array(Set(hubs.flatMap(\.items).compactMap { item in
+            guard item.type == itemType else { return nil }
+            return SourceScopedArtworkReference(
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
-            ) else { return nil }
-            let album = Album(from: cdAlbum)
+            )
+        }))
+    }
+
+    private nonisolated static func trackReferences(in hubs: [Hub]) -> [OfflineTrackReference] {
+        Array(Set(hubs.flatMap(\.items).compactMap { item in
+            guard item.type == "track" else { return nil }
+            return OfflineTrackReference(
+                trackRatingKey: item.id,
+                trackSourceCompositeKey: item.sourceCompositeKey
+            )
+        }))
+    }
+
+    private nonisolated static func resolveHubItemFromLocalLibrary(
+        _ item: HubItem,
+        lookup: LocalHubItemLookup
+    ) -> HubItem? {
+        switch item.type {
+        case "album":
+            let lookupKey = SourceScopedArtworkReference(
+                ratingKey: item.id,
+                sourceCompositeKey: item.sourceCompositeKey
+            ).lookupKey
+            guard let album = lookup.albumsByKey[lookupKey] else { return nil }
             return HubItem(
                 id: item.id,
                 type: item.type,
@@ -631,11 +784,11 @@ public final class HomeViewModel: ObservableObject {
                 playlist: item.playlist
             )
         case "artist":
-            guard let cdArtist = try await libraryRepository.fetchArtist(
+            let lookupKey = SourceScopedArtworkReference(
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
-            ) else { return nil }
-            let artist = Artist(from: cdArtist)
+            ).lookupKey
+            guard let artist = lookup.artistsByKey[lookupKey] else { return nil }
             return HubItem(
                 id: item.id,
                 type: item.type,
@@ -650,11 +803,11 @@ public final class HomeViewModel: ObservableObject {
                 playlist: item.playlist
             )
         case "playlist":
-            guard let cdPlaylist = try await playlistRepository.fetchPlaylist(
+            let lookupKey = SourceScopedArtworkReference(
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
-            ) else { return nil }
-            let playlist = Playlist(from: cdPlaylist)
+            ).lookupKey
+            guard let playlist = lookup.playlistsByKey[lookupKey] else { return nil }
             return HubItem(
                 id: item.id,
                 type: item.type,
@@ -669,11 +822,11 @@ public final class HomeViewModel: ObservableObject {
                 playlist: playlist
             )
         case "track":
-            guard let cdTrack = try await libraryRepository.fetchTrack(
-                ratingKey: item.id,
-                sourceCompositeKey: item.sourceCompositeKey
-            ) else { return nil }
-            let track = Track(from: cdTrack)
+            let lookupKey = OfflineTrackReference(
+                trackRatingKey: item.id,
+                trackSourceCompositeKey: item.sourceCompositeKey
+            ).membershipID
+            guard let track = lookup.tracksByKey[lookupKey] else { return nil }
             return HubItem(
                 id: item.id,
                 type: item.type,
@@ -694,83 +847,102 @@ public final class HomeViewModel: ObservableObject {
 
     // MARK: - Edit Mode
 
-    /// Extract the server key from a hub ID.
-    /// Hub IDs are "plex:{acct}:{srv}:{lib}:{hubId}" — server key is the first 3 components.
-    private func serverKey(from hubId: String) -> String? {
-        let components = hubId.split(separator: ":")
-        guard components.count >= 3 else { return nil }
-        return "\(components[0]):\(components[1]):\(components[2])"
-    }
-    
-    private func hubsForServer(sourceKey: String, in hubs: [Hub]) -> [Hub] {
-        hubs.filter { serverKey(from: $0.id) == sourceKey }
-    }
-    
-    private func mergeOrderedServerHubs(_ orderedServerHubs: [Hub], sourceKey: String, into hubs: [Hub]) -> [Hub] {
-        var iterator = orderedServerHubs.makeIterator()
-        return hubs.map { hub in
-            if serverKey(from: hub.id) == sourceKey {
-                return iterator.next() ?? hub
-            }
-            return hub
-        }
-    }
-    
-    /// Determine the primary source key (first enabled server) and its display name.
-    /// Source key format matches the first 3 components of hub IDs: "plex:{acct}:{srv}"
+    /// Use one ordering scope for the combined Feed shown by the editor.
     private func updateCurrentSource() {
-        let servers = accountManager.plexAccounts.flatMap { $0.servers }
-        let hasMultipleServers = servers.count > 1
-
-        for account in accountManager.plexAccounts {
-            for server in account.servers {
-                let enabledLibraries = server.libraries.filter { $0.isEnabled }
-                if !enabledLibraries.isEmpty {
-                    currentSourceKey = "plex:\(account.id):\(server.id)"
-                    if hasMultipleServers {
-                        currentSourceName = "Editing Music (on \(server.name))"
-                    } else {
-                        currentSourceName = "Editing Music"
-                    }
-                    return
-                }
-            }
-        }
-
-        currentSourceKey = nil
         currentSourceName = "Editing Music"
     }
 
-    private func updateSourceAvailability(from accounts: [PlexAccountConfig]? = nil) {
-        let snapshot = accounts ?? accountManager.plexAccounts
-        hasConfiguredAccounts = !snapshot.isEmpty
-        hasEnabledLibraries = snapshot.contains { account in
-            account.servers.contains { server in
-                server.libraries.contains(where: \.isEnabled)
-            }
+    private func updateSourceAvailability(
+        _ configuration: SourceConfigurationSnapshot? = nil
+    ) {
+        let configuration = configuration ?? accountManager.sourceConfigurationSnapshot
+        hasConfiguredAccounts = configuration.hasAnySources
+        hasEnabledLibraries = !configuration.enabledSources.isEmpty
+    }
+
+    private func handleSourceConfigurationChange(_ configuration: SourceConfigurationSnapshot) {
+        updateSourceAvailability(configuration)
+        let configuredSourceKeys = Set(configuration.configuredSources.map(\.compositeKey))
+        let removedEnabledSources = lastEnabledSourceKeys.subtracting(configuration.enabledSourceKeys)
+        if configuration.hasAnySources {
+            preservesAuthoritativeEmptySourceSnapshot = true
+        } else if !removedEnabledSources.isEmpty || lastSourceConfigurationHadSources {
+            preservesAuthoritativeEmptySourceSnapshot = false
         }
+        let changedSourceKeys = lastConfiguredSourceKeys
+            .symmetricDifference(configuredSourceKeys)
+            .union(lastEnabledSourceKeys.symmetricDifference(configuration.enabledSourceKeys))
+        lastConfiguredSourceKeys = configuredSourceKeys
+        lastEnabledSourceKeys = configuration.enabledSourceKeys
+        lastSourceConfigurationHadSources = configuration.hasAnySources
+        applyVisibilityToPublishedHubs()
+        let hasAuthoritativeProviderChange = changedSourceKeys.contains { sourceKey in
+            guard let sourceType = MediaSourceIdentity.sourceType(from: sourceKey) else {
+                return configuration.isAuthoritative
+            }
+            return configuration.authoritativeSourceTypes.contains(sourceType)
+        }
+        guard configuration.isAuthoritative || hasAuthoritativeProviderChange else {
+            EnsembleLogger.debug("🏠 Home source refresh deferred detail=configurationUnresolved")
+            return
+        }
+        hubLoader.clearFailedHubKeys()
+        lastLoadTime = nil
+        lastNetworkHubFetchTime = nil
+        lastAutomaticHubRefreshAttemptTime = nil
+        if !hubs.isEmpty && !isFeedCacheStale {
+            isFeedCacheStale = true
+        }
+
+        guard hasEnabledLibraries else {
+            pendingAutoRefreshReasons.remove(.accountChange)
+            clearHubContentIfUnavailableSourcesAreSettled()
+            return
+        }
+        requestAutoRefresh(reason: .accountChange)
     }
 
     private func clearHubContentForUnavailableSources() {
+        contentGeneration &+= 1
         loadTask?.cancel()
+        loadTask = nil
         isLoading = false
         error = nil
         isFeedCacheStale = false
         lastFeedCacheRefreshDate = nil
         lastNetworkHubFetchTime = nil
         lastAutomaticHubRefreshAttemptTime = nil
-        rawHubSnapshot = []
         unfilteredHubs = []
         hubs = []
         editableHubs = []
         isEditingOrder = false
-        pendingAutoRefreshReasons.removeAll()
+    }
+
+    private func handleLibraryDataCleared() {
+        cachedSnapshotRestoreTask?.cancel()
+        cachedSnapshotRestoreTask = nil
+        appReadinessCoordinator?.updateCachedFeedReadiness(hasContent: false)
+        currentSourceName = ""
+        hubLoader.clearFailedHubKeys()
+        clearHubContentForUnavailableSources()
+        markInitialLoadCompleted()
+    }
+
+    private func handleSourceCleanupCompleted() {
+        guard accountManager.hasAnySources else {
+            handleLibraryDataCleared()
+            return
+        }
+        applyVisibilityToPublishedHubs()
     }
 
     private func clearHubContentIfUnavailableSourcesAreSettled() {
-        guard readinessSnapshot.isBootstrapSettled, !readinessSnapshot.isRestoringCloudSources else {
+        guard accountManager.isSourceConfigurationAuthoritative,
+              accountManager.hasAnySources,
+              readinessSnapshot.isBootstrapSettled,
+              !readinessSnapshot.isRestoringCloudSources else {
             isLoading = false
-            initialLoadCompleted = true
+            markInitialLoadCompleted()
             return
         }
         clearHubContentForUnavailableSources()
@@ -832,30 +1004,30 @@ public final class HomeViewModel: ObservableObject {
         }
     }
     
-    /// Save the hub order for the current source
+    /// Save the order of the combined Feed.
     private func saveHubOrder(_ orderedHubs: [Hub]) async {
-        updateCurrentSource()
-        guard let sourceKey = currentSourceKey else { return }
-        
-        let hubIds = hubsForServer(sourceKey: sourceKey, in: orderedHubs).map { $0.id }
-        hubOrderManager.saveOrder(hubIds, for: sourceKey)
+        hubOrderManager.saveOrder(orderedHubs.map(\.id), for: HomeHubLoader.feedOrderKey)
     }
     
-    /// Reset the hub order to Plex's default for the current source
+    /// Reset the combined Feed to Plex's default order.
     public func resetOrder() {
         updateCurrentSource()
-        guard let sourceKey = currentSourceKey else { return }
-        
-        EnsembleLogger.debug("[HubOrder] Reset requested for sourceKey=\(sourceKey)")
-        hubOrderManager.resetOrder(for: sourceKey)
+        EnsembleLogger.debug("[HubOrder] Reset requested for sourceKey=\(HomeHubLoader.feedOrderKey)")
+        hubOrderManager.resetOrder(for: HomeHubLoader.feedOrderKey)
 
         // Apply cached default order immediately
-        let serverHubs = hubsForServer(sourceKey: sourceKey, in: unfilteredHubs)
-        EnsembleLogger.debug("[HubOrder] Applying default order to \(serverHubs.count) server hubs")
-        let orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
-        let orderedSnapshot = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: unfilteredHubs)
+        EnsembleLogger.debug("[HubOrder] Applying default order to \(unfilteredHubs.count) Feed hubs")
+        let orderedSnapshot = hubOrderManager.applyDefaultOrder(
+            to: unfilteredHubs,
+            for: HomeHubLoader.feedOrderKey
+        )
+        let generation = contentGeneration
         Task { @MainActor [weak self] in
-            await self?.applyHubSnapshot(orderedSnapshot, source: "resetOrder")
+            await self?.applyHubSnapshot(
+                orderedSnapshot,
+                source: "resetOrder",
+                generation: generation
+            )
         }
 
         // Clear debounce and reload hubs to show the reset order

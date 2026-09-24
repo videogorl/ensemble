@@ -5,21 +5,6 @@ import EnsemblePersistence
 
 @MainActor
 final class AddPlexAccountViewModelTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-    }
 
     private struct MockDiscoveryService: PlexAccountDiscoveryServiceProtocol {
         func discoverAccount(authToken: String) async throws -> PlexAccountDiscoveryResult {
@@ -91,6 +76,30 @@ final class AddPlexAccountViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.error, "Please select at least one library")
         XCTAssertTrue(accountManager.plexAccounts.isEmpty)
+    }
+
+    func testConfirmLibrariesRejectsExistingPlexAccount() {
+        let accountManager = AccountManager(keychain: TestKeychain())
+        accountManager.addPlexAccount(
+            PlexAccountConfig(
+                id: "user-1",
+                authToken: "existing-token",
+                servers: [makeServer(id: "server-1", name: "Server 1", libraries: [("1", "Library One")])]
+            )
+        )
+        let viewModel = makeViewModel(accountManager: accountManager)
+        viewModel.applyDiscoveryForTesting(
+            authToken: "new-token",
+            identity: PlexAccountIdentity(id: "user-1", email: nil, plexUsername: "felicity", displayTitle: "Felicity"),
+            servers: [makeServer(id: "server-1", name: "Server 1", libraries: [("1", "Library One")])]
+        )
+
+        viewModel.confirmLibraries()
+
+        XCTAssertEqual(viewModel.error, "This Plex account has already been added.")
+        XCTAssertEqual(accountManager.plexAccounts.count, 1)
+        XCTAssertEqual(accountManager.plexAccounts.first?.authToken, "existing-token")
+        XCTAssertEqual(viewModel.state, .ready)
     }
 
     func testConfirmLibrariesPersistsAllServersWithEnabledSelection() {

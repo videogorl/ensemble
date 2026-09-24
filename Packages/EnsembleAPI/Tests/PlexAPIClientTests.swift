@@ -1,21 +1,438 @@
 import XCTest
 @testable import EnsembleAPI
 
+private final class PlexAPIClientURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var handler: ((URLRequest) throws -> (Int, Data))?
+
+    static func install(_ handler: @escaping (URLRequest) throws -> (Int, Data)) {
+        lock.lock()
+        self.handler = handler
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        let handler = Self.handler
+        Self.lock.unlock()
+        guard let handler, let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        do {
+            let (statusCode, data) = try handler(request)
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
 final class PlexAPIClientTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
 
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
+    func testTrackRadioCreatesFreshStationAndOmitsSeed() async throws {
+        PlexAPIClientURLProtocol.install { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/playQueues")
+
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+            XCTAssertEqual(query?.first(where: { $0.name == "type" })?.value, "audio")
+            let uri = try XCTUnwrap(query?.first(where: { $0.name == "uri" })?.value)
+            XCTAssertTrue(uri.hasPrefix("server://server/com.plexapp.plugins.library/library/metadata/123/station/"))
+            XCTAssertTrue(uri.hasSuffix("?type=10&includeSharedContent=1&maxDegreesOfSeparation=-1"))
+            let stationID = try XCTUnwrap(uri.split(separator: "?").first?.split(separator: "/").last)
+            XCTAssertEqual(stationID, Substring(stationID.lowercased()))
+
+            return (200, Data(#"{"MediaContainer":{"Metadata":[{"ratingKey":"123","key":"/library/metadata/123","title":"Seed"},{"ratingKey":"456","key":"/library/metadata/456","title":"Recommendation"}]}}"#.utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(url: "https://example.com", token: "test", identifier: "server", name: "Server"),
+            keychain: TestKeychain(),
+            urlSession: session
+        )
+
+        let tracks = try await client.getTrackRadio(ratingKey: "123")
+
+        XCTAssertEqual(tracks.map(\.ratingKey), ["456"])
+    }
+
+    func testDownloadQueueReusesPreparedJobAfterTransientMediaFailure() async throws {
+        let lock = NSLock()
+        var adds = 0
+        var mediaRequests = 0
+        PlexAPIClientURLProtocol.install { request in
+            lock.lock()
+            defer { lock.unlock() }
+            switch request.url?.path {
+            case "/downloadQueue":
+                return (200, Data(#"{"MediaContainer":{"DownloadQueue":[{"id":3}]}}"#.utf8))
+            case "/downloadQueue/3/add":
+                adds += 1
+                return (200, Data(#"{"MediaContainer":{"AddedQueueItems":[{"id":42}]}}"#.utf8))
+            case "/downloadQueue/3/items/42":
+                return (200, Data(#"{"MediaContainer":{"DownloadQueueItem":[{"id":42,"status":"available"}]}}"#.utf8))
+            default:
+                XCTAssertFalse(request.allowsCellularAccess)
+                XCTAssertFalse(request.allowsConstrainedNetworkAccess)
+                mediaRequests += 1
+                return (mediaRequests == 1 ? 503 : 200, Data([1, 2, 3]))
+            }
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(url: "https://example.com", token: "test", identifier: "server", name: "Server"),
+            keychain: TestKeychain(), urlSession: session
+        )
+        do {
+            _ = try await client.downloadTranscodedMediaViaQueue(trackRatingKey: "1", quality: .high, networkPolicy: .init())
+            XCTFail("Expected a deferred server failure")
+        } catch { XCTAssertEqual(PlexErrorClassification.classify(error), .serverError) }
+        let result = try await client.downloadTranscodedMediaViaQueue(trackRatingKey: "1", quality: .high, networkPolicy: .init())
+        defer { try? FileManager.default.removeItem(at: result.fileURL) }
+        XCTAssertEqual(try Data(contentsOf: result.fileURL), Data([1, 2, 3]))
+        XCTAssertEqual(adds, 1)
+        XCTAssertEqual(mediaRequests, 2)
+    }
+
+    func testDownloadQueueCachesIDAndRefreshesItAfterNotFound() async throws {
+        let stateLock = NSLock()
+        var queueRequests = 0
+        var addPaths: [String] = []
+        PlexAPIClientURLProtocol.install { request in
+            stateLock.lock()
+            defer { stateLock.unlock() }
+
+            let path = request.url?.path ?? ""
+            if path == "/downloadQueue" {
+                queueRequests += 1
+                let id = queueRequests == 1 ? 3 : 4
+                return (200, Data(#"{"MediaContainer":{"DownloadQueue":[{"id":\#(id)}]}}"#.utf8))
+            }
+
+            addPaths.append(path)
+            if path == "/downloadQueue/3/add" {
+                return (404, Data())
+            }
+            let itemID = addPaths.count == 2 ? 42 : 43
+            return (200, Data(#"{"MediaContainer":{"AddedQueueItems":[{"id":\#(itemID)}]}}"#.utf8))
         }
 
-        func get(_ key: String) throws -> String? {
-            storage[key]
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://example.com",
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            urlSession: session
+        )
+
+        let first = try await client.enqueueDownloadQueueItem(
+            metadataKey: "/library/metadata/1",
+            quality: .high
+        )
+        let second = try await client.enqueueDownloadQueueItem(
+            metadataKey: "/library/metadata/2",
+            quality: .high
+        )
+
+        XCTAssertEqual(first.queueId, 4)
+        XCTAssertEqual(first.itemId, 42)
+        XCTAssertEqual(second.queueId, 4)
+        XCTAssertEqual(second.itemId, 43)
+        XCTAssertEqual(queueRequests, 2)
+        XCTAssertEqual(addPaths, [
+            "/downloadQueue/3/add",
+            "/downloadQueue/4/add",
+            "/downloadQueue/4/add"
+        ])
+    }
+
+    func testConcurrentDownloadQueueEnqueuesShareQueueRequest() async throws {
+        let stateLock = NSLock()
+        var queueRequests = 0
+        PlexAPIClientURLProtocol.install { request in
+            stateLock.lock()
+            defer { stateLock.unlock() }
+
+            if request.url?.path == "/downloadQueue" {
+                queueRequests += 1
+                Thread.sleep(forTimeInterval: 0.05)
+                return (200, Data(#"{"MediaContainer":{"DownloadQueue":[{"id":3}]}}"#.utf8))
+            }
+            return (200, Data(#"{"MediaContainer":{"AddedQueueItems":[{"id":42}]}}"#.utf8))
         }
 
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://example.com",
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            urlSession: session
+        )
+
+        async let first = client.enqueueDownloadQueueItem(
+            metadataKey: "/library/metadata/1",
+            quality: .high
+        )
+        async let second = client.enqueueDownloadQueueItem(
+            metadataKey: "/library/metadata/2",
+            quality: .high
+        )
+        _ = try await (first, second)
+
+        XCTAssertEqual(queueRequests, 1)
+    }
+
+    func testOnlyLyrics404IsDurablyUnavailable() {
+        XCTAssertTrue(
+            PlexAPIClient.isUnavailableLyricsResponse(PlexAPIError.httpError(statusCode: 404))
+        )
+        XCTAssertFalse(
+            PlexAPIClient.isUnavailableLyricsResponse(PlexAPIError.httpError(statusCode: 500))
+        )
+        XCTAssertFalse(
+            PlexAPIClient.isUnavailableLyricsResponse(
+                PlexAPIError.networkError(URLError(.timedOut))
+            )
+        )
+    }
+
+    func testArtworkURLCanBeBuiltWithoutAClient() throws {
+        let url = try XCTUnwrap(PlexAPIClient.artworkURL(
+            serverURL: "https://example.com:32400",
+            token: "token123",
+            path: "/library/metadata/42/thumb",
+            size: 80
+        ))
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.path, "/photo/:/transcode")
+        XCTAssertEqual(components.queryItems?.first(where: { $0.name == "url" })?.value, "/library/metadata/42/thumb")
+        XCTAssertEqual(components.queryItems?.first(where: { $0.name == "width" })?.value, "80")
+        XCTAssertEqual(components.queryItems?.first(where: { $0.name == "X-Plex-Token" })?.value, "token123")
+    }
+
+    func testCurrentEndpointSyncUsesRegistrySelection() async {
+        let registry = ServerConnectionRegistry()
+        let serverKey = "account:server"
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://stale.example.com",
+                alternativeURLs: ["https://fresh.example.com"],
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            connectionRegistry: registry,
+            serverKey: serverKey
+        )
+
+        for _ in 0..<20 {
+            if await registry.currentURL(for: serverKey) != nil {
+                break
+            }
+            await Task.yield()
         }
+
+        await registry.updateEndpoint(
+            for: serverKey,
+            endpoint: PlexEndpointDescriptor(url: "https://fresh.example.com", local: false, relay: false),
+            source: .healthCheck
+        )
+
+        let didSync = await client.syncCurrentEndpointFromRegistryIfNeeded(reason: "test")
+        let currentURL = await client.getCurrentServerURL()
+        let didSyncAgain = await client.syncCurrentEndpointFromRegistryIfNeeded(reason: "test")
+
+        XCTAssertTrue(didSync)
+        XCTAssertEqual(currentURL, "https://fresh.example.com")
+        XCTAssertFalse(didSyncAgain)
+    }
+
+    func testTranscodeDecisionSyncsEndpointAndRetriesAfterConnectionFailure() async throws {
+        PlexAPIClientURLProtocol.install { request in
+            let host = request.url?.host ?? ""
+            if host == "failed.example.com" {
+                throw URLError(.timedOut)
+            }
+            if host == "stale.example.com" {
+                return (500, Data())
+            }
+            return (
+                200,
+                Data(#"{"MediaContainer":{"Metadata":[{"Media":[{"Part":[{"decision":"transcode"}]}]}]}}"#.utf8)
+            )
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+
+        let failoverManager = ConnectionFailoverManager(timeout: 0.1) { request in
+            let url = try XCTUnwrap(request.url)
+            let statusCode = url.host == "fallback.example.com" ? 200 : 500
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data(), response)
+        }
+        let registry = ServerConnectionRegistry()
+        let serverKey = "account:server"
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://stale.example.com",
+                alternativeURLs: ["https://failed.example.com", "https://fallback.example.com"],
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            failoverManager: failoverManager,
+            connectionRegistry: registry,
+            serverKey: serverKey,
+            urlSession: session
+        )
+
+        for _ in 0..<20 {
+            if await registry.currentURL(for: serverKey) != nil {
+                break
+            }
+            await Task.yield()
+        }
+        await registry.updateEndpoint(
+            for: serverKey,
+            endpoint: PlexEndpointDescriptor(url: "https://failed.example.com", local: true, relay: false),
+            source: .healthCheck
+        )
+
+        let result = try await client.callTranscodeDecision(
+            queryItems: [URLQueryItem(name: "session", value: "session-1")]
+        )
+        let currentURL = await client.getCurrentServerURL()
+
+        XCTAssertEqual(result.decision, .transcode)
+        XCTAssertEqual(currentURL, "https://fallback.example.com")
+    }
+
+    func testImmediateFailoverExcludesTheRequestURLThatJustFailed() async throws {
+        let failoverManager = ConnectionFailoverManager(timeout: 0.1) { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data(), response)
+        }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://failed.example.com",
+                alternativeURLs: ["https://fallback.example.com"],
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            failoverManager: failoverManager
+        )
+
+        let result = try await client.attemptFailover(excluding: "https://failed.example.com")
+
+        XCTAssertEqual(result.selected?.url, "https://fallback.example.com")
+    }
+
+    func testUniversalStreamQueryItemsIncludeSeekOffset() async {
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://example.com",
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain()
+        )
+
+        let queryItems = await client.buildUniversalStreamQueryItems(
+            ratingKey: "10101",
+            quality: .high,
+            sessionId: "session-1",
+            startTime: 184.7
+        )
+
+        XCTAssertEqual(queryItems.first(where: { $0.name == "offset" })?.value, "184")
+    }
+
+    func testUniversalStreamFileExtensionUsesContentTypeForOriginalQuality() {
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "audio/flac"),
+            "flac"
+        )
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "audio/mp4"),
+            "m4a"
+        )
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "audio/mpeg"),
+            "mp3"
+        )
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "audio/wav"),
+            "wav"
+        )
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "audio/aac"),
+            "aac"
+        )
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "application/octet-stream"),
+            "audio"
+        )
+    }
+
+    func testUniversalStreamFileExtensionUsesMP3ForTranscodedQuality() {
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .low, contentType: "audio/flac"),
+            "mp3"
+        )
     }
 
     func testPlexModelsDecoding() throws {
@@ -63,6 +480,77 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertEqual(track.audioStreamId, 222)
     }
 
+    func testPlexAlbumDecodesFormatTags() throws {
+        let albumJSON = """
+        {
+            "ratingKey": "12321",
+            "key": "/library/metadata/12321/children",
+            "title": "A Little Rhythm and a Wicked Feeling",
+            "Format": [
+                {
+                    "id": 32101,
+                    "filter": "format=32101",
+                    "tag": "EP"
+                }
+            ]
+        }
+        """
+
+        let album = try JSONDecoder().decode(PlexAlbum.self, from: Data(albumJSON.utf8))
+        XCTAssertEqual(album.format?.map(\.tag), ["EP"])
+    }
+
+    func testPlexLibraryFormatFiltersDecode() throws {
+        let filtersJSON = """
+        {
+            "MediaContainer": {
+                "Directory": [
+                    {
+                        "fastKey": "/library/sections/3/all?format=31744",
+                        "key": "31744",
+                        "title": "Album"
+                    },
+                    {
+                        "fastKey": "/library/sections/3/all?format=32101",
+                        "key": "32101",
+                        "title": "EP"
+                    }
+                ]
+            }
+        }
+        """
+
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexLibraryFilterValue>.self,
+            from: Data(filtersJSON.utf8)
+        )
+        XCTAssertEqual(container.mediaContainer.items.map(\.key), ["31744", "32101"])
+        XCTAssertEqual(container.mediaContainer.items.map(\.title), ["Album", "EP"])
+    }
+
+    func testPlexLibrarySectionDecodesUpdatedAt() throws {
+        let sectionJSON = """
+        {
+            "MediaContainer": {
+                "Directory": [
+                    {
+                        "key": "3",
+                        "title": "Music",
+                        "type": "artist",
+                        "updatedAt": 1782502159
+                    }
+                ]
+            }
+        }
+        """
+
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexLibrarySection>.self,
+            from: Data(sectionJSON.utf8)
+        )
+        XCTAssertEqual(container.mediaContainer.items.first?.updatedAt, 1782502159)
+    }
+
     func testPlexTrackDecodesMultipleLyricsStreamsAndSidecarFile() throws {
         let trackJSON = """
         {
@@ -104,9 +592,70 @@ final class PlexAPIClientTests: XCTestCase {
 
         let track = try JSONDecoder().decode(PlexTrack.self, from: Data(trackJSON.utf8))
         XCTAssertEqual(track.lyricsStreams.map(\.id), [111, 222])
+        XCTAssertEqual(track.normalLyricsStreams.map(\.id), [111])
         XCTAssertEqual(track.lyricsStream?.id, 111)
         XCTAssertEqual(track.chordCandidateStreams.map(\.id), [222])
         XCTAssertEqual(track.chordCandidateStreams.first?.file, "/music/Test Song.chord.lrc")
+    }
+
+    func testPlexTrackNormalLyricsStreamsPreferTimedButKeepUntimedFallbacks() throws {
+        let trackJSON = """
+        {
+            "ratingKey": "12345",
+            "key": "/library/metadata/12345",
+            "title": "Test Song",
+            "Media": [
+                {
+                    "Part": [
+                        {
+                            "Stream": [
+                                {
+                                    "id": 100,
+                                    "streamType": 2,
+                                    "codec": "mp3"
+                                },
+                                {
+                                    "id": 111,
+                                    "streamType": 4,
+                                    "key": "/library/streams/111",
+                                    "codec": "txt",
+                                    "format": "txt",
+                                    "timed": 0,
+                                    "provider": "localmedia",
+                                    "file": "/music/Test Song.txt"
+                                },
+                                {
+                                    "id": 222,
+                                    "streamType": 4,
+                                    "key": "/library/streams/222",
+                                    "codec": "lrc",
+                                    "format": "lrc",
+                                    "timed": 1,
+                                    "provider": "com.plexapp.agents.lyricfind"
+                                },
+                                {
+                                    "id": 333,
+                                    "streamType": 4,
+                                    "key": "/library/streams/333",
+                                    "codec": "lrc",
+                                    "format": "lrc",
+                                    "timed": 1,
+                                    "provider": "localmedia",
+                                    "file": "/music/Test Song.chord.lrc"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        """
+
+        let track = try JSONDecoder().decode(PlexTrack.self, from: Data(trackJSON.utf8))
+
+        XCTAssertEqual(track.normalLyricsStreams.map(\.id), [222, 111])
+        XCTAssertEqual(track.lyricsStream?.id, 222)
+        XCTAssertEqual(track.chordCandidateStreams.map(\.id), [111, 333])
     }
 
     func testPlexRequestBuilderCanRequestPlainTextForRawLyrics() throws {
@@ -130,6 +679,77 @@ final class PlexAPIClientTests: XCTestCase {
 
         XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/plain")
         XCTAssertEqual(request.url?.query?.contains("format=lrc"), true)
+    }
+
+    func testPlexTimestampComparisonUsesQueryDelimiterForEquals() throws {
+        let context = PlexRequestHeaderContext(
+            clientIdentifier: "test-client",
+            productName: "EnsembleTests",
+            productVersion: "1",
+            platformName: "iOS",
+            deviceName: "Simulator"
+        )
+        let request = try PlexRequestBuilder(
+            baseURL: "https://example.test",
+            token: "token",
+            headerContext: context
+        ).makeRequest(
+            method: "GET",
+            path: "/library/sections/3/all",
+            query: ["type": "8", "updatedAt>": "999"]
+        )
+
+        XCTAssertEqual(
+            URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name.hasPrefix("updatedAt") })?
+                .name,
+            "updatedAt>"
+        )
+        XCTAssertTrue(try XCTUnwrap(request.url?.absoluteString).contains("updatedAt%3E=999"))
+        XCTAssertFalse(try XCTUnwrap(request.url?.absoluteString).contains("updatedAt%3E%3D=999"))
+    }
+
+    func testPagedLibraryInventoryRejectsPrematureEmptyPage() async throws {
+        PlexAPIClientURLProtocol.install { request in
+            let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+            let start = components?.queryItems?.first {
+                $0.name == "X-Plex-Container-Start"
+            }?.value
+            guard start == "0" else {
+                return (200, Data(#"{"MediaContainer":{"size":0,"totalSize":501,"offset":500,"Metadata":[]}}"#.utf8))
+            }
+
+            let items = (0..<500)
+                .map { #"{"ratingKey":"\#($0)"}"# }
+                .joined(separator: ",")
+            return (
+                200,
+                Data("{\"MediaContainer\":{\"size\":500,\"totalSize\":501,\"offset\":0,\"Metadata\":[\(items)]}}".utf8)
+            )
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://example.com",
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            urlSession: session
+        )
+
+        do {
+            _ = try await client.getTrackInventory(sectionKey: "3")
+            XCTFail("Expected an incomplete paginated inventory to fail")
+        } catch PlexAPIError.invalidResponse {
+            // Expected: orphan deletion must not consume a partial inventory.
+        }
     }
 
     func testPlexTrackDecodingFallsBackToFileNameWhenTitleMissing() throws {
@@ -297,6 +917,37 @@ final class PlexAPIClientTests: XCTestCase {
             XCTAssertEqual(error.code, .notConnectedToInternet)
         } catch {
             XCTFail("Expected notConnectedToInternet, got \(error)")
+        }
+    }
+
+    func testServerRequestCancellationIsNotWrappedAsNetworkError() async {
+        let keychain = TestKeychain()
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://example.com",
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: keychain,
+            isNetworkAvailable: {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                return true
+            }
+        )
+
+        let task = Task {
+            try await client.getLibrarySections()
+        }
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected: cancellation should not be logged/retried as a network failure.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
         }
     }
 

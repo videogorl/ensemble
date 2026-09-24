@@ -6,7 +6,7 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
     func testAppRefreshRunsAllStepsAndSchedulesNextRefresh() async {
         var events: [String] = []
         let sut = BackgroundRefreshCoordinator(
-            endpointRefresh: { events.append("endpoint") },
+            appEndpointRefresh: { events.append("endpoint") },
             incrementalSync: { events.append("sync") },
             feedRefresh: {
                 events.append("feed")
@@ -17,8 +17,7 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
                 return true
             },
             siriContextRefresh: { events.append("siri-context") },
-            scheduleNextAppRefresh: { events.append("schedule") },
-            foregroundCooldown: 0
+            scheduleNextAppRefresh: { events.append("schedule") }
         )
 
         let result = await sut.performAppRefresh()
@@ -32,43 +31,6 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
         XCTAssertTrue(result.errorDescriptions.isEmpty)
     }
 
-    func testForegroundFreshnessHonorsCooldownAfterSuccess() async {
-        var runCount = 0
-        let sut = BackgroundRefreshCoordinator(
-            endpointRefresh: { runCount += 1 },
-            incrementalSync: {},
-            feedRefresh: { true },
-            siriIndexRefresh: { true },
-            siriContextRefresh: {},
-            foregroundCooldown: 60
-        )
-
-        let first = await sut.performForegroundFreshnessRefresh()
-        let second = await sut.performForegroundFreshnessRefresh()
-
-        XCTAssertTrue(first.didRunEndpointRefresh)
-        XCTAssertFalse(second.didRunEndpointRefresh)
-        XCTAssertEqual(runCount, 1)
-    }
-
-    func testForegroundFreshnessUsesForegroundEndpointPolicy() async {
-        var endpointEvents: [String] = []
-        let sut = BackgroundRefreshCoordinator(
-            appEndpointRefresh: { endpointEvents.append("app") },
-            foregroundEndpointRefresh: { endpointEvents.append("foreground") },
-            incrementalSync: {},
-            feedRefresh: { true },
-            siriIndexRefresh: { true },
-            siriContextRefresh: {},
-            foregroundCooldown: 0
-        )
-
-        _ = await sut.performAppRefresh()
-        _ = await sut.performForegroundFreshnessRefresh()
-
-        XCTAssertEqual(endpointEvents, ["app", "foreground"])
-    }
-
     func testStepFailuresAreCollectedAndLaterStepsStillRun() async {
         enum TestError: LocalizedError {
             case endpoint
@@ -77,15 +39,14 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
 
         var didRunFeed = false
         let sut = BackgroundRefreshCoordinator(
-            endpointRefresh: { throw TestError.endpoint },
+            appEndpointRefresh: { throw TestError.endpoint },
             incrementalSync: {},
             feedRefresh: {
                 didRunFeed = true
                 return false
             },
             siriIndexRefresh: { true },
-            siriContextRefresh: {},
-            foregroundCooldown: 0
+            siriContextRefresh: {}
         )
 
         let result = await sut.performAppRefresh()
@@ -100,7 +61,7 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
     func testRefreshSkipsNetworkBackedWorkWhenOffline() async {
         var events: [String] = []
         let sut = BackgroundRefreshCoordinator(
-            endpointRefresh: { events.append("endpoint") },
+            appEndpointRefresh: { events.append("endpoint") },
             incrementalSync: { events.append("sync") },
             feedRefresh: {
                 events.append("feed")
@@ -111,11 +72,10 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
                 return true
             },
             siriContextRefresh: { events.append("siri-context") },
-            isNetworkAvailable: { false },
-            foregroundCooldown: 0
+            isNetworkAvailable: { false }
         )
 
-        let result = await sut.performForegroundFreshnessRefresh()
+        let result = await sut.performAppRefresh()
 
         XCTAssertTrue(events.isEmpty)
         XCTAssertFalse(result.didRunEndpointRefresh)

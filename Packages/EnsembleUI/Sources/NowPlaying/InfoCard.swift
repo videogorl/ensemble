@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -7,24 +8,21 @@ public struct InfoCard: View {
     private let viewModel: NowPlayingViewModel
     @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
     @ObservedObject private var lyricsProjection: NowPlayingLyricsProjection
-    @ObservedObject private var queueProjection: NowPlayingQueueProjection
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Binding var currentPage: Int
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("streamingQuality") private var streamingQuality: String = "high"
-
     // Metadata fetched asynchronously when the card becomes renderable.
     @State private var fetchedAlbum: Album?
     @State private var audioFileInfo: AudioFileInfo?
+    @State private var isLoadingMetadata = false
 
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
         self.viewModel = viewModel
         _playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
         _lyricsProjection = ObservedObject(wrappedValue: viewModel.lyricsProjection)
-        _queueProjection = ObservedObject(wrappedValue: viewModel.queueProjection)
         _currentPage = currentPage
     }
 
@@ -39,6 +37,10 @@ public struct InfoCard: View {
 
     private var currentTrack: Track? {
         playbackProjection.currentTrack
+    }
+
+    private var sourcePresentation: MusicSourcePresentation? {
+        deps.accountManager.sourcePresentation(for: currentTrack?.sourceCompositeKey)
     }
 
     public var body: some View {
@@ -65,6 +67,7 @@ public struct InfoCard: View {
         .onChange(of: playbackProjection.currentTrack?.playbackIdentity) { _ in
             guard shouldLoadMetadata else { return }
             audioFileInfo = nil // Clear stale data immediately
+            fetchedAlbum = nil
             Task {
                 await loadMetadataForCurrentTrack()
             }
@@ -202,19 +205,27 @@ public struct InfoCard: View {
             }
             .padding(.bottom, EnsembleDesign.Spacing.xs)
 
-            // Playback codec and file size (what AVPlayer is actually decoding)
-            playbackFileInfoRows
+            let playbackInfo = viewModel.currentPlaybackFileInfo()
+
+            // Facts from the payload currently loaded by Ensemble's audio engine.
+            playbackFileInfoRows(playbackInfo)
 
             // Source codec + file size combined (original file on server)
             sourceFileInfoRow
 
-            // Source (streaming vs downloaded)
-            if currentTrack != nil {
-                infoRow(label: "Source", value: resolvePlaybackSource())
+            if let playbackInfo {
+                infoRow(label: "Source", value: playbackInfo.isDownloaded ? "Downloaded" : "Streaming")
+                if let quality = playbackInfo.quality {
+                    infoRow(label: "Quality", value: resolvePlaybackQuality(playbackInfo, quality: quality))
+                }
+                if let sampleRate = playbackInfo.sampleRate {
+                    infoRow(label: "Playing Sample Rate", value: MediaFormatters.sampleRate(sampleRate))
+                }
+            } else if let track = currentTrack,
+                      let quality = track.sourceCapabilities.managedPlaybackQualityDescription {
+                infoRow(label: "Source", value: track.sourceCapabilities.displayName)
+                infoRow(label: "Quality", value: quality)
             }
-
-            // Playback quality
-            infoRow(label: "Quality", value: resolvePlaybackQuality())
 
             // Lyrics source/status
             lyricsInfoRow
@@ -222,19 +233,19 @@ public struct InfoCard: View {
             if let info = audioFileInfo {
                 // Bitrate
                 if let bitrate = info.bitrate {
-                    infoRow(label: "Bitrate", value: "\(bitrate) kbps")
+                    infoRow(label: "Original Bitrate", value: "\(bitrate) kbps")
                 }
 
                 // Sample rate
                 if let sampleRate = info.sampleRate {
-                    infoRow(label: "Sample Rate", value: formatSampleRate(sampleRate))
+                    infoRow(label: "Original Sample Rate", value: MediaFormatters.sampleRate(sampleRate))
                 }
 
                 // Bit depth (nil for lossy codecs like MP3)
                 if let bitDepth = info.bitDepth {
-                    infoRow(label: "Bit Depth", value: "\(bitDepth)-bit")
+                    infoRow(label: "Original Bit Depth", value: "\(bitDepth)-bit")
                 }
-            } else {
+            } else if isLoadingMetadata {
                 // Loading placeholder
                 HStack {
                     Spacer()
@@ -306,7 +317,9 @@ public struct InfoCard: View {
     private var lyricsInfoRow: some View {
         let source = lyricsProjection.lyricsSource
         let detail: String
-        if case let .available(lyrics) = lyricsProjection.lyricsState {
+        if let status = currentTrack?.sourceCapabilities.lyricsStatusDescription {
+            detail = status
+        } else if case let .available(lyrics) = lyricsProjection.lyricsState {
             let format = lyrics.isTimed ? "Timed" : "Plain"
             detail = "\(source.displayText) (\(format), \(lyrics.lines.count) lines)"
         } else {
@@ -315,13 +328,12 @@ public struct InfoCard: View {
         return infoRow(label: "Lyrics", value: detail)
     }
 
-    /// Codec and file size of what AVPlayer is actually decoding
+    /// Codec and complete file size of the payload loaded by the audio engine.
     @ViewBuilder
-    private var playbackFileInfoRows: some View {
-        let info = viewModel.currentPlaybackFileInfo()
-        if let codec = info.codec {
+    private func playbackFileInfoRows(_ info: PlaybackFileInfo?) -> some View {
+        if let info, let codec = info.codec {
             let sizeText = info.fileSize.map { " · \(MediaFormatters.fileBytes($0))" } ?? ""
-            infoRow(label: "Playing", value: "\(formatCodecName(codec))\(sizeText)")
+            infoRow(label: "Playing", value: "\(MediaFormatters.codecName(codec))\(sizeText)")
         }
     }
 
@@ -330,7 +342,7 @@ public struct InfoCard: View {
     private var sourceFileInfoRow: some View {
         if let info = audioFileInfo, let codec = info.codec {
             let sizeText = info.fileSize.map { " · \(MediaFormatters.fileBytes(Int64($0)))" } ?? ""
-            infoRow(label: "Original", value: "\(formatCodecName(codec))\(sizeText)")
+            infoRow(label: "Original", value: "\(MediaFormatters.codecName(codec))\(sizeText)")
         }
     }
 
@@ -338,6 +350,13 @@ public struct InfoCard: View {
 
     @MainActor
     private func loadMetadataForCurrentTrack() async {
+        isLoadingMetadata = true
+        defer { isLoadingMetadata = false }
+        if currentTrack?.sourceCapabilities.supportsAudioFileInfo == false {
+            fetchedAlbum = await viewModel.fetchAlbumForCurrentTrack()
+            audioFileInfo = nil
+            return
+        }
         async let album = viewModel.fetchAlbumForCurrentTrack()
         async let fileInfo = viewModel.fetchAudioFileInfoForCurrentTrack()
         fetchedAlbum = await album
@@ -404,32 +423,7 @@ public struct InfoCard: View {
 
     /// Format a date for display
     private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
-    }
-
-    /// Format sample rate for display (e.g. 44100 → "44.1 kHz", 96000 → "96 kHz")
-    private func formatSampleRate(_ rate: Int) -> String {
-        if rate % 1000 == 0 {
-            return "\(rate / 1000) kHz"
-        }
-        return String(format: "%.1f kHz", Double(rate) / 1000.0)
-    }
-
-    /// Format codec name for display
-    private func formatCodecName(_ codec: String) -> String {
-        switch codec.lowercased() {
-        case "flac": return "FLAC"
-        case "mp3": return "MP3"
-        case "aac": return "AAC"
-        case "alac": return "ALAC"
-        case "wav", "pcm": return "WAV"
-        case "opus": return "Opus"
-        case "vorbis": return "Vorbis"
-        default: return codec.uppercased()
-        }
+        MediaFormatters.mediumDate(date)
     }
 
     /// Format streaming quality setting for display
@@ -462,102 +456,19 @@ public struct InfoCard: View {
         }
     }
 
-    /// Resolve whether current playback is from a downloaded local file or streaming.
-    private func resolvePlaybackSource() -> String {
-        guard let track = currentTrack else { return "—" }
-        guard let localFilePath = track.localFilePath else { return "Streaming" }
-        return FileManager.default.fileExists(atPath: localFilePath) ? "Downloaded" : "Streaming"
-    }
-
-    /// Resolve playback quality with source-aware context.
-    /// For downloaded tracks, this reads the persisted filename quality token and container.
-    /// For streaming playback, this uses the quality captured when the track was queued,
-    /// falling back to the current setting for backwards compatibility.
-    private func resolvePlaybackQuality() -> String {
-        guard let track = currentTrack else { return "—" }
-        guard let localFilePath = track.localFilePath,
-              FileManager.default.fileExists(atPath: localFilePath)
-        else {
-            // Prefer the quality stamped on the queue item at queue time
-            let quality = queueProjection.currentQueueItem?.streamingQuality ?? streamingQuality
-            return "\(formatQuality(quality)) (Streaming)"
-        }
-
-        let fileURL = URL(fileURLWithPath: localFilePath)
-        let offlineQuality = extractOfflineQualityToken(from: fileURL)
-        let container = formatContainer(fileExtension: fileURL.pathExtension)
-
-        switch (offlineQuality, container) {
-        case let (.some(quality), .some(container)):
-            return "\(formatQuality(quality)) • \(container) (Downloaded)"
-        case let (.some(quality), .none):
-            return "\(formatQuality(quality)) (Downloaded)"
-        case let (.none, .some(container)):
-            return "\(container) (Downloaded)"
-        case (.none, .none):
-            return "Downloaded"
-        }
-    }
-
-    private func extractOfflineQualityToken(from fileURL: URL) -> String? {
-        let stem = fileURL.deletingPathExtension().lastPathComponent
-        guard let token = stem.split(separator: "_").last?.lowercased() else {
-            return nil
-        }
-        switch token {
-        case "original", "high", "medium", "low":
-            return token
-        default:
-            return nil
-        }
-    }
-
-    private func formatContainer(fileExtension: String) -> String? {
-        let normalized = fileExtension.lowercased()
-        guard !normalized.isEmpty else { return nil }
-        switch normalized {
-        case "m4a":
-            return "AAC"
-        case "mp3":
-            return "MP3"
-        case "flac":
-            return "FLAC"
-        case "aac":
-            return "AAC"
-        default:
-            return normalized.uppercased()
-        }
+    private func resolvePlaybackQuality(_ info: PlaybackFileInfo, quality: String) -> String {
+        "\(formatQuality(quality)) (\(info.isDownloaded ? "Downloaded" : "Streaming"))"
     }
 
     /// Extract server key from track's sourceCompositeKey
     /// Format: "plex:accountId:serverId:libraryId" -> "accountId:serverId"
     private func extractServerKey(from sourceCompositeKey: String?) -> String? {
-        guard let key = sourceCompositeKey else { return nil }
-        let components = key.split(separator: ":")
-        guard components.count >= 3 else { return nil }
-        return "\(components[1]):\(components[2])"
+        MediaSourceIdentity.parse(sourceCompositeKey)?.accountServerKey
     }
 
     /// Resolve server name from account manager
     private func resolveServerName() -> String? {
-        guard let serverKey = extractServerKey(from: currentTrack?.sourceCompositeKey) else {
-            return nil
-        }
-
-        let keyComponents = serverKey.split(separator: ":")
-        guard keyComponents.count >= 2 else { return nil }
-
-        let accountId = String(keyComponents[0])
-        let serverId = String(keyComponents[1])
-
-        // Find the account and server
-        guard let account = deps.accountManager.plexAccounts.first(where: { $0.id == accountId }),
-              let server = account.servers.first(where: { $0.id == serverId })
-        else {
-            return nil
-        }
-
-        return server.name
+        sourcePresentation?.serverName
     }
 
     private func displayServerName(_ serverName: String) -> String {
@@ -571,27 +482,12 @@ public struct InfoCard: View {
     /// Resolve library name from the track's sourceCompositeKey
     /// Format: "plex:accountId:serverId:libraryId" -> find matching library title
     private func resolveLibraryName() -> String? {
-        guard let key = currentTrack?.sourceCompositeKey else { return nil }
-        let components = key.split(separator: ":")
-        guard components.count >= 4 else { return nil }
-
-        let accountId = String(components[1])
-        let serverId = String(components[2])
-        let libraryId = String(components[3])
-
-        // Walk accounts → servers → libraries to find matching title
-        guard let account = deps.accountManager.plexAccounts.first(where: { $0.id == accountId }),
-              let server = account.servers.first(where: { $0.id == serverId }),
-              let library = server.libraries.first(where: { $0.id == libraryId })
-        else {
-            return nil
-        }
-
-        return library.title
+        sourcePresentation?.libraryName
     }
 
     /// Resolve connection URL and type info
     private func resolveConnectionInfo() -> String? {
+        guard currentTrack?.sourceCapabilities.requiresServerConnection == true else { return nil }
         guard let serverKey = extractServerKey(from: currentTrack?.sourceCompositeKey) else {
             return nil
         }
@@ -653,6 +549,10 @@ public struct InfoCard: View {
         // Device is offline — always reflect that regardless of cached server state
         guard deps.networkMonitor.isConnected else {
             return ("Offline", EnsembleDesign.Color.destructive)
+        }
+
+        if currentTrack?.sourceCapabilities.requiresServerConnection == false {
+            return ("Connected", EnsembleDesign.Color.success)
         }
 
         guard let serverKey = extractServerKey(from: currentTrack?.sourceCompositeKey) else {

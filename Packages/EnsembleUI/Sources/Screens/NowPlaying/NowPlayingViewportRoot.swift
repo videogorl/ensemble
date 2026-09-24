@@ -1,9 +1,12 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
 /// Shared artwork/aurora backdrop for large Now Playing surfaces.
 struct NowPlayingBackdrop: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    let viewModel: NowPlayingViewModel
+    @ObservedObject private var artworkProjection: NowPlayingArtworkProjection
+    @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
     let consumer: VisualizationConsumer
     let activeContentMaxWidth: CGFloat?
     let forceDarkPresentation: Bool
@@ -12,22 +15,35 @@ struct NowPlayingBackdrop: View {
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.colorScheme) private var colorScheme
 
+    init(
+        viewModel: NowPlayingViewModel,
+        consumer: VisualizationConsumer,
+        activeContentMaxWidth: CGFloat?,
+        forceDarkPresentation: Bool
+    ) {
+        self.viewModel = viewModel
+        _artworkProjection = ObservedObject(wrappedValue: viewModel.artworkProjection)
+        _playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
+        self.consumer = consumer
+        self.activeContentMaxWidth = activeContentMaxWidth
+        self.forceDarkPresentation = forceDarkPresentation
+    }
+
     var body: some View {
         ZStack {
             baseBackgroundColor
                 .ignoresSafeArea()
 
             BlurredArtworkBackground(
-                image: viewModel.artworkImage,
-                preBlurredImage: viewModel.blurredArtworkImage,
+                image: artworkProjection.artworkImage,
+                preBlurredImage: artworkProjection.blurredArtworkImage,
                 overlayColor: overlayColor
             )
-            .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
 
             readabilityOverlay
                 .allowsHitTesting(false)
 
-            if settingsManager.auroraVisualizationEnabled {
+            if settingsManager.auroraVisualizationEnabled && playbackProjection.currentTrack?.sourceCapabilities.supportsWaveform != false {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
                     consumer: consumer,
@@ -36,7 +52,6 @@ struct NowPlayingBackdrop: View {
                     activeContentMaxWidth: activeContentMaxWidth
                 )
                 .allowsHitTesting(false)
-                .opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity)
             }
         }
         .ignoresSafeArea()
@@ -84,6 +99,7 @@ struct NowPlayingViewportRoot: View {
 
     @ObservedObject var viewModel: NowPlayingViewModel
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    @ObservedObject private var queueProjection: NowPlayingQueueProjection
 
     private let dismissAction: () -> Void
     private var auroraActiveContentMaxWidth: CGFloat? {
@@ -95,6 +111,7 @@ struct NowPlayingViewportRoot: View {
         dismissAction: @escaping () -> Void
     ) {
         self.viewModel = viewModel
+        self._queueProjection = ObservedObject(wrappedValue: viewModel.queueProjection)
         self.dismissAction = dismissAction
     }
 
@@ -140,14 +157,12 @@ struct NowPlayingViewportRoot: View {
         HStack(alignment: .center, spacing: EnsembleScaffold.NowPlaying.sectionTopPadding) {
             Spacer()
 
-            Picker("Panel", selection: panelSelection) {
-                Text("Queue").tag(0)
-                Text("Controls").tag(1)
-                Text("Lyrics").tag(2)
-                Text("Info").tag(3)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: EnsembleScaffold.NowPlaying.viewportSinglePickerWidth)
+            NowPlayingPanelSelector(
+                selection: panelSelection,
+                options: NowPlayingPanelPage.allCases,
+                showsHistory: queueProjection.showHistory,
+                width: EnsembleScaffold.NowPlaying.viewportSinglePickerWidth
+            )
 
             Button {
                 dismissAction()

@@ -1,0 +1,527 @@
+{
+  "four-logs": {
+    "session": "session-2026-09-08-072458",
+    "events": [
+      {
+        "time": "07:25:09.168",
+        "event": "attempt",
+        "track": "14899"
+      },
+      {
+        "time": "07:25:09.175",
+        "event": "attempt",
+        "track": "8778"
+      },
+      {
+        "time": "07:25:09.257",
+        "event": "Download transfer interrupted status=206 retained=12910592 expected=27519571 resumedFrom=12845056 errorDomain=NSURLErrorDomain errorCode=-1005 cancelled=false"
+      },
+      {
+        "time": "07:25:09.259",
+        "event": "transient_failure",
+        "track": "8778"
+      },
+      {
+        "time": "07:25:09.315",
+        "event": "attempt",
+        "track": "14138"
+      },
+      {
+        "time": "07:25:09.649",
+        "event": "Download transfer interrupted status=200 retained=5963776 expected=49357649 resumedFrom=0 errorDomain=NSURLErrorDomain errorCode=-1005 cancelled=false"
+      },
+      {
+        "time": "07:25:09.652",
+        "event": "transient_failure",
+        "track": "14899"
+      },
+      {
+        "time": "07:25:09.674",
+        "event": "attempt",
+        "track": "12507"
+      },
+      {
+        "time": "07:25:10.079",
+        "event": "Download transfer interrupted status=206 retained=20381696 expected=101100001 resumedFrom=11534336 errorDomain=NSURLErrorDomain errorCode=-1005 cancelled=false"
+      },
+      {
+        "time": "07:25:10.081",
+        "event": "transient_failure",
+        "track": "14138"
+      },
+      {
+        "time": "07:25:11.008",
+        "event": "stored",
+        "track": "12507",
+        "bytes": 55283058
+      },
+      {
+        "time": "07:25:39.428",
+        "event": "attempt",
+        "track": "8778"
+      },
+      {
+        "time": "07:25:43.358",
+        "event": "stored",
+        "track": "8778",
+        "bytes": 27519571
+      },
+      {
+        "time": "07:25:43.415",
+        "event": "attempt",
+        "track": "14899"
+      },
+      {
+        "time": "07:25:49.332",
+        "event": "stored",
+        "track": "14899",
+        "bytes": 49357649
+      },
+      {
+        "time": "07:25:49.366",
+        "event": "attempt",
+        "track": "14138"
+      },
+      {
+        "time": "07:25:54.124",
+        "event": "Download transfer interrupted status=206 retained=54394880 expected=101100001 resumedFrom=20381696 errorDomain=Swift.CancellationError errorCode=1 cancelled=true"
+      }
+    ]
+  },
+  "serial-logs": {
+    "session": "session-2026-09-08-072753",
+    "events": [
+      {
+        "time": "07:28:03.878",
+        "event": "attempt",
+        "track": "12507"
+      },
+      {
+        "time": "07:28:07.243",
+        "event": "stored",
+        "track": "12507",
+        "bytes": 55283058
+      },
+      {
+        "time": "07:28:07.286",
+        "event": "attempt",
+        "track": "14138"
+      },
+      {
+        "time": "07:28:10.396",
+        "event": "stored",
+        "track": "14138",
+        "bytes": 101100001
+      },
+      {
+        "time": "07:28:10.428",
+        "event": "attempt",
+        "track": "8778"
+      },
+      {
+        "time": "07:28:12.404",
+        "event": "stored",
+        "track": "8778",
+        "bytes": 27519571
+      },
+      {
+        "time": "07:28:12.428",
+        "event": "attempt",
+        "track": "14899"
+      },
+      {
+        "time": "07:28:16.229",
+        "event": "stored",
+        "track": "14899",
+        "bytes": 49357649
+      }
+    ]
+  },
+  "parallel-repeat-run-logs": {
+    "session": "session-2026-09-08-073146",
+    "events": [
+      {
+        "time": "07:31:57.492",
+        "event": "attempt",
+        "track": "8778"
+      },
+      {
+        "time": "07:31:57.493",
+        "event": "attempt",
+        "track": "14899"
+      },
+      {
+        "time": "07:31:57.605",
+        "event": "Download transfer interrupted status=206 retained=27328512 expected=27519571 resumedFrom=27262976 errorDomain=NSURLErrorDomain errorCode=-1005 cancelled=false"
+      },
+      {
+        "time": "07:31:57.607",
+        "event": "transient_failure",
+        "track": "8778"
+      },
+      {
+        "time": "07:31:57.648",
+        "event": "attempt",
+        "track": "14138"
+      },
+      {
+        "time": "07:31:58.011",
+        "event": "Download transfer interrupted status=200 retained=5898240 expected=49357649 resumedFrom=0 errorDomain=NSURLErrorDomain errorCode=-1005 cancelled=false"
+      },
+      {
+        "time": "07:31:58.015",
+        "event": "transient_failure",
+        "track": "14899"
+      },
+      {
+        "time": "07:31:58.035",
+        "event": "attempt",
+        "track": "12507"
+      },
+      {
+        "time": "07:31:58.490",
+        "event": "Download transfer interrupted status=206 retained=84475904 expected=101100001 resumedFrom=73465856 errorDomain=NSURLErrorDomain errorCode=-1005 cancelled=false"
+      },
+      {
+        "time": "07:31:58.492",
+        "event": "transient_failure",
+        "track": "14138"
+      },
+      {
+        "time": "07:32:01.445",
+        "event": "stored",
+        "track": "12507",
+        "bytes": 55283058
+      },
+      {
+        "time": "07:32:28.120",
+        "event": "attempt",
+        "track": "14899"
+      },
+      {
+        "time": "07:32:28.122",
+        "event": "attempt",
+        "track": "8778"
+      },
+      {
+        "time": "07:32:28.206",
+        "event": "Download transfer interrupted status=206 retained=5963776 expected=49357649 resumedFrom=5898240 errorDomain=NSURLErrorDomain errorCode=-1005 cancelled=false"
+      },
+      {
+        "time": "07:32:28.210",
+        "event": "transient_failure",
+        "track": "14899"
+      },
+      {
+        "time": "07:32:28.251",
+        "event": "stored",
+        "track": "8778",
+        "bytes": 27519571
+      },
+      {
+        "time": "07:32:28.885",
+        "event": "attempt",
+        "track": "14138"
+      },
+      {
+        "time": "07:32:30.990",
+        "event": "stored",
+        "track": "14138",
+        "bytes": 101100001
+      }
+    ]
+  },
+  "isolated-sessions-final": {
+    "session": "session-2026-09-08-073832",
+    "events": [
+      {
+        "time": "07:38:43.299",
+        "event": "attempt",
+        "track": "12507"
+      },
+      {
+        "time": "07:38:43.300",
+        "event": "attempt",
+        "track": "14138"
+      },
+      {
+        "time": "07:38:47.832",
+        "event": "stored",
+        "track": "12507",
+        "bytes": 55283058
+      },
+      {
+        "time": "07:38:47.874",
+        "event": "attempt",
+        "track": "8778"
+      },
+      {
+        "time": "07:38:49.819",
+        "event": "Download transfer interrupted status=200 retained=76349440 expected=101100001 resumedFrom=0 errorDomain=NSURLErrorDomain errorCode=-1005 cancelled=false"
+      },
+      {
+        "time": "07:38:49.823",
+        "event": "transient_failure",
+        "track": "14138"
+      },
+      {
+        "time": "07:38:49.849",
+        "event": "attempt",
+        "track": "14899"
+      },
+      {
+        "time": "07:38:50.825",
+        "event": "stored",
+        "track": "8778",
+        "bytes": 27519571
+      },
+      {
+        "time": "07:38:53.914",
+        "event": "stored",
+        "track": "14899",
+        "bytes": 49357649
+      },
+      {
+        "time": "07:39:22.881",
+        "event": "attempt",
+        "track": "14138"
+      }
+    ]
+  },
+  "native-queue-logs": {
+    "session": "session-2026-09-08-074055",
+    "events": [
+      {
+        "time": "07:41:05.581",
+        "event": "attempt",
+        "track": "14899"
+      },
+      {
+        "time": "07:41:05.583",
+        "event": "attempt",
+        "track": "8778"
+      },
+      {
+        "time": "07:41:05.643",
+        "event": "transient_failure",
+        "track": "14899"
+      },
+      {
+        "time": "07:41:05.673",
+        "event": "attempt",
+        "track": "14138"
+      },
+      {
+        "time": "07:41:05.720",
+        "event": "transient_failure",
+        "track": "8778"
+      },
+      {
+        "time": "07:41:05.737",
+        "event": "attempt",
+        "track": "12507"
+      },
+      {
+        "time": "07:41:05.802",
+        "event": "transient_failure",
+        "track": "14138"
+      },
+      {
+        "time": "07:41:06.902",
+        "event": "stored",
+        "track": "12507",
+        "bytes": 55283058
+      }
+    ]
+  },
+  "unique-client-logs": {
+    "session": "session-2026-09-08-074239",
+    "events": [
+      {
+        "time": "07:42:49.989",
+        "event": "attempt",
+        "track": "12507"
+      },
+      {
+        "time": "07:42:49.989",
+        "event": "attempt",
+        "track": "14138"
+      },
+      {
+        "time": "07:42:50.056",
+        "event": "Download transfer interrupted status=200 retained=196608 expected=55283058 resumedFrom=0 errorDomain=NSURLErrorDomain errorCode=-1005 cancelled=false"
+      },
+      {
+        "time": "07:42:50.057",
+        "event": "transient_failure",
+        "track": "12507"
+      },
+      {
+        "time": "07:42:50.087",
+        "event": "attempt",
+        "track": "8778"
+      },
+      {
+        "time": "07:42:50.331",
+        "event": "Download transfer interrupted status=200 retained=4325376 expected=101100001 resumedFrom=0 errorDomain=NSURLErrorDomain errorCode=-1005 cancelled=false"
+      },
+      {
+        "time": "07:42:50.332",
+        "event": "transient_failure",
+        "track": "14138"
+      },
+      {
+        "time": "07:42:50.351",
+        "event": "attempt",
+        "track": "14899"
+      },
+      {
+        "time": "07:42:50.958",
+        "event": "Download transfer interrupted status=200 retained=11796480 expected=27519571 resumedFrom=0 errorDomain=NSURLErrorDomain errorCode=-1005 cancelled=false"
+      },
+      {
+        "time": "07:42:50.960",
+        "event": "transient_failure",
+        "track": "8778"
+      },
+      {
+        "time": "07:42:53.343",
+        "event": "stored",
+        "track": "14899",
+        "bytes": 49357649
+      }
+    ]
+  },
+  "download-flag-logs": {
+    "session": "session-2026-09-08-074324",
+    "events": [
+      {
+        "time": "07:43:35.151",
+        "event": "attempt",
+        "track": "14899"
+      },
+      {
+        "time": "07:43:35.152",
+        "event": "attempt",
+        "track": "8778"
+      },
+      {
+        "time": "07:43:37.258",
+        "event": "stored",
+        "track": "8778",
+        "bytes": 27519571
+      },
+      {
+        "time": "07:43:37.296",
+        "event": "attempt",
+        "track": "14138"
+      },
+      {
+        "time": "07:43:39.129",
+        "event": "stored",
+        "track": "14899",
+        "bytes": 49357649
+      },
+      {
+        "time": "07:43:39.152",
+        "event": "attempt",
+        "track": "12507"
+      },
+      {
+        "time": "07:43:45.515",
+        "event": "stored",
+        "track": "12507",
+        "bytes": 55283058
+      },
+      {
+        "time": "07:43:47.072",
+        "event": "stored",
+        "track": "14138",
+        "bytes": 101100001
+      }
+    ]
+  },
+  "fixed-resume-logs": {
+    "session": "session-2026-09-08-074700",
+    "events": [
+      {
+        "time": "07:47:11.006",
+        "event": "attempt",
+        "track": "12507"
+      },
+      {
+        "time": "07:47:11.007",
+        "event": "attempt",
+        "track": "14138"
+      },
+      {
+        "time": "07:47:12.882",
+        "event": "Download transfer interrupted status=200 retained=24510464 expected=55283058 resumedFrom=0 errorDomain=Swift.CancellationError errorCode=1 cancelled=true"
+      },
+      {
+        "time": "07:47:12.882",
+        "event": "Download transfer interrupted status=200 retained=22544384 expected=101100001 resumedFrom=0 errorDomain=Swift.CancellationError errorCode=1 cancelled=true"
+      },
+      {
+        "time": "07:47:13.942",
+        "event": "attempt",
+        "track": "12507"
+      },
+      {
+        "time": "07:47:13.946",
+        "event": "attempt",
+        "track": "14138"
+      },
+      {
+        "time": "07:47:16.419",
+        "event": "Download transfer completed bytes=55283058 resumedFrom=24510464 status=206"
+      },
+      {
+        "time": "07:47:16.433",
+        "event": "stored",
+        "track": "12507",
+        "bytes": 55283058
+      },
+      {
+        "time": "07:47:16.481",
+        "event": "attempt",
+        "track": "8778"
+      },
+      {
+        "time": "07:47:19.938",
+        "event": "Download transfer completed bytes=27519571 resumedFrom=0 status=200"
+      },
+      {
+        "time": "07:47:19.946",
+        "event": "stored",
+        "track": "8778",
+        "bytes": 27519571
+      },
+      {
+        "time": "07:47:19.972",
+        "event": "attempt",
+        "track": "14899"
+      },
+      {
+        "time": "07:47:21.595",
+        "event": "Download transfer completed bytes=101100001 resumedFrom=22544384 status=206"
+      },
+      {
+        "time": "07:47:21.614",
+        "event": "stored",
+        "track": "14138",
+        "bytes": 101100001
+      },
+      {
+        "time": "07:47:24.056",
+        "event": "Download transfer completed bytes=49357649 resumedFrom=0 status=200"
+      },
+      {
+        "time": "07:47:24.070",
+        "event": "stored",
+        "track": "14899",
+        "bytes": 49357649
+      }
+    ]
+  }
+}

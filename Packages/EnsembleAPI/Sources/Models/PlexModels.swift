@@ -39,13 +39,17 @@ public struct PlexPIN: Codable, Sendable {
         authToken = try container.decodeIfPresent(String.self, forKey: .authToken)
 
         if let expiresString = try container.decodeIfPresent(String.self, forKey: .expiresAt) {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            expiresAt = formatter.date(from: expiresString)
+            expiresAt = Self.expiresAtFormatter.date(from: expiresString)
         } else {
             expiresAt = nil
         }
     }
+
+    private static let expiresAtFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 }
 
 // MARK: - Resources (Servers)
@@ -177,6 +181,7 @@ public struct PlexLibrarySection: Codable, Sendable, Identifiable {
     public let scanner: String?
     public let language: String?
     public let allowSync: Bool?
+    public let updatedAt: Int?
 
     public var id: String { key }
 
@@ -225,10 +230,13 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
     public let originallyAvailableAt: String?
     public let addedAt: Int?
     public let updatedAt: Int?
+    public let lastRatedAt: Int?
+    public let userRating: Double?
     public let leafCount: Int?  // Track count
     public let viewedLeafCount: Int?
     public let media: [PlexMedia]?
     public let genre: [PlexTag]?
+    public let format: [PlexTag]?
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
@@ -243,10 +251,13 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         case originallyAvailableAt
         case addedAt
         case updatedAt
+        case lastRatedAt
+        case userRating
         case leafCount
         case viewedLeafCount
         case media = "Media"
         case genre = "Genre"
+        case format = "Format"
     }
 
     public var id: String { ratingKey }
@@ -262,6 +273,7 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         parentRatingKey = try container.decodeIfPresent(String.self, forKey: .parentRatingKey)
         media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
         genre = try container.decodeIfPresent([PlexTag].self, forKey: .genre)
+        format = try container.decodeIfPresent([PlexTag].self, forKey: .format)
 
         let decodedTitle = try container.decodeIfPresent(String.self, forKey: .title)
         title = PlexTitleFallback.albumTitle(from: decodedTitle, media: media)
@@ -274,9 +286,19 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         originallyAvailableAt = try container.decodeIfPresent(String.self, forKey: .originallyAvailableAt)
         addedAt = try container.decodeIfPresent(Int.self, forKey: .addedAt)
         updatedAt = try container.decodeIfPresent(Int.self, forKey: .updatedAt)
+        lastRatedAt = try container.decodeIfPresent(Int.self, forKey: .lastRatedAt)
+        userRating = try container.decodeIfPresent(Double.self, forKey: .userRating)
         leafCount = try container.decodeIfPresent(Int.self, forKey: .leafCount)
         viewedLeafCount = try container.decodeIfPresent(Int.self, forKey: .viewedLeafCount)
     }
+}
+
+public struct PlexLibraryFilterValue: Codable, Sendable, Identifiable {
+    public let key: String
+    public let title: String
+    public let fastKey: String?
+
+    public var id: String { key }
 }
 
 // MARK: - Album Detail (full metadata from /library/metadata/{id})
@@ -312,6 +334,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     public let ratingKey: String
     public let key: String
     public let playlistItemID: String?
+    public let librarySectionID: Int?
     public let parentRatingKey: String?  // Album
     public let grandparentRatingKey: String?  // Artist
     public let title: String
@@ -339,6 +362,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         case ratingKey
         case key
         case playlistItemID
+        case librarySectionID
         case parentRatingKey
         case grandparentRatingKey
         case title
@@ -383,9 +407,15 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
 
     /// Returns the best available lyrics stream (prefers timed LRC over plain TXT)
     public var lyricsStream: PlexStream? {
-        let lyricsStreams = lyricsStreams.filter { !$0.isLikelyChordStream }
-        // Prefer timed (LRC) over plain text
-        return lyricsStreams.first(where: { $0.timed == 1 }) ?? lyricsStreams.first
+        normalLyricsStreams.first
+    }
+
+    /// Regular lyric streams in display priority order.
+    public var normalLyricsStreams: [PlexStream] {
+        let streams = lyricsStreams.filter { !$0.isLikelyChordStream }
+        let timed = streams.filter { $0.timed == 1 }
+        let untimed = streams.filter { $0.timed != 1 }
+        return timed + untimed
     }
 
     /// All Plex lyric streams exposed for this track.
@@ -428,6 +458,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         lastRatedAt = try container.decodeIfPresent(Int.self, forKey: .lastRatedAt)
         userRating = try container.decodeIfPresent(Double.self, forKey: .userRating)
         loudnessTimeline = try container.decodeIfPresent(String.self, forKey: .loudnessTimeline)
+        librarySectionID = try container.decodeIfPresent(Int.self, forKey: .librarySectionID)
 
         if let playlistItemString = try? container.decodeIfPresent(String.self, forKey: .playlistItemID) {
             playlistItemID = playlistItemString
@@ -704,11 +735,132 @@ public struct PlexPlaylist: Codable, Sendable, Identifiable {
     public let addedAt: Int?
     public let updatedAt: Int?
     public let lastViewedAt: Int?
+    public let lastRatedAt: Int?
+    public let userRating: Double?
 
     public var id: String { ratingKey }
 
     public var isAudioPlaylist: Bool {
         playlistType == "audio"
+    }
+
+    /// Removes duplicate Plex playlist records while preserving server order.
+    public static func deduplicated(_ playlists: [PlexPlaylist]) -> [PlexPlaylist] {
+        var seen = Set<String>()
+        return playlists.filter { seen.insert($0.ratingKey).inserted }
+    }
+}
+
+/// Cross-client rules for presenting same-named Plex playlists as one collection.
+public enum PlexPlaylistMergeRules {
+    /// Case-, diacritic-, width-, and whitespace-insensitive playlist identity.
+    public static func normalizedTitle(_ title: String) -> String {
+        title
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .lowercased()
+    }
+
+    public static func key(title: String, isSmart: Bool) -> String {
+        "\(normalizedTitle(title))\u{0}\(isSmart)"
+    }
+
+    /// Groups equal playlist identities while preserving their first occurrence and source order.
+    public static func grouped<Item>(
+        _ items: [Item],
+        title: (Item) -> String,
+        isSmart: (Item) -> Bool
+    ) -> [[Item]] {
+        var groups: [[Item]] = []
+        var indexes: [String: Int] = [:]
+
+        for item in items {
+            let itemKey = key(title: title(item), isSmart: isSmart(item))
+            if let index = indexes[itemKey] {
+                groups[index].append(item)
+            } else {
+                indexes[itemKey] = groups.count
+                groups.append([item])
+            }
+        }
+        return groups
+    }
+
+    /// Round-robin interleaves values, continuing with remaining collections as shorter ones end.
+    public static func interleaved<Element>(_ collections: [[Element]]) -> [Element] {
+        guard collections.count > 1 else { return collections.first ?? [] }
+
+        var result: [Element] = []
+        result.reserveCapacity(collections.reduce(0) { $0 + $1.count })
+        var iterators = collections.map { $0.makeIterator() }
+        var active = Array(repeating: true, count: iterators.count)
+
+        while active.contains(true) {
+            for index in iterators.indices where active[index] {
+                if let next = iterators[index].next() {
+                    result.append(next)
+                } else {
+                    active[index] = false
+                }
+            }
+        }
+        return result
+    }
+}
+
+/// Parsed account, server, and optional library scope for a Plex source key.
+public struct PlexSourceIdentity: Equatable, Sendable {
+    public let type: String
+    public let accountId: String
+    public let serverId: String
+    public let libraryId: String?
+
+    public init(type: String, accountId: String, serverId: String, libraryId: String? = nil) {
+        self.type = type
+        self.accountId = accountId
+        self.serverId = serverId
+        self.libraryId = libraryId
+    }
+
+    public var serverSourceKey: String {
+        "\(type):\(accountId):\(serverId)"
+    }
+
+    public var accountServerKey: String {
+        "\(accountId):\(serverId)"
+    }
+
+    public var isServerScoped: Bool {
+        libraryId == nil
+    }
+
+    public var librarySourceKey: String? {
+        guard let libraryId else { return nil }
+        return "\(serverSourceKey):\(libraryId)"
+    }
+
+    public static func parse(_ sourceKey: String?) -> PlexSourceIdentity? {
+        guard let sourceKey else { return nil }
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 3 else { return nil }
+        return PlexSourceIdentity(
+            type: String(components[0]),
+            accountId: String(components[1]),
+            serverId: String(components[2]),
+            libraryId: components.count >= 4 ? String(components[3]) : nil
+        )
+    }
+
+    public static func serverSourceKey(from sourceKey: String?) -> String? {
+        parse(sourceKey)?.serverSourceKey
+    }
+
+    public static func isSameServer(_ lhs: String?, _ rhs: String?) -> Bool {
+        guard let lhsServer = serverSourceKey(from: lhs),
+              let rhsServer = serverSourceKey(from: rhs) else { return false }
+        return lhsServer == rhsServer
     }
 }
 
@@ -820,6 +972,25 @@ public struct PlexServerCapabilities: Codable, Sendable, Equatable {
 
 // MARK: - Hubs (Home Screen Content)
 
+/// Canonical Plex hub identifiers shared by app and watch catalog loading.
+public enum PlexHubIdentity {
+    public static let recentlyAddedMusic = "music.recent.added"
+
+    /// Removes Plex's per-library numeric suffix from a hub identifier.
+    public static func normalized(_ identifier: String) -> String {
+        guard let lastDot = identifier.lastIndex(of: ".") else { return identifier }
+        let suffix = identifier[identifier.index(after: lastDot)...]
+        return suffix.allSatisfy(\.isNumber) ? String(identifier[..<lastDot]) : identifier
+    }
+
+    /// Extracts and normalizes the hub identifier from Ensemble's source-scoped hub ID.
+    public static func normalizedSourceScopedIdentifier(_ hubID: String) -> String {
+        let components = hubID.split(separator: ":")
+        guard components.count >= 5 else { return normalized(hubID) }
+        return normalized(components[4...].joined(separator: ":"))
+    }
+}
+
 /// Represents a hub on the Plex home screen (Recently Added, Recently Played, etc.)
 public struct PlexHub: Codable, Sendable, Identifiable {
     public let hubKey: String?
@@ -876,6 +1047,18 @@ public struct PlexHubMetadata: Codable, Sendable, Identifiable {
     public let leafCount: Int?  // Track count for albums
 
     public var id: String { ratingKey }
+
+    /// Non-empty media title for hub rows and lightweight detail models.
+    public var displayTitle: String {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedTitle.isEmpty else { return trimmedTitle }
+        switch type?.lowercased() {
+        case "album": return "Unknown Album"
+        case "artist": return "Unknown Artist"
+        case "playlist": return "Untitled Playlist"
+        default: return "Unknown Track"
+        }
+    }
 }
 
 // MARK: - Tag (reusable for Genre/Country/Similar/Style tags)

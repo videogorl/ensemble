@@ -4,21 +4,6 @@ import EnsembleAPI
 
 @MainActor
 final class AccountManagerAuthPolicyTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-    }
 
     private let migrationDefaultsKey = "plex_auth_migration_version"
 
@@ -30,6 +15,58 @@ final class AccountManagerAuthPolicyTests: XCTestCase {
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: migrationDefaultsKey)
         super.tearDown()
+    }
+
+    func testAppleMusicSetupStorePreservesPendingRetryUntilSyncCompletes() throws {
+        let suiteName = "AccountManagerAuthPolicyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        AccountManager.persistAppleMusicEnabled(true, to: defaults)
+        XCTAssertEqual(
+            AccountManager.loadAppleMusicSetupState(from: defaults),
+            AccountManager.AppleMusicSetupState(isEnabled: true, isInitialSyncPending: true)
+        )
+
+        AccountManager.persistAppleMusicInitialSyncCompleted(to: defaults)
+        XCTAssertEqual(
+            AccountManager.loadAppleMusicSetupState(from: defaults),
+            AccountManager.AppleMusicSetupState(isEnabled: true, isInitialSyncPending: false)
+        )
+
+        AccountManager.persistAppleMusicEnabled(false, to: defaults)
+        XCTAssertEqual(
+            AccountManager.loadAppleMusicSetupState(from: defaults),
+            AccountManager.AppleMusicSetupState(isEnabled: false, isInitialSyncPending: false)
+        )
+    }
+
+    func testServerNameUsesAppleMusicSourceName() {
+        let manager = AccountManager(keychain: TestKeychain())
+
+        XCTAssertEqual(
+            manager.serverName(for: MusicSourceIdentifier.appleMusic.compositeKey),
+            "Apple Music"
+        )
+    }
+
+    func testSourcePresentationAcceptsServerScopedPlexPlaylistKey() {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.addPlexAccount(PlexAccountConfig(
+            id: "account",
+            displayTitle: "tester",
+            authToken: "token",
+            servers: [PlexServerConfig(
+                id: "server",
+                name: "Living Room",
+                url: "https://example.com",
+                token: "server-token",
+                libraries: [PlexLibraryConfig(id: "1", key: "1", title: "Music")]
+            )]
+        ))
+
+        XCTAssertEqual(manager.sourcePresentation(for: "plex:account:server")?.serverName, "Living Room")
+        XCTAssertEqual(manager.sourcePresentation(for: "plex:account:server:1")?.libraryName, "Music")
     }
 
     func testLoadAccountsAppliesMigrationAndForcesRelogin() throws {
@@ -59,6 +96,84 @@ final class AccountManagerAuthPolicyTests: XCTestCase {
 
         XCTAssertTrue(manager.plexAccounts.isEmpty)
         XCTAssertEqual(UserDefaults.standard.integer(forKey: migrationDefaultsKey), 2)
+    }
+
+    func testLoadAccountsAsyncHydratesStoredAccounts() async throws {
+        UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
+        let keychain = TestKeychain()
+        let existing = PlexAccountConfig(
+            id: "account-1",
+            displayTitle: "tester",
+            authToken: "token",
+            servers: []
+        )
+        let encoded = try JSONEncoder().encode([existing])
+        try keychain.save(String(data: encoded, encoding: .utf8)!, forKey: KeychainKey.plexAccounts)
+        let manager = AccountManager(keychain: keychain)
+
+        await manager.loadAccountsAsync()
+
+        XCTAssertEqual(manager.plexAccounts.map(\.id), ["account-1"])
+        XCTAssertEqual(manager.credentialLoadState, .loaded)
+    }
+
+    func testLoadAccountsReportsUnavailableWithoutClearingExistingAccounts() {
+        UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
+        let keychain = TestKeychain()
+        let manager = AccountManager(keychain: keychain)
+        manager.addPlexAccount(
+            PlexAccountConfig(
+                id: "account-1",
+                displayTitle: "tester",
+                authToken: "token",
+                servers: []
+            )
+        )
+        keychain.localReadFailure = .unavailable
+
+        manager.loadAccounts()
+
+        XCTAssertEqual(manager.credentialLoadState, .unavailable)
+        XCTAssertEqual(manager.plexAccounts.map(\.id), ["account-1"])
+        XCTAssertFalse(manager.isSourceConfigurationAuthoritative)
+    }
+
+    func testAsyncCredentialLoadTimesOutWithoutBlockingCachedFallback() async {
+        UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
+        let keychain = TestKeychain()
+        keychain.localReadDelay = 2
+        let manager = AccountManager(keychain: keychain)
+        let startedAt = Date()
+
+        await manager.loadAccountsAsync()
+
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 1.5)
+        XCTAssertEqual(manager.credentialLoadState, .unavailable)
+        XCTAssertFalse(manager.isSourceConfigurationAuthoritative)
+    }
+
+    func testAsyncCredentialRetryRecoversAfterAccessReturns() async {
+        UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
+        let keychain = TestKeychain()
+        let manager = AccountManager(keychain: keychain)
+        manager.addPlexAccount(
+            PlexAccountConfig(
+                id: "account-1",
+                displayTitle: "tester",
+                authToken: "token",
+                servers: []
+            )
+        )
+        keychain.localReadFailure = .unavailable
+
+        await manager.loadAccountsAsync()
+        XCTAssertEqual(manager.credentialLoadState, .unavailable)
+
+        keychain.localReadFailure = nil
+        await manager.loadAccountsAsync()
+
+        XCTAssertEqual(manager.credentialLoadState, .loaded)
+        XCTAssertEqual(manager.plexAccounts.map(\.id), ["account-1"])
     }
 
     func testExpiredAccountIsRemovedDuringPolicyEnforcement() {

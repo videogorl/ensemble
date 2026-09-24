@@ -9,6 +9,7 @@ final class NetworkLifecycleControllerTests: XCTestCase {
         let decision = controller.foregroundDecision(for: .online(.wifi))
 
         XCTAssertEqual(decision.offlineValue, false)
+        XCTAssertEqual(decision.diagnosticSummary, "offline=false refresh=app_foreground force=0")
         XCTAssertEqual(
             decision.healthRefreshRequest,
             .init(reason: .appForeground, forceServerRefresh: false)
@@ -42,6 +43,10 @@ final class NetworkLifecycleControllerTests: XCTestCase {
         let decision = controller.observeNetworkState(.online(.wifi))
 
         XCTAssertEqual(decision.transition, .reconnect)
+        XCTAssertEqual(
+            decision.diagnosticSummary,
+            "from=Offline transition=reconnect offline=false invalidateConnections=1 invalidateArtwork=1 refresh=network_reconnect force=1 initialSkip=0"
+        )
         XCTAssertTrue(decision.shouldInvalidateConnectionHealth)
         XCTAssertTrue(decision.shouldInvalidateArtworkConnections)
         XCTAssertEqual(

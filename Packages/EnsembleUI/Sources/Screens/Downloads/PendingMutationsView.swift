@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import EnsemblePersistence
 import SwiftUI
@@ -48,6 +49,9 @@ public struct PendingMutationsView: View {
             await viewModel.loadMutations()
         }
         .refreshable {
+            await viewModel.loadMutations()
+        }
+        .refreshCommand {
             await viewModel.loadMutations()
         }
     }
@@ -145,7 +149,7 @@ private struct MutationRowView: View {
 
     private var iconName: String {
         switch row.mutationType {
-        case .trackRating:
+        case .trackRating, .collectionRating:
             return EnsembleDesign.Icon.favorite
         case .playlistAdd:
             return EnsembleDesign.Icon.addToPlaylist

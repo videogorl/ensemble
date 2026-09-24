@@ -1,12 +1,26 @@
 import Foundation
 
-/// Owns the success path after a playable file URL has been resolved.
+/// Owns the success path after a playable source has been resolved.
 /// Keeps visualizer planning, engine load, recovery seek, and gapless prefetch
 /// out of PlaybackService's request/retry loop.
 final class PlaybackLaunchCoordinator {
     struct VisualizerPlan: Equatable {
         let priority: TaskPriority
         let throttled: Bool
+        let startDelayNanoseconds: UInt64
+
+        init(priority: TaskPriority, throttled: Bool, startDelayNanoseconds: UInt64 = 0) {
+            self.priority = priority
+            self.throttled = throttled
+            self.startDelayNanoseconds = startDelayNanoseconds
+        }
+    }
+
+    enum VisualizerLoadContext {
+        case activePlayback
+        case scheduledPrefetch
+        case restoredPrebuffer
+        case userVisibleToggle
     }
 
     struct Dependencies {
@@ -14,8 +28,8 @@ final class PlaybackLaunchCoordinator {
         let isVisualizerEnabled: @Sendable () -> Bool
         let isInstrumentalModeActive: @Sendable () -> Bool
         let enqueueVisualizerLoad: @Sendable (Track, URL, VisualizerPlan) -> Void
-        let loadAndPlay: @MainActor (URL, Track) -> Void
-        let seek: @MainActor (TimeInterval) -> Void
+        let loadAndPlay: @MainActor (PlaybackSource, Track, UInt64) async -> Bool
+        let seek: @MainActor (TimeInterval, UInt64) -> Bool
         let prefetchNext: @Sendable () async -> Void
     }
 
@@ -28,7 +42,8 @@ final class PlaybackLaunchCoordinator {
     static func visualizerPlan(
         isVisualizerEnabled: Bool,
         isInstrumentalModeActive: Bool,
-        processorCount: Int
+        processorCount: Int,
+        context: VisualizerLoadContext = .activePlayback
     ) -> VisualizerPlan? {
         guard isVisualizerEnabled else { return nil }
 
@@ -38,42 +53,59 @@ final class PlaybackLaunchCoordinator {
         if isInstrumentalModeActive {
             priority = .background
         } else if isLowCoreDevice {
-            priority = .utility
+            switch context {
+            case .activePlayback, .userVisibleToggle:
+                priority = .utility
+            case .scheduledPrefetch, .restoredPrebuffer:
+                priority = .background
+            }
         } else {
-            priority = .userInitiated
+            switch context {
+            case .activePlayback, .userVisibleToggle:
+                priority = .userInitiated
+            case .scheduledPrefetch, .restoredPrebuffer:
+                priority = .utility
+            }
         }
 
-        return VisualizerPlan(priority: priority, throttled: throttled)
+        let startDelayNanoseconds: UInt64 = context == .scheduledPrefetch && throttled
+            ? 10_000_000_000
+            : 0
+
+        return VisualizerPlan(
+            priority: priority,
+            throttled: throttled,
+            startDelayNanoseconds: startDelayNanoseconds
+        )
     }
 
     func completeLaunch(
         for track: Track,
-        fileURL: URL,
-        recoverySeekTime: TimeInterval?
+        source: PlaybackSource,
+        recoverySeekTime: TimeInterval?,
+        generation: UInt64
     ) async {
-        if let plan = Self.visualizerPlan(
-            isVisualizerEnabled: dependencies.isVisualizerEnabled(),
-            isInstrumentalModeActive: dependencies.isInstrumentalModeActive(),
-            processorCount: dependencies.processorCount()
-        ) {
-            dependencies.enqueueVisualizerLoad(track, fileURL, plan)
-        } else {
-            EnsembleLogger.debug("[Visualizer] Skipped: isVisualizerEnabled=false")
-        }
-
-        await MainActor.run {
-            dependencies.loadAndPlay(fileURL, track)
-        }
-
-        if let recoverySeekTime, recoverySeekTime > 0 {
-            await MainActor.run {
-                dependencies.seek(recoverySeekTime)
+        if let fileURL = source.fileURL {
+            if let plan = Self.visualizerPlan(
+                isVisualizerEnabled: dependencies.isVisualizerEnabled(),
+                isInstrumentalModeActive: dependencies.isInstrumentalModeActive(),
+                processorCount: dependencies.processorCount()
+            ) {
+                dependencies.enqueueVisualizerLoad(track, fileURL, plan)
+            } else {
+                EnsembleLogger.debug("[Visualizer] Skipped: isVisualizerEnabled=false")
             }
+        } else {
+            EnsembleLogger.debug("[Visualizer] Streaming source uses live PCM until cache analysis completes")
+        }
+
+        guard await dependencies.loadAndPlay(source, track, generation) else { return }
+
+        if source.fileURL != nil, let recoverySeekTime, recoverySeekTime > 0 {
+            guard await dependencies.seek(recoverySeekTime, generation) else { return }
             EnsembleLogger.debug("[playCurrentQueueItem] Recovered position at \(recoverySeekTime)s")
         }
 
-        Task {
-            await dependencies.prefetchNext()
-        }
+        Task { await dependencies.prefetchNext() }
     }
 }

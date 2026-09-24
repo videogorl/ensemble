@@ -1,42 +1,59 @@
 # Downloads Policy
 
-Load this reference for offline download targets, download queue behavior, transfer retry/fallback, background execution, quality refresh, progress publication, or download UI status.
-
-## Policies
-
-- `OfflineDownloadService` is the target and queue source of truth. Platform lifecycle events route through offline coordinators and then into the service.
-- Downloads are target-based. Library, album, artist, playlist, and favorites targets resolve memberships, enqueue missing tracks, and clean up shared tracks by reference count.
-- Download lookup, persistence, and deletion must be source-aware: use `ratingKey + sourceCompositeKey` so libraries and servers do not collide.
-- Queue policy is Wi-Fi/wired only by default. Active downloads pause on cellular or offline network state unless settings explicitly allow the path.
-- User pause, Low Power Mode, app backgrounding, and iOS continued-processing windows all feed the same scheduler. The queue should pause aggressively on constrained devices without losing resumability.
-- Background execution is an accelerator, not the source of truth. Persistent queue state must resume under normal foreground/background opportunities when OS background execution is rejected, cancelled, or expired.
-- Launch recovery is lightweight: repair stale `.downloading` records and publish target shells first, then defer file healing, truncation scans, cleanup, and full progress recomputation.
-- Deferred launch/foreground healing, truncation scans, cleanup, sidecar analysis, and expensive full-progress recomputation route through `ForegroundWorkScheduler` while the app is foreground active. Downloads themselves may continue when network/settings allow; the scheduler throttles reconciliation and analysis work, not user-requested transfer execution.
-- Foreground recovery immediately after launch should coalesce with launch recovery instead of repeating the same startup sweep.
-- Some Plex servers reject offline transcode even when original downloads work. Mark unsupported servers, avoid repeated failing transcode attempts, and allow original-quality fallback for those servers.
-- Quality refresh requeues completed downloads only when stored quality differs from the current download quality and the server supports the requested mode.
-- Full target progress recomputation is coalesced during playback/background load. Per-track completion may refresh owning targets for UI accuracy without rebuilding every target on each queue event.
-- Offline lyric sidecar work includes chord streams. Chord caches are stream-specific and separate from normal lyrics, persist raw sidecar content for offline playback, and revalidate against Plex stream metadata when online. When online, chord streams should try to fetch fresh raw sidecar content before using memory or disk cache; disk cache is a fallback for raw fetch failures and offline playback. Treat online local chord caches as soft with a 24-hour expiry.
-
-## Owners
-
-- `OfflineDownloadService` owns targets, queue facade state, progress publication, recovery entry points, and download source of truth.
-- `DownloadQueueCoordinator` owns queue task lifecycle, worker fan-out, background wake handling, and wind-down/restart decisions.
-- `DownloadRetryPolicy` owns transfer retry accounting and direct-original fallback gating.
-- `DownloadTransferExecutor` owns download-queue vs direct-original transfer execution, validation, completion recovery, and post-processing.
-- `DownloadTargetReconciler`, `OfflineDownloadCleanupCoordinator`, and `OfflineDownloadTargetProgressController` own membership reconciliation, orphan cleanup, and progress refresh.
-- `OfflineBackgroundExecutionCoordinator` owns OS background execution windows and URLSession completion-handler handoff.
-
-## Implementation Hooks
-
-- Route user-facing target toggles, removals, remove-all, pause, and resume through `DownloadMutationWorkflow` when views or view models initiate them.
-- Use debounced `downloadsDidChange` fan-out through `OfflineDownloadNotificationBridge`; avoid per-track publish storms during bulk downloads.
-- Keep FFT, artwork, and lyrics sidecar work background priority and serialized where needed so downloads do not starve playback or low-RAM devices. On A9/iOS 15-class devices, sidecar/analysis work should pause during startup sync, share sheets, Now Playing interaction, and audio-critical sections.
-- Include chord stream pre-cache in the same best-effort sidecar path as lyrics downloads; retry or cache-clearing actions for a track/source should evict both normal lyric and chord caches.
-- Do not instantiate download workers when there are no pending downloads.
-
-## Verification
-
-- Run focused `EnsembleCore` download tests after policy changes: queue coordinator, retry policy, service policy, transfer executor, target reconciler, cleanup, progress controller, and view model tests as applicable.
-- Use simulator or device evidence for user-visible Downloads queue behavior, especially pause/resume, network transitions, quality refresh, or background recovery.
-- Use performance gates when changing Downloads queue behavior or high-frequency progress publication.
+- `OfflineDownloadService` is the target and persistent queue source of truth.
+  App lifecycle and URLSession events enter through its coordinators rather than
+  creating alternate workers.
+- Downloads are source-scoped targets whose memberships may overlap. New work is
+  admitted only when the provider capability and target scope allow it.
+  Capability loss never disables removal of existing local data.
+- Download rows, files, membership, and cleanup use exact source identity. Never
+  collide libraries/accounts by rating key or display name.
+- A merged download command enables every missing eligible source target. Only
+  when every eligible target is enabled does the command remove them all.
+- Removing a track's final target reference deletes its audio and derived
+  artifacts. Preserve shared artifacts while another target references them,
+  and delete only after explicit target removal or a complete authoritative
+  source/playlist inventory proves the item absent.
+- Failed, partial, malformed, or premature-empty inventories preserve download
+  targets, rows, and files.
+- Wi-Fi/wired is the default transfer policy. The shared cellular setting is
+  reflected consistently wherever exposed. Device offline, Low Data Mode, Low
+  Power Mode, user pause, and lifecycle constraints pause eligible work without
+  losing resumability.
+- A confirmed one-hour cellular/Low Data exception is temporary, never changes
+  the saved setting, and cannot override device offline.
+- OS background execution accelerates the persistent queue but is not its source
+  of truth. Rejection, cancellation, expiration, or relaunch must leave work
+  recoverable exactly once with its requested quality unchanged.
+- Audio completion is the durable boundary. Artwork, frequency analysis, lyrics,
+  and chords are derived, idempotent, best-effort artifacts repaired later from
+  completed downloads rather than promoted into another durable job system.
+- Offline audio and regenerable artwork remain nonpurgeable while installed but
+  are excluded from device backups. Missing restored audio becomes retryable.
+- Startup publishes target/queue state after lightweight repair. Expensive file
+  healing, truncation scans, cleanup, and full progress computation are deferred
+  and coalesced so downloads and playback stay responsive on constrained devices.
+- The quality preference applies to newly queued tracks. Reconciliation preserves
+  existing requested quality; replacing installed files requires an explicit action.
+  Existing playable files remain counted and usable during replacement, and
+  cancelling replacements preserves them.
+- Requested quality is preserved across retry and recovery. Refresh a completed
+  file only when its stored quality differs. A server that cannot perform
+  offline transcode may fall back to original quality without repeated failing
+  transcode attempts.
+- A completed playback artifact may satisfy a requested download only when its
+  source revision and requested quality match exactly; Original requires a
+  direct artifact. `OfflineDownloadService` validates and atomically copies the
+  file into durable download storage before recording completion. Playback
+  cache eviction never owns or removes the installed download.
+- Lyric/chord unavailability is cached only for confirmed signature-scoped
+  no-stream/404 outcomes and invalidated when the signature changes or the user
+  retries. Transport, cancellation, parse, and server failures remain retryable.
+- Bulk progress and completion publication is coalesced. Do not instantiate
+  workers without pending work or emit per-item storms that compete with audio.
+- Transient download failures remain queued with bounded retry delays. Other
+  eligible tracks can progress, and retry does not require a device network change.
+- Temporary playback-buffer suspension preserves an existing background grant
+  until completion, explicit suspension, or OS expiration ends it.
+- Interrupted file transfers may append only after validating the same remote
+  resource and byte range. A replacement response restarts the file safely.

@@ -2,6 +2,21 @@ import XCTest
 @testable import EnsembleCore
 
 final class PlaybackReportingControllerTests: XCTestCase {
+    func testFocusScrobblingOverrideIsTemporary() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: SettingsManager.scrobblingEnabledKey)
+
+        defaults.set(1, forKey: "focusScrobblingOverride")
+        XCTAssertTrue(SettingsManager.effectiveScrobblingEnabled(in: defaults))
+        XCTAssertFalse(defaults.bool(forKey: SettingsManager.scrobblingEnabledKey))
+
+        defaults.set(0, forKey: "focusScrobblingOverride")
+        XCTAssertFalse(SettingsManager.effectiveScrobblingEnabled(in: defaults))
+
+        defaults.set(-1, forKey: "focusScrobblingOverride")
+        XCTAssertFalse(SettingsManager.effectiveScrobblingEnabled(in: defaults))
+    }
+
     func testPlayingProgressReportsTimelineWhenConnectedAndIntervalElapsed() async {
         let timelineExpectation = expectation(description: "timeline reported")
         let track = makeTrack()

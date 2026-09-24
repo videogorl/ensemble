@@ -1,18 +1,25 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
 public struct PlaylistCard: View {
     let playlist: Playlist
     let onTap: (() -> Void)?
+    let allowsDragExport: Bool
 
-    public init(playlist: Playlist, onTap: (() -> Void)? = nil) {
+    public init(
+        playlist: Playlist,
+        onTap: (() -> Void)? = nil,
+        allowsDragExport: Bool = true
+    ) {
         self.playlist = playlist
         self.onTap = onTap
+        self.allowsDragExport = allowsDragExport
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
-            ArtworkView(playlist: playlist, size: .thumbnail)
+            ArtworkView(playlist: playlist, size: .thumbnail, isResponsive: true)
 
             VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
                 Text(playlist.title)
@@ -25,15 +32,17 @@ public struct PlaylistCard: View {
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
-        .frame(width: ArtworkSize.thumbnail.cgSize.width)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .contentShape(Rectangle())
         .if(onTap != nil) { view in
             view.onTapGesture {
                 onTap?()
             }
         }
-        .onDrag {
-            MediaDragExportPolicy.itemProvider(for: MediaDragPayload.playlist(playlist))
+        .if(allowsDragExport) { view in
+            view.onDrag {
+                MediaDragExportPolicy.itemProvider(for: MediaDragPayload.playlist(playlist))
+            }
         }
     }
 }
@@ -44,23 +53,19 @@ public struct PlaylistCard: View {
 /// Handles navigation to either a single playlist or merged playlist detail.
 public struct PlaylistRow: View {
     let displayPlaylist: DisplayPlaylist
-    let nowPlayingVM: NowPlayingViewModel
     let chipStyle: PlaylistRowChip.Style?
     let onTap: (() -> Void)?
     let isDisabled: Bool
     let statusText: String?
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(
         displayPlaylist: DisplayPlaylist,
-        nowPlayingVM: NowPlayingViewModel,
         chipStyle: PlaylistRowChip.Style? = nil,
         onTap: (() -> Void)? = nil,
         isDisabled: Bool = false,
         statusText: String? = nil
     ) {
         self.displayPlaylist = displayPlaylist
-        self.nowPlayingVM = nowPlayingVM
         self.chipStyle = chipStyle
         self.onTap = onTap
         self.isDisabled = isDisabled
@@ -68,29 +73,13 @@ public struct PlaylistRow: View {
     }
 
     public var body: some View {
-        if let onTap {
-            playlistRowContent
-                .onTapGesture(perform: onTap)
-        } else {
-            Group {
-                if isDisabled {
-                    playlistRowContent
-                } else if displayPlaylist.isMerged {
-                    navigationCoordinator.routeLink(
-                        to: .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
-                    ) {
-                        playlistRowContent
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    navigationCoordinator.routeLink(
-                        to: .playlistDetail(displayPlaylist.primaryPlaylist)
-                    ) {
-                        playlistRowContent
-                    }
-                    .buttonStyle(.plain)
-                }
+        if let onTap, !isDisabled {
+            Button(action: onTap) {
+                playlistRowContent
             }
+            .buttonStyle(.plain)
+        } else {
+            playlistRowContent
         }
     }
 
@@ -101,6 +90,7 @@ public struct PlaylistRow: View {
                 size: .tiny,
                 cornerRadius: ArtworkCornerRadius.square(for: .tiny)
             )
+            .mediaNavigationTransitionSource(id: displayPlaylist.primaryPlaylist.sourceScopedID)
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                 Text(displayPlaylist.title)

@@ -6,11 +6,17 @@ public struct PlaylistActionPresentationRequest: Identifiable {
     public let id = UUID()
     public let tracks: [Track]
     public let title: String
+    public let createsPlaylistAcrossSources: Bool
 
-    public init?(tracks: [Track], title: String = "Add to Playlist") {
+    public init?(
+        tracks: [Track],
+        title: String = "Add to Playlist",
+        createsPlaylistAcrossSources: Bool = false
+    ) {
         guard !tracks.isEmpty else { return nil }
         self.tracks = tracks
         self.title = title
+        self.createsPlaylistAcrossSources = createsPlaylistAcrossSources
     }
 }
 
@@ -19,16 +25,21 @@ public struct PlaylistActionPresentationRequest: Identifiable {
 public enum PlaylistActionPresentationHost {
     public static func request(
         for tracks: [Track],
-        title: String = "Add to Playlist"
+        title: String = "Add to Playlist",
+        createsPlaylistAcrossSources: Bool = false
     ) -> PlaylistActionPresentationRequest? {
-        PlaylistActionPresentationRequest(tracks: tracks, title: title)
+        PlaylistActionPresentationRequest(
+            tracks: tracks,
+            title: title,
+            createsPlaylistAcrossSources: createsPlaylistAcrossSources
+        )
     }
 
     public static func recentPlaylistTitle(
         for tracks: [Track],
         nowPlayingVM: NowPlayingViewModel
     ) -> String? {
-        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
+        guard let target = nowPlayingVM.lastPlaylistTarget(for: tracks) else { return nil }
         return nowPlayingVM.compatibleTrackCount(
             tracks,
             forServerSourceKey: target.sourceCompositeKey
@@ -85,9 +96,48 @@ private struct PlaylistActionPresentationModifier: ViewModifier {
                 PlaylistPickerSheet(
                     nowPlayingVM: nowPlayingVM,
                     tracks: request.tracks,
-                    title: request.title
+                    title: request.title,
+                    createsPlaylistAcrossSources: request.createsPlaylistAcrossSources
                 )
             }
+    }
+}
+
+private struct RecentPlaylistTargetObservationModifier: ViewModifier {
+    let nowPlayingVM: NowPlayingViewModel
+    let tracks: [Track]
+    let isEnabled: Bool
+    @Binding var target: Playlist?
+    @State private var lastPlaylistTargetID: String?
+
+    private var refreshKey: String {
+        let trackIDs = tracks.map(\.playbackIdentity).joined(separator: "|")
+        return "\(isEnabled):\(trackIDs)"
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .task(id: refreshKey) {
+                lastPlaylistTargetID = nowPlayingVM.lastPlaylistTarget?.id
+                await refreshTarget()
+            }
+            .onReceive(nowPlayingVM.lastPlaylistTargetPublisher) { playlistTarget in
+                guard playlistTarget?.id != lastPlaylistTargetID else { return }
+                lastPlaylistTargetID = playlistTarget?.id
+                Task { @MainActor in await refreshTarget() }
+            }
+    }
+
+    @MainActor
+    private func refreshTarget() async {
+        guard isEnabled, !tracks.isEmpty else {
+            target = nil
+            return
+        }
+        target = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
+            for: tracks,
+            nowPlayingVM: nowPlayingVM
+        )
     }
 }
 
@@ -100,6 +150,22 @@ public extension View {
             PlaylistActionPresentationModifier(
                 nowPlayingVM: nowPlayingVM,
                 request: request
+            )
+        )
+    }
+
+    func recentPlaylistTargetObservation(
+        nowPlayingVM: NowPlayingViewModel,
+        tracks: [Track],
+        isEnabled: Bool = true,
+        target: Binding<Playlist?>
+    ) -> some View {
+        modifier(
+            RecentPlaylistTargetObservationModifier(
+                nowPlayingVM: nowPlayingVM,
+                tracks: tracks,
+                isEnabled: isEnabled,
+                target: target
             )
         )
     }

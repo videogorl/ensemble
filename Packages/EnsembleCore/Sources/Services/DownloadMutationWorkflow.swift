@@ -2,6 +2,9 @@ import Foundation
 
 @MainActor
 public protocol DownloadMutationWorkflowMutating: AnyObject {
+    func isAlbumDownloadEnabled(_ album: Album) -> Bool
+    func isArtistDownloadEnabled(_ artist: Artist) -> Bool
+    func isPlaylistDownloadEnabled(_ playlist: Playlist) -> Bool
     func setFavoritesDownloadEnabled(isEnabled: Bool) async
     func setLibraryDownloadEnabled(sourceCompositeKey: String, displayName: String, isEnabled: Bool) async
     func setAlbumDownloadEnabled(_ album: Album, isEnabled: Bool) async
@@ -20,6 +23,20 @@ public struct DownloadMutationWorkflowResult: Equatable {
 
     public init(completed: Bool = true) {
         self.completed = completed
+    }
+}
+
+public struct DownloadMutationBatchState: Equatable {
+    public let eligibleCount: Int
+    public let enabledCount: Int
+
+    public var isEnabled: Bool {
+        eligibleCount > 0 && enabledCount == eligibleCount
+    }
+
+    public init(eligibleCount: Int, enabledCount: Int) {
+        self.eligibleCount = eligibleCount
+        self.enabledCount = enabledCount
     }
 }
 
@@ -73,6 +90,60 @@ public final class DownloadMutationWorkflow {
         return DownloadMutationWorkflowResult()
     }
 
+    public func batchState(for albums: [Album]) -> DownloadMutationBatchState {
+        batchState(
+            for: albums,
+            isEnabled: mutator.isAlbumDownloadEnabled,
+            availability: { $0.actionAvailability(for: .download) }
+        )
+    }
+
+    public func batchState(for artists: [Artist]) -> DownloadMutationBatchState {
+        batchState(
+            for: artists,
+            isEnabled: mutator.isArtistDownloadEnabled,
+            availability: { $0.actionAvailability(for: .download) }
+        )
+    }
+
+    public func batchState(for playlists: [Playlist]) -> DownloadMutationBatchState {
+        batchState(
+            for: playlists,
+            isEnabled: mutator.isPlaylistDownloadEnabled,
+            availability: { $0.actionAvailability(for: .download) }
+        )
+    }
+
+    @discardableResult
+    public func toggleDownloads(for albums: [Album]) async -> DownloadMutationWorkflowResult {
+        await toggleDownloads(
+            for: albums,
+            isEnabled: mutator.isAlbumDownloadEnabled,
+            availability: { $0.actionAvailability(for: .download) },
+            setEnabled: mutator.setAlbumDownloadEnabled
+        )
+    }
+
+    @discardableResult
+    public func toggleDownloads(for artists: [Artist]) async -> DownloadMutationWorkflowResult {
+        await toggleDownloads(
+            for: artists,
+            isEnabled: mutator.isArtistDownloadEnabled,
+            availability: { $0.actionAvailability(for: .download) },
+            setEnabled: mutator.setArtistDownloadEnabled
+        )
+    }
+
+    @discardableResult
+    public func toggleDownloads(for playlists: [Playlist]) async -> DownloadMutationWorkflowResult {
+        await toggleDownloads(
+            for: playlists,
+            isEnabled: mutator.isPlaylistDownloadEnabled,
+            availability: { $0.actionAvailability(for: .download) },
+            setEnabled: mutator.setPlaylistDownloadEnabled
+        )
+    }
+
     @discardableResult
     public func removeTarget(key: String) async -> DownloadMutationWorkflowResult {
         await mutator.removeTarget(key: key)
@@ -94,6 +165,32 @@ public final class DownloadMutationWorkflow {
     @discardableResult
     public func resumeQueue() async -> DownloadMutationWorkflowResult {
         await mutator.resumeQueue()
+        return DownloadMutationWorkflowResult()
+    }
+
+    private func batchState<Item>(
+        for items: [Item],
+        isEnabled: (Item) -> Bool,
+        availability: (Item) -> MusicItemActionAvailability
+    ) -> DownloadMutationBatchState {
+        let eligible = items.filter { isEnabled($0) || availability($0).isAvailable }
+        return DownloadMutationBatchState(
+            eligibleCount: eligible.count,
+            enabledCount: eligible.filter(isEnabled).count
+        )
+    }
+
+    private func toggleDownloads<Item>(
+        for items: [Item],
+        isEnabled: (Item) -> Bool,
+        availability: (Item) -> MusicItemActionAvailability,
+        setEnabled: (Item, Bool) async -> Void
+    ) async -> DownloadMutationWorkflowResult {
+        let eligible = items.filter { isEnabled($0) || availability($0).isAvailable }
+        let shouldEnable = !eligible.isEmpty && !eligible.allSatisfy(isEnabled)
+        for item in eligible where isEnabled(item) != shouldEnable {
+            await setEnabled(item, shouldEnable)
+        }
         return DownloadMutationWorkflowResult()
     }
 }

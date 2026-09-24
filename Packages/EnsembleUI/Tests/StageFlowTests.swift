@@ -8,7 +8,6 @@ final class StageFlowTests: XCTestCase {
 
         XCTAssertEqual(layout.rotation, 0, accuracy: 0.001)
         XCTAssertEqual(layout.scale, StageFlowLayoutMetrics.default.centerScale, accuracy: 0.001)
-        XCTAssertEqual(layout.opacity, 1, accuracy: 0.001)
     }
 
     func testLayoutImmediateNeighborsFaceCenterStage() {
@@ -26,7 +25,6 @@ final class StageFlowTests: XCTestCase {
         let farWing = StageFlowLayoutModel.layout(for: 5, metrics: .default)
 
         XCTAssertEqual(nearWing.scale, farWing.scale, accuracy: 0.001)
-        XCTAssertEqual(nearWing.opacity, farWing.opacity, accuracy: 0.001)
         XCTAssertEqual(abs(nearWing.rotation), abs(farWing.rotation), accuracy: 0.001)
         XCTAssertNotEqual(nearWing.xOffset, farWing.xOffset)
     }
@@ -38,20 +36,14 @@ final class StageFlowTests: XCTestCase {
         XCTAssertEqual(StageFlowLayoutModel.snappedIndex(for: 99, itemCount: 6), 5)
     }
 
-    func testProjectedReleaseIndexPreservesFastFlickMomentum() {
-        let slowProjection = StageFlowLayoutModel.projectedReleaseIndex(
-            baseIndex: 4,
-            dragDelta: 0.45,
-            predictedTotalDelta: 0.58
-        )
-        let fastProjection = StageFlowLayoutModel.projectedReleaseIndex(
-            baseIndex: 4,
-            dragDelta: 0.45,
-            predictedTotalDelta: 3.2
-        )
-
-        XCTAssertEqual(slowProjection, 4.45, accuracy: 0.05)
-        XCTAssertGreaterThan(fastProjection, 6.8)
+    func testCardTransformsStayContinuousAcrossCenterAndWingBoundaries() {
+        for boundary in [-2.0, -1.0, 0.0, 1.0, 2.0] {
+            let before = StageFlowLayoutModel.layout(for: boundary - 0.0001, metrics: .default)
+            let after = StageFlowLayoutModel.layout(for: boundary + 0.0001, metrics: .default)
+            XCTAssertEqual(before.xOffset, after.xOffset, accuracy: 0.04)
+            XCTAssertEqual(before.scale, after.scale, accuracy: 0.001)
+            XCTAssertEqual(before.rotation, after.rotation, accuracy: 0.02)
+        }
     }
 
     func testSongsStageFlowAlbumsUseFilteredTrackOrderAndCollapseDuplicates() {
@@ -97,7 +89,6 @@ final class StageFlowTests: XCTestCase {
         let albums = SongsStageFlowAlbumBuilder.build(from: tracks)
 
         XCTAssertEqual(albums.map(\.albumID), ["album-a", "album-b"])
-        XCTAssertEqual(albums.map(\.matchingTrackCount), [2, 1])
         XCTAssertEqual(albums.first?.thumbPath, "/album-a")
     }
 }

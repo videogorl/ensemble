@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -202,7 +203,7 @@ extension MediaDetailSurface {
                 labelContent
                     .background(role.backgroundColor)
                     .foregroundColor(isEnabled ? role.foregroundColor : EnsembleDesign.Color.primaryText)
-                    .clipShape(Capsule())
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
         }
 
@@ -692,7 +693,6 @@ extension MediaDetailSurface {
     >: View {
         @Environment(\.nativeTrackListHeaderWidth) private var nativeTrackListHeaderWidth
         @State private var containerWidth: CGFloat = 0
-        @State private var actionColumnWidth: CGFloat = 0
 
         private let wideLayoutThreshold: CGFloat
         private let artworkWidth: CGFloat
@@ -740,7 +740,7 @@ extension MediaDetailSurface {
                     .padding(.vertical, topContentVerticalPadding)
                 adaptiveBody
             }
-            .background(
+            .background {
                 GeometryReader { geometry in
                     Color.clear
                         .onAppear {
@@ -750,7 +750,7 @@ extension MediaDetailSurface {
                             updateContainerWidth(newWidth)
                         }
                 }
-            )
+            }
         }
 
         @ViewBuilder
@@ -791,28 +791,17 @@ extension MediaDetailSurface {
 
                 VStack(alignment: .leading, spacing: EnsembleScaffold.DetailSurface.metadataSpacing) {
                     metadata(.leading)
-                    wideActions(actionColumnWidth > 0 ? actionColumnWidth : estimatedActionColumnWidth)
+                    wideActions(estimatedActionColumnWidth)
                         .padding(.top, EnsembleScaffold.DetailSurface.actionTopPadding)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    GeometryReader { geometry in
-                        Color.clear
-                            .onAppear {
-                                updateActionColumnWidth(geometry.size.width)
-                            }
-                            .onChange(of: geometry.size.width) { newWidth in
-                                updateActionColumnWidth(newWidth)
-                            }
-                    }
-                )
             }
             .padding(.horizontal, horizontalPadding)
             .padding(.bottom, bottomPadding)
         }
 
         private var effectiveContainerWidth: CGFloat {
-            nativeTrackListHeaderWidth > 1 ? nativeTrackListHeaderWidth : containerWidth
+            containerWidth > 1 ? containerWidth : nativeTrackListHeaderWidth
         }
 
         private var estimatedActionColumnWidth: CGFloat {
@@ -828,12 +817,6 @@ extension MediaDetailSurface {
         private func updateContainerWidth(_ newWidth: CGFloat) {
             if abs(containerWidth - newWidth) > 1 {
                 containerWidth = newWidth
-            }
-        }
-
-        private func updateActionColumnWidth(_ newWidth: CGFloat) {
-            if abs(actionColumnWidth - newWidth) > 1 {
-                actionColumnWidth = newWidth
             }
         }
     }

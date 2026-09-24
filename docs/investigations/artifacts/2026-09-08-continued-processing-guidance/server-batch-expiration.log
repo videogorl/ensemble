@@ -1,0 +1,16 @@
+[12:58:50.210] [DEBUG] [core] 📦 Offline continued processing progress units=58964/438000
+[12:58:50.930] [DEBUG] [core] 📦 Offline continued processing progress units=58990/438000
+[12:58:50.958] [DEBUG] [core] Offline download installed track=8507 quality=high bytes=9913217 playbackCache=false
+[12:58:51.007] [DEBUG] [core] 📦 Offline continued processing progress units=59000/438000
+[12:58:51.139] [DEBUG] [core] ⬇️ Offline download attempt: track=8428 stage=download-queue quality=high
+[12:58:58.696] [DEBUG] [core] 📦 Offline continued processing progress units=59007/438000
+[12:58:59.123] [DEBUG] [api] Native download completed bytes=7822361 resumedFrom=0 status=200
+[12:58:59.139] [DEBUG] [core] 📦 Offline continued processing progress units=59900/438000
+[12:59:00.165] [DEBUG] [core] 📦 Offline continued processing progress units=59944/438000
+[12:59:01.152] [DEBUG] [core] 📦 Offline continued processing progress units=59990/438000
+[12:59:01.178] [DEBUG] [core] Offline download installed track=10562 quality=high bytes=7822361 playbackCache=false
+[12:59:01.228] [DEBUG] [core] 📦 Offline continued processing progress units=60000/438000
+[12:59:01.362] [DEBUG] [core] ⬇️ Offline download attempt: track=11178 stage=download-queue quality=high
+[13:02:49.919] [DEBUG] [core] 📦 Offline continued processing grant expired
+[13:02:49.920] [DEBUG] [core] 📦 Offline continued processing finished success=true units=60000/438000
+[13:02:49.923] [DEBUG] [core] 📦 Offline download recovery sweep started reason=background-expiration

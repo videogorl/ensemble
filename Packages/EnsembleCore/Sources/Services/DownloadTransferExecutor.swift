@@ -7,12 +7,15 @@ import Foundation
 enum DownloadProcessingError: LocalizedError {
     case invalidHTTPStatus(Int)
     case emptyPayload(String)
+    case audioValidationFailed
     case truncatedPayload(fileDuration: Double, expectedDuration: Double)
 
     var errorDescription: String? {
         switch self {
         case .invalidHTTPStatus(let statusCode):
             return "Download HTTP status \(statusCode)"
+        case .audioValidationFailed:
+            return "Could not validate downloaded audio. Retry, and check the server copy if the problem continues."
         case .emptyPayload(let context):
             return "Download payload was empty for \(context)"
         case .truncatedPayload(let fileDuration, let expectedDuration):
@@ -55,6 +58,7 @@ struct DownloadTransferContext {
 
 struct DownloadTransferResult {
     let attemptedDirectFallback: Bool
+    let persisted: Bool
 }
 
 struct DownloadTransferExecutionError: Error {
@@ -67,14 +71,17 @@ final class DownloadTransferExecutor {
     struct Dependencies {
         let downloadManager: DownloadManagerProtocol
         let fetchDirectDownloadURL: (Track, StreamingQuality) async throws -> URL
-        let fetchOfflineDownloadQueueMedia: (Track, StreamingQuality) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?)
+        let fetchOfflineDownloadQueueMedia: (DownloadTransferContext, StreamingQuality) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?)
         let shouldAttemptDirectFallback: (Error, DownloadTransferContext) -> Bool
         let performDirectDownload: (URL, NSManagedObjectID, Int64) async throws -> (URL, URLResponse)
-        let fetchArtworkURL: (String, String, Int) async throws -> URL?
-        let artworkDownloadManager: ArtworkDownloadManagerProtocol
-        let fetchAndCacheLyrics: @Sendable (String, String?) async -> Void
-        let enqueueSidecarAnalysis: (URL, URL) async -> Void
+        let didComplete: (DownloadTransferContext, URL) async -> Void
         let scheduleDownloadsChanged: () -> Void
+        let isStillReferenced: (DownloadTransferContext) async -> Bool
+        var restoredTransfer: (DownloadTransferContext, StreamingQuality) async throws -> (URL, HTTPURLResponse)? = { _, _ in nil }
+        var discardTransfer: (DownloadTransferContext, StreamingQuality) async -> Void = { _, _ in }
+        var matchingPlaybackArtifact: (DownloadTransferContext, StreamingQuality) -> URL? = { _, _ in nil }
+        var validationProgress: @Sendable (DownloadTransferContext, Double) async -> Void = { _, _ in }
+        var rejectPlaybackArtifact: (URL) -> Void = { _ in }
     }
 
     private let dependencies: Dependencies
@@ -88,35 +95,71 @@ final class DownloadTransferExecutor {
         requestedQuality: StreamingQuality
     ) async throws -> DownloadTransferResult {
         var attemptedDirectFallback = false
+        var rejectedPreparedFile = false
         do {
-            let sizeEstimate = Self.estimatedFileSize(durationMs: ctx.trackDuration, quality: requestedQuality)
-            var effectiveQuality = requestedQuality
+            for quality in requestedQuality == .original ? [.original] : [requestedQuality, .original] {
+                if let (file, response) = try await dependencies.restoredTransfer(ctx, quality) {
+                    defer { try? FileManager.default.removeItem(at: file) }
+                    do {
+                        let destination = Self.localFileURL(ratingKey: ctx.trackRatingKey, safeSourceKey: ctx.safeSourceKey,
+                                                            quality: quality, response: response)
+                        let persisted = try await install(file, at: destination, ctx: ctx, quality: quality)
+                        await dependencies.discardTransfer(ctx, quality)
+                        return DownloadTransferResult(attemptedDirectFallback: quality != requestedQuality, persisted: persisted)
+                    } catch let error as DownloadProcessingError {
+                        await dependencies.discardTransfer(ctx, quality)
+                        if quality == .original { throw error }
+                        rejectedPreparedFile = true
+                        // A prepared server file can be invalid even when HTTP delivery was complete.
+                    }
+                }
+            }
+            if let artifactURL = dependencies.matchingPlaybackArtifact(ctx, requestedQuality) {
+                do {
+                    return try await completeFromPlaybackArtifact(
+                        artifactURL,
+                        ctx: ctx,
+                        quality: requestedQuality
+                    )
+                } catch {
+                    dependencies.rejectPlaybackArtifact(artifactURL)
+                    EnsembleLogger.debug(
+                        "⚠️ Playback cache adoption failed for track=\(ctx.trackRatingKey): \(error.localizedDescription); using download transport"
+                    )
+                }
+            }
 
-            if requestedQuality != .original {
+            let sizeEstimate = Self.estimatedFileSize(durationMs: ctx.trackDuration, quality: requestedQuality)
+
+            if requestedQuality != .original && !rejectedPreparedFile {
                 do {
                     EnsembleLogger.debug(
                         "⬇️ Offline download attempt: track=\(ctx.trackRatingKey) stage=download-queue quality=\(requestedQuality.rawValue)"
                     )
                     let completed = try await completeViaDownloadQueue(
                         ctx: ctx,
-                        quality: requestedQuality,
-                        mode: "download-queue"
+                        quality: requestedQuality
                     )
-                    if completed {
-                        return DownloadTransferResult(attemptedDirectFallback: false)
+                    switch completed {
+                    case .completed:
+                        return DownloadTransferResult(attemptedDirectFallback: false, persisted: true)
+                    case .skippedUnreferenced:
+                        return DownloadTransferResult(attemptedDirectFallback: false, persisted: false)
+                    case .emptyPayload:
+                        break
                     }
                 } catch {
-                    if !dependencies.shouldAttemptDirectFallback(error, ctx) {
+                    if PlexErrorClassification.classify(error) == .cancelled || !dependencies.shouldAttemptDirectFallback(error, ctx) {
                         throw error
                     }
                     EnsembleLogger.debug(
                         "⚠️ Download queue failed for track=\(ctx.trackRatingKey): \(error.localizedDescription); falling back to direct original"
                     )
-                    effectiveQuality = .original
                 }
             }
 
-            let selectedURL = try await dependencies.fetchDirectDownloadURL(ctx.domainTrack, .original)
+            let effectiveQuality: StreamingQuality = .original
+            let selectedURL = try await dependencies.fetchDirectDownloadURL(ctx.domainTrack, effectiveQuality)
             let selectedMode = requestedQuality == .original ? "direct-original" : "direct-original-fallback"
             attemptedDirectFallback = requestedQuality != .original
 
@@ -130,6 +173,7 @@ final class DownloadTransferExecutor {
                 sizeEstimate
             )
 
+            defer { try? FileManager.default.removeItem(at: temporaryURL) }
             if let httpResponse = response as? HTTPURLResponse {
                 EnsembleLogger.debug(
                     "⬇️ Offline download response: track=\(ctx.trackRatingKey) status=\(httpResponse.statusCode) quality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) mode=\(selectedMode)"
@@ -148,53 +192,17 @@ final class DownloadTransferExecutor {
                 }
             }
 
-            let temporaryAttributes = try? FileManager.default.attributesOfItem(atPath: temporaryURL.path)
-            let temporaryFileSize = (temporaryAttributes?[.size] as? NSNumber)?.int64Value ?? 0
-            guard temporaryFileSize > 0 else {
-                throw DownloadProcessingError.emptyPayload(selectedMode)
-            }
-
             let destinationURL = Self.localFileURL(
-                ratingKey: ctx.trackRatingKey,
-                safeSourceKey: ctx.safeSourceKey,
-                quality: effectiveQuality,
-                response: response
+                ratingKey: ctx.trackRatingKey, safeSourceKey: ctx.safeSourceKey,
+                quality: effectiveQuality, response: response
             )
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try? FileManager.default.removeItem(at: destinationURL)
-            }
-            try FileManager.default.moveItem(at: temporaryURL, to: destinationURL)
-
-            let attributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
-            let destinationFileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
-            let persistedFileSize = max(temporaryFileSize, destinationFileSize)
-            guard persistedFileSize > 0 else {
-                throw DownloadProcessingError.emptyPayload(selectedMode)
-            }
-
-            // Diagnostic: log Content-Type and file magic bytes to verify transcode actually happened
-            let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
-            var magicBytesHex = "?"
-            if let handle = FileHandle(forReadingAtPath: destinationURL.path),
-               let header = try? handle.read(upToCount: 12) {
-                magicBytesHex = header.map { String(format: "%02x", $0) }.joined(separator: " ")
-                try? handle.close()
-            }
-            EnsembleLogger.debug(
-                "✅ Offline download stored: track=\(ctx.trackRatingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize) mode=\(selectedMode) contentType=\(contentType) requestedQuality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) magic=\(magicBytesHex)"
+            let persisted = try await install(
+                temporaryURL, at: destinationURL, ctx: ctx, quality: effectiveQuality
             )
-
-            try Self.validateDownloadDuration(fileURL: destinationURL, ctx: ctx)
-            try await completeDownloadWithRecovery(
-                ctx: ctx,
-                filePath: destinationURL.lastPathComponent,
-                fileSize: persistedFileSize,
-                quality: effectiveQuality
-            )
-            await runPostCompletionWork(fileURL: destinationURL, ctx: ctx)
-
-            return DownloadTransferResult(attemptedDirectFallback: attemptedDirectFallback)
+            await dependencies.discardTransfer(ctx, effectiveQuality)
+            return DownloadTransferResult(attemptedDirectFallback: attemptedDirectFallback, persisted: persisted)
         } catch {
+            if error is DownloadProcessingError { await dependencies.discardTransfer(ctx, .original) }
             throw DownloadTransferExecutionError(
                 underlying: error,
                 attemptedDirectFallback: attemptedDirectFallback
@@ -202,62 +210,113 @@ final class DownloadTransferExecutor {
         }
     }
 
-    private func completeViaDownloadQueue(
+    private enum QueueDownloadCompletion {
+        case completed
+        case emptyPayload
+        case skippedUnreferenced
+    }
+
+    private func completeFromPlaybackArtifact(
+        _ artifactURL: URL,
         ctx: DownloadTransferContext,
-        quality: StreamingQuality,
-        mode: String
-    ) async throws -> Bool {
-        let queuePayload = try await dependencies.fetchOfflineDownloadQueueMedia(ctx.domainTrack, quality)
-        guard !queuePayload.data.isEmpty else {
-            return false
+        quality: StreamingQuality
+    ) async throws -> DownloadTransferResult {
+        guard await dependencies.isStillReferenced(ctx) else {
+            return DownloadTransferResult(attemptedDirectFallback: false, persisted: false)
         }
 
         let destinationURL = Self.localFileURL(
             ratingKey: ctx.trackRatingKey,
             safeSourceKey: ctx.safeSourceKey,
             quality: quality,
-            suggestedFilename: queuePayload.suggestedFilename,
-            mimeType: queuePayload.mimeType,
-            payload: queuePayload.data
+            suggestedFilename: artifactURL.lastPathComponent,
+            mimeType: nil,
+            payload: nil
         )
+        let persisted = try await install(
+            artifactURL, at: destinationURL, ctx: ctx, quality: quality, preserveSource: true
+        )
+        return DownloadTransferResult(attemptedDirectFallback: false, persisted: persisted)
+    }
+
+    private func completeViaDownloadQueue(
+        ctx: DownloadTransferContext,
+        quality: StreamingQuality
+    ) async throws -> QueueDownloadCompletion {
+        let payload = try await dependencies.fetchOfflineDownloadQueueMedia(ctx, quality)
+        defer { try? FileManager.default.removeItem(at: payload.fileURL) }
+        let handle = try FileHandle(forReadingFrom: payload.fileURL)
+        defer { try? handle.close() }
+        let header = try handle.read(upToCount: 12) ?? Data()
+        guard !header.isEmpty else {
+            await dependencies.discardTransfer(ctx, quality)
+            return .emptyPayload
+        }
+        let destinationURL = Self.localFileURL(
+            ratingKey: ctx.trackRatingKey, safeSourceKey: ctx.safeSourceKey, quality: quality,
+            suggestedFilename: payload.suggestedFilename, mimeType: payload.mimeType, payload: header
+        )
+        do {
+            let persisted = try await install(payload.fileURL, at: destinationURL, ctx: ctx, quality: quality)
+            await dependencies.discardTransfer(ctx, quality)
+            return persisted ? .completed : .skippedUnreferenced
+        } catch let error as DownloadProcessingError {
+            await dependencies.discardTransfer(ctx, quality)
+            throw error
+        }
+    }
+
+    /// Validate staging before replacing a playable file. Playback-cache files remain owned by their cache.
+    private func install(
+        _ sourceURL: URL, at destinationURL: URL, ctx: DownloadTransferContext,
+        quality: StreamingQuality, preserveSource: Bool = false
+    ) async throws -> Bool {
+        guard await dependencies.isStillReferenced(ctx) else { return false }
+        try Task.checkCancellation()
+        try FileManager.default.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let stagingURL = destinationURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(destinationURL.lastPathComponent).installing-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: stagingURL) }
+        if preserveSource {
+            try FileManager.default.copyItem(at: sourceURL, to: stagingURL)
+        } else {
+            try FileManager.default.moveItem(at: sourceURL, to: stagingURL)
+        }
+        let validationProgress = dependencies.validationProgress
+        await validationProgress(ctx, 0)
+        try await Self.validateDownloadDuration(fileURL: stagingURL, ctx: ctx, progress: validationProgress)
+        let size = (try FileManager.default.attributesOfItem(atPath: stagingURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+        guard size > 0 else { throw DownloadProcessingError.emptyPayload("staged-file") }
+        try Task.checkCancellation()
         if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try? FileManager.default.removeItem(at: destinationURL)
+            _ = try FileManager.default.replaceItemAt(destinationURL, withItemAt: stagingURL)
+        } else {
+            try FileManager.default.moveItem(at: stagingURL, to: destinationURL)
         }
-        try queuePayload.data.write(to: destinationURL, options: [.atomic])
-
-        let queueAttributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
-        let queueFileSize = (queueAttributes?[.size] as? NSNumber)?.int64Value ?? Int64(queuePayload.data.count)
-        guard queueFileSize > 0 else {
-            return false
-        }
-
-        var magicBytesHex = "?"
-        if let handle = FileHandle(forReadingAtPath: destinationURL.path),
-           let header = try? handle.read(upToCount: 12) {
-            magicBytesHex = header.map { String(format: "%02x", $0) }.joined(separator: " ")
-            try? handle.close()
-        }
-        EnsembleLogger.debug(
-            "✅ Offline download stored: track=\(ctx.trackRatingKey) path=\(destinationURL.lastPathComponent) size=\(queueFileSize) mode=\(mode) contentType=\(queuePayload.mimeType ?? "unknown") magic=\(magicBytesHex)"
-        )
-
-        try Self.validateDownloadDuration(fileURL: destinationURL, ctx: ctx)
-        try await completeDownloadWithRecovery(
-            ctx: ctx,
-            filePath: destinationURL.lastPathComponent,
-            fileSize: queueFileSize,
-            quality: quality
-        )
-        await runPostCompletionWork(fileURL: destinationURL, ctx: ctx)
+        guard try await completeDownloadIfStillReferenced(
+            ctx: ctx, filePath: destinationURL.lastPathComponent, fileSize: size,
+            quality: quality, fileURL: destinationURL
+        ) else { return false }
+        EnsembleLogger.debug("Offline download installed track=\(ctx.trackRatingKey) quality=\(quality.rawValue) bytes=\(size) playbackCache=\(preserveSource)")
+        await notifyCompletion(fileURL: destinationURL, ctx: ctx)
         return true
     }
 
-    private func completeDownloadWithRecovery(
+    private func completeDownloadIfStillReferenced(
         ctx: DownloadTransferContext,
         filePath: String,
         fileSize: Int64,
-        quality: StreamingQuality
-    ) async throws {
+        quality: StreamingQuality,
+        fileURL: URL
+    ) async throws -> Bool {
+        guard await dependencies.isStillReferenced(ctx) else {
+            Self.removeLocalDownloadArtifact(fileURL)
+            EnsembleLogger.debug(
+                "🗑️ Skipped persisting completed download for unreferenced target: track=\(ctx.trackRatingKey)"
+            )
+            return false
+        }
+
         do {
             try await dependencies.downloadManager.completeDownload(
                 ctx.downloadObjectID,
@@ -265,7 +324,16 @@ final class DownloadTransferExecutor {
                 fileSize: fileSize,
                 quality: quality.rawValue
             )
+            return true
         } catch {
+            guard await dependencies.isStillReferenced(ctx) else {
+                Self.removeLocalDownloadArtifact(fileURL)
+                EnsembleLogger.debug(
+                    "🗑️ Skipped recovery for unreferenced completed download: track=\(ctx.trackRatingKey)"
+                )
+                return false
+            }
+
             EnsembleLogger.debug(
                 "⚠️ completeDownload(\(ctx.trackRatingKey)) objectID not found: \(error.localizedDescription); attempting recovery"
             )
@@ -281,175 +349,47 @@ final class DownloadTransferExecutor {
                 quality: quality.rawValue
             )
             EnsembleLogger.debug("✅ Download recovery successful for track=\(ctx.trackRatingKey)")
+            return true
         }
     }
 
-    private func runPostCompletionWork(fileURL: URL, ctx: DownloadTransferContext) async {
-        await cacheArtworkForDownloadedTrack(ctx: ctx)
-
-        let sidecarURL = fileURL.appendingPathExtension("freq")
-        await dependencies.enqueueSidecarAnalysis(fileURL, sidecarURL)
-
-        let trackRatingKey = ctx.trackRatingKey
-        let sourceCompositeKey = ctx.sourceCompositeKey
-        let fetchAndCacheLyrics = dependencies.fetchAndCacheLyrics
-        Task(priority: .utility) {
-            await fetchAndCacheLyrics(trackRatingKey, sourceCompositeKey)
-        }
-
+    private func notifyCompletion(fileURL: URL, ctx: DownloadTransferContext) async {
         dependencies.scheduleDownloadsChanged()
-    }
-
-    /// Best-effort artwork caching for newly downloaded tracks so offline lists/details keep artwork.
-    private func cacheArtworkForDownloadedTrack(ctx: DownloadTransferContext) async {
-        var candidates: [(ratingKey: String, path: String)] = []
-        if let path = ctx.trackThumbPath, !path.isEmpty {
-            candidates.append((ctx.trackRatingKey, path))
-        }
-        if let albumRatingKey = ctx.albumRatingKey,
-           let albumThumbPath = ctx.albumThumbPath,
-           !albumThumbPath.isEmpty {
-            candidates.append((albumRatingKey, albumThumbPath))
-        }
-
-        guard !candidates.isEmpty else { return }
-
-        var seen = Set<String>()
-        for candidate in candidates {
-            let dedupeKey = "\(candidate.ratingKey)|\(candidate.path)"
-            guard seen.insert(dedupeKey).inserted else { continue }
-
-            if let cachedArtworkPath = try? await dependencies.artworkDownloadManager.getLocalArtworkPath(
-                ratingKey: candidate.ratingKey,
-                type: .album,
-                sourcePath: candidate.path,
-                dateModifiedSeconds: nil
-            ), FileManager.default.fileExists(atPath: cachedArtworkPath) {
-                continue
-            }
-
-            do {
-                guard let artworkURL = try await dependencies.fetchArtworkURL(
-                    candidate.path,
-                    ctx.sourceCompositeKey,
-                    500
-                ) else {
-                    continue
-                }
-
-                try await dependencies.artworkDownloadManager.downloadAndCacheArtwork(
-                    from: artworkURL,
-                    identity: ArtworkIdentity(
-                        ratingKey: candidate.ratingKey,
-                        type: .album,
-                        sourcePath: candidate.path,
-                        dateModifiedSeconds: nil
-                    )
-                )
-
-                EnsembleLogger.debug(
-                    "🖼️ Cached artwork for downloaded track: track=\(ctx.trackRatingKey) artworkKey=\(candidate.ratingKey)"
-                )
-            } catch {
-                EnsembleLogger.debug(
-                    "⚠️ Failed caching artwork for downloaded track \(ctx.trackRatingKey): \(error.localizedDescription)"
-                )
-            }
-        }
+        await dependencies.didComplete(ctx, fileURL)
     }
 
     /// Downloads a URL to a temporary file while periodically reporting progress to CoreData.
-    /// Uses URLSession.bytes(from:) to stream data and compare bytes received against Content-Length.
+    /// Retains validated partial transfers through the shared HTTP download transport.
     /// Falls back to `estimatedSize` when Content-Length is absent (common for transcode streams).
     /// Progress is throttled to ~1 update/second to avoid excessive CoreData writes.
-    /// Runs the byte-streaming loop off the main actor so UI updates aren't blocked.
+    /// The nonisolated API transport owns execution; cancellation follows the worker task.
     static func downloadWithProgress(
         from url: URL,
         downloadID: NSManagedObjectID,
         estimatedSize: Int64 = -1,
-        downloadManager: DownloadManagerProtocol
+        downloadManager: DownloadManagerProtocol,
+        networkPolicy: DownloadNetworkPolicy,
+        backgroundDownloads: BackgroundDownload = .shared,
+        progress: @escaping @Sendable (Int64, Int64) async -> Void = { _, _ in }
     ) async throws -> (URL, URLResponse) {
-        let dm = downloadManager
-        let estimate = estimatedSize
-
-        let detachedTask = Task.detached(priority: .utility) { [dm] () -> (URL, URLResponse) in
-            let (asyncBytes, response) = try await URLSession.shared.bytes(from: url)
-            let totalExpected = response.expectedContentLength > 0
-                ? response.expectedContentLength
-                : estimate
-
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-            FileManager.default.createFile(atPath: tempURL.path, contents: nil)
-
-            do {
-                let fileHandle = try FileHandle(forWritingTo: tempURL)
-
-                var bytesReceived: Int64 = 0
-                var buffer = Data()
-                let flushThreshold = 65_536 // 64KB chunks
-                var lastProgressUpdate = Date.distantPast
-                let progressInterval: TimeInterval = 1.0
-
-                for try await byte in asyncBytes {
-                    try Task.checkCancellation()
-                    buffer.append(byte)
-
-                    if buffer.count >= flushThreshold {
-                        try fileHandle.write(contentsOf: buffer)
-                        bytesReceived += Int64(buffer.count)
-                        buffer.removeAll(keepingCapacity: true)
-
-                        if totalExpected > 0 {
-                            let now = Date()
-                            if now.timeIntervalSince(lastProgressUpdate) >= progressInterval {
-                                let progress = min(Float(bytesReceived) / Float(totalExpected), 0.99)
-                                try? await dm.updateDownloadProgress(downloadID, progress: progress)
-                                lastProgressUpdate = now
-                            }
-                        }
-                    }
-                }
-
-                if !buffer.isEmpty {
-                    bytesReceived += Int64(buffer.count)
-                    try fileHandle.write(contentsOf: buffer)
-                }
-                try fileHandle.close()
-
-                let expectedLength = response.expectedContentLength
-                if expectedLength > 0 {
-                    if bytesReceived < expectedLength {
-                        let pctReceived = Int(Double(bytesReceived) / Double(expectedLength) * 100)
-                        EnsembleLogger.debug(
-                            "⚠️ Download incomplete: received \(bytesReceived)/\(expectedLength) bytes (\(pctReceived)%)"
-                        )
-                        try? FileManager.default.removeItem(at: tempURL)
-                        throw DownloadTransferError.incompleteTransfer(
-                            bytesReceived: bytesReceived,
-                            bytesExpected: expectedLength,
-                            percentComplete: pctReceived
-                        )
-                    }
-                } else if estimate > 0, bytesReceived < estimate / 2 {
-                    let pctOfEstimate = Int(Double(bytesReceived) / Double(estimate) * 100)
-                    EnsembleLogger.debug(
-                        "⚠️ Download suspiciously short: received \(bytesReceived) bytes vs ~\(estimate) estimated (\(pctOfEstimate)%)"
-                    )
-                }
-
-                return (tempURL, response)
-            } catch {
-                try? FileManager.default.removeItem(at: tempURL)
-                throw error
+        var request = URLRequest(url: url)
+        networkPolicy.apply(to: &request)
+        return try await backgroundDownloads.file(
+            for: request, identity: transferIdentity(downloadID, quality: .original),
+            legacyIdentity: downloadID.uriRepresentation().absoluteString
+        ) { received, expected in
+            await progress(received, expected)
+            let total = expected > 0 ? expected : estimatedSize
+            if total > 0 {
+                try? await downloadManager.updateDownloadProgress(
+                    downloadID, progress: min(Float(received) / Float(total), 0.99)
+                )
             }
         }
+    }
 
-        return try await withTaskCancellationHandler {
-            try await detachedTask.value
-        } onCancel: {
-            detachedTask.cancel()
-        }
+    static func transferIdentity(_ downloadID: NSManagedObjectID, quality: StreamingQuality) -> String {
+        downloadID.uriRepresentation().absoluteString + "|" + quality.rawValue
     }
 
     /// Estimates file size in bytes for a track at a given quality based on duration and bitrate.
@@ -467,38 +407,57 @@ final class DownloadTransferExecutor {
         return Int64(durationSeconds * bitrateKbps * 1000.0 / 8.0)
     }
 
-    /// Validate that a downloaded audio file's duration is consistent with the track's metadata.
-    /// Catches truncated downloads from interrupted connections or server-side errors.
-    static func validateDownloadDuration(
+    /// Decode in bounded chunks off the main actor. A FLAC header can advertise the full
+    /// duration even when the server's original file ends halfway through an audio frame.
+    private nonisolated static func validateDownloadDuration(
         fileURL: URL,
-        ctx: DownloadTransferContext
-    ) throws {
-        let expectedDurationMs = ctx.trackDuration
-        guard expectedDurationMs > 10_000 else { return }
-        let expectedSeconds = Double(expectedDurationMs) / 1000.0
-
+        ctx: DownloadTransferContext,
+        progress: @Sendable (DownloadTransferContext, Double) async -> Void
+    ) async throws {
+        var audioFile: AVAudioFile
         do {
-            let audioFile = try AVAudioFile(forReading: fileURL)
-            let sampleRate = audioFile.processingFormat.sampleRate
-            guard sampleRate > 0 else { return }
-            let fileDuration = Double(audioFile.length) / sampleRate
-
-            if fileDuration < expectedSeconds * 0.5 && fileDuration < expectedSeconds - 10 {
-                EnsembleLogger.debug(
-                    "⚠️ Truncated download for track=\(ctx.trackRatingKey): file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedSeconds))s — rejecting"
-                )
-                try? FileManager.default.removeItem(at: fileURL)
-                throw DownloadProcessingError.truncatedPayload(
-                    fileDuration: fileDuration,
-                    expectedDuration: expectedSeconds
-                )
-            }
-        } catch let error as DownloadProcessingError {
-            throw error
+            audioFile = try AVAudioFile(forReading: fileURL)
         } catch {
-            EnsembleLogger.debug(
-                "⚠️ Could not validate download duration for track=\(ctx.trackRatingKey): \(error.localizedDescription)"
-            )
+            EnsembleLogger.debug("Could not open download for native duration validation domain=\((error as NSError).domain) code=\((error as NSError).code)")
+            return
+        }
+        let sampleRate = audioFile.processingFormat.sampleRate
+        guard sampleRate > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: 32_768) else {
+            throw DownloadProcessingError.audioValidationFailed
+        }
+        var lastProgress = Date.distantPast
+        var decodedFrames: Int64 = 0
+        // A decoder can fail transiently across an iOS lock transition. Reopen the same
+        // retained file once before rejecting it; this never repeats the network transfer.
+        for attempt in 0..<2 {
+            decodedFrames = 0
+            do {
+                if attempt > 0 { audioFile = try AVAudioFile(forReading: fileURL) }
+                while decodedFrames < audioFile.length {
+                    try Task.checkCancellation()
+                    let remaining = AVAudioFrameCount(min(Int64(buffer.frameCapacity), audioFile.length - decodedFrames))
+                    try audioFile.read(into: buffer, frameCount: remaining)
+                    guard buffer.frameLength > 0 else { break }
+                    decodedFrames += Int64(buffer.frameLength)
+                    if Date().timeIntervalSince(lastProgress) >= 1 || decodedFrames == audioFile.length {
+                        lastProgress = Date()
+                        await progress(ctx, Double(decodedFrames) / Double(max(1, audioFile.length)))
+                    }
+                }
+                break
+            } catch {
+                if Task.isCancelled { throw CancellationError() }
+                EnsembleLogger.debug("Download decoding failed track=\(ctx.trackRatingKey) attempt=\(attempt + 1) decodedFrames=\(decodedFrames) advertisedFrames=\(audioFile.length) domain=\((error as NSError).domain) code=\((error as NSError).code)")
+                if attempt == 1 { throw DownloadProcessingError.audioValidationFailed }
+            }
+        }
+        guard ctx.trackDuration > 10_000 else { return }
+        let expectedSeconds = Double(ctx.trackDuration) / 1_000
+        let fileDuration = Double(decodedFrames) / sampleRate
+        if fileDuration < expectedSeconds * 0.5 && fileDuration < expectedSeconds - 10 {
+            EnsembleLogger.debug("Truncated download rejected track=\(ctx.trackRatingKey) decodedSeconds=\(fileDuration) expectedSeconds=\(expectedSeconds)")
+            throw DownloadProcessingError.truncatedPayload(fileDuration: fileDuration, expectedDuration: expectedSeconds)
         }
     }
 
@@ -534,6 +493,11 @@ final class DownloadTransferExecutor {
             : inferredFileExtension(mimeType: mimeType, payload: payload)
         let fileName = "\(ratingKey)_\(safeSourceKey)_\(quality.rawValue).\(ext)"
         return DownloadManager.downloadsDirectory.appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    private static func removeLocalDownloadArtifact(_ fileURL: URL) {
+        try? FileManager.default.removeItem(at: fileURL)
+        try? FileManager.default.removeItem(at: fileURL.appendingPathExtension("freq"))
     }
 
     static func inferredFileExtension(mimeType: String?, payload: Data?) -> String {

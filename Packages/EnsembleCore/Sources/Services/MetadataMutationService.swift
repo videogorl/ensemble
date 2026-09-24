@@ -93,7 +93,7 @@ public final class MetadataMutationService {
     private let isOffline: () -> Bool
     private let canManageServer: (_ accountId: String, _ serverId: String) -> Bool
     private let makeClient: (_ accountId: String, _ serverId: String) -> MetadataMutationClient?
-    private let clearLyricsCache: (_ ratingKey: String, _ sourceCompositeKey: String) -> Void
+    private let clearLyricsCache: (_ ratingKey: String, _ sourceCompositeKey: String) async -> Void
     private let removeDeletedTracksFromPlayback: @MainActor (Set<String>) -> Void
 
     public init(
@@ -104,7 +104,7 @@ public final class MetadataMutationService {
         isOffline: @escaping () -> Bool,
         canManageServer: @escaping (_ accountId: String, _ serverId: String) -> Bool,
         makeClient: @escaping (_ accountId: String, _ serverId: String) -> MetadataMutationClient?,
-        clearLyricsCache: @escaping (_ ratingKey: String, _ sourceCompositeKey: String) -> Void,
+        clearLyricsCache: @escaping (_ ratingKey: String, _ sourceCompositeKey: String) async -> Void,
         removeDeletedTracksFromPlayback: @escaping @MainActor (Set<String>) -> Void
     ) {
         self.libraryRepository = libraryRepository
@@ -161,7 +161,11 @@ public final class MetadataMutationService {
         for track in trackModels {
             try await cleanupTrackArtifacts(track)
         }
-        artworkDownloadManager.deleteArtwork(ratingKey: album.id, type: .album)
+        artworkDownloadManager.deleteArtwork(
+            ratingKey: album.id,
+            type: .album,
+            sourceCompositeKey: album.sourceCompositeKey
+        )
         try await libraryRepository.deleteAlbum(ratingKey: album.id, sourceCompositeKey: album.sourceCompositeKey)
         removeDeletedTracksFromPlayback(Set(trackModels.map(\.sourceScopedID)))
         postMetadataDidChange()
@@ -272,12 +276,14 @@ public final class MetadataMutationService {
                     trackSourceCompositeKey: sourceCompositeKey
                 )
             )
-            clearLyricsCache(track.id, sourceCompositeKey)
-        } else {
-            try? await downloadManager.deleteDownload(forTrackRatingKey: track.id)
+            await clearLyricsCache(track.id, sourceCompositeKey)
         }
 
-        artworkDownloadManager.deleteArtwork(ratingKey: track.id, type: .track)
+        artworkDownloadManager.deleteArtwork(
+            ratingKey: track.id,
+            type: .track,
+            sourceCompositeKey: track.sourceCompositeKey
+        )
     }
 
     private func removeTrackMemberships(_ reference: OfflineTrackReference) async throws {
@@ -326,13 +332,14 @@ public final class MetadataMutationService {
     }
 
     private func sourceContext(for sourceCompositeKey: String?) throws -> SourceContext {
-        guard let sourceCompositeKey else { throw MetadataMutationError.invalidSource }
-        let components = sourceCompositeKey.split(separator: ":").map(String.init)
-        guard components.count >= 4 else { throw MetadataMutationError.invalidSource }
+        guard let identity = MediaSourceIdentity.parse(sourceCompositeKey),
+              let libraryId = identity.libraryId else {
+            throw MetadataMutationError.invalidSource
+        }
         return SourceContext(
-            accountId: components[1],
-            serverId: components[2],
-            libraryId: components[3]
+            accountId: identity.accountId,
+            serverId: identity.serverId,
+            libraryId: libraryId
         )
     }
 }

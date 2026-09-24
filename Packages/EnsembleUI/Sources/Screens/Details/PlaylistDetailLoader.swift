@@ -7,11 +7,10 @@ struct PlaylistDetailLoader: View {
     let nowPlayingVM: NowPlayingViewModel
     @State private var playlist: Playlist?
     @State private var initialTracks: [Track]?
+    @State private var initialItems: [PlaylistItem]?
     @State private var initialArtworkImage: PlatformImage?
     @State private var isLoading = true
     @State private var error: Error?
-    @State private var hasStartedLoading = false
-    @State private var loadTask: Task<Void, Never>?
     
     @Environment(\.dependencies) private var deps
 
@@ -28,6 +27,7 @@ struct PlaylistDetailLoader: View {
                     playlist: playlist,
                     nowPlayingVM: nowPlayingVM,
                     initialTracks: initialTracks,
+                    initialItems: initialItems,
                     initialArtworkImage: initialArtworkImage
                 )
             } else if isLoading {
@@ -42,66 +42,78 @@ struct PlaylistDetailLoader: View {
                 EnsembleStateScaffold(kind: .empty, title: "Playlist not found")
             }
         }
-        .onAppear {
-            guard !hasStartedLoading else { return }
-            hasStartedLoading = true
-            loadTask = Task {
-                await loadPlaylist()
-            }
-        }
-        .onDisappear {
-            loadTask?.cancel()
+        .task {
+            await loadPlaylist()
         }
     }
     
     @MainActor
     private func loadPlaylist() async {
         do {
+            #if os(macOS)
             guard let cdPlaylist = try await deps.playlistRepository.fetchPlaylist(
                 ratingKey: playlistId,
                 sourceCompositeKey: playlistSourceKey
             ) else {
-                finishLoading(playlist: nil, initialTracks: nil, initialArtworkImage: nil, error: nil)
+                finishLoading(playlist: nil, initialTracks: nil, initialItems: nil, initialArtworkImage: nil, error: nil)
                 return
             }
+            let loadedItems: [PlaylistItem]? = cdPlaylist.playlistItemsArray.map(PlaylistItem.init(from:))
+            #else
+            guard let cdPlaylist = try await deps.playlistRepository.fetchPlaylistHeader(
+                ratingKey: playlistId,
+                sourceCompositeKey: playlistSourceKey
+            ) else {
+                finishLoading(playlist: nil, initialTracks: nil, initialItems: nil, initialArtworkImage: nil, error: nil)
+                return
+            }
+            let loadedItems: [PlaylistItem]? = nil
+            #endif
 
             let loadedPlaylist = Playlist(from: cdPlaylist)
-            let loadedTracks = cdPlaylist.tracksArray.map { Track(from: $0) }
             let loadedArtworkImage = await loadCachedArtwork(for: loadedPlaylist)
             finishLoading(
                 playlist: loadedPlaylist,
-                initialTracks: loadedTracks.isEmpty ? nil : loadedTracks,
+                initialTracks: loadedItems?.map(\.track),
+                initialItems: loadedItems,
                 initialArtworkImage: loadedArtworkImage,
                 error: nil
             )
         } catch {
-            finishLoading(playlist: nil, initialTracks: nil, initialArtworkImage: nil, error: error)
+            finishLoading(playlist: nil, initialTracks: nil, initialItems: nil, initialArtworkImage: nil, error: error)
         }
     }
 
     private func loadCachedArtwork(for playlist: Playlist) async -> PlatformImage? {
-        let descriptor = ArtworkResolutionDescriptor(
+        let hasCompositeArtwork = playlist.compositePath?.isEmpty == false
+        let fallbackSourceKey = playlist.fallbackArtworkSourceCompositeKey
+            ?? playlist.sourceCompositeKey
+        let request = ArtworkRequest(
             path: playlist.compositePath,
-            sourceKey: playlist.sourceCompositeKey,
+            sourceKey: hasCompositeArtwork ? playlist.sourceCompositeKey : fallbackSourceKey,
             ratingKey: playlist.id,
-            fallbackPath: nil,
-            fallbackRatingKey: nil,
-            cacheHint: PersistentArtworkCacheHint(playlist: playlist),
-            fallbackCacheHint: nil,
-            size: 600,
+            fallbackPath: playlist.fallbackArtworkPath,
+            fallbackRatingKey: playlist.fallbackArtworkRatingKey,
+            fallbackSourceKey: fallbackSourceKey,
+            identity: ArtworkRequest.Identity(playlist: playlist),
+            fallbackIdentity: ArtworkRequest.Identity(
+                ratingKey: playlist.fallbackArtworkRatingKey,
+                kind: .album,
+                sourcePath: playlist.fallbackArtworkPath,
+                sourceCompositeKey: fallbackSourceKey
+            ),
+            tier: .hero,
             priority: .high
         )
 
-        return await ArtworkImageResolver.locallyCachedImage(
-            for: descriptor,
-            artworkLoader: deps.artworkLoader
-        )?.image
+        return await deps.artworkLoader.cachedImage(for: request)?.image
     }
 
     @MainActor
     private func finishLoading(
         playlist: Playlist?,
         initialTracks: [Track]?,
+        initialItems: [PlaylistItem]?,
         initialArtworkImage: PlatformImage?,
         error: Error?
     ) {
@@ -113,6 +125,7 @@ struct PlaylistDetailLoader: View {
 
         withTransaction(transaction) {
             self.initialTracks = initialTracks
+            self.initialItems = initialItems
             self.initialArtworkImage = initialArtworkImage
             self.playlist = playlist
             self.error = error

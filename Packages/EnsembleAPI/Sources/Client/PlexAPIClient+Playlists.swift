@@ -13,57 +13,36 @@ extension PlexAPIClient {
             query["X-Plex-Container-Start"] = "0"
             query["X-Plex-Container-Size"] = String(limit)
         }
-        let data = try await serverRequest(path: "/playlists", query: query)
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexPlaylist>.self,
-            from: data
+        return PlexPlaylist.deduplicated(
+            try await mediaContainerItems(path: "/playlists", query: query)
         )
-        return container.mediaContainer.items
     }
 
     /// Get playlist inventory (just ratingKeys) for orphan detection
     public func getPlaylistInventory() async throws -> [PlexInventoryItem] {
-        let data = try await serverRequest(
-            path: "/playlists",
-            query: [
-                "playlistType": "audio",
-                "includeFields": "ratingKey",
-                "excludeElements": "Media"
-            ]
-        )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexInventoryItem>.self,
-            from: data
-        )
-        return container.mediaContainer.items
+        try await getPlaylists().map { PlexInventoryItem(ratingKey: $0.ratingKey) }
     }
 
     /// Get playlists added after a specific timestamp (incremental sync)
     public func getPlaylists(addedAfter timestamp: TimeInterval) async throws -> [PlexPlaylist] {
         let unixTime = Int(timestamp)
-        let data = try await serverRequest(
-            path: "/playlists",
-            query: ["playlistType": "audio", "addedAt>=": String(unixTime)]
+        return PlexPlaylist.deduplicated(
+            try await mediaContainerItems(
+                path: "/playlists",
+                query: ["playlistType": "audio", "addedAt>": String(unixTime)]
+            )
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexPlaylist>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get playlists updated after a specific timestamp (incremental sync)
     public func getPlaylists(updatedAfter timestamp: TimeInterval) async throws -> [PlexPlaylist] {
         let unixTime = Int(timestamp)
-        let data = try await serverRequest(
-            path: "/playlists",
-            query: ["playlistType": "audio", "updatedAt>=": String(unixTime)]
+        return PlexPlaylist.deduplicated(
+            try await mediaContainerItems(
+                path: "/playlists",
+                query: ["playlistType": "audio", "updatedAt>": String(unixTime)]
+            )
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexPlaylist>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get playlist tracks
@@ -80,6 +59,12 @@ extension PlexAPIClient {
             PlexMediaContainer<PlexTrack>.self,
             from: data
         )
+        let content = container.mediaContainer
+        guard content.offset == nil || content.offset == 0,
+              content.size == content.items.count,
+              content.totalSize == nil || content.totalSize == content.items.count else {
+            throw PlexAPIError.invalidResponse
+        }
         EnsembleLogger.debug("✅ Got \(container.mediaContainer.items.count) playlist tracks")
         return container.mediaContainer.items
     }

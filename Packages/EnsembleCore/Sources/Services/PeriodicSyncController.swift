@@ -1,6 +1,6 @@
 import Foundation
 
-/// Owns the repeating timer used for foreground incremental sync so
+/// Owns the repeating timers used for foreground incremental sync so
 /// SyncCoordinator can delegate scheduling mechanics.
 @MainActor
 final class PeriodicSyncController {
@@ -9,43 +9,61 @@ final class PeriodicSyncController {
 
     private let defaultInterval: TimeInterval
     private let relaxedWebSocketInterval: TimeInterval
+    private let downloadedPlaylistInterval: TimeInterval
     private let timerFactory: TimerFactory
     private var timer: PeriodicSyncTimer?
+    private var downloadedPlaylistTimer: PeriodicSyncTimer?
+    private var isRunning = false
 
     init(
         defaultInterval: TimeInterval = 60 * 60,
         relaxedWebSocketInterval: TimeInterval = 4 * 60 * 60,
+        downloadedPlaylistInterval: TimeInterval = 60,
         timerFactory: @escaping TimerFactory = { interval, handler in
             FoundationPeriodicSyncTimer(interval: interval, handler: handler)
         }
     ) {
         self.defaultInterval = defaultInterval
         self.relaxedWebSocketInterval = relaxedWebSocketInterval
+        self.downloadedPlaylistInterval = downloadedPlaylistInterval
         self.timerFactory = timerFactory
     }
 
-    func start(action: @escaping SyncRunner) {
+    func start(
+        action: @escaping SyncRunner,
+        downloadedPlaylistAction: SyncRunner? = nil
+    ) {
+        isRunning = true
         schedule(interval: defaultInterval, action: action)
+        downloadedPlaylistTimer?.invalidate()
+        downloadedPlaylistTimer = downloadedPlaylistAction.map { action in
+            timerFactory(downloadedPlaylistInterval) {
+                Task { @MainActor in
+                    await action()
+                }
+            }
+        }
     }
 
     func stop() {
+        isRunning = false
         timer?.invalidate()
         timer = nil
+        downloadedPlaylistTimer?.invalidate()
+        downloadedPlaylistTimer = nil
     }
 
     @discardableResult
     func adjustForWebSocket(hasActiveWebSocket: Bool, action: @escaping SyncRunner) -> TimeInterval {
         let interval = hasActiveWebSocket ? relaxedWebSocketInterval : defaultInterval
-        schedule(interval: interval, action: action)
+        if isRunning {
+            schedule(interval: interval, action: action)
+        }
         return interval
     }
 
-    internal func fireForTesting() {
-        timer?.fire()
-    }
-
     private func schedule(interval: TimeInterval, action: @escaping SyncRunner) {
-        stop()
+        timer?.invalidate()
         timer = timerFactory(interval) {
             Task { @MainActor in
                 await action()
@@ -57,7 +75,6 @@ final class PeriodicSyncController {
 @MainActor
 protocol PeriodicSyncTimer: AnyObject {
     func invalidate()
-    func fire()
 }
 
 @MainActor
@@ -74,9 +91,5 @@ private final class FoundationPeriodicSyncTimer: PeriodicSyncTimer {
 
     func invalidate() {
         timer.invalidate()
-    }
-
-    func fire() {
-        timer.fire()
     }
 }

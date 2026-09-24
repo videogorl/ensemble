@@ -1,5 +1,6 @@
 #if os(iOS)
 import AppIntents
+import CoreSpotlight
 import EnsembleCore
 import EnsembleSiriShared
 import Foundation
@@ -13,6 +14,52 @@ private enum SiriAppShortcutLogger {
     )
 }
 
+@available(iOS 27.0, *)
+@MainActor
+final class EnsembleRelevantEntitiesPublisher {
+    static let shared = EnsembleRelevantEntitiesPublisher()
+
+    private var observationTask: Task<Void, Never>?
+    private var publishedTrackID: String?
+
+    private init() {}
+
+    func start() {
+        guard observationTask == nil else { return }
+
+        observationTask = Task { @MainActor in
+            for await track in DependencyContainer.shared.playbackService.currentTrackPublisher.values {
+                guard !Task.isCancelled else { return }
+                await publish(track)
+            }
+        }
+    }
+
+    private func publish(_ track: Track?) async {
+        let nextID = track?.sourceScopedID
+        guard nextID != publishedTrackID else { return }
+
+        do {
+            if let track {
+                try await RelevantEntities.shared.updateEntities(
+                    [EnsembleMediaEntity(track: track)],
+                    for: .audio(.nowPlaying)
+                )
+            } else {
+                try await RelevantEntities.shared.removeAllEntities(for: .audio(.nowPlaying))
+            }
+            publishedTrackID = nextID
+            SiriAppShortcutLogger.logger.debug(
+                "SIRI_SHORTCUT: updated now-playing relevant entity present=\(track != nil, privacy: .public)"
+            )
+        } catch {
+            SiriAppShortcutLogger.logger.error(
+                "SIRI_SHORTCUT: now-playing relevant entity update failed: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+}
+
 @available(iOS 16.0, *)
 private enum SiriIndexLookup {
     private static let appGroupIdentifier = SiriSharedConstants.appGroupIdentifier
@@ -20,6 +67,10 @@ private enum SiriIndexLookup {
 
     static func fetchItems(kind: SiriMediaKind) -> [SiriMediaIndexItem] {
         SiriMediaIndexResolver.items(in: loadIndex(), kind: kind)
+    }
+
+    static func fetchItems() -> [SiriMediaIndexItem] {
+        loadIndex()?.items ?? []
     }
 
     static func findItems(kind: SiriMediaKind, matching rawQuery: String, limit: Int = 10) -> [SiriMediaIndexItem] {
@@ -33,6 +84,16 @@ private enum SiriIndexLookup {
             "SIRI_SHORTCUT: findItems kind=\(kind.rawValue, privacy: .public) raw='\(rawQuery, privacy: .private)' matches=\(results.count, privacy: .public)"
         )
         return results
+    }
+
+    static func findItems(matching rawQuery: String, limit: Int = 10) -> [SiriMediaIndexItem] {
+        let ranked = SiriMediaIndexResolver.rankCandidates(
+            for: rawQuery,
+            requestedKinds: nil,
+            index: loadIndex(),
+            minimumScore: SiriMediaIndexResolver.defaultMinimumMatchScore
+        )
+        return Array(SiriMediaIndexResolver.deduplicateEquivalentItems(ranked.map(\.item)).prefix(limit))
     }
 
     private static func loadIndex() -> SiriMediaIndex? {
@@ -311,6 +372,10 @@ struct PlayEnsembleTrackIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Track in Ensemble"
     static var description = IntentDescription("Plays a specific track from your Ensemble library.")
     static var openAppWhenRun: Bool = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
     @Parameter(title: "Track")
     var track: EnsembleTrackEntity
@@ -337,6 +402,10 @@ struct PlayEnsembleArtistIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Artist in Ensemble"
     static var description = IntentDescription("Plays music by a specific artist from your Ensemble library.")
     static var openAppWhenRun: Bool = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
     static var parameterSummary: some ParameterSummary {
         Summary("Play artist \(\.$artist)")
     }
@@ -367,6 +436,10 @@ struct ShuffleEnsembleArtistIntent: AppIntent {
     static var description = IntentDescription("Shuffles music by a specific artist from your Ensemble library.")
     static var isDiscoverable: Bool = false
     static var openAppWhenRun: Bool = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
     static var parameterSummary: some ParameterSummary {
         Summary("Shuffle the artist \(\.$artistName)")
     }
@@ -404,6 +477,10 @@ struct PlayEnsembleAlbumIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Album in Ensemble"
     static var description = IntentDescription("Plays a specific album from your Ensemble library.")
     static var openAppWhenRun: Bool = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
     @Parameter(title: "Album")
     var album: EnsembleAlbumEntity
@@ -429,8 +506,11 @@ struct PlayEnsembleAlbumIntent: AppIntent {
 struct PlayEnsemblePlaylistIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Playlist in Ensemble"
     static var description = IntentDescription("Plays a specific playlist from your Ensemble library.")
-    static var isDiscoverable: Bool = false
     static var openAppWhenRun: Bool = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
     @Parameter(title: "Playlist")
     var playlist: EnsemblePlaylistEntity
@@ -458,6 +538,10 @@ struct ShuffleEnsemblePlaylistIntent: AppIntent {
     static var description = IntentDescription("Shuffles a specific playlist from your Ensemble library.")
     static var isDiscoverable: Bool = false
     static var openAppWhenRun: Bool = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
     @Parameter(title: "Playlist")
     var playlist: EnsemblePlaylistEntity
@@ -476,6 +560,356 @@ struct ShuffleEnsemblePlaylistIntent: AppIntent {
             shuffle: true
         )
         return .result(dialog: IntentDialog("Shuffling \(playlist.title) in Ensemble."))
+    }
+}
+
+@available(iOS 16.0, *)
+struct EnsembleMediaEntity: AppEntity {
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Ensemble Media")
+    static var defaultQuery = EnsembleMediaEntityQuery()
+
+    let id: String
+    let kindRawValue: String
+    let ratingKey: String
+    let title: String
+    let sourceCompositeKey: String?
+    let artistName: String?
+    let albumTitle: String?
+    let duration: TimeInterval?
+    let trackNumber: Int?
+    let discNumber: Int?
+    let isSmartPlaylist: Bool?
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(
+            title: "\(title)",
+            subtitle: "\(kind.displayName)"
+        )
+    }
+
+    var kind: SiriMediaKind {
+        SiriMediaKind(rawValue: kindRawValue) ?? .track
+    }
+
+    var permalink: EnsemblePermalink {
+        EnsemblePermalink(
+            kind: kind,
+            title: title,
+            artistName: artistName,
+            albumTitle: albumTitle,
+            duration: duration,
+            trackNumber: trackNumber,
+            discNumber: discNumber,
+            isSmartPlaylist: isSmartPlaylist
+        )
+    }
+
+    init(item: SiriMediaIndexItem) {
+        id = item.reference.sourceScopedIdentifier
+        kindRawValue = item.kind.rawValue
+        ratingKey = item.id
+        title = item.displayName
+        sourceCompositeKey = item.sourceCompositeKey
+        artistName = item.artistName ?? item.secondaryText
+        albumTitle = item.albumTitle
+        duration = item.duration
+        trackNumber = item.trackNumber
+        discNumber = item.discNumber
+        isSmartPlaylist = item.isSmartPlaylist
+    }
+
+    @available(iOS 27.0, *)
+    init(track: Track) {
+        let reference = SystemMediaReference(
+            kind: .track,
+            id: track.id,
+            sourceCompositeKey: track.sourceCompositeKey,
+            displayName: track.title
+        )
+        id = reference.sourceScopedIdentifier
+        kindRawValue = SiriMediaKind.track.rawValue
+        ratingKey = track.id
+        title = track.title
+        sourceCompositeKey = track.sourceCompositeKey
+        artistName = track.artistName
+        albumTitle = track.albumName
+        duration = track.duration
+        trackNumber = track.trackNumber
+        discNumber = track.discNumber
+        isSmartPlaylist = nil
+    }
+}
+
+@available(iOS 16.0, *)
+struct EnsembleMediaEntityQuery: EntityStringQuery {
+    func entities(for identifiers: [EnsembleMediaEntity.ID]) async throws -> [EnsembleMediaEntity] {
+        let wanted = Set(identifiers)
+        return SiriIndexLookup.fetchItems()
+            .map(EnsembleMediaEntity.init(item:))
+            .filter { wanted.contains($0.id) }
+    }
+
+    func entities(matching string: String) async throws -> [EnsembleMediaEntity] {
+        SiriIndexLookup.findItems(matching: string).map(EnsembleMediaEntity.init(item:))
+    }
+
+    func suggestedEntities() async throws -> [EnsembleMediaEntity] {
+        []
+    }
+}
+
+@available(iOS 18.0, *)
+extension EnsembleMediaEntity: IndexedEntity {}
+
+@available(iOS 27.0, *)
+extension EnsembleMediaEntityQuery: IndexedEntityQuery {
+    func reindexEntities(
+        for identifiers: [EnsembleMediaEntity.ID],
+        indexDescription _: CSSearchableIndexDescription
+    ) async throws {
+        guard !identifiers.isEmpty else { return }
+        await DependencyContainer.shared.systemMediaIntegrationService.refreshSpotlightIndex()
+    }
+
+    func reindexAllEntities(indexDescription _: CSSearchableIndexDescription) async throws {
+        await DependencyContainer.shared.systemMediaIntegrationService.refreshSpotlightIndex()
+    }
+}
+
+@available(iOS 16.0, *)
+private extension SiriMediaKind {
+    var displayName: String {
+        switch self {
+        case .track: return "Song"
+        case .album: return "Album"
+        case .artist: return "Artist"
+        case .playlist: return "Playlist"
+        }
+    }
+}
+
+/// Opens a selected local media item without starting playback.
+@available(iOS 16.0, *)
+struct OpenEnsembleMediaIntent: AppIntent {
+    static var title: LocalizedStringResource = "Open Media in Ensemble"
+    static var description = IntentDescription("Opens a song, artist, album, or playlist in Ensemble without playing it.")
+    static var openAppWhenRun = true
+    @available(iOS 26.0, *)
+    static var supportedModes: IntentModes { .foreground }
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
+
+    @Parameter(title: "Media")
+    var media: EnsembleMediaEntity
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Open \(\.$media) in Ensemble")
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let reference = SystemMediaReference(
+            kind: media.kind,
+            id: media.ratingKey,
+            sourceCompositeKey: media.sourceCompositeKey,
+            displayName: media.title
+        )
+        if let destination = NavigationCoordinator.systemMediaDestination(
+            fromSourceScopedIdentifier: reference.sourceScopedIdentifier
+        ) {
+            _ = NavigationCoordinator.routeExternalSearchInActiveScene(to: destination)
+        }
+        return .result(dialog: IntentDialog("Opening \(media.title) in Ensemble."))
+    }
+}
+
+/// Produces the same portable URL used by the in-app Share Ensemble Link action.
+@available(iOS 16.0, *)
+struct GetEnsembleLinkIntent: AppIntent {
+    static var title: LocalizedStringResource = "Get Ensemble Link"
+    static var description = IntentDescription("Creates a library-independent Ensemble link for selected media.")
+
+    @Parameter(title: "Media")
+    var media: EnsembleMediaEntity
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Get an Ensemble link for \(\.$media)")
+    }
+
+    func perform() async throws -> some IntentResult & ReturnsValue<URL> & ProvidesDialog {
+        guard let url = media.permalink.url else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        return .result(value: url, dialog: IntentDialog("Created an Ensemble link for \(media.title)."))
+    }
+}
+
+@available(iOS 16.0, *)
+private enum EnsembleFocusFilterLogger {
+    static let logger = Logger(
+        subsystem: "com.videogorl.ensemble.focus-filter",
+        category: "FocusFilter"
+    )
+}
+
+@available(iOS 16.0, *)
+enum EnsembleFocusScrobblingSetting: String, AppEnum {
+    case useAppSetting
+    case enabled
+    case disabled
+
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Scrobbling")
+    static var caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .useAppSetting: "Use Ensemble Setting",
+        .enabled: "Enabled",
+        .disabled: "Disabled"
+    ]
+
+    var overrideValue: Bool? {
+        switch self {
+        case .useAppSetting: return nil
+        case .enabled: return true
+        case .disabled: return false
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .useAppSetting: return "App scrobbling setting"
+        case .enabled: return "Scrobbling on"
+        case .disabled: return "Scrobbling off"
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+struct EnsembleLibraryEntity: AppEntity {
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Library")
+    static var defaultQuery = EnsembleLibraryEntityQuery()
+
+    let id: String
+    let title: String
+    let subtitle: String?
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(
+            title: "\(title)",
+            subtitle: subtitle.map { "\($0)" }
+        )
+    }
+}
+
+@available(iOS 16.0, *)
+struct EnsembleLibraryEntityQuery: EntityQuery {
+    @MainActor
+    func entities(for identifiers: [EnsembleLibraryEntity.ID]) async throws -> [EnsembleLibraryEntity] {
+        let wanted = Set(identifiers)
+        return Self.availableLibraries().filter { wanted.contains($0.id) }
+    }
+
+    @MainActor
+    func suggestedEntities() async throws -> [EnsembleLibraryEntity] {
+        Self.availableLibraries()
+    }
+
+    @MainActor
+    private static func availableLibraries() -> [EnsembleLibraryEntity] {
+        let accountManager = DependencyContainer.shared.accountManager
+        if accountManager.credentialLoadState == .loading, accountManager.plexAccounts.isEmpty {
+            accountManager.loadAccounts()
+        }
+
+        return accountManager.enabledSources().compactMap { source in
+            guard let presentation = accountManager.sourcePresentation(for: source.compositeKey) else {
+                return nil
+            }
+            if source.type == .appleMusic {
+                return EnsembleLibraryEntity(
+                    id: source.compositeKey,
+                    title: presentation.capabilities.displayName,
+                    subtitle: nil
+                )
+            }
+            return EnsembleLibraryEntity(
+                id: source.compositeKey,
+                title: presentation.libraryName,
+                subtitle: "\(presentation.serverName) • \(presentation.accountName)"
+            )
+        }
+        .sorted {
+            ($0.title, $0.subtitle ?? "", $0.id) < ($1.title, $1.subtitle ?? "", $1.id)
+        }
+    }
+}
+
+/// Applies temporary playback and library-visibility overrides for the active system Focus.
+@available(iOS 16.0, *)
+struct EnsembleFocusFilter: SetFocusFilterIntent {
+    static var title: LocalizedStringResource = "Playback & Libraries"
+    static var description = IntentDescription(
+        "Choose which Ensemble libraries are visible and whether playback scrobbles while this Focus is active."
+    )
+
+    @Parameter(title: "Libraries to Show")
+    var visibleLibraries: [EnsembleLibraryEntity]?
+
+    @Parameter(title: "Scrobbling", default: .useAppSetting)
+    var scrobbling: EnsembleFocusScrobblingSetting
+
+    var displayRepresentation: DisplayRepresentation {
+        let librarySummary: String
+        switch visibleLibraries?.count {
+        case nil:
+            librarySummary = "App library visibility"
+        case 1:
+            librarySummary = visibleLibraries?.first?.title ?? "1 library"
+        case let count?:
+            librarySummary = "\(count) libraries"
+        }
+        return DisplayRepresentation(
+            title: "Filter Ensemble",
+            subtitle: "\(librarySummary), \(scrobbling.summary)"
+        )
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        apply(resetsLibraryBypass: true)
+        return .result()
+    }
+
+    @MainActor
+    static func refreshCurrent() async {
+        do {
+            let currentFilter = try await Self.current
+            currentFilter.apply(resetsLibraryBypass: false)
+        } catch {
+            clearOverrides()
+            EnsembleFocusFilterLogger.logger.info(
+                "FOCUS_FILTER: using app settings because no active configuration was found"
+            )
+        }
+    }
+
+    @MainActor
+    private func apply(resetsLibraryBypass: Bool) {
+        let visibleSourceKeys = visibleLibraries.map { Set($0.map(\.id)) }
+        DependencyContainer.shared.libraryVisibilityStore.setFocusVisibleSourceCompositeKeys(
+            visibleSourceKeys,
+            resetsBypass: resetsLibraryBypass
+        )
+        DependencyContainer.shared.settingsManager.setFocusScrobblingOverride(
+            scrobbling.overrideValue
+        )
+        EnsembleFocusFilterLogger.logger.info(
+            "FOCUS_FILTER: applied libraries=\(visibleSourceKeys?.count ?? 0, privacy: .public) libraryOverride=\(visibleSourceKeys != nil, privacy: .public) scrobbling=\(scrobbling.rawValue, privacy: .public)"
+        )
+    }
+
+    @MainActor
+    private static func clearOverrides() {
+        DependencyContainer.shared.libraryVisibilityStore.setFocusVisibleSourceCompositeKeys(nil)
+        DependencyContainer.shared.settingsManager.setFocusScrobblingOverride(nil)
     }
 }
 
@@ -513,6 +947,26 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             ],
             shortTitle: "Play Artist",
             systemImageName: "music.mic"
+        )
+
+        AppShortcut(
+            intent: PlayEnsemblePlaylistIntent(),
+            phrases: [
+                "Play playlist \(\.$playlist) on \(.applicationName)",
+                "Play the playlist \(\.$playlist) on \(.applicationName)",
+                "In \(.applicationName), play playlist \(\.$playlist)"
+            ],
+            shortTitle: "Play Playlist",
+            systemImageName: "music.note.list"
+        )
+
+        AppShortcut(
+            intent: OpenEnsembleMediaIntent(),
+            phrases: [
+                "Open \(\.$media) in \(.applicationName)"
+            ],
+            shortTitle: "Open Media",
+            systemImageName: "arrow.up.forward.app"
         )
 
     }

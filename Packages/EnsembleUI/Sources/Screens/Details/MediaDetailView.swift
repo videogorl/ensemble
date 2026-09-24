@@ -1,6 +1,6 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
-import Nuke
 
 private struct SendableMediaDetailPlatformImage: @unchecked Sendable {
     let value: PlatformImage
@@ -20,8 +20,7 @@ public struct MediaHeaderData {
     let sourceKey: String?
     let ratingKey: String?
     let artistRatingKey: String? // Added for cross-navigation
-    /// When set, renders composite 2x2 artwork from multiple playlists (for merged playlists)
-    let artworkPlaylists: [Playlist]?
+    let trackSourceLabels: [String: String]
 
     public init(
         title: String,
@@ -31,7 +30,7 @@ public struct MediaHeaderData {
         sourceKey: String?,
         ratingKey: String? = nil,
         artistRatingKey: String? = nil,
-        artworkPlaylists: [Playlist]? = nil
+        trackSourceLabels: [String: String] = [:]
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -40,14 +39,57 @@ public struct MediaHeaderData {
         self.sourceKey = sourceKey
         self.ratingKey = ratingKey
         self.artistRatingKey = artistRatingKey
-        self.artworkPlaylists = artworkPlaylists
+        self.trackSourceLabels = trackSourceLabels
     }
 }
 
+func mediaDetailSourceLabel(
+    sourceType: MusicSourceType,
+    presentation: MusicSourcePresentation,
+    demoModeEnabled: Bool
+) -> String {
+    let serverName = DemoModeRedaction.serverName(
+        presentation.serverName,
+        isEnabled: demoModeEnabled
+    )
+    guard sourceType != .appleMusic,
+          presentation.libraryName != presentation.serverName else {
+        return serverName
+    }
+    return "\(presentation.libraryName) · \(serverName)"
+}
+
+@MainActor
+func mediaDetailTrackSourceLabels(
+    tracks: [Track],
+    accountManager: AccountManager,
+    demoModeEnabled: Bool
+) -> [String: String] {
+    Dictionary(uniqueKeysWithValues: Set(tracks.compactMap(\.sourceCompositeKey)).compactMap { sourceKey in
+        guard let sourceType = MediaSourceIdentity.sourceType(from: sourceKey),
+              let presentation = accountManager.sourcePresentation(for: sourceKey) else { return nil }
+        return (
+            sourceKey,
+            mediaDetailSourceLabel(
+                sourceType: sourceType,
+                presentation: presentation,
+                demoModeEnabled: demoModeEnabled
+            )
+        )
+    })
+}
+
 public struct PlaylistDetailMenuActions {
-    let canRename: Bool
-    let canEdit: Bool
-    let canDelete: Bool
+    let favoriteAvailability: MusicItemActionAvailability
+    let isFavorite: Bool
+    let downloadAvailability: MusicItemActionAvailability
+    let isDownloaded: Bool
+    let renameAvailability: MusicItemActionAvailability
+    let editAvailability: MusicItemActionAvailability
+    let deleteAvailability: MusicItemActionAvailability
+    let onToggleFavorite: () -> Void
+    let onFavorite: () -> Void
+    let onToggleDownload: () -> Void
     let onRename: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -56,10 +98,128 @@ public struct PlaylistDetailMenuActions {
 }
 
 public struct AlbumDetailMenuActions {
+    let favoriteAvailability: MusicItemActionAvailability
+    let isFavorite: Bool
+    let downloadAvailability: MusicItemActionAvailability
+    let isDownloaded: Bool
+    let editMetadataAvailability: MusicItemActionAvailability
+    let deleteAvailability: MusicItemActionAvailability
+    let onToggleFavorite: () -> Void
+    let onFavorite: () -> Void
+    let onToggleDownload: () -> Void
+    let onAddToPlaylist: (@escaping ([Track], String) -> Void) -> Void
     let onEditMetadata: () -> Void
     let onDelete: () -> Void
     let onPlayNext: () -> Void
     let onPlayLast: () -> Void
+}
+
+func resolvedPlaylistDetailEditAvailability(
+    actionAvailability: MusicItemActionAvailability,
+    canEditContents: Bool,
+    unavailableReason: String
+) -> MusicItemActionAvailability {
+    guard actionAvailability.isAvailable else { return actionAvailability }
+    return canEditContents ? .available : .unavailable(reason: unavailableReason)
+}
+
+func resolvedMergedDownloadMenuAvailability(
+    isAnyDownloaded: Bool,
+    sourceAvailabilities: [MusicItemActionAvailability]
+) -> MusicItemActionAvailability {
+    resolvedDownloadMenuAvailability(
+        isDownloaded: isAnyDownloaded,
+        sourceAvailability: .combined(sourceAvailabilities)
+    )
+}
+
+func makeMediaHeaderArtworkRequest(
+    headerData: MediaHeaderData,
+    mediaType: PinnedItemType?,
+    tier: ArtworkRequest.Tier = .hero
+) -> ArtworkRequest? {
+    guard let path = headerData.artworkPath, !path.isEmpty else { return nil }
+    let identity = mediaType
+        .flatMap(ArtworkRequest.Identity.Kind.init)
+        .flatMap {
+            ArtworkRequest.Identity(
+                ratingKey: headerData.ratingKey,
+                kind: $0,
+                sourcePath: path,
+                sourceCompositeKey: headerData.sourceKey
+            )
+        }
+    return ArtworkRequest(
+        path: path,
+        sourceKey: headerData.sourceKey,
+        ratingKey: headerData.ratingKey,
+        fallbackPath: nil,
+        fallbackRatingKey: nil,
+        identity: identity,
+        fallbackIdentity: nil,
+        tier: tier,
+        priority: .high
+    )
+}
+
+func mediaHeaderArtworkLoadIdentity(
+    primary: ArtworkRequest?,
+    fallback: ArtworkRequest?
+) -> String? {
+    let keys = [primary, fallback].compactMap { $0?.stableBlurCacheKey }
+    return keys.isEmpty ? nil : keys.joined(separator: "|fallback|")
+}
+
+func mediaHeaderBlurCacheKey(
+    resolvedBlurCacheKey: String?,
+    requests: [ArtworkRequest]
+) -> String? {
+    if let resolvedBlurCacheKey {
+        return resolvedBlurCacheKey
+    }
+    guard requests.count == 1 else { return nil }
+    return requests[0].stableBlurCacheKey
+}
+
+func makePlaylistHeaderFallbackArtworkRequest(
+    playlist: Playlist?,
+    track: Track?,
+    fallbackSourceKey: String?,
+    tier: ArtworkRequest.Tier = .hero
+) -> ArtworkRequest? {
+    if let playlist,
+       let path = playlist.fallbackArtworkPath,
+       !path.isEmpty {
+        let sourceKey = playlist.fallbackArtworkSourceCompositeKey
+            ?? playlist.sourceCompositeKey
+            ?? fallbackSourceKey
+        return ArtworkRequest(
+            path: path,
+            sourceKey: sourceKey,
+            ratingKey: playlist.fallbackArtworkRatingKey,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            identity: ArtworkRequest.Identity(
+                ratingKey: playlist.fallbackArtworkRatingKey,
+                kind: .album,
+                sourcePath: path,
+                sourceCompositeKey: sourceKey
+            ),
+            fallbackIdentity: nil,
+            tier: tier,
+            priority: .high
+        )
+    }
+
+    guard let track,
+          track.thumbPath?.isEmpty == false || track.fallbackThumbPath?.isEmpty == false else { return nil }
+
+    return ArtworkRequest(
+        track: track,
+        fallbackSourceKey: fallbackSourceKey,
+        tier: tier,
+        priority: .high
+    )
 }
 
 // MARK: - Media Detail View
@@ -75,9 +235,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let groupByDisc: Bool
     let showFilter: Bool
     let mediaType: PinnedItemType?
+    let selectedTrackId: String?
     let genreChipContent: AnyView?
     let playlistMenuActions: PlaylistDetailMenuActions?
     let albumMenuActions: AlbumDetailMenuActions?
+    let hiddenCandidates: [HiddenMediaCandidate]
+    let hiddenIdentity: HiddenMediaIdentity?
+    let includesHidden: Bool
     let additionalFooterContent: AnyView?
     let supplementalLoad: (() async -> Void)?
     /// Custom pin/unpin action for merged playlists (pins all constituents).
@@ -89,7 +253,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     @State private var artworkImage: PlatformImage?
     @State private var blurredArtworkImage: PlatformImage?
-    @State private var currentLoadPath: String?
+    @State private var currentArtworkLoadIdentity: String?
+    @State private var resolvedHeaderBlurCacheKey: String?
     @State private var headerArtworkRetryToken = 0
     @State private var showFilterSheet = false
     @State private var showToolbarTitle = false
@@ -106,6 +271,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var isPinnedForHeader: Bool
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     private let pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
@@ -121,6 +287,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         groupByDisc: Bool = false,
         showFilter: Bool = true,
         mediaType: PinnedItemType? = nil,
+        selectedTrackId: String? = nil,
+        hiddenCandidates: [HiddenMediaCandidate] = [],
+        hiddenIdentity: HiddenMediaIdentity? = nil,
+        includesHidden: Bool = false,
         genreChipContent: AnyView? = nil,
         playlistMenuActions: PlaylistDetailMenuActions? = nil,
         albumMenuActions: AlbumDetailMenuActions? = nil,
@@ -139,6 +309,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.groupByDisc = groupByDisc
         self.showFilter = showFilter
         self.mediaType = mediaType
+        self.selectedTrackId = selectedTrackId
+        self.hiddenCandidates = hiddenCandidates
+        self.hiddenIdentity = hiddenIdentity
+        self.includesHidden = includesHidden
         self.genreChipContent = genreChipContent
         self.playlistMenuActions = playlistMenuActions
         self.albumMenuActions = albumMenuActions
@@ -147,7 +321,28 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.customPinAction = customPinAction
         self.customIsPinned = customIsPinned
         self._artworkImage = State(initialValue: initialArtworkImage)
-        self._currentLoadPath = State(initialValue: initialArtworkImage == nil ? nil : headerData.artworkPath)
+        let initialFallbackTrack = mediaType == .playlist
+            ? viewModel.filteredTracks.first {
+                $0.thumbPath?.isEmpty == false || $0.fallbackThumbPath?.isEmpty == false
+            }
+            : nil
+        let initialFallbackDescriptor = mediaType == .playlist
+            ? makePlaylistHeaderFallbackArtworkRequest(
+                playlist: (viewModel as? PlaylistDetailViewModel)?.playlist,
+                track: initialFallbackTrack,
+                fallbackSourceKey: headerData.sourceKey
+            )
+            : nil
+        let initialLoadIdentity = mediaHeaderArtworkLoadIdentity(
+            primary: makeMediaHeaderArtworkRequest(
+                headerData: headerData,
+                mediaType: mediaType
+            ),
+            fallback: initialFallbackDescriptor
+        )
+        self._currentArtworkLoadIdentity = State(
+            initialValue: initialArtworkImage == nil ? nil : initialLoadIdentity
+        )
 
         let initialPinState: Bool
         let initialPinnedIdentities = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.sourceScopedID))
@@ -163,7 +358,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     public var body: some View {
-        baseContent
+        searchableContent
         .toolbar {
             EnsembleDetailToolbarActions {
                 if shouldShowStandaloneFilterButton {
@@ -201,16 +396,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(filterOptions: $viewModel.filterOptions)
         }
-        .sheet(item: $metadataEditorRequest) { request in
-            TextInputView(
-                title: request.kind.title,
-                message: "Changes are sent directly to Plex and then refreshed locally.",
-                placeholder: request.kind.fieldLabel,
-                initialText: request.currentTitle,
-                actionTitle: "Save",
-                onSubmit: request.onSave
-            )
-        }
+        .metadataEditorSheet(request: $metadataEditorRequest)
         .confirmationDialog(
             "Delete Track?",
             isPresented: $isConfirmingTrackDelete,
@@ -241,7 +427,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .onReceive(
             NotificationCenter.default.publisher(for: ArtworkLoader.serversBecameAvailable)
         ) { _ in
-            guard headerData.artworkPath?.isEmpty == false else { return }
+            guard headerArtworkContentIdentity != nil else { return }
             headerArtworkRetryToken &+= 1
         }
         .nowPlayingTrackListObservation(
@@ -251,9 +437,25 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         )
     }
 
+    @ViewBuilder
+    private var searchableContent: some View {
+        if showFilter {
+            baseContent.searchable(
+                text: $viewModel.filterOptions.searchText,
+                prompt: "Search tracks"
+            )
+        } else {
+            baseContent
+        }
+    }
+
     /// Whether the radio button should be shown.
     private var hasRadioButton: Bool {
         viewModel is AlbumDetailViewModel
+    }
+
+    private var playableTracks: [Track] {
+        viewModel.playableTracks
     }
 
     private var shouldShowStandaloneFilterButton: Bool {
@@ -267,28 +469,21 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var headerArtworkLoadKey: String {
-        [
-            headerData.sourceKey ?? "",
-            headerData.artworkPath ?? "",
-            headerData.ratingKey ?? "",
-            playlistHeaderFallbackArtworkKey,
-            String(headerArtworkRetryToken)
-        ].joined(separator: "|")
+        "\(headerArtworkContentIdentity ?? "no-header-artwork")|\(headerArtworkRetryToken)"
     }
 
-    private var playlistHeaderFallbackArtworkKey: String {
-        guard mediaType == .playlist,
-              let track = playlistHeaderFallbackArtworkTrack else {
-            return "no-playlist-fallback"
-        }
+    private var headerArtworkContentIdentity: String? {
+        mediaHeaderArtworkLoadIdentity(
+            primary: primaryHeaderArtworkRequest,
+            fallback: playlistHeaderFallbackArtworkRequest()
+        )
+    }
 
-        return [
-            track.sourceCompositeKey ?? "",
-            track.id,
-            track.thumbPath ?? "",
-            track.fallbackThumbPath ?? "",
-            track.fallbackRatingKey ?? ""
-        ].joined(separator: "|")
+    private var primaryHeaderArtworkRequest: ArtworkRequest? {
+        makeMediaHeaderArtworkRequest(
+            headerData: headerData,
+            mediaType: mediaType
+        )
     }
 
     private var playlistHeaderFallbackArtworkTrack: Track? {
@@ -303,7 +498,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             headerData.sourceKey ?? "",
             headerData.artworkPath ?? "",
             headerData.ratingKey ?? ""
-        ].joined(separator: "|")
+        ].description
     }
 
     private func updatePinStateForHeader(pinnedItems: [PinnedItem]) {
@@ -348,12 +543,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     } label: {
                         MediaActionLabel(kind: .playNext)
                     }
+                    .disabled(viewModel.filteredTracks.isEmpty)
 
                     Button {
                         albumMenuActions.onPlayLast()
                     } label: {
                         MediaActionLabel(kind: .playLast)
                     }
+                    .disabled(viewModel.filteredTracks.isEmpty)
 
                     if let recentTitle = PlaylistActionPresentationHost.recentPlaylistTitle(
                         for: viewModel.filteredTracks,
@@ -372,7 +569,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
 
                     Button {
-                        presentPlaylistPicker(with: viewModel.filteredTracks)
+                        albumMenuActions.onAddToPlaylist { tracks, title in
+                            presentPlaylistPicker(with: tracks, title: title)
+                        }
                     } label: {
                         MediaActionLabel(kind: .addToPlaylist)
                     }
@@ -380,13 +579,30 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
                     Divider()
 
+                    Button {
+                        albumMenuActions.onToggleFavorite()
+                    } label: {
+                        MediaActionLabel(kind: .favorite(
+                            isFavorited: albumMenuActions.isFavorite,
+                            usesFilledIcon: false
+                        ))
+                    }
+                    .disabled(!albumMenuActions.favoriteAvailability.isAvailable)
+                    .accessibilityHint(albumMenuActions.favoriteAvailability.reason ?? "")
+
                     let album = Album(
                         id: ratingKey,
                         key: headerData.ratingKey ?? ratingKey,
                         title: headerData.title,
                         artistName: headerData.subtitle,
-                        sourceCompositeKey: sourceKey ?? ""
+                        sourceCompositeKey: sourceKey
                     )
+                    Button {
+                        ShareActions.shareEnsembleLink(album, deps: deps)
+                    } label: {
+                        MediaActionLabel(kind: .shareEnsembleLink)
+                    }
+
                     Button {
                         ShareActions.shareAlbumLink(album, deps: deps)
                     } label: {
@@ -415,39 +631,24 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         MediaActionLabel(kind: .pin(isPinned: isPinned))
                     }
 
-                    if let sourceKey {
-                        let album = Album(
-                            id: ratingKey,
-                            key: headerData.ratingKey ?? ratingKey,
-                            title: headerData.title,
-                            artistName: headerData.subtitle,
-                            sourceCompositeKey: sourceKey
-                        )
-                        let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
-                        Button {
-                            Task {
-                                await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
-                            }
-                        } label: {
-                            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-                        }
+                    Button {
+                        albumMenuActions.onToggleDownload()
+                    } label: {
+                        MediaActionLabel(kind: .download(isDownloaded: albumMenuActions.isDownloaded))
                     }
+                    .disabled(!albumMenuActions.downloadAvailability.isAvailable)
+                    .accessibilityHint(albumMenuActions.downloadAvailability.reason ?? "")
 
                     Button {
                         albumMenuActions.onEditMetadata()
                     } label: {
                         MediaActionLabel(kind: .editMetadata)
                     }
-
-                    Divider()
-
-                    Button(role: .destructive) {
-                        albumMenuActions.onDelete()
-                    } label: {
-                        MediaActionLabel(kind: .deleteAlbum)
-                    }
+                    .disabled(!albumMenuActions.editMetadataAvailability.isAvailable)
+                    .accessibilityHint(albumMenuActions.editMetadataAvailability.reason ?? "")
                 }
             } else {
+                if mediaType != .playlist {
                     Button {
                         switch mediaType {
                         case .album:
@@ -477,10 +678,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         MediaActionLabel(kind: .getInfo)
                     }
                     .disabled(mediaType == .artist)
+                }
 
-                    Button {
-                        if let customAction = customPinAction {
-                            customAction(isPinned)
+                Button {
+                    if let customAction = customPinAction {
+                        customAction(isPinned)
                     } else {
                         deps.pinMutationWorkflow.togglePin(
                             id: ratingKey,
@@ -494,67 +696,89 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     MediaActionLabel(kind: .pin(isPinned: isPinned))
                 }
 
-                if
-                    let sourceKey,
-                    DownloadCapabilityPolicy.canAttemptDownload(for: sourceKey, accountManager: deps.accountManager)
-                {
-                    switch mediaType {
-                    case .album:
-                        let album = Album(
-                            id: ratingKey,
-                            key: headerData.ratingKey ?? ratingKey,
-                            title: headerData.title,
-                            artistName: headerData.subtitle,
-                            sourceCompositeKey: sourceKey
-                        )
-                        let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
-                        Button {
-                            Task {
-                                await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
-                            }
-                        } label: {
-                            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
+                switch mediaType {
+                case .album:
+                    let album = Album(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        title: headerData.title,
+                        artistName: headerData.subtitle,
+                        sourceCompositeKey: sourceKey
+                    )
+                    let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+                    let availability = resolvedDownloadMenuAvailability(
+                        isDownloaded: isDownloaded,
+                        sourceAvailability: album.actionAvailability(for: .download)
+                    )
+                    Button {
+                        Task {
+                            await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
                         }
-
-                    case .artist:
-                        let artist = Artist(
-                            id: ratingKey,
-                            key: headerData.ratingKey ?? ratingKey,
-                            name: headerData.title,
-                            summary: nil,
-                            thumbPath: headerData.artworkPath,
-                            artPath: nil,
-                            sourceCompositeKey: sourceKey
-                        )
-                        let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
-                        Button {
-                            Task {
-                                await deps.downloadMutationWorkflow.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
-                            }
-                        } label: {
-                            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-                        }
-
-                    case .playlist:
-                        let playlist = Playlist(
-                            id: ratingKey,
-                            key: headerData.ratingKey ?? ratingKey,
-                            title: headerData.title,
-                            summary: nil,
-                            isSmart: false,
-                            trackCount: 0,
-                            duration: 0,
-                            sourceCompositeKey: sourceKey
-                        )
-                        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-                        Button {
-                            Task {
-                                await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
-                            }
-                        } label: {
-                            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-                        }
+                    } label: {
+                        MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                     }
+                    .disabled(!availability.isAvailable)
+                    .accessibilityHint(availability.reason ?? "")
+
+                case .artist:
+                    let artist = Artist(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        name: headerData.title,
+                        summary: nil,
+                        thumbPath: headerData.artworkPath,
+                        artPath: nil,
+                        sourceCompositeKey: sourceKey
+                    )
+                    let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
+                    let availability = resolvedDownloadMenuAvailability(
+                        isDownloaded: isDownloaded,
+                        sourceAvailability: artist.actionAvailability(for: .download)
+                    )
+                    Button {
+                        Task {
+                            await deps.downloadMutationWorkflow.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+                        }
+                    } label: {
+                        MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
+                    }
+                    .disabled(!availability.isAvailable)
+                    .accessibilityHint(availability.reason ?? "")
+
+                case .playlist:
+                    let playlist = Playlist(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        title: headerData.title,
+                        summary: nil,
+                        isSmart: false,
+                        trackCount: 0,
+                        duration: 0,
+                        sourceCompositeKey: sourceKey
+                    )
+                    let isDownloaded = playlistMenuActions?.isDownloaded
+                        ?? deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+                    let availability = playlistMenuActions?.downloadAvailability
+                        ?? resolvedDownloadMenuAvailability(
+                            isDownloaded: isDownloaded,
+                            sourceAvailability: playlist.actionAvailability(for: .download)
+                        )
+                    Button {
+                        if let playlistMenuActions {
+                            playlistMenuActions.onToggleDownload()
+                        } else {
+                            Task {
+                                await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
+                                    playlist,
+                                    isEnabled: !isDownloaded
+                                )
+                            }
+                        }
+                    } label: {
+                        MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
+                    }
+                    .disabled(!availability.isAvailable)
+                    .accessibilityHint(availability.reason ?? "")
                 }
             }
 
@@ -564,26 +788,44 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 } label: {
                     MediaActionLabel(kind: .playNext)
                 }
+                .disabled(viewModel.filteredTracks.isEmpty)
 
                 Button {
                     playlistMenuActions.onPlayLast()
                 } label: {
                     MediaActionLabel(kind: .playLast)
                 }
+                .disabled(viewModel.filteredTracks.isEmpty)
 
                 Divider()
 
                 Button {
-                    let playlist = Playlist(
-                        id: ratingKey,
-                        key: headerData.ratingKey ?? ratingKey,
-                        title: headerData.title,
-                        isSmart: false,
-                        trackCount: 0,
-                        duration: 0,
-                        sourceCompositeKey: sourceKey
-                    )
-                    libraryItemInfoRequest = .playlist(playlist)
+                    playlistMenuActions.onToggleFavorite()
+                } label: {
+                    MediaActionLabel(kind: .favorite(
+                        isFavorited: playlistMenuActions.isFavorite,
+                        usesFilledIcon: false
+                    ))
+                }
+                .disabled(!playlistMenuActions.favoriteAvailability.isAvailable)
+                .accessibilityHint(playlistMenuActions.favoriteAvailability.reason ?? "")
+
+                let playlist = Playlist(
+                    id: ratingKey,
+                    key: headerData.ratingKey ?? ratingKey,
+                    title: headerData.title,
+                    isSmart: false,
+                    trackCount: 0,
+                    duration: 0,
+                    sourceCompositeKey: sourceKey
+                )
+                Button {
+                    if let merged = viewModel as? MergedPlaylistDetailViewModel {
+                        let sources = merged.displayPlaylist.playlists
+                        libraryItemInfoRequest = .playlist(merged.displayPlaylist.primaryPlaylist, sources: sources)
+                    } else {
+                        libraryItemInfoRequest = .playlist((viewModel as? PlaylistDetailViewModel)?.playlist ?? playlist)
+                    }
                 } label: {
                     MediaActionLabel(kind: .getInfo)
                 }
@@ -593,25 +835,63 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 } label: {
                     MediaActionLabel(kind: .rename)
                 }
-                .disabled(!playlistMenuActions.canRename)
+                .disabled(!playlistMenuActions.renameAvailability.isAvailable)
+                .accessibilityHint(playlistMenuActions.renameAvailability.reason ?? "")
 
                 Button {
                     playlistMenuActions.onEdit()
                 } label: {
                     MediaActionLabel(kind: .editPlaylist)
                 }
-                .disabled(!playlistMenuActions.canEdit)
+                .disabled(!playlistMenuActions.editAvailability.isAvailable)
+                .accessibilityHint(playlistMenuActions.editAvailability.reason ?? "")
+
+                if hasHiddenMediaAction {
+                    HiddenMediaDetailMenuButton(
+                        candidates: hiddenCandidates,
+                        identity: hiddenIdentity
+                    )
+                }
 
                 Button(role: .destructive) {
                     playlistMenuActions.onDelete()
                 } label: {
                     MediaActionLabel(kind: .deletePlaylist)
                 }
-                .disabled(!playlistMenuActions.canDelete)
+                .disabled(!playlistMenuActions.deleteAvailability.isAvailable)
+                .accessibilityHint(playlistMenuActions.deleteAvailability.reason ?? "")
+            }
+
+            if viewModel is AlbumDetailViewModel, let albumMenuActions {
+                if hasHiddenMediaAction {
+                    HiddenMediaDetailMenuButton(
+                        candidates: hiddenCandidates,
+                        identity: hiddenIdentity
+                    )
+                }
+
+                Button(role: .destructive) {
+                    albumMenuActions.onDelete()
+                } label: {
+                    MediaActionLabel(kind: .deleteAlbum)
+                }
+                .disabled(!albumMenuActions.deleteAvailability.isAvailable)
+                .accessibilityHint(albumMenuActions.deleteAvailability.reason ?? "")
+            }
+
+            if playlistMenuActions == nil, albumMenuActions == nil, hasHiddenMediaAction {
+                HiddenMediaDetailMenuButton(
+                    candidates: hiddenCandidates,
+                    identity: hiddenIdentity
+                )
             }
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }
+    }
+
+    private var hasHiddenMediaAction: Bool {
+        hiddenIdentity != nil || !hiddenCandidates.isEmpty
     }
 
     private func presentPlaylistPicker(with tracks: [Track], title: String = "Add Album to Playlist") {
@@ -686,14 +966,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     private var playlistTrackRemovalHandler: ((Track, Int) -> Void)? {
         if let playlistViewModel = viewModel as? PlaylistDetailViewModel,
-           !playlistViewModel.playlist.isSmart {
+           playlistViewModel.playlist.supportsPlaylistEditing {
             return { track, displayIndex in
                 removeTrackFromPlaylist(track, displayIndex: displayIndex, playlistViewModel: playlistViewModel)
             }
         }
 
         if let mergedPlaylistViewModel = viewModel as? MergedPlaylistDetailViewModel,
-           !mergedPlaylistViewModel.displayPlaylist.isSmart {
+           !mergedPlaylistViewModel.displayPlaylist.editablePlaylists.isEmpty {
             return { track, displayIndex in
                 removeTrackFromMergedPlaylist(
                     track,
@@ -812,11 +1092,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func runInitialLoads() async {
-        async let trackLoad: () = loadTracksIfNeeded()
+        await loadTracksIfNeeded()
         if let supplementalLoad {
             await supplementalLoad()
         }
-        _ = await trackLoad
     }
 
     private func loadTracksIfNeeded() async {
@@ -826,43 +1105,55 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func loadHeaderArtworkIfNeeded() async {
-        guard let path = headerData.artworkPath, !path.isEmpty else {
+        let requests = headerArtworkRequests
+        guard let loadIdentity = headerArtworkContentIdentity,
+              !requests.isEmpty else {
             await MainActor.run {
-                currentLoadPath = nil
+                currentArtworkLoadIdentity = nil
+                resolvedHeaderBlurCacheKey = nil
                 artworkImage = nil
                 blurredArtworkImage = nil
             }
             return
         }
 
-        await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
-    }
-
-    private func loadArtworkImage(path: String, sourceKey: String?) async {
         let existingImage = await MainActor.run { () -> SendableMediaDetailPlatformImage? in
-            if self.currentLoadPath != path {
+            if self.currentArtworkLoadIdentity != loadIdentity {
                 self.artworkImage = nil
                 self.blurredArtworkImage = nil
+                self.resolvedHeaderBlurCacheKey = nil
             }
-            self.currentLoadPath = path
+            self.currentArtworkLoadIdentity = loadIdentity
             return self.artworkImage.map(SendableMediaDetailPlatformImage.init)
         }?.value
 
         if let existingImage {
             let alreadyHasBlur = await MainActor.run { self.blurredArtworkImage != nil }
-            guard !alreadyHasBlur else { return }
-            let blurredImage = await ArtworkImageResolver.preBlurredImage(
-                for: existingImage,
-                cacheKey: headerBlurCacheKey(path: path)
-            )
-            await MainActor.run {
-                if self.currentLoadPath == path {
-                    self.blurredArtworkImage = blurredImage
+            let blurCacheKey = await MainActor.run { self.currentHeaderBlurCacheKey }
+            if !alreadyHasBlur, let blurCacheKey {
+                let blurredImage = await deps.artworkLoader.blurredImage(
+                    for: existingImage,
+                    cacheKey: blurCacheKey
+                )
+                guard !Task.isCancelled,
+                      await isCurrentArtworkLoad(identity: loadIdentity) else {
+                    return
+                }
+                await MainActor.run {
+                    if self.currentArtworkLoadIdentity == loadIdentity {
+                        self.blurredArtworkImage = blurredImage
+                    }
                 }
             }
-            return
         }
 
+        _ = await resolveHeaderArtwork(requests, loadIdentity: loadIdentity)
+    }
+
+    private func resolveHeaderArtwork(
+        _ requests: [ArtworkRequest],
+        loadIdentity: String
+    ) async -> Bool {
         let retryDelays: [UInt64] = [
             0,
             300_000_000,
@@ -874,142 +1165,81 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: delay)
             }
-            guard await isCurrentArtworkLoad(path: path) else { return }
-
-            let descriptor = ArtworkResolutionDescriptor(
-                path: path,
-                sourceKey: sourceKey,
-                ratingKey: headerData.ratingKey,
-                fallbackPath: nil,
-                fallbackRatingKey: nil,
-                cacheHint: headerArtworkCacheHint(path: path),
-                fallbackCacheHint: nil,
-                size: 600,
-                priority: .high
-            )
-
-            guard let resolved = await ArtworkImageResolver.resolvedImage(
-                for: descriptor,
-                artworkLoader: deps.artworkLoader
-            ) else {
-                continue
-            }
-
-            await MainActor.run {
-                if self.currentLoadPath == path {
-                    self.artworkImage = resolved.image
+            guard !Task.isCancelled else { return false }
+            guard await isCurrentArtworkLoad(identity: loadIdentity) else { return false }
+            for request in requests {
+                guard let resolved = await deps.artworkLoader.resolvedImage(for: request) else {
+                    continue
                 }
-            }
-
-            let blurredImage = await ArtworkImageResolver.preBlurredImage(
-                for: resolved.image,
-                cacheKey: resolved.blurCacheKey
-            )
-            await MainActor.run {
-                if self.currentLoadPath == path {
-                    self.blurredArtworkImage = blurredImage
+                guard !Task.isCancelled,
+                      await isCurrentArtworkLoad(identity: loadIdentity) else {
+                    return false
                 }
+                await applyResolvedHeaderArtwork(
+                    resolved,
+                    loadIdentity: loadIdentity
+                )
+                return true
             }
-            return
         }
+        return false
+    }
 
-        guard let fallbackDescriptor = playlistHeaderFallbackArtworkDescriptor(),
-              await isCurrentArtworkLoad(path: path),
-              let resolved = await ArtworkImageResolver.resolvedImage(
-                for: fallbackDescriptor,
-                artworkLoader: deps.artworkLoader
-              ) else {
-            return
-        }
-
+    private func applyResolvedHeaderArtwork(
+        _ resolved: ArtworkResolvedImage,
+        loadIdentity: String
+    ) async {
+        guard !Task.isCancelled,
+              await isCurrentArtworkLoad(identity: loadIdentity) else { return }
         await MainActor.run {
-            if self.currentLoadPath == path {
+            if self.currentArtworkLoadIdentity == loadIdentity {
                 self.artworkImage = resolved.image
+                self.resolvedHeaderBlurCacheKey = resolved.blurCacheKey
             }
         }
 
-        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+        let blurredImage = await deps.artworkLoader.blurredImage(
             for: resolved.image,
             cacheKey: resolved.blurCacheKey
         )
+        guard !Task.isCancelled,
+              await isCurrentArtworkLoad(identity: loadIdentity) else { return }
         await MainActor.run {
-            if self.currentLoadPath == path {
+            if self.currentArtworkLoadIdentity == loadIdentity {
                 self.blurredArtworkImage = blurredImage
             }
         }
     }
 
-    private func isCurrentArtworkLoad(path: String) async -> Bool {
+    private func isCurrentArtworkLoad(identity: String) async -> Bool {
         await MainActor.run {
-            self.currentLoadPath == path
+            self.currentArtworkLoadIdentity == identity
         }
     }
 
-    private func playlistHeaderFallbackArtworkDescriptor() -> ArtworkResolutionDescriptor? {
-        guard let track = playlistHeaderFallbackArtworkTrack else { return nil }
-
-        let primaryPath = track.thumbPath?.isEmpty == false ? track.thumbPath : nil
-        let fallbackPath = track.fallbackThumbPath?.isEmpty == false ? track.fallbackThumbPath : nil
-        let path = primaryPath ?? fallbackPath
-        guard path?.isEmpty == false else { return nil }
-
-        let ratingKey = primaryPath == nil
-            ? (track.fallbackRatingKey ?? track.albumRatingKey ?? track.id)
-            : track.id
-        let cacheHint = primaryPath == nil
-            ? PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track)
-            : nil
-
-        return ArtworkResolutionDescriptor(
-            path: path,
-            sourceKey: track.sourceCompositeKey ?? headerData.sourceKey,
-            ratingKey: ratingKey,
-            fallbackPath: nil,
-            fallbackRatingKey: nil,
-            cacheHint: cacheHint,
-            fallbackCacheHint: nil,
-            size: 600,
-            priority: .high
+    private func playlistHeaderFallbackArtworkRequest() -> ArtworkRequest? {
+        guard mediaType == .playlist else { return nil }
+        return makePlaylistHeaderFallbackArtworkRequest(
+            playlist: (viewModel as? PlaylistDetailViewModel)?.playlist,
+            track: playlistHeaderFallbackArtworkTrack,
+            fallbackSourceKey: headerData.sourceKey
         )
     }
 
-    private func headerArtworkCacheHint(path: String) -> PersistentArtworkCacheHint? {
-        guard let mediaType,
-              let kind = PersistentArtworkCacheHint.Kind(mediaType) else {
-            return nil
-        }
-
-        return PersistentArtworkCacheHint(
-            ratingKey: headerData.ratingKey,
-            kind: kind,
-            sourcePath: path
-        )
-    }
-
-    private func headerBlurCacheKey(path: String) -> String {
-        if let cacheHint = headerArtworkCacheHint(path: path) {
-            return [
-                "hint",
-                cacheHint.kind.rawValue,
-                cacheHint.ratingKey,
-                cacheHint.sourcePath,
-                cacheHint.dateModifiedSeconds.map(String.init) ?? "no-date",
-                "600"
-            ].joined(separator: "|")
-        }
-
-        return [
-            "header",
-            headerData.sourceKey ?? "no-source",
-            headerData.ratingKey ?? "no-rating",
-            path,
-            "600"
-        ].joined(separator: "|")
+    private var headerArtworkRequests: [ArtworkRequest] {
+        [
+            primaryHeaderArtworkRequest,
+            playlistHeaderFallbackArtworkRequest()
+        ].compactMap { $0 }
     }
 
     private var currentHeaderBlurCacheKey: String? {
-        guard let path = headerData.artworkPath, !path.isEmpty else { return nil }
-        return headerBlurCacheKey(path: path)
+        mediaHeaderBlurCacheKey(
+            resolvedBlurCacheKey: currentArtworkLoadIdentity == headerArtworkContentIdentity
+                ? resolvedHeaderBlurCacheKey
+                : nil,
+            requests: headerArtworkRequests
+        )
     }
 
     /// Renders the subtitle text (artist name), optionally as a navigation link to the artist.
@@ -1018,7 +1248,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         if let subtitle = headerData.subtitle {
             if let artistId = headerData.artistRatingKey {
                 navigationCoordinator.routeLink(
-                    to: .artist(id: artistId, sourceKey: headerData.sourceKey)
+                    to: .artistNamed(
+                        name: subtitle,
+                        fallbackID: artistId,
+                        sourceKey: headerData.sourceKey,
+                        includesHidden: includesHidden
+                    )
                 ) {
                     Text(subtitle)
                         .font(EnsembleDesign.Typography.detailSubtitle)
@@ -1037,20 +1272,37 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
-    /// Header artwork — uses composite 2x2 grid for merged playlists, single artwork otherwise
     @ViewBuilder
     private var headerArtwork: some View {
         let artworkCornerRadius = ArtworkCornerRadius.square(for: ArtworkSize.medium)
 
-        if let playlists = headerData.artworkPlaylists, playlists.count > 1 {
-            CompositeArtworkView(playlists: playlists, size: .medium, cornerRadius: artworkCornerRadius)
-                .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
-        } else if let artworkImage {
-            platformHeaderArtwork(artworkImage)
-                .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+        Group {
+            if let artworkImage {
+                platformHeaderArtwork(artworkImage)
+                    .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+            } else {
+                headerArtworkPlaceholder
+                    .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+            }
+        }
+        .favoriteArtworkFeedback(isEnabled: canFavoriteHeaderArtwork, onFavorite: favoriteHeaderArtwork)
+    }
+
+    private var canFavoriteHeaderArtwork: Bool {
+        if let albumMenuActions {
+            return albumMenuActions.isFavorite || albumMenuActions.favoriteAvailability.isAvailable
+        }
+        if let playlistMenuActions {
+            return playlistMenuActions.isFavorite || playlistMenuActions.favoriteAvailability.isAvailable
+        }
+        return false
+    }
+
+    private func favoriteHeaderArtwork() {
+        if let albumMenuActions {
+            albumMenuActions.onFavorite()
         } else {
-            headerArtworkPlaceholder
-            .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+            playlistMenuActions?.onFavorite()
         }
     }
 
@@ -1105,12 +1357,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         MediaDetailSurface<EmptyView>.PlaybackActionRow(
             horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding,
             bottomPadding: EnsembleDesign.Spacing.lg,
-            isDisabled: viewModel.filteredTracks.isEmpty,
+            isDisabled: playableTracks.isEmpty,
             play: {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks, context: playbackStartContext)
+                nowPlayingVM.play(tracks: playableTracks, context: playbackStartContext)
             },
             shuffle: {
-                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks, context: playbackStartContext)
+                nowPlayingVM.shufflePlay(tracks: playableTracks, context: playbackStartContext)
             }
         ) {
             // Radio button (for Artist or Album views)
@@ -1122,13 +1374,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private func wideActionButtons(availableWidth: CGFloat) -> some View {
         MediaDetailSurface<EmptyView>.AdaptivePlaybackActionRow(
             availableWidth: availableWidth,
-            isDisabled: viewModel.filteredTracks.isEmpty,
+            isDisabled: playableTracks.isEmpty,
             includesExtraActions: hasRadioButton,
             play: {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks, context: playbackStartContext)
+                nowPlayingVM.play(tracks: playableTracks, context: playbackStartContext)
             },
             shuffle: {
-                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks, context: playbackStartContext)
+                nowPlayingVM.shufflePlay(tracks: playableTracks, context: playbackStartContext)
             }
         ) {
             radioButton
@@ -1207,15 +1459,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             onPlayLast: { track in
                 nowPlayingVM.playLast(track)
             },
+            onAddToLibrary: { track in
+                Task { await nowPlayingVM.addTrackToLibrary(track) }
+            },
             onAddToPlaylist: { track in
                 presentPlaylistPicker(with: [track], title: "Add to Playlist")
             },
             onAddToRecentPlaylist: { track in
-                PlaylistActionPresentationHost.addToRecentPlaylist(
-                    [track],
-                    target: lastPlaylistQuickTarget,
-                    nowPlayingVM: nowPlayingVM
-                )
+                PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
             },
             onToggleFavorite: { track in
                 Task {
@@ -1223,9 +1474,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             },
             onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : { track in
-                if let albumId = track.albumRatingKey {
+                if let destination = NavigationCoordinator.Destination.album(for: track) {
                     navigationCoordinator.routeFromMenu(
-                        to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                        to: destination,
                         in: navigationCoordinator.selectedTab
                     )
                 }
@@ -1233,7 +1484,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             onGoToArtist: { track in
                 if let artistId = track.artistRatingKey {
                     navigationCoordinator.routeFromMenu(
-                        to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                        to: track.artistName.map {
+                            .artistNamed(
+                                name: $0,
+                                fallbackID: artistId,
+                                sourceKey: track.sourceCompositeKey
+                            )
+                        } ?? .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                         in: navigationCoordinator.selectedTab
                     )
                 }
@@ -1243,6 +1500,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             },
             onEditMetadata: { track in
                 presentTrackMetadataEditor(track)
+            },
+            onShareEnsembleLink: { track in
+                ShareActions.shareEnsembleLink(track, deps: deps)
             },
             onShareLink: { track in
                 ShareActions.shareTrackLink(track, deps: deps)
@@ -1254,24 +1514,56 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 trackPendingDeletion = track
                 isConfirmingTrackDelete = true
             },
+            onToggleHidden: { track in
+                track.hiddenToggleAction(deps: deps)?()
+            },
             isTrackFavorited: { track in
                 nowPlayingVM.isTrackFavorited(track)
+            },
+            isTrackHidden: { track in
+                track.hiddenIdentity(deps: deps) != nil
+            },
+            canToggleHidden: { track in
+                track.hiddenIdentity(deps: deps) != nil || track.hiddenCandidate(deps: deps) != nil
+            },
+            canAddToLibrary: { track in
+                nowPlayingVM.canAddTrackToLibrary(track)
             },
             canAddToRecentPlaylist: { track in
                 PlaylistActionPresentationHost.recentPlaylistTitle(
                     for: [track],
-                    target: lastPlaylistQuickTarget,
                     nowPlayingVM: nowPlayingVM
                 ) != nil
             },
-            recentPlaylistTitle: lastPlaylistQuickTarget?.title
+            canRemoveFromPlaylist: { track in
+                guard let merged = viewModel as? MergedPlaylistDetailViewModel else { return true }
+                return merged.canRemoveTrackFromPlaylist(track)
+            },
+            recentPlaylistTitle: lastPlaylistQuickTarget?.title,
+            recentPlaylistTitleForTrack: { track in
+                PlaylistActionPresentationHost.recentPlaylistTitle(
+                    for: [track],
+                    nowPlayingVM: nowPlayingVM
+                )
+            },
+            mutationCandidates: viewModel.mutationCandidates(for:),
+            onSelectMutationSource: { title, tracks, allAction, action in
+                sourceMutationAction(
+                    title: title,
+                    tracks: tracks,
+                    allAction: allAction,
+                    presenter: sourceActionPresenter,
+                    deps: deps,
+                    action: action
+                )?()
+            }
         )
     }
 
     @ViewBuilder
     private var tracksSection: some View {
         #if os(iOS)
-        // Self-scrolling UITableView with the header embedded as tableHeaderView.
+        // Self-scrolling UITableView with the header embedded as its first row.
         // Header (album art + action buttons) scrolls naturally with the tracks
         // while preserving UIKit cell recycling for large track lists.
         MediaTrackList(
@@ -1281,21 +1573,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             showAlbumName: !(viewModel is AlbumDetailViewModel),
             groupByDisc: groupByDisc,
             currentTrackId: currentTrackId,
+            selectedTrackId: selectedTrackId,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             managesOwnScrolling: true,
             bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
             tableHeaderContent: AnyView(tableHeaderForTrackList),
+            tableHeaderRevision: tableHeaderRevision,
             tableFooterContent: AnyView(VStack(spacing: EnsembleDesign.Spacing.none) {
                 emptyStateFooter
                 if let additionalFooterContent { additionalFooterContent }
             }),
-            searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
             interactionModel: trackInteractionModel,
             supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+            trackSourceLabels: headerData.trackSourceLabels,
             onRemoveFromPlaylist: playlistTrackRemovalHandler
-        ) { track, index in
-            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+        ) { track, _ in
+            playTrack(track)
         }
         #else
         SongsTrackListHost(
@@ -1309,7 +1603,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
                 tableHeaderExtraHeight: macTableHeaderExtraHeight,
                 supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                trackSourceLabels: headerData.trackSourceLabels,
                 currentTrackId: currentTrackId,
+                selectedTrackId: selectedTrackId,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 interactionModel: trackInteractionModel
@@ -1319,7 +1615,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 emptyStateFooter
                 if let additionalFooterContent { additionalFooterContent }
             }),
-            searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
             onRemoveFromPlaylist: playlistTrackRemovalHandler.map { handler in
                 { track, _ in
                     let displayIndex = viewModel.filteredTracks.firstIndex { $0.playbackIdentity == track.playbackIdentity } ?? 0
@@ -1327,11 +1622,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
         ) { track, _ in
-            if let index = viewModel.filteredTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-            }
+            playTrack(track)
         }
         #endif
+    }
+
+    private func playTrack(_ track: Track) {
+        guard let selection = viewModel.playbackSelection(for: track) else { return }
+        nowPlayingVM.play(tracks: selection.tracks, startingAt: selection.index)
     }
 
     #if !os(iOS)
@@ -1389,7 +1687,19 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         genreChipContent == nil ? 0 : EnsembleDesign.Spacing.sm
     }
 
-    /// SwiftUI header content embedded as the UITableView's native tableHeaderView.
+    private var tableHeaderRevision: String {
+        [
+            headerData.title,
+            headerData.subtitle ?? "",
+            headerData.metadataLine,
+            headerArtworkLoadKey,
+            resolvedHeaderBlurCacheKey ?? "",
+            artworkImage == nil ? "placeholder" : "artwork",
+            playableTracks.isEmpty ? "disabled" : "enabled"
+        ].joined(separator: "|")
+    }
+
+    /// SwiftUI header content embedded as the UITableView's self-sizing first row.
     /// Scrolls with the track list while preserving cell recycling.
     /// The header is structurally identical across all states (loading, empty, populated)
     /// so the genre chips and artwork maintain consistent positioning.

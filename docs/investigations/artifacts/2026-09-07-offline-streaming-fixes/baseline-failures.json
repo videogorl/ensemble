@@ -1,0 +1,18 @@
+{
+  "fix-core-tests.log": {
+    "assertions": 15,
+    "cases": [
+      "EnsembleCoreTests.EnsemblePermalinkResolverTests testCaseInsensitiveSameNamedPlaylistsUseMergedDestination",
+      "EnsembleCoreTests.LibraryViewModelCacheCleanupTests testRemoteDisabledLibraryFlagCleansAlreadyDisabledSourceDownloads",
+      "EnsembleCoreTests.LibraryViewModelCacheCleanupTests testRemoteLibraryDisableCleansSourceDownloadsAndPreservesEnabledSource"
+    ]
+  },
+  "baseline-test-check.log": {
+    "assertions": 15,
+    "cases": [
+      "EnsembleCoreTests.EnsemblePermalinkResolverTests testCaseInsensitiveSameNamedPlaylistsUseMergedDestination",
+      "EnsembleCoreTests.LibraryViewModelCacheCleanupTests testRemoteDisabledLibraryFlagCleansAlreadyDisabledSourceDownloads",
+      "EnsembleCoreTests.LibraryViewModelCacheCleanupTests testRemoteLibraryDisableCleansSourceDownloadsAndPreservesEnabledSource"
+    ]
+  }
+}

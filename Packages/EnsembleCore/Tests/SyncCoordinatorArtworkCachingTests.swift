@@ -8,21 +8,6 @@ import XCTest
 
 @MainActor
 final class SyncCoordinatorArtworkCachingTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-    }
 
     private final class RecordingArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
         struct DownloadRecord {
@@ -31,7 +16,8 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         }
 
         let localArtworkPath: String?
-        private(set) var downloadedRecords: [DownloadRecord] = []
+        private let lock = NSLock()
+        private var records: [DownloadRecord] = []
 
         init(localArtworkPath: String? = nil) {
             self.localArtworkPath = localArtworkPath
@@ -41,13 +27,19 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
             downloadedRecords.map(\.identity)
         }
 
+        var downloadedRecords: [DownloadRecord] {
+            lock.withLock { records }
+        }
+
         func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { localArtworkPath }
         func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { localArtworkPath }
         func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { localArtworkPath }
         func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws {}
 
         func downloadAndCacheArtwork(from url: URL, identity: ArtworkIdentity) async throws {
-            downloadedRecords.append(DownloadRecord(url: url, identity: identity))
+            lock.withLock {
+                records.append(DownloadRecord(url: url, identity: identity))
+            }
         }
 
         func deleteArtwork(ratingKey: String, type: ArtworkType) {}
@@ -63,7 +55,12 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         }
 
         let sourceIdentifier: MusicSourceIdentifier
-        private(set) var artworkRequests: [ArtworkRequest] = []
+        private let lock = NSLock()
+        private var requests: [ArtworkRequest] = []
+
+        var artworkRequests: [ArtworkRequest] {
+            lock.withLock { requests }
+        }
 
         init(sourceIdentifier: MusicSourceIdentifier) {
             self.sourceIdentifier = sourceIdentifier
@@ -96,6 +93,7 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
 
         func syncPlaylistsIncremental(
             to repository: PlaylistRepositoryProtocol,
+            forceOrphanCheck: Bool,
             progressHandler: @Sendable (Double) -> Void
         ) async throws -> PlaylistSyncResult {
             progressHandler(1)
@@ -112,7 +110,9 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         }
 
         func getArtworkURL(path: String?, size: Int) async throws -> URL? {
-            artworkRequests.append(ArtworkRequest(path: path, size: size))
+            lock.withLock {
+                requests.append(ArtworkRequest(path: path, size: size))
+            }
             return URL(string: "https://example.com\(path ?? "/artwork").jpg")
         }
 
@@ -151,33 +151,40 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         coordinator.setSyncProvidersForTesting([source.compositeKey: provider])
 
         let modified = Date(timeIntervalSince1970: 1_000)
-        _ = try await libraryRepository.upsertArtist(
-            ratingKey: "artist-1",
-            key: "/library/metadata/artist-1",
-            name: "Artist",
-            summary: nil,
-            thumbPath: "/library/metadata/artist-1/thumb",
-            artPath: nil,
-            dateAdded: nil,
-            dateModified: modified,
+        try await libraryRepository.batchUpsertArtists(
+            [
+                ArtistUpsertInput(
+                    ratingKey: "artist-1",
+                    key: "/library/metadata/artist-1",
+                    name: "Artist",
+                    summary: nil,
+                    thumbPath: "/library/metadata/artist-1/thumb",
+                    artPath: nil,
+                    dateAdded: nil,
+                    dateModified: modified
+                )
+            ],
             sourceCompositeKey: source.compositeKey
         )
-        _ = try await libraryRepository.upsertAlbum(
-            ratingKey: "album-1",
-            key: "/library/metadata/album-1",
-            title: "Album",
-            artistName: "Artist",
-            albumArtist: "Artist",
-            artistRatingKey: "artist-1",
-            summary: nil,
-            thumbPath: "/library/metadata/album-1/thumb",
-            artPath: nil,
-            year: nil,
-            trackCount: nil,
-            dateAdded: nil,
-            dateModified: modified,
-            rating: nil,
-            genreNames: nil,
+        try await libraryRepository.batchUpsertAlbums(
+            [
+                AlbumUpsertInput(
+                    ratingKey: "album-1",
+                    key: "/library/metadata/album-1",
+                    title: "Album",
+                    artistName: "Artist",
+                    albumArtist: "Artist",
+                    artistRatingKey: "artist-1",
+                    summary: nil,
+                    thumbPath: "/library/metadata/album-1/thumb",
+                    artPath: nil,
+                    year: nil,
+                    trackCount: nil,
+                    dateAdded: nil,
+                    dateModified: modified,
+                    rating: nil
+                )
+            ],
             sourceCompositeKey: source.compositeKey
         )
         _ = try await playlistRepository.upsertPlaylist(
@@ -194,6 +201,20 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
             lastPlayed: nil,
             sourceCompositeKey: MediaSourceIdentity.serverSourceKey(for: source)
         )
+        _ = try await playlistRepository.upsertPlaylist(
+            ratingKey: "library-playlist-1",
+            key: "/playlists/library-playlist-1",
+            title: "Library-scoped Playlist",
+            summary: nil,
+            compositePath: "/playlists/library-playlist-1/composite",
+            isSmart: false,
+            duration: nil,
+            trackCount: nil,
+            dateAdded: nil,
+            dateModified: modified,
+            lastPlayed: nil,
+            sourceCompositeKey: source.compositeKey
+        )
 
         await coordinator.syncAll()
 
@@ -201,6 +222,7 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/library/metadata/album-1/thumb", size: ArtworkSize.detail.rawValue)))
         XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/library/metadata/artist-1/thumb", size: ArtworkSize.detail.rawValue)))
         XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/playlists/playlist-1/composite", size: ArtworkSize.detail.rawValue)))
+        XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/playlists/library-playlist-1/composite", size: ArtworkSize.detail.rawValue)))
         XCTAssertTrue(artworkDownloadManager.downloadedRecords.allSatisfy { $0.url.host == "example.com" })
         XCTAssertTrue(artworkDownloadManager.downloadedIdentities.contains {
             $0.ratingKey == "album-1"
@@ -216,6 +238,13 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
             $0.ratingKey == "playlist-1"
                 && $0.type == .playlist
                 && $0.requestedPixelDimension == ArtworkSize.detail.rawValue
+                && $0.sourceCompositeKey == MediaSourceIdentity.serverSourceKey(for: source)
+        })
+        XCTAssertTrue(artworkDownloadManager.downloadedIdentities.contains {
+            $0.ratingKey == "library-playlist-1"
+                && $0.type == .playlist
+                && $0.requestedPixelDimension == ArtworkSize.detail.rawValue
+                && $0.sourceCompositeKey == source.compositeKey
         })
     }
 

@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -15,28 +16,32 @@ struct StageFlowItemView: View {
     let ratingKey: String
     let artworkPath: String?
     let sourceCompositeKey: String?
-    let cacheHint: PersistentArtworkCacheHint?
-    /// When set, uses composite artwork (2x2 grid for merged playlists)
-    let displayPlaylist: DisplayPlaylist?
+    let identity: ArtworkRequest.Identity?
 
     init(
         ratingKey: String,
         artworkPath: String?,
         sourceCompositeKey: String?,
-        cacheHint: PersistentArtworkCacheHint? = nil,
-        displayPlaylist: DisplayPlaylist? = nil
+        identity: ArtworkRequest.Identity? = nil
     ) {
         self.ratingKey = ratingKey
         self.artworkPath = artworkPath
         self.sourceCompositeKey = sourceCompositeKey
-        self.cacheHint = cacheHint
-        self.displayPlaylist = displayPlaylist
+        self.identity = identity
     }
 
     var body: some View {
         let artworkCornerRadius = ArtworkCornerRadius.square(for: ArtworkSize.large)
 
-        artworkContent
+        ArtworkView(
+            path: artworkPath,
+            sourceKey: sourceCompositeKey,
+            ratingKey: ratingKey,
+            identity: identity,
+            size: .large,
+            cornerRadius: EnsembleDesign.Spacing.none,
+            isResponsive: true
+        )
             .aspectRatio(1, contentMode: .fill)
             .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
             .overlay(
@@ -53,23 +58,6 @@ struct StageFlowItemView: View {
                 y: StageFlowItemChromeMetrics.artworkShadowY
             )
     }
-
-    @ViewBuilder
-    private var artworkContent: some View {
-        if let dp = displayPlaylist, dp.isMerged {
-            PlaylistArtwork(displayPlaylist: dp, size: .large, cornerRadius: EnsembleDesign.Spacing.none, isResponsive: true)
-        } else {
-            ArtworkView(
-                path: artworkPath,
-                sourceKey: sourceCompositeKey,
-                ratingKey: ratingKey,
-                cacheHint: cacheHint,
-                size: .large,
-                cornerRadius: EnsembleDesign.Spacing.none,
-                isResponsive: true
-            )
-        }
-    }
 }
 
 extension StageFlowItemView {
@@ -78,16 +66,7 @@ extension StageFlowItemView {
             ratingKey: album.id,
             artworkPath: album.thumbPath,
             sourceCompositeKey: album.sourceCompositeKey,
-            cacheHint: PersistentArtworkCacheHint(album: album)
-        )
-    }
-
-    init(playlist: Playlist) {
-        self.init(
-            ratingKey: playlist.id,
-            artworkPath: playlist.compositePath,
-            sourceCompositeKey: playlist.sourceCompositeKey,
-            cacheHint: PersistentArtworkCacheHint(playlist: playlist)
+            identity: ArtworkRequest.Identity(album: album)
         )
     }
 
@@ -96,8 +75,7 @@ extension StageFlowItemView {
             ratingKey: dp.primaryPlaylist.id,
             artworkPath: dp.compositePath,
             sourceCompositeKey: dp.sourceCompositeKey,
-            cacheHint: PersistentArtworkCacheHint(playlist: dp.primaryPlaylist),
-            displayPlaylist: dp.isMerged ? dp : nil
+            identity: ArtworkRequest.Identity(playlist: dp.primaryPlaylist)
         )
     }
 
@@ -106,7 +84,7 @@ extension StageFlowItemView {
             ratingKey: albumItem.albumID,
             artworkPath: albumItem.thumbPath,
             sourceCompositeKey: albumItem.sourceCompositeKey,
-            cacheHint: PersistentArtworkCacheHint(
+            identity: ArtworkRequest.Identity(
                 ratingKey: albumItem.albumID,
                 kind: .album,
                 sourcePath: albumItem.thumbPath

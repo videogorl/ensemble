@@ -1,7 +1,6 @@
 import Foundation
 
-/// Manages hub section ordering per music source (account/server/library)
-/// Persists custom order to UserDefaults and applies it to fetched hubs
+/// Persists hub section ordering by caller-owned scope and applies it to fetched hubs.
 public final class HubOrderManager {
     private let userDefaults: UserDefaults
     
@@ -17,7 +16,7 @@ public final class HubOrderManager {
     private func defaultOrderKey(for sourceKey: String) -> String {
         "hub_default_order_\(sourceKey)"
     }
-    
+
     /// Save the current hub order for a specific source
     public func saveOrder(_ hubIds: [String], for sourceKey: String) {
         let key = orderKey(for: sourceKey)

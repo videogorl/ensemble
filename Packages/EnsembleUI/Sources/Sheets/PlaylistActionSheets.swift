@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -5,6 +6,7 @@ public struct PlaylistPickerSheet: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let tracks: [Track]
     let title: String
+    let createsPlaylistAcrossSources: Bool
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
@@ -13,11 +15,20 @@ public struct PlaylistPickerSheet: View {
     @State private var inferredServerSourceKey: String?
     @State private var isSubmitting = false
     @State private var searchText = ""
+    @State private var pendingMissingPlaylist: DisplayPlaylist?
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @State private var playlistsContainingSelection = Set<String>()
 
-    public init(nowPlayingVM: NowPlayingViewModel, tracks: [Track], title: String = "Add to Playlist") {
+    public init(
+        nowPlayingVM: NowPlayingViewModel,
+        tracks: [Track],
+        title: String = "Add to Playlist",
+        createsPlaylistAcrossSources: Bool = false
+    ) {
         self.nowPlayingVM = nowPlayingVM
         self.tracks = tracks
         self.title = title
+        self.createsPlaylistAcrossSources = createsPlaylistAcrossSources
     }
 
     public var body: some View {
@@ -27,6 +38,15 @@ public struct PlaylistPickerSheet: View {
                     inferredServerSourceKey = await nowPlayingVM.resolveDefaultPlaylistServerSourceKey(for: tracks)
                 }
                 await loadPlaylists()
+            }
+            .alert("Create missing playlist?", isPresented: Binding(
+                get: { pendingMissingPlaylist != nil },
+                set: { if !$0 { pendingMissingPlaylist = nil } }
+            ), presenting: pendingMissingPlaylist) { playlist in
+                Button("Create and Add") { submit(playlist) }
+                Button("Cancel", role: .cancel) {}
+            } message: { playlist in
+                Text("Create \"\(playlist.title)\" on \(missingSourceNames(for: playlist)) and add the compatible selected tracks?")
             }
             .overlay {
                 if isSubmitting {
@@ -109,6 +129,15 @@ public struct PlaylistPickerSheet: View {
 
     private var playlistList: some View {
         List {
+            if !createsPlaylistAcrossSources, compatibleServerOptions.count > 1 {
+                Section {
+                    Picker("Add from", selection: $inferredServerSourceKey) {
+                        ForEach(compatibleServerOptions) { source in
+                            Text(source.name).tag(Optional(source.id))
+                        }
+                    }
+                }
+            }
             Section("Playlists") {
                 if isLoading {
                     ProgressView("Loading playlists...")
@@ -119,7 +148,7 @@ public struct PlaylistPickerSheet: View {
                     Text("No playlists found.")
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 } else {
-                    ForEach(filteredPlaylists, id: \.sourceScopedID) { playlist in
+                    ForEach(filteredPlaylists) { playlist in
                         playlistRow(for: playlist)
                     }
                 }
@@ -134,46 +163,86 @@ public struct PlaylistPickerSheet: View {
                     }
                     .disabled(
                         isSubmitting ||
-                        inferredServerSourceKey == nil ||
-                        compatibleTrackCountForSelectedServer == 0
+                        playlistCreationSourceKeys.isEmpty
                     )
                 }
             }
         }
     }
 
-    private func playlistRow(for playlist: Playlist) -> some View {
-        Button {
-            addToPlaylist(playlist)
+    private func playlistRow(for playlist: DisplayPlaylist) -> some View {
+        let target = targetPlaylist(for: playlist)
+        let availability = target?.actionAvailability(for: .addItems)
+        let alreadyAdded = target.map(playlistContainsSelection) == true && !createsPlaylistAcrossSources
+        let requiresCreation = !missingSourceKeys(for: playlist).isEmpty
+
+        return Button {
+            if requiresCreation {
+                pendingMissingPlaylist = playlist
+            } else {
+                submit(playlist)
+            }
         } label: {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                ArtworkView(
-                    playlist: playlist,
-                    size: .tiny,
-                    cornerRadius: ArtworkCornerRadius.square(for: .tiny)
-                )
-
+                ArtworkView(playlist: playlist.primaryPlaylist, size: .tiny,
+                            cornerRadius: ArtworkCornerRadius.square(for: .tiny))
                 VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                     Text(playlist.title)
-                    Text("\(playlist.trackCount) songs")
+                    Text(availability?.reason ?? (alreadyAdded ? "Already added" :
+                        requiresCreation ? "Create on \(missingSourceNames(for: playlist))…" :
+                        "\(playlist.trackCount) songs" + (playlist.isMerged ? " · \(playlist.playlists.count) sources" : "")))
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
-
                 Spacer()
             }
         }
-        .disabled(
-            isSubmitting ||
-            nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
-        )
+        .disabled(isSubmitting || alreadyAdded || playlistCreationSourceKeys.isEmpty ||
+                  (!createsPlaylistAcrossSources && availability?.isAvailable == false) ||
+                  (requiresCreation && deps.syncCoordinator.isOffline))
+        .accessibilityHint(availability?.reason ?? "")
     }
 
-    private var filteredPlaylists: [Playlist] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return playlists }
-        let lower = trimmed.lowercased()
-        return playlists.filter { $0.title.lowercased().contains(lower) }
+    private var filteredPlaylists: [DisplayPlaylist] {
+        let preferences = settingsManager.mergingPreferences
+        let grouped = DisplayPlaylist.group(playlists,
+            merge: preferences.isEnabled && preferences.mergePlaylists, preferences: preferences)
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.isEmpty ? grouped : grouped.filter { $0.title.localizedCaseInsensitiveContains(query) }
+    }
+
+    private var compatibleServerOptions: [PlaylistServerOption] {
+        nowPlayingVM.playlistServerOptions().filter {
+            nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: $0.id) > 0
+        }
+    }
+
+    private func targetPlaylist(for playlist: DisplayPlaylist) -> Playlist? {
+        guard let sourceKey = inferredServerSourceKey else { return nil }
+        return PlaylistActionService().playlist(named: playlist.title, forServerSourceKey: sourceKey,
+            in: playlist.playlists) ?? PlaylistActionService().playlist(named: playlist.title,
+                forServerSourceKey: sourceKey, in: playlists)
+    }
+
+    private func missingSourceKeys(for playlist: DisplayPlaylist) -> [String] {
+        playlistCreationSourceKeys.filter { key in
+            PlaylistActionService().playlist(named: playlist.title, forServerSourceKey: key, in: playlists) == nil
+        }
+    }
+
+    private func missingSourceNames(for playlist: DisplayPlaylist) -> String {
+        let keys = Set(missingSourceKeys(for: playlist))
+        return compatibleServerOptions.filter { keys.contains($0.id) }.map(\.name).joined(separator: ", ")
+    }
+
+    private func submit(_ playlist: DisplayPlaylist) {
+        if createsPlaylistAcrossSources {
+            Task { await addAcrossSources(toNamedPlaylist: playlist.primaryPlaylist) }
+        } else if let target = targetPlaylist(for: playlist) {
+            addToPlaylist(target)
+        } else {
+            Task { await createPlaylist(named: playlist.title) }
+        }
     }
 
     private var newPlaylistName: String {
@@ -199,15 +268,32 @@ public struct PlaylistPickerSheet: View {
         return nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: inferredServerSourceKey)
     }
 
+    private var playlistCreationSourceKeys: [String] {
+        if createsPlaylistAcrossSources {
+            return nowPlayingVM.playlistServerOptions()
+                .filter { nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: $0.id) > 0 }
+                .map(\.id)
+        }
+        return inferredServerSourceKey.map { [$0] } ?? []
+    }
+
     private func loadPlaylists() async {
         isLoading = true
+        playlistsContainingSelection = []
         defer { isLoading = false }
         do {
-            playlists = try await nowPlayingVM.loadPlaylists(forServerSourceKey: inferredServerSourceKey)
+            let filters = FilterPersistence.load(for: "Playlists")
+            let sortOption = PlaylistSortOption(rawValue: filters.sortBy) ?? .title
+            playlists = try await nowPlayingVM.loadPlaylists()
                 .filter { !$0.isSmart }
-                .sorted { lhs, rhs in
-                    (lhs.dateModified ?? .distantPast) > (rhs.dateModified ?? .distantPast)
-                }
+            playlists = PlaylistViewModel.sortPlaylists(
+                playlists,
+                by: sortOption,
+                ascending: filters.sortDirection == .ascending
+            )
+            if !createsPlaylistAcrossSources {
+                await loadCachedPlaylistMembership()
+            }
         } catch {
             deps.toastCenter.show(
                 ToastPayload(
@@ -225,7 +311,48 @@ public struct PlaylistPickerSheet: View {
         }
     }
 
+    /// Disables a target only when every compatible selected track is already cached in it.
+    /// If cached membership is unavailable, Plex remains the authority at submission time.
+    private func loadCachedPlaylistMembership() async {
+        let actionService = PlaylistActionService()
+        var containingSelection = Set<String>()
+
+        for playlist in playlists {
+            do {
+                guard let cachedPlaylist = try await deps.playlistRepository.fetchPlaylist(
+                    ratingKey: playlist.id,
+                    sourceCompositeKey: playlist.sourceCompositeKey
+                ) else {
+                    continue
+                }
+
+                let compatibleTracks = nowPlayingVM.tracks(
+                    tracks,
+                    compatibleWithServerSourceKey: playlist.sourceCompositeKey
+                )
+                let existingTracks = cachedPlaylist.playlistItemsArray.map { PlaylistItem(from: $0).track }
+                if !compatibleTracks.isEmpty,
+                   actionService.tracks(compatibleTracks, excluding: existingTracks).isEmpty {
+                    containingSelection.insert(playlist.sourceScopedID)
+                }
+            } catch {
+                continue
+            }
+        }
+
+        playlistsContainingSelection = containingSelection
+    }
+
+    private func playlistContainsSelection(_ playlist: Playlist) -> Bool {
+        playlistsContainingSelection.contains(playlist.sourceScopedID)
+    }
+
     private func addToPlaylist(_ playlist: Playlist) {
+        if createsPlaylistAcrossSources {
+            Task { await addAcrossSources(toNamedPlaylist: playlist) }
+            return
+        }
+
         let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: playlist.sourceCompositeKey)
         guard !compatibleTracks.isEmpty else {
             deps.toastCenter.show(
@@ -239,10 +366,29 @@ public struct PlaylistPickerSheet: View {
             )
             return
         }
-        dismiss()
         Task {
             do {
-                _ = try await nowPlayingVM.addTracksOptimistically(compatibleTracks, to: playlist)
+                let existingTracks = try await deps.playlistRepository.fetchPlaylist(
+                    ratingKey: playlist.id,
+                    sourceCompositeKey: playlist.sourceCompositeKey
+                )?.playlistItemsArray.map { PlaylistItem(from: $0).track } ?? []
+                let tracksToAdd = PlaylistActionService().tracks(compatibleTracks, excluding: existingTracks)
+                guard !tracksToAdd.isEmpty else {
+                    dismiss()
+                    deps.toastCenter.show(
+                        ToastPayload(
+                            style: .warning,
+                            iconSystemName: "exclamationmark.triangle.fill",
+                            title: "Already in \(playlist.title)",
+                            message: "Selected tracks are already in this playlist.",
+                            dedupeKey: "playlist-add-duplicate-\(playlist.id)"
+                        )
+                    )
+                    return
+                }
+
+                dismiss()
+                _ = try await nowPlayingVM.addTracksOptimistically(tracksToAdd, to: playlist)
             } catch {
                 deps.toastCenter.show(
                     ToastPayload(
@@ -261,10 +407,86 @@ public struct PlaylistPickerSheet: View {
         }
     }
 
+    private func addAcrossSources(toNamedPlaylist selectedPlaylist: Playlist) async {
+        guard !isSubmitting, !nowPlayingVM.isPlaylistMutationInProgress else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        let actionService = PlaylistActionService()
+        var changedSourceCount = 0
+        var failedSourceCount = 0
+
+        for sourceKey in playlistCreationSourceKeys {
+            let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: sourceKey)
+            guard !compatibleTracks.isEmpty else { continue }
+
+            do {
+                let targetPlaylist: Playlist?
+                if actionService.playlist(
+                    named: selectedPlaylist.title,
+                    forServerSourceKey: sourceKey,
+                    in: [selectedPlaylist]
+                ) != nil {
+                    targetPlaylist = selectedPlaylist
+                } else {
+                    let sourcePlaylists = try await nowPlayingVM.loadPlaylists(forServerSourceKey: sourceKey)
+                    targetPlaylist = actionService.playlist(
+                        named: selectedPlaylist.title,
+                        forServerSourceKey: sourceKey,
+                        in: sourcePlaylists
+                    )
+                }
+
+                if let targetPlaylist {
+                    let existingTracks = try await deps.playlistRepository.fetchPlaylist(
+                        ratingKey: targetPlaylist.id,
+                        sourceCompositeKey: targetPlaylist.sourceCompositeKey
+                    )?.playlistItemsArray.map { PlaylistItem(from: $0).track } ?? []
+                    let tracksToAdd = actionService.tracks(compatibleTracks, excluding: existingTracks)
+                    guard !tracksToAdd.isEmpty else { continue }
+                    _ = try await nowPlayingVM.addTracksOptimistically(tracksToAdd, to: targetPlaylist)
+                } else {
+                    _ = try await nowPlayingVM.createPlaylist(
+                        title: selectedPlaylist.title,
+                        tracks: compatibleTracks,
+                        serverSourceKey: sourceKey
+                    )
+                }
+                changedSourceCount += 1
+            } catch {
+                failedSourceCount += 1
+                EnsembleLogger.debug("Playlist update failed for \(sourceKey): \(error.localizedDescription)")
+            }
+        }
+
+        if failedSourceCount > 0 {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: changedSourceCount > 0 ? .warning : .error,
+                    iconSystemName: "xmark.octagon.fill",
+                    title: "Updated on \(changedSourceCount) sources",
+                    message: "\(failedSourceCount) sources could not be updated.",
+                    isPersistent: true,
+                    dedupeKey: "playlist-add-all-\(selectedPlaylist.title.lowercased())"
+                )
+            )
+        } else if changedSourceCount == 0 {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle.fill",
+                    title: "Already in \(selectedPlaylist.title)",
+                    message: "Queue tracks are already in every matching playlist.",
+                    dedupeKey: "playlist-add-all-duplicate-\(selectedPlaylist.title.lowercased())"
+                )
+            )
+        }
+        dismiss()
+    }
+
     private func createPlaylist(named name: String) async {
-        guard let inferredServerSourceKey else { return }
-        let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: inferredServerSourceKey)
-        guard !compatibleTracks.isEmpty else {
+        let sourceKeys = playlistCreationSourceKeys
+        guard !sourceKeys.isEmpty else {
             deps.toastCenter.show(
                 ToastPayload(
                     style: .warning,
@@ -281,11 +503,23 @@ public struct PlaylistPickerSheet: View {
         defer { isSubmitting = false }
 
         do {
-            _ = try await nowPlayingVM.createPlaylist(
-                title: name,
-                tracks: compatibleTracks,
-                serverSourceKey: inferredServerSourceKey
-            )
+            if createsPlaylistAcrossSources {
+                _ = try await nowPlayingVM.createPlaylists(
+                    title: name,
+                    tracks: tracks,
+                    serverSourceKeys: sourceKeys
+                )
+            } else if let sourceKey = sourceKeys.first {
+                let compatibleTracks = nowPlayingVM.tracks(
+                    tracks,
+                    compatibleWithServerSourceKey: sourceKey
+                )
+                _ = try await nowPlayingVM.createPlaylist(
+                    title: name,
+                    tracks: compatibleTracks,
+                    serverSourceKey: sourceKey
+                )
+            }
             dismiss()
         } catch {
             deps.toastCenter.show(

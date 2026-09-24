@@ -168,6 +168,44 @@ public struct ConnectionSelectionResult: Sendable, Equatable {
         self.reusedPreferredPath = reusedPreferredPath
         self.skippedInsecureCount = skippedInsecureCount
     }
+
+    public var diagnosticSummary: String {
+        let successCount = probes.filter(\.success).count
+        let failureCount = probes.count - successCount
+        let durations = probes.map(\.duration)
+        let fastestMs = durations.min().map(Self.millisecondsDescription) ?? "n/a"
+        let slowestMs = durations.max().map(Self.millisecondsDescription) ?? "n/a"
+        let selectedClass = selected?.endpointClass.rawValue.description ?? "none"
+        let failureCategories = Self.failureCategorySummary(for: probes)
+
+        return [
+            "selectedClass=\(selectedClass)",
+            "probes=\(probes.count)",
+            "successes=\(successCount)",
+            "failures=\(failureCount)",
+            "failureCategories=\(failureCategories)",
+            "fastestMs=\(fastestMs)",
+            "slowestMs=\(slowestMs)",
+            "reusedPreferred=\(reusedPreferredPath ? 1 : 0)",
+            "skippedInsecure=\(skippedInsecureCount)"
+        ].joined(separator: " ")
+    }
+
+    private static func failureCategorySummary(for probes: [ConnectionProbeResult]) -> String {
+        let counts = Dictionary(grouping: probes.compactMap(\.failureCategory), by: { $0 })
+            .mapValues(\.count)
+
+        guard !counts.isEmpty else { return "none" }
+
+        return counts
+            .sorted { $0.key.rawValue < $1.key.rawValue }
+            .map { "\($0.key.rawValue):\($0.value)" }
+            .joined(separator: ",")
+    }
+
+    private static func millisecondsDescription(_ duration: TimeInterval) -> String {
+        String(Int((duration * 1000).rounded()))
+    }
 }
 
 public struct ConnectionRefreshResult: Sendable, Equatable {

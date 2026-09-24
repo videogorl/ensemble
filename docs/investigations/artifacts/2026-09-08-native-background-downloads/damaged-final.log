@@ -1,0 +1,4 @@
+[11:48:17.434] [DEBUG] [api] Native download completed bytes=15990784 resumedFrom=0 status=200
+[11:48:17.886] [DEBUG] [core] Download decoding failed track=11631 attempt=1 decodedFrames=5906432 advertisedFrames=12319776 domain=Foundation._GenericObjCError code=0
+[11:48:18.051] [DEBUG] [core] Download decoding failed track=11631 attempt=2 decodedFrames=5906432 advertisedFrames=12319776 domain=Foundation._GenericObjCError code=0
+[11:48:18.061] [DEBUG] [core] ❌ Offline download failed: track=11631 source=<redacted-source> reason=Could not validate downloaded audio. Retry, and check the server copy if the problem continues.

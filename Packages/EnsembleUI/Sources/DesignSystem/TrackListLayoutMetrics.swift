@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import CoreGraphics
 import SwiftUI
 #if os(iOS)
@@ -14,7 +15,6 @@ public enum TrackListLayoutMetrics {
     public static let utilitySectionOuterPadding: CGFloat = detailHorizontalPadding - rowHorizontalPadding
 
     public static let defaultRowHeight: CGFloat = 68
-    public static let rowContentMinHeight: CGFloat = defaultRowHeight - (rowVerticalPadding * 2)
     public static let compactRowHeightThreshold: CGFloat = 60
     public static let standardArtworkDimension: CGFloat = 44
     public static let compactArtworkDimension: CGFloat = 40
@@ -39,13 +39,11 @@ public enum TrackListLayoutMetrics {
     public static let favoriteIndicatorDimension: CGFloat = 14
     public static let favoriteIndicatorCenterX: CGFloat = 8
     public static let downloadIndicatorDimension: CGFloat = 14
-    public static let downloadIndicatorScale: CGFloat = 0.7
     public static let playingIndicatorDimension: CGFloat = 18
     public static let rowAccessoryGap: CGFloat = 8
     public static let rowTightAccessoryGap: CGFloat = 6
     public static let dividerColor = EnsembleDesign.Color.divider
     public static let nativeDividerAlpha: CGFloat = 0.18
-    public static let unavailableOpacity = 0.45
     public static let primarySecondaryTextSpacing: CGFloat = EnsembleDesign.Spacing.xxs
     public static let defaultTitleTopPadding: CGFloat = 14
     public static let compactTitleTopPadding: CGFloat = 10
@@ -67,20 +65,18 @@ public enum TrackListLayoutMetrics {
     public static let compactMiniPlayerBottomSpacing: CGFloat = 110
     public static let miniPlayerContainerInset: CGFloat = 70
     public static let miniPlayerBottomLiftBase: CGFloat = 52
+    public static let miniPlayerAdditionalBottomPadding: CGFloat = 12
 
     public static func detailMiniPlayerBottomLift(safeAreaBottom: CGFloat) -> CGFloat {
         min(max(safeAreaBottom + 12, 20), 32)
     }
 
-    public static func rootMiniPlayerBottomLift(safeAreaBottom: CGFloat) -> CGFloat {
-        #if os(iOS)
-        // The root mini player is overlaid outside the TabView's native safe
-        // area negotiation. Keep it above the tab bar on iOS 15 devices that
-        // report a zero bottom safe area, such as iPhone 6s.
-        return miniPlayerBottomLiftBase
-        #else
-        return miniPlayerBottomLiftBase
-        #endif
+    public static func rootMiniPlayerBottomLift(
+        safeAreaBottom: CGFloat,
+        tabBarBottomClearance: CGFloat = 0
+    ) -> CGFloat {
+        guard tabBarBottomClearance > 0 else { return 0 }
+        return max(tabBarBottomClearance - safeAreaBottom, 0) + miniPlayerAdditionalBottomPadding
     }
 
     public static func contentLeadingInset(showArtwork: Bool, showTrackNumbers: Bool) -> CGFloat {
@@ -95,7 +91,7 @@ public enum TrackListLayoutMetrics {
         return plainLeadingInset
     }
 
-    public static func rowInsets(showArtwork: Bool, showTrackNumbers: Bool) -> EdgeInsets {
+    public static func rowInsets() -> EdgeInsets {
         EdgeInsets(
             top: rowVerticalPadding,
             leading: rowHorizontalPadding,

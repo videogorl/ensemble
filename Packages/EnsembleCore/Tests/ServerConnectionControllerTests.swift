@@ -4,21 +4,6 @@ import EnsembleAPI
 
 @MainActor
 final class ServerConnectionControllerTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-    }
 
     private func makeAccountManager() -> AccountManager {
         let accountManager = AccountManager(keychain: TestKeychain())
@@ -309,5 +294,32 @@ final class ServerConnectionControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(state, .connected(url: "https://initial.example.com"))
+    }
+
+    func testAppleMusicSuccessfulSyncSkipsPlexConnectionResolution() async {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+        var messages: [String] = []
+        EnsembleCore.EnsembleLogger.fileLogHandler = { _, _, message in
+            messages.append(message)
+        }
+        defer { EnsembleCore.EnsembleLogger.fileLogHandler = nil }
+
+        let state = await controller.connectionStateAfterSuccessfulSync(
+            for: .appleMusic,
+            fallback: .connected(url: "music://local")
+        )
+
+        XCTAssertEqual(state, .connected(url: "music://local"))
+        XCTAssertFalse(messages.contains { $0.contains("makeAPIClient") })
     }
 }

@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -22,6 +23,7 @@ public struct LyricsCard: View {
     @State private var isUserDrivenLyricsScrollActive = false
     @State private var lyricsScrollPhaseResetToken = 0
     @State private var lyricsRecenterRequestToken = 0
+    @State private var showLoadingIndicator = false
 
     public init(
         viewModel: NowPlayingViewModel,
@@ -90,6 +92,9 @@ public struct LyricsCard: View {
             guard NowPlayingPanelPage.lyrics.isActive(currentPage: currentPage) else { return }
             if progress != instrumentalProgress { instrumentalProgress = progress }
         }
+        .task(id: viewModel.playbackState) {
+            await updateLoadingIndicator(for: viewModel.playbackState)
+        }
     }
 
     // MARK: - Header
@@ -133,6 +138,10 @@ public struct LyricsCard: View {
                 .accessibilityLabel(viewModel.isInstrumentalModeActive
                     ? "Disable instrumental mode"
                     : "Enable instrumental mode")
+                .disabled(viewModel.currentTrack?.sourceCapabilities.supportsInstrumentalMode == false)
+                .opacity(viewModel.currentTrack?.sourceCapabilities.supportsInstrumentalMode == false
+                    ? EnsembleScaffold.NowPlaying.unavailableControlOpacity
+                    : 1)
             }
         }
         .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
@@ -152,7 +161,18 @@ public struct LyricsCard: View {
     @ViewBuilder
     private var contentView: some View {
         if shouldRenderContent {
-            switch viewModel.lyricsState {
+            if let message = viewModel.currentTrack?.sourceCapabilities.lyricsUnavailableMessage {
+                VStack(spacing: EnsembleDesign.Spacing.md) {
+                    Image(systemName: EnsembleDesign.Icon.lyricsUnavailable)
+                        .font(.largeTitle)
+                    Text(message)
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                switch viewModel.lyricsState {
             case .loading:
                 loadingView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -172,6 +192,7 @@ public struct LyricsCard: View {
                     .if(!usesReducedVisualEffects) { view in
                         view.mask(fadeMask)
                     }
+                }
             }
         } else {
             // Lightweight placeholder for pages more than one swipe away.
@@ -267,7 +288,7 @@ public struct LyricsCard: View {
                            viewModel.instrumentalGapAfterIndices.contains(index) {
                             let isActiveGap = instrumentalProgress != nil
                                 && currentLyricsLineIndex == nil
-                                && isCurrentGap(afterIndex: index, lyrics: lyrics)
+                                && isCurrentGap(afterIndex: index)
                             let progress = isActiveGap ? (instrumentalProgress ?? 0) : (isPastLine(index: index) ? 1.0 : 0.0)
                             let gapBlur = lineBlurRadius(index: index, isTimed: true)
                             instrumentalIndicator(progress: progress)
@@ -431,7 +452,6 @@ public struct LyricsCard: View {
                 line: line,
                 isActive: isActive,
                 isNextActive: isNextActive,
-                isTimed: isTimed,
                 opacity: opacity
             )
         } else {
@@ -483,9 +503,17 @@ public struct LyricsCard: View {
             }
 
             Button(action: viewModel.togglePlayPause) {
-                Image(systemName: viewModel.playbackState == .playing ? EnsembleDesign.Icon.pause : EnsembleDesign.Icon.play)
-                    .font(EnsembleDesign.Typography.utilityIcon)
-                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.activeControlOpacity))
+                ZStack {
+                    if showLoadingIndicator {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: EnsembleDesign.Color.primaryText))
+                            .scaleEffect(EnsembleScaffold.NowPlaying.loadingIndicatorScale)
+                    } else {
+                        Image(systemName: viewModel.playbackState == .playing ? EnsembleDesign.Icon.pause : EnsembleDesign.Icon.play)
+                            .font(EnsembleDesign.Typography.utilityIcon)
+                    }
+                }
+                .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.activeControlOpacity))
             }
 
             Button(action: viewModel.next) {
@@ -501,6 +529,16 @@ public struct LyricsCard: View {
     }
 
     // MARK: - Helpers
+
+    @MainActor
+    private func updateLoadingIndicator(for state: PlaybackState) async {
+        let isLoading = state == .loading || state == .buffering
+        if isLoading {
+            try? await Task.sleep(nanoseconds: EnsembleScaffold.NowPlaying.loadingIndicatorDelayNanoseconds)
+            guard !Task.isCancelled else { return }
+        }
+        showLoadingIndicator = isLoading
+    }
 
     /// Intro dot progress: time-synced if there's a real intro gap, otherwise just past/future
     private var introProgress: Double {
@@ -599,7 +637,7 @@ public struct LyricsCard: View {
     /// Whether a gap after the given index is the currently active instrumental gap.
     /// During gaps, currentLyricsLineIndex is nil but the scroll target tracks the
     /// underlying active line index from the binary search.
-    private func isCurrentGap(afterIndex index: Int, lyrics: ParsedLyrics) -> Bool {
+    private func isCurrentGap(afterIndex index: Int) -> Bool {
         guard let scrollTarget = lyricsScrollTargetIndex else { return false }
         return scrollTarget == index
     }
@@ -641,7 +679,6 @@ private struct ChordLyricsLineView: View {
     let line: LyricsLine
     let isActive: Bool
     let isNextActive: Bool
-    let isTimed: Bool
     let opacity: Double
 
     private let characterWidth: CGFloat = 8.3

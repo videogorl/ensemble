@@ -97,7 +97,6 @@ public final class TrackRatingMutationWorkflow {
 
     public func finishRatingUpdate(
         track: Track,
-        newRating: TrackRating,
         outcome: MutationOutcome
     ) -> TrackRatingMutationWorkflowResult {
         guard outcome == .queued else {

@@ -1,0 +1,19 @@
+schemaVersion: 1
+sessionDefaultsProfiles:
+  ensemble-ipad-26-5:
+    workspacePath: /Users/felicity/Developer/projects/ensemble/Ensemble.xcworkspace
+    scheme: Ensemble
+    configuration: Debug
+    simulatorName: iPad (A16)
+    simulatorId: 5BEA7617-E2CB-4904-B984-6F2261D26678
+    simulatorPlatform: iOS Simulator
+    bundleId: com.videogorl.ensemble
+  ensemble-iphone-26-5:
+    workspacePath: /Users/felicity/Developer/projects/ensemble/Ensemble.xcworkspace
+    scheme: Ensemble
+    configuration: Debug
+    simulatorName: iPhone 17 Pro
+    simulatorId: C0C6CF8B-7B59-4402-9D8D-CB4CFBF5D64D
+    simulatorPlatform: iOS Simulator
+    bundleId: com.videogorl.ensemble
+activeSessionDefaultsProfile: ensemble-iphone-26-5

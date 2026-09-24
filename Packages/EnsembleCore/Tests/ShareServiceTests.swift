@@ -93,12 +93,42 @@ final class ShareServiceTests: XCTestCase {
             key: "/library/metadata/1",
             title: "Downloaded Track",
             artistName: "Artist",
-            localFilePath: tempPath
+            localFilePath: tempPath,
+            downloadedQuality: "original"
         )
 
         XCTAssertTrue(track.isDownloaded)
         XCTAssertEqual(track.localFilePath, tempPath)
         XCTAssertTrue(FileManager.default.fileExists(atPath: tempPath))
+        XCTAssertNotNil(ShareService.matchingLocalFileURL(for: track, quality: .original))
+        XCTAssertNil(ShareService.matchingLocalFileURL(for: track, quality: .high))
+    }
+
+    func testOfflineServerFallsBackToDownloadedFileAtAnotherQuality() {
+        let tempPath = NSTemporaryDirectory() + "test_share_fallback_\(UUID().uuidString).mp3"
+        FileManager.default.createFile(atPath: tempPath, contents: Data("fake audio".utf8))
+        defer { try? FileManager.default.removeItem(atPath: tempPath) }
+
+        let track = Track(
+            id: "1",
+            key: "/library/metadata/1",
+            title: "Downloaded Track",
+            localFilePath: tempPath,
+            downloadedQuality: "medium"
+        )
+
+        XCTAssertNil(
+            ShareService.localFileURL(
+                for: track,
+                quality: .high,
+                serverState: .connected(url: "https://plex")
+            )
+        )
+        XCTAssertNil(ShareService.localFileURL(for: track, quality: .high, serverState: .unknown))
+        XCTAssertEqual(
+            ShareService.localFileURL(for: track, quality: .high, serverState: .offline),
+            URL(fileURLWithPath: tempPath)
+        )
     }
 
     func testTrackWithoutLocalFile_isNotDownloaded() {
@@ -135,13 +165,31 @@ final class ShareServiceTests: XCTestCase {
             title: "Lossless",
             artistName: "Artist",
             streamKey: "/library/parts/1/file.mp3",
-            localFilePath: "/tmp/cache/audio-file.FLAC"
+            localFilePath: "/tmp/cache/audio-file.FLAC",
+            downloadedQuality: "original"
         )
 
         let metadata = TrackFileExportMetadata(track: track)
 
         XCTAssertEqual(metadata.fileExtension, "flac")
         XCTAssertEqual(metadata.fileName, "Lossless - Artist.flac")
+
+        let transcodedMetadata = TrackFileExportMetadata(track: track, quality: .medium)
+        XCTAssertEqual(transcodedMetadata.fileName, "Lossless - Artist.mp3")
+
+        let mediumDownload = track.withLocalFilePath("/tmp/cache/audio-file_medium.m4a")
+        XCTAssertEqual(TrackFileExportMetadata(track: mediumDownload).fileName, "Lossless - Artist.mp3")
+    }
+
+    func testSharingQualityDefaultsToOriginalWhenUnset() {
+        let suiteName = "ShareServiceTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        XCTAssertEqual(
+            AudioQualityPreference.storedSharingQuality(in: defaults),
+            AudioQualityPreference.defaultSharingQuality
+        )
     }
 
     func testTrackFileExportMetadataFallsBackToStreamExtension() {
@@ -170,6 +218,12 @@ final class ShareServiceTests: XCTestCase {
         let metadata = TrackFileExportMetadata(track: track)
 
         XCTAssertEqual(metadata.fileName, "A_B_C_ - Artist_Name.mp3")
+    }
+
+    func testAudioExportRejectsTruncatedFile() {
+        XCTAssertFalse(ShareService.isCompleteAudioExport(actualByteCount: 999, expectedByteCount: 1_000))
+        XCTAssertTrue(ShareService.isCompleteAudioExport(actualByteCount: 1_000, expectedByteCount: 1_000))
+        XCTAssertTrue(ShareService.isCompleteAudioExport(actualByteCount: 1_000, expectedByteCount: nil))
     }
 
     // MARK: - NoOp Searcher Fallback

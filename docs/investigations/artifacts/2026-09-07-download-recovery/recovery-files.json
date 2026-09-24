@@ -1,0 +1,53 @@
+{
+  "simulator": "08CA3DD8-D174-40E9-A361-62B95671B969",
+  "completedTracks": [
+    {
+      "track": "12940",
+      "bytes": 28125901
+    },
+    {
+      "track": "12945",
+      "bytes": 35805250
+    },
+    {
+      "track": "12942",
+      "bytes": 23997181
+    },
+    {
+      "track": "12944",
+      "bytes": 21424787
+    },
+    {
+      "track": "12938",
+      "bytes": 20343366
+    },
+    {
+      "track": "12947",
+      "bytes": 40579701
+    },
+    {
+      "track": "12937",
+      "bytes": 27377882
+    },
+    {
+      "track": "12936",
+      "bytes": 25267219
+    },
+    {
+      "track": "12939",
+      "bytes": 29252732
+    },
+    {
+      "track": "12941",
+      "bytes": 24527090
+    },
+    {
+      "track": "12943",
+      "bytes": 24396138
+    }
+  ],
+  "interruptedTrack": "12937",
+  "bytes": 27377882,
+  "sha256": "272c4d830cbd9e3459f209684ac8173cac442350a164e7ee94fd8a28104a282d",
+  "sourceMatches": true
+}

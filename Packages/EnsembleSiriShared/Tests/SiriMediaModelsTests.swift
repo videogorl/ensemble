@@ -17,6 +17,28 @@ final class SiriMediaModelsTests: XCTestCase {
         XCTAssertEqual(decoded.schemaVersion, SiriPlaybackRequestPayload.currentSchemaVersion)
     }
 
+    func testPlaybackPayloadUpdatingShufflePreservesIdentityAndSchema() {
+        let payload = SiriPlaybackRequestPayload(
+            schemaVersion: 0,
+            kind: .album,
+            entityID: "album-1",
+            sourceCompositeKey: "plex:account:server:library",
+            displayName: "Album",
+            artistHint: "Artist",
+            shuffle: false
+        )
+
+        let updated = payload.updatingShuffle(true)
+
+        XCTAssertEqual(updated.schemaVersion, 0)
+        XCTAssertEqual(updated.kind, payload.kind)
+        XCTAssertEqual(updated.entityID, payload.entityID)
+        XCTAssertEqual(updated.sourceCompositeKey, payload.sourceCompositeKey)
+        XCTAssertEqual(updated.displayName, payload.displayName)
+        XCTAssertEqual(updated.artistHint, payload.artistHint)
+        XCTAssertEqual(updated.shuffle, true)
+    }
+
     func testPlaybackUserInfoRoundTrip() throws {
         let payload = SiriPlaybackRequestPayload(
             kind: .playlist,
@@ -34,6 +56,46 @@ final class SiriMediaModelsTests: XCTestCase {
     func testInvalidPlaybackUserInfoReturnsNil() {
         let userInfo: [AnyHashable: Any] = [SiriPlaybackActivityCodec.payloadUserInfoKey: "invalid"]
         XCTAssertNil(SiriPlaybackActivityCodec.payload(from: userInfo))
+    }
+
+    func testPlaybackIntentFieldsExtractIdentifierAndQueryInFallbackOrder() {
+        let titleFields = SiriPlaybackIntentFields(
+            mediaItemTitle: "  Song Title  ",
+            mediaItemIdentifier: "  payload-id  ",
+            searchMediaName: "Search Title"
+        )
+
+        XCTAssertEqual(titleFields.normalizedIdentifier, "payload-id")
+        XCTAssertEqual(titleFields.queryText, "Song Title")
+
+        let genreFields = SiriPlaybackIntentFields(searchGenreName: "  Dream Pop  ")
+        XCTAssertEqual(genreFields.queryText, "Dream Pop")
+
+        let moodFields = SiriPlaybackIntentFields(searchMoodName: "  Focus  ")
+        XCTAssertEqual(moodFields.queryText, "Focus")
+    }
+
+    func testPlaybackIntentFieldsInferPrimaryKindFromHintsAndQuery() {
+        XCTAssertEqual(
+            SiriPlaybackIntentFields(searchKind: .album).primaryKind(fallbackQuery: "anything"),
+            .album
+        )
+        XCTAssertEqual(
+            SiriPlaybackIntentFields(searchArtistName: "Björk").primaryKind(),
+            .artist
+        )
+        XCTAssertEqual(
+            SiriPlaybackIntentFields(searchAlbumName: "Vespertine").primaryKind(),
+            .album
+        )
+        XCTAssertEqual(
+            SiriPlaybackIntentFields(searchMediaName: "Hunter", searchArtistName: "Björk").primaryKind(),
+            .track
+        )
+        XCTAssertEqual(
+            SiriPlaybackIntentFields().primaryKind(fallbackQuery: "shuffle the playlist Road Trip"),
+            .playlist
+        )
     }
 
     func testV1MediaIndexDecodesWithoutV2Fields() throws {

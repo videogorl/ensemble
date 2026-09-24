@@ -1,11 +1,14 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
 public struct DownloadManagerSettingsView: View {
     @StateObject private var viewModel: DownloadManagerSettingsViewModel
     @Environment(\.dependencies) private var deps
-    @AppStorage("downloadQuality") private var downloadQuality = "high"
-    @AppStorage("allowCellularDownloads") private var allowCellularDownloads = false
+    @AppStorage(AudioQualityPreference.downloadQualityKey)
+    private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
+    @AppStorage(DownloadSettingsPreference.allowCellularDownloadsKey)
+    private var allowCellularDownloads = DownloadSettingsPreference.defaultAllowCellularDownloads
     @State private var showRemoveAllConfirmation = false
 
     public init() {
@@ -29,6 +32,7 @@ public struct DownloadManagerSettingsView: View {
                     .foregroundColor(EnsembleDesign.Color.accent)
                     .textCase(nil)
             } footer: {
+                Text("Applies to new downloads. Use Redownload at Current Quality on a downloaded item to replace its files.")
                 if let estimates = viewModel.sizeEstimates {
                     Text("Estimated size at this quality: \(estimates.formattedSize(for: downloadQuality))")
                 } else {
@@ -47,7 +51,7 @@ public struct DownloadManagerSettingsView: View {
             if let estimates = viewModel.sizeEstimates {
                 Section {
                     sizeRow(label: "Current on disk", size: estimates.actualBytes)
-                    sizeRow(label: "Original", size: estimates.highBytes, note: "> \(MediaFormatters.bytes(estimates.highBytes))")
+                    sizeRow(label: "Original", size: estimates.highBytes, note: estimates.formattedSize(for: "original"))
                     sizeRow(label: "High (320 kbps)", size: estimates.highBytes)
                     sizeRow(label: "Medium (192 kbps)", size: estimates.mediumBytes)
                     sizeRow(label: "Low (128 kbps)", size: estimates.lowBytes)
@@ -57,6 +61,16 @@ public struct DownloadManagerSettingsView: View {
                         .textCase(nil)
                 } footer: {
                     Text("Estimates are based on downloaded content. Original quality varies by source file.")
+                }
+            }
+
+            if viewModel.replacementCount > 0 {
+                Section {
+                    Button("Cancel File Replacements (\(viewModel.replacementCount))") {
+                        Task { await viewModel.cancelReplacements() }
+                    }
+                } footer: {
+                    Text("Keeps the existing downloaded files. New downloads remain queued.")
                 }
             }
 
@@ -95,13 +109,6 @@ public struct DownloadManagerSettingsView: View {
         #endif
         .task {
             await viewModel.refresh()
-        }
-        .onChange(of: downloadQuality) { _ in
-            // Stop any in-progress downloads immediately when quality changes
-            // so we don't keep downloading at the old quality
-            Task {
-                await deps.offlineDownloadService.cancelInProgressDownloads()
-            }
         }
         .onChange(of: allowCellularDownloads) { _ in
             // Re-evaluate whether the queue should run based on new network policy

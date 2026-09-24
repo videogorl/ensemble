@@ -89,6 +89,27 @@ final class MediaFilterEngineTests: XCTestCase {
         )
     }
 
+    func testAlbumFilterUsesSourceScopedDownloadedAlbumIDs() {
+        var options = FilterOptions()
+        options.showDownloadedOnly = true
+
+        let sourceA = "plex:account:server:1"
+        let sourceB = "plex:account:server:2"
+        let albums = [
+            makeAlbum(id: "album", sourceCompositeKey: sourceA),
+            makeAlbum(id: "album", sourceCompositeKey: sourceB),
+            makeAlbum(id: "other", sourceCompositeKey: sourceA)
+        ]
+
+        let filtered = MediaFilterEngine.filterAlbums(
+            albums,
+            with: options,
+            downloadedAlbumIDs: ["\(sourceA)||album"]
+        )
+
+        XCTAssertEqual(filtered.map(\.sourceScopedID), ["\(sourceA)||album"])
+    }
+
     func testArtistGenreFiltersUseAlbumGenreMap() {
         var options = FilterOptions()
         options.searchText = "artist"
@@ -111,6 +132,75 @@ final class MediaFilterEngineTests: XCTestCase {
         XCTAssertEqual(filtered.map(\.id), ["a1"])
     }
 
+    func testArtistGenresStayWithinTheirSource() {
+        let sourceA = "plex:account:server-a:library"
+        let sourceB = "plex:account:server-b:library"
+        let artists = [sourceA, sourceB].map {
+            Artist(id: "shared", key: "shared", name: "Artist", sourceCompositeKey: $0)
+        }
+        let albums = [
+            makeAlbum(id: "jazz", artistKey: "shared", genres: ["Jazz"], sourceCompositeKey: sourceA),
+            makeAlbum(id: "rock", artistKey: "shared", genres: ["Rock"], sourceCompositeKey: sourceB)
+        ]
+        for excluding in [false, true] {
+            var options = FilterOptions()
+            if excluding { options.excludedGenres = ["Rock"] }
+            else { options.selectedGenres = ["Jazz"] }
+            XCTAssertEqual(MediaFilterEngine.filterArtists(artists, with: options, albums: albums).map(\.sourceScopedID),
+                           [artists[0].sourceScopedID])
+        }
+    }
+
+    func testTrackGenreChoicesUseTheSharedNonGenreResult() {
+        var options = FilterOptions()
+        options.searchText = "love"
+        options.selectedGenres = ["Jazz"]
+        options.excludedGenres = ["Live"]
+        options.favoriteFilter = .favorites
+        let tracks = [
+            makeTrack(id: "jazz", title: "Love", genres: ["Jazz"], rating: 10),
+            makeTrack(id: "rock", title: "Love", genres: ["Rock"], rating: 10),
+            makeTrack(id: "live", title: "Love", genres: ["Jazz", "Live"], rating: 10),
+            makeTrack(id: "unrated", title: "Love", genres: ["Pop"]),
+            makeTrack(id: "other", title: "Other", genres: ["Soul"], rating: 10)
+        ]
+        let base = MediaFilterEngine.filterTracksWithoutGenres(tracks, with: options)
+        XCTAssertEqual(base.map(\.id), ["jazz", "rock", "live"])
+        XCTAssertEqual(Set(base.flatMap(\.genres)), ["Jazz", "Rock", "Live"])
+        XCTAssertEqual(MediaFilterEngine.filterTrackGenres(base, with: options).map(\.id), ["jazz"])
+        XCTAssertEqual(MediaFilterEngine.filterTracks(tracks, with: options).map(\.id), ["jazz"])
+    }
+
+    func testFavoriteFilterUsesTrackAlbumAndArtistFavoriteState() {
+        var options = FilterOptions()
+        options.favoriteFilter = .favorites
+
+        let tracks = [
+            makeTrack(id: "favorite", rating: 10),
+            makeTrack(id: "disliked", rating: 2),
+            makeTrack(id: "unrated")
+        ]
+        let albums = [
+            makeAlbum(id: "favorite", artistKey: "favorite-artist", rating: 10),
+            makeAlbum(id: "disliked", artistKey: "disliked-artist", rating: 2),
+            makeAlbum(id: "unrated", artistKey: "unrated-artist")
+        ]
+        let artists = [
+            makeArtist(id: "favorite-artist", name: "Favorite"),
+            makeArtist(id: "disliked-artist", name: "Disliked"),
+            makeArtist(id: "unrated-artist", name: "Unrated")
+        ]
+
+        XCTAssertEqual(MediaFilterEngine.filterTracks(tracks, with: options).map(\.id), ["favorite"])
+        XCTAssertEqual(MediaFilterEngine.filterAlbums(albums, with: options).map(\.id), ["favorite"])
+        XCTAssertEqual(MediaFilterEngine.filterArtists(artists, with: options, albums: albums).map(\.id), ["favorite-artist"])
+
+        options.favoriteFilter = .disliked
+        XCTAssertEqual(MediaFilterEngine.filterTracks(tracks, with: options).map(\.id), ["disliked"])
+        XCTAssertEqual(MediaFilterEngine.filterAlbums(albums, with: options).map(\.id), ["disliked"])
+        XCTAssertEqual(MediaFilterEngine.filterArtists(artists, with: options, albums: albums).map(\.id), ["disliked-artist"])
+    }
+
     func testGenresFilterSearchesTitleOnly() {
         var options = FilterOptions()
         options.searchText = "rock"
@@ -129,7 +219,8 @@ final class MediaFilterEngineTests: XCTestCase {
         artist: String? = nil,
         album: String? = nil,
         genres: [String] = [],
-        downloaded: Bool = false
+        downloaded: Bool = false,
+        rating: Int = 0
     ) -> Track {
         Track(
             id: id,
@@ -138,6 +229,7 @@ final class MediaFilterEngineTests: XCTestCase {
             artistName: artist,
             albumName: album,
             localFilePath: downloaded ? "/tmp/\(id).mp3" : nil,
+            rating: rating,
             genres: genres
         )
     }
@@ -150,7 +242,9 @@ final class MediaFilterEngineTests: XCTestCase {
         artistKey: String? = nil,
         year: Int? = nil,
         trackCount: Int = 0,
-        genres: [String] = []
+        genres: [String] = [],
+        rating: Int = 0,
+        sourceCompositeKey: String? = nil
     ) -> Album {
         Album(
             id: id,
@@ -161,7 +255,9 @@ final class MediaFilterEngineTests: XCTestCase {
             artistRatingKey: artistKey,
             year: year,
             trackCount: trackCount,
-            genres: genres
+            rating: rating,
+            genres: genres,
+            sourceCompositeKey: sourceCompositeKey
         )
     }
 

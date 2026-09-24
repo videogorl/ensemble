@@ -1,12 +1,12 @@
 import EnsemblePersistence
 import Foundation
-import Nuke
 
 /// Types of cache that can be managed
 public enum CacheType: String, CaseIterable {
     case libraryMetadata = "Library Metadata"
     case albumArtwork = "Album Artwork"
     case downloadedTracks = "Downloaded Tracks"
+    case playbackAudio = "Playback Audio Cache"
     case nukeImageCache = "Image Cache (Nuke)"
     
     public var description: String {
@@ -40,20 +40,24 @@ public struct CacheCleanupSnapshot: Sendable, Equatable {
     public let downloadFileCount: Int
     public let downloadSize: Int64
     public let artworkSize: Int64
+    public let playbackAudioSize: Int64
     public let nukeImageCacheSize: Int64
 
     public var totalFileCacheSize: Int64 {
-        downloadSize + artworkSize + nukeImageCacheSize
+        downloadSize + artworkSize + playbackAudioSize + nukeImageCacheSize
     }
 
     public var logDescription: String {
-        "libraryItems=\(libraryItemCount), sources=\(sourceCount), downloads=\(downloadRecordCount), completedDownloads=\(completedDownloadCount), downloadFiles=\(downloadFileCount), downloadBytes=\(downloadSize), artworkBytes=\(artworkSize), nukeBytes=\(nukeImageCacheSize), totalFileBytes=\(totalFileCacheSize)"
+        "libraryItems=\(libraryItemCount), sources=\(sourceCount), downloads=\(downloadRecordCount), completedDownloads=\(completedDownloadCount), downloadFiles=\(downloadFileCount), downloadBytes=\(downloadSize), artworkBytes=\(artworkSize), playbackAudioBytes=\(playbackAudioSize), nukeBytes=\(nukeImageCacheSize), totalFileBytes=\(totalFileCacheSize)"
     }
 }
 
 /// Coordinates all cache management across the app
 @MainActor
 public final class CacheManager: ObservableObject {
+    public nonisolated static let libraryDataDidClear = Notification.Name("CacheManagerLibraryDataDidClear")
+    public nonisolated static let artworkCachesDidClear = Notification.Name("CacheManagerArtworkCachesDidClear")
+
     @Published public private(set) var cacheInfos: [CacheType: CacheInfo] = [:]
     @Published public private(set) var isRefreshing = false
     @Published public private(set) var totalCacheSize: Int64 = 0
@@ -63,22 +67,26 @@ public final class CacheManager: ObservableObject {
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let downloadManager: DownloadManagerProtocol
     private let lyricsService: LyricsService
-    private let nukeCacheDirectoryNames = [
-        "com.ensemble.artwork",
-        "com.github.kean.Nuke"
-    ]
+    private let artworkCacheClear: @MainActor () async throws -> Void
+    private let playbackArtifactCache = PlaybackArtifactCache.shared
+    public var onDownloadsRemoved: () async -> Void = {}
     public var sourceCacheCleanupService: SourceCacheCleaning?
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         downloadManager: DownloadManagerProtocol,
-        lyricsService: LyricsService
+        lyricsService: LyricsService,
+        artworkCacheClear: (@MainActor () async throws -> Void)? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.artworkDownloadManager = artworkDownloadManager
         self.downloadManager = downloadManager
         self.lyricsService = lyricsService
+        self.artworkCacheClear = artworkCacheClear ?? {
+            try await ArtworkLoader.resetSharedPipelineCaches()
+            try await artworkDownloadManager.clearArtworkCache()
+        }
     }
     
     /// Refresh cache size information for all cache types
@@ -115,11 +123,11 @@ public final class CacheManager: ObservableObject {
         // Downloaded tracks
         do {
             let downloadSize = try getDownloadDirectorySize()
-            let downloads = try await downloadManager.fetchCompletedDownloads()
+            let downloadCount = try await downloadManager.countCompletedDownloads()
             infos[.downloadedTracks] = CacheInfo(
                 type: .downloadedTracks,
                 size: downloadSize,
-                itemCount: downloads.count
+                itemCount: downloadCount
             )
         } catch {
             EnsembleLogger.debug("Failed to get download size: \(error)")
@@ -135,6 +143,12 @@ public final class CacheManager: ObservableObject {
         } catch {
             EnsembleLogger.debug("Failed to get Nuke cache size: \(error)")
         }
+
+        let playbackAudioSize = playbackArtifactCache.size()
+        infos[.playbackAudio] = CacheInfo(
+            type: .playbackAudio,
+            size: playbackAudioSize
+        )
         
         cacheInfos = infos
         totalCacheSize = infos.values.reduce(0) { $0 + $1.size }
@@ -144,16 +158,17 @@ public final class CacheManager: ObservableObject {
     public func clearCache(type: CacheType) async throws {
         let before = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: clearing \(type.rawValue) (before: \(before.logDescription))")
+        let clearsLibraryData = type == .libraryMetadata
 
         switch type {
         case .libraryMetadata:
             try await clearLibraryMetadata()
         case .albumArtwork:
-            try await artworkDownloadManager.clearArtworkCache()
-            ArtworkBlurRenderer.clearCache()
-            invalidateArtworkCacheConsumers()
+            try await clearArtworkStorageAndConsumers()
         case .downloadedTracks:
             try await clearAllDownloads()
+        case .playbackAudio:
+            try playbackArtifactCache.removeAll()
         case .nukeImageCache:
             try await clearNukeImageCache()
         }
@@ -161,6 +176,9 @@ public final class CacheManager: ObservableObject {
         await refreshCacheInfo()
         let after = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: cleared \(type.rawValue) (after: \(after.logDescription))")
+        if clearsLibraryData {
+            notifyLibraryDataDidClear()
+        }
     }
 
     /// Clear artwork-only caches without deleting library metadata, downloads, lyrics, or account state.
@@ -168,14 +186,16 @@ public final class CacheManager: ObservableObject {
         let before = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: clearing artwork caches (before: \(before.logDescription))")
 
-        try await artworkDownloadManager.clearArtworkCache()
-        try await clearNukeImageCache()
-        ArtworkBlurRenderer.clearCache()
-        invalidateArtworkCacheConsumers()
+        try await clearArtworkStorageAndConsumers()
         await refreshCacheInfo()
 
         let after = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: cleared artwork caches (after: \(after.logDescription))")
+    }
+
+    /// Clears shared transient artwork render caches without touching source-owned durable files.
+    public func clearTransientArtworkCaches() async throws {
+        try await clearNukeImageCache()
     }
     
     /// Clear all caches
@@ -193,32 +213,33 @@ public final class CacheManager: ObservableObject {
             try await artworkDownloadManager.clearArtworkCache()
         }
         try await clearNukeImageCache()
-        ArtworkBlurRenderer.clearCache()
-        invalidateArtworkCacheConsumers()
         await refreshCacheInfo()
 
         let after = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: clearAllCaches finished (after: \(after.logDescription))")
+        notifyLibraryDataDidClear()
     }
 
     /// Captures cache counts and file sizes for verification logs and tests.
     public func cleanupSnapshot() async throws -> CacheCleanupSnapshot {
         async let libraryCount = getLibraryItemCount()
         async let sourceCount = getMusicSourceCount()
-        async let allDownloads = downloadManager.fetchDownloads()
-        async let completedDownloads = downloadManager.fetchCompletedDownloads()
+        async let allDownloadCount = downloadManager.countDownloads()
+        async let completedDownloadCount = downloadManager.countCompletedDownloads()
         let downloadDirectoryStats = try getDownloadDirectoryStats()
         async let artworkSize = artworkDownloadManager.getArtworkCacheSize()
         async let nukeSize = getNukeImageCacheSize()
+        let playbackAudioSize = playbackArtifactCache.size()
 
         return try await CacheCleanupSnapshot(
             libraryItemCount: libraryCount,
             sourceCount: sourceCount,
-            downloadRecordCount: allDownloads.count,
-            completedDownloadCount: completedDownloads.count,
+            downloadRecordCount: allDownloadCount,
+            completedDownloadCount: completedDownloadCount,
             downloadFileCount: downloadDirectoryStats.fileCount,
             downloadSize: downloadDirectoryStats.size,
             artworkSize: artworkSize,
+            playbackAudioSize: playbackAudioSize,
             nukeImageCacheSize: nukeSize
         )
     }
@@ -237,13 +258,20 @@ public final class CacheManager: ObservableObject {
     private func invalidateArtworkCacheConsumers() {
         artworkCacheInvalidationGeneration &+= 1
     }
+
+    private func clearArtworkStorageAndConsumers() async throws {
+        // Reset generations first so late requests cannot refill storage after deletion.
+        try await artworkCacheClear()
+        invalidateArtworkCacheConsumers()
+        NotificationCenter.default.post(name: Self.artworkCachesDidClear, object: self)
+    }
+
+    private func notifyLibraryDataDidClear() {
+        NotificationCenter.default.post(name: Self.libraryDataDidClear, object: self)
+    }
     
     private func getLibraryItemCount() async throws -> Int {
-        let artists = try await libraryRepository.fetchArtists()
-        let albums = try await libraryRepository.fetchAlbums()
-        let tracks = try await libraryRepository.fetchTracks()
-        let genres = try await libraryRepository.fetchGenres()
-        return artists.count + albums.count + tracks.count + genres.count
+        try await libraryRepository.countLibraryMetadataItems()
     }
 
     private func getDownloadDirectorySize() throws -> Int64 {
@@ -274,14 +302,14 @@ public final class CacheManager: ObservableObject {
     }
 
     private func getMusicSourceCount() async throws -> Int {
-        try await libraryRepository.fetchMusicSources().count
+        try await libraryRepository.countMusicSources()
     }
     
     private func getNukeImageCacheSize() async throws -> Int64 {
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         var totalSize: Int64 = 0
 
-        for directoryName in nukeCacheDirectoryNames {
+        for directoryName in ArtworkLoader.transientCacheDirectoryNames {
             let nukeCacheDir = cacheDir.appendingPathComponent(directoryName)
             guard FileManager.default.fileExists(atPath: nukeCacheDir.path) else { continue }
 
@@ -309,24 +337,17 @@ public final class CacheManager: ObservableObject {
         // We should confirm with user before calling this
         try await libraryRepository.deleteAllLibraryData()
         // Also clear persistent lyrics cache
-        lyricsService.clearAllCaches()
+        await lyricsService.clearAllCaches()
     }
     
     private func clearAllDownloads() async throws {
         try await downloadManager.deleteAllDownloads()
+        await onDownloadsRemoved()
     }
     
     private func clearNukeImageCache() async throws {
-        ImagePipeline.shared.cache.removeAll()
-
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-
-        for directoryName in nukeCacheDirectoryNames {
-            let nukeCacheDir = cacheDir.appendingPathComponent(directoryName)
-            if FileManager.default.fileExists(atPath: nukeCacheDir.path) {
-                try FileManager.default.removeItem(at: nukeCacheDir)
-            }
-        }
+        try await ArtworkLoader.resetSharedPipelineCaches()
+        invalidateArtworkCacheConsumers()
     }
     
     public var formattedTotalSize: String {

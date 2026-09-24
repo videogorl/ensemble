@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -8,22 +9,33 @@ public struct ProfileView: View {
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     private let playbackService = DependencyContainer.shared.playbackService
-    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     private let cacheManager = DependencyContainer.shared.cacheManager
 
     @State private var showingDeleteAlert = false
     @State private var showingClearArtworkCacheAlert = false
     @State private var showingClearDataAlert = false
+    @State private var showingRemoveAllAccountsAlert = false
     @State private var showingNameEditor = false
     @State private var accountToDelete: PlexAccountConfig?
+    @State private var isAddingSource = false
     @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
+    @State private var hasAppliedAutomationScroll = false
 
     #if DEBUG
     @AppStorage("debugSimulateOffline") private var debugSimulateOffline = false
     #endif
 
     private static let supportURL = URL(string: "https://ensemble.videogorl.me")!
+    private static let storageScrollTarget = "profile-storage-section"
+
+    private var scrobblingSubtitle: String {
+        guard let focusOverride = settingsManager.focusScrobblingOverride else {
+            return "Report play counts to your Plex server"
+        }
+        return focusOverride ? "Enabled by Focus" : "Disabled by Focus"
+    }
 
     public init() {}
 
@@ -53,15 +65,27 @@ public struct ProfileView: View {
                         let sourceIds = allSources(for: account)
                         let serverIds = account.servers.map(\.id)
                         accountManager.removePlexAccount(id: account.id)
+                        syncCoordinator.refreshProviders()
 
                         Task {
+                            var cleanupSucceeded = true
                             for sourceId in sourceIds {
-                                await syncCoordinator.cleanupRemovedSource(sourceId)
+                                let sourceCleanupSucceeded = await syncCoordinator.cleanupRemovedSource(sourceId)
+                                cleanupSucceeded = cleanupSucceeded && sourceCleanupSucceeded
                             }
                             for serverId in serverIds {
                                 await syncCoordinator.cleanupServerPlaylists(accountId: account.id, serverId: serverId)
                             }
-                            syncCoordinator.refreshProviders()
+                            if !cleanupSucceeded {
+                                DependencyContainer.shared.toastCenter.show(
+                                    ToastPayload(
+                                        style: .error,
+                                        iconSystemName: EnsembleDesign.Icon.error,
+                                        title: "Account Removed",
+                                        message: "Some local data could not be fully cleared. Try clearing all library data from Storage."
+                                    )
+                                )
+                            }
                         }
 
                         accountToDelete = nil
@@ -78,7 +102,7 @@ public struct ProfileView: View {
                     clearArtworkCaches()
                 }
             } message: {
-                Text("This deletes cached album, artist, and playlist images. Your library, downloads, accounts, and settings are preserved.")
+                Text("This deletes cached track, album, artist, and playlist images. Your library, downloads, accounts, and settings are preserved.")
             }
             .alert("Clear All Library Data", isPresented: $showingClearDataAlert) {
                 Button("Cancel", role: .cancel) {}
@@ -94,6 +118,14 @@ public struct ProfileView: View {
             } message: {
                 Text("This will delete all synced music data (tracks, albums, artists, playlists). Your account settings will be preserved. You'll need to re-sync after clearing.")
             }
+            .alert("Remove All Accounts", isPresented: $showingRemoveAllAccountsAlert) {
+                Button("Cancel", role: .cancel) {}
+                Button("Remove All Accounts", role: .destructive) {
+                    removeAllAccountsAndCachedData()
+                }
+            } message: {
+                Text("This removes every Plex account and clears synced library data, downloads, artwork, and playlists from this device.")
+            }
     }
 
     @ViewBuilder
@@ -101,53 +133,89 @@ public struct ProfileView: View {
         #if os(macOS)
         macOSProfileContent
         #else
-        List {
-            // Profile header — image + name
-            Section {
-                ProfileHeaderView(
-                    profileStore: profileStore,
-                    onEditName: { showingNameEditor = true }
-                )
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-            }
-
-            // Music Sources
-            sourcesSection
-
-            // iCloud Sync
-            Section {
-                NavigationLink {
-                    SyncSettingsView()
-                } label: {
-                    EnsembleUtilityRowLabel(
-                        iconSystemName: EnsembleDesign.Icon.cloud,
-                        title: "iCloud Sync",
-                        iconColor: EnsembleDesign.Color.primaryText
+        ScrollViewReader { scrollProxy in
+            List {
+                // Profile header — image + name
+                Section {
+                    ProfileHeaderView(
+                        profileStore: profileStore,
+                        onEditName: { showingNameEditor = true }
                     )
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                 }
+
+                // Music Sources
+                sourcesSection
+
+                Section {
+                    NavigationLink {
+                        MergingSettingsView()
+                    } label: {
+                        EnsembleUtilityRowLabel(
+                            iconSystemName: "arrow.triangle.merge",
+                            title: "Merging",
+                            iconColor: EnsembleDesign.Color.primaryText
+                        )
+                    }
+
+                    NavigationLink {
+                        SyncSettingsView()
+                    } label: {
+                        EnsembleUtilityRowLabel(
+                            iconSystemName: EnsembleDesign.Icon.cloud,
+                            title: "iCloud Sync",
+                            iconColor: EnsembleDesign.Color.primaryText
+                        )
+                    }
+                }
+
+                // Appearance
+                appearanceSection
+
+                // Playback
+                playbackSection
+
+                // Storage
+                storageSection
+                    .id(Self.storageScrollTarget)
+
+                // Reset
+                resetSection
+
+                // Developer
+                developerSection
+
+                // About
+                aboutSection
             }
-
-            // Appearance
-            appearanceSection
-
-            // Playback
-            playbackSection
-
-            // Storage
-            storageSection
-
-            // Reset
-            resetSection
-
-            // Developer
-            developerSection
-
-            // About
-            aboutSection
+            .listStyle(.insetGrouped)
+            .onAppear {
+                applyAutomationScrollIfNeeded(scrollProxy)
+            }
         }
-        .listStyle(.insetGrouped)
         #endif
+    }
+
+    private func applyAutomationScrollIfNeeded(_ scrollProxy: ScrollViewProxy) {
+        guard !hasAppliedAutomationScroll,
+              AutomationLaunchOptions.current.startSurface == .profileStorage
+        else { return }
+
+        hasAppliedAutomationScroll = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                scrollProxy.scrollTo(Self.storageScrollTarget, anchor: .top)
+            }
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "profileScroll",
+                details: ["target": "storage"]
+            )
+        }
     }
 
     // MARK: - Music Sources
@@ -159,6 +227,7 @@ public struct ProfileView: View {
                     MusicSourceAccountDetailView(accountId: account.id)
                 } label: {
                     MusicSourceAccountRow(
+                        sourceType: .plex,
                         sourceName: "Plex",
                         accountIdentifier: displayAccountIdentifier(for: account)
                     )
@@ -172,24 +241,72 @@ public struct ProfileView: View {
                 showingDeleteAlert = true
             }
 
+            #if os(iOS)
+            if accountManager.isAppleMusicEnabled {
+                NavigationLink {
+                    AppleMusicSourceDetailView()
+                } label: {
+                    MusicSourceAccountRow(
+                        sourceType: .appleMusic,
+                        sourceName: "Apple Music",
+                        accountIdentifier: appleMusicAccountIdentifier
+                    )
+                }
+            }
+            #endif
+
+            if accountManager.enabledSources().count >= 2 {
+                NavigationLink {
+                    PreferredLibrariesView()
+                } label: {
+                    EnsembleUtilityRowLabel(
+                        iconSystemName: EnsembleDesign.Icon.librarySelections,
+                        title: "Preferred Libraries",
+                        subtitle: "Choose which copy Ensemble uses first",
+                        iconColor: EnsembleDesign.Color.primaryText
+                    )
+                }
+            }
+
             // Navigate within the profile sheet rather than opening a second sheet.
             // iOS doesn't allow stacking sheets — the add-account sheet won't appear
             // while the profile sheet is already presented.
-            NavigationLink {
-                AddPlexAccountView(embedded: true)
+            NavigationLink(isActive: $isAddingSource) {
+                AddSourceView(embedded: true) {
+                    isAddingSource = false
+                }
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.addCircle,
-                    title: "Add Plex Account",
+                    title: "Add Source",
                     iconColor: EnsembleDesign.Color.accent
                 )
             }
         } header: {
             EnsembleUtilitySectionHeader("Music Sources")
         } footer: {
-            if accountManager.plexAccounts.isEmpty {
+            if !accountManager.hasAnySources {
                 Text("Add a music source account to access your libraries.")
             }
+        }
+    }
+
+    private var appleMusicAccountIdentifier: String {
+        guard let syncStatus = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return accountManager.isAppleMusicInitialSyncPending
+                ? "This Device • Sync Pending"
+                : "This Device"
+        }
+
+        switch syncStatus {
+        case .syncing:
+            return "This Device • Syncing"
+        case .error:
+            return "This Device • Sync Failed"
+        case .idle where accountManager.isAppleMusicInitialSyncPending:
+            return "This Device • Sync Pending"
+        case .idle, .lastSynced:
+            return "This Device"
         }
     }
 
@@ -258,14 +375,25 @@ public struct ProfileView: View {
                 playbackService.toggleAutoplay()
             }
 
+            NavigationLink {
+                SmartMixSettingsView()
+            } label: {
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.smartMix,
+                    title: "SmartMix",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
+            }
+
             Toggle(isOn: $settingsManager.scrobblingEnabled) {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.scrobble,
                     title: "Scrobbling",
-                    subtitle: "Report play counts to your Plex server",
+                    subtitle: scrobblingSubtitle,
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }
+            .disabled(settingsManager.focusScrobblingOverride != nil)
 
             NavigationLink {
                 AudioQualitySettingsView()
@@ -308,10 +436,11 @@ public struct ProfileView: View {
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.paintPalette,
-                    title: "Clear Artwork Cache...",
+                    title: "Clear Artwork Cache…",
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }
+            .accessibilityIdentifier(AutomationIdentifiers.Profile.clearArtworkCache)
 
             Button(role: .destructive) {
                 showingClearDataAlert = true
@@ -323,6 +452,7 @@ public struct ProfileView: View {
                 )
                 .foregroundColor(EnsembleDesign.Color.destructive)
             }
+            .accessibilityIdentifier(AutomationIdentifiers.Profile.clearAllLibraryData)
         }
     }
 
@@ -331,7 +461,7 @@ public struct ProfileView: View {
     private var resetSection: some View {
         Section(header: EnsembleUtilitySectionHeader("Reset")) {
             Button(role: .destructive) {
-                removeAllAccountsAndCachedData()
+                showingRemoveAllAccountsAlert = true
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.removeAccounts,
@@ -340,6 +470,7 @@ public struct ProfileView: View {
                 )
                 .foregroundColor(EnsembleDesign.Color.destructive)
             }
+            .accessibilityIdentifier(AutomationIdentifiers.Profile.removeAllAccounts)
         }
     }
 
@@ -402,7 +533,7 @@ public struct ProfileView: View {
     // MARK: - About
 
     private var aboutSection: some View {
-        Section(header: EnsembleUtilitySectionHeader("About")) {
+        Section {
             HStack {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.info,
@@ -427,6 +558,10 @@ public struct ProfileView: View {
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
+        } header: {
+            EnsembleUtilitySectionHeader("About")
+        } footer: {
+            Text("Plex and the Plex logo are trademarks of Plex and used under license. Apple Music is a trademark of Apple Inc.")
         }
     }
 
@@ -443,6 +578,18 @@ public struct ProfileView: View {
             macOSSourcesSection
 
             EnsembleUtilityCardSection {
+                macNavigationRow {
+                    MergingSettingsView()
+                } label: {
+                    EnsembleUtilityRowLabel(
+                        iconSystemName: "arrow.triangle.merge",
+                        title: "Merging",
+                        iconColor: EnsembleDesign.Color.primaryText
+                    )
+                }
+
+                EnsembleUtilityCardDivider()
+
                 macNavigationRow {
                     SyncSettingsView()
                 } label: {
@@ -476,6 +623,7 @@ public struct ProfileView: View {
                         } label: {
                             HStack {
                                 MusicSourceAccountRow(
+                                    sourceType: .plex,
                                     sourceName: "Plex",
                                     accountIdentifier: displayAccountIdentifier(for: account)
                                 )
@@ -502,15 +650,38 @@ public struct ProfileView: View {
                 EnsembleUtilityCardDivider()
             }
 
-            macNavigationRow {
-                AddPlexAccountView(embedded: true)
-            } label: {
-                EnsembleUtilityRowLabel(
-                    iconSystemName: EnsembleDesign.Icon.addCircle,
-                    title: "Add Plex Account",
-                    iconColor: EnsembleDesign.Color.accent
-                )
+            if accountManager.enabledSources().count >= 2 {
+                macNavigationRow {
+                    PreferredLibrariesView()
+                } label: {
+                    EnsembleUtilityRowLabel(
+                        iconSystemName: EnsembleDesign.Icon.librarySelections,
+                        title: "Preferred Libraries",
+                        subtitle: "Choose which copy Ensemble uses first",
+                        iconColor: EnsembleDesign.Color.primaryText
+                    )
+                }
+                EnsembleUtilityCardDivider()
             }
+
+            NavigationLink(isActive: $isAddingSource) {
+                AddSourceView(embedded: true) {
+                    isAddingSource = false
+                }
+            } label: {
+                EnsembleUtilityCardRow {
+                    HStack {
+                        EnsembleUtilityRowLabel(
+                            iconSystemName: EnsembleDesign.Icon.addCircle,
+                            title: "Add Source",
+                            iconColor: EnsembleDesign.Color.accent
+                        )
+                        Spacer()
+                        macChevron
+                    }
+                }
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -544,6 +715,18 @@ public struct ProfileView: View {
                             }
                     }
                 }
+            }
+
+            EnsembleUtilityCardDivider()
+
+            macNavigationRow {
+                SmartMixSettingsView()
+            } label: {
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.smartMix,
+                    title: "SmartMix",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
             }
 
             EnsembleUtilityCardDivider()
@@ -584,10 +767,11 @@ public struct ProfileView: View {
                     EnsembleUtilityRowLabel(
                         iconSystemName: EnsembleDesign.Icon.scrobble,
                         title: "Scrobbling",
-                        subtitle: "Report play counts to your Plex server",
+                        subtitle: scrobblingSubtitle,
                         iconColor: EnsembleDesign.Color.primaryText
                     )
                 }
+                .disabled(settingsManager.focusScrobblingOverride != nil)
             }
 
             EnsembleUtilityCardDivider()
@@ -635,10 +819,11 @@ public struct ProfileView: View {
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.paintPalette,
-                    title: "Clear Artwork Cache...",
+                    title: "Clear Artwork Cache…",
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }
+            .accessibilityIdentifier(AutomationIdentifiers.Profile.clearArtworkCache)
 
             EnsembleUtilityCardDivider()
 
@@ -651,13 +836,14 @@ public struct ProfileView: View {
                     iconColor: EnsembleDesign.Color.destructive
                 )
             }
+            .accessibilityIdentifier(AutomationIdentifiers.Profile.clearAllLibraryData)
         }
     }
 
     private var macOSResetSection: some View {
         EnsembleUtilityCardSection("Reset") {
             macDestructiveButtonRow {
-                removeAllAccountsAndCachedData()
+                showingRemoveAllAccountsAlert = true
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.removeAccounts,
@@ -665,6 +851,7 @@ public struct ProfileView: View {
                     iconColor: EnsembleDesign.Color.destructive
                 )
             }
+            .accessibilityIdentifier(AutomationIdentifiers.Profile.removeAllAccounts)
         }
     }
 
@@ -852,11 +1039,11 @@ public struct ProfileView: View {
         for account in accounts {
             accountManager.removePlexAccount(id: account.id)
         }
+        syncCoordinator.refreshProviders()
 
         Task {
             do {
                 try await cacheManager.clearAllCaches()
-                syncCoordinator.refreshProviders()
                 EnsembleLogger.debug("ProfileView: removed all accounts and cleared cached library data")
             } catch {
                 EnsembleLogger.debug("ProfileView: failed to clear cached data after removing all accounts: \(error.localizedDescription)")
@@ -915,3 +1102,184 @@ public struct ProfileView: View {
         )
     }
 }
+
+private struct PreferredLibrariesView: View {
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @State private var sourceKeys: [String] = []
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(sourceKeys, id: \.self) { sourceKey in
+                    let presentation = accountManager.sourcePresentation(for: sourceKey)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(presentation?.libraryName ?? "Music Library")
+                        if let presentation {
+                            Text("\(presentation.serverName) · \(presentation.accountName)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .onMove { source, destination in
+                    sourceKeys.move(fromOffsets: source, toOffset: destination)
+                    settingsManager.updateMergingPreferences {
+                        $0.replaceVisibleSourceOrder(sourceKeys)
+                    }
+                }
+            } footer: {
+                Text("Ensemble falls through to the next available library when a preferred source is unavailable.")
+            }
+        }
+        .preferredLibrariesEditMode()
+        .navigationTitle("Preferred Libraries")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .onAppear {
+            sourceKeys = settingsManager.mergingPreferences.ordered(
+                accountManager.enabledSources().map(\.compositeKey),
+                sourceKey: { $0 }
+            )
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func preferredLibrariesEditMode() -> some View {
+        #if os(iOS)
+        environment(\.editMode, .constant(.active))
+        #else
+        self
+        #endif
+    }
+}
+
+#if os(iOS)
+private struct AppleMusicSourceDetailView: View {
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingRemoveAlert = false
+    @State private var isRemoving = false
+    @State private var cleanupError: String?
+
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    Text("Device")
+                    Spacer()
+                    Text("This Device")
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("Apple Music library data stays on this device and is managed by the Music app.")
+            }
+
+            Section {
+                HStack {
+                    Text("Library")
+                    Spacer()
+                    Text(syncStatusText)
+                        .foregroundStyle(syncStatusColor)
+                }
+
+                if syncNeedsRetry {
+                    Button("Retry Sync") {
+                        syncCoordinator.refreshProviders()
+                        Task {
+                            await syncCoordinator.sync(source: .appleMusic)
+                        }
+                    }
+                }
+            } footer: {
+                if let syncErrorMessage {
+                    Text(syncErrorMessage)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Section {
+                Button("Remove Source", role: .destructive) {
+                    showingRemoveAlert = true
+                }
+                .disabled(isRemoving)
+            } footer: {
+                if let cleanupError {
+                    Text(cleanupError)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+        .navigationTitle("Apple Music")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Remove Source", isPresented: $showingRemoveAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) {
+                isRemoving = true
+                cleanupError = nil
+                accountManager.setAppleMusicEnabled(false)
+                syncCoordinator.refreshProviders()
+                Task {
+                    if await syncCoordinator.cleanupRemovedSource(.appleMusic) {
+                        dismiss()
+                    } else {
+                        isRemoving = false
+                        cleanupError = "Apple Music was removed, but its local data could not be fully cleared. Tap Remove Source to retry."
+                    }
+                }
+            }
+        } message: {
+            Text("This removes Apple Music from Ensemble and clears its synced library data from this device.")
+        }
+    }
+
+    private var syncStatusText: String {
+        guard let syncStatus = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return accountManager.isAppleMusicInitialSyncPending ? "Pending" : "Ready"
+        }
+
+        switch syncStatus {
+        case .idle:
+            return accountManager.isAppleMusicInitialSyncPending ? "Pending" : "Ready"
+        case .syncing(let progress):
+            return "Syncing \(Int(progress * 100))%"
+        case .error:
+            return "Failed"
+        case .lastSynced:
+            return "Up to Date"
+        }
+    }
+
+    private var syncStatusColor: Color {
+        guard let syncStatus = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return .secondary
+        }
+        switch syncStatus {
+        case .syncing:
+            return EnsembleDesign.Color.accent
+        case .error:
+            return EnsembleDesign.Color.destructive
+        case .idle, .lastSynced:
+            return .secondary
+        }
+    }
+
+    private var syncNeedsRetry: Bool {
+        if case .syncing = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus {
+            return false
+        }
+        return accountManager.isAppleMusicInitialSyncPending || syncErrorMessage != nil
+    }
+
+    private var syncErrorMessage: String? {
+        guard case .error(let message) = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return nil
+        }
+        return message
+    }
+}
+#endif

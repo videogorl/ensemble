@@ -1,78 +1,33 @@
 import EnsembleAPI
-import EnsemblePersistence
 import Foundation
 
 /// Radio provider for Plex music sources
 /// Implements radio features using Plex's sonic analysis and recommendation APIs
-public final class PlexRadioProvider: RadioProviderProtocol {
+public final class PlexRadioProvider: MusicSourceRadioProviding, @unchecked Sendable {
     public let sourceKey: String
     private let apiClient: PlexAPIClient
-    private let libraryRepository: LibraryRepositoryProtocol
     private let sectionKey: String
 
     public init(
         sourceKey: String,
         apiClient: PlexAPIClient,
-        libraryRepository: LibraryRepositoryProtocol,
         sectionKey: String
     ) {
         self.sourceKey = sourceKey
         self.apiClient = apiClient
-        self.libraryRepository = libraryRepository
         self.sectionKey = sectionKey
     }
-
-    // MARK: - RadioProviderProtocol
 
     public func getRecommendedTracks(
         basedOn track: Track,
         limit: Int
     ) async -> [Track]? {
-        EnsembleLogger.debug("\n🎙️ PlexRadioProvider.getRecommendedTracks()")
-        EnsembleLogger.debug("  - track.id (ratingKey): \(track.id)")
-        EnsembleLogger.debug("  - track.title: \(track.title)")
-        EnsembleLogger.debug("  - sourceKey: \(sourceKey)")
-        EnsembleLogger.debug("  - limit: \(limit)")
-        
         do {
-            EnsembleLogger.debug("🔄 Calling apiClient.getSimilarTracks()...")
-            // Use Plex's /nearest endpoint for sonic recommendations
-            guard let plexTracks = try await apiClient.getSimilarTracks(
-                ratingKey: track.id,
-                limit: limit,
-                maxDistance: 0.25  // Lower = more similar (0.0-1.0)
-            ) else {
-                EnsembleLogger.debug("⚠️ getSimilarTracks returned nil (no sonic analysis available)")
-                return nil
-            }
-
-            EnsembleLogger.debug("✅ getSimilarTracks returned \(plexTracks.count) plex tracks")
-            
-            // Convert PlexTrack to Track domain models
-            let tracks = plexTracks.map { Track(from: $0, sourceKey: sourceKey) }
-            EnsembleLogger.debug("✅ PlexRadioProvider: Converted to \(tracks.count) domain tracks")
-            
-            if tracks.isEmpty {
-                EnsembleLogger.debug("⚠️ WARNING: Conversion resulted in empty array")
-            } else {
-                // Log first few recommendations as confirmation
-                for track in tracks.prefix(5) {
-                    EnsembleLogger.debug("  ✅ Radio: \(track.title) by \(track.artistName ?? "Unknown")")
-                }
-                if tracks.count > 5 {
-                    EnsembleLogger.debug("  ... and \(tracks.count - 5) more tracks")
-                }
-            }
-            
-            return tracks
+            return try await apiClient.getTrackRadio(ratingKey: track.id)
+                .prefix(max(0, limit))
+                .map { Track(from: $0, sourceKey: sourceKey) }
         } catch {
-            EnsembleLogger.debug("❌ PlexRadioProvider.getRecommendedTracks() ERROR:")
-            EnsembleLogger.debug("   Type: \(type(of: error))")
-            EnsembleLogger.debug("   localizedDescription: \(error.localizedDescription)")
-            let nsError = error as NSError
-            EnsembleLogger.debug("   NSError domain: \(nsError.domain)")
-            EnsembleLogger.debug("   Code: \(nsError.code)")
-            EnsembleLogger.debug("   UserInfo: \(nsError.userInfo)")
+            EnsembleLogger.debug("Track Radio request failed: \(error.localizedDescription)")
             return nil
         }
     }

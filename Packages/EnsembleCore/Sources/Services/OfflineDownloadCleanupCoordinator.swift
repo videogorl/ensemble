@@ -9,6 +9,7 @@ final class OfflineDownloadCleanupCoordinator {
     struct Dependencies {
         let downloadManager: DownloadManagerProtocol
         let targetRepository: OfflineDownloadTargetRepositoryProtocol
+        let didRemoveDownloads: ([OfflineTrackReference]) async -> Void
     }
 
     private let dependencies: Dependencies
@@ -21,30 +22,21 @@ final class OfflineDownloadCleanupCoordinator {
     /// offline target membership.
     func removeOrphanedCompletedDownloads() async throws -> Int {
         let completedDownloads = try await dependencies.downloadManager.fetchCompletedDownloads()
-        var removedCount = 0
-
-        for download in completedDownloads {
+        let references = completedDownloads.compactMap { download -> OfflineTrackReference? in
             guard let track = download.track,
-                  let sourceCompositeKey = track.sourceCompositeKey else {
-                continue
-            }
-
-            let reference = OfflineTrackReference(
+                  let sourceCompositeKey = track.sourceCompositeKey else { return nil }
+            return OfflineTrackReference(
                 trackRatingKey: track.ratingKey,
                 trackSourceCompositeKey: sourceCompositeKey
             )
-
-            guard try await dependencies.targetRepository.membershipCount(for: reference) == 0 else {
-                continue
-            }
-
-            try await dependencies.downloadManager.deleteDownload(
-                forTrackRatingKey: reference.trackRatingKey,
-                sourceCompositeKey: reference.trackSourceCompositeKey
-            )
-            removedCount += 1
         }
+        let orphanedReferences = try await dependencies.targetRepository.unreferencedTrackReferences(
+            from: references
+        )
+        try await dependencies.downloadManager.deleteDownloads(forReferences: orphanedReferences)
+        await dependencies.didRemoveDownloads(orphanedReferences)
 
-        return removedCount
+        _ = try await dependencies.downloadManager.removeOrphanedDownloadFiles()
+        return orphanedReferences.count
     }
 }

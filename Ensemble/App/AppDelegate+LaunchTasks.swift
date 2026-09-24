@@ -36,13 +36,12 @@ extension AppDelegate {
         }
     }
 
-    func startPlaybackRestoreTaskAfterHealthChecks() {
-        // Restore playback state after health checks complete (needs server connectivity).
+    func startPlaybackRestoreTask() {
+        // Local queue hydration does not require server connectivity.
         // Skip restoration if a Siri playback execution is already in-flight — the Siri
         // handler's intent arrives before restoration completes, so restoring would
         // overwrite the Siri-initiated queue with the previous session's track.
-        playbackRestoreTask = Task.detached(priority: .utility) {
-            await self.earlyHealthCheckTask?.value
+        playbackRestoreTask = Task.detached(priority: .userInitiated) {
 
             let hasPending = await MainActor.run { (UIApplication.shared.delegate as? AppDelegate)?.hasPendingSiriIntent ?? false }
             if hasPending || SiriPlaybackExecutionGate.isExecuting {
@@ -83,20 +82,15 @@ extension AppDelegate {
                 os_signpost(.end, log: LaunchTaskSignposts.log, name: LaunchTaskSignposts.siriMediaRefresh, signpostID: signpostID)
             }
 
-            let indexStore = DependencyContainer.shared.siriMediaIndexStore
-            if indexStore.loadIndex(maxAge: 3600) == nil {
-                let rebuilt = await indexStore.rebuildIndex()
-                AppLogger.debug("AppDelegate: Siri media index rebuilt at launch (items: \(rebuilt?.items.count ?? 0))")
-            }
-            if #available(iOS 16.0, *) {
-                EnsembleAppShortcutsProvider.updateAppShortcutParameters()
-                AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
-            }
-
             let foregroundWorkScheduler = DependencyContainer.shared.foregroundWorkScheduler
             guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
                 AppLogger.debug("📱 AppDelegate: Siri media index/context refresh skipped because foreground work is unavailable")
                 return
+            }
+
+            if #available(iOS 16.0, *) {
+                EnsembleAppShortcutsProvider.updateAppShortcutParameters()
+                AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
             }
 
             // Refresh system media context and Spotlight from the shared media index.
@@ -163,11 +157,6 @@ extension AppDelegate {
             }
             await syncCoordinator.performStartupSync()
             AppLogger.debug("📱 AppDelegate: Startup sync complete")
-
-            // Start periodic sync timer after startup sync completes.
-            await MainActor.run {
-                syncCoordinator.startPeriodicSync()
-            }
         }
     }
 
@@ -175,7 +164,7 @@ extension AppDelegate {
         // Emit one structured startup summary after the launch pipeline settles so
         // device logs capture the post-bootstrap sync/playback/offline state in a
         // single line instead of requiring manual reconstruction from many events.
-        coldLaunchDiagnosticsTask = Task.detached(priority: .utility) { [weak self] in
+        Task.detached(priority: .utility) { [weak self] in
             guard let self else { return }
             await self.earlyHealthCheckTask?.value
             await self.playbackRestoreTask?.value

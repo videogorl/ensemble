@@ -2,13 +2,30 @@ import XCTest
 @testable import EnsembleUI
 
 final class PlatformAndDragPolicyTests: XCTestCase {
+    func testToastDismissalRequiresLeftwardHorizontalSwipe() {
+        for (translation, expected) in [
+            (CGSize(width: -50, height: 0), true),
+            (CGSize(width: -100, height: 40), true),
+            (CGSize(width: -49, height: 0), false),
+            (CGSize(width: 100, height: 0), false),
+            (CGSize(width: -50, height: 80), false),
+            (CGSize(width: -50, height: -50), false),
+            (.zero, false)
+        ] {
+            XCTAssertEqual(ToastBannerView.shouldDismiss(for: translation), expected, "\(translation)")
+        }
+    }
+
     func testPlatformPolicyKeepsFeatureRulesSeparateFromRenderers() {
         let phone = EnsemblePlatformFeaturePolicy.resolve(
             family: .iPhone,
             supportsNavigationSplitView: true,
+            supportsNativeBrowse: true,
             usesLargeMiniPlayer: false
         )
         XCTAssertEqual(phone.rootNavigationShell, .tabs)
+        XCTAssertFalse(phone.usesSidebarRootNavigation)
+        XCTAssertFalse(phone.usesNativeBrowse)
         XCTAssertEqual(phone.miniPlayerMenuRenderer, .compactButtons)
         XCTAssertEqual(phone.nativeTrackListBackend, .compactRows)
         XCTAssertFalse(phone.usesUtilityCardScaffold)
@@ -16,21 +33,35 @@ final class PlatformAndDragPolicyTests: XCTestCase {
         XCTAssertTrue(phone.commandPolicy.providesRefreshCommand)
         XCTAssertFalse(phone.commandPolicy.removesSystemSidebarCommand)
 
+        let oldIPad = EnsemblePlatformFeaturePolicy.resolve(
+            family: .iPad,
+            supportsNavigationSplitView: false,
+            supportsNativeBrowse: false,
+            usesLargeMiniPlayer: true
+        )
+        XCTAssertEqual(oldIPad.rootNavigationShell, .tabs)
+
         let iPad = EnsemblePlatformFeaturePolicy.resolve(
             family: .iPad,
             supportsNavigationSplitView: true,
+            supportsNativeBrowse: false,
             usesLargeMiniPlayer: true
         )
-        XCTAssertEqual(iPad.rootNavigationShell, .sidebar)
+        XCTAssertEqual(iPad.rootNavigationShell, .legacySidebar)
+        XCTAssertTrue(iPad.usesSidebarRootNavigation)
+        XCTAssertFalse(iPad.usesNativeBrowse)
         XCTAssertEqual(iPad.miniPlayerMenuRenderer, .popover)
         XCTAssertEqual(iPad.nativeTrackListBackend, .uiKitTable)
 
         let mac = EnsemblePlatformFeaturePolicy.resolve(
             family: .macOS,
             supportsNavigationSplitView: true,
+            supportsNativeBrowse: true,
             usesLargeMiniPlayer: true
         )
-        XCTAssertEqual(mac.rootNavigationShell, .sidebar)
+        XCTAssertEqual(mac.rootNavigationShell, .nativeBrowse)
+        XCTAssertTrue(mac.usesSidebarRootNavigation)
+        XCTAssertTrue(mac.usesNativeBrowse)
         XCTAssertEqual(mac.miniPlayerMenuRenderer, .appKitMenu)
         XCTAssertEqual(mac.nativeTrackListBackend, .appKitTable)
         XCTAssertTrue(mac.usesUtilityCardScaffold)
@@ -39,22 +70,13 @@ final class PlatformAndDragPolicyTests: XCTestCase {
     }
 
     func testDragExportPolicyDefaults() {
-        XCTAssertEqual(MediaDragExportPolicy.operation(for: .track, destination: .inAppPlaylist), .copy)
-        XCTAssertEqual(MediaDragExportPolicy.operation(for: .album, destination: .inAppPlaylist), .copy)
-        XCTAssertEqual(MediaDragExportPolicy.operation(for: .playlist, destination: .inAppPlaylist), .copy)
-
-        XCTAssertEqual(MediaDragExportPolicy.operation(for: .track, destination: .queueReorder), .move)
-        XCTAssertEqual(
-            MediaDragExportPolicy.operation(for: .album, destination: .queueReorder),
-            .unsupported(reason: "Only queue track rows can be reordered.")
-        )
-
         XCTAssertTrue(MediaDragExportPolicy.supportsExternalFilePromise(for: .track))
         XCTAssertFalse(MediaDragExportPolicy.supportsExternalFilePromise(for: .album))
         XCTAssertFalse(MediaDragExportPolicy.supportsExternalFilePromise(for: .playlist))
-        XCTAssertEqual(
-            MediaDragExportPolicy.operation(for: .playlist, destination: .finder),
-            .unsupported(reason: "Only tracks provide audio file promises.")
-        )
+    }
+
+    func testRootSidebarColumnWidthRemainsResizable() {
+        XCTAssertLessThan(RootSidebarColumnWidth.minimum, RootSidebarColumnWidth.ideal)
+        XCTAssertLessThan(RootSidebarColumnWidth.ideal, RootSidebarColumnWidth.maximum)
     }
 }

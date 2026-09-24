@@ -35,20 +35,47 @@ struct EnsembleApp: App {
     @State private var hasScheduledBackgroundRefresh = false
     #endif
 
+    @ViewBuilder
+    private var rootContent: some View {
+        #if DEBUG && os(iOS)
+        if ProcessInfo.processInfo.arguments.contains("-EnsembleAutomationToast") {
+            ToastInteractionFixture()
+        } else {
+            RootView()
+        }
+        #else
+        RootView()
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
-            RootView()
+            rootContent
                 .environment(\.dependencies, DependencyContainer.shared)
                 .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
                 .onAppear {
+                    #if DEBUG && os(iOS)
+                    if ProcessInfo.processInfo.arguments.contains("-EnsembleAutomationToastOverlay") {
+                        DependencyContainer.shared.toastCenter.show(ToastPayload(
+                            style: .info,
+                            iconSystemName: "info.circle",
+                            title: "Toast layout test",
+                            action: ToastAction(title: "Confirm") {},
+                            isPersistent: true,
+                            dedupeKey: "automation-toast-overlay"
+                        ))
+                    }
+                    #endif
+                    startPersistentLogSessionIfNeeded()
                     AppLogger.info("SIRI_APP: RootView.onAppear - app UI is visible")
+                    UserJourneyLogger.log(context: "app", event: "rootVisible")
                     #if os(iOS)
                     WatchCompanionBridge.shared.configure(dependencies: DependencyContainer.shared)
                     #endif
                 }
                 .onOpenURL { url in
                     AppLogger.info("SIRI_APP: onOpenURL called with: \(url.absoluteString)")
-                    _ = DependencyContainer.shared.navigationCoordinator.handleDeepLink(url)
+                    handleIncomingURL(url)
                 }
                 .onContinueUserActivity(SystemMediaSpotlightRouter.activityType) { userActivity in
                     handleSpotlightActivity(userActivity)
@@ -72,16 +99,27 @@ struct EnsembleApp: App {
                 }
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
                     AppLogger.info("SIRI_APP: Received web browsing activity: \(userActivity.webpageURL?.absoluteString ?? "nil")")
+                    if let url = userActivity.webpageURL {
+                        handleIncomingURL(url)
+                    }
                 }
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
                 .userActivity("com.videogorl.ensemble.active") { activity in
                     // This registers a user activity so we can track if the app becomes active
                     activity.title = "Ensemble Active"
                 }
+                .task(id: scenePhase) {
+                    await handleScenePhaseChange(scenePhase)
+                }
+                #if os(iOS)
+                .task {
+                    if #available(iOS 27.0, *) {
+                        EnsembleRelevantEntitiesPublisher.shared.start()
+                    }
+                }
+                #endif
         }
         .applyBackgroundRefresh()
-        .onChange(of: scenePhase) { newPhase in
-            handleScenePhaseChange(newPhase)
-        }
         .commands {
             // Settings shortcut (⌘,) — macOS app menu + iPadOS keyboard shortcut overlay
             CommandGroup(replacing: .appSettings) {
@@ -162,12 +200,63 @@ struct EnsembleApp: App {
         #endif
     }
 
-    private func handleScenePhaseChange(_ phase: ScenePhase) {
-        #if os(iOS)
+    private func handleIncomingURL(_ url: URL) {
+        guard let permalink = EnsemblePermalink(url: url) else {
+            _ = NavigationCoordinator.handleDeepLinkInActiveScene(
+                url,
+                fallback: DependencyContainer.shared.navigationCoordinator
+            )
+            return
+        }
+
         Task { @MainActor in
-            AppLogger.debug("📱 Scene phase changed to \(String(describing: phase))")
-            switch phase {
+            do {
+                if let destination = try await DependencyContainer.shared.ensemblePermalinkResolver.resolve(permalink) {
+                    _ = NavigationCoordinator.routeExternalSearchInActiveScene(to: destination)
+                } else {
+                    showPermalinkNotFound(permalink)
+                }
+            } catch {
+                AppLogger.error("PERMALINK: resolution failed kind=\(permalink.kind.rawValue): \(error.localizedDescription)")
+                showPermalinkNotFound(permalink)
+            }
+        }
+    }
+
+    @MainActor
+    private func showPermalinkNotFound(_ permalink: EnsemblePermalink) {
+        DependencyContainer.shared.toastCenter.show(
+            ToastPayload(
+                style: .warning,
+                iconSystemName: "magnifyingglass",
+                title: "Couldn't find \(permalink.title)",
+                message: "Search your library for another version.",
+                dedupeKey: "permalink-not-found-\(permalink.kind.rawValue)-\(permalink.title)"
+            )
+        )
+        _ = NavigationCoordinator.routeExternalSearchInActiveScene(to: .view(.search))
+    }
+
+    private func startPersistentLogSessionIfNeeded() {
+        guard !hasStartedLogSession else { return }
+        hasStartedLogSession = true
+        let handler = DependencyContainer.shared.persistentLogService.logHandler
+        EnsembleUI.EnsembleLogger.fileLogHandler = handler
+        AppLogger.fileLogHandler = handler
+        DependencyContainer.shared.persistentLogService.startSession()
+    }
+
+    @MainActor
+    private func handleScenePhaseChange(_ phase: ScenePhase) async {
+        #if os(iOS)
+        AppLogger.debug("📱 Scene phase changed to \(String(describing: phase))")
+        switch phase {
             case .active:
+                UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "active"])
+                if #available(iOS 16.0, *) {
+                    await EnsembleFocusFilter.refreshCurrent()
+                }
+                guard !Task.isCancelled else { return }
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
                 let isInitialActivation = !hasHandledInitialIOSActivePhase
                 if isInitialActivation {
@@ -176,13 +265,7 @@ struct EnsembleApp: App {
 
                 // Start persistent log session on first activation.
                 // Wire UI + App loggers here (Core/API/Persistence wired in DependencyContainer).
-                if !hasStartedLogSession {
-                    hasStartedLogSession = true
-                    let handler = DependencyContainer.shared.persistentLogService.logHandler
-                    EnsembleUI.EnsembleLogger.fileLogHandler = handler
-                    AppLogger.fileLogHandler = handler
-                    DependencyContainer.shared.persistentLogService.startSession()
-                }
+                startPersistentLogSessionIfNeeded()
 
                 // Schedule background refresh on first activation (iOS 16+)
                 if #available(iOS 16.0, *) {
@@ -204,26 +287,26 @@ struct EnsembleApp: App {
                     DependencyContainer.shared.webSocketCoordinator.start()
                 }
 
-                if isInitialActivation {
-                    AppLogger.debug("📱 EnsembleApp: Initial active phase — skipping foreground freshness after cold-launch pipeline")
-                } else {
-                    // Route foreground freshness through one coordinator so iOS 15
-                    // foreground refresh and iOS background refresh share the same work.
-                    await DependencyContainer.shared.backgroundRefreshCoordinator.performForegroundFreshnessRefresh()
-                    await DependencyContainer.shared.reconcileSyncOnForeground()
-                }
+                // Polling is foreground lifecycle work, independent of whether
+                // idle-budgeted startup sync has been able to run yet.
+                DependencyContainer.shared.syncCoordinator.startPeriodicSync()
+
+                // Resume persisted download work when entering the foreground.
+                await DependencyContainer.shared.offlineDownloadService.handleAppWillEnterForeground()
+                guard !Task.isCancelled else { return }
 
                 // Drain any pending offline mutations now that connectivity may have resumed.
                 await DependencyContainer.shared.mutationCoordinator.drainQueue()
+                guard !Task.isCancelled else { return }
 
                 // Restart display timer if music was actively playing when backgrounded.
                 // Also resumes sidecar analysis so pending FFT jobs process in foreground.
                 DependencyContainer.shared.audioAnalyzer.exitBackground()
-                await DependencyContainer.shared.offlineDownloadService.handleAppWillEnterForeground()
                 await DependencyContainer.shared.offlineDownloadService.resumeSidecarAnalysis()
                 WatchCompanionBridge.shared.refresh()
 
             case .background:
+                UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "background"])
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background audio playback.
@@ -236,55 +319,55 @@ struct EnsembleApp: App {
                 // flag is preserved — exitBackground() on foreground restarts correctly.
                 DependencyContainer.shared.audioAnalyzer.enterBackground()
 
-                // Suspend sidecar FFT analysis. Without this, a 75-track batch download
-                // completing in background can sustain ~95% CPU (FFT at background priority
-                // outlasts iOS's background CPU budget), triggering a SIGKILL after ~2min.
-                await DependencyContainer.shared.offlineDownloadService.suspendSidecarAnalysis()
-                await DependencyContainer.shared.offlineDownloadService.handleAppDidEnterBackground()
-
-                // Stop network monitoring and WebSocket connections to save battery.
-                // Without this, WebSocket reconnect loops burn ~30% network while idle.
+                // Stop foreground connectivity before suspending async work so a
+                // newer active phase cannot be overtaken by this background phase.
                 DependencyContainer.shared.networkMonitor.stopMonitoring()
                 DependencyContainer.shared.webSocketCoordinator.stop()
                 DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
 
+                // Suspend sidecar FFT analysis. Without this, a 75-track batch download
+                // completing in background can sustain ~95% CPU (FFT at background priority
+                // outlasts iOS's background CPU budget), triggering a SIGKILL after ~2min.
+                await DependencyContainer.shared.offlineDownloadService.suspendSidecarAnalysis()
+                guard !Task.isCancelled else { return }
+                await DependencyContainer.shared.offlineDownloadService.handleAppDidEnterBackground()
+
             case .inactive:
+                UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "inactive"])
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
                 break
             @unknown default:
                 break
-            }
         }
         #endif
 
         #if os(macOS)
-        Task { @MainActor in
-            switch phase {
+        switch phase {
             case .active:
+                let isInitialActivation = !hasStartedPlaybackRestore
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
                 // Start persistent log session on first activation (macOS)
-                if !hasStartedLogSession {
-                    hasStartedLogSession = true
-                    let handler = DependencyContainer.shared.persistentLogService.logHandler
-                    EnsembleUI.EnsembleLogger.fileLogHandler = handler
-                    AppLogger.fileLogHandler = handler
-                    DependencyContainer.shared.persistentLogService.startSession()
-                }
+                startPersistentLogSessionIfNeeded()
 
                 // Start monitoring when app becomes active (macOS)
                 DependencyContainer.shared.networkMonitor.startMonitoring()
+                DependencyContainer.shared.webSocketCoordinator.start()
                 DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
-                await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
-                await DependencyContainer.shared.reconcileSyncOnForeground()
+                if isInitialActivation {
+                    AppLogger.debug("💻 EnsembleApp: Initial active phase — skipping foreground freshness before cold-launch health checks")
+                } else {
+                    await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
+                    await DependencyContainer.shared.reconcileSyncOnForeground()
+                }
 
                 // Start periodic sync timer
                 DependencyContainer.shared.syncCoordinator.startPeriodicSync()
 
                 // macOS does not go through UIApplication/AppDelegate startup,
                 // so we need to mirror the iPhone launch sequence here once:
-                // load accounts/providers, run health checks, then restore the
-                // persisted queue/current track before the first startup sync.
-                if !hasStartedPlaybackRestore {
+                // load accounts/providers and restore local playback before
+                // network health checks and the first startup sync.
+                if isInitialActivation {
                     hasStartedPlaybackRestore = true
 
                     Task.detached(priority: .utility) {
@@ -296,11 +379,16 @@ struct EnsembleApp: App {
 
                         let dependencyContainer = await MainActor.run { DependencyContainer.shared }
 
+                        await dependencyContainer.accountManager.loadAccountsAsync()
                         await MainActor.run {
-                            dependencyContainer.accountManager.loadAccounts()
                             dependencyContainer.serverHealthChecker.prepopulateUnknownStates()
                             dependencyContainer.syncCoordinator.refreshProviders()
                         }
+
+                        AppLogger.debug("💻 macOS: Restoring persisted playback state...")
+                        let playbackService = await MainActor.run { dependencyContainer.playbackService }
+                        await playbackService.restorePlaybackState()
+                        AppLogger.debug("💻 macOS: Playback state restoration complete")
 
                         let networkMonitor = await MainActor.run { dependencyContainer.networkMonitor }
                         if await MainActor.run(body: { networkMonitor.networkState == .unknown }) {
@@ -312,14 +400,10 @@ struct EnsembleApp: App {
                             }
                         }
 
-                        AppLogger.debug("💻 macOS: Running startup health checks before playback restore...")
+
+                        AppLogger.debug("💻 macOS: Running startup health checks after local playback restore...")
                         let syncCoordinator = await MainActor.run { dependencyContainer.syncCoordinator }
                         await syncCoordinator.performStartupHealthChecks()
-
-                        AppLogger.debug("💻 macOS: Restoring persisted playback state...")
-                        let playbackService = await MainActor.run { dependencyContainer.playbackService }
-                        await playbackService.restorePlaybackState()
-                        AppLogger.debug("💻 macOS: Playback state restoration complete")
                     }
                 }
 
@@ -363,6 +447,7 @@ struct EnsembleApp: App {
 
                 // Stop monitoring when app goes to background (macOS)
                 DependencyContainer.shared.networkMonitor.stopMonitoring()
+                DependencyContainer.shared.webSocketCoordinator.stop()
 
                 // Stop periodic sync timer
                 DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
@@ -371,7 +456,6 @@ struct EnsembleApp: App {
                 break
             @unknown default:
                 break
-            }
         }
         #endif
     }
@@ -411,50 +495,37 @@ struct EnsembleApp: App {
 
     #if os(iOS)
     private func extractPayload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
-        let shuffle = intent.playShuffled
+        let fields = intent.ensembleSiriPlaybackFields
+        let shuffle = fields.playShuffled
 
         // Try to decode from identifier first
-        if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
+        if let identifier = fields.normalizedIdentifier,
            let data = Data(base64Encoded: identifier),
            var payload = try? SiriPlaybackActivityCodec.decode(from: data) {
             // Prefer the live forwarded intent when iOS preserves an explicit shuffle value.
             if let shuffle, payload.shuffle != shuffle {
-                payload = SiriPlaybackRequestPayload(
-                    kind: payload.kind,
-                    entityID: payload.entityID,
-                    sourceCompositeKey: payload.sourceCompositeKey,
-                    displayName: payload.displayName,
-                    artistHint: payload.artistHint,
-                    shuffle: shuffle
-                )
+                payload = payload.updatingShuffle(shuffle)
             }
             return payload
         }
 
         // Fallback to query
-        guard let query = intent.mediaItems?.first?.title
-                ?? intent.mediaContainer?.title
-                ?? intent.mediaSearch?.mediaName
-                ?? intent.mediaSearch?.mediaIdentifier,
-              !query.isEmpty else {
+        guard let query = fields.queryText else {
             return nil
         }
 
-        let mediaType = intent.mediaSearch?.mediaType
-            ?? intent.mediaContainer?.type
-            ?? intent.mediaItems?.first?.type
-            ?? .unknown
-
-        let kind: SiriMediaKind
-        switch mediaType {
-        case .song: kind = .track
-        case .album: kind = .album
-        case .artist: kind = .artist
-        case .playlist: kind = .playlist
-        default: kind = SiriMediaIndexResolver.kindInferred(from: query) ?? .track
+        let sanitizedQuery = SiriPhraseNormalizer.normalized(query)
+        guard !sanitizedQuery.isEmpty else {
+            return nil
         }
 
-        return SiriPlaybackRequestPayload(kind: kind, entityID: query, displayName: query, shuffle: shuffle)
+        return SiriPlaybackRequestPayload(
+            kind: fields.primaryKind(fallbackQuery: query),
+            entityID: sanitizedQuery,
+            displayName: sanitizedQuery,
+            artistHint: fields.artistHint,
+            shuffle: shuffle
+        )
     }
     #endif
 
@@ -761,7 +832,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    @objc private func toggleFavorite(_ sender: NSMenuItem) {
+    @objc private func toggleFavorite(_: NSMenuItem) {
         let dependencies = DependencyContainer.shared
         guard let track = dependencies.playbackService.currentTrack else { return }
         let viewModel = dependencies.activeNowPlayingViewModel ?? dependencies.makeNowPlayingViewModel()
@@ -771,7 +842,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func toggleShuffle(_ sender: NSMenuItem) {
+    @objc private func toggleShuffle(_: NSMenuItem) {
         DependencyContainer.shared.playbackService.toggleShuffle()
     }
 
@@ -795,11 +866,11 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func toggleAutoplay(_ sender: NSMenuItem) {
+    @objc private func toggleAutoplay(_: NSMenuItem) {
         DependencyContainer.shared.playbackService.toggleAutoplay()
     }
 
-    @objc private func togglePlayPause(_ sender: NSMenuItem) {
+    @objc private func togglePlayPause(_: NSMenuItem) {
         let dependencies = DependencyContainer.shared
         if let viewModel = dependencies.activeNowPlayingViewModel {
             viewModel.togglePlayPause()
@@ -821,11 +892,11 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func previousTrack(_ sender: NSMenuItem) {
+    @objc private func previousTrack(_: NSMenuItem) {
         DependencyContainer.shared.playbackService.previous()
     }
 
-    @objc private func nextTrack(_ sender: NSMenuItem) {
+    @objc private func nextTrack(_: NSMenuItem) {
         DependencyContainer.shared.playbackService.next()
     }
 
@@ -840,7 +911,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
 
     private func artworkImage(for pin: PinnedItem) async -> NSImage? {
         let dependencies = DependencyContainer.shared
-        let descriptor: ArtworkDescriptor?
+        let request: ArtworkRequest?
 
         switch pin.type {
         case .album:
@@ -849,14 +920,19 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
                 sourceCompositeKey: pin.sourceCompositeKey
             ) {
                 let album = Album(from: cdAlbum)
-                descriptor = ArtworkDescriptor(
+                request = ArtworkRequest(
                     path: album.thumbPath,
+                    sourceKey: pin.sourceCompositeKey,
                     ratingKey: album.id,
                     fallbackPath: nil,
-                    fallbackRatingKey: nil
+                    fallbackRatingKey: nil,
+                    identity: ArtworkRequest.Identity(album: album),
+                    fallbackIdentity: nil,
+                    tier: .thumbnail,
+                    priority: .normal
                 )
             } else {
-                descriptor = nil
+                request = nil
             }
         case .artist:
             if let cdArtist = try? await dependencies.libraryRepository.fetchArtist(
@@ -864,14 +940,19 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
                 sourceCompositeKey: pin.sourceCompositeKey
             ) {
                 let artist = Artist(from: cdArtist)
-                descriptor = ArtworkDescriptor(
+                request = ArtworkRequest(
                     path: artist.thumbPath,
+                    sourceKey: pin.sourceCompositeKey,
                     ratingKey: artist.id,
                     fallbackPath: artist.fallbackThumbPath,
-                    fallbackRatingKey: artist.fallbackRatingKey
+                    fallbackRatingKey: artist.fallbackRatingKey,
+                    identity: ArtworkRequest.Identity(artist: artist),
+                    fallbackIdentity: nil,
+                    tier: .thumbnail,
+                    priority: .normal
                 )
             } else {
-                descriptor = nil
+                request = nil
             }
         case .playlist:
             if let cdPlaylist = try? await dependencies.playlistRepository.fetchPlaylist(
@@ -879,26 +960,24 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
                 sourceCompositeKey: pin.sourceCompositeKey
             ) {
                 let playlist = Playlist(from: cdPlaylist)
-                descriptor = ArtworkDescriptor(
+                request = ArtworkRequest(
                     path: playlist.compositePath,
+                    sourceKey: pin.sourceCompositeKey,
                     ratingKey: playlist.id,
                     fallbackPath: nil,
-                    fallbackRatingKey: nil
+                    fallbackRatingKey: nil,
+                    identity: ArtworkRequest.Identity(playlist: playlist),
+                    fallbackIdentity: nil,
+                    tier: .thumbnail,
+                    priority: .normal
                 )
             } else {
-                descriptor = nil
+                request = nil
             }
         }
 
-        guard let descriptor,
-              let url = await dependencies.artworkLoader.artworkURLAsync(
-                  for: descriptor.path,
-                  sourceKey: pin.sourceCompositeKey,
-                  ratingKey: descriptor.ratingKey,
-                  fallbackPath: descriptor.fallbackPath,
-                  fallbackRatingKey: descriptor.fallbackRatingKey,
-                  size: 64
-              ),
+        guard let request,
+              let url = await dependencies.artworkLoader.resolvedImage(for: request)?.url,
               url.isFileURL,
               let image = NSImage(contentsOf: url)
         else {
@@ -943,12 +1022,6 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
         return image
     }
 
-    private struct ArtworkDescriptor {
-        let path: String?
-        let ratingKey: String?
-        let fallbackPath: String?
-        let fallbackRatingKey: String?
-    }
 }
 
 private extension PinnedItemType {
@@ -986,7 +1059,6 @@ extension Scene {
 
 #if os(iOS)
 /// Perform background refresh - lightweight hub sync
-@available(iOS 13.0, *)
 private func performBackgroundRefresh() async {
     AppLogger.debug("🔄 Background refresh triggered")
 
@@ -1001,5 +1073,51 @@ private func performBackgroundRefresh() async {
     await refreshCoordinator.performAppRefresh()
 
     AppLogger.debug("✅ Background refresh complete")
+}
+#endif
+
+#if DEBUG && os(iOS)
+/// Exercises the production overlay without library or provider mutations.
+private struct ToastInteractionFixture: View {
+    @State private var result = "No action"
+    @State private var showingSheet = false
+    @State private var behindTapCount = 0
+
+    var body: some View {
+        VStack(spacing: 24) {
+            controls(context: "root")
+            Button("Open sheet") { showingSheet = true }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            Button {
+                behindTapCount += 1
+            } label: {
+                Color.clear.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Behind toast")
+        }
+        .sheet(isPresented: $showingSheet) { controls(context: "sheet") }
+    }
+
+    private func controls(context: String) -> some View {
+        VStack(spacing: 24) {
+            Text(result).accessibilityIdentifier("toast.fixture.result")
+            Text("Behind taps: \(behindTapCount)")
+            Button("Outside button") { result = "Outside confirmed" }
+            Button("Show toast") {
+                result = "No action"
+                DependencyContainer.shared.toastCenter.show(ToastPayload(
+                    style: .info,
+                    iconSystemName: "info.circle",
+                    title: "Interaction test",
+                    action: ToastAction(title: "Confirm") { result = "Action confirmed" },
+                    isPersistent: true
+                ))
+            }
+            .accessibilityIdentifier("toast.fixture.\(context).show")
+        }
+    }
 }
 #endif

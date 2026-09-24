@@ -1,22 +1,15 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
 /// The "More" tab containing additional sections not in the main tab bar
 public struct MoreView: View {
-    @ObservedObject var libraryVM: LibraryViewModel
-    let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     @State private var isEditing = false
 
-    public init(
-        libraryVM: LibraryViewModel,
-        nowPlayingVM: NowPlayingViewModel
-    ) {
-        self.libraryVM = libraryVM
-        self.nowPlayingVM = nowPlayingVM
-    }
+    public init() {}
 
     private var barTabs: [TabItem] {
         Array(settingsManager.enabledTabs.prefix(EnsembleScaffold.TabEditor.maximumTabBarItems))
@@ -70,6 +63,11 @@ public struct MoreView: View {
                     }
                     .foregroundColor(EnsembleDesign.Color.primaryText)
                 }
+
+                navigationCoordinator.routeLink(to: .hidden, in: .settings) {
+                    Label("Hidden", systemImage: "eye.slash")
+                }
+                .foregroundColor(EnsembleDesign.Color.primaryText)
             } header: {
                 EnsembleUtilitySectionHeader("Library")
             }

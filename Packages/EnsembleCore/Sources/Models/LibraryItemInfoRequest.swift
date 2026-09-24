@@ -4,7 +4,7 @@ import Foundation
 public enum LibraryItemInfoRequest: Identifiable, Equatable, Sendable {
     case track(Track)
     case album(Album)
-    case playlist(Playlist)
+    case playlist(Playlist, sources: [Playlist] = [])
 
     public var id: String {
         switch self {
@@ -12,7 +12,7 @@ public enum LibraryItemInfoRequest: Identifiable, Equatable, Sendable {
             return "track:\(track.sourceScopedID)"
         case .album(let album):
             return "album:\(album.sourceScopedID)"
-        case .playlist(let playlist):
+        case .playlist(let playlist, _):
             return "playlist:\(playlist.sourceScopedID)"
         }
     }
@@ -23,7 +23,7 @@ public enum LibraryItemInfoRequest: Identifiable, Equatable, Sendable {
             return track.title
         case .album(let album):
             return album.title
-        case .playlist(let playlist):
+        case .playlist(let playlist, _):
             return playlist.title
         }
     }
@@ -34,7 +34,7 @@ public enum LibraryItemInfoRequest: Identifiable, Equatable, Sendable {
             return track.thumbPath ?? track.fallbackThumbPath
         case .album(let album):
             return album.thumbPath
-        case .playlist(let playlist):
+        case .playlist(let playlist, _):
             return playlist.compositePath
         }
     }
@@ -45,7 +45,7 @@ public enum LibraryItemInfoRequest: Identifiable, Equatable, Sendable {
             return track.thumbPath?.isEmpty == false ? track.id : track.fallbackRatingKey
         case .album(let album):
             return album.id
-        case .playlist(let playlist):
+        case .playlist(let playlist, _):
             return playlist.id
         }
     }
@@ -74,7 +74,7 @@ public enum LibraryItemInfoRequest: Identifiable, Equatable, Sendable {
             return track.sourceCompositeKey
         case .album(let album):
             return album.sourceCompositeKey
-        case .playlist(let playlist):
+        case .playlist(let playlist, _):
             return playlist.sourceCompositeKey
         }
     }

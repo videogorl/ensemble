@@ -85,34 +85,43 @@ public struct MediaFilterEngine {
         with options: FilterOptions,
         configuration: TrackConfiguration = .library
     ) -> [Track] {
-        var filtered = tracks
+        filterTrackGenres(
+            filterTracksWithoutGenres(tracks, with: options, configuration: configuration),
+            with: options, configuration: configuration
+        )
+    }
 
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter { track in
-                trackMatchesSearch(track, searchLower: searchLower, fields: configuration.searchFields)
-            }
+    static func filterTracksWithoutGenres(
+        _ tracks: [Track], with options: FilterOptions, configuration: TrackConfiguration = .library
+    ) -> [Track] {
+        let searchLower = options.searchText.lowercased()
+        guard !searchLower.isEmpty || options.favoriteFilter != nil ||
+                (configuration.filtersDownloadedOnly && options.showDownloadedOnly) else { return tracks }
+        return tracks.filter { track in
+            if configuration.filtersDownloadedOnly && options.showDownloadedOnly && !track.isDownloaded { return false }
+            if let favoriteFilter = options.favoriteFilter,
+               !favoriteFilter.includes(rating: track.rating, isFavorite: track.isFavorite) { return false }
+            return searchLower.isEmpty || trackMatchesSearch(track, searchLower: searchLower, fields: configuration.searchFields)
         }
+    }
 
-        if configuration.filtersIncludedGenres, !options.selectedGenres.isEmpty {
-            filtered = filtered.filter { !options.selectedGenres.isDisjoint(with: $0.genres) }
+    static func filterTrackGenres(
+        _ tracks: [Track], with options: FilterOptions, configuration: TrackConfiguration = .library
+    ) -> [Track] {
+        let includesGenres = configuration.filtersIncludedGenres && !options.selectedGenres.isEmpty
+        let excludesGenres = configuration.filtersExcludedGenres && !options.excludedGenres.isEmpty
+        guard includesGenres || excludesGenres else { return tracks }
+        return tracks.filter { track in
+            if includesGenres && options.selectedGenres.isDisjoint(with: track.genres) { return false }
+            return !excludesGenres || (!track.genres.isEmpty && options.excludedGenres.isDisjoint(with: track.genres))
         }
-
-        if configuration.filtersExcludedGenres, !options.excludedGenres.isEmpty {
-            filtered = filtered.filter { !$0.genres.isEmpty && options.excludedGenres.isDisjoint(with: $0.genres) }
-        }
-
-        if configuration.filtersDownloadedOnly, options.showDownloadedOnly {
-            filtered = filtered.filter { $0.isDownloaded }
-        }
-
-        return filtered
     }
 
     public static func filterAlbums(
         _ albums: [Album],
         with options: FilterOptions,
-        configuration: AlbumConfiguration = .library
+        configuration: AlbumConfiguration = .library,
+        downloadedAlbumIDs: Set<String>? = nil
     ) -> [Album] {
         var filtered = albums
 
@@ -149,6 +158,14 @@ public struct MediaFilterEngine {
             filtered = filtered.filter { $0.trackCount > 1 }
         }
 
+        if options.showDownloadedOnly, let downloadedAlbumIDs {
+            filtered = filtered.filter { downloadedAlbumIDs.contains($0.sourceScopedID) }
+        }
+
+        if let favoriteFilter = options.favoriteFilter {
+            filtered = filtered.filter { favoriteFilter.includes(rating: $0.rating) }
+        }
+
         return filtered
     }
 
@@ -169,17 +186,26 @@ public struct MediaFilterEngine {
 
             if !options.selectedGenres.isEmpty {
                 filtered = filtered.filter { artist in
-                    guard let genres = artistGenres[artist.id] else { return false }
+                    guard let genres = artistGenres[artist.sourceScopedID] else { return false }
                     return !options.selectedGenres.isDisjoint(with: genres)
                 }
             }
 
             if !options.excludedGenres.isEmpty {
                 filtered = filtered.filter { artist in
-                    guard let genres = artistGenres[artist.id], !genres.isEmpty else { return false }
+                    guard let genres = artistGenres[artist.sourceScopedID], !genres.isEmpty else { return false }
                     return options.excludedGenres.isDisjoint(with: genres)
                 }
             }
+        }
+
+        if let favoriteFilter = options.favoriteFilter {
+            let matchingArtistIDs = Set(albums.compactMap { album -> String? in
+                guard favoriteFilter.includes(rating: album.rating),
+                      let artistID = album.artistRatingKey else { return nil }
+                return sourceScopedIdentity(ratingKey: artistID, sourceCompositeKey: album.sourceCompositeKey)
+            })
+            filtered = filtered.filter { matchingArtistIDs.contains($0.sourceScopedID) }
         }
 
         return filtered
@@ -215,7 +241,7 @@ public struct MediaFilterEngine {
         var artistGenres: [String: Set<String>] = [:]
         for album in albums {
             guard let artistKey = album.artistRatingKey, !album.genres.isEmpty else { continue }
-            artistGenres[artistKey, default: []].formUnion(album.genres)
+            artistGenres[sourceScopedIdentity(ratingKey: artistKey, sourceCompositeKey: album.sourceCompositeKey), default: []].formUnion(album.genres)
         }
         return artistGenres
     }

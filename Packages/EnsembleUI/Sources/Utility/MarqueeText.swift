@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import SwiftUI
 
 public struct MarqueeText: View {

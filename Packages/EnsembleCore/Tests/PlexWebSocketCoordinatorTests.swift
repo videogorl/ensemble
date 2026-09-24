@@ -4,35 +4,14 @@ import EnsembleAPI
 
 @MainActor
 final class PlexWebSocketCoordinatorTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-    }
 
     private func makeCoordinator() -> (PlexWebSocketCoordinator, NetworkMonitor) {
         let accountManager = AccountManager(keychain: TestKeychain())
         let registry = ServerConnectionRegistry()
         let monitor = NetworkMonitor()
-        let checker = ServerHealthChecker(
-            accountManager: accountManager,
-            networkMonitor: monitor,
-            connectionRegistry: registry
-        )
         let coordinator = PlexWebSocketCoordinator(
             accountManager: accountManager,
             connectionRegistry: registry,
-            serverHealthChecker: checker,
             networkMonitor: monitor,
             clientIdentifier: "test-client"
         )
@@ -77,5 +56,51 @@ final class PlexWebSocketCoordinatorTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 50_000_000)
 
         XCTAssertEqual(values, [true, false])
+    }
+
+    func testDownloadCompletionEventsAreDebounced() async throws {
+        let (coordinator, _) = makeCoordinator()
+        var callbackCount = 0
+        coordinator.onDownloadQueueCompleted = {
+            callbackCount += 1
+        }
+
+        for progress in [98, 99, 100] {
+            await coordinator.handleEventForTesting(
+                .activityUpdate(event: "ended", type: "media.download", progress: progress),
+                from: "account:server"
+            )
+        }
+
+        try await Task.sleep(nanoseconds: 3_100_000_000)
+        XCTAssertEqual(callbackCount, 1)
+    }
+
+    func testLibraryUpdateCarriesLatestExactItemChanges() async throws {
+        let (coordinator, _) = makeCoordinator()
+        var receivedChanges: Set<PlexLibraryChange> = []
+        coordinator.onLibraryUpdate = { _, _, changes in
+            receivedChanges = changes
+        }
+
+        await coordinator.handleEventForTesting(
+            .libraryUpdate(sectionID: 3, itemID: 10, type: 10, state: 5),
+            from: "account:server"
+        )
+        await coordinator.handleEventForTesting(
+            .libraryUpdate(sectionID: 3, itemID: 10, type: 10, state: 9),
+            from: "account:server"
+        )
+        await coordinator.handleEventForTesting(
+            .libraryUpdate(sectionID: 3, itemID: 20, type: 9, state: 5),
+            from: "account:server"
+        )
+
+        try await Task.sleep(nanoseconds: 3_100_000_000)
+
+        XCTAssertEqual(receivedChanges, [
+            PlexLibraryChange(ratingKey: "10", kind: .track, state: 9),
+            PlexLibraryChange(ratingKey: "20", kind: .album, state: 5)
+        ])
     }
 }

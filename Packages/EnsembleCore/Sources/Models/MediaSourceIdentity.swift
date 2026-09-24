@@ -1,21 +1,43 @@
 import Foundation
 
-/// Parsed media source identity for comparing library-scoped and server-scoped keys.
-public struct MediaSourceIdentity: Equatable, Sendable {
-    public let type: String
+/// Parsed provider, account, server, and optional library scope for a music source key.
+///
+/// This Core-owned identity keeps the existing serialized key format while preventing
+/// provider routing from depending on Plex API models.
+public struct MediaSourceIdentity: Equatable, Hashable, Sendable {
+    private let providerType: MusicSourceType
     public let accountId: String
     public let serverId: String
     public let libraryId: String?
 
-    public init(type: String, accountId: String, serverId: String, libraryId: String? = nil) {
-        self.type = type
+    public init(
+        type: MusicSourceType,
+        accountId: String,
+        serverId: String,
+        libraryId: String? = nil
+    ) {
+        self.providerType = type
         self.accountId = accountId
         self.serverId = serverId
         self.libraryId = libraryId
     }
 
+    public var type: String { providerType.rawValue }
+
+    public var sourceType: MusicSourceType {
+        providerType
+    }
+
     public var serverSourceKey: String {
         "\(type):\(accountId):\(serverId)"
+    }
+
+    public var accountServerKey: String {
+        "\(accountId):\(serverId)"
+    }
+
+    public var isServerScoped: Bool {
+        libraryId == nil
     }
 
     public var librarySourceKey: String? {
@@ -23,20 +45,39 @@ public struct MediaSourceIdentity: Equatable, Sendable {
         return "\(serverSourceKey):\(libraryId)"
     }
 
-    public static func parse(_ sourceCompositeKey: String?) -> MediaSourceIdentity? {
-        guard let sourceCompositeKey else { return nil }
-        let components = sourceCompositeKey.split(separator: ":")
-        guard components.count >= 3 else { return nil }
+    /// Parses only complete server- or library-scoped source keys.
+    public static func parse(_ sourceKey: String?) -> MediaSourceIdentity? {
+        guard let sourceKey else { return nil }
+        let components = sourceKey.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard (3...4).contains(components.count),
+              components.allSatisfy({ !$0.isEmpty }),
+              let type = MusicSourceType(rawValue: components[0]) else {
+            return nil
+        }
         return MediaSourceIdentity(
-            type: String(components[0]),
-            accountId: String(components[1]),
-            serverId: String(components[2]),
-            libraryId: components.count >= 4 ? String(components[3]) : nil
+            type: type,
+            accountId: components[1],
+            serverId: components[2],
+            libraryId: components.count == 4 ? components[3] : nil
         )
     }
 
-    public static func serverSourceKey(from sourceCompositeKey: String?) -> String? {
-        parse(sourceCompositeKey)?.serverSourceKey
+    public static func serverSourceKey(from sourceKey: String?) -> String? {
+        parse(sourceKey)?.serverSourceKey
+    }
+
+    public static func playlistScopeKey(from sourceKey: String?) -> String? {
+        guard let identity = parse(sourceKey) else { return nil }
+        if identity.sourceType.capabilities.playlistsAreServerScoped {
+            return identity.serverSourceKey
+        }
+        return identity.librarySourceKey ?? identity.serverSourceKey
+    }
+
+    /// Returns a provider only when the source key has a complete, valid identity.
+    /// A missing or malformed key has unresolved ownership.
+    public static func sourceType(from sourceKey: String?) -> MusicSourceType? {
+        parse(sourceKey)?.sourceType
     }
 
     public static func serverSourceKey(for source: MusicSourceIdentifier) -> String {
@@ -44,8 +85,30 @@ public struct MediaSourceIdentity: Equatable, Sendable {
     }
 
     public static func isSameServer(_ lhs: String?, _ rhs: String?) -> Bool {
-        guard let lhsServer = serverSourceKey(from: lhs),
-              let rhsServer = serverSourceKey(from: rhs) else { return false }
-        return lhsServer == rhsServer
+        guard let lhs = parse(lhs), let rhs = parse(rhs) else { return false }
+        return lhs.sourceType == rhs.sourceType
+            && lhs.accountId == rhs.accountId
+            && lhs.serverId == rhs.serverId
+    }
+
+    /// Whether an exact library key, or a server-scoped item such as a Plex playlist,
+    /// is covered by the currently enabled source keys.
+    public static func isEnabledSourceKey(
+        _ sourceKey: String?,
+        within enabledSourceKeys: Set<String>
+    ) -> Bool {
+        guard let sourceKey else { return false }
+        if enabledSourceKeys.contains(sourceKey) { return true }
+        guard let identity = parse(sourceKey),
+              identity.isServerScoped,
+              identity.sourceType.capabilities.playlistsAreServerScoped else {
+            return false
+        }
+        return enabledSourceKeys.contains {
+            guard let enabledIdentity = parse($0) else { return false }
+            return enabledIdentity.sourceType == identity.sourceType &&
+                enabledIdentity.accountId == identity.accountId &&
+                enabledIdentity.serverId == identity.serverId
+        }
     }
 }

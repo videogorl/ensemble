@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import SwiftUI
 #if os(iOS)
 import UIKit
@@ -7,6 +8,10 @@ public struct ScrollIndex: View {
     let letters: [String]
     @Binding var currentLetter: String?
     let onLetterTap: (String) -> Void
+
+    #if os(iOS)
+    @StateObject private var scrollInterrupter = ScrollIndexScrollInterrupter()
+    #endif
     
     @State private var dragLetter: String?
     private let verticalPadding = EnsembleScaffold.ScrollIndex.verticalPadding
@@ -54,7 +59,7 @@ public struct ScrollIndex: View {
             Color.clear
                 .frame(width: hitTargetWidth, height: indexHeight)
                 .contentShape(Rectangle())
-                .highPriorityGesture(
+                .simultaneousGesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
                             guard let index = letterIndex(for: value.location.y),
@@ -69,6 +74,12 @@ public struct ScrollIndex: View {
                 .accessibilityHidden(true)
         }
         .padding(.trailing, EnsembleDesign.Spacing.none)
+        #if os(iOS)
+        .background {
+            ScrollIndexScrollProbe(interrupter: scrollInterrupter)
+                .allowsHitTesting(false)
+        }
+        #endif
     }
 
     private var indexHeight: CGFloat {
@@ -83,6 +94,9 @@ public struct ScrollIndex: View {
         guard letter != dragLetter else { return }
 
         dragLetter = letter
+        #if os(iOS)
+        scrollInterrupter.stopDeceleration()
+        #endif
         onLetterTap(letter)
 
         #if os(iOS)
@@ -124,6 +138,48 @@ public struct ScrollIndex: View {
     }
 }
 
+#if os(iOS)
+@MainActor
+private final class ScrollIndexScrollInterrupter: ObservableObject {
+    weak var probeView: UIView?
+
+    func stopDeceleration() {
+        guard let probeView,
+              let window = probeView.window else { return }
+
+        let point = probeView.convert(
+            CGPoint(x: -1, y: probeView.bounds.midY),
+            to: window
+        )
+        var candidate = window.hitTest(point, with: nil)
+
+        while let view = candidate {
+            if let scrollView = view as? UIScrollView {
+                guard scrollView.isDecelerating, scrollView.isScrollEnabled else { return }
+                scrollView.isScrollEnabled = false
+                scrollView.isScrollEnabled = true
+                return
+            }
+            candidate = view.superview
+        }
+    }
+}
+
+private struct ScrollIndexScrollProbe: UIViewRepresentable {
+    let interrupter: ScrollIndexScrollInterrupter
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        interrupter.probeView = view
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        interrupter.probeView = uiView
+    }
+}
+#endif
+
 public enum ScrollIndexPlacement {
     case bottomChrome
     case centered
@@ -135,7 +191,7 @@ public extension View {
     /// and scroll content do not move the index.
     @ViewBuilder
     func libraryScrollIndexOverlay<Index: View>(
-        _ placement: ScrollIndexPlacement = .bottomChrome,
+        _ placement: ScrollIndexPlacement = .centered,
         @ViewBuilder index: () -> Index
     ) -> some View {
         overlay(alignment: .trailing) {
@@ -147,7 +203,7 @@ public extension View {
     /// Anchors the alphabetical scroll index in the viewport so it stays fixed
     /// between top chrome and mini-player/tab chrome while content scrolls.
     @ViewBuilder
-    func libraryScrollIndexPositioning(_ placement: ScrollIndexPlacement = .bottomChrome) -> some View {
+    func libraryScrollIndexPositioning(_ placement: ScrollIndexPlacement = .centered) -> some View {
         switch placement {
         case .bottomChrome:
             bottomChromeScrollIndexPositioning()
@@ -176,7 +232,7 @@ public extension View {
         #endif
     }
 
-    /// Centers large-screen indexes beside the actual list/table content.
+    /// Centers browse indexes beside the actual list/table content.
     @ViewBuilder
     private func centeredScrollIndexPositioning() -> some View {
         #if os(iOS)

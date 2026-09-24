@@ -8,36 +8,38 @@ final class OfflineDownloadCleanupCoordinatorTests: XCTestCase {
     private final class DownloadManagerMock: DownloadManagerProtocol, @unchecked Sendable {
         var completedDownloads: [CDDownload] = []
         var deletedReferences: [OfflineTrackReference] = []
+        var removeOrphanedDownloadFilesCallCount = 0
 
         func fetchDownloads() async throws -> [CDDownload] { completedDownloads }
         func fetchPendingDownloads() async throws -> [CDDownload] { [] }
-        func fetchNextPendingDownload() async throws -> CDDownload? { nil }
+        func fetchNextPendingDownload(excluding downloadIDs: Set<NSManagedObjectID>) async throws -> CDDownload? { nil }
         func fetchCompletedDownloads() async throws -> [CDDownload] { completedDownloads }
-        func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload? { nil }
+        func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> CDDownload? { nil }
         func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String : CDDownload] { [:] }
         func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload] { [] }
-        func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload { fatalError() }
-        func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload { fatalError() }
+        func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String, quality: String) async throws -> CDDownload { fatalError() }
         func batchCreateDownloads(references: [OfflineTrackReference], quality: String) async throws -> Int { 0 }
         func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws {}
         func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String?) async throws {}
         func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {}
         func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws {}
         func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws {}
-        func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws {}
-        func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws {
+        func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws {
             deletedReferences.append(
                 OfflineTrackReference(
                     trackRatingKey: trackRatingKey,
-                    trackSourceCompositeKey: sourceCompositeKey ?? ""
+                    trackSourceCompositeKey: sourceCompositeKey
                 )
             )
         }
-        func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String? { nil }
-        func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String? { nil }
+        func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> String? { nil }
         func getTotalDownloadSize() async throws -> Int64 { 0 }
         func deleteDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws {}
         func deleteAllDownloads() async throws {}
+        func removeOrphanedDownloadFiles() async throws -> Int {
+            removeOrphanedDownloadFilesCallCount += 1
+            return 0
+        }
     }
 
     private final class TargetRepositoryMock: OfflineDownloadTargetRepositoryProtocol, @unchecked Sendable {
@@ -73,6 +75,7 @@ final class OfflineDownloadCleanupCoordinatorTests: XCTestCase {
         downloadManager.completedDownloads = [retained, orphaned, trackless]
 
         let targetRepository = TargetRepositoryMock()
+        var clearedLyricsReferences: [OfflineTrackReference] = []
         targetRepository.membershipCounts[
             OfflineTrackReference(trackRatingKey: "keep-track", trackSourceCompositeKey: "source-a")
         ] = 2
@@ -83,7 +86,10 @@ final class OfflineDownloadCleanupCoordinatorTests: XCTestCase {
         let coordinator = OfflineDownloadCleanupCoordinator(
             dependencies: .init(
                 downloadManager: downloadManager,
-                targetRepository: targetRepository
+                targetRepository: targetRepository,
+                didRemoveDownloads: { references in
+                    clearedLyricsReferences.append(contentsOf: references)
+                }
             )
         )
 
@@ -94,6 +100,11 @@ final class OfflineDownloadCleanupCoordinatorTests: XCTestCase {
             downloadManager.deletedReferences,
             [OfflineTrackReference(trackRatingKey: "drop-track", trackSourceCompositeKey: "source-a")]
         )
+        XCTAssertEqual(
+            clearedLyricsReferences,
+            [OfflineTrackReference(trackRatingKey: "drop-track", trackSourceCompositeKey: "source-a")]
+        )
+        XCTAssertEqual(downloadManager.removeOrphanedDownloadFilesCallCount, 1)
     }
 
     private func makeCompletedDownload(trackRatingKey: String, sourceCompositeKey: String) -> CDDownload {

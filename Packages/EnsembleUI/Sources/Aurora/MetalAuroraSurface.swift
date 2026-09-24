@@ -28,25 +28,36 @@ struct MetalAuroraSurface: View {
     let isPaused: Bool
     let surfaceTier: AuroraMetalSurfaceTier
     let activeContentMaxWidth: CGFloat?
+    let bellWidth: CGFloat
     let bandCount: Int
     let maxHeight: CGFloat
     let minHeight: CGFloat
     let poolHeight: CGFloat
 
     var body: some View {
+        #if os(macOS)
+        let renderColor = Color.white
+        #else
+        let renderColor = accentColor
+        #endif
         Representable(
             renderModel: renderModel,
-            accentColor: accentColor,
+            accentColor: renderColor,
             colorScheme: colorScheme,
             preferredFrameInterval: preferredFrameInterval,
             isPaused: isPaused,
             surfaceTier: surfaceTier,
             activeContentMaxWidth: activeContentMaxWidth,
+            bellWidth: bellWidth,
             bandCount: bandCount,
             maxHeight: maxHeight,
             minHeight: minHeight,
             poolHeight: poolHeight
         )
+        #if os(macOS)
+        // Resolve the native accent in SwiftUI, including the user's macOS override.
+        .colorMultiply(accentColor)
+        #endif
     }
 }
 
@@ -60,6 +71,7 @@ extension MetalAuroraSurface {
         let isPaused: Bool
         let surfaceTier: AuroraMetalSurfaceTier
         let activeContentMaxWidth: CGFloat?
+        let bellWidth: CGFloat
         let bandCount: Int
         let maxHeight: CGFloat
         let minHeight: CGFloat
@@ -82,6 +94,7 @@ extension MetalAuroraSurface {
                 isPaused: isPaused,
                 surfaceTier: surfaceTier,
                 activeContentMaxWidth: activeContentMaxWidth,
+                bellWidth: bellWidth,
                 bandCount: bandCount,
                 maxHeight: maxHeight,
                 minHeight: minHeight,
@@ -100,6 +113,7 @@ extension MetalAuroraSurface {
         let isPaused: Bool
         let surfaceTier: AuroraMetalSurfaceTier
         let activeContentMaxWidth: CGFloat?
+        let bellWidth: CGFloat
         let bandCount: Int
         let maxHeight: CGFloat
         let minHeight: CGFloat
@@ -122,6 +136,7 @@ extension MetalAuroraSurface {
                 isPaused: isPaused,
                 surfaceTier: surfaceTier,
                 activeContentMaxWidth: activeContentMaxWidth,
+                bellWidth: bellWidth,
                 bandCount: bandCount,
                 maxHeight: maxHeight,
                 minHeight: minHeight,
@@ -137,7 +152,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         guard let device = MTLCreateSystemDefaultDevice(),
               let library = try? device.makeLibrary(source: shaderSource, options: nil),
               library.makeFunction(name: "auroraVertex") != nil,
-              library.makeFunction(name: "auroraFragment") != nil else {
+              library.makeFunction(name: "auroraFragment") != nil,
+              library.makeFunction(name: "prepareAuroraBands") != nil else {
             return false
         }
         return true
@@ -146,14 +162,15 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     private struct Uniforms {
         var size: SIMD2<Float> = .zero
         var accentColor: SIMD4<Float> = .zero
-        var maxHeight: Float = 220
-        var minHeight: Float = 25
-        var poolHeight: Float = 48
+        var maxHeight: Float = 80
+        var minHeight: Float = 6
+        var poolHeight: Float = 10
         var activeWidth: Float = 0
         var bandCount: UInt32 = 24
         var layerCount: UInt32 = 2
         var colorScheme: UInt32 = 0
-        var padding: UInt32 = 0
+        var bellWidth: Float = 0.24
+        var time: Float = 0
     }
 
     private let renderModel: AuroraRenderModel
@@ -161,8 +178,9 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     private let commandQueue: MTLCommandQueue?
     private let pipelineState: MTLRenderPipelineState?
     private var uniforms = Uniforms()
-    private var bandBuffer: MTLBuffer?
-    private var uniformBuffer: MTLBuffer?
+    private let preparationPipeline: MTLComputePipelineState?
+    private var preparedBandBuffer: MTLBuffer?
+    private var isDrawing = false
 
     init(renderModel: AuroraRenderModel) {
         self.renderModel = renderModel
@@ -174,7 +192,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         if let device,
            let library = try? device.makeLibrary(source: Self.shaderSource, options: nil),
            let vertex = library.makeFunction(name: "auroraVertex"),
-           let fragment = library.makeFunction(name: "auroraFragment") {
+           let fragment = library.makeFunction(name: "auroraFragment"),
+           let prepare = library.makeFunction(name: "prepareAuroraBands") {
             let descriptor = MTLRenderPipelineDescriptor()
             descriptor.vertexFunction = vertex
             descriptor.fragmentFunction = fragment
@@ -184,16 +203,21 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
             descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
             descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
             descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            self.preparationPipeline = try? device.makeComputePipelineState(function: prepare)
             self.pipelineState = try? device.makeRenderPipelineState(descriptor: descriptor)
         } else {
             self.pipelineState = nil
+            self.preparationPipeline = nil
         }
 
         super.init()
 
         if let device {
-            self.bandBuffer = device.makeBuffer(length: MemoryLayout<Float>.stride * 24, options: .storageModeShared)
-            self.uniformBuffer = device.makeBuffer(length: MemoryLayout<Uniforms>.stride, options: .storageModeShared)
+            // Two float4 values per band, for up to three layers. Only the GPU writes this buffer.
+            self.preparedBandBuffer = device.makeBuffer(
+                length: MemoryLayout<SIMD4<Float>>.stride * 2 * 48 * 3,
+                options: .storageModePrivate
+            )
         }
     }
 
@@ -206,6 +230,9 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         view.enableSetNeedsDisplay = false
         view.isPaused = true
         view.preferredFramesPerSecond = 30
+        #if canImport(UIKit)
+        view.autoResizeDrawable = false
+        #endif
         configureTransparentBacking(for: view)
 
         return view
@@ -219,12 +246,13 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         isPaused: Bool,
         surfaceTier: AuroraMetalSurfaceTier,
         activeContentMaxWidth: CGFloat?,
+        bellWidth: CGFloat,
         bandCount: Int,
         maxHeight: CGFloat,
         minHeight: CGFloat,
         poolHeight: CGFloat
     ) {
-        let backingScale = backingScaleFactor(for: view)
+        let backingScale = renderScaleFactor(for: view)
 
         uniforms.accentColor = resolvedRGBA(from: accentColor)
         // The shader runs in drawable pixels, while SwiftUI layout supplies points.
@@ -233,12 +261,13 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         uniforms.minHeight = Float(minHeight * backingScale)
         uniforms.poolHeight = Float(poolHeight * backingScale)
         uniforms.activeWidth = Float((activeContentMaxWidth ?? 0) * backingScale)
-        uniforms.bandCount = UInt32(max(1, min(24, bandCount)))
+        uniforms.bellWidth = Float(bellWidth)
+        uniforms.bandCount = UInt32(max(1, min(48, bandCount)))
         uniforms.layerCount = UInt32(layerCount(for: surfaceTier))
         uniforms.colorScheme = colorScheme == .dark ? 1 : 0
 
         view.preferredFramesPerSecond = framesPerSecond(for: preferredFrameInterval)
-        let shouldPause = isPaused || pipelineState == nil
+        let shouldPause = isPaused || pipelineState == nil || preparationPipeline == nil
         view.isPaused = shouldPause
         configureTransparentBacking(for: view)
         if shouldPause, pipelineState != nil {
@@ -254,22 +283,55 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
     }
 
     func draw(in view: MTKView) {
+        // Changing drawableSize can synchronously request another draw while paused.
+        guard !isDrawing else { return }
+        isDrawing = true
+        defer { isDrawing = false }
+
+        #if canImport(UIKit)
+        let scale = renderScaleFactor(for: view)
+        let size = CGSize(width: (view.bounds.width * scale).rounded(.down),
+                          height: (view.bounds.height * scale).rounded(.down))
+        guard size.width > 0, size.height > 0 else { return }
+        if view.drawableSize != size {
+            view.drawableSize = size
+        }
+        #endif
         guard let drawable = view.currentDrawable,
               let descriptor = view.currentRenderPassDescriptor,
               let commandQueue,
               let commandBuffer = commandQueue.makeCommandBuffer(),
-              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor),
               let pipelineState,
-              let bandBuffer,
-              let uniformBuffer else { return }
+              let preparationPipeline,
+              let preparedBandBuffer else { return }
 
         uniforms.size = SIMD2(Float(view.drawableSize.width), Float(view.drawableSize.height))
-        copyBands(into: bandBuffer)
-        memcpy(uniformBuffer.contents(), &uniforms, MemoryLayout<Uniforms>.stride)
+        uniforms.time = Float(renderModel.animationTime)
+        let bands = renderModel.displayBands(width: view.bounds.width, count: Int(uniforms.bandCount))
+            .map { Float(max(0, min(1, $0))) }
 
+        // Snapshot CPU inputs per command buffer so later frames cannot overwrite them in flight.
+        guard let preparation = commandBuffer.makeComputeCommandEncoder() else { return }
+        preparation.label = "Aurora band geometry"
+        preparation.setComputePipelineState(preparationPipeline)
+        bands.withUnsafeBytes { bytes in
+            preparation.setBytes(bytes.baseAddress!, length: bytes.count, index: 0)
+        }
+        preparation.setBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 1)
+        preparation.setBuffer(preparedBandBuffer, offset: 0, index: 2)
+        let threadCount = preparationPipeline.threadExecutionWidth
+        let bandCount = Int(uniforms.bandCount * uniforms.layerCount)
+        preparation.dispatchThreadgroups(
+            MTLSize(width: (bandCount + threadCount - 1) / threadCount, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: threadCount, height: 1, depth: 1)
+        )
+        preparation.endEncoding()
+
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else { return }
+        encoder.label = "Aurora glow"
         encoder.setRenderPipelineState(pipelineState)
-        encoder.setFragmentBuffer(bandBuffer, offset: 0, index: 0)
-        encoder.setFragmentBuffer(uniformBuffer, offset: 0, index: 1)
+        encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 1)
+        encoder.setFragmentBuffer(preparedBandBuffer, offset: 0, index: 2)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
 
@@ -277,21 +339,11 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         commandBuffer.commit()
     }
 
-    private func copyBands(into buffer: MTLBuffer) {
-        let bands = renderModel.renderedBands
-        let pointer = buffer.contents().assumingMemoryBound(to: Float.self)
-        for index in 0..<24 {
-            pointer[index] = index < bands.count ? Float(max(0, min(1, bands[index]))) : 0
-        }
-    }
-
     private func layerCount(for tier: AuroraMetalSurfaceTier) -> Int {
         switch tier {
         case .lowPower:
             return 1
-        case .ambient:
-            return 2
-        case .immersive:
+        case .ambient, .immersive:
             return 3
         }
     }
@@ -321,9 +373,10 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         #endif
     }
 
-    private func backingScaleFactor(for view: MTKView) -> CGFloat {
+    private func renderScaleFactor(for view: MTKView) -> CGFloat {
         #if canImport(UIKit)
-        return max(1, view.window?.screen.scale ?? view.contentScaleFactor)
+        // Half the native pixel density shades one quarter as many pixels for this soft glow.
+        return max(1, view.traitCollection.displayScale) * 0.5
         #elseif canImport(AppKit)
         let converted = view.convertToBacking(CGSize(width: 1, height: 1))
         if converted.width > 0 {
@@ -366,7 +419,8 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         uint bandCount;
         uint layerCount;
         uint colorScheme;
-        uint padding;
+        float bellWidth;
+        float time;
     };
 
     vertex VertexOut auroraVertex(uint vertexID [[vertex_id]]) {
@@ -386,112 +440,82 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         return x * x * (3.0 - 2.0 * x);
     }
 
+    struct PreparedBand {
+        float4 geometry;
+        float4 light;
+    };
+    // Geometry depends on the band and animation time, not the destination pixel.
+    kernel void prepareAuroraBands(
+        constant float *bands [[buffer(0)]],
+        constant Uniforms &u [[buffer(1)]],
+        device PreparedBand *out [[buffer(2)]],
+        uint id [[thread_position_in_grid]]
+    ) {
+        uint bandCount = min(u.bandCount, 48u);
+        uint layer = id / bandCount;
+        uint i = id % bandCount;
+        if (layer >= u.layerCount) return;
+        float activeWidth = u.activeWidth > 0.0 ? min(u.size.x, u.activeWidth) : u.size.x;
+        float xOffset = (u.size.x - activeWidth) * 0.5;
+        float bandWidth = activeWidth / max(float(bandCount), 1.0);
+        uint depth = u.layerCount == 1 ? 2u : layer;
+        float layerOpacity = depth == 0 ? 0.20 : (depth == 1 ? 0.40 : 0.50);
+        float spread = depth == 0 ? 2.0 : (depth == 1 ? 1.15 : 0.65);
+        float heightScale = depth == 0 ? 1.85 : (depth == 1 ? 1.10 : 1.30);
+        float verticalSoftness = depth == 0 ? 0.48 : 0.70;
+        float verticalBlur = depth == 0 ? 1.12 : 1.95;
+
+        // Slow independent motion gives each curtain its own shape and brightness.
+        float layerPhase = u.time * (0.19 + 0.07 * float(depth)) + float(depth) * 2.1;
+        float widthScale = 0.92 + 0.08 * sin(layerPhase);
+        float layerBreath = 0.86 + 0.14 * sin(layerPhase * 1.3 + 1.7);
+        float layerDrift = 0.025 * sin(layerPhase * 0.7 + 0.8) * activeWidth;
+        float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity * (0.82 + 0.18 * sin(layerPhase + 2.4));
+
+        float intensity = clamp(bands[i], 0.0, 1.0);
+        float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
+        float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(u.bellWidth, 2.0)));
+        float phase = u.time * (0.25 + 0.15 * float(depth)) + normalized * 6.1 + float(depth) * 2.1;
+        float breath = 0.9 + 0.1 * sin(phase + 1.3);
+        float heightTaper = min(1.0, min(normalized, 1.0 - normalized) / 0.20);
+        float height = (u.minHeight + (u.maxHeight - u.minHeight) * pow(intensity, 1.35) * bell * heightTaper) * heightScale * breath * layerBreath;
+        float drift = sin(phase) * (0.25 + 0.12 * float(depth)) * bandWidth;
+        float centeredX = (float(i) + 0.5) * bandWidth - activeWidth * 0.5;
+        float centerX = xOffset + activeWidth * 0.5 + centeredX * widthScale + layerDrift + drift;
+        float glowWidth = bandWidth * 3.0 * spread * widthScale;
+        float rectHeight = height + u.poolHeight * heightScale;
+
+        out[id].geometry = float4(centerX, max(glowWidth * 0.5, 1.0), max(rectHeight, 1.0), verticalBlur);
+        out[id].light = float4(verticalSoftness, sqrt(intensity), baseOpacity, 0);
+    }
+
     fragment float4 auroraFragment(
         VertexOut in [[stage_in]],
-        constant float *bands [[buffer(0)]],
-        constant Uniforms &u [[buffer(1)]]
+        constant Uniforms &u [[buffer(1)]],
+        constant PreparedBand *prepared [[buffer(2)]]
     ) {
         float2 p = in.position.xy;
         if (u.size.x <= 1.0 || u.size.y <= 1.0) {
             return float4(0.0);
         }
 
-        uint bandCount = min(u.bandCount, 24u);
-        float activeWidth = u.activeWidth > 0.0 ? min(u.size.x, u.activeWidth) : u.size.x;
-        float xOffset = (u.size.x - activeWidth) * 0.5;
-        float bandWidth = activeWidth / max(float(bandCount), 1.0);
-        float3 color = float3(0.0);
         float alpha = 0.0;
-
-        for (uint layer = 0; layer < u.layerCount; layer++) {
-            float layerOpacity;
-            float spread;
-            float heightScale;
-            float verticalSoftness;
-            float verticalBlur;
-            if (u.layerCount == 1) {
-                layerOpacity = 0.50;
-                spread = 1.8;
-                heightScale = 0.94;
-                verticalSoftness = 0.62;
-                verticalBlur = 1.75;
-            } else if (u.layerCount == 2) {
-                layerOpacity = layer == 0 ? 0.20 : 0.42;
-                spread = layer == 0 ? 2.3 : 1.25;
-                heightScale = layer == 0 ? 1.05 : 0.94;
-                verticalSoftness = layer == 0 ? 0.48 : 0.70;
-                verticalBlur = layer == 0 ? 1.12 : 1.95;
-            } else {
-                layerOpacity = layer == 0 ? 0.16 : (layer == 1 ? 0.28 : 0.38);
-                spread = layer == 0 ? 2.7 : (layer == 1 ? 1.75 : 1.15);
-                heightScale = layer == 0 ? 1.12 : (layer == 1 ? 1.02 : 0.94);
-                verticalSoftness = layer == 0 ? 0.42 : (layer == 1 ? 0.58 : 0.76);
-                verticalBlur = layer == 0 ? 0.92 : (layer == 1 ? 1.42 : 2.4);
-            }
-
-            float baseOpacity = (u.colorScheme == 1 ? 0.70 : 0.50) * layerOpacity;
-
-            for (uint i = 0; i < bandCount; i++) {
-                float intensity = clamp(bands[i], 0.0, 1.0);
-                float normalized = bandCount > 1 ? float(i) / float(bandCount - 1) : 0.5;
-                float bell = exp(-pow(normalized - 0.5, 2.0) / (2.0 * pow(0.34, 2.0)));
-                float height = (u.minHeight + (u.maxHeight - u.minHeight) * intensity * bell) * heightScale;
-                float centerX = xOffset + (float(i) + 0.5) * bandWidth;
-                float glowWidth = bandWidth * 4.5 * spread;
-                float rectHeight = height + u.poolHeight * heightScale;
-                float rectMinY = u.size.y - height - u.poolHeight;
-                float rectCenterY = rectMinY + rectHeight * 0.5;
-
-                float dx = (p.x - centerX) / max(glowWidth * 0.5, 1.0);
-                float dy = (p.y - rectCenterY) / max(rectHeight * 0.5, 1.0);
-                float ellipse = exp(-(dx * dx * 1.65 + dy * dy * verticalBlur));
-                float t = clamp((p.y - rectMinY) / max(rectHeight, 1.0), 0.0, 1.0);
-                float fromBottom = 1.0 - t;
-                float vertical = smoothBand(0.0, 0.08, fromBottom) * (1.0 - smoothBand(verticalSoftness, 1.0, fromBottom));
-                float bellAlpha = 0.32 + bell * 0.68;
-                float intensityAlpha = (0.18 + intensity * 0.82) * bellAlpha;
-                float contribution = ellipse * vertical * intensityAlpha * baseOpacity;
-
-                color += u.accentColor.rgb * contribution;
-                alpha += contribution * 0.72;
-            }
+        for (uint i = 0; i < min(u.bandCount, 48u) * u.layerCount; i++) {
+            PreparedBand b = prepared[i];
+            float dx = (p.x - b.geometry.x) / b.geometry.y;
+            float dy = (u.size.y - p.y) / b.geometry.z;
+            // The original vertical fade is exactly zero above the band.
+            if (dy >= 1.0) continue;
+            float ellipse = exp(-(dx * dx * 1.65 + dy * dy * b.geometry.w));
+            float vertical = 1.0 - smoothBand(b.light.x, 1.0, dy);
+            float contribution = ellipse * vertical * b.light.y * b.light.z;
+            alpha += contribution * 0.72;
         }
+        float topFeather = smoothBand(0.0, u.size.y * 0.20, p.y);
+        alpha = clamp(alpha * topFeather, 0.0, 1.0) * u.accentColor.a;
 
-        float energy = 0.0;
-        float bassEnergy = 0.0;
-        uint bassCount = min(bandCount, 6u);
-        for (uint i = 0; i < bandCount; i++) {
-            energy += clamp(bands[i], 0.0, 1.0);
-            if (i < bassCount) {
-                bassEnergy += clamp(bands[i], 0.0, 1.0);
-            }
-        }
-        energy = bandCount > 0 ? energy / float(bandCount) : 0.0;
-        bassEnergy = bassCount > 0 ? bassEnergy / float(bassCount) : 0.0;
-        energy = clamp(energy * 0.70 + bassEnergy * 0.30, 0.0, 1.0);
-
-        float bridgeHeight = u.poolHeight + 76.0;
-        float bridgeWidth = activeWidth * 1.16;
-        float2 bridgeCenter = float2(u.size.x * 0.5, u.size.y - bridgeHeight * 0.5 - 18.0);
-        float2 bridgeD = (p - bridgeCenter) / float2(max(bridgeWidth * 0.5, 1.0), max(bridgeHeight * 0.5, 1.0));
-        float bridge = exp(-(bridgeD.x * bridgeD.x * 1.3 + bridgeD.y * bridgeD.y * 2.0));
-        float bridgeOpacity = (u.colorScheme == 1 ? 0.34 : 0.24) * (0.45 + energy * 0.7);
-        color += u.accentColor.rgb * bridge * bridgeOpacity;
-        alpha += bridge * bridgeOpacity * 0.72;
-
-        float fromBottomPixels = u.size.y - p.y;
-        float pool = 1.0 - smoothBand(0.0, u.poolHeight + 52.0, fromBottomPixels);
-        float poolOpacity = (u.colorScheme == 1 ? 0.58 : 0.38) * (0.84 + energy * 0.34);
-        color += u.accentColor.rgb * pool * poolOpacity;
-        alpha += pool * poolOpacity * 0.75;
-
-        float topFeather = smoothBand(0.0, 96.0, p.y);
-        color *= topFeather;
-        alpha = clamp(alpha * topFeather, 0.0, 0.95);
-
-        color = min(color, float3(alpha));
-
-        return float4(color, alpha);
+        // Premultiply once so brighter peaks preserve the selected accent hue.
+        return float4(u.accentColor.rgb * alpha, alpha);
     }
     """
 }
@@ -507,6 +531,7 @@ struct MetalAuroraSurface: View {
     let isPaused: Bool
     let surfaceTier: AuroraMetalSurfaceTier
     let activeContentMaxWidth: CGFloat?
+    let bellWidth: CGFloat
     let bandCount: Int
     let maxHeight: CGFloat
     let minHeight: CGFloat

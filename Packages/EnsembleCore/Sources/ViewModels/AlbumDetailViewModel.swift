@@ -15,12 +15,32 @@ public protocol MediaDetailViewModelProtocol: ObservableObject {
     var filterOptions: FilterOptions { get set }
     
     func loadTracks() async
+    var playableTracks: [Track] { get }
+    func mutationCandidates(for track: Track) -> [Track]
+}
+
+public extension MediaDetailViewModelProtocol {
+    var playableTracks: [Track] {
+        filteredTracks.filter(\.isLibraryAvailable)
+    }
+
+    func playbackSelection(for track: Track) -> (tracks: [Track], index: Int)? {
+        guard track.isLibraryAvailable else { return nil }
+        let tracks = playableTracks
+        guard let index = tracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) else {
+            return nil
+        }
+        return (tracks, index)
+    }
+
+    func mutationCandidates(for track: Track) -> [Track] { [track] }
 }
 
 // MARK: - Album Detail ViewModel
 
 @MainActor
 public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelProtocol {
+    public let displayAlbum: DisplayAlbum
     @Published public private(set) var album: Album
     @Published public private(set) var tracks: [Track] = []
     @Published public private(set) var isLoading = false
@@ -39,21 +59,35 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
+    private let hiddenMediaStore: HiddenMediaStore
+    private let settingsManager: SettingsManager
+    private let includesHidden: Bool
+    private var sourceTracks: [Track] = []
     private var cancellables = Set<AnyCancellable>()
 
     public init(
-        album: Album,
+        displayAlbum: DisplayAlbum,
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
-        initialTracks: [Track]? = nil
+        initialTracks: [Track]? = nil,
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        settingsManager: SettingsManager? = nil,
+        includesHidden: Bool = false
     ) {
-        self.album = album
+        let hiddenMediaStore = hiddenMediaStore ?? .shared
+        self.displayAlbum = displayAlbum
+        self.album = displayAlbum.primaryAlbum
+        self.settingsManager = settingsManager ?? SettingsManager()
         if let initialTracks {
-            self.tracks = initialTracks
+            let visible = includesHidden ? initialTracks : hiddenMediaStore.snapshot.visibleTracks(initialTracks)
+            self.sourceTracks = visible
+            self.tracks = MergingProjection.albumTracks(visible, preferences: self.settingsManager.mergingPreferences)
             self.hasLoadedTracks = true
         }
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
+        self.hiddenMediaStore = hiddenMediaStore
+        self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "AlbumDetail")
         
         // Save filter options when they change
@@ -62,51 +96,95 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         // Re-fetch tracks when download state changes so offline dimming is accurate
         observeDownloadChanges()
         observeMetadataChanges()
+        hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            Task { await self?.loadTracks() }
+        }.store(in: &cancellables)
+        self.settingsManager.$mergingPreferences.dropFirst().sink { [weak self] preferences in
+            guard let self else { return }
+            let projected = MergingProjection.albumTracks(self.sourceTracks, preferences: preferences)
+            if self.tracks != projected { self.tracks = projected }
+        }.store(in: &cancellables)
+    }
+
+    public convenience init(
+        album: Album,
+        libraryRepository: LibraryRepositoryProtocol,
+        syncCoordinator: SyncCoordinator,
+        initialTracks: [Track]? = nil,
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        settingsManager: SettingsManager? = nil,
+        includesHidden: Bool = false
+    ) {
+        self.init(
+            displayAlbum: .single(album),
+            libraryRepository: libraryRepository,
+            syncCoordinator: syncCoordinator,
+            initialTracks: initialTracks,
+            hiddenMediaStore: hiddenMediaStore,
+            settingsManager: settingsManager,
+            includesHidden: includesHidden
+        )
     }
     
     private func setupFilterPersistence() {
-        $filterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "AlbumDetail") }
-            .store(in: &cancellables)
+        FilterPersistence.observe($filterOptions, key: "AlbumDetail", storingIn: &cancellables)
     }
 
     public func loadTracks() async {
         isLoading = true
         error = nil
 
-        do {
-            // First try to fetch from local repository
-            let cachedTracks: [CDTrack]
-            if let sourceKey = album.sourceCompositeKey, !sourceKey.isEmpty {
-                cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id, sourceCompositeKey: sourceKey)
-            } else {
-                cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id)
+        var loadedTracks: [Track] = []
+        var lastError: Error?
+        for sourceAlbum in displayAlbum.albums {
+            do {
+                loadedTracks.append(contentsOf: try await sourceAlbum.resolvedTracks(using: libraryRepository, syncCoordinator: syncCoordinator))
+            } catch {
+                lastError = error
+                EnsembleLogger.debug("AlbumDetailViewModel error for \(sourceAlbum.sourceScopedID): \(error.localizedDescription)")
             }
+        }
 
-            if !cachedTracks.isEmpty {
-                let mapped = cachedTracks.map { Track(from: $0) }
-                // Diagnostic: detect "Unknown Track" entries to trace empty-title source
-                let unknownCount = mapped.filter { $0.title == "Unknown Track" }.count
-                if unknownCount > 0 {
-                    EnsembleLogger.debug("AlbumDetailViewModel.loadTracks: \(unknownCount)/\(mapped.count) tracks have 'Unknown Track' title for album \(album.id)")
-                }
-                tracks = mapped
-            } else if let sourceKey = album.sourceCompositeKey {
-                // If not found and we have a source key, try to fetch from API
-                EnsembleLogger.debug("AlbumDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
-                let apiTracks = try await syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)
-                tracks = apiTracks
-            }
-        } catch {
-            EnsembleLogger.debug("AlbumDetailViewModel error: \(error.localizedDescription)")
-            self.error = error.localizedDescription
+        let visible = includesHidden ? loadedTracks : hiddenMediaStore.snapshot.visibleTracks(loadedTracks)
+        sourceTracks = visible
+        let projected = MergingProjection.albumTracks(visible, preferences: settingsManager.mergingPreferences)
+        if tracks != projected { tracks = projected }
+        if loadedTracks.isEmpty, let lastError {
+            self.error = lastError.localizedDescription
         }
 
         hasLoadedTracks = true
         isLoading = false
     }
-    
+
+    public func displayedTrackIdentity(for selectedTrackId: String?) -> String? {
+        guard let selectedTrackId else { return nil }
+        if tracks.contains(where: { $0.playbackIdentity == selectedTrackId }) { return selectedTrackId }
+        guard settingsManager.mergingPreferences.isEnabled,
+              settingsManager.mergingPreferences.mergeTracks,
+              let source = sourceTracks.first(where: { $0.playbackIdentity == selectedTrackId }),
+              let identity = MergingProjection.trackIdentity(source) else { return selectedTrackId }
+        return tracks.first { MergingProjection.trackIdentity($0) == identity }?.playbackIdentity ?? selectedTrackId
+    }
+
+    public func mutationCandidates(for track: Track) -> [Track] {
+        MergingProjection.mutationCandidates(
+            for: track,
+            in: sourceTracks,
+            preferences: settingsManager.mergingPreferences
+        )
+    }
+
+    public func filteredTracks(for album: Album) -> [Track] {
+        applyFilters(
+            to: sourceTracks.filter {
+                $0.albumRatingKey == album.id &&
+                    $0.sourceCompositeKey == album.sourceCompositeKey
+            },
+            with: filterOptions
+        )
+    }
+
     /// Loads rich album metadata (genres, styles, studio/label) from the API
     public func loadAlbumDetail() async {
         guard let sourceKey = album.sourceCompositeKey else { return }
@@ -125,24 +203,29 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     /// Loads albums by the same artist, excluding the current album.
     /// First tries CoreData, falls back to API if empty (same pattern as ArtistDetailViewModel.loadAlbums).
     public func loadRelatedAlbums() async {
-        guard let artistId = album.artistRatingKey else { return }
+        guard let artistId = album.artistRatingKey,
+              let sourceKey = album.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else {
+            if !relatedAlbums.isEmpty { relatedAlbums = [] }
+            return
+        }
 
         do {
-            let cachedAlbums: [CDAlbum]
-            if let sourceKey = album.sourceCompositeKey, !sourceKey.isEmpty {
-                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId, sourceCompositeKey: sourceKey)
-            } else {
-                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId)
-            }
+            let cachedAlbums = try await libraryRepository.fetchAlbums(
+                forArtist: artistId,
+                sourceCompositeKey: sourceKey
+            )
             if !cachedAlbums.isEmpty {
-                relatedAlbums = cachedAlbums
+                let nextAlbums = cachedAlbums
                     .map { Album(from: $0) }
                     .filter { $0.sourceScopedID != album.sourceScopedID }
-            } else if let sourceKey = album.sourceCompositeKey {
+                if relatedAlbums != nextAlbums { relatedAlbums = nextAlbums }
+            } else {
                 // Fallback to API if not found locally
                 EnsembleLogger.debug("AlbumDetailViewModel: Related albums not found locally, fetching from API")
                 let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artistId, sourceKey: sourceKey)
-                relatedAlbums = apiAlbums.filter { $0.id != album.id }
+                let nextAlbums = apiAlbums.filter { $0.id != album.id }
+                if relatedAlbums != nextAlbums { relatedAlbums = nextAlbums }
             }
         } catch {
             EnsembleLogger.debug("AlbumDetailViewModel.loadRelatedAlbums error: \(error.localizedDescription)")
@@ -155,7 +238,8 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
 
         do {
             let albums = try await syncCoordinator.getSimilarAlbums(albumId: album.id, sourceKey: sourceKey)
-            similarAlbums = albums.filter { $0.id != album.id }
+            let nextAlbums = albums.filter { $0.id != album.id }
+            if similarAlbums != nextAlbums { similarAlbums = nextAlbums }
         } catch {
             EnsembleLogger.debug("AlbumDetailViewModel.loadSimilarAlbums error: \(error.localizedDescription)")
         }
@@ -164,26 +248,16 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     // MARK: - Download Change Observation
 
     private func observeDownloadChanges() {
-        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
-            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadTracks()
-                }
-            }
-            .store(in: &cancellables)
+        ViewModelNotificationObserver.observeDownloadChanges(storingIn: &cancellables) { [weak self] in
+            await self?.loadTracks()
+        }
     }
 
     private func observeMetadataChanges() {
-        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadTracks()
-                    await self?.loadRelatedAlbums()
-                }
-            }
-            .store(in: &cancellables)
+        ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
+            await self?.loadTracks()
+            await self?.loadRelatedAlbums()
+        }
     }
 
     // MARK: - Filtered Collections
@@ -194,14 +268,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     }
 
     public var totalDuration: String {
-        let total = filteredTracks.reduce(0) { $0 + $1.duration }
-        let minutes = Int(total) / 60
-        if minutes >= 60 {
-            let hours = minutes / 60
-            let mins = minutes % 60
-            return "\(hours) hr \(mins) min"
-        }
-        return "\(minutes) min"
+        MediaFormatters.trackCollectionDuration(filteredTracks)
     }
     
     // MARK: - Filter Application

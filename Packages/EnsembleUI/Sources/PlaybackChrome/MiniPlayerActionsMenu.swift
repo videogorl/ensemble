@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -75,11 +76,12 @@ struct MiniPlayerActionsMenuButton: View {
             context: .miniPlayer,
             availability: MediaMenuAvailability(
                 hasRecentPlaylist: currentTrackRecentPlaylistTitle != nil,
+                canAddToLibrary: viewModel.canAddTrackToLibrary(track),
                 canAddToRecentPlaylist: currentTrackRecentPlaylistTitle != nil,
                 canGoToAlbum: track.albumRatingKey != nil,
                 canGoToArtist: track.artistRatingKey != nil,
                 canShareLink: true,
-                canShareAudioFile: true,
+                canShareAudioFile: track.sourceCapabilities.supportsAudioFileSharing,
                 canFavorite: true,
                 canDownload: false,
                 canPin: false,
@@ -87,7 +89,13 @@ struct MiniPlayerActionsMenuButton: View {
                 canDelete: false,
                 canRename: false,
                 canEditPlaylist: false,
-                canRemoveFromQueue: false
+                canRemoveFromQueue: false,
+                itemActions: [
+                    .favorite: track.actionAvailability(
+                        for: .favorite,
+                        isFavorited: ratingProjection.isTrackFavorited(track)
+                    )
+                ]
             )
         )
     }
@@ -115,11 +123,13 @@ struct MiniPlayerActionsMenuButton: View {
             repeatOne: repeatOne,
             playNext: playNext,
             playLast: playLast,
+            addToLibrary: addToLibrary,
             addToRecentPlaylist: addToRecentPlaylist,
             addToPlaylist: requestPlaylistPicker,
             goToAlbum: goToAlbum,
             goToArtist: goToArtist,
             favorite: toggleFavorite,
+            shareEnsembleLink: shareEnsembleLink,
             shareLink: shareTrackLink,
             shareAudioFile: shareTrackFile
         )
@@ -133,6 +143,11 @@ struct MiniPlayerActionsMenuButton: View {
     private func playLast() {
         guard let track = playbackProjection.currentTrack else { return }
         viewModel.playLast(track)
+    }
+
+    private func addToLibrary() {
+        guard let track = playbackProjection.currentTrack else { return }
+        Task { await viewModel.addTrackToLibrary(track) }
     }
 
     private func toggleFavorite() {
@@ -164,9 +179,9 @@ struct MiniPlayerActionsMenuButton: View {
 
     private func goToAlbum() {
         guard let track = playbackProjection.currentTrack,
-              let albumId = track.albumRatingKey else { return }
+              let destination = NavigationCoordinator.Destination.album(for: track) else { return }
         navigationCoordinator.navigateFromMenu(
-            to: .album(id: albumId, sourceKey: track.sourceCompositeKey)
+            to: destination
         )
     }
 
@@ -181,6 +196,11 @@ struct MiniPlayerActionsMenuButton: View {
     private func shareTrackLink() {
         guard let track = playbackProjection.currentTrack else { return }
         ShareActions.shareTrackLink(track, deps: deps)
+    }
+
+    private func shareEnsembleLink() {
+        guard let track = playbackProjection.currentTrack else { return }
+        ShareActions.shareEnsembleLink(track, deps: deps)
     }
 
     private func shareTrackFile() {
@@ -220,6 +240,8 @@ struct MiniPlayerActionsMenuButton: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundColor(EnsembleDesign.Color.primaryText)
+                            .disabled(!descriptor.availability.isAvailable)
+                            .accessibilityHint(descriptor.availability.reason ?? "")
                         }
                     }
                 }

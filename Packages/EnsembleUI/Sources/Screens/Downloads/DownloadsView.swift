@@ -1,13 +1,23 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
 public struct DownloadsView: View {
     @StateObject private var viewModel: DownloadsViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @State private var showTemporaryResumeConfirmation = false
+    @State private var temporaryResumeReason: QueueStatusReason = .idle
     let nowPlayingVM: NowPlayingViewModel
 
     public init(nowPlayingVM: NowPlayingViewModel) {
-        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeDownloadsViewModel())
+        self.init(
+            nowPlayingVM: nowPlayingVM,
+            viewModel: DependencyContainer.shared.makeDownloadsViewModel()
+        )
+    }
+
+    init(nowPlayingVM: NowPlayingViewModel, viewModel: DownloadsViewModel) {
+        self._viewModel = StateObject(wrappedValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
     }
 
@@ -57,6 +67,14 @@ public struct DownloadsView: View {
         .refreshCommand {
             await viewModel.refresh()
         }
+        .alert("Resume Downloads for One Hour?", isPresented: $showTemporaryResumeConfirmation) {
+            Button("Resume for One Hour") {
+                Task { await viewModel.resumeQueue() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(temporaryResumeConfirmationMessage)
+        }
     }
 
     @ViewBuilder
@@ -71,16 +89,19 @@ public struct DownloadsView: View {
     private var downloadListView: some View {
         List {
             // Libraries section — shows each sync-enabled library with toggle + drill-in
-            if !viewModel.librarySummaries.isEmpty {
-                Section {
+            Section {
+                if viewModel.librarySummaries.isEmpty {
+                    Text(viewModel.librarySummariesPlaceholderText)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                } else {
                     ForEach(viewModel.librarySummaries) { library in
                         libraryRow(for: library)
                     }
-                } header: {
-                    EnsembleUtilitySectionHeader("Libraries")
-                } footer: {
-                    Text("Toggle to enable entire libraries for offline playback. Tap a row to see downloaded tracks.")
                 }
+            } header: {
+                EnsembleUtilitySectionHeader("Libraries")
+            } footer: {
+                Text("Toggle to enable entire libraries for offline playback. Tap a row to see downloaded tracks.")
             }
 
             // Pending Changes entry — only when there are queued mutations
@@ -130,11 +151,16 @@ public struct DownloadsView: View {
     #if os(macOS)
     private var macOSDownloadContent: some View {
         EnsembleUtilityScreenScaffold {
-            if !viewModel.librarySummaries.isEmpty {
-                EnsembleUtilityCardSection(
-                    "Libraries",
-                    footer: "Toggle to enable entire libraries for offline playback. Open a row to see downloaded tracks."
-                ) {
+            EnsembleUtilityCardSection(
+                "Libraries",
+                footer: "Toggle to enable entire libraries for offline playback. Open a row to see downloaded tracks."
+            ) {
+                if viewModel.librarySummaries.isEmpty {
+                    EnsembleUtilityCardRow {
+                        Text(viewModel.librarySummariesPlaceholderText)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    }
+                } else {
                     ForEach(viewModel.librarySummaries) { library in
                         macOSLibraryRow(for: library)
                     }
@@ -210,7 +236,10 @@ public struct DownloadsView: View {
                     )
                 )
                 .labelsHidden()
-                .disabled(!library.canDownload || viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
+                .accessibilityLabel(libraryDownloadToggleLabel(for: library))
+                .accessibilityValue(libraryDownloadToggleValue(for: library))
+                .accessibilityHint(libraryDownloadToggleHint(for: library))
+                .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
             }
         }
     }
@@ -314,7 +343,10 @@ public struct DownloadsView: View {
                     )
                 )
                 .labelsHidden()
-                .disabled(!library.canDownload || viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
+                .accessibilityLabel(libraryDownloadToggleLabel(for: library))
+                .accessibilityValue(libraryDownloadToggleValue(for: library))
+                .accessibilityHint(libraryDownloadToggleHint(for: library))
+                .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
 
                 // Manual chevron since the hidden NavigationLink won't render one
                 Image(systemName: EnsembleDesign.Icon.chevronRight)
@@ -340,9 +372,16 @@ public struct DownloadsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.compactControl, style: .continuous))
 
                 VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
-                    Text(displayLibraryTitle(for: library))
+                    Text(displayLibraryBaseTitle(for: library))
                         .font(EnsembleDesign.Typography.rowPrimary)
                         .lineLimit(1)
+
+                    if let accountName = displayLibraryAccountName(for: library) {
+                        Text(accountName)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            .lineLimit(1)
+                    }
 
                     // Track count line
                     Text(libraryTrackCountText(for: library))
@@ -356,12 +395,6 @@ public struct DownloadsView: View {
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
 
-                    if !library.canDownload {
-                        Text("Downloads unavailable")
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            .lineLimit(1)
-                    }
                 }
             }
 
@@ -402,12 +435,37 @@ public struct DownloadsView: View {
         return "~\(estimatedSize) estimated"
     }
 
-    private func displayLibraryTitle(for library: LibraryDownloadSummary) -> String {
+    private func displayLibraryBaseTitle(for library: LibraryDownloadSummary) -> String {
         let serverName = DemoModeRedaction.serverName(
             library.serverName,
             isEnabled: settingsManager.demoModeEnabled
         )
         return "\(serverName): \(library.libraryName)"
+    }
+
+    private func displayLibraryAccountName(for library: LibraryDownloadSummary) -> String? {
+        viewModel.disambiguatingAccountLabel(
+            for: library,
+            demoModeEnabled: settingsManager.demoModeEnabled
+        )
+    }
+
+    private func displayLibraryTitle(for library: LibraryDownloadSummary) -> String {
+        let title = displayLibraryBaseTitle(for: library)
+        guard let accountName = displayLibraryAccountName(for: library) else { return title }
+        return "\(title) · \(accountName)"
+    }
+
+    private func libraryDownloadToggleLabel(for library: LibraryDownloadSummary) -> String {
+        "\(displayLibraryTitle(for: library)) offline download"
+    }
+
+    private func libraryDownloadToggleValue(for library: LibraryDownloadSummary) -> String {
+        viewModel.isLibraryEnabled(sourceCompositeKey: library.sourceCompositeKey) ? "On" : "Off"
+    }
+
+    private func libraryDownloadToggleHint(for library: LibraryDownloadSummary) -> String {
+        "Enables or removes offline downloads for this library."
     }
 
     // MARK: - Target Rows
@@ -440,28 +498,44 @@ public struct DownloadsView: View {
         DownloadTargetDetailView(summary: item, nowPlayingVM: nowPlayingVM)
     }
 
-    /// Whether any items have non-completed tracks (pending/downloading/paused)
-    private var hasActiveDownloads: Bool {
-        viewModel.items.contains { $0.status != .completed }
+    private var hasDownloadTargets: Bool {
+        !viewModel.items.isEmpty || viewModel.librarySummaries.contains { $0.isEnabled }
     }
 
     /// Toolbar button that switches between pause and resume states.
     @ViewBuilder
     private var queueControlButton: some View {
-        if !viewModel.items.isEmpty {
-            if viewModel.isQueueRunning {
-                Button {
-                    Task { await viewModel.pauseQueue() }
-                } label: {
-                    Label("Pause Downloads", systemImage: EnsembleDesign.Icon.pause)
-                }
-            } else if hasActiveDownloads {
-                Button {
-                    Task { await viewModel.resumeQueue() }
-                } label: {
-                    Label("Resume Downloads", systemImage: EnsembleDesign.Icon.play)
-                }
+        if hasDownloadTargets && viewModel.isQueueRunning {
+            Button {
+                Task { await viewModel.pauseQueue() }
+            } label: {
+                Label("Pause Downloads", systemImage: EnsembleDesign.Icon.pause)
             }
+        } else if hasDownloadTargets && viewModel.hasResumableDownloads {
+            Button {
+                if let reason = viewModel.temporaryResumeQueueReason {
+                    temporaryResumeReason = reason
+                    showTemporaryResumeConfirmation = true
+                } else {
+                    Task { await viewModel.resumeQueue() }
+                }
+            } label: {
+                Label(
+                    viewModel.temporaryResumeQueueReason != nil ? "Resume Downloads for One Hour" : "Resume Downloads",
+                    systemImage: EnsembleDesign.Icon.play
+                )
+            }
+        }
+    }
+
+    private var temporaryResumeConfirmationMessage: String {
+        switch temporaryResumeReason {
+        case .lowDataMode:
+            return "Low Data Mode is on. Downloads will run for one hour, then pause again unless the connection is no longer constrained."
+        case .waitingForWiFi:
+            return "Cellular downloads are disabled. Downloads will run over cellular for one hour, which may use cellular data, then pause again unless Wi-Fi is available or cellular downloads are enabled."
+        default:
+            return "The current network policy has paused downloads. They will run for one hour, then pause again unless the connection is permitted."
         }
     }
 
@@ -492,7 +566,7 @@ private struct DownloadedItemRow: View {
                     path: item.thumbPath,
                     sourceKey: item.sourceCompositeKey,
                     ratingKey: item.ratingKey,
-                    cacheHint: artworkCacheHint,
+                    identity: artworkIdentity,
                     size: .thumbnail,
                     cornerRadius: item.kind == .artist
                         ? ArtworkCornerRadius.circle(for: EnsembleScaffold.UtilityRow.artworkDimension)
@@ -591,9 +665,9 @@ private struct DownloadedItemRow: View {
         }
     }
 
-    private var artworkCacheHint: PersistentArtworkCacheHint? {
-        guard let kind = PersistentArtworkCacheHint.Kind(item.kind) else { return nil }
-        return PersistentArtworkCacheHint(
+    private var artworkIdentity: ArtworkRequest.Identity? {
+        guard let kind = ArtworkRequest.Identity.Kind(item.kind) else { return nil }
+        return ArtworkRequest.Identity(
             ratingKey: item.ratingKey,
             kind: kind,
             sourcePath: item.thumbPath

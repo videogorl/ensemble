@@ -112,6 +112,14 @@ public actor SongLinkService {
         }
     }
 
+    public func resolveAppleMusicURL(_ appleMusicURL: URL) async -> URL {
+        let cacheKey = "apple:\(appleMusicURL.absoluteString)"
+        if let cached = cache[cacheKey] { return cached ?? appleMusicURL }
+        let result = await fetchSongLink(for: appleMusicURL) ?? appleMusicURL
+        cache[cacheKey] = result
+        return result
+    }
+
     /// Resolve a universal song.link URL for an album.
     /// Returns the song.link URL, or Apple Music URL as fallback, or nil if both fail.
     public func resolveAlbumLink(title: String, artist: String?) async -> URL? {

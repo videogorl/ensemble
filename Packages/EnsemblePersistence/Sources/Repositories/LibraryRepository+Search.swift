@@ -4,19 +4,20 @@ import Foundation
 extension LibraryRepository {
     // MARK: - Search
 
-    public func searchTracks(query: String) async throws -> [CDTrack] {
+    public func searchTracks<Value: Sendable>(query: String, map: @escaping @Sendable ([CDTrack]) -> [Value]) async throws -> [Value] {
         try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
+            let context = coreDataStack.newBackgroundContext()
             context.perform {
                 let request = CDTrack.fetchRequest()
-                request.predicate = Self.tokenizedSearchPredicate(
+                request.predicate = RepositoryPredicates.tokenized(
                     query: query,
                     fieldNames: ["title", "artistName", "albumName"]
                 )
                 request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist", "download"]
                 do {
                     let tracks = try context.fetch(request)
-                    continuation.resume(returning: tracks)
+                    continuation.resume(returning: map(tracks))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -45,19 +46,20 @@ extension LibraryRepository {
         }
     }
 
-    public func searchArtists(query: String) async throws -> [CDArtist] {
+    public func searchArtists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDArtist]) -> [Value]) async throws -> [Value] {
         try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
+            let context = coreDataStack.newBackgroundContext()
             context.perform {
                 let request = CDArtist.fetchRequest()
-                request.predicate = Self.tokenizedSearchPredicate(
+                request.predicate = RepositoryPredicates.tokenized(
                     query: query,
                     fieldNames: ["name"]
                 )
                 request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+                request.relationshipKeyPathsForPrefetching = ["albums"]
                 do {
                     let artists = try context.fetch(request)
-                    continuation.resume(returning: artists)
+                    continuation.resume(returning: map(artists))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -86,19 +88,20 @@ extension LibraryRepository {
         }
     }
 
-    public func searchAlbums(query: String) async throws -> [CDAlbum] {
+    public func searchAlbums<Value: Sendable>(query: String, map: @escaping @Sendable ([CDAlbum]) -> [Value]) async throws -> [Value] {
         try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
+            let context = coreDataStack.newBackgroundContext()
             context.perform {
                 let request = CDAlbum.fetchRequest()
-                request.predicate = Self.tokenizedSearchPredicate(
+                request.predicate = RepositoryPredicates.tokenized(
                     query: query,
                     fieldNames: ["title", "artistName"]
                 )
                 request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+                request.relationshipKeyPathsForPrefetching = ["artist", "tracks"]
                 do {
                     let albums = try context.fetch(request)
-                    continuation.resume(returning: albums)
+                    continuation.resume(returning: map(albums))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -127,34 +130,6 @@ extension LibraryRepository {
         }
     }
 
-    /// Builds a search predicate that requires all whitespace-separated tokens
-    /// to appear (in any order) across the given fields.
-    private static func tokenizedSearchPredicate(
-        query: String,
-        fieldNames: [String]
-    ) -> NSPredicate {
-        let tokens = query
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .components(separatedBy: .whitespaces)
-            .filter { !$0.isEmpty }
-
-        guard !tokens.isEmpty else {
-            return NSPredicate(value: false)
-        }
-
-        // For each token, require it to appear in at least one searchable field
-        let tokenPredicates = tokens.map { token in
-            NSCompoundPredicate(orPredicateWithSubpredicates:
-                fieldNames.map { field in
-                    NSPredicate(format: "%K CONTAINS[cd] %@", field, token)
-                }
-            )
-        }
-
-        // All tokens must match
-        return NSCompoundPredicate(andPredicateWithSubpredicates: tokenPredicates)
-    }
-
     private static func scopedNameSearchPredicate(
         fieldName: String,
         query: String,
@@ -173,9 +148,10 @@ extension LibraryRepository {
             ])
         }
 
-        guard let sourceCompositeKeys, !sourceCompositeKeys.isEmpty else {
+        guard let sourceCompositeKeys else {
             return base
         }
+        guard !sourceCompositeKeys.isEmpty else { return NSPredicate(value: false) }
 
         let scoped = NSPredicate(format: "sourceCompositeKey IN %@", Array(sourceCompositeKeys))
         return NSCompoundPredicate(andPredicateWithSubpredicates: [base, scoped])

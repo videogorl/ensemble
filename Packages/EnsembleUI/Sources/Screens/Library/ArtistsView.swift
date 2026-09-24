@@ -1,6 +1,6 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
-import Nuke
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -36,13 +36,21 @@ public struct ArtistsView: View {
         case selectionColumn
     }
 
-    @ObservedObject var libraryVM: LibraryViewModel
+    let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     private let presentationMode: PresentationMode
     private let externalSelectedArtist: Binding<DisplayArtist?>?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
     @State private var localSelectedArtist: DisplayArtist?
+    @StateObject private var artistSnapshotCache = BrowseSnapshotCache(ArtistBrowseSnapshot.empty)
+
+    private var artistFilterOptions: Binding<FilterOptions> {
+        Binding(
+            get: { libraryVM.artistsFilterOptions },
+            set: { libraryVM.artistsFilterOptions = $0 }
+        )
+    }
 
     public init(
         libraryVM: LibraryViewModel,
@@ -58,16 +66,16 @@ public struct ArtistsView: View {
 
     public var body: some View {
         Group {
-            if artistSnapshot.phase != .idle && !artistSnapshot.hasVisibleContent {
+            if artistSnapshot.phase != .idle && !hasLibraryContent {
                 loadingView
-            } else if !artistSnapshot.hasVisibleContent {
+            } else if !hasLibraryContent {
                 emptyView
             } else {
                 rootContent
             }
         }
         .navigationTitle("Artists")
-        .searchable(text: $libraryVM.artistsFilterOptions.searchText, prompt: "Filter artists")
+        .searchable(text: artistFilterOptions.searchText, prompt: "Filter artists")
         .refreshable {
             await libraryVM.refreshFromServer()
         }
@@ -80,15 +88,22 @@ public struct ArtistsView: View {
                 artistSortMenu
             }
         }
+        .ensembleBrowseToolbarMinimization()
         .if(selectedArtist == nil) { view in
             view.toolbarMaterialBackground()
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
-                filterOptions: $libraryVM.artistsFilterOptions,
+                filterOptions: artistFilterOptions,
                 availableGenres: artistSnapshot.availableGenres,
                 showGenreFilter: true
             )
+        }
+        .onReceive(libraryVM.$artistBrowseSnapshot) { snapshot in
+            artistSnapshotCache.snapshot = snapshot
+        }
+        .onAppear {
+            artistSnapshotCache.snapshot = libraryVM.artistBrowseSnapshot
         }
     }
 
@@ -98,7 +113,11 @@ public struct ArtistsView: View {
         case .compactRoot:
             adaptiveArtistView
         case .selectionColumn:
-            artistSelectionList
+            if #available(iOS 18.0, macOS 15.0, *) {
+                nativeArtistSelectionList
+            } else {
+                artistSelectionList
+            }
         }
     }
 
@@ -107,11 +126,13 @@ public struct ArtistsView: View {
     }
 
     private var artistSnapshot: ArtistBrowseSnapshot {
-        libraryVM.immediateArtistBrowseSnapshot
+        artistSnapshotCache.snapshot.hasVisibleContent || artistSnapshotCache.snapshot.phase != .idle
+            ? artistSnapshotCache.snapshot
+            : libraryVM.artistBrowseSnapshot
     }
 
     private var isBrowseToolbarVisible: Bool {
-        artistSnapshot.hasVisibleContent &&
+        hasLibraryContent &&
         navigationCoordinator.pathSnapshot(for: .artists).isEmpty &&
         !navigationCoordinator.isRouteTransitionActive(for: .artists)
     }
@@ -187,33 +208,70 @@ public struct ArtistsView: View {
         .accessibilityLabel("Sort Artists")
     }
 
+    @available(iOS 18.0, macOS 15.0, *)
+    private var nativeArtistSelectionList: some View {
+        NativeBrowseScrollView {
+            artistGenreChipBar
+            if libraryVM.artistSortOption == .name {
+                ForEach(artistSnapshot.sections) { section in
+                    Section {
+                        ForEach(section.artists) { artist in
+                            artistSelectionRow(artist)
+                        }
+                    } header: {
+                        sectionHeader(section.letter).id(section.letter)
+                    }
+                }
+            } else {
+                ForEach(artistSnapshot.displayArtists) { artist in
+                    artistSelectionRow(artist)
+                }
+            }
+            LibraryBrowseCountFooter(
+                count: artistSnapshot.displayArtists.count,
+                singular: "artist", plural: "artists",
+                bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
+            )
+        }
+        .accessibilityIdentifier("browse.artists")
+    }
+
     private var artistSelectionList: some View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                         artistGenreChipBar
 
                         if libraryVM.artistSortOption == .name {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(artistSnapshot.sections) { section in
-                                    Section(header: sectionHeader(section.letter)) {
+                                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        sectionHeader(section.letter)
+                                            .id(section.letter)
+
                                         ForEach(section.artists) { displayArtist in
                                             artistSelectionRow(displayArtist)
                                         }
                                     }
-                                    .id(section.letter)
                                 }
                             }
                             .padding(.vertical)
                         } else {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(artistSnapshot.displayArtists) { displayArtist in
                                     artistSelectionRow(displayArtist)
                                 }
                             }
                             .padding(.vertical)
                         }
+
+                        LibraryBrowseCountFooter(
+                            count: artistSnapshot.displayArtists.count,
+                            singular: "artist",
+                            plural: "artists",
+                            bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
+                        )
                     }
                 }
                 .miniPlayerBottomSpacing()
@@ -248,46 +306,38 @@ public struct ArtistsView: View {
         EnsembleStateScaffold(kind: .loading, title: "Loading artists…")
     }
 
+    private var hasLibraryContent: Bool {
+        artistSnapshot.hasVisibleContent || !libraryVM.artists.isEmpty
+    }
+
     private var emptyView: some View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Artists",
             iconSystemName: EnsembleDesign.Icon.artists,
-            recovery: libraryEmptyRecovery(emptyMessage: "No artists found in enabled libraries"),
+            recovery: libraryVM.emptyStateRecovery(message: "No artists found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )
-    }
-
-    private func libraryEmptyRecovery(emptyMessage: String) -> EnsembleLibraryEmptyStateScaffold.Recovery {
-        if libraryVM.isRestoringCloudSources {
-            return .restoringCloudSources
-        } else if !libraryVM.hasAnySources {
-            return .noSources
-        } else if libraryVM.isSyncing {
-            return .syncing
-        } else if !libraryVM.hasEnabledLibraries {
-            return .noEnabledLibraries
-        } else {
-            return .empty(message: emptyMessage)
-        }
     }
 
     private var artistListView: some View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                         artistGenreChipBar
 
                         if libraryVM.artistSortOption == .name {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(artistSnapshot.sections) { section in
-                                    Section(header: sectionHeader(section.letter)) {
+                                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        sectionHeader(section.letter)
+                                            .id(section.letter)
+
                                         DisplayArtistGrid(
                                             artists: section.artists,
                                             nowPlayingVM: nowPlayingVM
                                         )
-                                        .id(section.letter)
                                     }
                                 }
                             }
@@ -299,6 +349,13 @@ public struct ArtistsView: View {
                             )
                             .padding(.vertical)
                         }
+
+                        LibraryBrowseCountFooter(
+                            count: artistSnapshot.displayArtists.count,
+                            singular: "artist",
+                            plural: "artists",
+                            bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
+                        )
                     }
                 }
                 .miniPlayerBottomSpacing()
@@ -322,8 +379,9 @@ public struct ArtistsView: View {
     private var artistGenreChipBar: some View {
         GenreFilterHeader(
             availableGenres: artistSnapshot.availableGenres,
-            selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
-            excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres
+            selectedGenres: artistFilterOptions.selectedGenres,
+            excludedGenres: artistFilterOptions.excludedGenres,
+            favoriteFilter: artistFilterOptions.favoriteFilter
         )
     }
 
@@ -344,34 +402,36 @@ private struct DisplayArtistRow: View {
     let onTap: () -> Void
 
     var body: some View {
-        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            ArtworkView(
-                artist: displayArtist.artworkArtist,
-                size: .tiny,
-                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.tiny.cgSize.width)
-            )
+        Button(action: onTap) {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                ArtworkView(
+                    artist: displayArtist.artworkArtist,
+                    size: .tiny,
+                    cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.tiny.cgSize.width)
+                )
 
-            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                Text(displayArtist.name)
-                    .font(EnsembleDesign.Typography.rowPrimary)
-                    .lineLimit(1)
-                    .foregroundColor(EnsembleDesign.Color.primaryText)
+                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
+                    Text(displayArtist.name)
+                        .font(EnsembleDesign.Typography.rowPrimary)
+                        .lineLimit(1)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
 
-                if displayArtist.isMerged {
-                    Text("\(displayArtist.artists.count) sources")
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    if displayArtist.isMerged {
+                        Text("\(displayArtist.artists.count) sources")
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    }
                 }
+
+                Spacer()
+
+                Image(systemName: EnsembleDesign.Icon.chevronRight)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
-
-            Spacer()
-
-            Image(systemName: EnsembleDesign.Icon.chevronRight)
-                .font(EnsembleDesign.Typography.rowSecondary)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
+            .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onTap)
+        .buttonStyle(.plain)
     }
 }
 
@@ -391,16 +451,7 @@ private struct DisplayArtistGrid: View {
             }
         }
         .padding(.horizontal)
-        .sheet(item: $metadataEditorRequest) { request in
-            TextInputView(
-                title: request.kind.title,
-                message: "Changes are sent directly to Plex and then refreshed locally.",
-                placeholder: request.kind.fieldLabel,
-                initialText: request.currentTitle,
-                actionTitle: "Save",
-                onSubmit: request.onSave
-            )
-        }
+        .metadataEditorSheet(request: $metadataEditorRequest)
     }
 
     @ViewBuilder
@@ -420,10 +471,12 @@ private struct DisplayArtistGrid: View {
             ArtistActionsContextMenu(
                 artist: displayArtist.primaryArtist,
                 nowPlayingVM: nowPlayingVM,
-                onEditMetadata: {
-                    presentArtistMetadataEditor(displayArtist.primaryArtist)
+                onEditMetadata: { artist in
+                    presentArtistMetadataEditor(artist)
                 }
             )
+        } else {
+            MergedArtistHiddenContextMenu(displayArtist: displayArtist)
         }
     }
 
@@ -442,12 +495,13 @@ private struct DisplayArtistGrid: View {
                     .multilineTextAlignment(.center)
                     .foregroundColor(EnsembleDesign.Color.primaryText)
 
-                if displayArtist.isMerged {
-                    Text("\(displayArtist.artists.count) sources")
-                        .font(EnsembleDesign.Typography.cardSubtitle)
-                        .lineLimit(1)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                }
+                Text(displayArtist.isMerged ? "\(displayArtist.artists.count) sources" : " ")
+                    .font(EnsembleDesign.Typography.cardSubtitle)
+                    .lineLimit(1)
+                    .foregroundColor(
+                        displayArtist.isMerged ? EnsembleDesign.Color.secondaryText : .clear
+                    )
+                    .accessibilityHidden(!displayArtist.isMerged)
             }
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)
@@ -565,10 +619,12 @@ public struct ArtistDetailView: View {
     @StateObject private var mergedViewModel: MergedArtistDetailViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let displayArtist: DisplayArtist
+    private let includesHidden: Bool
     let nowPlayingVM: NowPlayingViewModel
 
     @Environment(\.dependencies) private var dependencies
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     private let pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
@@ -588,30 +644,42 @@ public struct ArtistDetailView: View {
     @State private var showToolbarTitle = false
     @State private var artistHeaderActionWidth: CGFloat = 0
     @State private var favoritedTrackListWidth: CGFloat = 0
-    @State private var sourceFavoritedTrackListWidths: [String: CGFloat] = [:]
     @Environment(\.artistDetailArtworkContinuity) private var artistArtworkContinuity
     @Environment(\.openURL) private var openURL
 
     public init(
         artist: Artist,
-        nowPlayingVM: NowPlayingViewModel
+        nowPlayingVM: NowPlayingViewModel,
+        includesHidden: Bool = false
     ) {
-        self.init(displayArtist: .single(artist), nowPlayingVM: nowPlayingVM)
+        self.init(displayArtist: .single(artist), nowPlayingVM: nowPlayingVM, includesHidden: includesHidden)
     }
 
     public init(
         displayArtist: DisplayArtist,
-        nowPlayingVM: NowPlayingViewModel
+        nowPlayingVM: NowPlayingViewModel,
+        includesHidden: Bool = false
     ) {
         let artist = displayArtist.primaryArtist
         self.displayArtist = displayArtist
-        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeArtistDetailViewModel(artist: artist))
+        self.includesHidden = includesHidden
+        self._viewModel = StateObject(
+            wrappedValue: DependencyContainer.shared.makeArtistDetailViewModel(
+                artist: artist,
+                includesHidden: includesHidden
+            )
+        )
         self._mergedViewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makeMergedArtistDetailViewModel(displayArtist: displayArtist)
+            wrappedValue: DependencyContainer.shared.makeMergedArtistDetailViewModel(
+                displayArtist: displayArtist,
+                includesHidden: includesHidden
+            )
         )
         self.nowPlayingVM = nowPlayingVM
         let pinnedIdentities = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.sourceScopedID))
-        self._isArtistPinned = State(initialValue: pinnedIdentities.contains(artist.sourceScopedID))
+        self._isArtistPinned = State(
+            initialValue: displayArtist.artists.allSatisfy { pinnedIdentities.contains($0.sourceScopedID) }
+        )
     }
 
     public var body: some View {
@@ -639,6 +707,9 @@ public struct ArtistDetailView: View {
         #endif
         .toolbar {
             EnsembleDetailToolbarActions {
+                if !detailAlbums.isEmpty {
+                    artistAlbumSortMenu
+                }
                 artistPinMenuButton
             }
         }
@@ -686,8 +757,14 @@ public struct ArtistDetailView: View {
                             ProgressView()
                                 .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
                         } else if !mergedViewModel.sourceSections.isEmpty {
-                            mergedSourceSections
-                                .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                            if !detailAlbums.isEmpty {
+                                albumsSection
+                                    .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                            }
+                            if !detailFavoritedTracks.isEmpty {
+                                favoritedTracksSection
+                                    .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                            }
                         }
                     } else {
                         // Albums Section
@@ -700,7 +777,7 @@ public struct ArtistDetailView: View {
                         }
 
                         // Favorited Tracks (4+ stars)
-                        if !viewModel.favoritedTracks.isEmpty {
+                        if !detailFavoritedTracks.isEmpty {
                             favoritedTracksSection
                                 .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
                         }
@@ -726,7 +803,8 @@ public struct ArtistDetailView: View {
     }
 
     private func updateArtistPinState(pinnedItems: [PinnedItem]) {
-        let latest = pinnedItems.contains { $0.sourceScopedID == viewModel.artist.sourceScopedID }
+        let identities = Set(pinnedItems.map(\.sourceScopedID))
+        let latest = displayArtist.artists.allSatisfy { identities.contains($0.sourceScopedID) }
         if latest != isArtistPinned {
             isArtistPinned = latest
         }
@@ -735,21 +813,21 @@ public struct ArtistDetailView: View {
     /// Toolbar menu with Pin/Unpin action for the artist
     private var artistPinMenuButton: some View {
         let isPinned = isArtistPinned
-        let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(viewModel.artist)
-        let canDownload = DownloadCapabilityPolicy.canAttemptDownload(
-            for: viewModel.artist.sourceCompositeKey,
-            accountManager: dependencies.accountManager
-        )
+        let downloadState = dependencies.downloadMutationWorkflow.batchState(for: displayArtist.artists)
+        let isDownloaded = downloadState.isEnabled
+        let canDownload = viewModel.artist.actionAvailability(for: .download).isAvailable
         let downloadableMergedArtists = mergedDownloadableArtists
         return Menu {
             Button {
-                dependencies.pinMutationWorkflow.togglePin(
-                    id: viewModel.artist.id,
-                    sourceKey: viewModel.artist.sourceCompositeKey ?? "",
-                    type: .artist,
-                    title: viewModel.artist.name,
-                    isPinned: isPinned
-                )
+                if isPinned {
+                    dependencies.pinMutationWorkflow.unpinAll(
+                        identities: Set(displayArtist.artists.map(\.sourceScopedID))
+                    )
+                } else {
+                    dependencies.pinMutationWorkflow.pinAll(items: displayArtist.artists.map { artist in
+                        (id: artist.id, sourceKey: artist.sourceCompositeKey ?? "", type: .artist, title: displayArtist.name)
+                    })
+                }
             } label: {
                 MediaActionLabel(kind: .pin(isPinned: isPinned))
             }
@@ -757,15 +835,12 @@ public struct ArtistDetailView: View {
             if displayArtist.isMerged, !downloadableMergedArtists.isEmpty {
                 Button {
                     Task {
-                        for artist in downloadableMergedArtists {
-                            await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
-                                artist,
-                                isEnabled: true
-                            )
-                        }
+                        await dependencies.downloadMutationWorkflow.toggleDownloads(
+                            for: displayArtist.artists
+                        )
                     }
                 } label: {
-                    MediaActionLabel(kind: .downloadAll)
+                    MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                 }
             } else if canDownload {
                 Button {
@@ -779,14 +854,74 @@ public struct ArtistDetailView: View {
                     MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                 }
             }
+
+            HiddenMediaDetailMenuButton(
+                candidates: displayArtist.artists.compactMap { $0.hiddenCandidate(deps: dependencies) },
+                identity: displayArtist.isMerged ? nil : HiddenMediaIdentity(viewModel.artist)
+            )
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }
     }
 
+    private var artistAlbumSortMenu: some View {
+        Menu {
+            ForEach(AlbumSortOption.allCases.filter { $0 != .albumArtist }, id: \.self) { option in
+                Button {
+                    selectAlbumSortOption(option)
+                } label: {
+                    HStack {
+                        Text(option.rawValue)
+                        if albumSortOption == option {
+                            Image(systemName: albumSortDirection == .ascending
+                                ? EnsembleDesign.Icon.chevronUp
+                                : EnsembleDesign.Icon.chevronDown)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+        }
+        .accessibilityLabel("Sort Artist Albums")
+    }
+
+    private var detailFilterOptions: FilterOptions {
+        displayArtist.isMerged ? mergedViewModel.filterOptions : viewModel.filterOptions
+    }
+
+    private var albumSortOption: AlbumSortOption {
+        AlbumSortOption(rawValue: detailFilterOptions.sortBy) ?? .year
+    }
+
+    private var albumSortDirection: SortDirection {
+        detailFilterOptions.sortBy == "default" ? .descending : detailFilterOptions.sortDirection
+    }
+
+    private func selectAlbumSortOption(_ option: AlbumSortOption) {
+        var filterOptions = detailFilterOptions
+        if albumSortOption == option {
+            filterOptions.sortDirection = albumSortDirection == .ascending ? .descending : .ascending
+        } else {
+            filterOptions.sortDirection = option.defaultDirection
+        }
+        filterOptions.sortBy = option.rawValue
+
+        if displayArtist.isMerged {
+            mergedViewModel.filterOptions = filterOptions
+        } else {
+            viewModel.filterOptions = filterOptions
+        }
+    }
+
     private var mergedDownloadableArtists: [Artist] {
         guard displayArtist.isMerged else { return [] }
-        return displayArtist.artists.filter { canDownload($0) }
+        return displayArtist.artists.filter {
+            resolvedDownloadMenuAvailability(
+                isDownloaded: dependencies.offlineDownloadService.isArtistDownloadEnabled($0),
+                sourceAvailability: $0.actionAvailability(for: .download)
+            ).isAvailable
+        }
     }
 
     private var artworkArtist: Artist {
@@ -794,7 +929,7 @@ public struct ArtistDetailView: View {
     }
 
     private var artistBackdropBlurCacheKey: String? {
-        "\(artworkDescriptor(for: artworkArtist).stableBlurCacheKey)|artist-hero"
+        "\(artworkRequest(for: artworkArtist).stableBlurCacheKey)|artist-hero"
     }
     
     private func loadArtworkImage() async {
@@ -814,12 +949,9 @@ public struct ArtistDetailView: View {
             artworkLoadUnavailable = false
         }
 
-        let descriptor = artworkDescriptor(for: artist)
+        let request = artworkRequest(for: artist)
 
-        guard let resolved = await ArtworkImageResolver.resolvedImage(
-            for: descriptor,
-            artworkLoader: dependencies.artworkLoader
-        ) else {
+        guard let resolved = await dependencies.artworkLoader.resolvedImage(for: request) else {
             await MainActor.run {
                 guard currentArtworkLoadIdentity == loadIdentity else { return }
                 artworkLoadUnavailable = true
@@ -833,7 +965,7 @@ public struct ArtistDetailView: View {
             artworkImage = heroImage
         }
 
-        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+        let blurredImage = await dependencies.artworkLoader.blurredImage(
             for: heroImage,
             cacheKey: "\(resolved.blurCacheKey)|artist-hero"
         )
@@ -844,20 +976,20 @@ public struct ArtistDetailView: View {
         }
     }
 
-    private func artworkDescriptor(for artist: Artist) -> ArtworkResolutionDescriptor {
-        ArtworkResolutionDescriptor(
+    private func artworkRequest(for artist: Artist) -> ArtworkRequest {
+        ArtworkRequest(
             path: artist.thumbPath,
             sourceKey: artist.sourceCompositeKey,
             ratingKey: artist.id,
             fallbackPath: artist.fallbackThumbPath,
             fallbackRatingKey: artist.fallbackRatingKey,
-            cacheHint: PersistentArtworkCacheHint(artist: artist),
-            fallbackCacheHint: PersistentArtworkCacheHint(
+            identity: ArtworkRequest.Identity(artist: artist),
+            fallbackIdentity: ArtworkRequest.Identity(
                 ratingKey: artist.fallbackRatingKey,
                 kind: .album,
                 sourcePath: artist.fallbackThumbPath
             ),
-            size: ArtworkSize.detail.rawValue,
+            tier: .hero,
             priority: .high
         )
     }
@@ -980,20 +1112,38 @@ public struct ArtistDetailView: View {
         return image.cropping(to: cropRect)
     }
 
+    private var detailSnapshot: ArtistDetailDisplaySnapshot {
+        displayArtist.isMerged ? mergedViewModel.displaySnapshot : viewModel.displaySnapshot
+    }
+
     private var detailAlbums: [Album] {
-        displayArtist.isMerged ? mergedViewModel.filteredAlbums : viewModel.filteredAlbums
+        detailSnapshot.filteredAlbums
+    }
+
+    private var detailStudioAlbums: [Album] {
+        detailSnapshot.studioAlbums
+    }
+
+    private var detailSinglesAndEPs: [Album] {
+        detailSnapshot.singlesAndEPs
     }
 
     private var detailTracks: [Track] {
-        displayArtist.isMerged ? mergedViewModel.filteredTracks : viewModel.filteredTracks
+        MergingProjection.tracks(
+            detailSnapshot.filteredTracks,
+            preferences: settingsManager.mergingPreferences
+        )
     }
 
     private var detailTrackCount: Int {
-        displayArtist.isMerged ? mergedViewModel.trackCount : viewModel.trackCount
+        detailSnapshot.trackCount
     }
 
     private var detailFavoritedTracks: [Track] {
-        displayArtist.isMerged ? mergedViewModel.favoritedTracks : viewModel.favoritedTracks
+        MergingProjection.tracks(
+            detailSnapshot.favoritedTracks,
+            preferences: settingsManager.mergingPreferences
+        )
     }
 
     // MARK: - Hero Banner
@@ -1083,7 +1233,7 @@ public struct ArtistDetailView: View {
                 if displayArtist.isMerged {
                     Text("•")
                 }
-                Text("\(detailAlbums.count) album\(detailAlbums.count == 1 ? "" : "s")")
+                Text(artistStatsAlbumText)
             }
             if !detailAlbums.isEmpty && !detailTracks.isEmpty {
                 Text("•")
@@ -1145,18 +1295,6 @@ public struct ArtistDetailView: View {
         }
     }
 
-    private func compactHeroHeight(containerWidth: CGFloat) -> CGFloat {
-        if containerWidth > 0 {
-            return containerWidth
-        }
-
-        #if os(iOS)
-        return UIScreen.main.bounds.width
-        #else
-        return EnsembleScaffold.ArtistDetail.wideHeaderThreshold
-        #endif
-    }
-
     static func compactHeroOverscroll(globalMinY: CGFloat) -> CGFloat {
         max(globalMinY, 0)
     }
@@ -1214,7 +1352,7 @@ public struct ArtistDetailView: View {
                                 if displayArtist.isMerged {
                                     Text("•")
                                 }
-                                Text("\(detailAlbums.count) album\(detailAlbums.count == 1 ? "" : "s")")
+                                Text(artistStatsAlbumText)
                             }
                             if !detailAlbums.isEmpty && !detailTracks.isEmpty {
                                 Text("•")
@@ -1232,7 +1370,7 @@ public struct ArtistDetailView: View {
                 .offset(y: -overscroll)
             }
         }
-        .frame(height: compactHeroHeight(containerWidth: containerWidth))
+        .frame(height: max(containerWidth, 0))
         .frame(maxWidth: .infinity)
     }
 
@@ -1291,9 +1429,8 @@ public struct ArtistDetailView: View {
 
     /// Whether there's any content to show in the About section
     private var hasAboutContent: Bool {
-        let hasDetail = viewModel.artistDetail != nil
-        let hasFacts = hasDetail && hasQuickFacts(viewModel.artistDetail!)
-        let hasBio = viewModel.artist.summary != nil && !viewModel.artist.summary!.isEmpty
+        let hasFacts = viewModel.artistDetail.map(hasQuickFacts) ?? false
+        let hasBio = !(viewModel.artist.summary?.isEmpty ?? true)
         return hasFacts || hasBio
     }
 
@@ -1322,7 +1459,11 @@ public struct ArtistDetailView: View {
 
             // Description
             if let summary = viewModel.artist.summary, !summary.isEmpty {
-                descriptionContent(summary: summary)
+                LibraryDescriptionSection(
+                    summary: summary,
+                    isExpanded: $isBioExpanded,
+                    spacing: EnsembleScaffold.ArtistDetail.descriptionSpacing
+                )
             }
 
             // Wikipedia link (below description)
@@ -1342,61 +1483,6 @@ public struct ArtistDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func descriptionContent(summary: String) -> some View {
-        // Plex sends paragraphs separated by \r\n; split on any newline variant
-        let paragraphs = summary
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-
-        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.descriptionSpacing) {
-            Text("Description")
-                .font(EnsembleDesign.Typography.actionLabel)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-
-            // Tappable description text to toggle expanded/collapsed
-            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                if isBioExpanded {
-                    // Expanded: show all paragraphs with paragraph spacing
-                    ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
-                        Text(paragraph)
-                            .font(EnsembleDesign.Typography.rowPrimary)
-                            .foregroundColor(EnsembleDesign.Color.primaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, index == paragraphs.indices.lowerBound ? EnsembleDesign.Spacing.none : EnsembleDesign.Spacing.md)
-                    }
-                } else {
-                    // Collapsed: show truncated text
-                    Text(paragraphs.first ?? summary)
-                        .font(EnsembleDesign.Typography.rowPrimary)
-                        .foregroundColor(EnsembleDesign.Color.primaryText)
-                        .lineLimit(4)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    isBioExpanded.toggle()
-                }
-            }
-
-            // Expand/collapse link
-            if paragraphs.count > 1 || summary.count > 200 {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        isBioExpanded.toggle()
-                    }
-                } label: {
-                    Text(isBioExpanded ? "Show less" : "Read more")
-                        .font(EnsembleDesign.Typography.rowPrimary)
-                        .fontWeight(.medium)
-                        .foregroundColor(EnsembleDesign.Color.accent)
-                }
-            }
-        }
-    }
-
     private func factRow(label: String, value: String) -> some View {
         HStack(alignment: .top, spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
             Text(label)
@@ -1413,17 +1499,18 @@ public struct ArtistDetailView: View {
 
     /// Shows only related artists that exist in the user's library (across all sources)
     private func relatedArtistsSection(artists: [Artist]) -> some View {
-        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
+        let displayArtists = DisplayArtist.group(artists, preferences: settingsManager.mergingPreferences)
+        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
             EnsembleContentSectionHeader("Related Artists")
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: EnsembleDesign.Spacing.lg) {
-                    ForEach(artists, id: \.sourceScopedID) { artist in
+                    ForEach(displayArtists) { displayArtist in
                         navigationCoordinator.routeLink(
-                            to: .artistDetail(artist)
+                            to: .displayArtist(id: displayArtist.id)
                         ) {
-                            similarArtistCard(artist: artist)
+                            similarArtistCard(artist: displayArtist.artworkArtist)
                         }
                         .buttonStyle(.plain)
                     }
@@ -1454,131 +1541,38 @@ public struct ArtistDetailView: View {
     // MARK: - Albums Section
 
     private var albumsSection: some View {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.sectionTopPadding) {
+            if !detailStudioAlbums.isEmpty {
+                albumReleaseSection(title: "Albums", albums: detailStudioAlbums)
+            }
+
+            if !detailSinglesAndEPs.isEmpty {
+                albumReleaseSection(title: "Singles & EPs", albums: detailSinglesAndEPs)
+            }
+        }
+    }
+
+    private var artistStatsAlbumText: String {
+        artistStatsAlbumText(albumCount: detailStudioAlbums.count, singlesAndEPCount: detailSinglesAndEPs.count)
+    }
+
+    private func artistStatsAlbumText(albumCount: Int, singlesAndEPCount: Int) -> String {
+        let albumText = "\(albumCount) album\(albumCount == 1 ? "" : "s")"
+        guard singlesAndEPCount > 0 else { return albumText }
+        return "\(albumText), \(singlesAndEPCount) single\(singlesAndEPCount == 1 ? "" : "s")/EP\(singlesAndEPCount == 1 ? "" : "s")"
+    }
+
+    private func albumReleaseSection(title: String, albums: [Album]) -> some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
-            EnsembleContentSectionHeader("Albums")
+            EnsembleContentSectionHeader(title)
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
             AlbumGrid(
-                albums: detailAlbums,
-                nowPlayingVM: nowPlayingVM
+                albums: albums,
+                nowPlayingVM: nowPlayingVM,
+                navigationCoordinator: navigationCoordinator,
+                includesHidden: includesHidden
             )
-        }
-    }
-
-    private var mergedSourceSections: some View {
-        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.sectionTopPadding) {
-            ForEach(mergedViewModel.sourceSections) { section in
-                mergedSourceSection(section)
-            }
-        }
-    }
-
-    private func mergedSourceSection(_ section: MergedArtistSourceSection) -> some View {
-        let albums = mergedViewModel.filteredAlbums(for: section)
-        let favoritedTracks = mergedViewModel.favoritedTracks(for: section)
-
-        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
-            HStack(alignment: .firstTextBaseline, spacing: EnsembleDesign.Spacing.md) {
-                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                    Text(section.sourceTitle)
-                        .font(EnsembleDesign.Typography.sectionTitle)
-                        .foregroundColor(EnsembleDesign.Color.primaryText)
-
-                    Text(sourceSectionMetadata(section, albums: albums, favoritedTracks: favoritedTracks, totalTracks: section.tracks))
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                }
-
-                Spacer()
-
-                if canDownload(section.artist) {
-                    sourceDownloadButton(for: section.artist)
-                }
-            }
-            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-
-            if !albums.isEmpty {
-                AlbumGrid(
-                    albums: albums,
-                    nowPlayingVM: nowPlayingVM
-                )
-            }
-
-            if !favoritedTracks.isEmpty {
-                sourceFavoritedTracksSection(section: section, tracks: favoritedTracks)
-            }
-        }
-    }
-
-    private func sourceSectionMetadata(
-        _ section: MergedArtistSourceSection,
-        albums: [Album],
-        favoritedTracks: [Track],
-        totalTracks: [Track]
-    ) -> String {
-        [
-            "\(albums.count) album\(albums.count == 1 ? "" : "s")",
-            "\(totalTracks.count) song\(totalTracks.count == 1 ? "" : "s")",
-            "\(favoritedTracks.count) favorited",
-            displaySourceSubtitle(section.sourceSubtitle)
-        ].joined(separator: " · ")
-    }
-
-    private func displaySourceSubtitle(_ sourceSubtitle: String) -> String {
-        guard settingsManager.demoModeEnabled else { return sourceSubtitle }
-        return "\(DemoModeRedaction.serverName) · \(DemoModeRedaction.accountIdentifier)"
-    }
-
-    private func sourceDownloadButton(for artist: Artist) -> some View {
-        let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(artist)
-        return Button {
-            Task {
-                await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
-                    artist,
-                    isEnabled: !isDownloaded
-                )
-            }
-        } label: {
-            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-                .labelStyle(.iconOnly)
-        }
-        .buttonStyle(.borderless)
-        .accessibilityLabel(isDownloaded ? "Remove Download" : "Download")
-    }
-
-    private func canDownload(_ artist: Artist) -> Bool {
-        DownloadCapabilityPolicy.canAttemptDownload(
-            for: artist.sourceCompositeKey,
-            accountManager: dependencies.accountManager
-        )
-    }
-
-    private func sourceFavoritedTracksSection(
-        section: MergedArtistSourceSection,
-        tracks: [Track]
-    ) -> some View {
-        let width = sourceFavoritedTrackListWidths[section.id] ?? 0
-
-        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
-            EnsembleContentSectionHeader("Favorited Tracks")
-                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-
-            MediaDetailSurface<EmptyView>.CompactPlaybackActionRow(
-                isDisabled: tracks.isEmpty,
-                play: {
-                    nowPlayingVM.play(tracks: tracks)
-                },
-                shuffle: {
-                    nowPlayingVM.shufflePlay(tracks: tracks)
-                }
-            )
-
-            favoriteTrackList(tracks: tracks, supplementalMetadataWidth: width)
-        }
-        .measuredWidth { newWidth in
-            if abs((sourceFavoritedTrackListWidths[section.id] ?? 0) - newWidth) > 1 {
-                sourceFavoritedTrackListWidths[section.id] = newWidth
-            }
         }
     }
 
@@ -1599,58 +1593,39 @@ public struct ArtistDetailView: View {
                 }
             )
 
-            favoriteTrackList(tracks: detailFavoritedTracks, supplementalMetadataWidth: favoritedTrackListWidth)
+            favoriteTrackList(
+                tracks: detailFavoritedTracks,
+                mutationSourceTracks: detailSnapshot.favoritedTracks,
+                supplementalMetadataWidth: favoritedTrackListWidth
+            )
         }
         .measuredWidth(onChange: updateFavoritedTrackListWidth)
     }
 
     private func favoriteTrackList(
         tracks: [Track],
+        mutationSourceTracks: [Track]? = nil,
         supplementalMetadataWidth: CGFloat
     ) -> some View {
-            let interactionModel = TrackRowInteractionModel(
-                onPlayNext: { track in
-                    nowPlayingVM.playNext(track)
+            let interactionModel = TrackRowInteractionModel.nowPlayingActions(
+                nowPlayingVM: nowPlayingVM,
+                deps: dependencies,
+                navigationCoordinator: navigationCoordinator,
+                includeArtistNavigation: false,
+                recentPlaylistTitle: nvmRecentPlaylistTitle,
+                mutationCandidates: { track in
+                    MergingProjection.mutationCandidates(
+                        for: track,
+                        in: mutationSourceTracks ?? tracks,
+                        preferences: settingsManager.mergingPreferences
+                    )
                 },
-                onPlayLast: { track in
-                    nowPlayingVM.playLast(track)
-                },
-                onAddToPlaylist: { track in
-                    presentPlaylistPicker(with: [track])
-                },
-                onAddToRecentPlaylist: { track in
-                    addToRecentPlaylist(track)
-                },
-                onToggleFavorite: { track in
-                    Task {
-                        await nowPlayingVM.toggleTrackFavorite(track)
-                    }
-                },
-                onGoToAlbum: { track in
-                    if let albumId = track.albumRatingKey {
-                        self.navigationCoordinator.routeFromMenu(
-                            to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
-                            in: self.navigationCoordinator.selectedTab
-                        )
-                    }
-                },
-                onGetInfo: { track in
-                    libraryItemInfoRequest = .track(track)
-                },
-                onShareLink: { track in
-                    ShareActions.shareTrackLink(track, deps: dependencies)
-                },
-                onShareFile: { track in
-                    ShareActions.shareTrackFile(track, deps: dependencies)
-                },
-                isTrackFavorited: { track in
-                    nowPlayingVM.isTrackFavorited(track)
-                },
-                canAddToRecentPlaylist: { track in
-                    recentPlaylistTitle(for: track) != nil
-                },
-                recentPlaylistTitle: nvmRecentPlaylistTitle
-            )
+                sourceActionPresenter: sourceActionPresenter
+            ) { tracks in
+                presentPlaylistPicker(with: tracks)
+            } onGetInfo: { track in
+                libraryItemInfoRequest = .track(track)
+            }
 
             // Track list (UIKit table for consistent swipe actions and row height)
             #if os(iOS)
@@ -1699,11 +1674,4 @@ public struct ArtistDetailView: View {
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
     }
 
-    private func addToRecentPlaylist(_ track: Track) {
-        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
-    }
-
-    private func recentPlaylistTitle(for track: Track) -> String? {
-        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
-    }
 }

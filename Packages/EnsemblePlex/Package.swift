@@ -30,7 +30,7 @@ let package = Package(
         ),
         .testTarget(
             name: "EnsemblePlexTests",
-            dependencies: ["EnsemblePlex"],
+            dependencies: ["EnsembleAPI", "EnsemblePlex"],
             path: "Tests"
         ),
     ]

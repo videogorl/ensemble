@@ -1,6 +1,6 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
-import Nuke
 
 #if os(macOS)
 import AppKit
@@ -13,12 +13,14 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     let tableHeaderContent: AnyView?
     let tableFooterContent: AnyView?
     let currentTrackId: String?
+    let selectedTrackId: String?
     let availabilityGeneration: UInt64
     let activeDownloadTrackIdentities: Set<String>
     let bottomContentInset: CGFloat
     let tableHeaderExtraHeight: CGFloat
     let usesDynamicTableHeaderHeight: Bool
     let supplementalMetadataWidth: CGFloat?
+    let trackSourceLabels: [String: String]
     let rowHeight: CGFloat
     let interactionModel: TrackRowInteractionModel
     let onRemoveFromPlaylist: ((Track, Int) -> Void)?
@@ -63,7 +65,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.target = context.coordinator
-        tableView.action = #selector(Coordinator.tableClicked(_:))
+        tableView.doubleAction = #selector(Coordinator.tableDoubleClicked(_:))
         tableView.contextMenuProvider = { [weak coordinator = context.coordinator] row in
             coordinator?.contextMenu(forRow: row)
         }
@@ -101,6 +103,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         context.coordinator.tableHeaderExtraHeight = tableHeaderExtraHeight
         context.coordinator.usesDynamicTableHeaderHeight = usesDynamicTableHeaderHeight
         context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
+        context.coordinator.trackSourceLabels = trackSourceLabels
         context.coordinator.rowHeight = rowHeight
         context.coordinator.interactionModel = interactionModel
         context.coordinator.artworkLoader = dependencies.artworkLoader
@@ -128,6 +131,14 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             tableView.scrollRowToVisible(targetRow)
             context.coordinator.consumedSectionScrollRequestID = sectionScrollRequest.id
         }
+
+        if let selectedTrackId,
+           context.coordinator.consumedSelectedTrackId != selectedTrackId,
+           let targetRow = context.coordinator.rowIndex(forTrackId: selectedTrackId) {
+            tableView.selectRowIndexes(IndexSet(integer: targetRow), byExtendingSelection: false)
+            tableView.scrollRowToVisible(targetRow)
+            context.coordinator.consumedSelectedTrackId = selectedTrackId
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -145,6 +156,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             tableHeaderExtraHeight: tableHeaderExtraHeight,
             usesDynamicTableHeaderHeight: usesDynamicTableHeaderHeight,
             supplementalMetadataWidth: supplementalMetadataWidth,
+            trackSourceLabels: trackSourceLabels,
             rowHeight: rowHeight,
             interactionModel: interactionModel,
             artworkLoader: dependencies.artworkLoader,
@@ -171,6 +183,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         var tableHeaderExtraHeight: CGFloat
         var usesDynamicTableHeaderHeight: Bool
         var supplementalMetadataWidth: CGFloat?
+        var trackSourceLabels: [String: String]
         var rowHeight: CGFloat
         var interactionModel: TrackRowInteractionModel
         var artworkLoader: ArtworkLoaderProtocol
@@ -181,6 +194,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         let onTrackTap: (Track, Int) -> Void
         weak var tableView: NSTableView?
         var consumedSectionScrollRequestID: Int?
+        var consumedSelectedTrackId: String?
         private(set) var rows: [NativeTrackListFlattenedRow] = []
 
         init(
@@ -197,6 +211,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             tableHeaderExtraHeight: CGFloat,
             usesDynamicTableHeaderHeight: Bool,
             supplementalMetadataWidth: CGFloat?,
+            trackSourceLabels: [String: String],
             rowHeight: CGFloat,
             interactionModel: TrackRowInteractionModel,
             artworkLoader: ArtworkLoaderProtocol,
@@ -219,6 +234,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             self.tableHeaderExtraHeight = tableHeaderExtraHeight
             self.usesDynamicTableHeaderHeight = usesDynamicTableHeaderHeight
             self.supplementalMetadataWidth = supplementalMetadataWidth
+            self.trackSourceLabels = trackSourceLabels
             self.rowHeight = rowHeight
             self.interactionModel = interactionModel
             self.artworkLoader = artworkLoader
@@ -244,6 +260,15 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             rows.firstIndex { row in
                 if case let .section(sectionID, _) = row {
                     return sectionID == id
+                }
+                return false
+            }
+        }
+
+        func rowIndex(forTrackId id: String) -> Int? {
+            rows.firstIndex { row in
+                if case let .track(track, _) = row {
+                    return track.playbackIdentity == id
                 }
                 return false
             }
@@ -359,12 +384,56 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             return MediaDragPayload.trackPasteboardWriter(for: track, shareService: shareService)
         }
 
+        func tableView(
+            _ tableView: NSTableView,
+            draggingSession session: NSDraggingSession,
+            sourceOperationMaskFor context: NSDraggingContext
+        ) -> NSDragOperation {
+            .copy
+        }
+
+        func tableView(
+            _ tableView: NSTableView,
+            draggingSession session: NSDraggingSession,
+            willBeginAt screenPoint: NSPoint,
+            forRowIndexes rowIndexes: IndexSet
+        ) {
+            let items = rowIndexes.compactMap { row -> MediaDragPayload.Item? in
+                guard row < rows.count,
+                      case let .track(track, _) = rows[row] else {
+                    return nil
+                }
+                return MediaDragPayload.track(track).items.first
+            }
+            guard !items.isEmpty else { return }
+            MacSidebarPlaylistDropRegistry.shared.beginDragging(MediaDragPayload(items: items))
+        }
+
+        func tableView(
+            _ tableView: NSTableView,
+            draggingSession session: NSDraggingSession,
+            movedTo screenPoint: NSPoint
+        ) {
+            MacSidebarPlaylistDropRegistry.shared.updateTarget(at: screenPoint)
+        }
+
+        func tableView(
+            _ tableView: NSTableView,
+            draggingSession session: NSDraggingSession,
+            endedAt screenPoint: NSPoint,
+            operation: NSDragOperation
+        ) {
+            // SwiftUI's outline view consumes the native drop without invoking its
+            // row handler, so this registered sidebar target owns the local result.
+            _ = MacSidebarPlaylistDropRegistry.shared.performDrop(at: screenPoint)
+            MacSidebarPlaylistDropRegistry.shared.endDragging()
+        }
+
         func configure(view: NSView?, row: Int) {
             guard row < rows.count,
                   let view = view as? MacNativeTrackTableCell,
                   case let .track(track, globalIndex) = rows[row] else { return }
 
-            let resolvedActions = interactionModel.resolve(for: track)
             view.configure(
                 track: track,
                 showArtwork: showArtwork,
@@ -373,11 +442,17 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 isPlaying: track.playbackIdentity == currentTrackId,
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadTrackIdentities.contains(track.sourceScopedID),
-                isFavorited: resolvedActions.isFavorited,
+                isFavorited: interactionModel.isFavorited(track),
                 supplementalMetadataWidth: supplementalMetadataWidth,
+                sourceLabel: track.sourceCompositeKey.flatMap { trackSourceLabels[$0] },
                 artworkLoader: artworkLoader,
                 menuProvider: { [weak self] in
-                    self?.makeMenu(for: track, globalIndex: globalIndex, resolvedActions: resolvedActions)
+                    guard let self else { return nil }
+                    return self.makeMenu(
+                        for: track,
+                        globalIndex: globalIndex,
+                        resolvedActions: self.interactionModel.resolve(for: track)
+                    )
                 }
             )
         }
@@ -398,7 +473,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             }
         }
 
-        @objc func tableClicked(_ sender: NSTableView) {
+        @objc func tableDoubleClicked(_ sender: NSTableView) {
             let row = sender.clickedRow
             guard row >= 0,
                   row < rows.count,
@@ -434,7 +509,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 if action == .favoriteToggle {
                     self?.showFavoriteLoadingToast(for: track, willFavorite: !resolvedActions.isFavorited)
                 }
-                TrackActionPresentation.execute(action, track: track, resolvedActions: resolvedActions)
+                TrackActionPresentation.execute(action, resolvedActions: resolvedActions)
                 self?.showSwipeConfirmation(for: action, track: track)
             }
             rowAction.backgroundColor = NSColor(TrackActionPresentation.tint(for: action, resolvedActions: resolvedActions))
@@ -450,13 +525,14 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             globalIndex: Int,
             resolvedActions: TrackRowInteractionModel.ResolvedActions
         ) -> NSMenu? {
-            NativeMediaTableActionBuilder.contextMenu(
+            let canRemove = interactionModel.allowsRemovalFromPlaylist(track)
+            return NativeMediaTableActionBuilder.contextMenu(
                 for: track,
                 resolvedActions: resolvedActions,
-                context: onRemoveFromPlaylist == nil ? .library : .playlistTrack(canRemove: true),
-                onRemoveFromPlaylist: onRemoveFromPlaylist.map { handler in
+                context: onRemoveFromPlaylist == nil ? .library : .playlistTrack(canRemove: canRemove),
+                onRemoveFromPlaylist: canRemove ? onRemoveFromPlaylist.map { handler in
                     { handler(track, globalIndex) }
-                }
+                } : nil
             )
         }
 
@@ -695,13 +771,16 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         isActivelyDownloading: Bool,
         isFavorited: Bool,
         supplementalMetadataWidth: CGFloat?,
+        sourceLabel: String?,
         artworkLoader: ArtworkLoaderProtocol,
         menuProvider: @escaping () -> NSMenu?
     ) {
         self.menuProvider = menuProvider
         titleField.stringValue = track.title
         trackNumberField.stringValue = isPlaying ? "" : "\(track.trackNumber)"
-        artistField.stringValue = track.artistName ?? "Unknown Artist"
+        artistField.stringValue = [track.artistName ?? "Unknown Artist", sourceLabel]
+            .compactMap { $0 }
+            .joined(separator: " · ")
         albumField.stringValue = track.albumName ?? "Unknown Album"
         durationField.stringValue = track.formattedDuration
 
@@ -713,6 +792,8 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         var subtitleParts: [String] = []
         if let artist = track.artistName { subtitleParts.append(artist) }
         if showAlbumName, let album = track.albumName { subtitleParts.append(album) }
+        if let unavailableReason = track.unavailableReason { subtitleParts.append(unavailableReason) }
+        if let sourceLabel { subtitleParts.append(sourceLabel) }
         subtitleField.stringValue = showsArtist ? "" : subtitleParts.joined(separator: " · ")
         subtitleField.isHidden = showsArtist
 
@@ -916,34 +997,14 @@ private final class MacNativeTrackTableCell: NSTableCellView {
     private func loadArtwork(for track: Track, artworkLoader: ArtworkLoaderProtocol) {
         artworkLoadTask?.cancel()
         artworkLoadTask = Task { @MainActor in
-            guard let url = await artworkLoader.artworkURLAsync(
-                for: track.thumbPath,
-                sourceKey: track.sourceCompositeKey,
-                ratingKey: track.id,
-                fallbackPath: track.fallbackThumbPath,
-                fallbackRatingKey: track.fallbackRatingKey,
-                size: ArtworkSize.thumbnail.rawValue
-            ) else {
-                if currentTrackID == track.playbackIdentity {
-                    artworkImageView.image = nil
-                }
-                return
+            let image = await TrackArtworkThumbnailLoader.image(
+                for: track,
+                artworkLoader: artworkLoader
+            ) {
+                currentTrackID == track.playbackIdentity
             }
 
-            let request = ArtworkImageRequest.resized(
-                url: url,
-                size: ArtworkSize.thumbnail.rawValue,
-                priority: .high
-            )
-            if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                if currentTrackID == track.playbackIdentity {
-                    artworkImageView.image = cachedImage.image
-                }
-                return
-            }
-
-            if let image = try? await ImagePipeline.shared.image(for: request),
-               currentTrackID == track.playbackIdentity {
+            if currentTrackID == track.playbackIdentity {
                 artworkImageView.image = image
             }
         }

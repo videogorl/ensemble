@@ -1,0 +1,371 @@
+[
+  {
+    "time": 1788842303.001448,
+    "key": "93a5ebc1b2f0",
+    "offset": 0,
+    "bytes": 262144,
+    "total": 27377882,
+    "interrupted": true,
+    "complete": false
+  },
+  {
+    "time": 1788842312.04063,
+    "key": "7703920bb606",
+    "offset": 0,
+    "bytes": 28125901,
+    "total": 28125901,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842313.814568,
+    "key": "d2396d9133c5",
+    "offset": 0,
+    "bytes": 35805250,
+    "total": 35805250,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842319.667946,
+    "key": "c1d4d06e6095",
+    "offset": 0,
+    "bytes": 23997181,
+    "total": 23997181,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842320.5522392,
+    "key": "23e3efa6748b",
+    "offset": 0,
+    "bytes": 21424787,
+    "total": 21424787,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842342.450052,
+    "key": "9d341136fa28",
+    "offset": 0,
+    "bytes": 20343366,
+    "total": 20343366,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842348.746026,
+    "key": "b4e8dcd59ea1",
+    "offset": 0,
+    "bytes": 40579701,
+    "total": 40579701,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842350.700361,
+    "key": "93a5ebc1b2f0",
+    "offset": 262144,
+    "bytes": 27115738,
+    "total": 27377882,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842363.042155,
+    "key": "779f212a114d",
+    "offset": 0,
+    "bytes": 25267219,
+    "total": 25267219,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842364.337832,
+    "key": "71e92a4a3c05",
+    "offset": 0,
+    "bytes": 29252732,
+    "total": 29252732,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842385.291574,
+    "key": "b964d2669443",
+    "offset": 0,
+    "bytes": 24527090,
+    "total": 24527090,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842385.407597,
+    "key": "44609475a750",
+    "offset": 0,
+    "bytes": 24396138,
+    "total": 24396138,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842395.6198149,
+    "key": "f83b26b1eb13",
+    "offset": 0,
+    "bytes": 65536,
+    "total": 16806848,
+    "interrupted": false,
+    "complete": false
+  },
+  {
+    "time": 1788842568.42447,
+    "key": "686e326af620",
+    "offset": 0,
+    "bytes": 65536,
+    "total": 23997181,
+    "interrupted": false,
+    "complete": false
+  },
+  {
+    "time": 1788842568.484226,
+    "key": "cd5fcc84b687",
+    "offset": 0,
+    "bytes": 65536,
+    "total": 28125901,
+    "interrupted": false,
+    "complete": false
+  },
+  {
+    "time": 1788842575.697383,
+    "key": "686e326af620",
+    "offset": 0,
+    "bytes": 23997181,
+    "total": 23997181,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842576.992523,
+    "key": "cd5fcc84b687",
+    "offset": 0,
+    "bytes": 28125901,
+    "total": 28125901,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842595.058251,
+    "key": "e90c3ace0ac9",
+    "offset": 0,
+    "bytes": 35805250,
+    "total": 35805250,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842596.742833,
+    "key": "cf431f937276",
+    "offset": 0,
+    "bytes": 40579701,
+    "total": 40579701,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842605.764666,
+    "key": "a846a66462d2",
+    "offset": 0,
+    "bytes": 20343366,
+    "total": 20343366,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842607.558669,
+    "key": "2b7b0b017fc6",
+    "offset": 0,
+    "bytes": 25267219,
+    "total": 25267219,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842614.8320189,
+    "key": "52c82f1ffd7a",
+    "offset": 0,
+    "bytes": 27377882,
+    "total": 27377882,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842617.0086489,
+    "key": "fa713d4045b2",
+    "offset": 0,
+    "bytes": 29252732,
+    "total": 29252732,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842630.971426,
+    "key": "1e93e5ad0797",
+    "offset": 0,
+    "bytes": 16806848,
+    "total": 16806848,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842632.262045,
+    "key": "4dbf837201e2",
+    "offset": 0,
+    "bytes": 21424787,
+    "total": 21424787,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842638.781288,
+    "key": "c03f189dd5a6",
+    "offset": 0,
+    "bytes": 24396138,
+    "total": 24396138,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842640.075434,
+    "key": "303b04c8eb00",
+    "offset": 0,
+    "bytes": 24527090,
+    "total": 24527090,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842731.650602,
+    "key": "303b04c8eb00",
+    "offset": 0,
+    "bytes": 3735552,
+    "total": 24527090,
+    "interrupted": false,
+    "complete": false
+  },
+  {
+    "time": 1788842731.652736,
+    "key": "fa713d4045b2",
+    "offset": 0,
+    "bytes": 3670016,
+    "total": 29252732,
+    "interrupted": false,
+    "complete": false
+  },
+  {
+    "time": 1788842740.169163,
+    "key": "303b04c8eb00",
+    "offset": 3670016,
+    "bytes": 20857074,
+    "total": 24527090,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842741.534115,
+    "key": "fa713d4045b2",
+    "offset": 3604480,
+    "bytes": 25648252,
+    "total": 29252732,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842745.2537868,
+    "key": "1e93e5ad0797",
+    "offset": 0,
+    "bytes": 16806848,
+    "total": 16806848,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842748.778921,
+    "key": "686e326af620",
+    "offset": 0,
+    "bytes": 23997181,
+    "total": 23997181,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842752.870309,
+    "key": "2b7b0b017fc6",
+    "offset": 0,
+    "bytes": 25267219,
+    "total": 25267219,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842757.214004,
+    "key": "cd5fcc84b687",
+    "offset": 0,
+    "bytes": 28125901,
+    "total": 28125901,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842759.156941,
+    "key": "a846a66462d2",
+    "offset": 0,
+    "bytes": 20343366,
+    "total": 20343366,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842765.453658,
+    "key": "4dbf837201e2",
+    "offset": 0,
+    "bytes": 21424787,
+    "total": 21424787,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842767.826219,
+    "key": "e90c3ace0ac9",
+    "offset": 0,
+    "bytes": 35805250,
+    "total": 35805250,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842773.593715,
+    "key": "52c82f1ffd7a",
+    "offset": 0,
+    "bytes": 27377882,
+    "total": 27377882,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842775.111072,
+    "key": "c03f189dd5a6",
+    "offset": 0,
+    "bytes": 24396138,
+    "total": 24396138,
+    "interrupted": false,
+    "complete": true
+  },
+  {
+    "time": 1788842785.981142,
+    "key": "cf431f937276",
+    "offset": 0,
+    "bytes": 40579701,
+    "total": 40579701,
+    "interrupted": false,
+    "complete": true
+  }
+]

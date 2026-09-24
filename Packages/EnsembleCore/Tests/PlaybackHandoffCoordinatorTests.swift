@@ -3,6 +3,14 @@ import XCTest
 @testable import EnsembleCore
 
 final class PlaybackHandoffCoordinatorTests: XCTestCase {
+    func testPauseCancelsLoadingAndBufferingLikePlaying() {
+        for playbackState: PlaybackState in [.loading, .buffering, .playing] {
+            var coordinator = PlaybackHandoffCoordinator()
+            let outcome = coordinator.handle(.pauseRequested(.system), playbackState: playbackState)
+            XCTAssertEqual(outcome.actions, [.pausePlayback(.system)])
+        }
+    }
+
     func testDisconnectRouteChangePausesAndMarksDisconnectPauseReason() {
         var coordinator = PlaybackHandoffCoordinator()
         let now = Date()
@@ -295,7 +303,6 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(
             coordinator.shouldSuppressAutomaticAdvance(
-                playbackState: .paused,
                 isInterrupted: false,
                 isRouteChangeInProgress: false
             )
@@ -313,6 +320,7 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         XCTAssertFalse(
             coordinator.remoteSkipCommandsEnabled(
                 playbackState: .paused,
+                isSkipTransitionInProgress: false,
                 isInterrupted: true,
                 isRouteChangeInProgress: false
             )

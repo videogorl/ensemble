@@ -13,6 +13,24 @@ No unresolved critical issues are currently documented.
 
 ## Active Limitations
 
+### Application Music Player Mixed-Provider OS Matrix
+
+- **Area:** `AppleMusicPlaybackController`, `PlaybackService`, `ApplicationMusicPlayer`, iOS/iPadOS 18+.
+- **Status:** Ensemble now uses the app-scoped MusicKit player, a mixable session for background Apple-to-native activation, and a finite UIKit transition lease. These are public APIs, but locked mixed-provider continuity, energy impact, AirPlay, and system-control behavior still require physical passes on iOS 18–27.
+- **Rule:** Do not add silent PCM, an empty audio graph, a second media session, or `SystemMusicPlayer` as a keepalive. Treat a failed physical OS/route combination as an active platform limitation and preserve a recoverable paused boundary rather than adding another undocumented background mechanism.
+
+### Mixed-Provider Remote Skip Boundaries
+
+- **Area:** `PlaybackService`, `PlaybackNowPlayingBridge`, `AppleMusicPlaybackController`, iOS/iPadOS 18+.
+- **Status:** Finite playback now submits one Apple item at a time. Locked iOS 27 testing verified exactly-once Next across Plex-to-Apple, Apple-to-Apple, and Apple-to-Plex boundaries, plus standard two-tap Previous across Apple-to-Apple and Apple-to-Plex boundaries. MusicKit still consumes the raw Previous command, so Ensemble infers only the near-start rewind that represents the navigate-back gesture. iOS 18–26 remain unverified.
+- **Rule:** Keep each finite MusicKit queue disposable and one-item, preserve the three-second Previous restart threshold, and require locked physical verification before expanding the supported OS matrix.
+
+### HomePod Music Transfer Does Not Carry the Mixed Queue
+
+- **Area:** `ApplicationMusicPlayer`, AirPlay/HomePod, mixed Apple Music and Plex queues on iOS/iPadOS 18+.
+- **Status:** The prior `SystemMusicPlayer` transport transferred its Music session to HomePod instead of creating an iPhone `AVAudioSession` AirPlay route. The replacement app-scoped transport still needs separate physical verification for true iPhone-owned AirPlay and HomePod transfer.
+- **Rule:** Do not claim mixed-provider continuity for Music-to-HomePod transfer. Only accept an AirPlay handoff when Ensemble observes an iPhone audio route and both providers remain under the same phone-owned session.
+
 ### Top-Level Navigation Pop-In During Playback
 
 - **Area:** `SidebarView`, `HomeView`, `LibraryViewModel`, `AlbumsView`, `ArtistsView`, `SearchView`, `FavoritesView`
@@ -29,8 +47,8 @@ No unresolved critical issues are currently documented.
 
 - **Area:** `EnsembleDomain`, `EnsemblePlex`, `EnsembleWatchCore`, `EnsembleWatch/Views/WatchRootView.swift`
 - **Status:** Watch has standalone Plex Link/iCloud credential bootstrap, selected-library browsing, watch-local playback, and phone remote Now Playing, but remains a compact V1 implementation.
-- **Limitations:** Downloads are not included. KVS pins/library flags require watchOS 9+; watchOS 8 degrades to local cached/default behavior.
-- **Build note:** The iOS `Ensemble` scheme no longer embeds the watch app during simulator builds. Build/run watch with `EnsembleWatch`.
+- **Limitations:** Downloads are not included.
+- **Build note:** Build/run Watch directly with `EnsembleWatch` for simulator testing. The iOS `Ensemble` target embeds the independent Watch app for device archives and TestFlight distribution.
 
 ### iOS 26 Keyboard Presenter Guardrails
 
@@ -44,6 +62,12 @@ No unresolved critical issues are currently documented.
 - **Status:** Repeated CoreHaptics errors from UIKit keyboard haptics are simulator noise, not Ensemble haptics.
 - **Rule:** Ignore this in simulator logs unless accompanied by an app-owned haptics regression.
 
+### iOS 26.5 Simulator Automation Gaps
+
+- **Area:** `ios-simulator-mcp`/Homebrew `idb-companion`, XcodeBuildMCP list reordering and custom drag controls.
+- **Status:** Homebrew `idb-companion` 1.1.8 does not start automatically for ios-simulator-mcp, but an explicit companion on port `10882` supports screenshots, coordinate taps, and real native `List.onMove` drags on the iOS 26.5 simulator. XcodeBuildMCP can capture and tap the runtime semantic tree, but its drag transport currently fails with `FBSimulatorHIDEvent does not support touch move events`. Its semantic tap can land on a combined row label instead of a trailing add/remove control, and its generic target list omits custom adjustable controls; a label-specific query finds the Now Playing scrubber as a slider but serializes its numeric value as `nan` even when the displayed clock and seek behavior are correct. During iPad viewport Now Playing, Xcode snapshots can also retain covered root descendants even when `accessibilityHidden` and hit testing are active; Computer Use exposes only the modal controls and covered Xcode actions have no effect.
+- **Rule:** When ios-simulator-mcp reports connection failure on `localhost:10882`, start `idb_companion --udid <simulator-udid> --grpc-port 10882 --log-level info` and keep that process alive for the interaction run. Use Xcode runtime snapshots for semantic discovery, then ios-simulator-mcp screenshots and coordinates for trailing controls or native reorder handles. For labels beginning with `-`, refresh the snapshot and use Xcode `touch` on the element reference. Query custom adjustable controls by label and verify their behavior from visible state changes rather than trusting the serialized numeric value. For viewport Now Playing modal-focus checks, use Computer Use's Simulator accessibility tree and confirm a covered Xcode action has no visible effect.
+
 ### macOS Instrumental Mode Quality Gap
 
 - **Area:** `AudioPlaybackEngine` instrumental/vocal attenuation path.
@@ -55,7 +79,7 @@ No unresolved critical issues are currently documented.
 
 - **Area:** `LyricsService`, `PlexAPIClient.getLyricsContent(streamKey:)`
 - **Status:** Some tracks report a lyrics stream in metadata but `/library/streams/{streamKey}` returns 404.
-- **Rule:** Treat persistent 404s as server-side absence. Keep retry/negative-cache behavior defensive and user-facing state non-crashing.
+- **Rule:** Treat confirmed 404s as signature-scoped server absence and persist the unavailable outcome. Retry only after an explicit user retry or stream/track signature change; keep transport and 5xx failures retryable.
 
 ### Background Downloads Are Best-Effort
 
@@ -75,18 +99,13 @@ No unresolved critical issues are currently documented.
 - **Status:** Library notifications require owner/admin Plex Pass, some server/network setups reject WebSocket, and some close immediately with code `1001`.
 - **Rule:** WebSocket events are acceleration hints. Polling timers and circuit breakers must remain as fallback.
 
-### Artwork Pre-Caching Is Sync-Path Only
-
-- **Area:** `ArtworkLoader.predownloadArtwork`
-- **Status:** Artwork is pre-cached only for items that pass through sync. Browsing an uncached item may still require network.
-
-### Library Visibility Selector Not Shipped
-
-- **Area:** `LibraryVisibilityProfile`, `LibraryVisibilityStore`
-- **Status:** Core filtering seams exist, but user-facing selector/editor UI is not shipped.
-- **Rule:** Visibility profiles hide/show browse content only; they do not change sync enablement.
-
 ## Watchlist
+
+### Cross-Source Snapshot Amplification
+
+- **Area:** `PlaylistRepository`, `HubRepository`, `DownloadManager`, `LibraryViewModel`, playlist/album/artist detail view models, `MediaTrackList`.
+- **Status:** A TestFlight iPhone SE 2 froze while opening a merged playlist only after a second music source became visible. Concurrent delete-and-replace playlist membership saves had created exact duplicate rows and doubled the rendered body; `PlaylistRepository` now serializes those writes and deduplicates legacy reads. `HubRepository` replacement writes and `DownloadManager` record creation are also serialized, `LibraryViewModel` coalesces overlapping full loads, detail view models suppress unchanged snapshots, and `MediaTrackList` combines identity/download comparison into one pass while avoiding unchanged favorite-state scans. The affected simulator store still contains 2,840 legacy duplicate membership groups across the merged playlist and `All Music`, so cross-source large-collection testing remains a watchlist item until repaired stores and constrained hardware are verified.
+- **Rule:** Follow the durable [multi-source persistence checks](../testing/references/persistence-and-unchanged-work.md#multiple-sources-and-large-collections). Keep this watchlist item open until repaired stores and constrained hardware are verified.
 
 ### AirPlay Glitch During Health Probes
 

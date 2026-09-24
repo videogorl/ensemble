@@ -4,16 +4,7 @@ import Intents
 import OSLog
 
 typealias RankedItem = SiriMediaIndexResolver.RankedItem
-
-struct SiriPayloadIdentifier: Codable {
-    let schemaVersion: Int
-    let kind: SiriMediaKind
-    let entityID: String
-    let sourceCompositeKey: String?
-    let displayName: String?
-    let artistHint: String?
-    var shuffle: Bool? = nil
-}
+typealias SiriPayloadIdentifier = SiriPlaybackRequestPayload
 
 struct SiriPendingPlayMediaContext: Codable {
     let shuffle: Bool
@@ -32,18 +23,6 @@ enum SiriMatchingHelpers {
             appGroupIdentifier: appGroupIdentifier,
             filename: indexFilename
         )
-    }
-
-    static func normalize(_ raw: String) -> String {
-        SiriPhraseNormalizer.basic(raw)
-    }
-
-    static func scoreMatch(query: String, candidate: String) -> Double {
-        SiriMatchScorer.scoreMatch(query: query, candidate: candidate)
-    }
-
-    static func scoreMatch(queries: [String], candidate: String) -> Double {
-        SiriMatchScorer.scoreMatch(queries: queries, candidate: candidate)
     }
 
     static func currentTrackMediaItem() -> INMediaItem {

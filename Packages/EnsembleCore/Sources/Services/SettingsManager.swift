@@ -1,5 +1,6 @@
-import SwiftUI
 import Combine
+import EnsembleDomain
+import SwiftUI
 
 public enum TrackSwipeAction: String, CaseIterable, Codable, Sendable, Identifiable {
     case playNext
@@ -149,30 +150,6 @@ public struct TrackSwipeLayout: Codable, Equatable, Sendable {
     }
 }
 
-public enum AppAccentColor: String, CaseIterable, Identifiable {
-    case purple = "purple"
-    case blue = "blue"
-    case pink = "pink"
-    case red = "red"
-    case orange = "orange"
-    case yellow = "yellow"
-    case green = "green"
-    
-    public var id: String { rawValue }
-    
-    public var color: Color {
-        switch self {
-        case .purple: return .purple
-        case .blue: return .blue
-        case .pink: return Color(red: 1.0, green: 0.0, blue: 1.0) // Magenta
-        case .red: return .red
-        case .orange: return .orange
-        case .yellow: return .yellow
-        case .green: return .green
-        }
-    }
-}
-
 public enum TabItem: String, CaseIterable, Identifiable, Codable {
     case home = "Home"
     case songs = "Songs"
@@ -250,14 +227,58 @@ public enum DemoModeRedaction {
 
 @MainActor
 public final class SettingsManager: ObservableObject {
+    nonisolated public static let scrobblingEnabledKey = "scrobblingEnabled"
+    public static let mergingPreferencesKey = "mergingPreferences"
+    nonisolated private static let focusScrobblingOverrideKey = "focusScrobblingOverride"
+    nonisolated private static let noFocusScrobblingOverride = -1
+    /// Posted when the persisted merge preferences change.
+    public static let mergingPreferencesDidChange = Notification.Name(
+        "SettingsManager.mergingPreferencesDidChange"
+    )
+
+    public static func storedMergingPreferences(
+        in defaults: UserDefaults = .standard
+    ) -> EnsembleMergingPreferences {
+        guard let data = defaults.data(forKey: mergingPreferencesKey),
+              let preferences = try? JSONDecoder().decode(EnsembleMergingPreferences.self, from: data)
+        else { return .default }
+        return preferences
+    }
+
+    public static func setStoredMergingPreferences(
+        _ preferences: EnsembleMergingPreferences,
+        in defaults: UserDefaults = .standard
+    ) {
+        guard storedMergingPreferences(in: defaults) != preferences,
+              let data = try? JSONEncoder().encode(preferences) else { return }
+        defaults.set(data, forKey: mergingPreferencesKey)
+        NotificationCenter.default.post(
+            name: mergingPreferencesDidChange,
+            object: defaults
+        )
+    }
+
+    nonisolated public static func effectiveScrobblingEnabled(in defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: focusScrobblingOverrideKey) != nil {
+            switch defaults.integer(forKey: focusScrobblingOverrideKey) {
+            case 0: return false
+            case 1: return true
+            default: break
+            }
+        }
+        guard defaults.object(forKey: scrobblingEnabledKey) != nil else { return true }
+        return defaults.bool(forKey: scrobblingEnabledKey)
+    }
+
     @AppStorage("accentColor") public var accentColorName: String = "blue"
     @AppStorage("enabledTabs") private var enabledTabsData: Data = Data()
     @AppStorage("trackSwipeLayout") private var trackSwipeLayoutData: Data = Data()
     @AppStorage("songsTableColumns") private var songsTableColumnsData: Data = Data()
-    @AppStorage("allowInsecureConnectionsPolicy") private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
-    @AppStorage("auroraVisualizationEnabled") public var auroraVisualizationEnabled: Bool = true
-    @AppStorage("scrobblingEnabled") public var scrobblingEnabled: Bool = true
-    @AppStorage("playlistMergeEnabled") public var playlistMergeEnabled: Bool = true
+    @AppStorage(AllowInsecureConnectionsPolicy.defaultsKey) private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
+    @AppStorage(AuroraVisualizationPreference.enabledKey) public var auroraVisualizationEnabled: Bool = AuroraVisualizationPreference.defaultEnabled
+    @AppStorage(scrobblingEnabledKey) public var scrobblingEnabled: Bool = true
+    @AppStorage(focusScrobblingOverrideKey) private var focusScrobblingOverrideRawValue = noFocusScrobblingOverride
+    @Published public private(set) var mergingPreferences = EnsembleMergingPreferences.default
     #if DEBUG
     @AppStorage("demoModeEnabled") public var demoModeEnabled: Bool = false
     #else
@@ -268,14 +289,12 @@ public final class SettingsManager: ObservableObject {
     #endif
 
     public init() {
-        // Register defaults so UserDefaults.standard.bool(forKey:) returns true
-        // before the setting has ever been toggled (PlaybackService reads directly).
         UserDefaults.standard.register(defaults: [
-            "auroraVisualizationEnabled": true,
-            "scrobblingEnabled": true,
-            "playlistMergeEnabled": true,
+            AuroraVisualizationPreference.enabledKey: AuroraVisualizationPreference.defaultEnabled,
+            Self.scrobblingEnabledKey: true,
             "demoModeEnabled": false
         ])
+        mergingPreferences = Self.storedMergingPreferences()
         if enabledTabsData.isEmpty {
             // Default tabs
             let defaultTabs: [TabItem] = [.home, .artists, .playlists, .search]
@@ -283,6 +302,39 @@ public final class SettingsManager: ObservableObject {
                 enabledTabsData = encoded
             }
         }
+    }
+
+    public var focusScrobblingOverride: Bool? {
+        switch focusScrobblingOverrideRawValue {
+        case 0: return false
+        case 1: return true
+        default: return nil
+        }
+    }
+
+    public var effectiveScrobblingEnabled: Bool {
+        focusScrobblingOverride ?? scrobblingEnabled
+    }
+
+    public func setMergingPreferences(_ preferences: EnsembleMergingPreferences) {
+        guard mergingPreferences != preferences else { return }
+        Self.setStoredMergingPreferences(preferences)
+        mergingPreferences = preferences
+    }
+
+    public func updateMergingPreferences(
+        _ update: (inout EnsembleMergingPreferences) -> Void
+    ) {
+        var preferences = mergingPreferences
+        update(&preferences)
+        setMergingPreferences(preferences)
+    }
+
+    /// Applies or clears the temporary scrobbling value supplied by the active system Focus.
+    public func setFocusScrobblingOverride(_ isEnabled: Bool?) {
+        let nextValue = isEnabled.map { $0 ? 1 : 0 } ?? Self.noFocusScrobblingOverride
+        guard focusScrobblingOverrideRawValue != nextValue else { return }
+        focusScrobblingOverrideRawValue = nextValue
     }
     
     public var enabledTabs: [TabItem] {

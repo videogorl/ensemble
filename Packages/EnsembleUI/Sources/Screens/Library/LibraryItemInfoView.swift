@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -7,6 +8,9 @@ public struct LibraryItemInfoView: View {
 
     @StateObject private var viewModel: LibraryItemInfoViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @State private var isLyricsExpanded = false
+    @State private var lyrics: LyricsState = .loading
+    @Environment(\.dependencies) private var deps
     @Environment(\.dismiss) private var dismiss
 
     public init(request: LibraryItemInfoRequest) {
@@ -20,6 +24,7 @@ public struct LibraryItemInfoView: View {
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xl) {
                 header
                 itemSection
+                lyricsSection
                 fileSection
                 sourceSection
             }
@@ -44,6 +49,36 @@ public struct LibraryItemInfoView: View {
         }
     }
 
+    @ViewBuilder
+    private var lyricsSection: some View {
+        if case .track(let track) = viewModel.request {
+            DisclosureGroup("Lyrics", isExpanded: $isLyricsExpanded) {
+                if isLyricsExpanded {
+                    Group {
+                        switch lyrics {
+                        case .loading:
+                            ProgressView("Loading lyrics…")
+                        case .notAvailable:
+                            Text("Lyrics aren’t available for this track.")
+                                .foregroundColor(.secondary)
+                        case .available(let parsed):
+                            Text(parsed.lines.map(\.text).joined(separator: "\n"))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .padding(.top, EnsembleDesign.Spacing.sm)
+                    .task {
+                        let result = await deps.lyricsService.lyrics(for: track)
+                        guard !Task.isCancelled else { return }
+                        lyrics = result
+                    }
+                }
+            }
+            .accessibilityIdentifier("info.lyrics")
+        }
+    }
+
     private var header: some View {
         HStack(alignment: .center, spacing: EnsembleDesign.Spacing.md) {
             ArtworkView(
@@ -52,8 +87,8 @@ public struct LibraryItemInfoView: View {
                 ratingKey: viewModel.resolvedArtworkRatingKey,
                 fallbackPath: viewModel.request.artworkFallbackPath,
                 fallbackRatingKey: viewModel.request.artworkFallbackRatingKey,
-                cacheHint: artworkCacheHint,
-                fallbackCacheHint: fallbackArtworkCacheHint,
+                identity: artworkIdentity,
+                fallbackIdentity: fallbackArtworkIdentity,
                 size: .card,
                 isResponsive: true
             )
@@ -72,17 +107,17 @@ public struct LibraryItemInfoView: View {
         }
     }
 
-    private var artworkCacheHint: PersistentArtworkCacheHint? {
+    private var artworkIdentity: ArtworkRequest.Identity? {
         switch viewModel.request {
         case .album(let album):
-            return PersistentArtworkCacheHint(
+            return ArtworkRequest.Identity(
                 ratingKey: viewModel.resolvedArtworkRatingKey,
                 kind: .album,
                 sourcePath: viewModel.resolvedArtworkPath,
                 dateModified: album.dateModified
             )
-        case .playlist(let playlist):
-            return PersistentArtworkCacheHint(
+        case .playlist(let playlist, _):
+            return ArtworkRequest.Identity(
                 ratingKey: viewModel.resolvedArtworkRatingKey,
                 kind: .playlist,
                 sourcePath: viewModel.resolvedArtworkPath,
@@ -93,9 +128,9 @@ public struct LibraryItemInfoView: View {
         }
     }
 
-    private var fallbackArtworkCacheHint: PersistentArtworkCacheHint? {
+    private var fallbackArtworkIdentity: ArtworkRequest.Identity? {
         guard case .track(let track) = viewModel.request else { return nil }
-        return PersistentArtworkCacheHint(
+        return ArtworkRequest.Identity(
             ratingKey: track.fallbackRatingKey,
             kind: .album,
             sourcePath: track.fallbackThumbPath
@@ -126,10 +161,10 @@ public struct LibraryItemInfoView: View {
                 optionalRow(label: "Duration", value: formatDuration(viewModel.aggregateDuration))
                 optionalRow(label: "Added", value: formatDate(album.dateAdded))
 
-            case .playlist(let playlist):
+            case .playlist(let playlist, _):
                 infoRow(label: "Title", value: playlist.title)
                 infoRow(label: "Type", value: playlist.isSmart ? "Smart Playlist" : "Playlist")
-                infoRow(label: "Tracks", value: String(playlist.trackCount))
+                infoRow(label: "Tracks", value: String(playlistTrackCount(for: playlist)))
                 optionalRow(label: "Duration", value: formatDuration(viewModel.aggregateDuration ?? playlist.duration))
                 optionalRow(label: "Added", value: formatDate(playlist.dateAdded))
             }
@@ -143,13 +178,13 @@ public struct LibraryItemInfoView: View {
             if let info = viewModel.originalFileInfo {
                 infoSection(title: "File") {
                     if let codec = info.codec {
-                        infoRow(label: "Format", value: formatCodecName(codec))
+                        infoRow(label: "Format", value: MediaFormatters.codecName(codec))
                     }
                     if let bitrate = info.bitrate {
                         infoRow(label: "Bitrate", value: "\(bitrate) kbps")
                     }
                     if let sampleRate = info.sampleRate {
-                        infoRow(label: "Sample Rate", value: formatSampleRate(sampleRate))
+                        infoRow(label: "Sample Rate", value: MediaFormatters.sampleRate(sampleRate))
                     }
                     if let bitDepth = info.bitDepth {
                         infoRow(label: "Bit Depth", value: "\(bitDepth)-bit")
@@ -195,14 +230,21 @@ public struct LibraryItemInfoView: View {
             return "Track"
         case .album:
             return "Album"
-        case .playlist(let playlist):
+        case .playlist(let playlist, _):
             return playlist.isSmart ? "Smart Playlist" : "Playlist"
         }
     }
 
     private func albumTrackCount(for album: Album) -> Int {
-        LibraryItemInfoViewModel.resolvedAlbumTrackCount(
-            albumTrackCount: album.trackCount,
+        LibraryItemInfoViewModel.resolvedTrackCount(
+            metadataTrackCount: album.trackCount,
+            fetchedTrackCount: viewModel.aggregateTrackCount
+        )
+    }
+
+    private func playlistTrackCount(for playlist: Playlist) -> Int {
+        LibraryItemInfoViewModel.resolvedTrackCount(
+            metadataTrackCount: playlist.trackCount,
             fetchedTrackCount: viewModel.aggregateTrackCount
         )
     }
@@ -258,35 +300,12 @@ public struct LibraryItemInfoView: View {
 
     private func formatDate(_ date: Date?) -> String? {
         guard let date else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
+        return MediaFormatters.mediumDate(date)
     }
 
     private func formatDuration(_ duration: TimeInterval?) -> String? {
         guard let duration, duration > 0 else { return nil }
         return MediaFormatters.collectionDuration(duration)
-    }
-
-    private func formatSampleRate(_ rate: Int) -> String {
-        if rate % 1000 == 0 {
-            return "\(rate / 1000) kHz"
-        }
-        return String(format: "%.1f kHz", Double(rate) / 1000.0)
-    }
-
-    private func formatCodecName(_ codec: String) -> String {
-        switch codec.lowercased() {
-        case "flac": return "FLAC"
-        case "mp3": return "MP3"
-        case "aac": return "AAC"
-        case "alac": return "ALAC"
-        case "wav", "pcm": return "WAV"
-        case "opus": return "Opus"
-        case "vorbis": return "Vorbis"
-        default: return codec.uppercased()
-        }
     }
 
     private func displayServerName(_ serverName: String?) -> String? {

@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import SwiftUI
 #if os(iOS)
 import UIKit
@@ -27,7 +28,6 @@ public enum EnsembleScaffold {
         public static let albumGridRowSpacing = rowSpacing
         public static let albumShelfSpacing = rowSpacing
         public static let hubArtworkDimension: CGFloat = 140
-        public static let hubShadowY = EnsembleDesign.Effect.shadowY
         public static let horizontalScrollMetadataHeight: CGFloat = 78
         public static let metadataTextHeight: CGFloat = 66
         public static let compactColumnMinimum: CGFloat = 100
@@ -71,13 +71,10 @@ public enum EnsembleScaffold {
     public enum Marquee {
         public static let duplicateTextSpacing: CGFloat = 50
         public static let fadeWidth = EnsembleDesign.Spacing.xxl
-        public static let fallbackLineHeight = EnsembleDesign.Spacing.xxl
-        public static let preferredLineHeightMultiplier: CGFloat = 1.5
         public static let measurementOpacity = EnsembleDesign.Spacing.none
     }
 
     public enum Waveform {
-        public static let emptyBarCount = 40
         public static let emptyBarHeightRatio = 0.2
         public static let barSpacing: CGFloat = 1
         public static let barCornerRadius: CGFloat = 1
@@ -135,7 +132,6 @@ public enum EnsembleScaffold {
     public enum Favorites {
         public static let heroIconSize = EnsembleScaffold.VirtualDetailHeader.heroIconSize
         public static let heroArtworkDimension = EnsembleScaffold.VirtualDetailHeader.heroArtworkDimension
-        public static let heroTopPadding = EnsembleDesign.Spacing.xl
         public static let headerBottomPadding = EnsembleDesign.Spacing.xl
         public static let metadataSpacing = EnsembleDesign.Spacing.xs
     }
@@ -164,8 +160,6 @@ public enum EnsembleScaffold {
         public static let recentSearchRowHeight = EnsembleScaffold.UtilityRow.artworkDimension
         public static let recentSearchExtraHeight = EnsembleDesign.Spacing.lg
         public static let recentSearchCornerRadius = EnsembleDesign.Radius.control
-        public static let editControlTrailingPadding = EnsembleDesign.Spacing.xs
-        public static let editingBadgeOffset = EnsembleDesign.Spacing.sm
     }
 
     public enum ArtistDetail {
@@ -182,17 +176,14 @@ public enum EnsembleScaffold {
         public static let descriptionSpacing = EnsembleDesign.Spacing.sm
         public static let aboutSpacing = EnsembleDesign.Spacing.lg
         public static let factLabelWidth: CGFloat = 50
-        public static let actionIconDimension = EnsembleScaffold.UtilityRow.iconLaneWidth
-        public static let wideArtworkShadowColor = EnsembleDesign.Effect.shadowColor
-        public static let wideArtworkShadowRadius = EnsembleDesign.Effect.shadowRadius
-        public static let wideArtworkShadowY = EnsembleDesign.Effect.shadowY
-        public static let placeholderArtworkColor = Color.gray.opacity(0.2)
         public static let darkLegibilityOverlayOpacity = EnsembleScaffold.DetailSurface.darkLegibilityOverlayOpacity
         public static let lightLegibilityOverlayOpacity = EnsembleScaffold.DetailSurface.lightLegibilityOverlayOpacity
     }
 
     public enum RootWindow {
         public static let macMinimumWidth: CGFloat = 720
+        // Leave room for detail even when both native leading columns are widened.
+        public static let nativeBrowseMacMinimumWidth: CGFloat = 1100
         public static let macMinimumHeight: CGFloat = 560
     }
 
@@ -369,7 +360,6 @@ public enum EnsembleScaffold {
         public static let iconActionDimension = EnsembleScaffold.UtilityRow.iconLaneWidth
         public static let darkLegibilityOverlayOpacity = 0.45
         public static let lightLegibilityOverlayOpacity = 0.7
-        public static let backgroundFadeDuration = 0.55
 
         public enum ArtworkShadow {
             public static let color = EnsembleDesign.Effect.shadowColor
@@ -395,9 +385,6 @@ public enum EnsembleScaffold {
         public static let backgroundHeight: CGFloat = 400
         public static let progressMaxWidth: CGFloat = 280
         public static let backgroundAccentOpacity = 0.3
-        public static let headerIconShadowColor = EnsembleDesign.Effect.shadowColor
-        public static let headerIconShadowRadius = EnsembleDesign.Effect.shadowRadius
-        public static let headerIconShadowY = EnsembleDesign.Effect.shadowY
     }
 
     public enum NowPlaying {
@@ -412,7 +399,6 @@ public enum EnsembleScaffold {
         public static let sectionTopPadding = EnsembleDesign.Spacing.lg
         public static let compactSectionTopPadding = EnsembleDesign.Spacing.sm
         public static let spaciousHeightThreshold: CGFloat = 700
-        public static let artworkMaxHeightRatio: CGFloat = 0.4
         public static let artworkMaxDimension: CGFloat = 400
         public static let secondaryControlsSpacing: CGFloat = 30
         public static let transportControlsSpacing: CGFloat = 40
@@ -458,7 +444,7 @@ public enum EnsembleScaffold {
         public static let controlsPrimaryRowMinHeight = playPauseGlassControlSize
         public static let controlsSecondaryRowMinHeight: CGFloat = 36
         public static let loadingIndicatorDelayNanoseconds: UInt64 = 300_000_000
-        public static let auroraActiveContentMaxWidth: CGFloat = 670
+        public static let auroraActiveContentMaxWidth: CGFloat = 900
         public static let viewportContentMaxWidth: CGFloat = 1024
         public static let viewportHeaderMaxWidth: CGFloat = 1120
         public static let viewportContentMaxHeight: CGFloat = 768
@@ -500,17 +486,6 @@ public enum EnsembleScaffold {
             public static let infoBottomOpaqueLocation = 0.85
         }
 
-        public enum Shadow {
-            public static let controlColor = EnsembleDesign.Effect.shadowColor
-            public static let controlRadius = EnsembleDesign.Effect.shadowRadius
-            public static let controlX = EnsembleDesign.Effect.shadowX
-            public static let controlY = EnsembleDesign.Effect.shadowY
-            public static let artworkColor = EnsembleDesign.Effect.shadowColor
-            public static let emptyArtworkColor = EnsembleDesign.Effect.shadowColor
-            public static let artworkRadius = EnsembleDesign.Effect.shadowRadius
-            public static let artworkY = EnsembleDesign.Effect.shadowY
-        }
-
         public enum PageIndicator {
             public static let itemSize: CGFloat = 20
             public static let activeDotSize = EnsembleDesign.Spacing.sm
@@ -525,21 +500,12 @@ public enum EnsembleScaffold {
         public static let horizontalPadding = EnsembleDesign.Spacing.xs
         public static let letterHeight: CGFloat = 13
         public static let letterSpacing = EnsembleDesign.Spacing.none
-        public static let letterWidth = EnsembleDesign.Spacing.xl
         public static let letterFont: Font = .system(size: 10, weight: .bold)
         public static let hitTargetWidth: CGFloat = 14
         public static let bottomLift: CGFloat = 8
         public static let compactTrailingPadding: CGFloat = 1
         public static let regularTrailingPadding: CGFloat = 1
         public static let regularBottomPadding = EnsembleDesign.Spacing.lg
-    }
-
-    public enum TrackSwipe {
-        public static let actionWidth: CGFloat = 72
-        public static let actionCornerRadius = EnsembleDesign.Radius.card
-        public static let actionLabelSpacing: CGFloat = 5
-        public static let actionIconFont: Font = .system(size: 16, weight: .semibold)
-        public static let actionTextFont = EnsembleDesign.Typography.cardMetadata
     }
 
     public enum MiniPlayer {
@@ -549,7 +515,6 @@ public enum EnsembleScaffold {
         public static let popoverCornerRadius = EnsembleDesign.Radius.miniPlayer
         public static let floatingHorizontalPadding = EnsembleDesign.Spacing.xl
         public static let inlineHorizontalPadding = EnsembleDesign.Spacing.md
-        public static let floatingBottomPadding = EnsembleDesign.Spacing.chipVertical
         public static let inlineBottomPadding = EnsembleDesign.Spacing.xs
         public static let verticalSwipeRubberBandFactor: CGFloat = 0.5
         public static let verticalOpenThreshold: CGFloat = 50
@@ -573,21 +538,10 @@ public enum EnsembleScaffold {
         public static let popoverWidth: CGFloat = 240
         public static let popoverDividerVerticalPadding = EnsembleDesign.Spacing.chipVertical
         public static let macMenuYOffset = EnsembleDesign.Spacing.xs
-        public static let backgroundBlurRadius: CGFloat = 50
-        public static let backgroundContrast: CGFloat = 2.0
-        public static let backgroundSaturation: CGFloat = 1.9
-        public static let backgroundDarkBrightness: CGFloat = -0.1
-        public static let backgroundLightBrightness: CGFloat = 0.05
         public static let backgroundOpacity = 0.3
-        public static let backgroundTopDimming = 0.2
-        public static let backgroundBottomDimming = 0.15
-        public static let backgroundAnimationDuration = 0.8
         public static let sheenDarkTopOpacity = 0.03
         public static let sheenDarkBottomOpacity = 0.02
         public static let sheenLightOpacity = 0.01
-        public static let edgeGlowDarkOpacity = 0.15
-        public static let edgeGlowLightOpacity = 0.05
-        public static let edgeGlowInset: CGFloat = 1
     }
 
     public enum AuxiliaryWindow {
@@ -642,10 +596,21 @@ public struct EnsembleBrowseToolbar<Content: View>: ToolbarContent {
 
     public var body: some ToolbarContent {
         #if os(iOS)
-        ToolbarItem(placement: .navigationBarTrailing) {
-            if isVisible {
-                HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
-                    content()
+        if #available(iOS 27.0, *) {
+            ToolbarItem(placement: .topBarPinnedTrailing) {
+                if isVisible {
+                    HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                        content()
+                    }
+                }
+            }
+            .visibilityPriority(.high)
+        } else {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if isVisible {
+                    HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                        content()
+                    }
                 }
             }
         }
@@ -672,9 +637,18 @@ public struct EnsembleDetailToolbarActions<Content: View>: ToolbarContent {
 
     public var body: some ToolbarContent {
         #if os(iOS)
-        ToolbarItem(placement: .navigationBarTrailing) {
-            HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
-                content()
+        if #available(iOS 27.0, *) {
+            ToolbarItem(placement: .topBarPinnedTrailing) {
+                HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                    content()
+                }
+            }
+            .visibilityPriority(.high)
+        } else {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
+                    content()
+                }
             }
         }
         #else
@@ -684,6 +658,21 @@ public struct EnsembleDetailToolbarActions<Content: View>: ToolbarContent {
                 content()
             }
         }
+        #endif
+    }
+}
+
+public extension View {
+    @ViewBuilder
+    func ensembleBrowseToolbarMinimization() -> some View {
+        #if os(iOS)
+        if #available(iOS 27.0, *) {
+            toolbarMinimizationBehavior(.never, for: .navigationBar)
+        } else {
+            self
+        }
+        #else
+        self
         #endif
     }
 }
@@ -783,6 +772,36 @@ public struct EnsembleBrowseSectionHeader: View {
             .padding(.horizontal, EnsembleScaffold.BrowseSectionHeader.horizontalPadding)
             .padding(.vertical, EnsembleScaffold.BrowseSectionHeader.verticalPadding)
             .background(backgroundColor?.opacity(EnsembleScaffold.BrowseSectionHeader.backgroundOpacity))
+    }
+}
+
+/// Bottom-of-scroll count footer for library browse surfaces.
+public struct LibraryBrowseCountFooter: View {
+    private let count: Int
+    private let singular: String
+    private let plural: String
+    private let bottomClearance: CGFloat
+
+    public init(count: Int, singular: String, plural: String, bottomClearance: CGFloat = EnsembleDesign.Spacing.none) {
+        self.count = count
+        self.singular = singular
+        self.plural = plural
+        self.bottomClearance = bottomClearance
+    }
+
+    public var body: some View {
+        Text(label)
+            .font(EnsembleDesign.Typography.rowSecondary)
+            .foregroundColor(EnsembleDesign.Color.secondaryText)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, EnsembleDesign.Spacing.lg)
+            .padding(.top, EnsembleDesign.Spacing.lg)
+            .padding(.bottom, EnsembleDesign.Spacing.xxl + bottomClearance)
+            .accessibilityLabel(label)
+    }
+
+    private var label: String {
+        "\(count.formatted(.number)) \(count == 1 ? singular : plural)"
     }
 }
 
@@ -1140,8 +1159,9 @@ public struct EnsembleStateActionLabel: View {
 /// Shared empty-state decision tree for library browse screens that depend on
 /// configured music sources, enabled libraries, and sync/cloud-restore state.
 public struct EnsembleLibraryEmptyStateScaffold: View {
-    public enum Recovery {
+    public enum Recovery: Equatable {
         case restoringCloudSources
+        case credentialsUnavailable
         case noSources
         case syncing
         case noEnabledLibraries
@@ -1151,6 +1171,8 @@ public struct EnsembleLibraryEmptyStateScaffold: View {
             switch self {
             case .restoringCloudSources:
                 return "Restoring libraries from iCloud…"
+            case .credentialsUnavailable:
+                return "Ensemble couldn’t access your saved Plex credentials. Retry or reconnect a source."
             case .noSources:
                 return "No music sources connected"
             case .syncing:
@@ -1163,9 +1185,30 @@ public struct EnsembleLibraryEmptyStateScaffold: View {
         }
     }
 
+    public static func recovery(
+        isRestoringCloudSources: Bool,
+        hasAnySources: Bool,
+        isSyncing: Bool,
+        hasEnabledLibraries: Bool,
+        emptyMessage: String
+    ) -> Recovery {
+        if isRestoringCloudSources {
+            return .restoringCloudSources
+        } else if !hasAnySources {
+            return .noSources
+        } else if isSyncing {
+            return .syncing
+        } else if !hasEnabledLibraries {
+            return .noEnabledLibraries
+        } else {
+            return .empty(message: emptyMessage)
+        }
+    }
+
     private let title: String
     private let iconSystemName: String
     private let recovery: Recovery
+    private let retryCredentials: (() -> Void)?
     private let addSource: () -> Void
     private let manageSources: () -> Void
 
@@ -1173,12 +1216,14 @@ public struct EnsembleLibraryEmptyStateScaffold: View {
         title: String,
         iconSystemName: String,
         recovery: Recovery,
+        retryCredentials: (() -> Void)? = nil,
         addSource: @escaping () -> Void,
         manageSources: @escaping () -> Void
     ) {
         self.title = title
         self.iconSystemName = iconSystemName
         self.recovery = recovery
+        self.retryCredentials = retryCredentials
         self.addSource = addSource
         self.manageSources = manageSources
     }
@@ -1204,6 +1249,19 @@ public struct EnsembleLibraryEmptyStateScaffold: View {
                     .font(EnsembleDesign.Typography.cardSubtitle)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .multilineTextAlignment(.center)
+            }
+        case .credentialsUnavailable:
+            VStack(spacing: EnsembleDesign.Spacing.sm) {
+                if let retryCredentials {
+                    Button(action: retryCredentials) {
+                        actionLabel("Retry", systemImage: EnsembleDesign.Icon.retry)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Button(action: addSource) {
+                    actionLabel("Add Source", systemImage: EnsembleDesign.Icon.addCircle)
+                }
+                .buttonStyle(.plain)
             }
         case .noSources:
             Button(action: addSource) {

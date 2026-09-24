@@ -1,34 +1,72 @@
 # Mutations Policy
 
-Load this reference for playlist changes, ratings/favorites, metadata edits/deletes, pins, downloads, drag/drop, scrobbles, offline queued mutations, toast policy, or cross-screen mutation feedback.
+- Shared workflows own mutation validation, remote/queued semantics, optimistic
+  persistence, reconciliation, and feedback. Views/ViewModels own presentation,
+  confirmation, navigation, and local display state only.
+- Mutation capability and disabled reasons come from provider/source/item
+  contracts. Missing or malformed ownership fails closed and never inherits
+  Plex or the only configured provider's permissions.
+- Offline-capable work enters one durable mutation queue only when the resolved
+  provider explicitly supports it. Queue records retain the exact owner and all
+  referenced source scopes; removing a referenced source prevents replay.
+- Plex playlist/rating/scrobble operations may opt into offline replay. Apple
+  Music playlist/favorite/library operations remain online-only unless a proven
+  provider capability changes that contract.
+- Playlist mutations are source-aware. Reject incompatible sources, read-only or
+  smart targets, unresolved tracks, and duplicates according to the shared
+  resolver. Never rebuild a partially available playlist solely from locally
+  synced tracks.
+- Same-named regular playlists may merge for display across providers; smart or
+  editorial kinds stay separate. Rename and hide may target one or all eligible
+  constituents; other mutations select one exact-source constituent. Merged playlist
+  playback and queueing include all constituent tracks, respecting active filters
+  in detail views. Adding media to a playlist selects the
+  media source first; missing source copies require confirmation before creation.
+  The recent-playlist shortcut uses the preferred source's most recently created
+  or added-to playlist.
+- Merging is presentation-only: exact source records remain stored and reappear
+  when disabled. Preferred source order may choose among proven copies but never
+  reroutes an explicit mutation, rating, download, or playback owner.
+- Album families require the same normalized title, album artist, and release
+  year. Edition markers remain part of the title; missing years stay separate.
+  A merged album shows every constituent track, then collapses matching rows only
+  when Songs merging is enabled. Album playback and queueing use that flattened
+  list across every surface, retaining unique tracks from secondary sources;
+  preferred-source selection only resolves matching copies. Selecting a song
+  retains its exact playback source within that queue.
+- Artist matching normalizes case, whitespace, diacritics, width, and typographic
+  quotes consistently across Library, Feed, and Watch.
+- A merged artist, album, or playlist is pinned only when every constituent is
+  pinned. Pin and unpin update every exact-source constituent as one reversible
+  batch while persistence remains source-scoped.
+- Playlist membership identity/order and enough display metadata remain durable
+  independently of the current library cache, so disabled or unavailable library
+  tracks remain visible and removable even when they cannot play/download.
+- Accepted mutations update exact local state immediately when safe. Older sync
+  snapshots cannot overwrite that optimistic state; background reconciliation
+  targets only the affected owner and converges to provider authority.
+- A Plex playlist delete returning 404 converges the exact local/queued playlist
+  as absent or inaccessible while preserving unrelated/shared artwork and other
+  HTTP failures for retry. Diagnostics must not claim server deletion when loss
+  of access is also possible.
+- Ratings/favorites and scrobbles remain source-exact. Apple favorites use the
+  provider's binary truth; unsupported removal/dislike operations stay visibly
+  unavailable rather than simulated.
+- Artwork double-tap is an idempotent favorite shortcut: it may add or replay
+  feedback, but removal remains an explicit menu action.
+- Pins and source-visibility preferences are local reversible mutations.
+  Focus-based overrides are temporary and restore the saved preference when
+  Focus ends; they do not discard already queued mutations.
+- Hidden selections are exact source-scoped roots. Artists derive their albums
+  and tracks, albums derive their tracks, and playlists derive nothing. They
+  affect newly generated queues but never rewrite the active playback queue.
+- Hidden records use last-writer-wins tombstones and may sync independently of
+  source credentials through private CloudKit. Unavailable exact identities stay
+  dormant; only explicit unhide or a complete authoritative inventory removes one.
+- Destructive mutation feedback is explicit and centralized. A failed or partial
+  destructive operation never dismisses as full success or silently deletes
+  additional local data.
 
-## Policies
-
-- Shared workflows own cross-screen business rules. Views and view models keep presentation, navigation, local optimistic state, and confirmation UI.
-- Offline-capable mutations should queue through the unified mutation path when the server is unavailable and replay when connectivity returns.
-- Mutation feedback should be centralized in the workflow that owns the mutation, not duplicated per screen.
-- Pin mutations are local reversible preferences and should stay intentionally quiet unless the user action needs explicit feedback.
-- Playlist mutation policy must be source-aware. Reject incompatible sources, smart/merged targets where unsupported, and duplicate tracks according to the shared resolver rules.
-- Metadata edit/delete flows use shared request construction and success/failure feedback while parent views own editor presentation and post-delete navigation.
-- Rating/favorite changes may update UI optimistically, but server success/failure and queued-state feedback stay in the shared workflow.
-- Scrobbles and playback tracking must remain source-exact and should not cross Plex source boundaries.
-
-## Owners
-
-- `MutationCoordinator` owns online/offline mutation queuing for ratings, playlist changes, and scrobbles.
-- `PlaylistMutationWorkflow`, `TrackRatingMutationWorkflow`, `MetadataMutationWorkflow`, `PinMutationWorkflow`, and `DownloadMutationWorkflow` own their respective business rules and feedback.
-- `PlaylistDropResolver` and `MediaTrackResolver` own drag/drop media expansion, source compatibility, target rejection, and dedupe.
-- `MediaMenuCatalog` owns shared media menu action order, grouping, and destructive/editing gating.
-
-## Implementation Hooks
-
-- Route new row, card, detail, menu, and batch actions through the existing workflow or catalog before adding local mutation logic.
-- Keep add-to-playlist follow-up UI in `PlaylistActionPresentationHost` rather than local sheet payloads.
-- Keep destructive confirmations and post-delete navigation in the parent view, but keep mutation success/failure semantics in the workflow.
-- Use source-scoped media references and identities for all Plex-affecting mutations.
-
-## Verification
-
-- Add focused workflow tests for success, failure, offline queued, and incompatible-source paths when mutation policy changes.
-- Add UI or simulator evidence for new user-visible mutation flows, especially confirmation, toast, optimistic state, and post-delete navigation.
-- Verify duplicate prevention and source compatibility for drag/drop and playlist mutations.
+- Transport, server-overload, rate-limit, and cancellation failures never exhaust
+  a queued mutation's permanent-failure budget. Unacknowledged work stays pending;
+  automatic server-recovery retries use a bounded cadence and preserve source order.

@@ -4,15 +4,15 @@
 
 Ensemble uses smart routing via `PlexAPIClient.resolveStreamURL()`:
 
-1. **Original quality + stream key** → direct file URL (no decision call). Instant playback (<1s).
+1. **Original quality + stream key** → direct file URL (no decision call). Incremental playback through `AudioPlaybackEngine`.
 2. **Non-original quality** → call decision endpoint:
-   - `directplay` or `copy` → direct file URL (<1s startup)
-   - `transcode` → **progressive stream** via `ProgressiveStreamLoader` (~1-2s startup)
-3. **No stream key** → progressive transcode stream (decision call + start.mp3).
+   - `directplay` or `copy` → direct file URL, decoded incrementally
+   - `transcode` → universal `start.mp3`, decoded incrementally while writing cache
+3. **No stream key** → universal transcode stream (decision call + start.mp3), decoded incrementally while writing cache.
 
-Direct file stream (`/library/parts/...`) returns proper HTTP headers (`Accept-Ranges: bytes`, `Content-Length`, `206 Partial Content`) that AVPlayer handles natively.
+Direct file stream (`/library/parts/...`) returns proper HTTP headers (`Accept-Ranges: bytes`, `Content-Length`, `206 Partial Content`) and is suitable for incremental native decoding.
 
-Progressive transcode uses `AVAssetResourceLoaderDelegate` with custom `ensemble-transcode://` URL scheme to bridge PMS's chunked `Transfer-Encoding` response to AVPlayer. Data is written to a growing temp file and served to AVPlayer as it arrives. Post-download: XING header injection + frequency analysis via `onDownloadComplete` callback.
+Current playback uses `PlaybackSource` → `StreamingAudioPipeline` → `StreamingAudioDecoder` → `StreamingPCMBuffer` → `AudioPlaybackEngine`. Network bytes are written through to cache while decoded PCM feeds an `AVAudioSourceNode`; complete cache files remain useful for analysis, replay, and local scheduling.
 
 The previous direct-stream-failure set and universal-endpoint-disable switch were removed in May 2026 because they were not connected to any live failure signal. Keep playback recovery scoped to the concrete failing load path instead of adding provider-wide cooldown switches.
 
@@ -20,6 +20,34 @@ The previous direct-stream-failure set and universal-endpoint-disable switch wer
 
 **ALWAYS test with curl before making streaming code changes.** Credentials are in `.env` at project root. If `PLEX_SERVER_URL` is unreachable, use Plex resource discovery with `PLEX_PASS_ACCESS_TOKEN` and the returned per-server token.
 
+
+## Transport Isolation
+
+Successful curl proves endpoint reachability and the observed response; it does
+not prove Ensemble's URLSession path. For a reported streaming failure:
+
+1. Match the exact source/track, requested quality, server endpoint, network and
+   audio route. Establish whether the app used an uncached stream, prefetch,
+   playback cache, or installed download. Choose an uncached item without
+   clearing unrelated user data; a restart may leave prefetch/cache reuse intact.
+2. Compare curl with the app's request/decision and response. For universal
+   transcodes, use decision then start with matching parameters and a unique
+   session per attempt. Record status, received bytes, first-byte time, decoder
+   progress, and first audio separately; keep tokens out of exported evidence.
+3. If curl receives audio but the app receives zero bytes, inspect the active
+   URLSession configuration/delegate/lifecycle path before changing decoding or
+   queue logic. Compare with an existing working loader when applicable. Change
+   one session variable at a time and repeat on the same device and route.
+4. After a transport change, verify the affected uncached path plus relevant
+   background/locked playback using the
+   [lifecycle matrix](../testing/references/downloads-and-lifecycle.md#lifecycle-evidence).
+   URLSession traffic classification is not proof of audio-session/background
+   behavior. Attribute a beta-specific regression only as strongly as the A/B
+   evidence supports; do not make one historical configuration failure a
+   permanent platform ban.
+
+Keep direct file streams and universal transcode available; scope recovery to
+the failing path. Cached playback success does not close an uncached failure.
 
 ## Universal Transcode Endpoint (Primary — use this)
 
@@ -126,9 +154,10 @@ Same as the universal stream URL. The decision call IS required before start.mp3
 without it). Each download uses a unique session ID so concurrent downloads do not conflict.
 
 - Offline downloads: `PlexAPIClient.getUniversalDownloadURL()` — returns URL for URLSession download task (caller must call decision separately)
-- Playback (transcode needed): `PlexAPIClient.downloadUniversalStreamToFile()` — calls decision + downloads to temp file, returns file URL for AVPlayer
+- Playback (transcode needed): `PlexAPIClient.resolveStreamURL()` — calls decision and returns a progressive transcode config for incremental decoding
 - Playback (smart routing): `PlexAPIClient.resolveStreamURL()` — calls decision, returns `.directStream(URL)`, `.downloadedFile(URL)`, or `.progressiveTranscode(ProgressiveStreamConfig)` based on PMS decision
-- Progressive streaming: `ProgressiveStreamLoader` (EnsembleCore) — AVAssetResourceLoaderDelegate that bridges chunked transcode to AVPlayer via `ensemble-transcode://` custom URL scheme
+- Incremental playback streaming: `StreamingAudioPipeline` + `StreamingAudioDecoder` (EnsembleCore) feed decoded PCM into `AudioPlaybackEngine` while writing cache
+- Compatibility/local-file materialization: `ProgressiveStreamLoader` remains available for paths that explicitly need a completed temp file
 
 
 ## Waveform / Loudness Data
@@ -184,25 +213,24 @@ curl -s -X DELETE "${PLEX_SERVER_URL}/transcode/sessions/${SESSION_KEY}?X-Plex-T
 
 **Root cause:** AVPlayer's CoreMedia HTTP stack (CFHTTP) cannot handle PMS's chunked transcode response (`Transfer-Encoding: chunked`, no `Content-Length`, `Connection: close`). This causes CFHTTP error -16845, which surfaces as `NSURLErrorResourceUnavailable` (-1008). After the first failure, the stale transcode session on PMS causes subsequent requests to return HTTP 400.
 
-**Fix:** `PlexAPIClient.downloadUniversalStreamToFile()` downloads the stream via URLSession (which handles chunked encoding correctly) to a temp file, then injects a XING header for VBR duration accuracy. AVPlayer receives a `file://` URL instead of a remote URL, bypassing CFHTTP entirely.
+**Fix:** Current playback avoids feeding remote universal transcode URLs to AVPlayer. `resolveStreamURL()` returns a progressive transcode config, then `PlaybackTransportCoordinator` builds a `PlaybackSource` that streams bytes through `StreamingAudioPipeline` / `StreamingAudioDecoder` into `AudioPlaybackEngine` while writing a cache file for later analysis or replay.
 
 **DO NOT revert to giving AVPlayer remote transcode URLs.** The CFHTTP issue is in Apple's CoreMedia framework and cannot be worked around with AVURLAsset options or headers.
 
-**DO NOT re-add CAF conversion.** A previous approach converted downloaded MP3s to uncompressed CAF (PCM) for zero-gap gapless playback. This created ~60MB files per 5-min track (vs ~6MB for MP3), causing linear memory growth on low-RAM devices and 13-second blocking downloads. XING header injection provides sufficient gapless metadata at negligible cost.
+**DO NOT re-add CAF conversion.** A previous approach converted downloaded MP3s to uncompressed CAF (PCM) for zero-gap gapless playback. This created ~60MB files per 5-min track (vs ~6MB for MP3), causing linear memory growth on low-RAM devices and 13-second blocking downloads.
 
 
-## RESOLVED: VBR MP3 duration overestimate / FigFilePlayer err=-12864
+## VBR MP3 Duration Overestimate / FigFilePlayer err=-12864
 
 **Root cause:** PMS's universal transcode produces VBR MP3 files without XING/LAME headers. AVPlayer can't determine the true duration or frame layout, causing duration overestimation (e.g., 270s vs actual 195s), FigFilePlayer errors at file boundaries, and broken gapless transitions.
 
-**Fix:** `MP3VBRHeaderUtility.injectXingHeaderIfNeeded()` scans the downloaded file's MPEG frames and prepends a XING header frame with accurate frame count, total byte count, and LAME gapless metadata. Called automatically after `downloadUniversalStreamToFile()` for non-original quality.
+**Current mitigation:** Universal transcodes use the incremental decoding path instead of AVPlayer remote playback. Metadata duration is threaded into `ProgressiveStreamConfig`, then into `PlaybackSource` and playback duration handling, so UI and reporting can cap obviously inflated player durations.
 
 **Key facts:**
 - PMS always outputs MP3 regardless of transcode profile or start path (tested AAC-only profile, `start.m4a`, `start` — all return `audio/mpeg`)
-- The XING frame includes a LAME extension with encoder delay (576 samples, standard for ffmpeg/libmp3lame) and padding (calculated from Plex metadata duration), enabling AVPlayer to trim silence at track boundaries for gapless playback
 - Frame count duration matches Plex metadata: 195.81s vs 195.78s (previously AVPlayer reported 270.29s)
 - `effectiveDuration()` caps AVPlayer's duration to metadata when >10% over, as a safety net
-- Metadata duration is threaded from `Track.duration` through `SyncCoordinator` → `PlexMusicSourceSyncProvider` → `PlexAPIClient.downloadUniversalStreamToFile()` → `MP3VBRHeaderUtility`
+- Metadata duration is threaded from `Track.duration` through `SyncCoordinator` → `PlexMusicSourceSyncProvider` → `PlexAPIClient.makeStreamDecision()` → `ProgressiveStreamConfig`
 
 
 ## CRITICAL: PMS start.mp3 is sensitive to query params and URL encoding

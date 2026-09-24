@@ -1,0 +1,159 @@
+diff --git a/Ensemble/App/EnsembleApp.swift b/Ensemble/App/EnsembleApp.swift
+index ea7421f82..7f09c2897 100644
+--- a/Ensemble/App/EnsembleApp.swift
++++ b/Ensemble/App/EnsembleApp.swift
+@@ -35,6 +35,12 @@ struct EnsembleApp: App {
+     @State private var hasScheduledBackgroundRefresh = false
+     #endif
+
++    init() {
++        #if DEBUG
++        NetworkAuditSession.install()
++        #endif
++    }
++
+     var body: some Scene {
+         WindowGroup {
+             RootView()
+@@ -42,6 +48,9 @@ struct EnsembleApp: App {
+                 .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
+                 .onAppear {
+                     startPersistentLogSessionIfNeeded()
++                    #if DEBUG
++                    Task { await NetworkAuditSession.prepare() }
++                    #endif
+                     AppLogger.info("SIRI_APP: RootView.onAppear - app UI is visible")
+                     UserJourneyLogger.log(context: "app", event: "rootVisible")
+                     #if os(iOS)
+@@ -1042,3 +1051,64 @@ private func performBackgroundRefresh() async {
+     AppLogger.debug("✅ Background refresh complete")
+ }
+ #endif
++
++#if DEBUG
++import ObjectiveC
++
++// Temporary experiment instrumentation; removed before handoff.
++private enum NetworkAuditSession {
++    static func install() {
++        guard ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_PROXY_PORT"] != nil,
++              let original = class_getClassMethod(URLSessionConfiguration.self, #selector(getter: URLSessionConfiguration.default)),
++              let replacement = class_getClassMethod(URLSessionConfiguration.self, #selector(URLSessionConfiguration.auditDefault)) else { return }
++        method_exchangeImplementations(original, replacement)
++    }
++
++    @MainActor static var prepared = false
++
++    @MainActor static func prepare() async {
++        guard let mode = ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_MODE"] else { return }
++        guard !prepared else { return }
++        prepared = true
++        try? await Task.sleep(nanoseconds: 15_000_000_000)
++        let deps = DependencyContainer.shared
++        if mode == "quiet" {
++            deps.syncCoordinator.stopPeriodicSync()
++            deps.webSocketCoordinator.stop()
++            await deps.offlineDownloadService.pauseQueue()
++            await deps.offlineDownloadService.suspendSidecarAnalysis()
++            deps.foregroundWorkScheduler.setForegroundActive(false)
++        }
++        AppLogger.info("NETWORK_AUDIT prepared mode=\(mode)")
++        guard let source = ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_SOURCE"],
++              let stored = try? await deps.libraryRepository.fetchTrack(ratingKey: "13827", sourceCompositeKey: source) else { return }
++        let track = Track(from: stored)
++        try? await Task.sleep(nanoseconds: 2_000_000_000)
++        AppLogger.info("NETWORK_AUDIT begin mode=\(mode)")
++        if mode == "normal" {
++            Task { await deps.syncCoordinator.syncAllIncremental() }
++            if let storedAlbum = try? await deps.libraryRepository.fetchAlbum(ratingKey: "12935", sourceCompositeKey: source) {
++                Task { await deps.offlineDownloadService.setAlbumDownloadEnabled(Album(from: storedAlbum), isEnabled: true) }
++            }
++        }
++        await deps.playbackService.play(tracks: [track], startingAt: 0)
++        try? await Task.sleep(nanoseconds: 45_000_000_000)
++        deps.playbackService.pause()
++        await deps.offlineDownloadService.pauseQueue()
++        AppLogger.info("NETWORK_AUDIT end mode=\(mode)")
++    }
++}
++
++extension URLSessionConfiguration {
++    @objc fileprivate class func auditDefault() -> URLSessionConfiguration {
++        let config = auditDefault()
++        if let value = ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_PROXY_PORT"], let port = Int(value) {
++            config.connectionProxyDictionary = [
++                "HTTPEnable": 1, "HTTPProxy": "127.0.0.1", "HTTPPort": port,
++                "HTTPSEnable": 1, "HTTPSProxy": "127.0.0.1", "HTTPSPort": port
++            ]
++        }
++        return config
++    }
++}
++#endif
+diff --git a/Packages/EnsembleCore/Sources/Services/StreamingAudioPipeline.swift b/Packages/EnsembleCore/Sources/Services/StreamingAudioPipeline.swift
+index 2df569311..8db81d013 100644
+--- a/Packages/EnsembleCore/Sources/Services/StreamingAudioPipeline.swift
++++ b/Packages/EnsembleCore/Sources/Services/StreamingAudioPipeline.swift
+@@ -217,9 +217,12 @@ final class StreamingAudioPipeline: NSObject {
+         let decodedFrames = decodedFrameCount
+         let isComplete = completed
+         let responseSummary = self.responseSummary
+-        let metricsSummary = self.metricsSummary
++        var metricsSummary = self.metricsSummary
+         stateLock.unlock()
+
++        #if DEBUG
++        metricsSummary += " " + (pcmBuffer?.auditSummary ?? "")
++        #endif
+         return Diagnostics(
+             taskState: task?.state,
+             secondsSinceLastByte: lastByteUptime.map { max(0, now - $0) },
+@@ -254,6 +257,17 @@ final class StreamingAudioPipeline: NSObject {
+             let task = session.dataTask(with: configuration.request)
+             self.task = task
+             task.resume()
++            #if DEBUG
++            if ProcessInfo.processInfo.environment["ENSEMBLE_AUDIT_MODE"] != nil {
++                Task { [weak self] in
++                    for _ in 0..<120 {
++                        try? await Task.sleep(nanoseconds: 1_000_000_000)
++                        guard let self, self.task?.state != .canceling else { break }
++                        EnsembleLogger.info("NETWORK_AUDIT pipeline \(self.diagnostics().summary)")
++                    }
++                }
++            }
++            #endif
+             let startupTimeoutWorkItem = DispatchWorkItem { [weak self] in
+                 self?.failStartupIfNeeded()
+             }
+diff --git a/Packages/EnsembleCore/Sources/Services/StreamingPCMBuffer.swift b/Packages/EnsembleCore/Sources/Services/StreamingPCMBuffer.swift
+index 4f1d02273..6f2aa1ba7 100644
+--- a/Packages/EnsembleCore/Sources/Services/StreamingPCMBuffer.swift
++++ b/Packages/EnsembleCore/Sources/Services/StreamingPCMBuffer.swift
+@@ -9,6 +9,15 @@ final class StreamingPCMBuffer {
+     let format: AVAudioFormat
+     let capacityFrames: Int
+
++    #if DEBUG
++    private var auditRequestedFrames = 0
++    private var auditMissingFrames = 0
++    var auditSummary: String {
++        condition.lock()
++        defer { condition.unlock() }
++        return "renderRequestedFrames=\(auditRequestedFrames) renderMissingFrames=\(auditMissingFrames) sampleRate=\(format.sampleRate)"
++    }
++    #endif
+     private let condition = NSCondition()
+     private var channels: [[Float]]
+     private var readIndex = 0
+@@ -139,6 +148,10 @@ final class StreamingPCMBuffer {
+
+         let requestedFrames = Int(frameCount)
+         let framesToRead = min(requestedFrames, storedFrames)
++        #if DEBUG
++        auditRequestedFrames += requestedFrames
++        auditMissingFrames += requestedFrames - framesToRead
++        #endif
+         let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+
+         for channelIndex in 0 ..< min(buffers.count, channels.count) {

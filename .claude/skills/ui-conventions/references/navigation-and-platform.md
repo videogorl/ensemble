@@ -1,0 +1,41 @@
+# Navigation And Platform UI
+
+- `RootView` owns the scene `NavigationCoordinator`; root tab/sidebar shells
+  inject it. Use typed destinations and existing path helpers. Do not reach into
+  `DependencyContainer.shared.navigationCoordinator` for user-driven routing.
+- Route media links, cards, relationship links, menus, and deep links through
+  `NavigationCoordinator`. When a concrete model is available, push the concrete
+  detail rather than an ID loader. A sheet-to-route handoff uses pending
+  navigation owned by the root, not an animation delay.
+- iOS 16+ uses `NavigationStack`; iOS 15 keeps the existing mounted
+  `NestedNavigationLink` bridge. Add availability branches only at the shared
+  owner, not at every caller.
+- Expanded iOS 27 iPhone windows reuse the iPad sidebar and native browse split;
+  compact phones retain tabs and push navigation. Keep split selections and
+  navigation state above the adaptive containers. Convert sidebar-only roots to
+  compact routes when narrowing and restore them when expanding; respect Back
+  navigation performed while compact. Mirrored phones can retain a compact width
+  class at large window widths, so the expanded split receives a regular width
+  class based on measured available space. iPadOS/macOS retain their native shell.
+- Keep root profile/search/tab/mini-player/Now Playing chrome at the root owner.
+  Leaf views must not compensate for root safe areas, hide global chrome, or
+  mutate UIKit/AppKit appearance to repair a local transition.
+- Keep persistent navigation and scroll roots structurally stable across runtime
+  environment changes; pass changing values into modifiers instead of choosing
+  conditional modifier branches.
+- StageFlow is iPhone-only and requires compact height plus landscape geometry.
+  `MainTabView` owns activation, orientation support, and root chrome suppression. Browse screens only consume
+  `isStageFlowActive`; do not add local rotation detection or delay timers.
+- Use `TrackListLayoutMetrics`, `LargeScreenBrowseSplitView`,
+  `EnsembleBrowseToolbar`, and native track-list hosts rather than duplicating
+  spacing, pane math, row gestures, or table columns.
+- Keep intentional native bridges for native tables, AirPlay, Metal aurora,
+  global toast hosting, share/menu hosting, and iOS 15 tab/mini-player behavior.
+  New representables must own real platform functionality, not timing/layout
+  workarounds.
+- Native table callers pass value requests with coordinator-owned handled IDs.
+  Avoid mutating SwiftUI bindings from representable update callbacks.
+- Root and persistent views subscribe to focused state projections. Do not
+  observe a broad manager for one label, badge, or row highlight.
+- Refresh commands and pull-to-refresh attach to the actual native scroll owner,
+  including empty/error states that advertise refresh.

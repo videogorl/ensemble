@@ -1,0 +1,56 @@
+session-2026-09-08-112100.log
+[11:21:00.165] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:21:00.425] [DEBUG] [app] 📱 Scene phase changed to active
+[11:21:29.293] [DEBUG] [api] Native download completed bytes=7281329 resumedFrom=0 status=200
+[11:21:29.611] [DEBUG] [core] Offline download installed track=22090 quality=high bytes=7281329 playbackCache=false
+[11:21:29.630] [DEBUG] [api] Native download completed bytes=10391036 resumedFrom=0 status=200
+[11:21:30.024] [DEBUG] [core] Offline download installed track=24391 quality=high bytes=10391036 playbackCache=false
+[11:21:30.513] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:21:30.686] [DEBUG] [app] 📱 Scene phase changed to active
+[11:21:30.921] [DEBUG] [app] 📱 Scene phase changed to background
+session-2026-09-08-112334.log
+[11:23:34.040] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:23:34.378] [DEBUG] [app] 📱 Scene phase changed to active
+[11:24:28.482] [DEBUG] [api] Native download completed bytes=27213077 resumedFrom=0 status=200
+[11:24:28.774] [DEBUG] [core] Offline download installed track=22090 quality=original bytes=27213077 playbackCache=false
+[11:24:31.956] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:24:32.013] [DEBUG] [app] 📱 Scene phase changed to active
+[11:24:32.441] [DEBUG] [app] 📱 Scene phase changed to background
+[11:24:32.799] [DEBUG] [api] Native download completed bytes=38495372 resumedFrom=0 status=200
+[11:25:04.565] [DEBUG] [core] Damaged download rejected track=24391 decodedFrames=13107200 advertisedFrames=14862876
+session-2026-09-08-113630.log
+[11:36:30.482] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:36:30.916] [DEBUG] [app] 📱 Scene phase changed to active
+[11:36:30.992] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:36:31.770] [DEBUG] [app] 📱 Scene phase changed to active
+[11:37:14.198] [DEBUG] [api] Native download completed bytes=27213077 resumedFrom=0 status=200
+[11:37:19.435] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:37:19.511] [DEBUG] [app] 📱 Scene phase changed to active
+[11:37:20.043] [DEBUG] [app] 📱 Scene phase changed to background
+[11:37:20.352] [DEBUG] [api] Native download completed bytes=38495372 resumedFrom=0 status=200
+[11:37:31.881] [DEBUG] [core] Offline download installed track=22090 quality=original bytes=27213077 playbackCache=false
+[11:37:42.194] [DEBUG] [core] Offline download installed track=24391 quality=original bytes=38495372 playbackCache=false
+
+session-2026-09-08-114123.log
+[11:41:23.246] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:41:23.532] [DEBUG] [app] 📱 Scene phase changed to active
+[11:41:48.164] [DEBUG] [api] Native download completed bytes=38495372 resumedFrom=0 status=200
+[11:41:51.305] [DEBUG] [api] Native download completed bytes=27213077 resumedFrom=0 status=200
+[11:41:52.503] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:41:52.579] [DEBUG] [app] 📱 Scene phase changed to active
+[11:41:52.927] [DEBUG] [app] 📱 Scene phase changed to background
+
+session-2026-09-08-114553.log
+[11:45:53.373] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:45:53.844] [DEBUG] [app] 📱 Scene phase changed to active
+[11:45:53.997] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:45:54.726] [DEBUG] [app] 📱 Scene phase changed to active
+[11:45:54.929] [DEBUG] [core] Offline download installed track=22090 quality=original bytes=27213077 playbackCache=false
+[11:45:55.009] [DEBUG] [core] Offline download installed track=24391 quality=original bytes=38495372 playbackCache=false
+
+session-2026-09-08-114649.log
+[11:46:49.913] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:46:50.174] [DEBUG] [app] 📱 Scene phase changed to active
+[11:47:45.458] [DEBUG] [app] 📱 Scene phase changed to inactive
+[11:47:45.498] [DEBUG] [app] 📱 Scene phase changed to active
+[11:47:45.532] [DEBUG] [app] 📱 Scene phase changed to background

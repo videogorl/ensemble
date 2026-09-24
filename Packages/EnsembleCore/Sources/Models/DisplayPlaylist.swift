@@ -1,8 +1,10 @@
+import EnsembleAPI
+import EnsembleDomain
+import EnsemblePersistence
 import Foundation
 
 /// Represents a playlist entry in the UI — either a single playlist or a merged group
-/// of same-named playlists from different servers. When merging is enabled, playlists
-/// with identical titles and the same isSmart type are grouped into one DisplayPlaylist.
+/// of same-named playlists from different sources.
 public struct DisplayPlaylist: Identifiable, Equatable {
     public let id: String
     public let title: String
@@ -11,6 +13,10 @@ public struct DisplayPlaylist: Identifiable, Equatable {
 
     /// Whether this entry represents multiple playlists merged together
     public var isMerged: Bool { playlists.count > 1 }
+
+    public var editablePlaylists: [Playlist] { playlists.filter(\.supportsPlaylistEditing) }
+
+    public var deletablePlaylists: [Playlist] { playlists.filter(\.supportsPlaylistDeletion) }
 
     /// The first constituent playlist (used for artwork, primary source key, etc.)
     public var primaryPlaylist: Playlist { playlists[0] }
@@ -82,34 +88,34 @@ public struct DisplayPlaylist: Identifiable, Equatable {
     // MARK: - Grouping Helpers
 
     /// Groups playlists into DisplayPlaylist entries based on merge toggle.
-    /// When merge is enabled, playlists with the same (title, isSmart) are grouped.
+    /// When merge is enabled, playlists with the same normalized title and grouping kind are grouped.
+    /// Mutability does not affect grouping; regular and smart classification remains semantic.
     /// When merge is disabled, each playlist becomes its own DisplayPlaylist.
     /// The input order is preserved — the first occurrence of each group key
     /// determines the group's position in the output.
-    public static func group(_ playlists: [Playlist], merge: Bool) -> [DisplayPlaylist] {
+    public static func group(
+        _ playlists: [Playlist],
+        merge: Bool,
+        preferences: EnsembleMergingPreferences = .default
+    ) -> [DisplayPlaylist] {
         guard merge else {
             return playlists.map { .single($0) }
         }
 
-        // Group by exact (title, isSmart) key, preserving insertion order
-        var groups: [(key: String, title: String, isSmart: Bool, playlists: [Playlist])] = []
-        var keyIndex: [String: Int] = [:]
-
-        for playlist in playlists {
-            let groupKey = "\(playlist.title)\u{0}\(playlist.isSmart)"
-            if let index = keyIndex[groupKey] {
-                groups[index].playlists.append(playlist)
-            } else {
-                keyIndex[groupKey] = groups.count
-                groups.append((key: groupKey, title: playlist.title, isSmart: playlist.isSmart, playlists: [playlist]))
+        return PlexPlaylistMergeRules.grouped(
+            playlists,
+            title: \.title,
+            isSmart: \.isSmartForPlaylistGrouping
+        ).map { group in
+            let playlists = preferences.ordered(group, sourceKey: \.sourceCompositeKey)
+            if playlists.count == 1 {
+                return .single(playlists[0])
             }
-        }
-
-        return groups.map { group in
-            if group.playlists.count == 1 {
-                return .single(group.playlists[0])
-            }
-            return .merged(title: group.title, isSmart: group.isSmart, playlists: group.playlists)
+            return .merged(
+                title: playlists[0].title,
+                isSmart: playlists.contains(where: \.isSmart),
+                playlists: playlists
+            )
         }
     }
 
@@ -118,44 +124,77 @@ public struct DisplayPlaylist: Identifiable, Equatable {
     /// Returns a set of titles that have name collisions.
     public static func detectNameCollisions(_ playlists: [Playlist]) -> Set<String> {
         // Group by (title, isSmart), then check if any group has 2+ distinct source keys
-        var groups: [String: Set<String>] = [:]  // groupKey -> set of sourceCompositeKeys
+        var groups: [String: (title: String, sourceKeys: Set<String>)] = [:]
 
         for playlist in playlists {
-            let groupKey = "\(playlist.title)\u{0}\(playlist.isSmart)"
+            let groupKey = PlexPlaylistMergeRules.key(
+                title: playlist.title,
+                isSmart: playlist.isSmartForPlaylistGrouping
+            )
             let sourceKey = playlist.sourceCompositeKey ?? ""
-            groups[groupKey, default: []].insert(sourceKey)
+            if groups[groupKey] == nil {
+                groups[groupKey] = (playlist.title, [])
+            }
+            groups[groupKey]?.sourceKeys.insert(sourceKey)
         }
 
         var collisionTitles = Set<String>()
-        for (groupKey, sourceKeys) in groups where sourceKeys.count > 1 {
-            // Extract title from group key (everything before the null separator)
-            if let separatorIndex = groupKey.firstIndex(of: "\u{0}") {
-                collisionTitles.insert(String(groupKey[groupKey.startIndex..<separatorIndex]))
-            }
+        for group in groups.values where group.sourceKeys.count > 1 {
+            collisionTitles.insert(group.title)
         }
         return collisionTitles
+    }
+
+    /// Case-, diacritic-, width-, and whitespace-insensitive playlist identity.
+    public static func normalizedTitle(_ title: String) -> String {
+        PlexPlaylistMergeRules.normalizedTitle(title)
     }
 
     /// Round-robin interleaves tracks from multiple playlists.
     /// Alternates one track from each source; when a source runs out, continues with remaining.
     public static func interleave(_ trackSets: [[Track]]) -> [Track] {
-        guard !trackSets.isEmpty else { return [] }
-        if trackSets.count == 1 { return trackSets[0] }
+        PlexPlaylistMergeRules.interleaved(trackSets)
+    }
 
-        var result: [Track] = []
-        result.reserveCapacity(trackSets.reduce(0) { $0 + $1.count })
-        var iterators = trackSets.map { $0.makeIterator() }
-        var active = Array(repeating: true, count: iterators.count)
+    /// Resolves this display playlist's cached tracks while preserving constituent playlist order.
+    public func resolvedTracks(using playlistRepository: PlaylistRepositoryProtocol) async throws -> [Track] {
+        try await Self.resolvedTracks(for: playlists, using: playlistRepository)
+    }
 
-        while active.contains(true) {
-            for i in iterators.indices where active[i] {
-                if let next = iterators[i].next() {
-                    result.append(next)
-                } else {
-                    active[i] = false
-                }
+    /// Resolves cached tracks for playlists with proven source ownership, batching
+    /// source-scoped lookups before interleaving. Legacy unscoped entries are skipped
+    /// because a provider-local playlist ID is not globally unique.
+    public static func resolvedTracks(
+        for playlists: [Playlist],
+        using playlistRepository: PlaylistRepositoryProtocol
+    ) async throws -> [Track] {
+        guard !playlists.isEmpty else { return [] }
+
+        let references = playlists.compactMap { playlist -> SourceScopedArtworkReference? in
+            guard let sourceCompositeKey = playlist.sourceCompositeKey else { return nil }
+            return SourceScopedArtworkReference(
+                ratingKey: playlist.id,
+                sourceCompositeKey: sourceCompositeKey
+            )
+        }
+        let playlistsByReference = references.isEmpty
+            ? [:]
+            : try await playlistRepository.fetchPlaylistBodies(forReferences: references)
+
+        var trackSets: [[Track]] = []
+        trackSets.reserveCapacity(playlists.count)
+        for playlist in playlists {
+            guard let sourceCompositeKey = playlist.sourceCompositeKey else { continue }
+            let reference = SourceScopedArtworkReference(
+                ratingKey: playlist.id,
+                sourceCompositeKey: sourceCompositeKey
+            )
+            let cachedPlaylist = playlistsByReference[reference.lookupKey]
+
+            if let cachedPlaylist {
+                trackSets.append(cachedPlaylist.tracksArray.map { Track(from: $0) })
             }
         }
-        return result
+        return interleave(trackSets)
     }
 }

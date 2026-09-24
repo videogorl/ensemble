@@ -2,14 +2,78 @@ import Combine
 import EnsemblePersistence
 import Foundation
 
+public struct ArtistDetailDisplaySnapshot: Equatable, Sendable {
+    public let filteredAlbums: [Album]
+    public let studioAlbums: [Album]
+    public let singlesAndEPs: [Album]
+    public let filteredTracks: [Track]
+    public let favoritedTracks: [Track]
+    public let availableGenres: [String]
+    public let trackCount: Int
+
+    public static let empty = ArtistDetailDisplaySnapshot(albums: [], tracks: [], filterOptions: FilterOptions())
+
+    public init(albums: [Album], tracks: [Track], filterOptions: FilterOptions) {
+        let sortOption = AlbumSortOption(rawValue: filterOptions.sortBy) ?? .year
+        let sortDirection = filterOptions.sortBy == "default" ? SortDirection.descending : filterOptions.sortDirection
+        let filteredAlbums = LibraryViewModel.sortAlbums(
+            MediaFilterEngine.filterAlbums(albums, with: filterOptions, configuration: .artistDetail),
+            by: sortOption,
+            direction: sortDirection
+        )
+        let filteredTracks = MediaFilterEngine.filterTracks(tracks, with: filterOptions, configuration: .artistDetail)
+
+        self.filteredAlbums = filteredAlbums
+        self.studioAlbums = filteredAlbums.filter { !$0.isLikelySingleOrEP() }
+        self.singlesAndEPs = filteredAlbums.filter { $0.isLikelySingleOrEP() }
+        self.filteredTracks = filteredTracks
+        self.favoritedTracks = tracks.filter(\.isFavorite)
+        self.availableGenres = Self.extractUniqueGenres(from: tracks.flatMap(\.genres))
+        self.trackCount = filteredTracks.count
+    }
+
+    private static func extractUniqueGenres(from names: [String]) -> [String] {
+        let filtered = names.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return Array(Set(filtered)).sorted()
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.filteredAlbums == rhs.filteredAlbums &&
+            sourceScopedIDs(lhs.filteredAlbums) == sourceScopedIDs(rhs.filteredAlbums) &&
+            sourceScopedIDs(lhs.studioAlbums) == sourceScopedIDs(rhs.studioAlbums) &&
+            sourceScopedIDs(lhs.singlesAndEPs) == sourceScopedIDs(rhs.singlesAndEPs) &&
+            lhs.filteredTracks == rhs.filteredTracks &&
+            sourceScopedIDs(lhs.filteredTracks) == sourceScopedIDs(rhs.filteredTracks) &&
+            lhs.favoritedTracks == rhs.favoritedTracks &&
+            sourceScopedIDs(lhs.favoritedTracks) == sourceScopedIDs(rhs.favoritedTracks) &&
+            lhs.availableGenres == rhs.availableGenres &&
+            lhs.trackCount == rhs.trackCount
+    }
+
+    private static func sourceScopedIDs(_ albums: [Album]) -> [String] {
+        albums.map(\.sourceScopedID)
+    }
+
+    private static func sourceScopedIDs(_ tracks: [Track]) -> [String] {
+        tracks.map(\.sourceScopedID)
+    }
+}
+
 @MainActor
 public final class ArtistDetailViewModel: ObservableObject {
     @Published public private(set) var artist: Artist
-    @Published public private(set) var albums: [Album] = []
-    @Published public private(set) var tracks: [Track] = []
+    @Published public private(set) var albums: [Album] = [] {
+        didSet { rebuildDisplaySnapshot() }
+    }
+    @Published public private(set) var tracks: [Track] = [] {
+        didSet { rebuildDisplaySnapshot() }
+    }
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
-    @Published public var filterOptions: FilterOptions
+    @Published public var filterOptions: FilterOptions {
+        didSet { rebuildDisplaySnapshot() }
+    }
+    @Published public private(set) var displaySnapshot: ArtistDetailDisplaySnapshot = .empty
 
     /// Rich metadata loaded on-demand from the single-item metadata endpoint
     @Published public private(set) var artistDetail: ArtistDetail?
@@ -20,17 +84,27 @@ public final class ArtistDetailViewModel: ObservableObject {
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
+    private let hiddenMediaStore: HiddenMediaStore
+    private let includesHidden: Bool
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         artist: Artist,
         libraryRepository: LibraryRepositoryProtocol,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        includesHidden: Bool = false
     ) {
+        let hiddenMediaStore = hiddenMediaStore ?? .shared
         self.artist = artist
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
+        self.hiddenMediaStore = hiddenMediaStore
+        self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "ArtistDetail")
+        hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            self?.rebuildDisplaySnapshot()
+        }.store(in: &cancellables)
 
         // Save filter options when they change
         setupFilterPersistence()
@@ -41,29 +115,44 @@ public final class ArtistDetailViewModel: ObservableObject {
     }
 
     private func setupFilterPersistence() {
-        $filterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "ArtistDetail") }
-            .store(in: &cancellables)
+        FilterPersistence.observe($filterOptions, key: "ArtistDetail", storingIn: &cancellables)
     }
 
     public func loadAlbums() async {
         isLoading = true
         error = nil
 
+        guard let sourceKey = artist.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else {
+            if !albums.isEmpty { albums = [] }
+            isLoading = false
+            return
+        }
+
         do {
-            let cachedAlbums: [CDAlbum]
-            if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
-                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id, sourceCompositeKey: sourceKey)
-            } else {
-                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id)
-            }
+            let cachedAlbums = try await libraryRepository.fetchAlbums(
+                forArtist: artist.id,
+                sourceCompositeKey: sourceKey
+            )
             if !cachedAlbums.isEmpty {
-                albums = cachedAlbums.map { Album(from: $0) }
-            } else if let sourceKey = artist.sourceCompositeKey {
-                EnsembleLogger.debug("ArtistDetailViewModel: Albums not found locally, fetching from API for source: \(sourceKey)")
-                let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
-                albums = apiAlbums
+                let nextAlbums = ArtistDetailAlbumCollections.sorted(cachedAlbums.map { Album(from: $0) })
+                if albums != nextAlbums { albums = nextAlbums }
+            }
+
+            if !syncCoordinator.isOffline {
+                EnsembleLogger.debug("ArtistDetailViewModel: Refreshing artist albums from API for source: \(sourceKey)")
+                do {
+                    let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
+                    let mergedAlbums = ArtistDetailAlbumCollections.merged(local: albums, remote: apiAlbums)
+                    if mergedAlbums != albums {
+                        albums = mergedAlbums
+                    }
+                } catch {
+                    if albums.isEmpty {
+                        throw error
+                    }
+                    EnsembleLogger.debug("ArtistDetailViewModel: Artist album supplement failed for \(artist.sourceScopedID): \(error.localizedDescription)")
+                }
             }
         } catch {
             EnsembleLogger.debug("ArtistDetailViewModel.loadAlbums error: \(error.localizedDescription)")
@@ -74,19 +163,24 @@ public final class ArtistDetailViewModel: ObservableObject {
     }
 
     public func loadTracks() async {
+        guard let sourceKey = artist.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else {
+            if !tracks.isEmpty { tracks = [] }
+            return
+        }
+
         do {
-            let cachedTracks: [CDTrack]
-            if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
-                cachedTracks = try await libraryRepository.fetchTracks(forArtist: artist.id, sourceCompositeKey: sourceKey)
-            } else {
-                cachedTracks = try await libraryRepository.fetchTracks(forArtist: artist.id)
-            }
+            let cachedTracks = try await libraryRepository.fetchTracks(
+                forArtist: artist.id,
+                sourceCompositeKey: sourceKey
+            )
             if !cachedTracks.isEmpty {
-                tracks = cachedTracks.map { Track(from: $0) }
-            } else if let sourceKey = artist.sourceCompositeKey {
+                let nextTracks = cachedTracks.map { Track(from: $0) }
+                if tracks != nextTracks { tracks = nextTracks }
+            } else {
                 EnsembleLogger.debug("ArtistDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
                 let apiTracks = try await syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)
-                tracks = apiTracks
+                if tracks != apiTracks { tracks = apiTracks }
             }
         } catch {
             EnsembleLogger.debug("ArtistDetailViewModel.loadTracks error: \(error.localizedDescription)")
@@ -117,26 +211,16 @@ public final class ArtistDetailViewModel: ObservableObject {
     // MARK: - Download Change Observation
 
     private func observeDownloadChanges() {
-        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
-            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadTracks()
-                }
-            }
-            .store(in: &cancellables)
+        ViewModelNotificationObserver.observeDownloadChanges(storingIn: &cancellables) { [weak self] in
+            await self?.loadTracks()
+        }
     }
 
     private func observeMetadataChanges() {
-        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadAlbums()
-                    await self?.loadTracks()
-                }
-            }
-            .store(in: &cancellables)
+        ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
+            await self?.loadAlbums()
+            await self?.loadTracks()
+        }
     }
 
     // MARK: - Similar Artist Resolution
@@ -163,41 +247,33 @@ public final class ArtistDetailViewModel: ObservableObject {
 
     /// Filtered albums based on current filter options
     public var filteredAlbums: [Album] {
-        applyFilters(to: albums, with: filterOptions)
+        displaySnapshot.filteredAlbums
     }
 
     /// Filtered tracks based on current filter options
     public var filteredTracks: [Track] {
-        applyFilters(to: tracks, with: filterOptions)
+        displaySnapshot.filteredTracks
     }
 
     public var totalDuration: String {
-        let totalSeconds = filteredTracks.reduce(0) { $0 + $1.duration }
-        let hours = Int(totalSeconds) / 3600
-        let minutes = (Int(totalSeconds) % 3600) / 60
-
-        if hours > 0 {
-            return "\(hours) hr \(minutes) min"
-        }
-        return "\(minutes) min"
+        MediaFormatters.trackCollectionDuration(displaySnapshot.filteredTracks)
     }
 
     public var trackCount: Int {
-        filteredTracks.count
+        displaySnapshot.trackCount
     }
 
-    /// Tracks rated 4+ stars (rating >= 8 on 0-10 scale) by this artist
+    /// Tracks favorited through their source provider.
     public var favoritedTracks: [Track] {
-        tracks.filter { $0.rating >= 8 }
+        displaySnapshot.favoritedTracks
     }
 
-    // MARK: - Filter Application
-
-    private func applyFilters(to albums: [Album], with options: FilterOptions) -> [Album] {
-        MediaFilterEngine.filterAlbums(albums, with: options, configuration: .artistDetail)
-    }
-
-    private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
-        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .artistDetail)
+    private func rebuildDisplaySnapshot() {
+        let visibleAlbums = includesHidden ? albums : albums.filter { !hiddenMediaStore.snapshot.isHidden($0) }
+        let visibleTracks = includesHidden ? tracks : hiddenMediaStore.snapshot.visibleTracks(tracks)
+        let next = ArtistDetailDisplaySnapshot(albums: visibleAlbums, tracks: visibleTracks, filterOptions: filterOptions)
+        if displaySnapshot != next {
+            displaySnapshot = next
+        }
     }
 }

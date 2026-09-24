@@ -6,27 +6,13 @@ import XCTest
 
 @MainActor
 final class NowPlayingViewModelFavoriteTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-    }
 
     private final class MockPlaybackService: PlaybackServiceProtocol {
         private let currentTrackSubject = CurrentValueSubject<Track?, Never>(nil)
         private let playbackStateSubject = CurrentValueSubject<PlaybackState, Never>(.stopped)
         private let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
         private let presentationTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+        private let bufferedProgressSubject = CurrentValueSubject<Double, Never>(0)
         private let queueSubject = CurrentValueSubject<[QueueItem], Never>([])
         private let queueIndexSubject = CurrentValueSubject<Int, Never>(-1)
         private let shuffleSubject = CurrentValueSubject<Bool, Never>(false)
@@ -34,6 +20,8 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         private let waveformSubject = CurrentValueSubject<[Double], Never>([])
         private let autoplayEnabledSubject = CurrentValueSubject<Bool, Never>(false)
         private let smartMixEnabledSubject = CurrentValueSubject<Bool, Never>(false)
+        private let smartMixDisabledForAlbumsSubject = CurrentValueSubject<Bool, Never>(true)
+        private let smartMixTransitionActiveSubject = CurrentValueSubject<Bool, Never>(false)
         private let autoplayTracksSubject = CurrentValueSubject<[Track], Never>([])
         private let autoplayActiveSubject = CurrentValueSubject<Bool, Never>(false)
         private let radioModeSubject = CurrentValueSubject<RadioMode, Never>(.off)
@@ -45,6 +33,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         private(set) var lastQueuedStartIndex: Int?
         private(set) var lastShufflePlayTracks: [Track] = []
         private(set) var appliedRatings: [(trackIdentity: String, rating: Int)] = []
+        var requiresQueueReplacementConfirmation = false
 
         init(initialTrack: Track? = nil) {
             currentTrackSubject.send(initialTrack)
@@ -67,7 +56,11 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         }
 
         var bufferedProgressValue: Double {
-            0
+            bufferedProgressSubject.value
+        }
+
+        var bufferedProgressPublisher: AnyPublisher<Double, Never> {
+            bufferedProgressSubject.eraseToAnyPublisher()
         }
 
         var duration: TimeInterval {
@@ -110,6 +103,14 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             smartMixEnabledSubject.value
         }
 
+        var isSmartMixDisabledForAlbums: Bool {
+            smartMixDisabledForAlbumsSubject.value
+        }
+
+        var isSmartMixTransitionActive: Bool {
+            smartMixTransitionActiveSubject.value
+        }
+
         var autoplayTracks: [Track] {
             autoplayTracksSubject.value
         }
@@ -124,10 +125,6 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         var recommendationsExhausted: Bool {
             recommendationsSubject.value
-        }
-
-        var queueSections: QueueSections {
-            .empty
         }
 
         var playbackHistory: [QueueItem] {
@@ -194,6 +191,14 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             smartMixEnabledSubject.eraseToAnyPublisher()
         }
 
+        var smartMixDisabledForAlbumsPublisher: AnyPublisher<Bool, Never> {
+            smartMixDisabledForAlbumsSubject.eraseToAnyPublisher()
+        }
+
+        var smartMixTransitionActivePublisher: AnyPublisher<Bool, Never> {
+            smartMixTransitionActiveSubject.eraseToAnyPublisher()
+        }
+
         var autoplayTracksPublisher: AnyPublisher<[Track], Never> {
             autoplayTracksSubject.eraseToAnyPublisher()
         }
@@ -247,6 +252,14 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             smartMixEnabledSubject.send(isEnabled)
         }
 
+        func setSmartMixDisabledForAlbums(_ disabled: Bool) {
+            smartMixDisabledForAlbumsSubject.send(disabled)
+        }
+
+        func setSmartMixTransitionActive(_ isActive: Bool) {
+            smartMixTransitionActiveSubject.send(isActive)
+        }
+
         func setCurrentTime(_ time: TimeInterval) {
             currentTimeSubject.send(time)
             presentationTimeSubject.send(time)
@@ -258,6 +271,10 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         func setDuration(_ duration: TimeInterval) {
             mockedDuration = duration
+        }
+
+        func setBufferedProgress(_ progress: Double) {
+            bufferedProgressSubject.send(progress)
         }
 
         func play(track: Track, context _: PlaybackStartContext) async {
@@ -274,6 +291,10 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         func shufflePlay(tracks: [Track], context _: PlaybackStartContext) async {
             lastShufflePlayTracks = tracks
+        }
+
+        func shouldConfirmQueueReplacement() -> Bool {
+            requiresQueueReplacementConfirmation
         }
 
         func playQueueIndex(_: Int) async {}
@@ -298,7 +319,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func playLast(_: [Track]) {}
         func removeFromQueue(at _: Int) {}
         func clearQueue() {}
-        func moveQueueItem(byId _: String, from _: Int, to _: Int) {}
+        func moveQueueItem(byId _: String, from _: Int, to _: Int, destinationSource _: QueueItemSource?) {}
         func toggleShuffle() {}
         func cycleRepeatMode() {}
         func toggleAutoplay() {}
@@ -318,9 +339,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         func updateVisualizerPosition(_: TimeInterval) {}
         func setVisualizationConsumer(_: VisualizationConsumer, isVisible _: Bool) {}
-        func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?) {
-            (nil, nil)
-        }
+        func currentPlaybackFileInfo() -> PlaybackFileInfo? { nil }
     }
 
     private enum MockError: Error {
@@ -330,6 +349,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
     private final class MockLibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
         private let coreDataStack = CoreDataStack.inMemory()
         var fetchedTrack: CDTrack?
+        private(set) var fetchTrackRequests: [(ratingKey: String, sourceCompositeKey: String?)] = []
 
         func setFetchedTrack(id: String, sourceCompositeKey: String, thumbPath: String) {
             let track = CDTrack(context: coreDataStack.viewContext)
@@ -353,10 +373,6 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             nil
         }
 
-        func upsertArtist(ratingKey _: String, key _: String, name _: String, summary _: String?, thumbPath _: String?, artPath _: String?, dateAdded _: Date?, dateModified _: Date?, sourceCompositeKey _: String?) async throws -> CDArtist {
-            throw MockError.unimplemented
-        }
-
         func fetchAlbums() async throws -> [CDAlbum] {
             []
         }
@@ -367,10 +383,6 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         func fetchAlbums(forArtist _: String) async throws -> [CDAlbum] {
             []
-        }
-
-        func upsertAlbum(ratingKey _: String, key _: String, title _: String, artistName _: String?, albumArtist _: String?, artistRatingKey _: String?, summary _: String?, thumbPath _: String?, artPath _: String?, year _: Int?, trackCount _: Int?, dateAdded _: Date?, dateModified _: Date?, rating _: Int?, genreNames _: String?, sourceCompositeKey _: String?) async throws -> CDAlbum {
-            throw MockError.unimplemented
         }
 
         func fetchTracks() async throws -> [CDTrack] {
@@ -411,6 +423,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         }
 
         func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? {
+            fetchTrackRequests.append((ratingKey, sourceCompositeKey))
             guard let fetchedTrack, fetchedTrack.ratingKey == ratingKey else { return nil }
             if let sourceCompositeKey {
                 return fetchedTrack.sourceCompositeKey == sourceCompositeKey ? fetchedTrack : nil
@@ -430,15 +443,15 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             throw MockError.unimplemented
         }
 
-        func searchTracks(query _: String) async throws -> [CDTrack] {
+        func searchTracks<Value: Sendable>(query _: String, map: @escaping @Sendable ([CDTrack]) -> [Value]) async throws -> [Value] {
             []
         }
 
-        func searchArtists(query _: String) async throws -> [CDArtist] {
+        func searchArtists<Value: Sendable>(query _: String, map: @escaping @Sendable ([CDArtist]) -> [Value]) async throws -> [Value] {
             []
         }
 
-        func searchAlbums(query _: String) async throws -> [CDAlbum] {
+        func searchAlbums<Value: Sendable>(query _: String, map: @escaping @Sendable ([CDAlbum]) -> [Value]) async throws -> [Value] {
             []
         }
 
@@ -522,7 +535,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             nil
         }
 
-        func searchPlaylists(query _: String) async throws -> [CDPlaylist] {
+        func searchPlaylists<Value: Sendable>(query _: String, map: @escaping @Sendable ([CDPlaylist]) -> [Value]) async throws -> [Value] {
             []
         }
 
@@ -598,7 +611,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             []
         }
 
-        func fetchNextPendingDownload() async throws -> CDDownload? {
+        func fetchNextPendingDownload(excluding downloadIDs: Set<NSManagedObjectID>) async throws -> CDDownload? {
             nil
         }
 
@@ -606,7 +619,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             []
         }
 
-        func fetchDownload(forTrackRatingKey _: String, sourceCompositeKey _: String?) async throws -> CDDownload? {
+        func fetchDownload(forTrackRatingKey _: String, sourceCompositeKey _: String) async throws -> CDDownload? {
             nil
         }
 
@@ -618,11 +631,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             []
         }
 
-        func createDownload(forTrackRatingKey _: String) async throws -> CDDownload {
-            fatalError()
-        }
-
-        func createDownload(forTrackRatingKey _: String, sourceCompositeKey _: String?, quality _: String) async throws -> CDDownload {
+        func createDownload(forTrackRatingKey _: String, sourceCompositeKey _: String, quality _: String) async throws -> CDDownload {
             fatalError()
         }
 
@@ -635,13 +644,8 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func updateDownloads(withStatuses _: [CDDownload.Status], to _: CDDownload.Status) async throws {}
         func completeDownload(_: NSManagedObjectID, filePath _: String, fileSize _: Int64, quality _: String?) async throws {}
         func failDownload(_: NSManagedObjectID, error _: String) async throws {}
-        func deleteDownload(forTrackRatingKey _: String) async throws {}
-        func deleteDownload(forTrackRatingKey _: String, sourceCompositeKey _: String?) async throws {}
-        func getLocalFilePath(forTrackRatingKey _: String) async throws -> String? {
-            nil
-        }
-
-        func getLocalFilePath(forTrackRatingKey _: String, sourceCompositeKey _: String?) async throws -> String? {
+        func deleteDownload(forTrackRatingKey _: String, sourceCompositeKey _: String) async throws {}
+        func getLocalFilePath(forTrackRatingKey _: String, sourceCompositeKey _: String) async throws -> String? {
             nil
         }
 
@@ -684,8 +688,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         )
         let trackAvailabilityResolver = TrackAvailabilityResolver(
             networkMonitor: networkMonitor,
-            serverHealthChecker: serverHealthChecker,
-            downloadManager: MockDownloadManager()
+            serverHealthChecker: serverHealthChecker
         )
 
         let lyricsService = LyricsService(
@@ -782,6 +785,29 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         XCTAssertEqual(viewModelTuple.viewModel.currentTrack?.thumbPath, artworkPath)
         XCTAssertEqual(viewModelTuple.viewModel.artworkProjection.currentTrack?.thumbPath, artworkPath)
+    }
+
+    func testDefaultPlaylistServerDoesNotRepairSourceLessTrackFromCache() async {
+        let sourceKey = "plex:account:server:1"
+        let viewModelTuple = makeViewModel { repository in
+            repository.setFetchedTrack(
+                id: "14",
+                sourceCompositeKey: sourceKey,
+                thumbPath: "/library/metadata/14/thumb"
+            )
+        }
+        let sourceLessTrack = Track(
+            id: "14",
+            key: "/library/metadata/14",
+            title: "2085"
+        )
+
+        let resolvedSource = await viewModelTuple.viewModel.resolveDefaultPlaylistServerSourceKey(
+            for: [sourceLessTrack]
+        )
+
+        XCTAssertNil(resolvedSource)
+        XCTAssertTrue(viewModelTuple.libraryRepository.fetchTrackRequests.isEmpty)
     }
 
     func testSetTrackFavoriteUsesLovedRating() async {
@@ -885,6 +911,45 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         XCTAssertEqual(playback.lastPlayedTrack?.id, "2")
     }
 
+    func testPlayWaitsForConfirmationBeforeReplacingEditedQueue() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playbackService = viewModelTuple.playbackService
+        let track = Track(id: "queue-protection", key: "/library/metadata/queue-protection", title: "Protected")
+        playbackService.requiresQueueReplacementConfirmation = true
+
+        viewModel.play(track: track)
+
+        XCTAssertTrue(viewModel.isQueueReplacementConfirmationPresented)
+        XCTAssertNil(playbackService.lastPlayedTrack)
+
+        viewModel.cancelQueueReplacement()
+
+        XCTAssertFalse(viewModel.isQueueReplacementConfirmationPresented)
+        XCTAssertNil(playbackService.lastPlayedTrack)
+
+        viewModel.play(track: track)
+        viewModel.confirmQueueReplacement()
+        await waitForProjectionPropagation()
+
+        XCTAssertFalse(viewModel.isQueueReplacementConfirmationPresented)
+        XCTAssertEqual(playbackService.lastPlayedTrack?.id, track.id)
+    }
+
+    func testNonAppUIPlaybackStartBypassesQueueReplacementConfirmation() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playbackService = viewModelTuple.playbackService
+        let track = Track(id: "siri-queue-protection", key: "/library/metadata/siri-queue-protection", title: "Siri")
+        playbackService.requiresQueueReplacementConfirmation = true
+
+        viewModel.play(track: track, context: PlaybackStartContext(origin: .siri))
+        await waitForProjectionPropagation()
+
+        XCTAssertFalse(viewModel.isQueueReplacementConfirmationPresented)
+        XCTAssertEqual(playbackService.lastPlayedTrack?.id, track.id)
+    }
+
     func testFavoriteStateIsSourceScopedForDuplicateRatingKeys() async {
         let viewModelTuple = makeViewModel()
         let viewModel = viewModelTuple.viewModel
@@ -927,6 +992,52 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         XCTAssertEqual(playback.lastQueuedTracks.map(\.rating), [0, 10])
     }
 
+    func testAppleCatalogAndLibraryCopiesShareOptimisticFavoriteState() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
+        let sourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        let catalogTrack = Track(
+            id: "catalog-id",
+            key: "apple-catalog",
+            title: "Catalog Copy",
+            favoriteState: false,
+            sourceCompositeKey: sourceKey
+        )
+        let libraryTrack = Track(
+            id: "library-id",
+            key: "apple-library-catalog:catalog-id",
+            title: "Library Copy",
+            favoriteState: false,
+            sourceCompositeKey: sourceKey
+        )
+
+        viewModel.trackRatingMutationHandlerForTesting = { _, _ in }
+        viewModel.trackRatingStoreHandlerForTesting = { _, _ in }
+
+        await viewModel.setTrackFavorite(true, for: catalogTrack)
+        viewModel.play(track: libraryTrack)
+        await waitForProjectionPropagation()
+
+        XCTAssertEqual(catalogTrack.playbackIdentity, libraryTrack.playbackIdentity)
+        XCTAssertTrue(viewModel.isTrackFavorited(libraryTrack))
+        XCTAssertTrue(viewModel.ratingProjection.isTrackFavorited(libraryTrack))
+        XCTAssertEqual(playback.lastPlayedTrack?.rating, 10)
+    }
+
+    func testAppleMusicTrackDoesNotStartLyricsFetch() async {
+        let track = Track(
+            id: "apple-track",
+            key: "apple-catalog",
+            title: "Apple Track",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let harness = makeViewModel(initialTrack: track)
+        await waitForProjectionPropagation()
+
+        XCTAssertEqual(harness.viewModel.lyricsState, .notAvailable)
+    }
+
     func testShufflePlayUsesOptimisticFavoriteRatings() async {
         let viewModelTuple = makeViewModel()
         let viewModel = viewModelTuple.viewModel
@@ -955,11 +1066,15 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         playback.setCurrentTrack(track)
         await waitForProjectionPropagation()
+        await viewModel.setTrackFavorite(true, for: track)
         viewModel.currentRating = .loved
 
         await viewModel.toggleRatingForTesting()
+        viewModel.play(track: track)
+        await waitForProjectionPropagation()
 
         XCTAssertFalse(viewModel.isTrackFavorited(track))
+        XCTAssertEqual(playback.lastPlayedTrack?.rating, 2)
     }
 
     func testToggleRatingForCurrentTrackIsSourceScopedForDuplicateRatingKeys() async {
@@ -1092,6 +1207,32 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         cancellable.cancel()
     }
 
+    func testPlaybackProjectionTracksBufferedProgressWithoutTimeChange() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 120)
+        var bufferedValues: [Double] = []
+
+        let cancellable = viewModel.playbackProjection.bufferedProgressPublisher
+            .sink { bufferedValues.append($0) }
+
+        playback.setCurrentTrack(track)
+        playback.setDuration(120)
+        playback.setPlaybackState(.playing)
+        playback.setCurrentTime(15)
+        await waitForProjectionPropagation()
+
+        playback.setBufferedProgress(0.6)
+        await waitForProjectionPropagation()
+
+        XCTAssertEqual(viewModel.playbackProjection.progress, 0.125, accuracy: 0.001)
+        XCTAssertEqual(viewModel.playbackProjection.bufferedProgress, 0.6, accuracy: 0.001)
+        XCTAssertEqual(bufferedValues.last ?? -1, 0.6, accuracy: 0.001)
+
+        cancellable.cancel()
+    }
+
     func testQueueProjectionTracksQueueAndHistory() async {
         let viewModelTuple = makeViewModel()
         let viewModel = viewModelTuple.viewModel
@@ -1137,6 +1278,24 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         XCTAssertFalse(viewModel.queueProjection.isSmartMixEnabled)
     }
 
+    func testPlaybackProjectionTracksSmartMixTransitionState() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
+
+        XCTAssertFalse(viewModel.playbackProjection.isSmartMixTransitionActive)
+
+        playback.setSmartMixTransitionActive(true)
+        await waitForProjectionPropagation()
+
+        XCTAssertTrue(viewModel.playbackProjection.isSmartMixTransitionActive)
+
+        playback.setSmartMixTransitionActive(false)
+        await waitForProjectionPropagation()
+
+        XCTAssertFalse(viewModel.playbackProjection.isSmartMixTransitionActive)
+    }
+
     func testRatingProjectionTracksOptimisticFavoriteState() async {
         let viewModel = makeViewModel().viewModel
         let track = Track(id: "1", key: "/library/metadata/1", title: "Test")
@@ -1152,6 +1311,25 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         XCTAssertTrue(viewModel.ratingProjection.isTrackFavorited(track))
         XCTAssertEqual(viewModel.ratingProjection.displayRatingsRevision, 1)
+    }
+
+    func testInspectingLyricsPreservesPlaybackLyricsAndQueue() async {
+        let currentTrack = Track(id: "playing", key: "", title: "Playing")
+        let fixture = makeViewModel(initialTrack: currentTrack)
+        await waitForProjectionPropagation()
+        let currentLyrics = LyricsState.available(ParsedLyrics(
+            lines: [LyricsLine(timestamp: 0, text: "Current song")], isTimed: true))
+        fixture.lyricsService.setLyricsStateForTesting(currentLyrics)
+        let queue = fixture.playbackService.queue
+        for source in [nil, Optional(MusicSourceIdentifier.appleMusic.compositeKey)] {
+            let result = await fixture.lyricsService.lyrics(for:
+                Track(id: "inspected", key: "", title: "Inspected", sourceCompositeKey: source))
+            XCTAssertEqual(result, .notAvailable)
+            XCTAssertEqual(fixture.lyricsService.currentLyrics, currentLyrics)
+            XCTAssertEqual(fixture.lyricsService.currentLyricsSource, .server)
+            XCTAssertEqual(fixture.playbackService.currentTrack, currentTrack)
+            XCTAssertEqual(fixture.playbackService.queue.map(\.id), queue.map(\.id))
+        }
     }
 
     func testLyricsProjectionTracksCurrentLine() async {

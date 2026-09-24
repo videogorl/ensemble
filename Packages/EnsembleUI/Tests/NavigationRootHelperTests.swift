@@ -3,6 +3,122 @@ import XCTest
 import EnsembleCore
 
 final class NavigationRootHelperTests: XCTestCase {
+    @MainActor
+    func testPhoneBrowseRoundTripPreservesRoutesAndHonorsCompactBackNavigation() {
+        for (size, expanded) in [
+            (CGSize(width: 1280, height: 960), true),
+            (CGSize(width: 967, height: 725), true),
+            (CGSize(width: 402, height: 874), false),
+            (CGSize(width: 874, height: 402), false)
+        ] {
+            XCTAssertEqual(PhoneBrowseNavigation.usesSidebar(size: size), expanded)
+        }
+        let artist = NavigationCoordinator.Destination.displayArtist(id: "artist")
+        let album = NavigationCoordinator.Destination.album(id: "album", sourceKey: "server/library")
+        for useMore in [false, true] {
+            for popRoot in [false, true] {
+                let coordinator = NavigationCoordinator()
+                coordinator.selectedTab = .artists
+                coordinator.artistsPath = [album]
+                var handoff = PhoneBrowseNavigation()
+                handoff.enterTabs(coordinator: coordinator, selection: .library(.artists), browseRoots: [.artists: artist])
+                XCTAssertEqual(coordinator.artistsPath, [artist, album])
+                XCTAssertTrue(coordinator.routesHiddenTabsThroughMore)
+                let compactPath: [NavigationCoordinator.Destination] = popRoot ? [] : [artist, album]
+                if useMore {
+                    coordinator.artistsPath = []
+                    coordinator.settingsPath = [.view(.artists)] + compactPath
+                    coordinator.selectedTab = .settings
+                } else {
+                    coordinator.artistsPath = compactPath
+                }
+                let restored = handoff.enterSidebar(coordinator: coordinator)
+                XCTAssertEqual(restored.selection, .library(.artists))
+                XCTAssertEqual(coordinator.selectedTab, .artists)
+                XCTAssertEqual(coordinator.artistsPath, popRoot ? [] : [album])
+                XCTAssertEqual(restored.clearedRoots.contains(.artists), popRoot)
+                XCTAssertFalse(coordinator.routesHiddenTabsThroughMore)
+            }
+        }
+        for selection: SidebarSelection in [
+            .pin(id: "album", sourceKey: "server/library", type: .album),
+            .playlist(id: "playlist", sourceKey: "server/library"),
+            .mergedPlaylist(title: "Mix", isSmart: true), .hidden
+        ] {
+            let coordinator = NavigationCoordinator()
+            let tab = selection.correspondingTab ?? .settings
+            coordinator.selectedTab = tab
+            coordinator.setPath([album], for: tab)
+            var handoff = PhoneBrowseNavigation()
+            handoff.enterTabs(coordinator: coordinator, selection: selection, browseRoots: [:])
+            XCTAssertEqual(coordinator.pathSnapshot(for: tab), [selection.compactDestination!, album])
+            let restored = handoff.enterSidebar(coordinator: coordinator)
+            XCTAssertEqual(restored.selection, selection)
+            XCTAssertEqual(coordinator.pathSnapshot(for: tab), [album])
+        }
+        let coordinator = NavigationCoordinator()
+        let pin = SidebarSelection.pin(id: "source-artist", sourceKey: "server/library", type: .artist)
+        coordinator.selectedTab = .artists
+        var handoff = PhoneBrowseNavigation()
+        handoff.enterTabs(coordinator: coordinator, selection: pin, browseRoots: [:], sidebarDestination: artist)
+        XCTAssertEqual(coordinator.artistsPath, [artist])
+        XCTAssertEqual(handoff.enterSidebar(coordinator: coordinator).selection, pin)
+        XCTAssertTrue(coordinator.artistsPath.isEmpty)
+    }
+
+    func testStageFlowOnlyActivatesForEligibleCompactLandscapeWindows() {
+        let cases: [(CGSize, Bool, Bool, Bool)] = [
+            (CGSize(width: 874, height: 402), true, true, true),
+            (CGSize(width: 967, height: 725), true, false, false),
+            (CGSize(width: 402, height: 874), true, false, false),
+            (CGSize(width: 402, height: 402), true, true, false),
+            (CGSize(width: 874, height: 402), false, true, false)
+        ]
+        for (size, eligible, compact, expected) in cases {
+            XCTAssertEqual(MainTabStageFlowPolicy.isActive(
+                size: size, hasEligibleRoot: eligible, isCompactHeight: compact
+            ), expected, "size=\(size), eligible=\(eligible), compact=\(compact)")
+        }
+    }
+
+    func testNativeChromeUsesSidebarHorizontalSpanOutsideRootSafeArea() {
+        let layout = RootChromeLayout(
+            frame: CGRect(x: 0, y: 0, width: 820, height: 1128),
+            bottomPadding: 20, horizontalOffset: 0, showsMiniPlayer: true
+        )
+        let cases: [(RootSidebarChromeRegistration, CGFloat)] = [
+            (.visible(frame: CGRect(x: 10, y: 1129.5, width: 270, height: 30.5)), 280),
+            (.visible(frame: CGRect(x: -280, y: 0, width: 270, height: 30)), 0),
+            (.visible(frame: CGRect(x: 0, y: 1129, width: 820, height: 30)), 820),
+            (.hidden, 0)
+        ]
+        for (sidebar, expectedMinX) in cases {
+            let resolved = RootChromeLayoutResolver.nativeContentLayout(layout, sidebar: sidebar)
+            XCTAssertEqual(resolved.frame.minX, expectedMinX)
+            XCTAssertEqual(resolved.frame.maxX, 820)
+            XCTAssertEqual(resolved.bottomPadding, 20)
+            XCTAssertEqual(resolved.showsMiniPlayer, expectedMinX < 820)
+        }
+    }
+
+    @MainActor
+    func testInactiveRootCannotOverwriteSharedTabPath() {
+        let coordinator = NavigationCoordinator()
+        var isActive = true
+        let binding = coordinator.pathBinding(for: .artists, isActive: { isActive })
+        let route = NavigationCoordinator.Destination.artist(id: "artist", sourceKey: "server/library")
+        binding.wrappedValue = [route]
+        XCTAssertEqual(coordinator.pathSnapshot(for: .artists), [route])
+
+        isActive = false
+        binding.wrappedValue = []
+        XCTAssertEqual(coordinator.pathSnapshot(for: .artists), [route])
+
+        isActive = true
+        binding.wrappedValue = []
+        XCTAssertTrue(coordinator.pathSnapshot(for: .artists).isEmpty)
+    }
+
     func testSidebarSelectionMappingForDestinations() {
         XCTAssertEqual(
             SidebarSelection.selection(for: .displayArtist(id: "merged:ajr"), fallback: nil),
@@ -25,7 +141,7 @@ final class NavigationRootHelperTests: XCTestCase {
             .library(.albums)
         )
         XCTAssertEqual(
-            SidebarSelection.selection(for: .albumDetail(Self.album()), fallback: nil),
+            SidebarSelection.selection(for: .albumDetail(.single(Self.album())), fallback: nil),
             .library(.albums)
         )
         XCTAssertEqual(
@@ -48,6 +164,10 @@ final class NavigationRootHelperTests: XCTestCase {
             .library(.home)
         )
         XCTAssertEqual(
+            SidebarSelection.selection(for: .searchResults(section: .songs), fallback: nil),
+            .library(.search)
+        )
+        XCTAssertEqual(
             SidebarSelection.selection(for: .view(.favorites), fallback: nil),
             .library(.favorites)
         )
@@ -64,14 +184,26 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(SidebarSelection.library(.artists).correspondingTab, .artists)
         XCTAssertEqual(SidebarSelection.playlist(id: "playlist", sourceKey: nil).correspondingTab, .playlists)
         XCTAssertEqual(SidebarSelection.mergedPlaylist(title: "Mix", isSmart: false).correspondingTab, .playlists)
-        XCTAssertNil(SidebarSelection.pin(id: "artist", sourceKey: "server/library", type: .artist).correspondingTab)
+        XCTAssertEqual(
+            SidebarSelection.pin(id: "artist", sourceKey: "server/library", type: .artist).correspondingTab,
+            .artists
+        )
+        XCTAssertEqual(
+            SidebarSelection.pin(id: "album", sourceKey: "server/library", type: .album).correspondingTab,
+            .albums
+        )
+        XCTAssertEqual(
+            SidebarSelection.pin(id: "playlist", sourceKey: "server/library", type: .playlist).correspondingTab,
+            .playlists
+        )
+        XCTAssertNil(SidebarSelection.hidden.correspondingTab)
     }
 
     func testStageFlowPolicyResolvesVisibleStageFlowTabs() {
         XCTAssertEqual(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .albums,
-                morePath: [],
+                navigationPath: [],
                 isPhone: true
             ),
             .albums
@@ -79,10 +211,17 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .playlists,
-                morePath: [],
+                navigationPath: [],
                 isPhone: true
             ),
             .playlists
+        )
+        XCTAssertNil(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .playlists,
+                navigationPath: [.playlist(id: "playlist", sourceKey: nil)],
+                isPhone: true
+            )
         )
     }
 
@@ -90,7 +229,7 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .settings,
-                morePath: [.view(.albums)],
+                navigationPath: [.view(.albums)],
                 isPhone: true
             ),
             .albums
@@ -98,10 +237,10 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .settings,
-                morePath: [.view(.albums), .album(id: "album", sourceKey: nil)],
+                navigationPath: [.view(.albums), .album(id: "album", sourceKey: nil)],
                 isPhone: true
             ),
-            .albums
+            nil
         )
     }
 
@@ -109,7 +248,7 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .settings,
-                morePath: [.view(.playlists)],
+                navigationPath: [.view(.playlists)],
                 isPhone: true
             ),
             .playlists
@@ -117,10 +256,10 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .settings,
-                morePath: [.view(.playlists), .playlist(id: "playlist", sourceKey: nil)],
+                navigationPath: [.view(.playlists), .playlist(id: "playlist", sourceKey: nil)],
                 isPhone: true
             ),
-            .playlists
+            nil
         )
     }
 
@@ -128,21 +267,21 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertNil(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .artists,
-                morePath: [],
+                navigationPath: [],
                 isPhone: true
             )
         )
         XCTAssertNil(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .settings,
-                morePath: [.view(.artists)],
+                navigationPath: [.view(.artists)],
                 isPhone: true
             )
         )
         XCTAssertNil(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .albums,
-                morePath: [],
+                navigationPath: [],
                 isPhone: false
             )
         )
@@ -238,6 +377,19 @@ final class NavigationRootHelperTests: XCTestCase {
         )
     }
 
+    func testInitialSelectionPolicyRoutesHiddenLaunchSurfaceThroughMore() {
+        let barTabs: [TabItem] = [.home, .artists, .playlists, .search]
+
+        XCTAssertEqual(
+            MainTabInitialSelectionPolicy.initialResolution(
+                selectedTab: .songs,
+                selectedPath: [],
+                barTabs: barTabs
+            ),
+            .routeThroughMore(.songs)
+        )
+    }
+
     @MainActor
     func testNavigationCoordinatorPathBindingWritesThroughToCoordinator() {
         let coordinator = NavigationCoordinator()
@@ -253,7 +405,110 @@ final class NavigationRootHelperTests: XCTestCase {
     }
 
     func testConcreteAlbumDetailDestinationTargetsAlbums() {
-        XCTAssertEqual(NavigationCoordinator.targetTab(for: .albumDetail(Self.album())), .albums)
+        XCTAssertEqual(NavigationCoordinator.targetTab(for: .albumDetail(.single(Self.album()))), .albums)
+    }
+
+    func testNestedDetailDestinationsKeepHiddenCollectionScope() {
+        let album = Self.album()
+        let artist = Self.artist()
+        let playlist = Self.playlist()
+
+        XCTAssertNotEqual(
+            NavigationCoordinator.Destination.albumDetail(.single(album)),
+            .albumDetail(.single(album), includesHidden: true)
+        )
+        XCTAssertNotEqual(
+            NavigationCoordinator.Destination.artistDetail(artist),
+            .artistDetail(artist, includesHidden: true)
+        )
+        XCTAssertNotEqual(
+            NavigationCoordinator.Destination.playlistDetail(playlist),
+            .playlistDetail(playlist, includesHidden: true)
+        )
+        XCTAssertNotEqual(
+            NavigationCoordinator.Destination.artistNamed(
+                name: "Artist",
+                fallbackID: "artist",
+                sourceKey: "server/library"
+            ),
+            .artistNamed(
+                name: "Artist",
+                fallbackID: "artist",
+                sourceKey: "server/library",
+                includesHidden: true
+            )
+        )
+    }
+
+    @MainActor
+    func testSharedHiddenActionHidesAndUnhidesAnExactIdentity() throws {
+        let suiteName = "NavigationRootHelperTests.hidden.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = HiddenMediaStore(defaults: defaults)
+        let presenter = MediaSourceActionPresenter()
+        let identity = HiddenMediaIdentity(
+            kind: .album,
+            itemID: "album",
+            sourceCompositeKey: "plex:account:server:library"
+        )
+        let candidate = HiddenMediaCandidate(
+            identity: identity,
+            title: "Album",
+            source: "Server · Library · Account"
+        )
+
+        try XCTUnwrap(hiddenMediaToggleAction(
+            candidates: [candidate],
+            store: store,
+            presenter: presenter
+        ))()
+        XCTAssertTrue(store.snapshot.contains(identity))
+
+        try XCTUnwrap(hiddenMediaToggleAction(
+            identity: identity,
+            candidates: [],
+            store: store,
+            presenter: presenter
+        ))()
+        XCTAssertFalse(store.snapshot.contains(identity))
+        XCTAssertNil(hiddenMediaToggleAction(candidates: [], store: store, presenter: presenter))
+
+        let secondIdentity = HiddenMediaIdentity(
+            kind: .album,
+            itemID: "album-2",
+            sourceCompositeKey: "appleMusic:account:device:library"
+        )
+        let secondCandidate = HiddenMediaCandidate(
+            identity: secondIdentity,
+            title: "Album",
+            source: "Apple Music"
+        )
+        try XCTUnwrap(hiddenMediaToggleAction(
+            candidates: [candidate, secondCandidate],
+            store: store,
+            presenter: presenter
+        ))()
+        let request = try XCTUnwrap(presenter.pendingRequest)
+        XCTAssertEqual(request.choices.map(\.id), ["all-sources", candidate.id, secondCandidate.id])
+        XCTAssertFalse(store.snapshot.contains(secondIdentity))
+
+        presenter.choose(request.choices[2])
+        presenter.completeSelection()
+        XCTAssertTrue(store.snapshot.contains(secondIdentity))
+
+        store.setHidden(true, identity: identity)
+        try XCTUnwrap(hiddenMediaToggleAction(
+            candidates: [candidate, secondCandidate],
+            store: store,
+            presenter: presenter
+        ))()
+        let unhideRequest = try XCTUnwrap(presenter.pendingRequest)
+        XCTAssertEqual(unhideRequest.title, "Unhide Item")
+        presenter.choose(unhideRequest.choices[0])
+        presenter.completeSelection()
+        XCTAssertFalse(store.snapshot.contains(identity))
+        XCTAssertFalse(store.snapshot.contains(secondIdentity))
     }
 
     func testConcreteArtistDetailDestinationTargetsArtists() {
@@ -264,21 +519,47 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .playlistDetail(Self.playlist())), .playlists)
     }
 
+    @MainActor
+    func testSearchResultsRouteThroughTheirVisibleHost() {
+        let first = Self.playlist(id: "first", source: "plex:account:server")
+        let second = Self.playlist(id: "second", source: MusicSourceIdentifier.appleMusic.compositeKey)
+        let merged = DisplayPlaylist.merged(
+            title: "Ambient Electric",
+            isSmart: false,
+            playlists: [first, second]
+        )
+        let single = DisplayPlaylist.single(first)
+
+        XCTAssertEqual(
+            SearchView.playlistDestination(for: merged),
+            .mergedPlaylist(title: "Ambient Electric", isSmart: false)
+        )
+        XCTAssertEqual(
+            SearchView.playlistDestination(for: single),
+            .playlistDetail(first)
+        )
+        XCTAssertEqual(
+            SearchView.resultNavigationTab(isMoreSearchRootActive: true),
+            .settings
+        )
+        XCTAssertEqual(
+            SearchView.resultNavigationTab(isMoreSearchRootActive: false),
+            .search
+        )
+    }
+
     func testLegacyNestedNavigationResolvesDestinationAtDepth() {
         let album = Self.album()
         let path: [NavigationCoordinator.Destination] = [
             .view(.albums),
-            .albumDetail(album),
+            .albumDetail(.single(album)),
             .artist(id: "artist", sourceKey: "server/library")
         ]
 
-        XCTAssertEqual(
-            NestedNavigationLink.firstDestination(in: path),
-            .view(.albums)
-        )
+        XCTAssertEqual(NestedNavigationLink.destination(in: path, at: 0), .view(.albums))
         XCTAssertEqual(
             NestedNavigationLink.destination(in: path, at: 1),
-            .albumDetail(album)
+            .albumDetail(.single(album))
         )
         XCTAssertEqual(
             NestedNavigationLink.destination(in: path, at: 2),
@@ -287,21 +568,17 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertNil(NestedNavigationLink.destination(in: path, at: 3))
     }
 
-    func testLegacyNestedNavigationIgnoresEmptyPath() {
-        XCTAssertNil(NestedNavigationLink.firstDestination(in: []))
-    }
-
     func testLegacyNestedNavigationTrimsPathWhenNestedLinkDeactivates() {
         let album = Self.album()
         let path: [NavigationCoordinator.Destination] = [
             .view(.albums),
-            .albumDetail(album),
+            .albumDetail(.single(album)),
             .artist(id: "artist", sourceKey: "server/library")
         ]
 
         XCTAssertEqual(
             NestedNavigationLink.pathAfterDeactivatingLink(at: 2, in: path),
-            [.view(.albums), .albumDetail(album)]
+            [.view(.albums), .albumDetail(.single(album))]
         )
         XCTAssertEqual(
             NestedNavigationLink.pathAfterDeactivatingLink(at: 1, in: path),
@@ -322,11 +599,15 @@ final class NavigationRootHelperTests: XCTestCase {
     }
 
     private static func playlist() -> Playlist {
+        playlist(id: "playlist", source: "server/library")
+    }
+
+    private static func playlist(id: String, source: String) -> Playlist {
         Playlist(
-            id: "playlist",
-            key: "/playlists/playlist/items",
+            id: id,
+            key: "/playlists/\(id)/items",
             title: "Playlist",
-            sourceCompositeKey: "server/library"
+            sourceCompositeKey: source
         )
     }
 }

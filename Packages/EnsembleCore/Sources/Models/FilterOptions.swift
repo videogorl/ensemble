@@ -1,23 +1,26 @@
+import EnsembleDomain
 import Foundation
 
-// MARK: - Sort Options
+public typealias SortDirection = EnsembleDomain.SortDirection
 
-public enum SortDirection: String, Codable, CaseIterable {
-    case ascending
-    case descending
-    
-    public var label: String {
+public enum FavoriteFilter: String, Codable, Sendable {
+    case favorites
+    case disliked = "unfavorited"
+
+    func includes(rating: Int, isFavorite: Bool? = nil) -> Bool {
         switch self {
-        case .ascending: return "Ascending"
-        case .descending: return "Descending"
+        case .favorites: return isFavorite ?? (rating >= 8)
+        case .disliked: return !(isFavorite ?? (rating >= 8)) && rating > 0
         }
     }
 }
 
+// MARK: - Sort Options
+
 // MARK: - Filter Options
 
 /// Filtering and sorting options for list views
-public struct FilterOptions: Codable, Equatable {
+public struct FilterOptions: Codable, Equatable, Sendable {
     // Search/Filter text
     public var searchText: String = ""
     
@@ -28,6 +31,9 @@ public struct FilterOptions: Codable, Equatable {
     // Genre filtering (include/exclude)
     public var selectedGenres: Set<String> = []
     public var excludedGenres: Set<String> = []
+
+    // Favorite filtering (nil shows all items)
+    public var favoriteFilter: FavoriteFilter?
 
     // Artist filtering (for albums/songs)
     public var selectedArtists: Set<String> = []
@@ -47,6 +53,7 @@ public struct FilterOptions: Codable, Equatable {
     public var hasActiveFilters: Bool {
         !selectedGenres.isEmpty ||
         !excludedGenres.isEmpty ||
+        favoriteFilter != nil ||
         !selectedArtists.isEmpty ||
         yearRange != nil ||
         showDownloadedOnly ||
@@ -57,6 +64,7 @@ public struct FilterOptions: Codable, Equatable {
     public mutating func clearFilters() {
         selectedGenres.removeAll()
         excludedGenres.removeAll()
+        favoriteFilter = nil
         selectedArtists.removeAll()
         yearRange = nil
         showDownloadedOnly = false

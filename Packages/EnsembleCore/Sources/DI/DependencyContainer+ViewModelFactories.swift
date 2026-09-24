@@ -4,6 +4,16 @@ import Foundation
 // MARK: - View Model Factories
 
 public extension DependencyContainer {
+    @MainActor
+    func makeHiddenMediaViewModel() -> HiddenMediaViewModel {
+        HiddenMediaViewModel(
+            store: hiddenMediaStore,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            accountManager: accountManager
+        )
+    }
+
     /// The active NowPlayingViewModel from the main UI.
     /// Set by MainTabView/SidebarView so the external display SceneDelegate
     /// can observe the same instance for AirPlay screen mirroring.
@@ -22,9 +32,10 @@ public extension DependencyContainer {
         LibraryViewModel(
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
-            sourceCacheCleanupService: sourceCacheCleanupService,
             accountManager: accountManager,
+            settingsManager: settingsManager,
             visibilityStore: libraryVisibilityStore,
+            hiddenMediaStore: hiddenMediaStore,
             toastCenter: toastCenter,
             appReadinessCoordinator: appReadinessCoordinator
         )
@@ -45,7 +56,8 @@ public extension DependencyContainer {
             playlistMutationWorkflow: playlistMutationWorkflow,
             trackRatingMutationWorkflow: trackRatingMutationWorkflow,
             trackAvailabilityResolver: trackAvailabilityResolver,
-            lyricsService: lyricsService
+            lyricsService: lyricsService,
+            hiddenMediaStore: hiddenMediaStore
         )
     }
 
@@ -61,54 +73,93 @@ public extension DependencyContainer {
     }
 
     @MainActor
-    func makeArtistDetailViewModel(artist: Artist) -> ArtistDetailViewModel {
+    func makeArtistDetailViewModel(artist: Artist, includesHidden: Bool = false) -> ArtistDetailViewModel {
         ArtistDetailViewModel(
             artist: artist,
             libraryRepository: libraryRepository,
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            hiddenMediaStore: hiddenMediaStore,
+            includesHidden: includesHidden
         )
     }
 
     @MainActor
-    func makeMergedArtistDetailViewModel(displayArtist: DisplayArtist) -> MergedArtistDetailViewModel {
+    func makeMergedArtistDetailViewModel(
+        displayArtist: DisplayArtist,
+        includesHidden: Bool = false
+    ) -> MergedArtistDetailViewModel {
         MergedArtistDetailViewModel(
             displayArtist: displayArtist,
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
-            accountManager: accountManager
+            accountManager: accountManager,
+            hiddenMediaStore: hiddenMediaStore,
+            includesHidden: includesHidden
         )
     }
 
     @MainActor
-    func makeAlbumDetailViewModel(album: Album, initialTracks: [Track]? = nil) -> AlbumDetailViewModel {
+    func makeAlbumDetailViewModel(
+        displayAlbum: DisplayAlbum,
+        initialTracks: [Track]? = nil,
+        includesHidden: Bool = false
+    ) -> AlbumDetailViewModel {
         AlbumDetailViewModel(
-            album: album,
+            displayAlbum: displayAlbum,
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
-            initialTracks: initialTracks
+            initialTracks: initialTracks,
+            hiddenMediaStore: hiddenMediaStore,
+            settingsManager: settingsManager,
+            includesHidden: includesHidden
         )
     }
 
     @MainActor
-    func makePlaylistViewModel() -> PlaylistViewModel {
+    func makeAlbumDetailViewModel(
+        album: Album,
+        initialTracks: [Track]? = nil,
+        includesHidden: Bool = false
+    ) -> AlbumDetailViewModel {
+        makeAlbumDetailViewModel(
+            displayAlbum: .single(album),
+            initialTracks: initialTracks,
+            includesHidden: includesHidden
+        )
+    }
+
+    @MainActor
+    func makePlaylistViewModel(observesExternalChanges: Bool = true) -> PlaylistViewModel {
         PlaylistViewModel(
             playlistRepository: playlistRepository,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator,
             toastCenter: toastCenter,
-            accountManager: accountManager
+            accountManager: accountManager,
+            visibilityStore: libraryVisibilityStore,
+            hiddenMediaStore: hiddenMediaStore,
+            observesExternalChanges: observesExternalChanges
         )
     }
 
     @MainActor
-    func makePlaylistDetailViewModel(playlist: Playlist, initialTracks: [Track]? = nil) -> PlaylistDetailViewModel {
+    func makePlaylistDetailViewModel(
+        playlist: Playlist,
+        initialTracks: [Track]? = nil,
+        initialItems: [PlaylistItem]? = nil,
+        observesExternalChanges: Bool = true,
+        includesHidden: Bool = false
+    ) -> PlaylistDetailViewModel {
         PlaylistDetailViewModel(
             playlist: playlist,
             playlistRepository: playlistRepository,
-            libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator,
-            initialTracks: initialTracks
+            initialTracks: initialTracks,
+            initialItems: initialItems,
+            observesExternalChanges: observesExternalChanges,
+            hiddenMediaStore: hiddenMediaStore,
+            includesHidden: includesHidden
         )
     }
 
@@ -117,7 +168,6 @@ public extension DependencyContainer {
         MergedPlaylistDetailViewModel(
             displayPlaylist: displayPlaylist,
             playlistRepository: playlistRepository,
-            accountManager: accountManager,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator
         )
@@ -131,7 +181,8 @@ public extension DependencyContainer {
             hubRepository: hubRepository,
             moodRepository: moodRepository,
             accountManager: accountManager,
-            visibilityStore: libraryVisibilityStore
+            visibilityStore: libraryVisibilityStore,
+            hiddenMediaStore: hiddenMediaStore
         )
     }
 
@@ -157,7 +208,6 @@ public extension DependencyContainer {
             sourceCompositeKey: sourceCompositeKey,
             title: title,
             downloadManager: downloadManager,
-            libraryRepository: libraryRepository,
             offlineDownloadService: offlineDownloadService
         )
     }
@@ -202,13 +252,20 @@ public extension DependencyContainer {
             accountDiscoveryService: accountDiscoveryService,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator,
-            webSocketCoordinator: webSocketCoordinator
+            webSocketCoordinator: webSocketCoordinator,
+            libraryRepository: libraryRepository
         )
     }
 
     @MainActor
     func makeFavoritesViewModel() -> FavoritesViewModel {
-        FavoritesViewModel(libraryRepository: libraryRepository)
+        FavoritesViewModel(
+            libraryRepository: libraryRepository,
+            accountManager: accountManager,
+            visibilityStore: libraryVisibilityStore,
+            hiddenMediaStore: hiddenMediaStore,
+            settingsManager: settingsManager
+        )
     }
 
     @MainActor
@@ -217,7 +274,10 @@ public extension DependencyContainer {
             pinManager: pinManager,
             pinMutationWorkflow: pinMutationWorkflow,
             libraryRepository: libraryRepository,
-            playlistRepository: playlistRepository
+            playlistRepository: playlistRepository,
+            accountManager: accountManager,
+            visibilityStore: libraryVisibilityStore,
+            hiddenMediaStore: hiddenMediaStore
         )
     }
 
@@ -241,6 +301,7 @@ public extension DependencyContainer {
             playlistRepository: playlistRepository,
             hubOrderManager: hubOrderManager,
             visibilityStore: libraryVisibilityStore,
+            hiddenMediaStore: hiddenMediaStore,
             appReadinessCoordinator: appReadinessCoordinator
         )
     }

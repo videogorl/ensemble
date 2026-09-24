@@ -4,7 +4,7 @@ extension PlexAPIClient {
     // MARK: - Playback URLs
 
     /// Generate streaming URL for a track using its stream key.
-    public func getStreamURL(trackKey: String?) throws -> URL {
+    public func getStreamURL(trackKey: String?, download: Bool = false) throws -> URL {
         guard let partKey = trackKey, !partKey.isEmpty else {
             EnsembleLogger.debug("❌ PlexAPIClient: trackKey is nil or empty")
             throw PlexAPIError.invalidURL
@@ -24,6 +24,8 @@ extension PlexAPIClient {
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
 
+        if download { components.queryItems?.append(URLQueryItem(name: "download", value: "1")) }
+
         guard let url = components.url else {
             EnsembleLogger.debug("❌ PlexAPIClient: Failed to construct final URL")
             EnsembleLogger.debug("❌ PlexAPIClient: Components - path: \(components.path), host: \(components.host ?? "nil")")
@@ -31,162 +33,6 @@ extension PlexAPIClient {
         }
 
         EnsembleLogger.debug("✅ PlexAPIClient: Successfully created stream URL: \(url)")
-        return url
-    }
-
-    /// Generate transcode streaming URL using Plex's universal transcode endpoint.
-    /// Accepts a rating key (e.g. "8257") or a full library path (e.g. "/library/metadata/8257").
-    public func getTranscodeStreamURL(trackKey: String, quality: StreamingQuality) async throws -> URL {
-        try await getTranscodeStreamURL(
-            trackKey: trackKey,
-            quality: quality,
-            useAbsolutePathParameter: false,
-            useAudioEndpoint: false,
-            useStartWithoutExtension: false
-        )
-    }
-
-    /// Generate a transcode URL with endpoint and path-shape fallbacks.
-    public func getTranscodeStreamURL(
-        trackKey: String,
-        quality: StreamingQuality,
-        useAbsolutePathParameter: Bool,
-        useAudioEndpoint: Bool,
-        useStartWithoutExtension: Bool
-    ) async throws -> URL {
-        EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL: \(trackKey) [quality: \(quality.rawValue)]")
-
-        guard var components = URLComponents(string: currentServerURL) else {
-            throw PlexAPIError.invalidURL
-        }
-
-        components.path = transcodeStartPath(
-            useAudioEndpoint: useAudioEndpoint,
-            useStartWithoutExtension: useStartWithoutExtension
-        )
-
-        let bitrate: String
-        switch quality {
-        case .original:
-            bitrate = "320"
-        case .high:
-            bitrate = "320"
-        case .medium:
-            bitrate = "192"
-        case .low:
-            bitrate = "128"
-        }
-
-        let normalizedPath: String
-        if trackKey.hasPrefix("/library/") {
-            normalizedPath = trackKey
-        } else if trackKey.allSatisfy({ $0.isNumber }) {
-            normalizedPath = "/library/metadata/\(trackKey)"
-        } else if trackKey.hasPrefix("/") {
-            normalizedPath = trackKey
-        } else {
-            normalizedPath = "/\(trackKey)"
-        }
-
-        let transcodePath: String
-        if useAbsolutePathParameter {
-            guard let baseURL = URL(string: currentServerURL),
-                  let absolutePathURL = URL(string: normalizedPath, relativeTo: baseURL)?.absoluteURL else {
-                throw PlexAPIError.invalidURL
-            }
-            transcodePath = absolutePathURL.absoluteString
-        } else {
-            transcodePath = normalizedPath
-        }
-
-        let sessionId = UUID().uuidString
-        var queryItems = [
-            URLQueryItem(name: "protocol", value: "http"),
-            URLQueryItem(name: "path", value: transcodePath),
-            URLQueryItem(name: "mediaIndex", value: "0"),
-            URLQueryItem(name: "partIndex", value: "0"),
-            URLQueryItem(name: "musicBitrate", value: bitrate),
-            URLQueryItem(name: "audioBitrate", value: bitrate),
-            URLQueryItem(name: "audioCodec", value: "aac"),
-            URLQueryItem(name: "offset", value: "0"),
-            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
-            URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
-        ]
-        queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: sessionId))
-        queryItems.removeAll { $0.name == "directPlay" }
-        queryItems.removeAll { $0.name == "directStream" }
-        queryItems.removeAll { $0.name == "directStreamAudio" }
-        queryItems.append(URLQueryItem(name: "directPlay", value: "0"))
-        queryItems.append(URLQueryItem(name: "directStream", value: "0"))
-        queryItems.append(URLQueryItem(name: "directStreamAudio", value: "0"))
-        components.queryItems = queryItems
-
-        guard let url = components.url else {
-            throw PlexAPIError.invalidURL
-        }
-
-        EnsembleLogger.debug("🎵 PlexAPIClient.getTranscodeStreamURL normalized path: \(normalizedPath)")
-        EnsembleLogger.debug("✅ Created transcode stream URL: \(url)")
-
-        return url
-    }
-
-    /// Generate a transcode URL with optional absolute-path parameter fallback.
-    /// Some PMS builds reject relative `/library/...` path values for transcode requests.
-    public func getTranscodeStreamURL(
-        trackKey: String,
-        quality: StreamingQuality,
-        useAbsolutePathParameter: Bool
-    ) async throws -> URL {
-        try await getTranscodeStreamURL(
-            trackKey: trackKey,
-            quality: quality,
-            useAbsolutePathParameter: useAbsolutePathParameter,
-            useAudioEndpoint: false,
-            useStartWithoutExtension: false
-        )
-    }
-
-    /// Get a universal stream URL for a track.
-    /// Delegates to the ratingKey overload which handles the decision endpoint call.
-    public func getUniversalStreamURL(
-        for track: PlexTrack,
-        quality: StreamingQuality = .original,
-        sessionId: String? = nil
-    ) async throws -> URL {
-        EnsembleLogger.debug("🎵 PlexAPIClient.getUniversalStreamURL: \(track.title) [quality: \(quality.rawValue)]")
-        return try await getUniversalStreamURL(
-            ratingKey: track.ratingKey,
-            quality: quality,
-            sessionId: sessionId
-        )
-    }
-
-    /// Get a universal stream URL for a track, warming up the transcode session first.
-    /// The decision endpoint MUST be called before start.mp3 or PMS returns 400.
-    public func getUniversalStreamURL(
-        ratingKey: String,
-        quality: StreamingQuality = .original,
-        sessionId: String? = nil
-    ) async throws -> URL {
-        EnsembleLogger.debug("🎵 PlexAPIClient.getUniversalStreamURL(ratingKey): \(ratingKey) [quality: \(quality.rawValue)]")
-
-        let resolvedSessionId = sessionId ?? UUID().uuidString
-        let queryItems = buildUniversalStreamQueryItems(
-            ratingKey: ratingKey,
-            quality: quality,
-            sessionId: resolvedSessionId
-        )
-
-        try await callTranscodeDecision(queryItems: queryItems)
-
-        let url = try buildTranscodeURL(
-            path: "/music/:/transcode/universal/start.mp3",
-            queryItems: queryItems
-        )
-
-        EnsembleLogger.debug("✅ Created universal stream URL")
-
         return url
     }
 
@@ -215,11 +61,17 @@ extension PlexAPIClient {
         ratingKey: String,
         trackStreamKey: String?,
         quality: StreamingQuality,
-        metadataDurationSeconds: Double?
+        metadataDurationSeconds: Double?,
+        startTime: TimeInterval = 0
     ) async throws -> StreamDecision {
-        if quality == .original, let streamKey = trackStreamKey, !streamKey.isEmpty {
-            EnsembleLogger.debug("[makeStreamDecision] original quality → directStream(partKey)")
-            return .directStream(partKey: streamKey)
+        let normalizedStartTime = Self.normalizedTranscodeOffset(startTime)
+        if normalizedStartTime == 0, quality == .original, let streamKey = trackStreamKey, !streamKey.isEmpty {
+            if let track = try? await getTrack(trackKey: ratingKey),
+               PlexAudioFormatSupport.supportsIncrementalPlayback(track) {
+                EnsembleLogger.debug("[makeStreamDecision] compatible original → directStream(partKey)")
+                return .directStream(partKey: streamKey)
+            }
+            EnsembleLogger.debug("[makeStreamDecision] original requires PMS capability decision")
         }
 
         if let streamKey = trackStreamKey, !streamKey.isEmpty {
@@ -227,18 +79,20 @@ extension PlexAPIClient {
             let queryItems = buildUniversalStreamQueryItems(
                 ratingKey: ratingKey,
                 quality: quality,
-                sessionId: sessionId
+                sessionId: sessionId,
+                startTime: normalizedStartTime
             )
 
             let decision = try await callTranscodeDecision(queryItems: queryItems)
 
             switch decision.decision {
-            case .directplay, .copy:
+            case .directplay where normalizedStartTime == 0,
+                 .copy where normalizedStartTime == 0:
                 let partKey = decision.directStreamPartKey ?? streamKey
                 EnsembleLogger.debug("[makeStreamDecision] decision=\(decision.decision.rawValue) → directStream(partKey)")
                 return .directStream(partKey: partKey)
 
-            case .transcode, .unknown:
+            case .directplay, .copy, .transcode, .unknown:
                 let estimated = estimateTranscodeSize(quality: quality, durationSeconds: metadataDurationSeconds)
                 EnsembleLogger.debug("[makeStreamDecision] decision=\(decision.decision.rawValue) → progressiveTranscode")
                 return .progressiveTranscode(TranscodeStreamDecision(
@@ -246,7 +100,8 @@ extension PlexAPIClient {
                     queryItems: queryItems,
                     ratingKey: ratingKey,
                     estimatedContentLength: estimated,
-                    metadataDuration: metadataDurationSeconds
+                    metadataDuration: metadataDurationSeconds,
+                    startTime: normalizedStartTime
                 ))
             }
         }
@@ -255,7 +110,8 @@ extension PlexAPIClient {
         let queryItems = buildUniversalStreamQueryItems(
             ratingKey: ratingKey,
             quality: quality,
-            sessionId: sessionId
+            sessionId: sessionId,
+            startTime: normalizedStartTime
         )
         try await callTranscodeDecision(queryItems: queryItems)
         let estimated = estimateTranscodeSize(quality: quality, durationSeconds: metadataDurationSeconds)
@@ -265,19 +121,14 @@ extension PlexAPIClient {
             queryItems: queryItems,
             ratingKey: ratingKey,
             estimatedContentLength: estimated,
-            metadataDuration: metadataDurationSeconds
+            metadataDuration: metadataDurationSeconds,
+            startTime: normalizedStartTime
         ))
     }
 
     /// Phase 2: Assemble a `StreamResolution` from a `StreamDecision` using the current server endpoint.
     public func assembleStreamResolution(from decision: StreamDecision) async throws -> StreamResolution {
-        if let registry = connectionRegistry, let key = serverKey,
-           let freshURL = await registry.currentURL(for: key) {
-            if freshURL != currentServerURL {
-                EnsembleLogger.debug("[assembleStream] Endpoint synced from registry: \(currentServerURL) → \(freshURL)")
-                currentServerURL = freshURL
-            }
-        }
+        await syncCurrentEndpointFromRegistryIfNeeded(reason: "stream assembly")
 
         switch decision {
         case .directStream(let partKey):
@@ -290,14 +141,15 @@ extension PlexAPIClient {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            addPlexHeaders(to: &request, token: serverConnection.token)
+            requestHeaderContext.apply(to: &request, token: serverConnection.token)
             request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
 
             let config = ProgressiveStreamConfig(
                 streamRequest: request,
                 ratingKey: transcode.ratingKey,
                 estimatedContentLength: transcode.estimatedContentLength,
-                metadataDuration: transcode.metadataDuration
+                metadataDuration: transcode.metadataDuration,
+                startTime: transcode.startTime
             )
             EnsembleLogger.debug("[assembleStream] progressiveTranscode → \(url)")
             return .progressiveTranscode(config)
@@ -310,13 +162,15 @@ extension PlexAPIClient {
     func buildUniversalStreamQueryItems(
         ratingKey: String,
         quality: StreamingQuality,
-        sessionId: String
+        sessionId: String,
+        startTime: TimeInterval = 0
     ) -> [URLQueryItem] {
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "path", value: "/library/metadata/\(ratingKey)"),
             URLQueryItem(name: "protocol", value: "http"),
             URLQueryItem(name: "mediaIndex", value: "0"),
             URLQueryItem(name: "partIndex", value: "0"),
+            URLQueryItem(name: "offset", value: Self.transcodeOffsetValue(startTime)),
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
@@ -339,34 +193,13 @@ extension PlexAPIClient {
         return queryItems
     }
 
-    /// Build a URLRequest for the start.mp3 transcode endpoint with Plex headers.
-    func buildProgressiveStreamConfig(
-        ratingKey: String,
-        quality: StreamingQuality,
-        queryItems: [URLQueryItem],
-        metadataDuration metadataDurationSeconds: Double?
-    ) throws -> ProgressiveStreamConfig {
-        let url = try buildTranscodeURL(
-            path: "/music/:/transcode/universal/start.mp3",
-            queryItems: queryItems
-        )
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        addPlexHeaders(to: &request, token: serverConnection.token)
-        request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
+    static func normalizedTranscodeOffset(_ startTime: TimeInterval) -> TimeInterval {
+        guard startTime.isFinite, startTime > 0 else { return 0 }
+        return floor(startTime)
+    }
 
-        let estimatedLength = estimateTranscodeSize(
-            quality: quality,
-            durationSeconds: metadataDurationSeconds
-        )
-
-        return ProgressiveStreamConfig(
-            streamRequest: request,
-            ratingKey: ratingKey,
-            estimatedContentLength: estimatedLength,
-            metadataDuration: metadataDurationSeconds
-        )
+    static func transcodeOffsetValue(_ startTime: TimeInterval) -> String {
+        String(Int(normalizedTranscodeOffset(startTime)))
     }
 
     /// Estimate the download size of a transcode based on quality bitrate and duration.
@@ -385,36 +218,54 @@ extension PlexAPIClient {
     /// Call the transcode decision endpoint to warm up the session and parse PMS's decision.
     @discardableResult
     func callTranscodeDecision(queryItems: [URLQueryItem]) async throws -> TranscodeDecisionResult {
-        let url = try buildTranscodeURL(
-            path: "/music/:/transcode/universal/decision",
-            queryItems: queryItems
-        )
+        await syncCurrentEndpointFromRegistryIfNeeded(reason: "transcode decision")
 
-        EnsembleLogger.debug("🔄 Calling transcode decision endpoint")
+        var didRetry = false
+        while true {
+            let url = try buildTranscodeURL(
+                path: "/music/:/transcode/universal/decision",
+                queryItems: queryItems
+            )
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        addPlexHeaders(to: &request, token: serverConnection.token)
-        request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
+            EnsembleLogger.debug("🔄 Calling transcode decision endpoint")
 
-        let (data, response) = try await session.data(for: request)
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            requestHeaderContext.apply(to: &request, token: serverConnection.token)
+            request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw PlexAPIError.invalidResponse
+            do {
+                let (data, response) = try await session.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw PlexAPIError.invalidResponse
+                }
+
+                guard httpResponse.statusCode == 200 else {
+                    EnsembleLogger.debug("⚠️ Transcode decision returned \(httpResponse.statusCode)")
+                    throw PlexAPIError.httpError(statusCode: httpResponse.statusCode)
+                }
+
+                let result = parseTranscodeDecision(from: data)
+                EnsembleLogger.debug("✅ Transcode decision completed: \(result.decision.rawValue), partKey: \(result.directStreamPartKey ?? "nil")")
+                return result
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                guard !didRetry,
+                      !serverConnection.alternativeURLs.isEmpty,
+                      shouldAttemptFailover(after: error) else {
+                    throw error
+                }
+
+                didRetry = true
+                let failedURL = currentServerURL
+                await recordCurrentEndpointFailure(error)
+                EnsembleLogger.debug("⚠️ Transcode decision failed with current endpoint, attempting failover...")
+                _ = try await attemptFailover(excluding: failedURL)
+            }
         }
-
-        guard httpResponse.statusCode == 200 else {
-            EnsembleLogger.debug("⚠️ Transcode decision returned \(httpResponse.statusCode)")
-            throw PlexAPIError.httpError(statusCode: httpResponse.statusCode)
-        }
-
-        let result = parseTranscodeDecision(from: data)
-
-        EnsembleLogger.debug("✅ Transcode decision completed: \(result.decision.rawValue), partKey: \(result.directStreamPartKey ?? "nil")")
-
-        return result
     }
 
     /// Parse the transcode decision JSON into a structured result.
@@ -469,22 +320,11 @@ extension PlexAPIClient {
     }
 
     func transcodeClientProfileExtra() -> String {
-        [
+        let directPlay = PlexAudioFormatSupport.directPlayCodecs.map {
+            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=\($0))"
+        }
+        return ([
             "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=mp3)",
-            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=aac)",
-            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=mp3)",
-            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=flac)",
-            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=alac)",
-        ].joined(separator: "+")
+        ] + directPlay).joined(separator: "+")
     }
-
-    func transcodeStartPath(
-        useAudioEndpoint: Bool,
-        useStartWithoutExtension: Bool
-    ) -> String {
-        let transcodeType = useAudioEndpoint ? "audio" : "music"
-        let startComponent = useStartWithoutExtension ? "start" : "start.mp3"
-        return "/\(transcodeType)/:/transcode/universal/\(startComponent)"
-    }
-
 }

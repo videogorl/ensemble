@@ -39,9 +39,12 @@ final class RefreshOrchestrator {
     private let postRatingFavoritesDebounceNanoseconds: UInt64
     private var lastHealthRefreshAt: Date?
     private var activeHealthRefreshTask: Task<Void, Never>?
+    private var activeHealthRefreshRequest: HealthRefreshRequest?
+    private var trailingHealthRefreshTask: Task<Void, Never>?
+    private var trailingHealthRefreshRequest: HealthRefreshRequest?
     private var startupHealthChecksInitiated = false
-    private var postRatingPlaylistSyncTasks: [String: Task<Void, Never>] = [:]
-    private var postRatingFavoritesReconciliationTask: Task<Void, Never>?
+    private let postRatingPlaylistSyncTasks = DebouncedTaskRegistry<String>()
+    private let postRatingFavoritesReconciliationTasks = DebouncedTaskRegistry<String>()
 
     init(
         healthRefreshCooldown: TimeInterval = 30,
@@ -73,13 +76,12 @@ final class RefreshOrchestrator {
         runRefresh: @escaping @MainActor () async -> Void,
         didComplete: @escaping CompletionHandler
     ) async -> Bool {
-        guard beginStartupHealthChecksIfNeeded() else {
-            if let activeHealthRefreshTask {
-                EnsembleLogger.debug("🌐 RefreshOrchestrator: Awaiting in-flight startup health checks")
-                await activeHealthRefreshTask.value
-            }
+        if activeHealthRefreshTask != nil {
+            EnsembleLogger.debug("🌐 RefreshOrchestrator: Awaiting in-flight health refresh before startup")
+            await waitForActiveHealthRefresh()
             return false
         }
+        guard beginStartupHealthChecksIfNeeded() else { return false }
 
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -104,13 +106,38 @@ final class RefreshOrchestrator {
         request: HealthRefreshRequest,
         now: @escaping () -> Date,
         shouldDeferForegroundHealthRefresh: (() -> Bool)?,
-        eligibleServerKeysProvider: () -> Set<String>,
+        eligibleServerKeysProvider: @escaping () -> Set<String>,
         runRefresh: @escaping RefreshRunner,
-        didComplete: @escaping CompletionHandler
+        didComplete: @escaping CompletionHandler,
+        bypassCooldown: Bool = false
     ) -> Bool {
-        if activeHealthRefreshTask != nil {
-            EnsembleLogger.debug("🌐 RefreshOrchestrator: Coalescing health refresh request (\(request.reason.description))")
-            return false
+        if let activeHealthRefreshTask {
+            guard request.forceServerRefresh,
+                  trailingHealthRefreshRequest != request,
+                  request.reason == .accountInventoryRefresh || activeHealthRefreshRequest != request else {
+                EnsembleLogger.debug("🌐 RefreshOrchestrator: Coalescing health refresh request (\(request.reason.description))")
+                return false
+            }
+
+            trailingHealthRefreshTask?.cancel()
+            trailingHealthRefreshRequest = request
+            trailingHealthRefreshTask = Task { @MainActor [weak self] in
+                await activeHealthRefreshTask.value
+                guard !Task.isCancelled, let self else { return }
+                self.trailingHealthRefreshTask = nil
+                self.trailingHealthRefreshRequest = nil
+                self.scheduleHealthRefresh(
+                    request: request,
+                    now: now,
+                    shouldDeferForegroundHealthRefresh: shouldDeferForegroundHealthRefresh,
+                    eligibleServerKeysProvider: eligibleServerKeysProvider,
+                    runRefresh: runRefresh,
+                    didComplete: didComplete,
+                    bypassCooldown: true
+                )
+            }
+            EnsembleLogger.debug("🌐 RefreshOrchestrator: Queued trailing health refresh request (\(request.reason.description))")
+            return true
         }
 
         let currentTime = now()
@@ -134,7 +161,8 @@ final class RefreshOrchestrator {
             return false
         }
 
-        if shouldHonorCooldown(for: request.reason),
+        if !bypassCooldown,
+           shouldHonorCooldown(for: request.reason),
            let lastRefresh = lastHealthRefreshAt,
            currentTime.timeIntervalSince(lastRefresh) < healthRefreshCooldown {
             EnsembleLogger.debug(
@@ -150,12 +178,14 @@ final class RefreshOrchestrator {
         }
 
         let startedAt = now()
+        activeHealthRefreshRequest = request
         activeHealthRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
             defer {
                 let completionTime = now()
                 self.lastHealthRefreshAt = completionTime
+                self.activeHealthRefreshRequest = nil
                 self.activeHealthRefreshTask = nil
                 didComplete(completionTime)
             }
@@ -166,55 +196,47 @@ final class RefreshOrchestrator {
         return true
     }
 
-    func markHealthRefreshCompleted(at date: Date) {
-        lastHealthRefreshAt = date
-    }
-
     func schedulePostRatingPlaylistSync(
         serverSourceKey: String,
         action: @escaping @MainActor (String) async -> Void
     ) {
-        let debounceDelay = postRatingPlaylistDebounceNanoseconds
-        postRatingPlaylistSyncTasks[serverSourceKey]?.cancel()
-        postRatingPlaylistSyncTasks[serverSourceKey] = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: debounceDelay)
-            guard !Task.isCancelled, let self else { return }
-
+        postRatingPlaylistSyncTasks.schedule(
+            key: serverSourceKey,
+            delayNanoseconds: postRatingPlaylistDebounceNanoseconds
+        ) {
             EnsembleLogger.debug("🔄 RefreshOrchestrator: Post-rating playlist sync for \(serverSourceKey)")
             await action(serverSourceKey)
-            self.postRatingPlaylistSyncTasks.removeValue(forKey: serverSourceKey)
         }
     }
 
     func schedulePostRatingFavoritesReconciliation(
         action: @escaping @MainActor () async -> Void
     ) {
-        let debounceDelay = postRatingFavoritesDebounceNanoseconds
-        postRatingFavoritesReconciliationTask?.cancel()
-        postRatingFavoritesReconciliationTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: debounceDelay)
-            guard !Task.isCancelled, let self else { return }
-
+        postRatingFavoritesReconciliationTasks.schedule(
+            key: "favorites",
+            delayNanoseconds: postRatingFavoritesDebounceNanoseconds
+        ) {
             EnsembleLogger.debug("🔄 RefreshOrchestrator: Post-rating favorites reconciliation")
             await action()
-            self.postRatingFavoritesReconciliationTask = nil
         }
     }
 
     internal func awaitHealthRefreshForTesting() async {
-        await activeHealthRefreshTask?.value
+        await waitForActiveHealthRefresh()
+    }
+
+    var hasScheduledHealthRefresh: Bool {
+        activeHealthRefreshTask != nil || trailingHealthRefreshTask != nil
+    }
+
+    func waitForActiveHealthRefresh() async {
+        while let healthRefreshTask = trailingHealthRefreshTask ?? activeHealthRefreshTask {
+            await healthRefreshTask.value
+        }
     }
 
     internal func setLastHealthRefreshForTesting(_ date: Date?) {
         lastHealthRefreshAt = date
-    }
-
-    internal func awaitPostRatingPlaylistSyncForTesting(serverSourceKey: String) async {
-        await postRatingPlaylistSyncTasks[serverSourceKey]?.value
-    }
-
-    internal func awaitPostRatingFavoritesReconciliationForTesting() async {
-        await postRatingFavoritesReconciliationTask?.value
     }
 
     private func shouldHonorCooldown(for reason: HealthRefreshReason) -> Bool {

@@ -17,6 +17,16 @@ final class MediaFormattersTests: XCTestCase {
         XCTAssertEqual(MediaFormatters.collectionDuration(3661), "1 hr 1 min")
     }
 
+    func testTrackCollectionDurationFormatsSummedTrackDurations() {
+        let tracks = [
+            Track(id: "track-1", key: "/tracks/1", title: "One", duration: 120),
+            Track(id: "track-2", key: "/tracks/2", title: "Two", duration: 3480),
+            Track(id: "track-3", key: "/tracks/3", title: "Three", duration: 61)
+        ]
+
+        XCTAssertEqual(MediaFormatters.trackCollectionDuration(tracks), "1 hr 1 min")
+    }
+
     func testDomainModelsDelegateFormattedDurationsToSharedFormatter() {
         let track = Track(id: "track-1", key: "/tracks/1", title: "Track", duration: 185)
         let playlist = Playlist(id: "playlist-1", key: "/playlists/1", title: "Playlist", duration: 3661)
@@ -39,8 +49,36 @@ final class MediaFormattersTests: XCTestCase {
         XCTAssertTrue(value.localizedCaseInsensitiveContains("MB"))
     }
 
+    func testQualitySizeEstimateOriginalDoesNotPrefixZero() {
+        let emptyEstimate = QualitySizeEstimates(
+            actualBytes: 0,
+            highBytes: 0,
+            mediumBytes: 0,
+            lowBytes: 0
+        )
+        XCTAssertEqual(emptyEstimate.formattedSize(for: "original"), "Zero KB")
+
+        let nonEmptyEstimate = QualitySizeEstimates(
+            actualBytes: 0,
+            highBytes: 1_048_576,
+            mediumBytes: 786_432,
+            lowBytes: 524_288
+        )
+        XCTAssertEqual(nonEmptyEstimate.formattedSize(for: "original"), "> 1 MB")
+    }
+
     func testSpecializedByteFormattersKeepExpectedUnits() {
         XCTAssertFalse(MediaFormatters.fileBytes(512).isEmpty)
         XCTAssertTrue(MediaFormatters.logBytes(1_024).localizedCaseInsensitiveContains("KB"))
+    }
+
+    func testAudioMetadataFormattersMatchDisplayStyle() {
+        XCTAssertEqual(MediaFormatters.sampleRate(44_100), "44.1 kHz")
+        XCTAssertEqual(MediaFormatters.sampleRate(96_000), "96 kHz")
+
+        XCTAssertEqual(MediaFormatters.codecName("flac"), "FLAC")
+        XCTAssertEqual(MediaFormatters.codecName("PCM"), "WAV")
+        XCTAssertEqual(MediaFormatters.codecName("opus"), "Opus")
+        XCTAssertEqual(MediaFormatters.codecName("custom"), "CUSTOM")
     }
 }

@@ -35,7 +35,7 @@ public final class CoreDataStack: @unchecked Sendable {
         viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
         // Allow objects to remain cached for a short window before refetching.
         // automaticallyMergesChangesFromParent handles background sync freshness,
-        // and refreshContext() forces a full refetch before library loads.
+        // and refreshContext() drains pending merges before library loads.
         viewContext.stalenessInterval = 5.0
     }
 
@@ -97,15 +97,11 @@ public final class CoreDataStack: @unchecked Sendable {
         }
     }
 
-    /// Reset the view context so the next fetch reads the latest store data.
-    /// Call this after background sync operations to ensure UI sees updated data.
-    /// Uses reset() instead of refreshAllObjects() to avoid a crash when
-    /// background deletions leave a nil entry in the registered-objects set.
+    /// Drain pending view-context merges after background sync operations.
+    /// Do not reset a UI-owned context: visible views may still retain its objects.
     public func refreshViewContext() {
         viewContext.perform {
-            self.viewContext.stalenessInterval = 0
-            self.viewContext.reset()
-            self.viewContext.stalenessInterval = 5.0
+            self.viewContext.processPendingChanges()
         }
     }
 
@@ -163,6 +159,29 @@ public final class CoreDataStack: @unchecked Sendable {
             return false
         }
         guard trackEntity.propertiesByName["streamId"] != nil else {
+            return false
+        }
+        guard trackEntity.propertiesByName["isFavorite"] != nil else {
+            return false
+        }
+        guard trackEntity.propertiesByName["actionCapabilitiesData"] != nil,
+              model.entitiesByName["CDAlbum"]?.propertiesByName["actionCapabilitiesData"] != nil,
+              model.entitiesByName["CDArtist"]?.propertiesByName["actionCapabilitiesData"] != nil else {
+            return false
+        }
+        guard let playlistEntity = model.entitiesByName["CDPlaylist"],
+              playlistEntity.propertiesByName["canAddItems"] != nil,
+              playlistEntity.propertiesByName["fallbackArtworkPath"] != nil else {
+            return false
+        }
+        guard let hubEntity = model.entitiesByName["CDHub"],
+              hubEntity.propertiesByName["semanticKind"] != nil,
+              hubEntity.propertiesByName["sourceScopeSourceCompositeKey"] != nil else {
+            return false
+        }
+        guard let cursorEntity = model.entitiesByName["CDSyncCursor"],
+              cursorEntity.propertiesByName["scopeKey"] != nil,
+              cursorEntity.propertiesByName["scopeType"] != nil else {
             return false
         }
         return model.entitiesByName["CDHomeFeedSnapshot"]?.propertiesByName["hubs"] != nil

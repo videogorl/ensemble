@@ -1,0 +1,182 @@
+[
+  {
+    "bytes": "40579701",
+    "concurrency": "1",
+    "index": "0",
+    "path": "local-A",
+    "seconds": "13.65245807170868",
+    "sha256": "c2b2a165765a1484c47bfd8f5255a621f4b0df401d8c290fd7eb785e3cff1b4a",
+    "status": "200",
+    "variant": "resumable"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "2",
+    "index": "0",
+    "path": "local-A",
+    "seconds": "24.68306303024292",
+    "sha256": "c2b2a165765a1484c47bfd8f5255a621f4b0df401d8c290fd7eb785e3cff1b4a",
+    "status": "200",
+    "variant": "resumable"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "2",
+    "index": "1",
+    "path": "local-A",
+    "seconds": "26.817795991897583",
+    "sha256": "c2b2a165765a1484c47bfd8f5255a621f4b0df401d8c290fd7eb785e3cff1b4a",
+    "status": "200",
+    "variant": "resumable"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "1",
+    "index": "0",
+    "path": "local-A",
+    "seconds": "13.211030960083008",
+    "sha256": "",
+    "status": "200",
+    "variant": "bytes"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "2",
+    "index": "0",
+    "path": "local-A",
+    "seconds": "23.044013023376465",
+    "sha256": "",
+    "status": "200",
+    "variant": "bytes"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "2",
+    "index": "1",
+    "path": "local-A",
+    "seconds": "25.398584961891174",
+    "sha256": "",
+    "status": "200",
+    "variant": "bytes"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "1",
+    "index": "0",
+    "path": "local-A",
+    "seconds": "12.1720609664917",
+    "sha256": "c2b2a165765a1484c47bfd8f5255a621f4b0df401d8c290fd7eb785e3cff1b4a",
+    "status": "200",
+    "variant": "download"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "2",
+    "index": "1",
+    "path": "local-A",
+    "seconds": "24.78583002090454",
+    "sha256": "c2b2a165765a1484c47bfd8f5255a621f4b0df401d8c290fd7eb785e3cff1b4a",
+    "status": "200",
+    "variant": "download"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "2",
+    "index": "0",
+    "path": "local-A",
+    "seconds": "24.921588897705078",
+    "sha256": "c2b2a165765a1484c47bfd8f5255a621f4b0df401d8c290fd7eb785e3cff1b4a",
+    "status": "200",
+    "variant": "download"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "1",
+    "index": "0",
+    "path": "local-B",
+    "seconds": "2.4202189445495605",
+    "sha256": "c2b2a165765a1484c47bfd8f5255a621f4b0df401d8c290fd7eb785e3cff1b4a",
+    "status": "200",
+    "variant": "resumable"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "2",
+    "index": "1",
+    "path": "local-B",
+    "seconds": "3.4391369819641113",
+    "sha256": "c2b2a165765a1484c47bfd8f5255a621f4b0df401d8c290fd7eb785e3cff1b4a",
+    "status": "200",
+    "variant": "resumable"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "2",
+    "index": "0",
+    "path": "local-B",
+    "seconds": "3.4425159692764282",
+    "sha256": "c2b2a165765a1484c47bfd8f5255a621f4b0df401d8c290fd7eb785e3cff1b4a",
+    "status": "200",
+    "variant": "resumable"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "1",
+    "index": "0",
+    "path": "local-B",
+    "seconds": "0.8729020357131958",
+    "sha256": "",
+    "status": "200",
+    "variant": "bytes"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "2",
+    "index": "0",
+    "path": "local-B",
+    "seconds": "1.1793469190597534",
+    "sha256": "",
+    "status": "200",
+    "variant": "bytes"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "2",
+    "index": "1",
+    "path": "local-B",
+    "seconds": "1.180469036102295",
+    "sha256": "",
+    "status": "200",
+    "variant": "bytes"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "1",
+    "index": "0",
+    "path": "local-B",
+    "seconds": "0.6731979846954346",
+    "sha256": "c2b2a165765a1484c47bfd8f5255a621f4b0df401d8c290fd7eb785e3cff1b4a",
+    "status": "200",
+    "variant": "download"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "2",
+    "index": "0",
+    "path": "local-B",
+    "seconds": "1.28118896484375",
+    "sha256": "c2b2a165765a1484c47bfd8f5255a621f4b0df401d8c290fd7eb785e3cff1b4a",
+    "status": "200",
+    "variant": "download"
+  },
+  {
+    "bytes": "40579701",
+    "concurrency": "2",
+    "index": "1",
+    "path": "local-B",
+    "seconds": "1.2823030948638916",
+    "sha256": "c2b2a165765a1484c47bfd8f5255a621f4b0df401d8c290fd7eb785e3cff1b4a",
+    "status": "200",
+    "variant": "download"
+  }
+]

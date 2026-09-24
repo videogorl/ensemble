@@ -24,11 +24,45 @@ final class PlaylistDropResolverTests: XCTestCase {
             albums: [album],
             playlists: [target, sourcePlaylist],
             loadAlbumTracks: { _ in [trackTwo, trackOne] },
-            loadPlaylistTracks: { _ in [trackThree, trackTwo] }
+            loadPlaylistTracks: { playlist in
+                playlist.id == sourcePlaylist.id ? [trackThree, trackTwo] : []
+            }
         )
 
         XCTAssertEqual(resolution.targetPlaylist.id, target.id)
         XCTAssertEqual(resolution.tracks.map(\.id), ["track-1", "track-2", "track-3"])
+    }
+
+    func testExcludesCachedTargetTracksAndRejectsAnAllDuplicateDrop() async throws {
+        let target = makePlaylist(id: "target", title: "Road Trip")
+        let existingTrack = makeTrack(id: "existing")
+        let newTrack = makeTrack(id: "new")
+
+        let resolution = try await resolver.resolve(
+            references: [
+                .init(kind: .track, id: existingTrack.id, sourceKey: existingTrack.sourceCompositeKey, title: existingTrack.title),
+                .init(kind: .track, id: newTrack.id, sourceKey: newTrack.sourceCompositeKey, title: newTrack.title)
+            ],
+            target: makeTarget(target),
+            tracks: [existingTrack, newTrack],
+            albums: [],
+            playlists: [target],
+            loadAlbumTracks: { _ in [] },
+            loadPlaylistTracks: { _ in [existingTrack] }
+        )
+
+        XCTAssertEqual(resolution.tracks.map(\.id), [newTrack.id])
+
+        await assertDropError(
+            expected: .alreadyContainsSelection(playlistTitle: target.title),
+            references: [
+                .init(kind: .track, id: existingTrack.id, sourceKey: existingTrack.sourceCompositeKey, title: existingTrack.title)
+            ],
+            target: makeTarget(target),
+            tracks: [existingTrack],
+            playlists: [target],
+            loadPlaylistTracks: { _ in [existingTrack] }
+        )
     }
 
     func testRejectsMergedSmartAndUnresolvedTargets() async throws {
@@ -54,6 +88,69 @@ final class PlaylistDropResolverTests: XCTestCase {
         )
     }
 
+    func testMergedTargetsSelectACompatibleConstituentThatCanAcceptTheTrack() async throws {
+        let foreignTarget = makePlaylist(
+            id: "foreign",
+            title: "Road Trip",
+            sourceCompositeKey: "plex:account:server-a"
+        )
+        let duplicateTarget = makePlaylist(
+            id: "duplicate",
+            title: "Road Trip",
+            sourceCompositeKey: "plex:account:server-b"
+        )
+        let availableTarget = makePlaylist(
+            id: "available",
+            title: "Road Trip",
+            sourceCompositeKey: "plex:account:server-b"
+        )
+        let track = makeTrack(
+            id: "track",
+            sourceCompositeKey: "plex:account:server-b:library"
+        )
+        let reference = MediaDropItemReference(
+            kind: .track,
+            id: track.id,
+            sourceKey: track.sourceCompositeKey,
+            title: track.title
+        )
+
+        XCTAssertFalse(resolver.canAccept(
+            references: [reference],
+            target: makeTarget(foreignTarget),
+            existingTrackIDs: []
+        ))
+        XCTAssertFalse(resolver.canAccept(
+            references: [reference],
+            target: makeTarget(duplicateTarget),
+            existingTrackIDs: [track.id]
+        ))
+        XCTAssertTrue(resolver.canAccept(
+            references: [reference],
+            target: makeTarget(availableTarget),
+            existingTrackIDs: []
+        ))
+
+        let resolution = try await resolver.resolve(
+            references: [reference],
+            targets: [
+                makeTarget(foreignTarget),
+                makeTarget(duplicateTarget),
+                makeTarget(availableTarget)
+            ],
+            tracks: [track],
+            albums: [],
+            playlists: [foreignTarget, duplicateTarget, availableTarget],
+            loadAlbumTracks: { _ in [] },
+            loadPlaylistTracks: { playlist in
+                playlist.id == duplicateTarget.id ? [track] : []
+            }
+        )
+
+        XCTAssertEqual(resolution.targetPlaylist.id, availableTarget.id)
+        XCTAssertEqual(resolution.tracks.map(\.id), [track.id])
+    }
+
     func testRejectsCrossSourceTrackStrictly() async throws {
         let target = makePlaylist(id: "target", title: "Road Trip", sourceCompositeKey: "plex:account:server-a")
         let foreignTrack = makeTrack(
@@ -73,23 +170,18 @@ final class PlaylistDropResolverTests: XCTestCase {
         )
     }
 
-    func testUnknownTrackSourceIsStampedWithTargetServer() async throws {
+    func testRejectsUnknownTrackSource() async throws {
         let target = makePlaylist(id: "target", title: "Road Trip", sourceCompositeKey: "plex:account:server")
 
-        let resolution = try await resolver.resolve(
+        await assertDropError(
+            expected: .crossSource(itemTitle: "Unknown Source", playlistTitle: target.title),
             references: [
                 .init(kind: .track, id: "unknown-source", sourceKey: nil, title: "Unknown Source")
             ],
             target: makeTarget(target),
             tracks: [],
-            albums: [],
-            playlists: [target],
-            loadAlbumTracks: { _ in [] },
-            loadPlaylistTracks: { _ in [] }
+            playlists: [target]
         )
-
-        XCTAssertEqual(resolution.tracks.map(\.id), ["unknown-source"])
-        XCTAssertEqual(resolution.tracks.first?.sourceCompositeKey, "plex:account:server")
     }
 
     func testRejectsSmartSourcePlaylistAndEmptyExpansions() async throws {
@@ -132,6 +224,7 @@ final class PlaylistDropResolverTests: XCTestCase {
         tracks: [Track] = [],
         albums: [Album] = [],
         playlists: [Playlist],
+        loadPlaylistTracks: @escaping (Playlist) async -> [Track] = { _ in [] },
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
@@ -143,7 +236,7 @@ final class PlaylistDropResolverTests: XCTestCase {
                 albums: albums,
                 playlists: playlists,
                 loadAlbumTracks: { _ in [] },
-                loadPlaylistTracks: { _ in [] }
+                loadPlaylistTracks: loadPlaylistTracks
             )
             XCTFail("Expected \(expected)", file: file, line: line)
         } catch let error as PlaylistDropResolutionError {

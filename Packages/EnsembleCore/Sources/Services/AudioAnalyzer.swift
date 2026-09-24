@@ -205,7 +205,6 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     // MARK: - Configuration
 
     private let bandCount = 24
-    private let fftSize = 1024
     private let highTargetFPS: Double = 30.0
 
     // MARK: - Display State
@@ -774,7 +773,8 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                         guard let realBase = realPtr.baseAddress, let imagBase = imagPtr.baseAddress else { return }
                         var splitComplex = DSPSplitComplex(realp: realBase, imagp: imagBase)
                         windowedSamples.withUnsafeBufferPointer { bufferPtr in
-                            bufferPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
+                            guard let sampleBase = bufferPtr.baseAddress else { return }
+                            sampleBase.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
                                 vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
                             }
                         }

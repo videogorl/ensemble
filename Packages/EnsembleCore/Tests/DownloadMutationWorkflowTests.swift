@@ -5,6 +5,21 @@ import XCTest
 final class DownloadMutationWorkflowTests: XCTestCase {
     private final class StubMutator: DownloadMutationWorkflowMutating {
         private(set) var calls: [String] = []
+        var downloadedAlbums: Set<String> = []
+        var downloadedArtists: Set<String> = []
+        var downloadedPlaylists: Set<String> = []
+
+        func isAlbumDownloadEnabled(_ album: Album) -> Bool {
+            downloadedAlbums.contains(album.id)
+        }
+
+        func isArtistDownloadEnabled(_ artist: Artist) -> Bool {
+            downloadedArtists.contains(artist.id)
+        }
+
+        func isPlaylistDownloadEnabled(_ playlist: Playlist) -> Bool {
+            downloadedPlaylists.contains(playlist.id)
+        }
 
         func setFavoritesDownloadEnabled(isEnabled: Bool) async {
             calls.append("favorites:\(isEnabled)")
@@ -16,14 +31,17 @@ final class DownloadMutationWorkflowTests: XCTestCase {
 
         func setAlbumDownloadEnabled(_ album: Album, isEnabled: Bool) async {
             calls.append("album:\(album.id):\(isEnabled)")
+            if isEnabled { downloadedAlbums.insert(album.id) } else { downloadedAlbums.remove(album.id) }
         }
 
         func setArtistDownloadEnabled(_ artist: Artist, isEnabled: Bool) async {
             calls.append("artist:\(artist.id):\(isEnabled)")
+            if isEnabled { downloadedArtists.insert(artist.id) } else { downloadedArtists.remove(artist.id) }
         }
 
         func setPlaylistDownloadEnabled(_ playlist: Playlist, isEnabled: Bool) async {
             calls.append("playlist:\(playlist.id):\(isEnabled)")
+            if isEnabled { downloadedPlaylists.insert(playlist.id) } else { downloadedPlaylists.remove(playlist.id) }
         }
 
         func removeTarget(key: String) async {
@@ -70,8 +88,36 @@ final class DownloadMutationWorkflowTests: XCTestCase {
         ])
     }
 
-    private func makeAlbum() -> Album {
-        Album(id: "album-1", key: "/library/metadata/album-1", title: "Album")
+    func testBatchDownloadsFillMissingEligibleSourcesThenRemoveAll() async {
+        let stub = StubMutator()
+        let workflow = DownloadMutationWorkflow(mutator: stub)
+        let first = makeAlbum(id: "album-1", source: "plex:account:server:library-1")
+        let second = makeAlbum(id: "album-2", source: "plex:account:server:library-2")
+        let apple = makeAlbum(id: "apple-album", source: MusicSourceIdentifier.appleMusic.compositeKey)
+        stub.downloadedAlbums = [first.id]
+
+        XCTAssertEqual(
+            workflow.batchState(for: [first, second, apple]),
+            DownloadMutationBatchState(eligibleCount: 2, enabledCount: 1)
+        )
+
+        await workflow.toggleDownloads(for: [first, second, apple])
+        XCTAssertEqual(stub.calls, ["album:album-2:true"])
+        XCTAssertTrue(workflow.batchState(for: [first, second, apple]).isEnabled)
+
+        await workflow.toggleDownloads(for: [first, second, apple])
+        XCTAssertEqual(stub.calls, [
+            "album:album-2:true",
+            "album:album-1:false",
+            "album:album-2:false"
+        ])
+    }
+
+    private func makeAlbum(
+        id: String = "album-1",
+        source: String? = nil
+    ) -> Album {
+        Album(id: id, key: "/library/metadata/\(id)", title: "Album", sourceCompositeKey: source)
     }
 
     private func makeArtist() -> Artist {

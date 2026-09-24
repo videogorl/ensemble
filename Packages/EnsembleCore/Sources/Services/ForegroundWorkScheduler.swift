@@ -20,13 +20,14 @@ public enum ForegroundInteractionState: String, CaseIterable, Hashable, Sendable
     case navigating
     case nowPlayingInteractive
     case shareSheetPresenting
+    case streamingStarved
     case audioCritical
+    case downloadTransfer
 }
 
 public enum ForegroundWorkPolicy: Equatable, Sendable {
     case immediate
     case debounce(TimeInterval)
-    case serialize
     case idleOnly
     case playbackSafe
 }
@@ -39,7 +40,7 @@ public struct ForegroundWorkSchedulerConfiguration: Equatable, Sendable {
     public init(
         isConstrainedLegacyDevice: Bool,
         idleDelay: TimeInterval = 1.5,
-        pollingInterval: TimeInterval = 0.1
+        pollingInterval: TimeInterval = 0.5
     ) {
         self.isConstrainedLegacyDevice = isConstrainedLegacyDevice
         self.idleDelay = idleDelay
@@ -49,7 +50,11 @@ public struct ForegroundWorkSchedulerConfiguration: Equatable, Sendable {
     public static var live: Self {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         let constrainedMemory = ProcessInfo.processInfo.physicalMemory <= 2_500_000_000
-        return Self(isConstrainedLegacyDevice: constrainedMemory || os.majorVersion <= 15)
+        let isConstrainedLegacyDevice = constrainedMemory || os.majorVersion <= 15
+        return Self(
+            isConstrainedLegacyDevice: isConstrainedLegacyDevice,
+            idleDelay: isConstrainedLegacyDevice ? 15.0 : 1.5
+        )
     }
 }
 
@@ -63,27 +68,6 @@ public protocol ForegroundWorkScheduling: AnyObject, Sendable {
     func waitUntilAllowed(_ kind: ForegroundWorkKind, policy: ForegroundWorkPolicy) async -> Bool
 }
 
-private actor ForegroundWorkSerialExecutor {
-    private var runningKinds: Set<ForegroundWorkKind> = []
-
-    func waitForTurn(kind: ForegroundWorkKind) async -> Bool {
-        while runningKinds.contains(kind) {
-            do {
-                try await Task.sleep(nanoseconds: 100_000_000)
-            } catch {
-                return false
-            }
-            guard !Task.isCancelled else { return false }
-        }
-        runningKinds.insert(kind)
-        return true
-    }
-
-    func finish(kind: ForegroundWorkKind) {
-        runningKinds.remove(kind)
-    }
-}
-
 /// Gates nonessential foreground work behind explicit user-interaction and playback state.
 @MainActor
 public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkScheduling {
@@ -93,20 +77,23 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
 
     private let configuration: ForegroundWorkSchedulerConfiguration
     private let now: () -> Date
-    private let serialExecutor = ForegroundWorkSerialExecutor()
+    private let thermalState: () -> ProcessInfo.ThermalState
     private var lastInteractionAt: Date
 
     public init(
         configuration: ForegroundWorkSchedulerConfiguration = .live,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        thermalState: @escaping () -> ProcessInfo.ThermalState = { ProcessInfo.processInfo.thermalState }
     ) {
         self.configuration = configuration
         self.now = now
+        self.thermalState = thermalState
         self.lastInteractionAt = now()
     }
 
     public var isIdleForNonessentialWork: Bool {
         isForegroundActive &&
+            !isThermallyConstrained &&
             !startupSyncInFlight &&
             blockingInteractionStates.isDisjoint(with: activeStates) &&
             now().timeIntervalSince(lastInteractionAt) >= configuration.idleDelay
@@ -142,18 +129,16 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
         guard !Task.isCancelled, isForegroundActive else { return false }
         switch policy {
         case .immediate:
-            if configuration.isConstrainedLegacyDevice, nonessentialKinds.contains(kind) {
+            if nonessentialKinds.contains(kind),
+               configuration.isConstrainedLegacyDevice || isThermallyConstrained {
                 return await waitForIdle()
             }
             return !Task.isCancelled
         case .debounce(let interval):
             guard await sleep(seconds: interval) else { return false }
-            if configuration.isConstrainedLegacyDevice || requiresIdle(kind: kind) {
-                return await waitForIdle()
-            }
-            return !Task.isCancelled
-        case .serialize:
-            if configuration.isConstrainedLegacyDevice, nonessentialKinds.contains(kind) {
+            if configuration.isConstrainedLegacyDevice ||
+                requiresIdle(kind: kind) ||
+                (nonessentialKinds.contains(kind) && isThermallyConstrained) {
                 return await waitForIdle()
             }
             return !Task.isCancelled
@@ -164,46 +149,24 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
         }
     }
 
-    public func run<T>(
-        _ kind: ForegroundWorkKind,
-        policy: ForegroundWorkPolicy,
-        operation: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        guard await waitUntilAllowed(kind, policy: policy) else {
-            throw CancellationError()
-        }
-        let shouldSerialize = policy == .serialize ||
-            configuration.isConstrainedLegacyDevice ||
-            kind == .smartMixAnalysis ||
-            kind == .sidecarAnalysis
-
-        if shouldSerialize {
-            guard await serialExecutor.waitForTurn(kind: kind) else {
-                throw CancellationError()
-            }
-            do {
-                let value = try await operation()
-                await serialExecutor.finish(kind: kind)
-                return value
-            } catch {
-                await serialExecutor.finish(kind: kind)
-                throw error
-            }
-        }
-
-        return try await operation()
-    }
-
     public func clearLaunchState() {
         endInteraction(.launching)
     }
 
     private var blockingInteractionStates: Set<ForegroundInteractionState> {
-        [.launching, .scrolling, .navigating, .nowPlayingInteractive, .shareSheetPresenting, .audioCritical]
+        [.launching, .scrolling, .navigating, .nowPlayingInteractive, .shareSheetPresenting, .streamingStarved, .audioCritical, .downloadTransfer]
+    }
+
+    private var isThermallyConstrained: Bool {
+        switch thermalState() {
+        case .serious, .critical: return true
+        case .nominal, .fair: return false
+        @unknown default: return false
+        }
     }
 
     private var playbackBlockingStates: Set<ForegroundInteractionState> {
-        [.shareSheetPresenting, .audioCritical]
+        [.shareSheetPresenting, .streamingStarved, .audioCritical, .downloadTransfer]
     }
 
     private var nonessentialKinds: Set<ForegroundWorkKind> {
@@ -233,7 +196,8 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
     private func waitForPlaybackSafe(kind: ForegroundWorkKind) async -> Bool {
         while startupSyncInFlight ||
             !playbackBlockingStates.isDisjoint(with: activeStates) ||
-            (configuration.isConstrainedLegacyDevice && requiresIdle(kind: kind) && !isIdleForNonessentialWork) {
+            (configuration.isConstrainedLegacyDevice && requiresIdle(kind: kind) && !isIdleForNonessentialWork) ||
+            (nonessentialKinds.contains(kind) && isThermallyConstrained) {
             guard !Task.isCancelled else { return false }
             guard isForegroundActive else { return false }
             guard await sleep(seconds: configuration.pollingInterval) else { return false }

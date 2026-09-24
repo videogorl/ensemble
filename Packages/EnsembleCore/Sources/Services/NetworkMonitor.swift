@@ -30,6 +30,7 @@ final class SystemNetworkPathMonitor: NetworkPathMonitoring {
 public final class NetworkMonitor: ObservableObject {
     @Published public private(set) var networkState: NetworkState = .unknown
     @Published public private(set) var isConnected: Bool = false
+    @Published public private(set) var isConstrained: Bool = false
 
     private let monitorFactory: () -> any NetworkPathMonitoring
     private let monitorQueue: DispatchQueue
@@ -43,6 +44,7 @@ public final class NetworkMonitor: ObservableObject {
 
     // UserDefaults key for persisting last-known network state across launches
     private static let cachedStateKey = "lastKnownNetworkState"
+    private static let cachedConstrainedKey = "lastKnownNetworkWasConstrained"
 
     internal private(set) var monitorGeneration = 0
     internal var isMonitoringForTesting: Bool { isMonitoring }
@@ -71,6 +73,7 @@ public final class NetworkMonitor: ObservableObject {
         if cached != .unknown {
             networkState = cached
             isConnected = cached.isConnected
+            isConstrained = UserDefaults.standard.bool(forKey: Self.cachedConstrainedKey)
             EnsembleLogger.debug("📡 NetworkMonitor: Restored cached state: \(cached.description)")
         }
     }
@@ -78,7 +81,7 @@ public final class NetworkMonitor: ObservableObject {
     // MARK: - State Persistence
 
     /// Persist current network state for optimistic startup on next launch
-    private func persistState(_ state: NetworkState) {
+    private func persistState(_ state: NetworkState, isConstrained: Bool) {
         let raw: String
         switch state {
         case .online(let type):
@@ -93,6 +96,7 @@ public final class NetworkMonitor: ObservableObject {
         case .unknown: raw = "unknown"
         }
         UserDefaults.standard.set(raw, forKey: Self.cachedStateKey)
+        UserDefaults.standard.set(isConstrained, forKey: Self.cachedConstrainedKey)
     }
 
     /// Load cached network state from UserDefaults
@@ -157,7 +161,7 @@ public final class NetworkMonitor: ObservableObject {
     public func simulateOffline(_ offline: Bool) {
         isSimulatingOffline = offline
         let state: NetworkState = offline ? .offline : .online(.wifi)
-        injectNetworkStateForTesting(state, debounced: false)
+        injectNetworkStateForTesting(state, isConstrained: false, debounced: false)
     }
 
     /// Re-apply debug simulation on cold start if the toggle was left on.
@@ -171,11 +175,15 @@ public final class NetworkMonitor: ObservableObject {
     }
     #endif
 
-    internal func injectNetworkStateForTesting(_ state: NetworkState, debounced: Bool = true) {
+    internal func injectNetworkStateForTesting(
+        _ state: NetworkState,
+        isConstrained: Bool = false,
+        debounced: Bool = true
+    ) {
         if debounced {
-            debounceStateUpdate(state: state)
+            debounceStateUpdate(state: state, isConstrained: isConstrained)
         } else {
-            updateState(to: state)
+            updateState(to: state, isConstrained: isConstrained)
         }
     }
 
@@ -185,11 +193,14 @@ public final class NetworkMonitor: ObservableObject {
     /// Ignored when offline simulation is active so the monitor doesn't overwrite the simulated state.
     private func debounceStateUpdate(path: NWPath) {
         guard !isSimulatingOffline else { return }
-        debounceStateUpdate(state: networkState(from: path))
+        debounceStateUpdate(
+            state: networkState(from: path),
+            isConstrained: path.status == .satisfied && path.isConstrained
+        )
     }
 
     /// Debounce known state updates for testing and lifecycle-safe handling.
-    private func debounceStateUpdate(state: NetworkState) {
+    private func debounceStateUpdate(state: NetworkState, isConstrained: Bool = false) {
         debounceTask?.cancel()
 
         debounceTask = Task { @MainActor [weak self] in
@@ -198,20 +209,21 @@ public final class NetworkMonitor: ObservableObject {
             }
 
             guard !Task.isCancelled else { return }
-            self?.updateState(to: state)
+            self?.updateState(to: state, isConstrained: isConstrained)
         }
     }
 
     /// Update the published state and persist for optimistic startup.
-    private func updateState(to newState: NetworkState) {
+    private func updateState(to newState: NetworkState, isConstrained newIsConstrained: Bool) {
         let newIsConnected = newState.isConnected
-        guard newState != networkState || newIsConnected != isConnected else { return }
+        guard newState != networkState || newIsConnected != isConnected || newIsConstrained != isConstrained else { return }
 
         EnsembleLogger.debug("📡 NetworkMonitor: State changed to \(newState.description)")
 
         networkState = newState
         isConnected = newIsConnected
-        persistState(newState)
+        isConstrained = newIsConstrained
+        persistState(newState, isConstrained: newIsConstrained)
     }
 
     /// Convert NWPath to NetworkState

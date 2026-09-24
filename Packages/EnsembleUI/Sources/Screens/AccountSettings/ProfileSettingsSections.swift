@@ -1,64 +1,126 @@
+import EnsembleDesignTokens
 import EnsembleCore
+import EnsembleDomain
 import SwiftUI
 
 // MARK: - Music Source Account Row
 
 struct MusicSourceAccountRow: View {
+    let sourceType: MusicSourceType
     let sourceName: String
     let accountIdentifier: String
 
     var body: some View {
-        EnsembleUtilityRowLabel(
-            iconSystemName: EnsembleDesign.Icon.playlist,
-            title: sourceName,
-            subtitle: accountIdentifier,
-            iconFont: EnsembleDesign.Typography.utilityIcon
-        )
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sourceName)
+                Text(accountIdentifier)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } icon: {
+            Image(sourceType == .plex ? "PlexSourceIcon" : "AppleMusicSourceIcon")
+                .resizable()
+                .scaledToFit()
+                .padding(sourceType == .plex ? 3 : 0)
+                .frame(width: 30, height: 30)
+                .background(sourceType == .plex ? Color.black : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
+        }
     }
 }
 
 // MARK: - Audio Quality Settings
 
 struct AudioQualitySettingsView: View {
-    @AppStorage("streamingQuality") private var streamingQuality = "high"
-    @AppStorage("downloadQuality") private var downloadQuality = "high"
+    @Environment(\.dependencies) private var deps
+    @AppStorage(AudioQualityPreference.streamingQualityKey)
+    private var streamingQuality = AudioQualityPreference.defaultStreamingQuality
+    @AppStorage(AudioQualityPreference.allowStreamingOnCellularKey)
+    private var allowStreamingOnCellular = AudioQualityPreference.defaultAllowStreamingOnCellular
+    @AppStorage(AudioQualityPreference.downloadQualityKey)
+    private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
+    @AppStorage(AudioQualityPreference.sharingQualityKey)
+    private var sharingQuality = AudioQualityPreference.defaultSharingQuality
+    @AppStorage(DownloadSettingsPreference.allowCellularDownloadsKey)
+    private var allowCellularDownloads = DownloadSettingsPreference.defaultAllowCellularDownloads
 
     var body: some View {
         EnsembleAdaptiveUtilityScaffold(title: "Audio Quality") {
             List {
                 Section {
                     streamingQualityPicker
+                    Toggle("Allow Streaming on Cellular", isOn: $allowStreamingOnCellular)
                 } header: {
                     EnsembleUtilitySectionHeader("Streaming")
                 } footer: {
-                    Text("Lower quality uses less data when streaming over cellular.")
+                    Text("On Low Data Mode, downloaded Plex audio is preferred when available. Apple Music follows System Settings.")
                 }
 
                 Section {
                     downloadQualityPicker
+                    Toggle("Allow Downloading on Cellular", isOn: $allowCellularDownloads)
                 } header: {
                     EnsembleUtilitySectionHeader("Downloads")
                 } footer: {
-                    Text("Higher quality downloads use more storage space.")
+                    Text("Higher quality downloads use more storage space and cellular data.")
+                }
+
+                Section {
+                    sharingQualityPicker
+                } header: {
+                    EnsembleUtilitySectionHeader("Sharing")
+                } footer: {
+                    Text("Controls audio files shared or dragged outside Ensemble.")
                 }
             }
         } regularContent: {
             EnsembleUtilityCardSection(
                 "Streaming",
-                footer: "Lower quality uses less data when streaming over cellular."
+                footer: "On Low Data Mode, downloaded Plex audio is preferred when available. Apple Music follows System Settings."
             ) {
                 EnsembleUtilityCardRow {
                     streamingQualityPicker
+                }
+
+                EnsembleUtilityCardDivider()
+
+                EnsembleUtilityCardRow {
+                    Toggle("Allow Streaming on Cellular", isOn: $allowStreamingOnCellular)
                 }
             }
 
             EnsembleUtilityCardSection(
                 "Downloads",
-                footer: "Higher quality downloads use more storage space."
+                footer: "Higher quality downloads use more storage space and cellular data."
             ) {
                 EnsembleUtilityCardRow {
                     downloadQualityPicker
                 }
+
+                EnsembleUtilityCardDivider()
+
+                EnsembleUtilityCardRow {
+                    Toggle("Allow Downloading on Cellular", isOn: $allowCellularDownloads)
+                }
+            }
+
+            EnsembleUtilityCardSection(
+                "Sharing",
+                footer: "Controls audio files shared or dragged outside Ensemble."
+            ) {
+                EnsembleUtilityCardRow {
+                    sharingQualityPicker
+                }
+            }
+        }
+        .onChange(of: allowStreamingOnCellular) { _ in
+            NotificationCenter.default.post(name: AudioQualityPreference.cellularStreamingPolicyDidChange, object: nil)
+        }
+        .onChange(of: allowCellularDownloads) { _ in
+            Task {
+                await deps.offlineDownloadService.reevaluateQueuePolicy()
             }
         }
     }
@@ -79,6 +141,174 @@ struct AudioQualitySettingsView: View {
             Text("Medium (192 kbps)").tag("medium")
             Text("Low (128 kbps)").tag("low")
         }
+    }
+
+    private var sharingQualityPicker: some View {
+        Picker("Sharing Quality", selection: $sharingQuality) {
+            Text("Original").tag("original")
+            Text("High (320 kbps)").tag("high")
+            Text("Medium (192 kbps)").tag("medium")
+            Text("Low (128 kbps)").tag("low")
+        }
+    }
+}
+
+// MARK: - SmartMix Settings
+
+struct SmartMixSettingsView: View {
+    private let playbackService = DependencyContainer.shared.playbackService
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    @State private var isSmartMixEnabled = DependencyContainer.shared.playbackService.isSmartMixEnabled
+    @State private var isSmartMixDisabledForAlbums = DependencyContainer.shared.playbackService.isSmartMixDisabledForAlbums
+
+    var body: some View {
+        EnsembleAdaptiveUtilityScaffold(title: "SmartMix") {
+            List {
+                Section {
+                    smartMixToggle
+                }
+
+                Section {
+                    albumToggle
+                } footer: {
+                    Text("Keep consecutive tracks from the same album gapless.")
+                }
+
+                if let notice = accountManager.smartMixCrossSourceNotice {
+                    Section {} footer: {
+                        Text(notice)
+                    }
+                }
+            }
+        } regularContent: {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
+                EnsembleUtilityCardSection(nil) {
+                    EnsembleUtilityCardRow {
+                        smartMixToggle
+                    }
+
+                    EnsembleUtilityCardDivider()
+
+                    EnsembleUtilityCardRow {
+                        albumToggle
+                    }
+                }
+
+                if let notice = accountManager.smartMixCrossSourceNotice {
+                    Text(notice)
+                        .font(EnsembleDesign.Typography.stateMessage)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+            }
+        }
+        .onReceive(playbackService.smartMixEnabledPublisher) { isEnabled in
+            guard isSmartMixEnabled != isEnabled else { return }
+            isSmartMixEnabled = isEnabled
+        }
+        .onReceive(playbackService.smartMixDisabledForAlbumsPublisher) { isDisabled in
+            guard isSmartMixDisabledForAlbums != isDisabled else { return }
+            isSmartMixDisabledForAlbums = isDisabled
+        }
+    }
+
+    private var smartMixToggle: some View {
+        Toggle(isOn: Binding(
+            get: { isSmartMixEnabled },
+            set: playbackService.setSmartMixEnabled
+        )) {
+            EnsembleUtilityRowLabel(
+                iconSystemName: EnsembleDesign.Icon.smartMix,
+                title: "SmartMix",
+                subtitle: "Blend compatible tracks together",
+                iconColor: EnsembleDesign.Color.primaryText
+            )
+        }
+    }
+
+    private var albumToggle: some View {
+        Toggle(isOn: Binding(
+            get: { isSmartMixDisabledForAlbums },
+            set: playbackService.setSmartMixDisabledForAlbums
+        )) {
+            EnsembleUtilityRowLabel(
+                iconSystemName: "opticaldisc",
+                title: "Disable for Albums",
+                subtitle: "Don't mix consecutive tracks from the same album",
+                iconColor: EnsembleDesign.Color.primaryText
+            )
+        }
+        .disabled(!isSmartMixEnabled)
+    }
+}
+
+// MARK: - Merging Settings
+
+struct MergingSettingsView: View {
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+
+    var body: some View {
+        EnsembleAdaptiveUtilityScaffold(title: "Merging") {
+            List {
+                Section {
+                    Toggle("Enable Merging", isOn: mergingBinding(\.isEnabled))
+                }
+
+                Section {
+                    categoryToggles
+                } footer: {
+                    Text(mergingFooterText)
+                }
+            }
+        } regularContent: {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
+                EnsembleUtilityCardSection(nil) {
+                    EnsembleUtilityCardRow {
+                        Toggle("Enable Merging", isOn: mergingBinding(\.isEnabled))
+                    }
+                }
+
+                EnsembleUtilityCardSection(nil, footer: mergingFooterText) {
+                    EnsembleUtilityCardRow { categoryToggle("Artists", \.mergeArtists) }
+                    EnsembleUtilityCardDivider()
+                    EnsembleUtilityCardRow { categoryToggle("Albums", \.mergeAlbums) }
+                    EnsembleUtilityCardDivider()
+                    EnsembleUtilityCardRow { categoryToggle("Songs", \.mergeTracks) }
+                    EnsembleUtilityCardDivider()
+                    EnsembleUtilityCardRow { categoryToggle("Playlists", \.mergePlaylists) }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var categoryToggles: some View {
+        categoryToggle("Artists", \.mergeArtists)
+        categoryToggle("Albums", \.mergeAlbums)
+        categoryToggle("Songs", \.mergeTracks)
+        categoryToggle("Playlists", \.mergePlaylists)
+    }
+
+    private func categoryToggle(
+        _ title: String,
+        _ keyPath: WritableKeyPath<EnsembleMergingPreferences, Bool>
+    ) -> some View {
+        Toggle(title, isOn: mergingBinding(keyPath))
+            .disabled(!settingsManager.mergingPreferences.isEnabled)
+    }
+
+    private var mergingFooterText: String {
+        "Similar copies use your preferred library. Turn merging off to show every copy."
+    }
+
+    private func mergingBinding(
+        _ keyPath: WritableKeyPath<EnsembleMergingPreferences, Bool>
+    ) -> Binding<Bool> {
+        Binding(
+            get: { settingsManager.mergingPreferences[keyPath: keyPath] },
+            set: { value in
+                settingsManager.updateMergingPreferences { $0[keyPath: keyPath] = value }
+            }
+        )
     }
 }
 

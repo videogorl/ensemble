@@ -44,10 +44,30 @@ extension CDServer {
     }
 }
 
+// MARK: - CDSyncCursor
+
+@objc(CDSyncCursor)
+public class CDSyncCursor: NSManagedObject {
+    @NSManaged public var scopeKey: String
+    @NSManaged public var scopeType: String
+    @NSManaged public var lastIncrementalSyncAt: Date?
+    @NSManaged public var lastInventorySyncAt: Date?
+    @NSManaged public var lastFullSyncAt: Date?
+    @NSManaged public var lastSuccessfulSyncAt: Date?
+    @NSManaged public var updatedAt: Date?
+}
+
+extension CDSyncCursor {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDSyncCursor> {
+        return NSFetchRequest<CDSyncCursor>(entityName: "CDSyncCursor")
+    }
+}
+
 // MARK: - CDArtist
 
 @objc(CDArtist)
 public class CDArtist: NSManagedObject {
+    @NSManaged public var actionCapabilitiesData: Data?
     @NSManaged public var ratingKey: String
     @NSManaged public var key: String
     @NSManaged public var name: String
@@ -83,6 +103,7 @@ extension CDArtist {
 
 @objc(CDAlbum)
 public class CDAlbum: NSManagedObject {
+    @NSManaged public var actionCapabilitiesData: Data?
     @NSManaged public var ratingKey: String
     @NSManaged public var key: String
     @NSManaged public var title: String
@@ -95,9 +116,11 @@ public class CDAlbum: NSManagedObject {
     @NSManaged public var trackCount: Int32
     @NSManaged public var dateAdded: Date?
     @NSManaged public var dateModified: Date?
+    @NSManaged public var lastRatedAt: Date?
     @NSManaged public var rating: Int16
     @NSManaged public var updatedAt: Date?
     @NSManaged public var genreNames: String?
+    @NSManaged public var releaseFormat: String?
     @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var artist: CDArtist?
     @NSManaged public var source: CDMusicSource?
@@ -118,12 +141,14 @@ extension CDAlbum {
             return $0.trackNumber < $1.trackNumber
         }
     }
+
 }
 
 // MARK: - CDTrack
 
 @objc(CDTrack)
 public class CDTrack: NSManagedObject {
+    @NSManaged public var actionCapabilitiesData: Data?
     @NSManaged public var ratingKey: String
     @NSManaged public var key: String
     @NSManaged public var title: String
@@ -140,6 +165,7 @@ public class CDTrack: NSManagedObject {
     @NSManaged public var lastPlayed: Date?
     @NSManaged public var lastRatedAt: Date?
     @NSManaged public var rating: Int16
+    @NSManaged public var isFavorite: NSNumber?
     @NSManaged public var playCount: Int32
     @NSManaged public var updatedAt: Date?
     @NSManaged public var genreNames: String?
@@ -175,12 +201,22 @@ public class CDPlaylist: NSManagedObject {
     @NSManaged public var title: String
     @NSManaged public var summary: String?
     @NSManaged public var compositePath: String?
+    @NSManaged public var fallbackArtworkPath: String?
+    @NSManaged public var fallbackArtworkRatingKey: String?
+    @NSManaged public var fallbackArtworkSourceCompositeKey: String?
+    @NSManaged public var canAddItems: NSNumber?
+    @NSManaged public var canRename: NSNumber?
+    @NSManaged public var canReorder: NSNumber?
+    @NSManaged public var canDelete: NSNumber?
+    @NSManaged public var actionUnavailableReason: String?
     @NSManaged public var isSmart: Bool
     @NSManaged public var duration: Int64
     @NSManaged public var trackCount: Int32
     @NSManaged public var dateAdded: Date?
     @NSManaged public var dateModified: Date?
     @NSManaged public var lastPlayed: Date?
+    @NSManaged public var lastRatedAt: Date?
+    @NSManaged public var rating: Int16
     @NSManaged public var updatedAt: Date?
     @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var source: CDMusicSource?
@@ -193,14 +229,43 @@ extension CDPlaylist {
     }
 
     public var tracksArray: [CDTrack] {
-        let set = playlistTracks as? Set<CDPlaylistTrack> ?? []
-        let sorted = set.sorted { $0.order < $1.order }
-        let result = sorted.compactMap { $0.track }
-        if result.count != sorted.count {
-            let nilIndices = sorted.enumerated().filter { $0.element.track == nil }.map { $0.offset }
-            EnsembleLogger.debug("⚠️ CDPlaylist.tracksArray '\(title)': \(sorted.count) CDPlaylistTrack entries but only \(result.count) have non-nil track. Nil at indices: \(nilIndices)")
+        let memberships = playlistItemsArray
+        let result = memberships.compactMap { $0.track }
+        if result.count != memberships.count {
+            let nilIndices = memberships.enumerated().filter { $0.element.track == nil }.map { $0.offset }
+            EnsembleLogger.debug("⚠️ CDPlaylist.tracksArray '\(title)': \(memberships.count) CDPlaylistTrack entries but only \(result.count) have non-nil track. Nil at indices: \(nilIndices)")
         }
         return result
+    }
+
+    public var playlistItemsArray: [CDPlaylistTrack] {
+        let memberships = playlistTracks as? Set<CDPlaylistTrack> ?? []
+        var seen = Set<String>()
+        return memberships.sorted { $0.order < $1.order }.filter { membership in
+            let itemIdentity = membership.playlistItemID
+                ?? membership.trackRatingKey
+                ?? membership.track?.ratingKey
+                ?? membership.objectID.uriRepresentation().absoluteString
+            return seen.insert("\(membership.order)|\(itemIdentity)").inserted
+        }
+    }
+
+    public var hasUnavailableTracks: Bool {
+        let memberships = playlistTracks as? Set<CDPlaylistTrack> ?? []
+        return memberships.count < Int(trackCount) || memberships.contains { $0.track == nil }
+    }
+
+    public var persistedActionCapabilities: PlaylistActionCapabilities? {
+        guard let canAddItems, let canRename, let canReorder, let canDelete else {
+            return nil
+        }
+        return PlaylistActionCapabilities(
+            canAddItems: canAddItems.boolValue,
+            canRename: canRename.boolValue,
+            canReorder: canReorder.boolValue,
+            canDelete: canDelete.boolValue,
+            unavailableReason: actionUnavailableReason
+        )
     }
 }
 
@@ -209,6 +274,15 @@ extension CDPlaylist {
 @objc(CDPlaylistTrack)
 public class CDPlaylistTrack: NSManagedObject {
     @NSManaged public var order: Int32
+    @NSManaged public var playlistItemID: String?
+    @NSManaged public var trackRatingKey: String?
+    @NSManaged public var trackSourceCompositeKey: String?
+    @NSManaged public var trackKey: String?
+    @NSManaged public var trackTitle: String?
+    @NSManaged public var trackArtistName: String?
+    @NSManaged public var trackAlbumName: String?
+    @NSManaged public var trackDuration: Double
+    @NSManaged public var trackThumbPath: String?
     @NSManaged public var playlist: CDPlaylist?
     @NSManaged public var track: CDTrack?
 }
@@ -322,6 +396,11 @@ extension CDDownload {
         case paused
     }
 
+    /// A completed artifact can remain playable while its replacement is queued.
+    public var hasStoredFile: Bool {
+        filePath?.isEmpty == false
+    }
+
     public var downloadStatus: Status {
         get { Status(rawValue: status ?? "") ?? .pending }
         set { status = newValue.rawValue }
@@ -396,6 +475,9 @@ public class CDHub: NSManagedObject {
     @NSManaged public var type: String
     @NSManaged public var context: String?
     @NSManaged public var order: Int16
+    @NSManaged public var semanticKind: String?
+    @NSManaged public var sourceScopeServerCompositeKey: String?
+    @NSManaged public var sourceScopeSourceCompositeKey: String?
     @NSManaged public var items: NSOrderedSet?
     @NSManaged public var snapshot: CDHomeFeedSnapshot?
 }
@@ -415,11 +497,16 @@ extension CDHub {
 @objc(CDHubItem)
 public class CDHubItem: NSManagedObject {
     @NSManaged public var id: String
+    @NSManaged public var key: String?
     @NSManaged public var type: String
     @NSManaged public var title: String
     @NSManaged public var subtitle: String?
     @NSManaged public var thumbPath: String?
     @NSManaged public var sourceCompositeKey: String
+    @NSManaged public var year: NSNumber?
+    @NSManaged public var addedAt: Date?
+    @NSManaged public var lastViewedAt: Date?
+    @NSManaged public var viewCount: NSNumber?
     @NSManaged public var order: Int16
     @NSManaged public var hub: CDHub?
 }
@@ -452,6 +539,7 @@ extension CDPendingMutation {
 
     public enum MutationType: String, Sendable {
         case trackRating
+        case collectionRating
         case playlistAdd
         case playlistRemove
         case playlistRename

@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -363,6 +364,8 @@ public struct SyncSettingsView: View {
             return "Quota Exceeded"
         case .rateLimited:
             return "Rate Limited"
+        case .unavailable:
+            return "Unavailable"
         case .error:
             return "Error"
         }
@@ -376,7 +379,7 @@ public struct SyncSettingsView: View {
             return EnsembleDesign.Color.secondaryText
         case .notAuthenticated, .networkUnavailable, .rateLimited:
             return EnsembleDesign.Color.warning
-        case .quotaExceeded, .error:
+        case .quotaExceeded, .unavailable, .error:
             return EnsembleDesign.Color.destructive
         }
     }
@@ -389,10 +392,14 @@ public struct SyncSettingsView: View {
             return EnsembleDesign.Icon.libraryStack
         case .pins:
             return EnsembleDesign.Icon.pin
+        case .hiddenItems:
+            return "eye.slash"
         case .accentColor:
             return EnsembleDesign.Icon.paintPalette
         case .swipeActions:
             return EnsembleDesign.Icon.tapGesture
+        case .merging:
+            return EnsembleDesign.Icon.merge
         }
     }
 

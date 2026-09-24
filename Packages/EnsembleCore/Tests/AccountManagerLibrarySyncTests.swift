@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import EnsembleCore
 import EnsembleAPI
@@ -27,50 +28,18 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         let isEnabled: Bool
     }
 
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-        private var syncStorage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-
-        func saveSynchronizable(_ value: String, forKey key: String) throws {
-            syncStorage[key] = value
-        }
-
-        func getSynchronizable(_ key: String) throws -> String? {
-            syncStorage[key]
-        }
-
-        func deleteSynchronizable(_ key: String) throws {
-            syncStorage.removeValue(forKey: key)
-        }
-    }
-
     private let migrationDefaultsKey = "plex_auth_migration_version"
     private let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
-    private let libraryFlagOriginDeviceIDKey = "sync.libraryFlagOriginDeviceID"
 
     override func setUp() {
         super.setUp()
         UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
         UserDefaults.standard.removeObject(forKey: libraryFlagModifiedAtKey)
-        UserDefaults.standard.removeObject(forKey: libraryFlagOriginDeviceIDKey)
     }
 
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: migrationDefaultsKey)
         UserDefaults.standard.removeObject(forKey: libraryFlagModifiedAtKey)
-        UserDefaults.standard.removeObject(forKey: libraryFlagOriginDeviceIDKey)
         super.tearDown()
     }
 
@@ -145,8 +114,7 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
                 VersionedFlagPayload(
                     key: "account-1:server-1:1",
                     isEnabled: false,
-                    updatedAt: 1,
-                    originDeviceID: "other-device"
+                    updatedAt: 1
                 )
             ])
         )
@@ -154,6 +122,32 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         let libraries = try XCTUnwrap(manager.plexAccounts.first?.servers.first?.libraries)
         XCTAssertFalse(result.hasChanges)
         XCTAssertTrue(libraries[0].isEnabled)
+    }
+
+    func testApplyLibraryFlagsIgnoresLegacyRemoteFlagAfterLocalMutation() throws {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.addPlexAccount(
+            makeAccount(
+                libraries: [
+                    PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: false)
+                ]
+            )
+        )
+        XCTAssertTrue(
+            manager.setLibraryEnabled(
+                accountId: "account-1",
+                serverId: "server-1",
+                libraryKey: "1",
+                isEnabled: true
+            )
+        )
+
+        let result = manager.applyLibraryFlags(
+            try makeFlagsData(["account-1:server-1:1": false])
+        )
+
+        XCTAssertFalse(result.hasChanges)
+        XCTAssertTrue(try XCTUnwrap(manager.plexAccounts.first?.servers.first?.libraries.first).isEnabled)
     }
 
     func testUpdatePlexAccountPreservesLocalSelectionWhenCachedRemoteFlagIsStale() throws {
@@ -171,8 +165,7 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
                 VersionedFlagPayload(
                     key: "account-1:server-1:1",
                     isEnabled: false,
-                    updatedAt: 1,
-                    originDeviceID: "other-device"
+                    updatedAt: 1
                 )
             ])
         )
@@ -242,8 +235,7 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
                 VersionedFlagPayload(
                     key: "account-1:server-1:1",
                     isEnabled: false,
-                    updatedAt: Date().timeIntervalSince1970 + 60,
-                    originDeviceID: "other-device"
+                    updatedAt: Date().timeIntervalSince1970 + 60
                 )
             ])
         )
@@ -506,6 +498,28 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         XCTAssertTrue(manager.pullSyncCredentials().isEmpty)
     }
 
+    func testRediscoveryPreservesServerOmittedWhileOffline() throws {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.addPlexAccount(makeTwoServerAccount())
+
+        manager.addPlexAccount(
+            makeAccount(
+                serverName: "Refreshed Server One",
+                serverURL: "https://refreshed.example.com",
+                libraries: [
+                    PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: false)
+                ]
+            )
+        )
+
+        let servers = try XCTUnwrap(manager.plexAccounts.first?.servers)
+        XCTAssertEqual(servers.map(\.id), ["server-1", "server-2"])
+        XCTAssertEqual(servers[0].name, "Refreshed Server One")
+        XCTAssertTrue(servers[0].libraries[0].isEnabled)
+        XCTAssertEqual(servers[1].name, "Server Two")
+        XCTAssertFalse(servers[1].libraries[0].isEnabled)
+    }
+
     func testHasSyncedCloudCredentialsReflectsStoredRemotePayload() throws {
         let keychain = TestKeychain()
         let manager = AccountManager(keychain: keychain)
@@ -549,6 +563,203 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         let synced = try JSONDecoder().decode([SyncableAccountCredential].self, from: Data(syncedJSON.utf8))
         XCTAssertEqual(synced.map(\.accountId), ["account-1"])
     }
+
+    func testSourceConfigurationPublisherEmitsForPlexSourceChanges() {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.loadAccounts()
+        #if os(iOS)
+        let wasAppleMusicEnabled = manager.isAppleMusicEnabled
+        manager.setAppleMusicEnabled(false)
+        defer { manager.setAppleMusicEnabled(wasAppleMusicEnabled) }
+        #endif
+        var snapshots: [SourceConfigurationSnapshot] = []
+        let observation = manager.sourceConfigurationPublisher.sink { snapshots.append($0) }
+
+        manager.addPlexAccount(makeAccount(libraries: [
+            PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: true)
+        ]))
+        XCTAssertTrue(manager.setLibraryEnabled(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryKey: "1",
+            isEnabled: false
+        ))
+        XCTAssertTrue(manager.setLibraryEnabled(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryKey: "1",
+            isEnabled: true
+        ))
+        manager.removePlexAccount(id: "account-1")
+
+        XCTAssertEqual(snapshots.count, 5)
+        XCTAssertTrue(snapshots[0].isAuthoritative)
+        XCTAssertFalse(snapshots[0].hasAnySources)
+        XCTAssertEqual(snapshots[1].configuredSources.map(\.compositeKey), ["plex:account-1:server-1:1"])
+        XCTAssertEqual(snapshots[1].enabledSources.map(\.compositeKey), ["plex:account-1:server-1:1"])
+        XCTAssertTrue(snapshots[2].enabledSources.isEmpty)
+        XCTAssertEqual(snapshots[3].enabledSources.map(\.compositeKey), ["plex:account-1:server-1:1"])
+        XCTAssertFalse(snapshots[4].hasAnySources)
+        withExtendedLifetime(observation) {}
+    }
+
+    func testSourceConfigurationPublisherIgnoresConnectionOnlyAccountUpdate() {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.loadAccounts()
+        manager.addPlexAccount(makeAccount(libraries: [
+            PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: true)
+        ]))
+        var snapshots: [SourceConfigurationSnapshot] = []
+        let observation = manager.sourceConfigurationPublisher.sink { snapshots.append($0) }
+
+        manager.updatePlexAccount(makeAccount(
+            serverURL: "https://refreshed.example.com",
+            libraries: [PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: true)]
+        ))
+
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertEqual(snapshots[0], manager.sourceConfigurationSnapshot)
+        withExtendedLifetime(observation) {}
+    }
+
+    func testSourceConfigurationRevisionDistinguishesSameKeyRemoveAndReadd() {
+        let manager = AccountManager(keychain: TestKeychain())
+        let sourceKey = "plex:account-1:server-1:1"
+        let enabledAccount = makeAccount(libraries: [
+            PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: true)
+        ])
+
+        manager.addPlexAccount(enabledAccount)
+        let addedRevision = manager.sourceConfigurationRevision(forSourceKey: sourceKey)
+
+        manager.updatePlexAccount(makeAccount(
+            serverURL: "https://refreshed.example.com",
+            libraries: [PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: true)]
+        ))
+        XCTAssertEqual(
+            manager.sourceConfigurationRevision(forSourceKey: sourceKey),
+            addedRevision,
+            "Transport-only changes must not replace the logical source generation"
+        )
+
+        XCTAssertTrue(manager.setLibraryEnabled(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryKey: "1",
+            isEnabled: false
+        ))
+        let disabledRevision = manager.sourceConfigurationRevision(forSourceKey: sourceKey)
+        XCTAssertGreaterThan(disabledRevision, addedRevision)
+
+        XCTAssertTrue(manager.setLibraryEnabled(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryKey: "1",
+            isEnabled: true
+        ))
+        let reenabledRevision = manager.sourceConfigurationRevision(forSourceKey: sourceKey)
+        XCTAssertGreaterThan(reenabledRevision, disabledRevision)
+
+        manager.removePlexAccount(id: "account-1")
+        let removedRevision = manager.sourceConfigurationRevision(forSourceKey: sourceKey)
+        XCTAssertGreaterThan(removedRevision, reenabledRevision)
+
+        manager.addPlexAccount(enabledAccount)
+        XCTAssertGreaterThan(
+            manager.sourceConfigurationRevision(forSourceKey: sourceKey),
+            removedRevision
+        )
+    }
+
+    func testSourceConfigurationPublisherEmitsAuthorityTransitionsWithoutSources() {
+        let manager = AccountManager(keychain: TestKeychain())
+        #if os(iOS)
+        let wasAppleMusicEnabled = manager.isAppleMusicEnabled
+        manager.setAppleMusicEnabled(false)
+        defer { manager.setAppleMusicEnabled(wasAppleMusicEnabled) }
+        #endif
+        var snapshots: [SourceConfigurationSnapshot] = []
+        let observation = manager.sourceConfigurationPublisher.sink { snapshots.append($0) }
+
+        manager.loadAccounts()
+        manager.setAwaitingCloudSources(true)
+        manager.setAwaitingCloudSources(false)
+
+        XCTAssertEqual(snapshots.map(\.isAuthoritative), [false, true, false, true])
+        XCTAssertEqual(
+            snapshots.map(\.authoritativeSourceTypes),
+            [[.appleMusic], [.appleMusic, .plex], [.appleMusic], [.appleMusic, .plex]]
+        )
+        XCTAssertTrue(snapshots.allSatisfy { !$0.hasAnySources })
+        withExtendedLifetime(observation) {}
+    }
+
+    func testSourceConfigurationPreservesOnlyUnresolvedProviderOwnership() {
+        let appleSource = MusicSourceIdentifier.appleMusic
+        let plexSource = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account",
+            serverId: "server",
+            libraryId: "library"
+        )
+        let unresolvedPlex = SourceConfigurationSnapshot(
+            configuredSources: [],
+            enabledSources: [],
+            authoritativeSourceTypes: [.appleMusic],
+            hasAnySources: false,
+            isAuthoritative: false
+        )
+
+        XCTAssertTrue(unresolvedPlex.isAuthoritative(for: appleSource.compositeKey))
+        XCTAssertFalse(unresolvedPlex.shouldPreserveSourceKey(appleSource.compositeKey))
+        XCTAssertFalse(unresolvedPlex.isAuthoritative(for: plexSource.compositeKey))
+        XCTAssertTrue(unresolvedPlex.shouldPreserveSourceKey(plexSource.compositeKey))
+        XCTAssertFalse(unresolvedPlex.isAuthoritative(for: nil))
+        XCTAssertFalse(unresolvedPlex.shouldPreserveSourceKey(nil))
+        XCTAssertFalse(unresolvedPlex.shouldPreserveSourceKey("malformed"))
+
+        let enabledApple = SourceConfigurationSnapshot(
+            configuredSources: [appleSource],
+            enabledSources: [appleSource],
+            authoritativeSourceTypes: [.appleMusic],
+            hasAnySources: true,
+            isAuthoritative: false
+        )
+        XCTAssertTrue(enabledApple.shouldPreserveSourceKey(appleSource.compositeKey))
+
+        let fullyAuthoritative = SourceConfigurationSnapshot(
+            configuredSources: [plexSource],
+            enabledSources: [plexSource],
+            authoritativeSourceTypes: [.appleMusic, .plex],
+            hasAnySources: true,
+            isAuthoritative: true
+        )
+        XCTAssertTrue(fullyAuthoritative.shouldPreserveSourceKey(plexSource.compositeKey))
+        XCTAssertTrue(fullyAuthoritative.shouldPreserveSourceKey("plex:account:server"))
+        XCTAssertFalse(fullyAuthoritative.shouldPreserveSourceKey(appleSource.compositeKey))
+        XCTAssertFalse(fullyAuthoritative.shouldPreserveSourceKey(nil))
+    }
+
+    #if os(iOS)
+    func testSourceConfigurationPublisherEmitsForAppleMusicEnableAndDisable() {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.loadAccounts()
+        let wasEnabled = manager.isAppleMusicEnabled
+        manager.setAppleMusicEnabled(false)
+        defer { manager.setAppleMusicEnabled(wasEnabled) }
+        var snapshots: [SourceConfigurationSnapshot] = []
+        let observation = manager.sourceConfigurationPublisher.sink { snapshots.append($0) }
+
+        manager.setAppleMusicEnabled(true)
+        manager.setAppleMusicEnabled(false)
+
+        XCTAssertEqual(snapshots.count, 3)
+        XCTAssertEqual(snapshots[1].configuredSources, [.appleMusic])
+        XCTAssertEqual(snapshots[1].enabledSources, [.appleMusic])
+        XCTAssertFalse(snapshots[2].hasAnySources)
+        withExtendedLifetime(observation) {}
+    }
+    #endif
 
     private func makeAccount(
         serverName: String = "Server",
@@ -607,7 +818,6 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         let key: String
         let isEnabled: Bool
         let updatedAt: TimeInterval
-        let originDeviceID: String
     }
 
     private func makeVersionedFlagsData(_ flags: [VersionedFlagPayload]) throws -> Data {

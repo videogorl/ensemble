@@ -3,6 +3,86 @@ import XCTest
 
 @MainActor
 final class LibraryVisibilityProfileTests: XCTestCase {
+    func testServerIsolationPreservesOtherPreferencesAndFocus() {
+        let suiteName = "LibraryVisibilityProfileTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = LibraryVisibilityStore(userDefaults: defaults)
+        let selected = "plex:a:server:music"
+        let sibling = "plex:a:server:classical"
+        let otherServer = "plex:a:other:music"
+        let otherAccount = "plex:b:server:music"
+        let enabled: Set<String> = [selected, sibling, otherServer, otherAccount]
+
+        for initialHidden: Set<String> in [[], [selected, sibling]] {
+            store.setHiddenSourceCompositeKeys(initialHidden.union(["disabled-source"]))
+            store.showOnlyServer(containing: selected, enabledSourceCompositeKeys: enabled)
+            let expected: Set<String> = [otherServer, otherAccount, "disabled-source"]
+            XCTAssertEqual(store.hiddenSourceCompositeKeys, expected)
+            XCTAssertEqual(LibraryVisibilityStore(userDefaults: defaults).hiddenSourceCompositeKeys, expected)
+            store.showOnlyServer(containing: "malformed", enabledSourceCompositeKeys: enabled)
+            XCTAssertEqual(store.hiddenSourceCompositeKeys, expected)
+        }
+
+        store.setFocusVisibleSourceCompositeKeys([otherServer])
+        let hidden = store.hiddenSourceCompositeKeys
+        store.showOnlyServer(containing: otherServer, enabledSourceCompositeKeys: enabled)
+        XCTAssertEqual(store.hiddenSourceCompositeKeys, hidden)
+    }
+
+    func testFocusAllowlistTemporarilyOverridesManualVisibility() {
+        let suiteName = "LibraryVisibilityProfileTests.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+
+        let store = LibraryVisibilityStore(userDefaults: userDefaults)
+        store.setHiddenSourceCompositeKeys(["manual-hidden"])
+        store.setFocusVisibleSourceCompositeKeys(["focus-visible"])
+
+        XCTAssertEqual(
+            store.effectiveHiddenSourceCompositeKeys(
+                enabledSourceCompositeKeys: ["manual-hidden", "focus-visible", "new-library"]
+            ),
+            ["manual-hidden", "new-library"]
+        )
+
+        store.setFocusFilterEnabled(false)
+        XCTAssertEqual(
+            store.effectiveHiddenSourceCompositeKeys(
+                enabledSourceCompositeKeys: ["manual-hidden", "focus-visible", "new-library"]
+            ),
+            ["manual-hidden"]
+        )
+
+        store.setFocusFilterEnabled(true)
+        store.setFocusVisibleSourceCompositeKeys(nil)
+        XCTAssertEqual(store.hiddenSourceCompositeKeys, ["manual-hidden"])
+        XCTAssertEqual(
+            store.effectiveHiddenSourceCompositeKeys(
+                enabledSourceCompositeKeys: ["manual-hidden", "focus-visible", "new-library"]
+            ),
+            ["manual-hidden"]
+        )
+    }
+
+    func testForegroundRefreshPreservesFocusBypassUntilFocusChanges() {
+        let suiteName = "LibraryVisibilityProfileTests.\(UUID().uuidString)"
+        let userDefaults = UserDefaults(suiteName: suiteName)!
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        let store = LibraryVisibilityStore(userDefaults: userDefaults)
+        store.setFocusVisibleSourceCompositeKeys(["library"])
+        store.setFocusFilterEnabled(false)
+
+        store.setFocusVisibleSourceCompositeKeys(["library"], resetsBypass: false)
+        XCTAssertFalse(store.isFocusFilterEnabled)
+
+        store.setFocusVisibleSourceCompositeKeys(["library"], resetsBypass: true)
+        XCTAssertTrue(store.isFocusFilterEnabled)
+    }
+
     func testStorePersistsActiveProfileAndHiddenSources() {
         let suiteName = "LibraryVisibilityProfileTests.\(UUID().uuidString)"
         guard let userDefaults = UserDefaults(suiteName: suiteName) else {
@@ -46,7 +126,7 @@ final class LibraryVisibilityProfileTests: XCTestCase {
             Track(id: "t2", key: "/tracks/t2", title: "Visible", sourceCompositeKey: "plex:account-1:server-1:lib-2"),
         ]
 
-        let filteredTracks = LibraryViewModel.filterTracksForVisibility(
+        let filteredTracks = LibraryVisibilityFiltering.visibleItems(
             tracks,
             hiddenSourceCompositeKeys: hidden
         )
@@ -58,21 +138,21 @@ final class LibraryVisibilityProfileTests: XCTestCase {
     func testSearchVisibilityFiltersMultipleEntityTypes() {
         let hidden = Set(["plex:a:s:hidden"])
 
-        let tracks = SearchViewModel.filterTracksForVisibility(
+        let tracks = LibraryVisibilityFiltering.visibleItems(
             [
                 Track(id: "track-hidden", key: "/tracks/1", title: "Hidden", sourceCompositeKey: "plex:a:s:hidden"),
                 Track(id: "track-visible", key: "/tracks/2", title: "Visible", sourceCompositeKey: "plex:a:s:visible"),
             ],
             hiddenSourceCompositeKeys: hidden
         )
-        let artists = SearchViewModel.filterArtistsForVisibility(
+        let artists = LibraryVisibilityFiltering.visibleItems(
             [
                 Artist(id: "artist-hidden", key: "/artists/1", name: "Hidden", sourceCompositeKey: "plex:a:s:hidden"),
                 Artist(id: "artist-visible", key: "/artists/2", name: "Visible", sourceCompositeKey: "plex:a:s:visible"),
             ],
             hiddenSourceCompositeKeys: hidden
         )
-        let playlists = SearchViewModel.filterPlaylistsForVisibility(
+        let playlists = LibraryVisibilityFiltering.visibleItems(
             [
                 Playlist(id: "playlist-hidden", key: "/playlists/1", title: "Hidden", sourceCompositeKey: "plex:a:s:hidden"),
                 Playlist(id: "playlist-visible", key: "/playlists/2", title: "Visible", sourceCompositeKey: "plex:a:s:visible"),
@@ -85,6 +165,123 @@ final class LibraryVisibilityProfileTests: XCTestCase {
         XCTAssertEqual(playlists.map(\.id), ["playlist-visible"])
     }
 
+    func testServerScopedPlaylistHidesOnlyWhenEveryEnabledLibraryIsHidden() {
+        let firstLibrary = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account",
+            serverId: "server",
+            libraryId: "first"
+        )
+        let secondLibrary = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account",
+            serverId: "server",
+            libraryId: "second"
+        )
+        let configuration = SourceConfigurationSnapshot(
+            configuredSources: [firstLibrary, secondLibrary],
+            enabledSources: [firstLibrary, secondLibrary],
+            authoritativeSourceTypes: [.plex],
+            hasAnySources: true,
+            isAuthoritative: true
+        )
+        let playlist = Playlist(
+            id: "playlist",
+            key: "/playlists/playlist",
+            title: "Playlist",
+            sourceCompositeKey: "plex:account:server"
+        )
+
+        XCTAssertEqual(
+            LibraryVisibilityFiltering.visibleItems(
+                [playlist],
+                hiddenSourceCompositeKeys: [firstLibrary.compositeKey],
+                sourceConfiguration: configuration
+            ).map(\.id),
+            ["playlist"]
+        )
+        XCTAssertTrue(
+            LibraryVisibilityFiltering.visibleItems(
+                [playlist],
+                hiddenSourceCompositeKeys: [firstLibrary.compositeKey, secondLibrary.compositeKey],
+                sourceConfiguration: configuration
+            ).isEmpty
+        )
+    }
+
+    func testServerScopedPlaylistPinHidesWithItsServer() {
+        let firstLibrary = MusicSourceIdentifier(type: .plex, accountId: "a", serverId: "s", libraryId: "first")
+        let secondLibrary = MusicSourceIdentifier(type: .plex, accountId: "a", serverId: "s", libraryId: "second")
+        let configuration = SourceConfigurationSnapshot(
+            configuredSources: [firstLibrary, secondLibrary],
+            enabledSources: [firstLibrary, secondLibrary],
+            authoritativeSourceTypes: [.plex],
+            hasAnySources: true,
+            isAuthoritative: true
+        )
+        let sourceKey = "plex:a:s"
+        let pinnedItem = PinnedItem(id: "playlist", sourceCompositeKey: sourceKey, type: .playlist, title: "Playlist")
+        let pin = ResolvedPin.playlist(
+            Playlist(id: "playlist", key: "/playlists/playlist", title: "Playlist", sourceCompositeKey: sourceKey),
+            pinnedItem
+        )
+
+        XCTAssertEqual(
+            LibraryVisibilityFiltering.visibleItems(
+                [pin],
+                hiddenSourceCompositeKeys: [firstLibrary.compositeKey],
+                sourceConfiguration: configuration
+            ).map(\.id),
+            [pinnedItem.sourceScopedID]
+        )
+        XCTAssertTrue(
+            LibraryVisibilityFiltering.visibleItems(
+                [pin],
+                hiddenSourceCompositeKeys: [firstLibrary.compositeKey, secondLibrary.compositeKey],
+                sourceConfiguration: configuration
+            ).isEmpty
+        )
+    }
+
+    func testProviderAuthorityFiltersRemovedAppleWhilePreservingUnresolvedPlex() {
+        let appleKey = MusicSourceIdentifier.appleMusic.compositeKey
+        let tracks = [
+            Track(id: "apple", key: "apple", title: "Apple", sourceCompositeKey: appleKey),
+            Track(id: "plex", key: "plex", title: "Plex", sourceCompositeKey: "plex:a:s:l"),
+            Track(id: "legacy", key: "legacy", title: "Legacy"),
+        ]
+        let configuration = SourceConfigurationSnapshot(
+            configuredSources: [],
+            enabledSources: [],
+            authoritativeSourceTypes: [.appleMusic],
+            hasAnySources: false,
+            isAuthoritative: false
+        )
+
+        let visible = LibraryVisibilityFiltering.visibleItems(
+            tracks,
+            hiddenSourceCompositeKeys: [],
+            sourceConfiguration: configuration
+        )
+
+        XCTAssertEqual(visible.map(\.id), ["plex"])
+    }
+
+    func testVisibilityAlwaysRejectsMissingAndMalformedSourceOwnership() {
+        let tracks = [
+            Track(id: "valid", key: "valid", title: "Valid", sourceCompositeKey: "plex:a:s:l"),
+            Track(id: "malformed", key: "malformed", title: "Malformed", sourceCompositeKey: "legacy-source"),
+            Track(id: "missing", key: "missing", title: "Missing"),
+        ]
+
+        let visible = LibraryVisibilityFiltering.visibleItems(
+            tracks,
+            hiddenSourceCompositeKeys: []
+        )
+
+        XCTAssertEqual(visible.map(\.id), ["valid"])
+    }
+
     func testMergedMoodVisibilityStaysVisibleWhenAnySourceIsVisible() {
         let hidden = Set(["plex:a:s:hidden"])
         let moods = [
@@ -93,14 +290,19 @@ final class LibraryVisibilityProfileTests: XCTestCase {
                 key: "/library/sections/1/mood/11",
                 title: "Acerbic",
                 sourceCompositeKey: SearchViewModel.mergedMoodSourceCompositeKey(
-                    from: ["plex:a:s:hidden", "plex:a:s:visible"]
+                    from: [
+                        "plex:a:s:hidden": "/library/sections/1/mood/11",
+                        "plex:a:s:visible": "/library/sections/2/mood/22",
+                    ]
                 )
             ),
             Mood(
                 id: "mood:hidden-only",
                 key: "/library/sections/1/mood/12",
                 title: "Hidden Only",
-                sourceCompositeKey: SearchViewModel.mergedMoodSourceCompositeKey(from: ["plex:a:s:hidden"])
+                sourceCompositeKey: SearchViewModel.mergedMoodSourceCompositeKey(
+                    from: ["plex:a:s:hidden": "/library/sections/1/mood/12"]
+                )
             ),
         ]
 

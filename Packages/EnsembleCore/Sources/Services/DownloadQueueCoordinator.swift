@@ -21,6 +21,7 @@ final class DownloadQueueCoordinator {
 
     private let dependencies: Dependencies
     private var queueTask: Task<Void, Never>?
+    private var loggedNoPendingInCurrentIdleBurst = false
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -44,9 +45,13 @@ final class DownloadQueueCoordinator {
         }
     }
 
-    func cancelCurrentTask() {
-        queueTask?.cancel()
-        queueTask = nil
+    func cancelCurrentTask() async {
+        guard let task = queueTask else {
+            dependencies.setQueueRunning(false)
+            return
+        }
+        task.cancel()
+        await task.value
         dependencies.setQueueRunning(false)
     }
 
@@ -70,12 +75,17 @@ final class DownloadQueueCoordinator {
     private func runQueueLoop() async {
         let initialPending = await dependencies.fetchPendingCount()
         if initialPending == 0 {
-            EnsembleLogger.debug("📥 Queue loop: no pending downloads, skipping worker spawn")
+            if !loggedNoPendingInCurrentIdleBurst {
+                EnsembleLogger.debug("📥 Queue loop: no pending downloads, skipping worker spawn")
+                loggedNoPendingInCurrentIdleBurst = true
+            }
             queueTask = nil
             dependencies.setQueueRunning(false)
             dependencies.refreshQueueStatus()
+            if !Task.isCancelled { dependencies.finishBackgroundTask(true) }
             return
         }
+        loggedNoPendingInCurrentIdleBurst = false
 
         let workMode = dependencies.currentWorkMode()
         let workerCount = dependencies.queueWorkerCount(initialPending, workMode)
@@ -95,8 +105,6 @@ final class DownloadQueueCoordinator {
         }
 
         let wasCancelled = Task.isCancelled
-        queueTask = nil
-
         if !wasCancelled && didProcessAny {
             try? await Task.sleep(nanoseconds: 500_000_000)
             let remainingPending = await dependencies.fetchPendingCount()
@@ -105,19 +113,22 @@ final class DownloadQueueCoordinator {
                 "📥 Queue wind-down: wasCancelled=\(wasCancelled), didProcessAny=\(didProcessAny), remainingPending=\(remainingPending)"
             )
 
-            if remainingPending > 0 {
+            if remainingPending > 0 && !Task.isCancelled {
                 dependencies.setQueueRunning(true)
                 dependencies.refreshQueueStatus()
+                queueTask = nil
                 startIfNeeded()
                 return
             }
         }
 
+        queueTask = nil
         dependencies.setQueueRunning(false)
         dependencies.refreshQueueStatus()
-        dependencies.finishBackgroundTask(true)
+        // The suspension/expiration owner decides whether to relinquish its OS grant.
+        if !Task.isCancelled { dependencies.finishBackgroundTask(true) }
 
-        if !wasCancelled && didProcessAny {
+        if !Task.isCancelled && didProcessAny {
             dependencies.showCompletionToast()
         }
     }

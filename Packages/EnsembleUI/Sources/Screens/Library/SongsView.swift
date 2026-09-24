@@ -1,5 +1,5 @@
+import EnsembleDesignTokens
 import EnsembleCore
-import Nuke
 import SwiftUI
 
 #if canImport(UIKit)
@@ -12,24 +12,34 @@ public struct SongsView: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @ObservedObject var libraryVM: LibraryViewModel
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: SongsStageFlowAlbum?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
+    @State private var cachedNativeTrackSections: [NativeTrackListSection] = []
+    @StateObject private var trackSnapshotCache = BrowseSnapshotCache(TrackBrowseSnapshot.empty)
+    @State private var trackContentRevision: UInt64 = 0
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
-
     private var canShowLargeScreenSongBrowser: Bool {
         #if os(iOS)
             return UIDevice.current.userInterfaceIdiom != .phone
         #else
             return true
         #endif
+    }
+
+    private var trackFilterOptions: Binding<FilterOptions> {
+        Binding(
+            get: { libraryVM.tracksFilterOptions },
+            set: { libraryVM.tracksFilterOptions = $0 }
+        )
     }
 
     private var songsFilterButton: some View {
@@ -79,10 +89,14 @@ public struct SongsView: View {
 
     public var body: some View {
         Group {
-            if trackSnapshot.phase != .idle && !trackSnapshot.hasVisibleContent {
-                loadingView
-            } else if !trackSnapshot.hasVisibleContent {
-                emptyView
+            if trackSnapshot.phase != .idle && !hasLibraryContent {
+                loadingView.refreshable {
+                    await refreshLibrary()
+                }
+            } else if !hasLibraryContent {
+                emptyView.refreshable {
+                    await refreshLibrary()
+                }
             } else if isStageFlowActive {
                 landscapeAlbumStageFlowView
             } else {
@@ -95,52 +109,84 @@ public struct SongsView: View {
         #endif
         .navigationTitle(isStageFlowActive ? "" : "Songs")
         .if(!isStageFlowActive) { view in
-            view.searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
-        }
-        .refreshable {
-            await libraryVM.refreshFromServer()
+            view.searchable(text: trackFilterOptions.searchText, prompt: "Filter songs")
         }
         .refreshCommand {
-            await libraryVM.refreshFromServer()
+            await refreshLibrary()
         }
         .toolbar {
-            EnsembleBrowseToolbar(isVisible: trackSnapshot.hasVisibleContent && !isStageFlowActive) {
+            EnsembleBrowseToolbar(isVisible: hasLibraryContent && !isStageFlowActive) {
                 songsFilterButton
                 songsMoreMenu
             }
         }
+        .ensembleBrowseToolbarMinimization()
         .if(!isStageFlowActive) { view in
             view.toolbarMaterialBackground()
         }
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
-            if keys != activeDownloadTrackIdentities { activeDownloadTrackIdentities = keys }
-        }
-        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
-            if gen != availabilityGeneration { availabilityGeneration = gen }
-        }
+        .trackListRuntimeObservation(
+            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
+            availabilityGeneration: $availabilityGeneration
+        )
         .onReceive(libraryVM.$trackBrowseSnapshot) { snapshot in
-            let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: snapshot.tracks)
-            if rebuiltAlbums != cachedStageFlowAlbums {
-                cachedStageFlowAlbums = rebuiltAlbums
-            }
+            cacheTrackSnapshot(snapshot)
+            updateNativeTrackSections(from: snapshot.sections)
+            guard isStageFlowActive else { return }
+            rebuildCachedStageFlowAlbums(from: snapshot.tracks)
+        }
+        .onChange(of: isStageFlowActive) { isActive in
+            guard isActive else { return }
+            rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
         }
         .onAppear {
-            let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: trackSnapshot.tracks)
-            if rebuiltAlbums != cachedStageFlowAlbums {
-                cachedStageFlowAlbums = rebuiltAlbums
-            }
+            let snapshot = libraryVM.trackBrowseSnapshot
+            cacheTrackSnapshot(snapshot)
+            updateNativeTrackSections(from: trackSnapshot.sections)
+            guard isStageFlowActive else { return }
+            rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
-                filterOptions: $libraryVM.tracksFilterOptions,
+                filterOptions: trackFilterOptions,
                 availableGenres: trackSnapshot.availableGenres,
                 showGenreFilter: true
             )
         }
     }
 
+    private func rebuildCachedStageFlowAlbums(from tracks: [Track]) {
+        let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: tracks)
+        if rebuiltAlbums != cachedStageFlowAlbums {
+            cachedStageFlowAlbums = rebuiltAlbums
+        }
+    }
+
+    private func cacheTrackSnapshot(_ snapshot: TrackBrowseSnapshot) {
+        let previous = trackSnapshotCache.snapshot
+        if !arraysShareStorage(previous.tracks, snapshot.tracks) ||
+            !arraysShareStorage(previous.sections, snapshot.sections) {
+            trackContentRevision &+= 1
+        }
+        trackSnapshotCache.snapshot = snapshot
+    }
+
+    private func updateNativeTrackSections(from sections: [LibraryViewModel.TrackSection]) {
+        let nextSections = nativeTrackSections(from: sections)
+        if nextSections != cachedNativeTrackSections {
+            cachedNativeTrackSections = nextSections
+        }
+    }
+
+    private func nativeTrackSections(from sections: [LibraryViewModel.TrackSection]) -> [NativeTrackListSection] {
+        sections.map {
+            NativeTrackListSection(id: $0.letter, title: $0.letter, tracks: $0.tracks)
+        }
+    }
+
     private var trackSnapshot: TrackBrowseSnapshot {
-        libraryVM.immediateTrackBrowseSnapshot
+        trackSnapshotCache.snapshot.hasVisibleContent || trackSnapshotCache.snapshot.phase != .idle
+            ? trackSnapshotCache.snapshot
+            : libraryVM.trackBrowseSnapshot
     }
 
     /// StageFlow carousel for landscape mode. MainTabView owns rotation and
@@ -153,28 +199,18 @@ public struct SongsView: View {
         EnsembleStateScaffold(kind: .loading, title: "Loading songs…")
     }
 
+    private var hasLibraryContent: Bool {
+        trackSnapshot.hasVisibleContent || !libraryVM.tracks.isEmpty
+    }
+
     private var emptyView: some View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Songs",
             iconSystemName: EnsembleDesign.Icon.musicNote,
-            recovery: libraryEmptyRecovery(emptyMessage: "No songs found in enabled libraries"),
+            recovery: libraryVM.emptyStateRecovery(message: "No songs found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )
-    }
-
-    private func libraryEmptyRecovery(emptyMessage: String) -> EnsembleLibraryEmptyStateScaffold.Recovery {
-        if libraryVM.isRestoringCloudSources {
-            return .restoringCloudSources
-        } else if !libraryVM.hasAnySources {
-            return .noSources
-        } else if libraryVM.isSyncing {
-            return .syncing
-        } else if !libraryVM.hasEnabledLibraries {
-            return .noEnabledLibraries
-        } else {
-            return .empty(message: emptyMessage)
-        }
     }
 
     private var trackListView: some View {
@@ -194,13 +230,16 @@ public struct SongsView: View {
                     SongsTrackListHost(
                         sections: largeScreenTrackSections,
                         currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                        contentRevision: trackContentRevision,
                         availabilityGeneration: availabilityGeneration,
                         activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                         bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
                         supplementalMetadataWidth: width,
                         showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
                         interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: songsTableHeaderContent
+                        tableHeaderContent: songsTableHeaderContent,
+                        tableFooterContent: songsCountFooterContent,
+                        onRefresh: refreshLibrary
                     ) { track, _ in
                         playAvailableTrack(track)
                     }
@@ -209,6 +248,7 @@ public struct SongsView: View {
                     SongsTrackListHost(
                         sections: largeScreenTrackSections,
                         currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                        contentRevision: trackContentRevision,
                         availabilityGeneration: availabilityGeneration,
                         activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                         bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
@@ -216,7 +256,9 @@ public struct SongsView: View {
                         supplementalMetadataWidth: width,
                         showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
                         interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: songsTableHeaderContent
+                        tableHeaderContent: songsTableHeaderContent,
+                        tableFooterContent: songsCountFooterContent,
+                        onRefresh: refreshLibrary
                     ) { track, _ in
                         playTrack(track)
                     }
@@ -227,12 +269,15 @@ public struct SongsView: View {
                     SongsTrackListHost(
                         tracks: trackSnapshot.tracks,
                         currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                        contentRevision: trackContentRevision,
                         availabilityGeneration: availabilityGeneration,
                         activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                         bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
                         supplementalMetadataWidth: width,
                         interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: songsTableHeaderContent
+                        tableHeaderContent: songsTableHeaderContent,
+                        tableFooterContent: songsCountFooterContent,
+                        onRefresh: refreshLibrary
                     ) { track, index in
                         playAvailableTrack(track, index: index)
                     }
@@ -249,8 +294,9 @@ public struct SongsView: View {
     private var songsGenreChipBar: some View {
         GenreFilterHeader(
             availableGenres: trackSnapshot.availableGenres,
-            selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
-            excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
+            selectedGenres: trackFilterOptions.selectedGenres,
+            excludedGenres: trackFilterOptions.excludedGenres,
+            favoriteFilter: trackFilterOptions.favoriteFilter
         )
     }
 
@@ -270,7 +316,7 @@ public struct SongsView: View {
         }
         .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         .padding(.top, EnsembleDesign.Spacing.md)
-        .padding(.bottom, trackSnapshot.availableGenres.isEmpty ? EnsembleDesign.Spacing.md : EnsembleDesign.Spacing.xs)
+        .padding(.bottom, showsFilterHeader ? EnsembleDesign.Spacing.xs : EnsembleDesign.Spacing.md)
     }
 
     private var songsTableHeaderContent: AnyView {
@@ -278,10 +324,24 @@ public struct SongsView: View {
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                 songsPlaybackActionRow
 
-                if !trackSnapshot.availableGenres.isEmpty {
+                if showsFilterHeader {
                     songsGenreChipBar
                 }
             }
+        )
+    }
+
+    private var showsFilterHeader: Bool {
+        !trackSnapshot.availableGenres.isEmpty || libraryVM.tracksFilterOptions.favoriteFilter != nil
+    }
+
+    private var songsCountFooterContent: AnyView {
+        AnyView(
+            LibraryBrowseCountFooter(
+                count: trackSnapshot.tracks.count,
+                singular: "song",
+                plural: "songs"
+            )
         )
     }
 
@@ -291,7 +351,6 @@ public struct SongsView: View {
     }
 
     private func largeScreenSongBrowserView(width: CGFloat) -> some View {
-        #if os(macOS)
         Group {
             if libraryVM.trackSortOption == .title {
                 largeScreenIndexedSongList(width: width, tableHeaderContent: songsTableHeaderContent)
@@ -301,23 +360,13 @@ public struct SongsView: View {
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
-        #else
-        Group {
-            if libraryVM.trackSortOption == .title {
-                largeScreenIndexedSongList(width: width, tableHeaderContent: songsTableHeaderContent)
-            } else {
-                largeScreenFlatSongList(width: width, tableHeaderContent: songsTableHeaderContent)
-            }
-        }
-        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
-        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
-        #endif
     }
 
     private func largeScreenIndexedSongList(width: CGFloat, tableHeaderContent: AnyView? = nil) -> some View {
         SongsTrackListHost(
             sections: largeScreenTrackSections,
             currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+            contentRevision: trackContentRevision,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             bottomContentInset: largeScreenSongListBottomInset,
@@ -325,7 +374,9 @@ public struct SongsView: View {
             supplementalMetadataWidth: width,
             showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
             interactionModel: largeScreenTrackInteractionModel,
-            tableHeaderContent: tableHeaderContent
+            tableHeaderContent: tableHeaderContent,
+            tableFooterContent: songsCountFooterContent,
+            onRefresh: refreshLibrary
         ) { track, _ in
             playTrack(track)
         }
@@ -335,13 +386,16 @@ public struct SongsView: View {
         SongsTrackListHost(
             tracks: trackSnapshot.tracks,
             currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+            contentRevision: trackContentRevision,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             bottomContentInset: largeScreenSongListBottomInset,
             usesDynamicTableHeaderHeight: tableHeaderContent != nil,
             supplementalMetadataWidth: width,
             interactionModel: largeScreenTrackInteractionModel,
-            tableHeaderContent: tableHeaderContent
+            tableHeaderContent: tableHeaderContent,
+            tableFooterContent: songsCountFooterContent,
+            onRefresh: refreshLibrary
         ) { track, _ in
             playTrack(track)
         }
@@ -356,67 +410,24 @@ public struct SongsView: View {
     }
 
     private var largeScreenTrackSections: [NativeTrackListSection] {
-        trackSnapshot.sections.map { section in
-            NativeTrackListSection(
-                id: section.letter,
-                title: section.letter,
-                tracks: section.tracks
-            )
-        }
+        cachedNativeTrackSections.isEmpty && !trackSnapshot.sections.isEmpty
+            ? nativeTrackSections(from: trackSnapshot.sections)
+            : cachedNativeTrackSections
     }
 
     private var largeScreenTrackInteractionModel: TrackRowInteractionModel {
-        TrackRowInteractionModel(
-            onPlayNext: { track in
-                nowPlayingVM.playNext(track)
-            },
-            onPlayLast: { track in
-                nowPlayingVM.playLast(track)
-            },
-            onAddToPlaylist: { track in
-                presentPlaylistPicker(with: [track])
-            },
-            onAddToRecentPlaylist: { track in
-                addToRecentPlaylist(track)
-            },
-            onToggleFavorite: { track in
-                Task {
-                    await nowPlayingVM.toggleTrackFavorite(track)
-                }
-            },
-            onGoToAlbum: { track in
-                if let albumId = track.albumRatingKey {
-                    navigationCoordinator.routeFromMenu(
-                        to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
-                        in: navigationCoordinator.selectedTab
-                    )
-                }
-            },
-            onGoToArtist: { track in
-                if let artistId = track.artistRatingKey {
-                    navigationCoordinator.routeFromMenu(
-                        to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
-                        in: navigationCoordinator.selectedTab
-                    )
-                }
-            },
-            onGetInfo: { track in
-                libraryItemInfoRequest = .track(track)
-            },
-            onShareLink: { track in
-                ShareActions.shareTrackLink(track, deps: deps)
-            },
-            onShareFile: { track in
-                ShareActions.shareTrackFile(track, deps: deps)
-            },
-            isTrackFavorited: { track in
-                nowPlayingVM.isTrackFavorited(track)
-            },
-            canAddToRecentPlaylist: { track in
-                recentPlaylistTitle(for: track) != nil
-            },
-            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
-        )
+        .nowPlayingActions(
+            nowPlayingVM: nowPlayingVM,
+            deps: deps,
+            navigationCoordinator: navigationCoordinator,
+            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title,
+            mutationCandidates: libraryVM.mutationCandidates(for:),
+            sourceActionPresenter: sourceActionPresenter
+        ) { tracks in
+            presentPlaylistPicker(with: tracks)
+        } onGetInfo: { track in
+            libraryItemInfoRequest = .track(track)
+        }
     }
 
     private func playTrack(_ track: Track) {
@@ -460,13 +471,16 @@ public struct SongsView: View {
             SongsTrackListHost(
                 tracks: trackSnapshot.tracks,
                 currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                contentRevision: trackContentRevision,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
                 usesDynamicTableHeaderHeight: true,
                 supplementalMetadataWidth: width,
                 interactionModel: largeScreenTrackInteractionModel,
-                tableHeaderContent: songsTableHeaderContent
+                tableHeaderContent: songsTableHeaderContent,
+                tableFooterContent: songsCountFooterContent,
+                onRefresh: refreshLibrary
             ) { track, _ in
                 playTrack(track)
             }
@@ -477,12 +491,8 @@ public struct SongsView: View {
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
     }
 
-    private func addToRecentPlaylist(_ track: Track) {
-        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
-    }
-
-    private func recentPlaylistTitle(for track: Track) -> String? {
-        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
+    private func refreshLibrary() async {
+        await libraryVM.refreshFromServer()
     }
 
     private var albumStageFlowView: some View {
@@ -508,12 +518,12 @@ public struct SongsView: View {
     }
 
     private func resolveStageFlowTracks(for album: SongsStageFlowAlbum) async -> [Track] {
-        let cachedTracks: [CDTrack]
-        if let sourceCompositeKey = album.sourceCompositeKey {
-            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.albumID, sourceCompositeKey: sourceCompositeKey)) ?? []
-        } else {
-            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.albumID)) ?? []
-        }
+        guard let sourceCompositeKey = album.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceCompositeKey) != nil else { return [] }
+        let cachedTracks = (try? await deps.libraryRepository.fetchTracks(
+            forAlbum: album.albumID,
+            sourceCompositeKey: sourceCompositeKey
+        )) ?? []
 
         return cachedTracks.map { Track(from: $0) }
     }

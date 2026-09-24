@@ -1,0 +1,18 @@
+Test Suite 'Selected tests' started at 2026-09-08 12:38:08.247.
+Test Suite 'EnsembleCorePackageTests.xctest' started at 2026-09-08 12:38:08.249.
+Test Suite 'DownloadQueueCoordinatorTests' started at 2026-09-08 12:38:08.249.
+Test Suite 'DownloadQueueCoordinatorTests' passed at 2026-09-08 12:38:09.560.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 1.310 (1.311) seconds
+Test Suite 'DownloadTransferExecutorTests' started at 2026-09-08 12:38:09.560.
+Test Suite 'DownloadTransferExecutorTests' passed at 2026-09-08 12:38:09.982.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.421 (0.422) seconds
+Test Suite 'OfflineDownloadBackgroundCoordinatorTests' started at 2026-09-08 12:38:09.982.
+Test Suite 'OfflineDownloadBackgroundCoordinatorTests' passed at 2026-09-08 12:38:09.984.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'OfflineDownloadServicePolicyTests' started at 2026-09-08 12:38:09.984.
+Test Suite 'OfflineDownloadServicePolicyTests' passed at 2026-09-08 12:38:11.020.
+	 Executed 23 tests, with 0 failures (0 unexpected) in 1.032 (1.035) seconds
+Test Suite 'EnsembleCorePackageTests.xctest' passed at 2026-09-08 12:38:11.020.
+	 Executed 39 tests, with 0 failures (0 unexpected) in 2.765 (2.771) seconds
+Test Suite 'Selected tests' passed at 2026-09-08 12:38:11.020.
+	 Executed 39 tests, with 0 failures (0 unexpected) in 2.765 (2.773) seconds

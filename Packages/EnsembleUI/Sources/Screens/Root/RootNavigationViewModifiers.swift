@@ -1,21 +1,26 @@
 import SwiftUI
 
 extension View {
-    /// Apply .sidebarAdaptable or .automatic TabView style.
     @ViewBuilder
-    func applyTabViewStyle(sidebarAdaptable: Bool) -> some View {
+    func adaptiveTabChrome(isSelected: Bool, showsMiniPlayer: Bool) -> some View {
         #if os(iOS)
-        if sidebarAdaptable {
-            if #available(iOS 18.0, *) {
-                tabViewStyle(.sidebarAdaptable)
-            } else {
-                tabViewStyle(.automatic)
+        if #available(iOS 27.0, *) {
+            background {
+                if isSelected {
+                    // Native tab content already excludes the tab bar.
+                    RootChromeFrameRegistrationView(
+                        bottomPadding: TrackListLayoutMetrics.miniPlayerAdditionalBottomPadding,
+                        showsMiniPlayer: showsMiniPlayer,
+                        priority: 100,
+                        ownsContentFrame: true
+                    )
+                }
             }
         } else {
-            tabViewStyle(.automatic)
+            self
         }
         #else
-        tabViewStyle(.automatic)
+        self
         #endif
     }
 }

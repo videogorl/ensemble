@@ -1,0 +1,5 @@
+{
+  "status": "failed",
+  "error": "Could not validate downloaded audio. Retry, and check the server copy if the problem continues.",
+  "previousFileUnchanged": true
+}

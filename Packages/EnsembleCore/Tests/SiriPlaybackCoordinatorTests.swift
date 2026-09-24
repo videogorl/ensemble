@@ -6,27 +6,13 @@ import EnsemblePersistence
 
 @MainActor
 final class SiriPlaybackCoordinatorTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-    }
 
     private final class RecordingPlaybackService: PlaybackServiceProtocol {
         private let currentTrackSubject = CurrentValueSubject<Track?, Never>(nil)
         private let playbackStateSubject = CurrentValueSubject<PlaybackState, Never>(.stopped)
         private let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
         private let presentationTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+        private let bufferedProgressSubject = CurrentValueSubject<Double, Never>(0)
         private let queueSubject = CurrentValueSubject<[QueueItem], Never>([])
         private let queueIndexSubject = CurrentValueSubject<Int, Never>(-1)
         private let shuffleSubject = CurrentValueSubject<Bool, Never>(false)
@@ -34,6 +20,8 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         private let waveformSubject = CurrentValueSubject<[Double], Never>([])
         private let autoplayEnabledSubject = CurrentValueSubject<Bool, Never>(false)
         private let smartMixEnabledSubject = CurrentValueSubject<Bool, Never>(false)
+        private let smartMixDisabledForAlbumsSubject = CurrentValueSubject<Bool, Never>(true)
+        private let smartMixTransitionActiveSubject = CurrentValueSubject<Bool, Never>(false)
         private let autoplayTracksSubject = CurrentValueSubject<[Track], Never>([])
         private let autoplayActiveSubject = CurrentValueSubject<Bool, Never>(false)
         private let radioModeSubject = CurrentValueSubject<RadioMode, Never>(.off)
@@ -59,11 +47,12 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var isExternalPlaybackActive: Bool { false }
         var isAutoplayEnabled: Bool { autoplayEnabledSubject.value }
         var isSmartMixEnabled: Bool { smartMixEnabledSubject.value }
+        var isSmartMixDisabledForAlbums: Bool { smartMixDisabledForAlbumsSubject.value }
+        var isSmartMixTransitionActive: Bool { smartMixTransitionActiveSubject.value }
         var autoplayTracks: [Track] { autoplayTracksSubject.value }
         var isAutoplayActive: Bool { autoplayActiveSubject.value }
         var radioMode: RadioMode { radioModeSubject.value }
         var recommendationsExhausted: Bool { recommendationsSubject.value }
-        var queueSections: QueueSections { .empty }
         var playbackHistory: [QueueItem] { historySubject.value }
         var isScreenMirroringActive: Bool = false
 
@@ -73,7 +62,8 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var currentTimeValue: TimeInterval { currentTimeSubject.value }
         var presentationTimePublisher: AnyPublisher<TimeInterval, Never> { presentationTimeSubject.eraseToAnyPublisher() }
         var presentationTimeValue: TimeInterval { presentationTimeSubject.value }
-        var bufferedProgressValue: Double { 0 }
+        var bufferedProgressValue: Double { bufferedProgressSubject.value }
+        var bufferedProgressPublisher: AnyPublisher<Double, Never> { bufferedProgressSubject.eraseToAnyPublisher() }
         var queuePublisher: AnyPublisher<[QueueItem], Never> { queueSubject.eraseToAnyPublisher() }
         var currentQueueIndexPublisher: AnyPublisher<Int, Never> { queueIndexSubject.eraseToAnyPublisher() }
         var shufflePublisher: AnyPublisher<Bool, Never> { shuffleSubject.eraseToAnyPublisher() }
@@ -83,6 +73,8 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var isExternalPlaybackActivePublisher: AnyPublisher<Bool, Never> { Just(false).eraseToAnyPublisher() }
         var autoplayEnabledPublisher: AnyPublisher<Bool, Never> { autoplayEnabledSubject.eraseToAnyPublisher() }
         var smartMixEnabledPublisher: AnyPublisher<Bool, Never> { smartMixEnabledSubject.eraseToAnyPublisher() }
+        var smartMixDisabledForAlbumsPublisher: AnyPublisher<Bool, Never> { smartMixDisabledForAlbumsSubject.eraseToAnyPublisher() }
+        var smartMixTransitionActivePublisher: AnyPublisher<Bool, Never> { smartMixTransitionActiveSubject.eraseToAnyPublisher() }
         var autoplayTracksPublisher: AnyPublisher<[Track], Never> { autoplayTracksSubject.eraseToAnyPublisher() }
         var autoplayActivePublisher: AnyPublisher<Bool, Never> { autoplayActiveSubject.eraseToAnyPublisher() }
         var radioModePublisher: AnyPublisher<RadioMode, Never> { radioModeSubject.eraseToAnyPublisher() }
@@ -132,11 +124,13 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         func playLast(_ tracks: [Track]) {}
         func removeFromQueue(at index: Int) {}
         func clearQueue() {}
-        func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int) {}
+        func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int, destinationSource: QueueItemSource?) {}
         func toggleShuffle() {}
         func cycleRepeatMode() {}
         func toggleAutoplay() {}
         func toggleSmartMix() {}
+        func setSmartMixEnabled(_ enabled: Bool) { smartMixEnabledSubject.send(enabled) }
+        func setSmartMixDisabledForAlbums(_ disabled: Bool) { smartMixDisabledForAlbumsSubject.send(disabled) }
         func refreshAutoplayQueue() async {}
         func enableRadio(tracks: [Track]) async {}
         func isTrackAutoGenerated(trackId: String) -> Bool { false }
@@ -144,7 +138,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         func applyRatingLocally(track: Track, rating: Int) async {}
         func updateVisualizerPosition(_ time: TimeInterval) {}
         func setVisualizationConsumer(_ consumer: VisualizationConsumer, isVisible: Bool) {}
-        func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?) { (nil, nil) }
+        func currentPlaybackFileInfo() -> PlaybackFileInfo? { nil }
     }
 
     private struct Fixture {
@@ -292,6 +286,80 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
     }
 
+    func testSourceLessRequestsResolveByNameWithinEnabledSources() async throws {
+        let fixture = try await makeFixture()
+
+        try await fixture.coordinator.executePlayTrack(
+            request: SiriPlaybackRequest(
+                entityID: "unknown-track-id",
+                displayName: "Track One"
+            )
+        )
+        XCTAssertEqual(fixture.playbackService.lastPlayedTrack?.id, "track-1")
+
+        try await fixture.coordinator.executePlayAlbum(
+            request: SiriPlaybackRequest(
+                entityID: "unknown-album-id",
+                displayName: "Album One"
+            )
+        )
+        XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-1", "track-2"])
+
+        try await fixture.coordinator.executePlayArtist(
+            request: SiriPlaybackRequest(
+                entityID: "unknown-artist-id",
+                displayName: "Artist One"
+            )
+        )
+        XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-1", "track-2"])
+
+        try await fixture.coordinator.executePlayPlaylist(
+            request: SiriPlaybackRequest(
+                entityID: "unknown-playlist-id",
+                displayName: "Playlist One"
+            )
+        )
+        XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-2", "track-1"])
+    }
+
+    func testSourceLessRequestDoesNotResolveByDirectIDAlone() async throws {
+        let fixture = try await makeFixture()
+
+        do {
+            try await fixture.coordinator.executePlayTrack(
+                request: SiriPlaybackRequest(entityID: "track-1")
+            )
+            XCTFail("Expected source-less direct ID lookup to fail closed")
+        } catch let error as SiriPlaybackCoordinatorError {
+            XCTAssertEqual(error, .mediaNotFound(.track))
+        }
+    }
+
+    func testExplicitUnknownOrMalformedSourceDoesNotFallbackByName() async throws {
+        let fixture = try await makeFixture()
+
+        for sourceKey in [
+            "plex:other-account:other-server:other-library",
+            "appleMusic:device:system",
+            "malformed-source"
+        ] {
+            do {
+                try await fixture.coordinator.executePlayTrack(
+                    request: SiriPlaybackRequest(
+                        entityID: "unknown-track-id",
+                        sourceCompositeKey: sourceKey,
+                        displayName: "Track One"
+                    )
+                )
+                XCTFail("Expected explicit source \(sourceKey) to fail closed")
+            } catch let error as SiriPlaybackCoordinatorError {
+                XCTAssertEqual(error, .mediaNotFound(.track))
+            }
+        }
+
+        XCTAssertNil(fixture.playbackService.lastPlayedTrack)
+    }
+
     private func makeFixture() async throws -> Fixture {
         let accountID = "account-1"
         let serverID = "server-1"
@@ -313,33 +381,41 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             accountName: "Test Account"
         )
 
-        _ = try await libraryRepository.upsertArtist(
-            ratingKey: "artist-1",
-            key: "/library/metadata/artist-1",
-            name: "Artist One",
-            summary: nil,
-            thumbPath: nil,
-            artPath: nil,
-            dateAdded: nil,
-            dateModified: nil,
+        try await libraryRepository.batchUpsertArtists(
+            [
+                ArtistUpsertInput(
+                    ratingKey: "artist-1",
+                    key: "/library/metadata/artist-1",
+                    name: "Artist One",
+                    summary: nil,
+                    thumbPath: nil,
+                    artPath: nil,
+                    dateAdded: nil,
+                    dateModified: nil
+                )
+            ],
             sourceCompositeKey: librarySourceKey
         )
 
-        _ = try await libraryRepository.upsertAlbum(
-            ratingKey: "album-1",
-            key: "/library/metadata/album-1",
-            title: "Album One",
-            artistName: "Artist One",
-            albumArtist: "Artist One",
-            artistRatingKey: "artist-1",
-            summary: nil,
-            thumbPath: nil,
-            artPath: nil,
-            year: 2024,
-            trackCount: 2,
-            dateAdded: nil,
-            dateModified: nil,
-            rating: nil,
+        try await libraryRepository.batchUpsertAlbums(
+            [
+                AlbumUpsertInput(
+                    ratingKey: "album-1",
+                    key: "/library/metadata/album-1",
+                    title: "Album One",
+                    artistName: "Artist One",
+                    albumArtist: "Artist One",
+                    artistRatingKey: "artist-1",
+                    summary: nil,
+                    thumbPath: nil,
+                    artPath: nil,
+                    year: 2024,
+                    trackCount: 2,
+                    dateAdded: nil,
+                    dateModified: nil,
+                    rating: nil
+                )
+            ],
             sourceCompositeKey: librarySourceKey
         )
 

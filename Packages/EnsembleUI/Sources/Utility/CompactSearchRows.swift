@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -8,10 +9,6 @@ import SwiftUI
 
 public struct CompactArtistRow: View {
     let displayArtist: DisplayArtist
-
-    public init(artist: Artist) {
-        self.displayArtist = .single(artist)
-    }
 
     public init(displayArtist: DisplayArtist) {
         self.displayArtist = displayArtist
@@ -62,6 +59,7 @@ public struct CompactAlbumRow: View {
     public var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ArtworkView(album: album, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
+                .mediaNavigationTransitionSource(id: album.sourceScopedID)
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                 Text(album.title)
@@ -91,28 +89,33 @@ public struct CompactAlbumRow: View {
 // MARK: - Compact Playlist Row
 
 public struct CompactPlaylistRow: View {
-    let playlist: Playlist
+    let displayPlaylist: DisplayPlaylist
 
-    public init(playlist: Playlist) {
-        self.playlist = playlist
+    public init(displayPlaylist: DisplayPlaylist) {
+        self.displayPlaylist = displayPlaylist
     }
 
     public var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            ArtworkView(playlist: playlist, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
+            PlaylistArtwork(
+                displayPlaylist: displayPlaylist,
+                size: .tiny,
+                cornerRadius: ArtworkCornerRadius.square(for: .tiny)
+            )
+            .mediaNavigationTransitionSource(id: displayPlaylist.primaryPlaylist.sourceScopedID)
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
-                Text(playlist.title)
+                Text(displayPlaylist.title)
                     .font(EnsembleDesign.Typography.rowPrimary)
                     .lineLimit(1)
                     .foregroundColor(EnsembleDesign.Color.primaryText)
 
                 HStack(spacing: EnsembleDesign.Spacing.xs) {
-                    if playlist.isSmart {
+                    if displayPlaylist.isSmart {
                         Image(systemName: EnsembleDesign.Icon.smartPlaylist)
                             .font(EnsembleDesign.Typography.rowSecondary)
                     }
-                    Text("\(playlist.trackCount) songs")
+                    Text("\(displayPlaylist.trackCount) songs")
                         .font(EnsembleDesign.Typography.rowSecondary)
                 }
                 .foregroundColor(EnsembleDesign.Color.secondaryText)

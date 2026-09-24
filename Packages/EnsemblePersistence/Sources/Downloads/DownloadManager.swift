@@ -1,4 +1,5 @@
 import CoreData
+import EnsembleSupport
 import Foundation
 
 public enum DownloadError: Error, LocalizedError {
@@ -23,20 +24,24 @@ public enum DownloadError: Error, LocalizedError {
 
 public protocol DownloadManagerProtocol: Sendable {
     func fetchDownloads() async throws -> [CDDownload]
+    func repairDownloads() async throws
+    func countDownloads() async throws -> Int
     func fetchPendingDownloads() async throws -> [CDDownload]
+    func countPendingDownloads() async throws -> Int
     /// Atomically claim the next pending download by setting its status to `.downloading`.
     /// Returns nil when no pending downloads remain.
-    func fetchNextPendingDownload() async throws -> CDDownload?
+    func fetchNextPendingDownload(excluding downloadIDs: Set<NSManagedObjectID>) async throws -> CDDownload?
     func fetchCompletedDownloads() async throws -> [CDDownload]
-    func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload?
+    func countCompletedDownloads() async throws -> Int
+    func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> CDDownload?
     /// Batch fetch downloads for multiple tracks in a single CoreData query.
     /// Returns a dictionary keyed by "sourceCompositeKey|ratingKey" for O(1) lookup.
     func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDDownload]
     /// Fetch all downloads whose track belongs to the given library (by sourceCompositeKey)
     func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload]
+    func countDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> Int
 
-    func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload
-    func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload
+    func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String, quality: String) async throws -> CDDownload
 
     /// Batch-create download records for multiple tracks in a single CoreData save.
     /// Returns the number of newly created pending downloads.
@@ -55,11 +60,11 @@ public protocol DownloadManagerProtocol: Sendable {
     func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws
     func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws
 
-    func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws
-    func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws
+    func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws
+    /// Delete source-scoped download records and files in bounded background batches.
+    func deleteDownloads(forReferences references: [OfflineTrackReference]) async throws
 
-    func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String?
-    func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String?
+    func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> String?
 
     func getTotalDownloadSize() async throws -> Int64
 
@@ -68,10 +73,34 @@ public protocol DownloadManagerProtocol: Sendable {
 
     /// Delete all download records and their associated files on disk.
     func deleteAllDownloads() async throws
+
+    /// Remove files in the downloads directory that are no longer referenced by
+    /// any download record, including orphaned sidecar files.
+    func removeOrphanedDownloadFiles() async throws -> Int
 }
 
-// Default quality=nil for callers that only update status
+// Convenience defaults for lightweight protocol conformers.
 public extension DownloadManagerProtocol {
+    func repairDownloads() async throws {
+        _ = try await fetchDownloads()
+    }
+
+    func countDownloads() async throws -> Int {
+        try await fetchDownloads().count
+    }
+
+    func countPendingDownloads() async throws -> Int {
+        try await fetchPendingDownloads().count
+    }
+
+    func countCompletedDownloads() async throws -> Int {
+        try await fetchCompletedDownloads().count
+    }
+
+    func countDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> Int {
+        try await fetchDownloads(forSourceCompositeKey: sourceCompositeKey).count
+    }
+
     func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status) async throws {
         try await updateDownloadStatus(downloadId, status: status, quality: nil)
     }
@@ -79,17 +108,30 @@ public extension DownloadManagerProtocol {
     func requeueDownload(_ downloadId: NSManagedObjectID, quality: String) async throws {
         try await updateDownloadStatus(downloadId, status: .pending, quality: quality)
     }
+
+    func deleteDownloads(forReferences references: [OfflineTrackReference]) async throws {
+        for reference in references {
+            try await deleteDownload(
+                forTrackRatingKey: reference.trackRatingKey,
+                sourceCompositeKey: reference.trackSourceCompositeKey
+            )
+        }
+    }
+
+    func removeOrphanedDownloadFiles() async throws -> Int { 0 }
 }
 
 public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable {
     private let coreDataStack: CoreDataStack
+    private let creationContext: NSManagedObjectContext
 
     public init(coreDataStack: CoreDataStack = .shared) {
         self.coreDataStack = coreDataStack
+        self.creationContext = coreDataStack.newBackgroundContext()
     }
 
     /// Directory for storing downloaded tracks
-    public static var downloadsDirectory: URL {
+    public static let downloadsDirectory: URL = {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let downloadsURL = documentsURL.appendingPathComponent("Downloads", isDirectory: true)
 
@@ -97,97 +139,117 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
             try? FileManager.default.createDirectory(at: downloadsURL, withIntermediateDirectories: true)
         }
 
+        do {
+            try (downloadsURL as NSURL).setResourceValue(true, forKey: .isExcludedFromBackupKey)
+        } catch {
+            EnsembleLogger.debug("Failed to exclude offline downloads from backup: \(error.localizedDescription)")
+        }
+
         return downloadsURL
+    }()
+
+    public func repairDownloads() async throws {
+        try await coreDataStack.performBackgroundContext { context in
+            let request = CDDownload.fetchRequest()
+            request.fetchBatchSize = 50
+            let downloads = try context.fetch(request)
+
+            // Self-heal metadata drift for completed downloads:
+            // - backfill missing track.localFilePath from download.filePath
+            // - backfill fileSize from on-disk file
+            // - mark completed items as failed when file is missing on disk
+            var healedPathCount = 0
+            var healedSizeCount = 0
+            var missingFileCount = 0
+            var invalidFileCount = 0
+            var recoveredFailedCount = 0
+            let existingDownloadFilenames = Self.existingDownloadFilenames()
+
+            for download in downloads {
+                guard let storedPath = download.filePath, !storedPath.isEmpty else {
+                    continue
+                }
+
+                // Migrate legacy absolute paths to filename-only storage.
+                let filename = Self.extractFilename(from: storedPath)
+                if filename != storedPath {
+                    download.filePath = filename
+                    healedPathCount += 1
+                }
+
+                let absolutePath = Self.absolutePath(forFilename: filename)
+                let fileExists = existingDownloadFilenames.contains(filename)
+                let isCompleted = download.downloadStatus == .completed
+                let isFailed = download.downloadStatus == .failed
+
+                if fileExists {
+                    if Self.isClearlyInvalidDownloadedPayload(atPath: absolutePath) {
+                        download.downloadStatus = .failed
+                        download.error = "Downloaded file is invalid"
+                        download.progress = 0
+                        download.track?.localFilePath = nil
+                        invalidFileCount += 1
+                        continue
+                    }
+
+                    // Recover failed records that already have a valid payload on disk.
+                    if isFailed {
+                        download.downloadStatus = .completed
+                        download.error = nil
+                        download.progress = 1
+                        if download.completedAt == nil {
+                            download.completedAt = Date()
+                        }
+                        recoveredFailedCount += 1
+                    }
+
+                    // Keep track.localFilePath in sync (filename only).
+                    if download.track?.localFilePath != filename {
+                        download.track?.localFilePath = filename
+                        healedPathCount += 1
+                    }
+
+                    if download.fileSize <= 0,
+                       let attributes = try? FileManager.default.attributesOfItem(atPath: absolutePath),
+                       let actualSize = (attributes[.size] as? NSNumber)?.int64Value,
+                       actualSize > 0 {
+                        download.fileSize = actualSize
+                        healedSizeCount += 1
+                    }
+                } else if isCompleted {
+                    download.downloadStatus = .failed
+                    download.error = "Downloaded file missing on disk"
+                    download.progress = 0
+                    download.track?.localFilePath = nil
+                    missingFileCount += 1
+                }
+            }
+
+            if context.hasChanges {
+                try context.save()
+                EnsembleLogger.debug(
+                    "🧰 DownloadManager healed download metadata (path=\(healedPathCount), size=\(healedSizeCount), missing=\(missingFileCount), invalid=\(invalidFileCount), recoveredFailed=\(recoveredFailedCount))"
+                )
+            }
+        }
     }
 
     public func fetchDownloads() async throws -> [CDDownload] {
+        return try await coreDataStack.performViewContext { context in
+            let request = CDDownload.fetchRequest()
+            request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
+            request.fetchBatchSize = 50
+            return try context.fetch(request)
+        }
+    }
+
+    public func countDownloads() async throws -> Int {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDDownload.fetchRequest()
-                request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
-                request.fetchBatchSize = 50
                 do {
-                    let downloads = try context.fetch(request)
-
-                    // Self-heal metadata drift for completed downloads:
-                    // - backfill missing track.localFilePath from download.filePath
-                    // - backfill fileSize from on-disk file
-                    // - mark completed items as failed when file is missing on disk
-                    var healedPathCount = 0
-                    var healedSizeCount = 0
-                    var missingFileCount = 0
-                    var invalidFileCount = 0
-                    var recoveredFailedCount = 0
-
-                    for download in downloads {
-                        guard let storedPath = download.filePath, !storedPath.isEmpty else {
-                            continue
-                        }
-
-                        // Migrate legacy absolute paths to filename-only storage.
-                        let filename = Self.extractFilename(from: storedPath)
-                        if filename != storedPath {
-                            download.filePath = filename
-                            healedPathCount += 1
-                        }
-
-                        let absolutePath = Self.absolutePath(forFilename: filename)
-                        let fileExists = FileManager.default.fileExists(atPath: absolutePath)
-                        let isCompleted = download.downloadStatus == .completed
-                        let isFailed = download.downloadStatus == .failed
-
-                        if fileExists {
-                            if Self.isClearlyInvalidDownloadedPayload(atPath: absolutePath) {
-                                download.downloadStatus = .failed
-                                download.error = "Downloaded file is invalid"
-                                download.progress = 0
-                                download.track?.localFilePath = nil
-                                invalidFileCount += 1
-                                continue
-                            }
-
-                            // Recover failed records that already have a valid payload on disk.
-                            if isFailed {
-                                download.downloadStatus = .completed
-                                download.error = nil
-                                download.progress = 1
-                                if download.completedAt == nil {
-                                    download.completedAt = Date()
-                                }
-                                recoveredFailedCount += 1
-                            }
-
-                            // Keep track.localFilePath in sync (filename only).
-                            if download.track?.localFilePath != filename {
-                                download.track?.localFilePath = filename
-                                healedPathCount += 1
-                            }
-
-                            if download.fileSize <= 0,
-                               let attributes = try? FileManager.default.attributesOfItem(atPath: absolutePath),
-                               let actualSize = (attributes[.size] as? NSNumber)?.int64Value,
-                               actualSize > 0 {
-                                download.fileSize = actualSize
-                                healedSizeCount += 1
-                            }
-                        } else if isCompleted {
-                            download.downloadStatus = .failed
-                            download.error = "Downloaded file missing on disk"
-                            download.progress = 0
-                            download.track?.localFilePath = nil
-                            missingFileCount += 1
-                        }
-                    }
-
-                    if context.hasChanges {
-                        try context.save()
-                        EnsembleLogger.debug(
-                            "🧰 DownloadManager healed download metadata (path=\(healedPathCount), size=\(healedSizeCount), missing=\(missingFileCount), invalid=\(invalidFileCount), recoveredFailed=\(recoveredFailedCount))"
-                        )
-                    }
-
-                    continuation.resume(returning: downloads)
+                    continuation.resume(returning: try context.count(for: request))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -217,14 +279,33 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
-    public func fetchNextPendingDownload() async throws -> CDDownload? {
+    public func countPendingDownloads() async throws -> Int {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDDownload.fetchRequest()
                 request.predicate = NSPredicate(
-                    format: "status == %@",
-                    CDDownload.Status.pending.rawValue
+                    format: "status == %@ OR status == %@",
+                    CDDownload.Status.pending.rawValue,
+                    CDDownload.Status.downloading.rawValue
+                )
+                do {
+                    continuation.resume(returning: try context.count(for: request))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func fetchNextPendingDownload(excluding downloadIDs: Set<NSManagedObjectID>) async throws -> CDDownload? {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDDownload.fetchRequest()
+                request.predicate = NSPredicate(
+                    format: "status == %@ AND NOT (SELF IN %@)",
+                    CDDownload.Status.pending.rawValue, downloadIDs
                 )
                 request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: true)]
                 request.fetchLimit = 1
@@ -262,7 +343,22 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
-    public func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload? {
+    public func countCompletedDownloads() async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDDownload.fetchRequest()
+                request.predicate = NSPredicate(format: "status == %@", CDDownload.Status.completed.rawValue)
+                do {
+                    continuation.resume(returning: try context.count(for: request))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> CDDownload? {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
@@ -293,15 +389,19 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     let ratingKeys = Array(Set(references.map(\.trackRatingKey)))
                     let request = CDDownload.fetchRequest()
                     request.predicate = NSPredicate(format: "track.ratingKey IN %@", ratingKeys)
+                    request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
 
                     let downloads = try context.fetch(request)
 
+                    let requestedKeys = Set(references.map(\.membershipID))
+
                     // Index by "sourceCompositeKey|ratingKey" for O(1) lookup
                     var result: [String: CDDownload] = [:]
-                    result.reserveCapacity(downloads.count)
+                    result.reserveCapacity(min(downloads.count, requestedKeys.count))
                     for download in downloads {
                         guard let track = download.track else { continue }
                         let key = "\(track.sourceCompositeKey ?? "")|\(track.ratingKey)"
+                        guard requestedKeys.contains(key), result[key] == nil else { continue }
                         result[key] = download
                     }
                     continuation.resume(returning: result)
@@ -332,21 +432,32 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
-    public func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload {
-        try await createDownload(
-            forTrackRatingKey: trackRatingKey,
-            sourceCompositeKey: nil,
-            quality: "high"
-        )
+    public func countDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDDownload.fetchRequest()
+                request.predicate = NSPredicate(
+                    format: "track.sourceCompositeKey == %@",
+                    sourceCompositeKey
+                )
+                do {
+                    continuation.resume(returning: try context.count(for: request))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     public func createDownload(
         forTrackRatingKey trackRatingKey: String,
-        sourceCompositeKey: String?,
+        sourceCompositeKey: String,
         quality: String
     ) async throws -> CDDownload {
         try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
+            creationContext.perform {
+                let context = self.creationContext
                 let trackRequest = CDTrack.fetchRequest()
                 trackRequest.predicate = Self.trackPredicate(
                     trackRatingKey: trackRatingKey,
@@ -356,6 +467,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                 do {
                     guard let track = try context.fetch(trackRequest).first else {
+                        context.reset()
                         continuation.resume(throwing: DownloadError.trackNotFound)
                         return
                     }
@@ -368,29 +480,10 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     downloadRequest.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
 
                     if let existing = try context.fetch(downloadRequest).first {
-                        let normalizedQuality = Self.normalizedQuality(quality)
-                        let existingQuality = existing.quality ?? "original"
-
-                        // Only re-queue if the existing quality is LOWER than desired.
-                        // original > high > medium > low — a fallback to "original"
-                        // satisfies any lower quality request and should not re-trigger.
-                        if !Self.qualitySatisfies(existing: existingQuality, desired: normalizedQuality) {
-                            // Keep the old file and localFilePath intact so the track remains
-                            // playable at old quality while the new download proceeds.
-                            // completeDownload() will update paths and clean up the old file.
-                            EnsembleLogger.debug(
-                                "📥 createDownload: quality upgrade needed for track=\(trackRatingKey) existing=\(existingQuality) desired=\(normalizedQuality) status=\(existing.status ?? "nil") filePath=\(existing.filePath ?? "nil") — resetting to pending"
-                            )
-                            existing.quality = normalizedQuality
-                            existing.progress = 0
-                            existing.error = nil
-                            existing.completedAt = nil
-                            existing.status = CDDownload.Status.pending.rawValue
-                            existing.startedAt = Date()
-                            try context.save()
-                        }
-
+                        // Existing targets keep their requested and installed quality.
+                        // Replacement is an explicit requeue operation.
                         let existingObjectID = existing.objectID
+                        context.reset()
                         let mainContext = self.coreDataStack.viewContext
                         mainContext.perform {
                             if let mainDownload = try? mainContext.existingObject(with: existingObjectID) as? CDDownload {
@@ -404,7 +497,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                     // No CDDownload exists for this track — create a new pending record
                     EnsembleLogger.debug(
-                        "📥 createDownload: no existing record for track=\(trackRatingKey) source=\(sourceCompositeKey ?? "nil") — creating new pending download"
+                        "📥 createDownload: no existing record for track=\(trackRatingKey) source=\(sourceCompositeKey) — creating new pending download"
                     )
                     let download = CDDownload(context: context)
                     download.status = CDDownload.Status.pending.rawValue
@@ -416,6 +509,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     try context.save()
 
                     let downloadObjectID = download.objectID
+                    context.reset()
                     let mainContext = self.coreDataStack.viewContext
                     mainContext.perform {
                         if let mainDownload = try? mainContext.existingObject(with: downloadObjectID) as? CDDownload {
@@ -425,6 +519,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         }
                     }
                 } catch {
+                    context.rollback()
                     continuation.resume(throwing: error)
                 }
             }
@@ -438,7 +533,8 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         guard !references.isEmpty else { return 0 }
 
         return try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
+            creationContext.perform {
+                let context = self.creationContext
                 do {
                     let normalizedQuality = Self.normalizedQuality(quality)
 
@@ -481,19 +577,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                             continue
                         }
 
-                        if let existing = downloadLookup[lookupKey] {
-                            // Existing download — only re-queue if quality upgrade needed
-                            let existingQuality = existing.quality ?? "original"
-                            if !Self.qualitySatisfies(existing: existingQuality, desired: normalizedQuality) {
-                                existing.quality = normalizedQuality
-                                existing.progress = 0
-                                existing.error = nil
-                                existing.completedAt = nil
-                                existing.status = CDDownload.Status.pending.rawValue
-                                existing.startedAt = now
-                                newlyCreated += 1
-                            }
-                        } else {
+                        if downloadLookup[lookupKey] == nil {
                             // No existing download — create new pending record
                             let download = CDDownload(context: context)
                             download.status = CDDownload.Status.pending.rawValue
@@ -501,6 +585,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                             download.startedAt = now
                             download.quality = normalizedQuality
                             download.track = track
+                            downloadLookup[lookupKey] = download
                             newlyCreated += 1
                         }
                     }
@@ -510,8 +595,10 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         try context.save()
                     }
 
+                    context.reset()
                     continuation.resume(returning: newlyCreated)
                 } catch {
+                    context.rollback()
                     continuation.resume(throwing: error)
                 }
             }
@@ -519,69 +606,31 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
     }
 
     public func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
-                        continuation.resume()
-                        return
-                    }
-                    download.progress = progress
-                    download.status = CDDownload.Status.downloading.rawValue
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await updateDownload(downloadId) { download in
+            download.progress = progress
+            download.status = CDDownload.Status.downloading.rawValue
         }
     }
 
     public func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String? = nil) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
-                        continuation.resume()
-                        return
-                    }
-                    download.status = status.rawValue
-                    // Update quality when provided (e.g., cancelled download re-queued
-                    // at new quality after a quality setting change)
-                    if let quality {
-                        download.quality = Self.normalizedQuality(quality)
-                    }
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        try await updateDownload(downloadId) { download in
+            download.status = status.rawValue
+            // Update quality when provided (e.g., cancelled download re-queued
+            // at new quality after a quality setting change)
+            if let quality {
+                download.quality = Self.normalizedQuality(quality)
             }
         }
     }
 
     public func requeueDownload(_ downloadId: NSManagedObjectID, quality: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
-                        continuation.resume()
-                        return
-                    }
-
-                    download.status = CDDownload.Status.pending.rawValue
-                    download.quality = Self.normalizedQuality(quality)
-                    download.progress = 0
-                    download.error = nil
-                    download.completedAt = nil
-                    download.startedAt = Date()
-
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await updateDownload(downloadId) { download in
+            download.status = CDDownload.Status.pending.rawValue
+            download.quality = Self.normalizedQuality(quality)
+            download.progress = 0
+            download.error = nil
+            download.completedAt = nil
+            download.startedAt = Date()
         }
     }
 
@@ -615,72 +664,41 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         fileSize: Int64,
         quality: String? = nil
     ) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
-                        continuation.resume()
-                        return
-                    }
+        try await updateDownload(downloadId) { download in
+            // Normalize to filename-only for storage (sandbox-stable).
+            let filename = Self.extractFilename(from: filePath)
 
-                    // Normalize to filename-only for storage (sandbox-stable).
-                    let filename = Self.extractFilename(from: filePath)
-
-                    // If the previous download had a different file (e.g. quality re-queue),
-                    // clean up the old file now that the new one is ready.
-                    if let oldStored = download.filePath, !oldStored.isEmpty {
-                        let oldFilename = Self.extractFilename(from: oldStored)
-                        if oldFilename != filename {
-                            let oldAbsolute = Self.absolutePath(forFilename: oldFilename)
-                            try? FileManager.default.removeItem(atPath: oldAbsolute)
-                        }
-                    }
-
-                    download.status = CDDownload.Status.completed.rawValue
-                    download.progress = 1.0
-                    download.filePath = filename
-                    download.fileSize = fileSize
-                    download.completedAt = Date()
-                    if let quality, !quality.isEmpty {
-                        download.quality = Self.normalizedQuality(quality)
-                    }
-
-                    // Update track local path for offline playback routing (filename only).
-                    download.track?.localFilePath = filename
-
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
+            // If the previous download had a different file (e.g. quality re-queue),
+            // clean up the old file now that the new one is ready.
+            if let oldStored = download.filePath, !oldStored.isEmpty {
+                let oldFilename = Self.extractFilename(from: oldStored)
+                if oldFilename != filename {
+                    Self.removeStoredDownloadFileAndSidecar(oldStored)
                 }
             }
+
+            download.status = CDDownload.Status.completed.rawValue
+            download.progress = 1.0
+            download.filePath = filename
+            download.fileSize = fileSize
+            download.completedAt = Date()
+            if let quality, !quality.isEmpty {
+                download.quality = Self.normalizedQuality(quality)
+            }
+
+            // Update track local path for offline playback routing (filename only).
+            download.track?.localFilePath = filename
         }
     }
 
     public func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
-                        continuation.resume()
-                        return
-                    }
-                    download.status = CDDownload.Status.failed.rawValue
-                    download.error = error
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await updateDownload(downloadId) { download in
+            download.status = CDDownload.Status.failed.rawValue
+            download.error = error
         }
     }
 
-    public func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws {
-        try await deleteDownload(forTrackRatingKey: trackRatingKey, sourceCompositeKey: nil)
-    }
-
-    public func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws {
+    public func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 let request = CDDownload.fetchRequest()
@@ -691,14 +709,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                 do {
                     if let download = try context.fetch(request).first {
-                        // Resolve filename to current absolute path for file deletion.
-                        if let storedPath = download.filePath, !storedPath.isEmpty {
-                            let filename = Self.extractFilename(from: storedPath)
-                            let absolutePath = Self.absolutePath(forFilename: filename)
-                            try? FileManager.default.removeItem(atPath: absolutePath)
-                            // Delete frequency analysis sidecar
-                            try? FileManager.default.removeItem(atPath: absolutePath + ".freq")
-                        }
+                        Self.removeStoredDownloadFileAndSidecar(download.filePath)
 
                         download.track?.localFilePath = nil
                         context.delete(download)
@@ -712,11 +723,40 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
-    public func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String? {
-        try await getLocalFilePath(forTrackRatingKey: trackRatingKey, sourceCompositeKey: nil)
+    public func deleteDownloads(forReferences references: [OfflineTrackReference]) async throws {
+        let uniqueReferences = Array(Set(references))
+        guard !uniqueReferences.isEmpty else { return }
+
+        try await coreDataStack.performBackgroundContext { context in
+            let grouped = Dictionary(grouping: uniqueReferences, by: \.trackSourceCompositeKey)
+
+            for (sourceKey, sourceReferences) in grouped {
+                let ratingKeys = sourceReferences.map(\.trackRatingKey)
+                for start in stride(from: 0, to: ratingKeys.count, by: 500) {
+                    let batch = Array(ratingKeys[start..<min(start + 500, ratingKeys.count)])
+                    let request = CDDownload.fetchRequest()
+                    request.predicate = NSPredicate(
+                        format: "track.sourceCompositeKey == %@ AND track.ratingKey IN %@",
+                        sourceKey,
+                        batch
+                    )
+
+                    for download in try context.fetch(request) {
+                        Self.removeStoredDownloadFileAndSidecar(download.filePath)
+                        download.track?.localFilePath = nil
+                        context.delete(download)
+                    }
+
+                    if context.hasChanges {
+                        try context.save()
+                    }
+                    context.reset()
+                }
+            }
+        }
     }
 
-    public func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String? {
+    public func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> String? {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
@@ -760,7 +800,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDDownload.fetchRequest()
-                request.predicate = NSPredicate(format: "status == %@", CDDownload.Status.completed.rawValue)
+                request.predicate = NSPredicate(format: "filePath != nil AND filePath != ''")
 
                 do {
                     let downloads = try context.fetch(request)
@@ -785,13 +825,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     let downloads = try context.fetch(request)
 
                     for download in downloads {
-                        // Remove file and frequency sidecar from disk
-                        if let storedPath = download.filePath, !storedPath.isEmpty {
-                            let filename = Self.extractFilename(from: storedPath)
-                            let absolutePath = Self.absolutePath(forFilename: filename)
-                            try? FileManager.default.removeItem(atPath: absolutePath)
-                            try? FileManager.default.removeItem(atPath: absolutePath + ".freq")
-                        }
+                        Self.removeStoredDownloadFileAndSidecar(download.filePath)
                         download.track?.localFilePath = nil
                         context.delete(download)
                     }
@@ -816,12 +850,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                     // Remove downloaded files and sidecars from disk
                     for download in downloads {
-                        if let storedPath = download.filePath, !storedPath.isEmpty {
-                            let filename = Self.extractFilename(from: storedPath)
-                            let absolutePath = Self.absolutePath(forFilename: filename)
-                            try? FileManager.default.removeItem(atPath: absolutePath)
-                            try? FileManager.default.removeItem(atPath: absolutePath + ".freq")
-                        }
+                        Self.removeStoredDownloadFileAndSidecar(download.filePath)
                         // Clear the track's local file path so it's no longer treated as offline
                         download.track?.localFilePath = nil
                         context.delete(download)
@@ -846,6 +875,43 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
+    public func removeOrphanedDownloadFiles() async throws -> Int {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = CDDownload.fetchRequest()
+                    let downloads = try context.fetch(request)
+                    let referencedFilenames = Set(downloads.compactMap { download -> String? in
+                        guard let filePath = download.filePath, !filePath.isEmpty else { return nil }
+                        return Self.extractFilename(from: filePath)
+                    })
+
+                    let contents = (try? FileManager.default.contentsOfDirectory(
+                        at: Self.downloadsDirectory,
+                        includingPropertiesForKeys: nil,
+                        options: []
+                    )) ?? []
+
+                    var removedCount = 0
+                    for url in contents {
+                        let filename = url.lastPathComponent
+                        let ownerFilename = filename.hasSuffix(".freq")
+                            ? String(filename.dropLast(".freq".count))
+                            : filename
+                        guard !referencedFilenames.contains(ownerFilename) else { continue }
+
+                        try? FileManager.default.removeItem(at: url)
+                        removedCount += 1
+                    }
+
+                    continuation.resume(returning: removedCount)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     private static func removeAllDownloadDirectoryFiles() throws {
         guard FileManager.default.fileExists(atPath: downloadsDirectory.path) else { return }
         let contents = try FileManager.default.contentsOfDirectory(
@@ -858,6 +924,48 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
+    private func updateDownload(
+        _ downloadId: NSManagedObjectID,
+        mutate: @escaping (CDDownload) throws -> Void
+    ) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
+                        continuation.resume()
+                        return
+                    }
+
+                    try mutate(download)
+                    if context.hasChanges {
+                        try context.save()
+                    }
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private static func removeStoredDownloadFileAndSidecar(_ storedPath: String?) {
+        guard let storedPath, !storedPath.isEmpty else { return }
+
+        let filename = extractFilename(from: storedPath)
+        let absolutePath = absolutePath(forFilename: filename)
+        try? FileManager.default.removeItem(atPath: absolutePath)
+        try? FileManager.default.removeItem(atPath: absolutePath + ".freq")
+    }
+
+    private static func existingDownloadFilenames() -> Set<String> {
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: downloadsDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )) ?? []
+        return Set(contents.map(\.lastPathComponent))
+    }
+
     private static func isClearlyInvalidDownloadedPayload(atPath path: String) -> Bool {
         guard let handle = FileHandle(forReadingAtPath: path) else { return true }
         defer { try? handle.close() }
@@ -865,15 +973,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
             return true
         }
 
-        let leadingText = String(decoding: header, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        return leadingText.hasPrefix("<html")
-            || leadingText.hasPrefix("<!doctype html")
-            || leadingText.hasPrefix("<?xml")
-            || leadingText.contains("<h1>400 bad request</h1>")
-            || leadingText.contains("<h1>404 not found</h1>")
+        return EnsembleAudioPayloadValidator.isClearlyInvalidLeadingText(header)
     }
 
     private static func normalizedQuality(_ quality: String) -> String {
@@ -883,17 +983,6 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         default:
             return "original"
         }
-    }
-
-    /// Returns true when `existing` quality is equal to or higher than `desired`.
-    /// Quality ranking: original > high > medium > low.
-    /// Used to prevent re-downloading when a fallback stored original quality
-    /// but the user's setting is medium/high — the file already exceeds the request.
-    public static func qualitySatisfies(existing: String, desired: String) -> Bool {
-        let ranking = ["low": 0, "medium": 1, "high": 2, "original": 3]
-        let existingRank = ranking[existing] ?? 3
-        let desiredRank = ranking[desired] ?? 3
-        return existingRank >= desiredRank
     }
 
     /// Build the current absolute path for a download filename.

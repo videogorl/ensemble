@@ -1,143 +1,177 @@
 import Foundation
 
-/// Owns playlist mutation control flow while the facade keeps source parsing,
-/// transport helpers, and cache-refresh side effects.
+/// Owns provider-neutral playlist mutation control flow while each source provider
+/// owns its remote API behavior.
 @MainActor
 final class PlaylistMutationController {
     struct Dependencies {
-        let validateServerSourceKey: (String) -> Bool
         let fetchPlaylists: (String?) async throws -> [Playlist]
-        let filteredTrackIDsForServer: ([Track], String) async -> [String]
-        let createRemotePlaylist: (String, [String], String) async throws -> Void
-        let reconcileCreatedPlaylist: (String, [String], String, Bool) async -> Playlist?
-        let addTracksToRemotePlaylist: (String, [String], String) async throws -> Void
-        let renameRemotePlaylist: (String, String, String) async throws -> Void
-        let deleteRemotePlaylist: (String, String) async throws -> Void
-        let replaceRemotePlaylistContents: (String, [String], String) async throws -> Void
+        let persistCreatedPlaylist: (Playlist, [Track]) async throws -> Void
+        let persistOptimisticAdd: ([Track], Playlist) async throws -> Int
+        let reconcileAcceptedAdd: (
+            MusicSourcePlaylistMutating,
+            Playlist,
+            [Track],
+            Int
+        ) async -> Void
         let persistLastPlaylistTarget: (Playlist) -> Void
         let clearLastPlaylistTargetIfNeeded: (Playlist) -> Void
-        let refreshServerPlaylists: (String) async -> Void
+        let deletePlaylistArtwork: (String, String) -> Void
+        let refreshPlaylists: (String) async -> Void
+        let refreshPlaylistsAfterMutation: (String, [Track]) async -> Void
     }
 
     private let dependencies: Dependencies
+    private let actionService = PlaylistActionService()
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
     }
 
-    /// Create a new playlist, persist the local target metadata, and queue a refresh.
+    /// Create a playlist through its exact provider and reconcile the local cache.
     func createPlaylist(
         title: String,
         tracks: [Track],
-        serverSourceKey: String
+        sourceKey: String,
+        provider: MusicSourcePlaylistMutating
     ) async throws -> PlaylistMutationResult {
-        guard dependencies.validateServerSourceKey(serverSourceKey) else {
+        guard MediaSourceIdentity.parse(sourceKey) != nil else {
             throw PlaylistMutationError.invalidSource
         }
 
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let existingPlaylists = try await dependencies.fetchPlaylists(serverSourceKey)
+        let existingPlaylists = try await dependencies.fetchPlaylists(sourceKey)
         if existingPlaylists.contains(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
             throw PlaylistMutationError.duplicateName
         }
 
-        let filteredTrackIds = await dependencies.filteredTrackIDsForServer(tracks, serverSourceKey)
-        guard tracks.isEmpty || !filteredTrackIds.isEmpty else {
+        let compatible = actionService.tracks(tracks, compatibleWithServerSourceKey: sourceKey)
+        guard tracks.isEmpty || !compatible.isEmpty else {
             throw PlaylistMutationError.emptySelection
         }
 
-        try await dependencies.createRemotePlaylist(trimmed, filteredTrackIds, serverSourceKey)
-
-        if let createdPlaylist = await dependencies.reconcileCreatedPlaylist(
-            trimmed,
-            filteredTrackIds,
-            serverSourceKey,
-            tracks.isEmpty
-        ) {
+        let createdPlaylist = try await provider.createPlaylist(title: trimmed, tracks: compatible)
+        if let createdPlaylist {
+            try await dependencies.persistCreatedPlaylist(createdPlaylist, compatible)
             dependencies.persistLastPlaylistTarget(createdPlaylist)
         }
-
         Task { [dependencies] in
-            await dependencies.refreshServerPlaylists(serverSourceKey)
+            await dependencies.refreshPlaylistsAfterMutation(sourceKey, compatible)
         }
 
-        let skippedCount = max(0, tracks.count - filteredTrackIds.count)
-        return PlaylistMutationResult(addedCount: filteredTrackIds.count, skippedCount: skippedCount)
+        return PlaylistMutationResult(
+            addedCount: compatible.count,
+            skippedCount: tracks.count - compatible.count
+        )
     }
 
-    /// Add tracks to an existing playlist and queue a server refresh.
-    func addTracksToPlaylist(_ tracks: [Track], playlist: Playlist) async throws -> PlaylistMutationResult {
-        guard !playlist.isSmart else {
-            throw PlaylistMutationError.smartPlaylistReadOnly
-        }
-        guard let serverSourceKey = playlist.sourceCompositeKey,
-              dependencies.validateServerSourceKey(serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
-
-        let filteredTrackIds = await dependencies.filteredTrackIDsForServer(tracks, serverSourceKey)
-        guard !filteredTrackIds.isEmpty else {
+    /// Add compatible tracks through the playlist's exact provider.
+    func addTracksToPlaylist(
+        _ tracks: [Track],
+        playlist: Playlist,
+        provider: MusicSourcePlaylistMutating
+    ) async throws -> PlaylistMutationResult {
+        let sourceKey = try mutableSourceKey(for: playlist)
+        let compatible = actionService.tracks(tracks, compatibleWithServerSourceKey: sourceKey)
+        guard !compatible.isEmpty else {
             throw PlaylistMutationError.emptySelection
         }
 
-        try await dependencies.addTracksToRemotePlaylist(playlist.id, filteredTrackIds, serverSourceKey)
-
-        Task { [dependencies] in
-            await dependencies.refreshServerPlaylists(serverSourceKey)
-        }
-
+        let added = try await provider.addTracks(compatible, to: playlist.id)
         dependencies.persistLastPlaylistTarget(playlist)
-        let skippedCount = max(0, tracks.count - filteredTrackIds.count)
-        return PlaylistMutationResult(addedCount: filteredTrackIds.count, skippedCount: skippedCount)
+        let minimumTrackCount = (try? await dependencies.persistOptimisticAdd(compatible, playlist))
+            ?? playlist.trackCount + added
+        await dependencies.reconcileAcceptedAdd(
+            provider,
+            playlist,
+            compatible,
+            minimumTrackCount
+        )
+
+        return PlaylistMutationResult(
+            addedCount: added,
+            skippedCount: tracks.count - compatible.count
+        )
     }
 
-    /// Rename a playlist and synchronously refresh its server cache.
-    func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws {
-        guard !playlist.isSmart else {
-            throw PlaylistMutationError.smartPlaylistReadOnly
-        }
-        guard let serverSourceKey = playlist.sourceCompositeKey,
-              dependencies.validateServerSourceKey(serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
-
+    /// Rename a playlist through its exact provider and reconcile the local cache.
+    func renamePlaylist(
+        _ playlist: Playlist,
+        to newTitle: String,
+        provider: MusicSourcePlaylistMutating
+    ) async throws {
+        let sourceKey = try mutableSourceKey(for: playlist)
         let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let existingPlaylists = try await dependencies.fetchPlaylists(serverSourceKey)
-        if existingPlaylists.contains(where: { $0.id != playlist.id && $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+        let existingPlaylists = try await dependencies.fetchPlaylists(sourceKey)
+        if existingPlaylists.contains(where: {
+            $0.id != playlist.id && $0.title.caseInsensitiveCompare(trimmed) == .orderedSame
+        }) {
             throw PlaylistMutationError.duplicateName
         }
 
-        try await dependencies.renameRemotePlaylist(playlist.id, trimmed, serverSourceKey)
-        await dependencies.refreshServerPlaylists(serverSourceKey)
+        try await provider.renamePlaylist(playlist.id, title: trimmed)
+        await dependencies.refreshPlaylists(sourceKey)
     }
 
-    /// Delete a playlist, clear persisted targeting if needed, and refresh its server cache.
-    func deletePlaylist(_ playlist: Playlist) async throws {
-        guard !playlist.isSmart else {
-            throw PlaylistMutationError.smartPlaylistReadOnly
-        }
-        guard let serverSourceKey = playlist.sourceCompositeKey,
-              dependencies.validateServerSourceKey(serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
-
-        try await dependencies.deleteRemotePlaylist(playlist.id, serverSourceKey)
+    /// Delete a playlist through its exact provider and reconcile local state.
+    func deletePlaylist(
+        _ playlist: Playlist,
+        provider: MusicSourcePlaylistMutating
+    ) async throws {
+        let sourceKey = try mutableSourceKey(for: playlist)
+        try await provider.deletePlaylist(playlist.id)
         dependencies.clearLastPlaylistTargetIfNeeded(playlist)
-        await dependencies.refreshServerPlaylists(serverSourceKey)
+        dependencies.deletePlaylistArtwork(playlist.id, sourceKey)
+        await dependencies.refreshPlaylists(sourceKey)
     }
 
-    /// Replace a playlist's contents in the supplied order and refresh its cache.
-    func replacePlaylistContents(_ playlist: Playlist, with orderedTracks: [Track]) async throws {
+    /// Replace playlist contents through its exact provider.
+    func replacePlaylistContents(
+        _ playlist: Playlist,
+        with orderedTracks: [Track],
+        provider: MusicSourcePlaylistMutating
+    ) async throws {
+        let sourceKey = try mutableSourceKey(for: playlist)
+        let compatible = actionService.tracks(
+            orderedTracks,
+            compatibleWithServerSourceKey: sourceKey
+        )
+        guard orderedTracks.isEmpty || !compatible.isEmpty else {
+            throw PlaylistMutationError.emptySelection
+        }
+
+        try await provider.replacePlaylistContents(playlist.id, tracks: compatible)
+        Task { [dependencies] in
+            await dependencies.refreshPlaylistsAfterMutation(sourceKey, compatible)
+        }
+    }
+
+    /// Apply provider-native membership edits and reconcile the local cache.
+    func editPlaylistItems(
+        _ playlist: Playlist,
+        originalItems: [PlaylistItem],
+        editedItems: [PlaylistItem],
+        provider: MusicSourcePlaylistMutating
+    ) async throws {
+        let sourceKey = try mutableSourceKey(for: playlist)
+        try await provider.editPlaylistItems(
+            playlist.id,
+            originalItems: originalItems,
+            editedItems: editedItems
+        )
+        Task { [dependencies] in
+            await dependencies.refreshPlaylistsAfterMutation(sourceKey, [])
+        }
+    }
+
+    private func mutableSourceKey(for playlist: Playlist) throws -> String {
         guard !playlist.isSmart else {
             throw PlaylistMutationError.smartPlaylistReadOnly
         }
-        guard let serverSourceKey = playlist.sourceCompositeKey,
-              dependencies.validateServerSourceKey(serverSourceKey) else {
+        guard let sourceKey = playlist.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else {
             throw PlaylistMutationError.invalidSource
         }
-
-        let filteredTrackIds = await dependencies.filteredTrackIDsForServer(orderedTracks, serverSourceKey)
-        try await dependencies.replaceRemotePlaylistContents(playlist.id, filteredTrackIds, serverSourceKey)
-        await dependencies.refreshServerPlaylists(serverSourceKey)
+        return sourceKey
     }
 }

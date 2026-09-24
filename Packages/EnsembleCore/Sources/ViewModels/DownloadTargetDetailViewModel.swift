@@ -29,12 +29,119 @@ public struct TrackDownloadRow: Identifiable {
     public let trackNumber: Int32
     /// Index within parent container (used for playlist ordering)
     public let index: Int
+    public var hasStoredFile = false
+
+    public var sourceScopedID: String {
+        sourceScopedIdentity(ratingKey: trackRatingKey, sourceCompositeKey: sourceCompositeKey)
+    }
+
+    public func playableTrackIndex(in tracks: [Track]) -> Int? {
+        tracks.firstIndex { $0.sourceScopedID == sourceScopedID }
+    }
+
+    var statusSortPriority: Int {
+        switch status {
+        case .downloading: return 0
+        case .pending: return 1
+        case .paused: return 2
+        case .failed: return 3
+        case .completed: return 4
+        }
+    }
+
+    func isOrderedBeforeByDiscTrackTitle(_ other: TrackDownloadRow) -> Bool {
+        if discNumber != other.discNumber { return discNumber < other.discNumber }
+        if trackNumber != other.trackNumber { return trackNumber < other.trackNumber }
+        return title.localizedCaseInsensitiveCompare(other.title) == .orderedAscending
+    }
+}
+
+struct TrackDownloadRowStats {
+    let failedCount: Int
+    let completedCount: Int
+    let totalCount: Int
+    let downloadedBytes: Int64
+    let status: CDOfflineDownloadTarget.Status
+
+    var progress: Float {
+        guard totalCount > 0 else { return 0 }
+        return Float(completedCount) / Float(totalCount)
+    }
+
+    init() {
+        failedCount = 0
+        completedCount = 0
+        totalCount = 0
+        downloadedBytes = 0
+        status = .pending
+    }
+
+    init(rows: [TrackDownloadRow]) {
+        var failedCount = 0
+        var completedCount = 0
+        var downloadedBytes: Int64 = 0
+        var hasDownloading = false
+        var hasPaused = false
+
+        for row in rows {
+            if row.status == .completed || row.hasStoredFile {
+                completedCount += 1
+                downloadedBytes += row.fileSize
+            }
+            switch row.status {
+            case .failed:
+                failedCount += 1
+            case .completed:
+                break
+            case .downloading:
+                hasDownloading = true
+            case .paused:
+                hasPaused = true
+            case .pending:
+                break
+            }
+        }
+
+        self.failedCount = failedCount
+        self.completedCount = completedCount
+        self.totalCount = rows.count
+        self.downloadedBytes = downloadedBytes
+
+        if failedCount > 0 {
+            status = .failed
+        } else if !rows.isEmpty && rows.allSatisfy({ $0.status == .completed }) {
+            status = .completed
+        } else if hasDownloading {
+            status = .downloading
+        } else if hasPaused {
+            status = .paused
+        } else {
+            status = .pending
+        }
+    }
+}
+
+extension OfflineDownloadService {
+    func retryDownload(row: TrackDownloadRow) async {
+        await retryDownload(
+            trackRatingKey: row.trackRatingKey,
+            sourceCompositeKey: row.sourceCompositeKey
+        )
+    }
+
+    func retryFailedDownloads(in rows: [TrackDownloadRow]) async {
+        for row in rows where row.status == .failed {
+            await retryDownload(row: row)
+        }
+    }
 }
 
 /// ViewModel for the per-track download detail view of a single offline target
 @MainActor
 public final class DownloadTargetDetailViewModel: ObservableObject {
-    @Published public private(set) var tracks: [TrackDownloadRow] = []
+    @Published public private(set) var tracks: [TrackDownloadRow] = [] {
+        didSet { trackStats = TrackDownloadRowStats(rows: tracks) }
+    }
     @Published public private(set) var playableTracks: [Track] = []
     @Published public private(set) var isLoading = false
     /// Resolved thumb path for the target entity (album/artist/playlist artwork)
@@ -50,6 +157,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let offlineDownloadService: OfflineDownloadService
     private var cancellables = Set<AnyCancellable>()
+    private var trackStats = TrackDownloadRowStats()
 
     public init(
         summary: DownloadedItemSummary,
@@ -95,59 +203,45 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
 
     /// Retry a single failed download
     public func retryDownload(row: TrackDownloadRow) async {
-        await offlineDownloadService.retryDownload(
-            trackRatingKey: row.trackRatingKey,
-            sourceCompositeKey: row.sourceCompositeKey
-        )
+        await offlineDownloadService.retryDownload(row: row)
         await loadTrackRows()
     }
 
     /// Retry all tracks in a failed state
     public func retryAllFailed() async {
-        let failedRows = tracks.filter { $0.status == .failed }
-        for row in failedRows {
-            await offlineDownloadService.retryDownload(
-                trackRatingKey: row.trackRatingKey,
-                sourceCompositeKey: row.sourceCompositeKey
-            )
-        }
+        await offlineDownloadService.retryFailedDownloads(in: tracks)
         await loadTrackRows()
     }
 
     public var failedCount: Int {
-        tracks.filter { $0.status == .failed }.count
+        trackStats.failedCount
     }
 
     // MARK: - Live Target Stats (derived from tracks, updated reactively)
 
     /// Live completed track count computed from current track rows
     public var liveCompletedCount: Int {
-        tracks.filter { $0.status == .completed }.count
+        trackStats.completedCount
     }
 
     /// Live total track count from current track rows
     public var liveTotalCount: Int {
-        tracks.count
+        trackStats.totalCount
     }
 
     /// Live overall progress (0.0–1.0) computed from track rows
     public var liveProgress: Float {
-        guard !tracks.isEmpty else { return 0 }
-        return Float(liveCompletedCount) / Float(liveTotalCount)
+        trackStats.progress
     }
 
     /// Live downloaded bytes total from completed tracks
     public var liveDownloadedBytes: Int64 {
-        tracks.filter { $0.status == .completed }.reduce(0) { $0 + $1.fileSize }
+        trackStats.downloadedBytes
     }
 
     /// Live target-level status derived from individual track statuses
     public var liveStatus: CDOfflineDownloadTarget.Status {
-        if tracks.contains(where: { $0.status == .failed }) { return .failed }
-        if liveCompletedCount >= liveTotalCount && liveTotalCount > 0 { return .completed }
-        if tracks.contains(where: { $0.status == .downloading }) { return .downloading }
-        if tracks.contains(where: { $0.status == .paused }) { return .paused }
-        return .pending
+        trackStats.status
     }
 
     /// Explicitly redownload completed tracks whose quality differs from the current setting.
@@ -181,19 +275,19 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
     private func loadTrackRows() async {
         do {
             let references = try await offlineDownloadTargetRepository.fetchTrackReferences(targetKey: summary.key)
+            async let downloadsByKeyTask = downloadManager.fetchDownloadsBatch(forReferences: references)
+            async let tracksByKeyTask = libraryRepository.fetchTracksBatch(forReferences: references)
+            let (downloadsByKey, tracksByKey) = try await (downloadsByKeyTask, tracksByKeyTask)
 
             var rows: [TrackDownloadRow] = []
             var resolved: [Track] = []
+            rows.reserveCapacity(references.count)
+            resolved.reserveCapacity(references.count)
 
             for (index, ref) in references.enumerated() {
-                let download = try? await downloadManager.fetchDownload(
-                    forTrackRatingKey: ref.trackRatingKey,
-                    sourceCompositeKey: ref.trackSourceCompositeKey
-                )
-                let cdTrack = try? await libraryRepository.fetchTrack(
-                    ratingKey: ref.trackRatingKey,
-                    sourceCompositeKey: ref.trackSourceCompositeKey
-                )
+                let lookupKey = ref.membershipID
+                let download = downloadsByKey[lookupKey]
+                let cdTrack = tracksByKey[lookupKey]
 
                 let status = download?.downloadStatus ?? .pending
                 let row = TrackDownloadRow(
@@ -209,23 +303,24 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
                     progress: download?.progress ?? 0,
                     fileSize: download?.fileSize ?? 0,
                     errorMessage: download?.error,
-                    downloadedQuality: download?.quality,
+                    downloadedQuality: download?.installedQuality,
                     discNumber: cdTrack?.discNumber ?? 0,
                     trackNumber: cdTrack?.trackNumber ?? 0,
-                    index: index
+                    index: index,
+                    hasStoredFile: download?.hasStoredFile ?? false
                 )
                 rows.append(row)
 
                 // Collect playable (downloaded) tracks as full domain models
-                if let cdTrack, status == .completed {
+                if let cdTrack, download?.hasStoredFile == true {
                     resolved.append(Track(from: cdTrack))
                 }
             }
 
             // Sort completed tracks by metadata order; in-progress/pending/failed float to top by status
             tracks = rows.sorted { lhs, rhs in
-                let lp = trackStatusSortPriority(lhs.status)
-                let rp = trackStatusSortPriority(rhs.status)
+                let lp = lhs.statusSortPriority
+                let rp = rhs.statusSortPriority
                 if lp != rp { return lp < rp }
                 // Within same status, sort by metadata order
                 return metadataOrder(lhs, rhs)
@@ -247,19 +342,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
         case .playlist:
             return lhs.index < rhs.index
         case .album, .artist, .library, .favorites:
-            if lhs.discNumber != rhs.discNumber { return lhs.discNumber < rhs.discNumber }
-            if lhs.trackNumber != rhs.trackNumber { return lhs.trackNumber < rhs.trackNumber }
-            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-        }
-    }
-
-    private func trackStatusSortPriority(_ status: CDDownload.Status) -> Int {
-        switch status {
-        case .downloading: return 0
-        case .pending: return 1
-        case .paused: return 2
-        case .failed: return 3
-        case .completed: return 4
+            return lhs.isOrderedBeforeByDiscTrackTitle(rhs)
         }
     }
 }

@@ -9,6 +9,7 @@ public final class NowPlayingPlaybackProjection: ObservableObject {
     @Published public private(set) var isCurrentTrackPlayable = false
     @Published public private(set) var isShuffleEnabled = false
     @Published public private(set) var repeatMode: RepeatMode = .off
+    @Published public private(set) var isSmartMixTransitionActive = false
 
     private let progressSubject = CurrentValueSubject<Double, Never>(0)
     private let bufferedProgressSubject = CurrentValueSubject<Double, Never>(0)
@@ -107,6 +108,11 @@ public final class NowPlayingPlaybackProjection: ObservableObject {
         repeatMode = mode
     }
 
+    func updateSmartMixTransitionActive(_ isActive: Bool) {
+        guard isSmartMixTransitionActive != isActive else { return }
+        isSmartMixTransitionActive = isActive
+    }
+
     func updateProgress(_ progress: Double, bufferedProgress: Double, currentTime: TimeInterval) {
         let boundedProgress = max(0, min(1, progress))
         let boundedBufferedProgress = max(0, min(1, bufferedProgress))
@@ -132,7 +138,6 @@ public final class NowPlayingQueueProjection: ObservableObject {
     @Published public private(set) var queue: [QueueItem] = []
     @Published public private(set) var currentQueueIndex: Int = -1
     @Published public private(set) var playbackHistory: [QueueItem] = []
-    @Published public private(set) var queueSections: QueueSections = .empty
     @Published public private(set) var showHistory = false
     @Published public private(set) var isAutoplayEnabled = false
     @Published public private(set) var isSmartMixEnabled = false
@@ -158,11 +163,6 @@ public final class NowPlayingQueueProjection: ObservableObject {
         playbackHistory = history
     }
 
-    func updateQueueSections(_ sections: QueueSections) {
-        guard queueSections != sections else { return }
-        queueSections = sections
-    }
-
     func updateShowHistory(_ isShowing: Bool) {
         guard showHistory != isShowing else { return }
         showHistory = isShowing
@@ -182,25 +182,89 @@ public final class NowPlayingQueueProjection: ObservableObject {
         guard recommendationsExhausted != isExhausted else { return }
         recommendationsExhausted = isExhausted
     }
+
 }
 
 @MainActor
 public final class NowPlayingArtworkProjection: ObservableObject {
-    @Published public private(set) var currentTrack: Track?
-    @Published public private(set) var artworkImage: PlatformImage?
-    @Published public private(set) var blurredArtworkImage: PlatformImage?
-
-    func updateCurrentTrack(_ track: Track?) {
-        guard currentTrack != track else { return }
-        currentTrack = track
+    public struct State {
+        public let currentTrack: Track?
+        public let artworkIdentityKey: String?
+        public let artworkImage: PlatformImage?
+        public let blurredArtworkImage: PlatformImage?
+        public let isLoading: Bool
     }
 
-    func updateArtworkImage(_ image: PlatformImage?) {
-        artworkImage = image
+    @Published public private(set) var state = State(
+        currentTrack: nil,
+        artworkIdentityKey: nil,
+        artworkImage: nil,
+        blurredArtworkImage: nil,
+        isLoading: false
+    )
+
+    public var currentTrack: Track? { state.currentTrack }
+    public var artworkImage: PlatformImage? { state.artworkImage }
+    public var blurredArtworkImage: PlatformImage? { state.blurredArtworkImage }
+
+    @discardableResult
+    func beginLoading(
+        _ track: Track,
+        retaining identities: Set<String>,
+        cached: ArtworkResolvedImage? = nil
+    ) -> Bool {
+        let keepsResolvedArtwork = state.artworkIdentityKey.map(identities.contains) == true
+        let cached = cached.flatMap { identities.contains($0.identityKey) ? $0 : nil }
+        let cachedBlurredArtwork = cached.flatMap {
+            ArtworkBlurRenderer.memoryCachedBlurredImage(forStableKey: $0.blurCacheKey)
+                ?? ArtworkBlurRenderer.cachedBlurredImage(for: $0.image)
+        }
+        let needsLoad = !keepsResolvedArtwork && cached == nil
+        state = State(
+            currentTrack: track,
+            artworkIdentityKey: cached?.identityKey ?? (keepsResolvedArtwork ? state.artworkIdentityKey : nil),
+            artworkImage: cached?.image ?? (keepsResolvedArtwork ? state.artworkImage : nil),
+            blurredArtworkImage: cachedBlurredArtwork ?? (keepsResolvedArtwork ? state.blurredArtworkImage : nil),
+            isLoading: needsLoad
+        )
+        return needsLoad
     }
 
-    func updateBlurredArtworkImage(_ image: PlatformImage?) {
-        blurredArtworkImage = image
+    func resolveArtwork(_ resolved: ArtworkResolvedImage, for track: Track) {
+        guard state.currentTrack?.sourceScopedID == track.sourceScopedID else { return }
+        state = State(
+            currentTrack: track,
+            artworkIdentityKey: resolved.identityKey,
+            artworkImage: resolved.image,
+            blurredArtworkImage: nil,
+            isLoading: false
+        )
+    }
+
+    func resolveBlurredArtwork(
+        _ image: PlatformImage?,
+        identityKey: String,
+        trackIdentity: String
+    ) {
+        guard state.currentTrack?.sourceScopedID == trackIdentity,
+              state.artworkIdentityKey == identityKey else { return }
+        state = State(
+            currentTrack: state.currentTrack,
+            artworkIdentityKey: state.artworkIdentityKey,
+            artworkImage: state.artworkImage,
+            blurredArtworkImage: image,
+            isLoading: false
+        )
+    }
+
+    func clear(track: Track? = nil) {
+        state = State(
+            currentTrack: track,
+            artworkIdentityKey: nil,
+            artworkImage: nil,
+            blurredArtworkImage: nil,
+            isLoading: track != nil
+        )
     }
 }
 
@@ -318,7 +382,10 @@ public final class NowPlayingRatingProjection: ObservableObject {
     private var displayRatingsByTrackIdentity: [String: Int] = [:]
 
     public func isTrackFavorited(_ track: Track) -> Bool {
-        (displayRatingsByTrackIdentity[track.sourceScopedID] ?? track.rating) >= 8
+        if let displayRating = displayRatingsByTrackIdentity[track.playbackIdentity] {
+            return displayRating >= 8
+        }
+        return track.isFavorite
     }
 
     func updateCurrentTrack(_ track: Track?, displayRating: Int?) {

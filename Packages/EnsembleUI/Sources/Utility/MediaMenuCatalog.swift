@@ -1,4 +1,6 @@
+import EnsembleDesignTokens
 import EnsembleCore
+import EnsembleDomain
 import Foundation
 import SwiftUI
 
@@ -61,6 +63,7 @@ enum MediaMenuActionID: String, Equatable, Hashable {
     case radio
     case playNext
     case playLast
+    case addToLibrary
     case addToRecentPlaylist
     case addToPlaylist
     case goToAlbum
@@ -68,14 +71,13 @@ enum MediaMenuActionID: String, Equatable, Hashable {
     case getInfo
     case editMetadata
     case rename
-    case renameAll
     case editPlaylist
     case download
-    case downloadAll
-    case removeDownloads
     case favorite
     case pin
     case unpinAll
+    case toggleHidden
+    case shareEnsembleLink
     case shareLink
     case shareAudioFile
     case removeFromPlaylist
@@ -83,7 +85,6 @@ enum MediaMenuActionID: String, Equatable, Hashable {
     case deleteTrack
     case deleteAlbum
     case deletePlaylist
-    case deleteAll
 }
 
 enum MediaMenuSectionID: String, Equatable, Hashable {
@@ -106,10 +107,16 @@ struct MediaMenuActionDescriptor: Equatable {
 
     let id: MediaMenuActionID
     let role: Role
+    let availability: EnsembleDomain.MusicItemActionAvailability
 
-    init(_ id: MediaMenuActionID, role: Role = .normal) {
+    init(
+        _ id: MediaMenuActionID,
+        role: Role = .normal,
+        availability: EnsembleDomain.MusicItemActionAvailability = .available
+    ) {
         self.id = id
         self.role = role
+        self.availability = availability
     }
 }
 
@@ -132,6 +139,7 @@ struct MediaMenuHandlers {
     var radio: (() -> Void)?
     var playNext: (() -> Void)?
     var playLast: (() -> Void)?
+    var addToLibrary: (() -> Void)?
     var addToRecentPlaylist: (() -> Void)?
     var addToPlaylist: (() -> Void)?
     var goToAlbum: (() -> Void)?
@@ -139,14 +147,12 @@ struct MediaMenuHandlers {
     var getInfo: (() -> Void)?
     var editMetadata: (() -> Void)?
     var rename: (() -> Void)?
-    var renameAll: (() -> Void)?
     var editPlaylist: (() -> Void)?
     var download: (() -> Void)?
-    var downloadAll: (() -> Void)?
-    var removeDownloads: (() -> Void)?
     var favorite: (() -> Void)?
     var pin: (() -> Void)?
     var unpinAll: (() -> Void)?
+    var shareEnsembleLink: (() -> Void)?
     var shareLink: (() -> Void)?
     var shareAudioFile: (() -> Void)?
     var removeFromPlaylist: (() -> Void)?
@@ -154,7 +160,7 @@ struct MediaMenuHandlers {
     var deleteTrack: (() -> Void)?
     var deleteAlbum: (() -> Void)?
     var deletePlaylist: (() -> Void)?
-    var deleteAll: (() -> Void)?
+    var toggleHidden: (() -> Void)?
 
     func handler(for actionID: MediaMenuActionID) -> (() -> Void)? {
         switch actionID {
@@ -166,6 +172,7 @@ struct MediaMenuHandlers {
         case .radio: return radio
         case .playNext: return playNext
         case .playLast: return playLast
+        case .addToLibrary: return addToLibrary
         case .addToRecentPlaylist: return addToRecentPlaylist
         case .addToPlaylist: return addToPlaylist
         case .goToAlbum: return goToAlbum
@@ -173,14 +180,13 @@ struct MediaMenuHandlers {
         case .getInfo: return getInfo
         case .editMetadata: return editMetadata
         case .rename: return rename
-        case .renameAll: return renameAll
         case .editPlaylist: return editPlaylist
         case .download: return download
-        case .downloadAll: return downloadAll
-        case .removeDownloads: return removeDownloads
         case .favorite: return favorite
         case .pin: return pin
         case .unpinAll: return unpinAll
+        case .toggleHidden: return toggleHidden
+        case .shareEnsembleLink: return shareEnsembleLink
         case .shareLink: return shareLink
         case .shareAudioFile: return shareAudioFile
         case .removeFromPlaylist: return removeFromPlaylist
@@ -188,7 +194,6 @@ struct MediaMenuHandlers {
         case .deleteTrack: return deleteTrack
         case .deleteAlbum: return deleteAlbum
         case .deletePlaylist: return deletePlaylist
-        case .deleteAll: return deleteAll
         }
     }
 }
@@ -197,10 +202,12 @@ struct MediaMenuHandlers {
 /// changing the catalog's section policy.
 struct MediaMenuAvailability: Equatable {
     var hasRecentPlaylist = false
+    var canAddToLibrary = false
     var canAddToRecentPlaylist = true
     var canGoToAlbum = false
     var canGoToArtist = false
     var canGetInfo = true
+    var canShareEnsembleLink = true
     var canShareLink = true
     var canShareAudioFile = false
     var canFavorite = true
@@ -212,13 +219,16 @@ struct MediaMenuAvailability: Equatable {
     var canEditPlaylist = true
     var canRemoveFromPlaylist = true
     var canRemoveFromQueue = true
+    var itemActions: [MediaMenuActionID: EnsembleDomain.MusicItemActionAvailability] = [:]
 
     static let full = MediaMenuAvailability(
         hasRecentPlaylist: true,
+        canAddToLibrary: true,
         canAddToRecentPlaylist: true,
         canGoToAlbum: true,
         canGoToArtist: true,
         canGetInfo: true,
+        canShareEnsembleLink: true,
         canShareLink: true,
         canShareAudioFile: true,
         canFavorite: true,
@@ -239,6 +249,8 @@ struct MediaMenuState: Equatable {
     var isFavorited = false
     var isDownloaded = false
     var isPinned = false
+    var isHidden = false
+    var hideRequiresSourceSelection = false
     var isShuffleEnabled = false
     var repeatMode: RepeatMode = .off
 }
@@ -250,17 +262,30 @@ enum MediaMenuCatalog {
         context: MediaMenuContext,
         availability: MediaMenuAvailability = .full
     ) -> [MediaMenuSection] {
+        let sections: [MediaMenuSection]
         switch itemKind {
         case .track:
-            return trackSections(context: context, availability: availability)
+            sections = trackSections(context: context, availability: availability)
         case .album:
-            return albumSections(context: context, availability: availability)
+            sections = albumSections(context: context, availability: availability)
         case .artist:
-            return artistSections(context: context, availability: availability)
+            sections = artistSections(context: context, availability: availability)
         case .playlist(let isSmart):
-            return playlistSections(isSmart: isSmart, context: context, availability: availability)
+            sections = playlistSections(isSmart: isSmart, context: context, availability: availability)
         case .mergedPlaylist(let isSmart):
-            return mergedPlaylistSections(isSmart: isSmart, context: context, availability: availability)
+            sections = mergedPlaylistSections(isSmart: isSmart, context: context, availability: availability)
+        }
+        return sections.map { section in
+            MediaMenuSection(
+                id: section.id,
+                actions: section.actions.map { descriptor in
+                    MediaMenuActionDescriptor(
+                        descriptor.id,
+                        role: descriptor.role,
+                        availability: availability.itemActions[descriptor.id] ?? .available
+                    )
+                }
+            )
         }
     }
 
@@ -286,6 +311,9 @@ enum MediaMenuCatalog {
         ]
 
         var playlistActions: [MediaMenuActionID] = []
+        if availability.canAddToLibrary {
+            playlistActions.append(.addToLibrary)
+        }
         if availability.hasRecentPlaylist, availability.canAddToRecentPlaylist {
             playlistActions.append(.addToRecentPlaylist)
         }
@@ -305,6 +333,9 @@ enum MediaMenuCatalog {
         sections.append(section(.navigation, navigationActions))
 
         var shareActions: [MediaMenuActionID] = []
+        if availability.canShareEnsembleLink {
+            shareActions.append(.shareEnsembleLink)
+        }
         if availability.canShareLink {
             shareActions.append(.shareLink)
         }
@@ -325,20 +356,18 @@ enum MediaMenuCatalog {
             sections.append(section(.destructive, [.removeFromQueue], role: .destructive))
         }
 
-        if context.allowsTrackEditing || availability.canGetInfo {
-            var managementActions: [MediaMenuActionID] = []
-            if availability.canGetInfo {
-                managementActions.append(.getInfo)
-            }
-            if context.allowsTrackEditing, availability.canEditMetadata {
-                managementActions.append(.editMetadata)
-            }
-            if context.allowsTrackEditing, availability.canDelete {
-                managementActions.append(.deleteTrack)
-            }
-            sections.append(section(.management, managementActions, destructive: [.deleteTrack]))
+        var managementActions: [MediaMenuActionID] = []
+        if availability.canGetInfo {
+            managementActions.append(.getInfo)
         }
-
+        if context.allowsTrackEditing, availability.canEditMetadata {
+            managementActions.append(.editMetadata)
+        }
+        managementActions.append(.toggleHidden)
+        if context.allowsTrackEditing, availability.canDelete {
+            managementActions.append(.deleteTrack)
+        }
+        sections.append(section(.management, managementActions, destructive: [.deleteTrack]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -363,8 +392,15 @@ enum MediaMenuCatalog {
         }
         sections.append(section(.navigation, navigationActions))
 
+        var shareActions: [MediaMenuActionID] = []
+        if availability.canShareEnsembleLink {
+            shareActions.append(.shareEnsembleLink)
+        }
         if availability.canShareLink {
-            sections.append(section(.sharing, [.shareLink]))
+            shareActions.append(.shareLink)
+        }
+        if !shareActions.isEmpty {
+            sections.append(section(.sharing, shareActions))
         }
 
         var offlinePinning: [MediaMenuActionID] = []
@@ -376,20 +412,18 @@ enum MediaMenuCatalog {
         }
         sections.append(section(.offline, offlinePinning))
 
-        if context.allowsPlaylistManagement || context.allowsTrackEditing || availability.canGetInfo {
-            var management: [MediaMenuActionID] = []
-            if availability.canGetInfo {
-                management.append(.getInfo)
-            }
-            if (context.allowsPlaylistManagement || context.allowsTrackEditing), availability.canEditMetadata {
-                management.append(.editMetadata)
-            }
-            if (context.allowsPlaylistManagement || context.allowsTrackEditing), availability.canDelete {
-                management.append(.deleteAlbum)
-            }
-            sections.append(section(.management, management, destructive: [.deleteAlbum]))
+        var management: [MediaMenuActionID] = []
+        if availability.canGetInfo {
+            management.append(.getInfo)
         }
-
+        if (context.allowsPlaylistManagement || context.allowsTrackEditing), availability.canEditMetadata {
+            management.append(.editMetadata)
+        }
+        management.append(.toggleHidden)
+        if (context.allowsPlaylistManagement || context.allowsTrackEditing), availability.canDelete {
+            management.append(.deleteAlbum)
+        }
+        sections.append(section(.management, management, destructive: [.deleteAlbum]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -410,19 +444,21 @@ enum MediaMenuCatalog {
         }
         sections.append(section(.offline, offlinePinning))
 
-        if context.allowsPlaylistManagement || context.allowsTrackEditing {
-            var management: [MediaMenuActionID] = []
-            if availability.canEditMetadata {
-                management.append(.editMetadata)
-            }
-            sections.append(section(.management, management))
+        if availability.canShareEnsembleLink {
+            sections.append(section(.sharing, [.shareEnsembleLink]))
         }
 
+        var management: [MediaMenuActionID] = []
+        if (context.allowsPlaylistManagement || context.allowsTrackEditing), availability.canEditMetadata {
+            management.append(.editMetadata)
+        }
+        management.append(.toggleHidden)
+        sections.append(section(.management, management))
         return sections.filter { !$0.actions.isEmpty }
     }
 
     private static func playlistSections(
-        isSmart: Bool,
+        isSmart _: Bool,
         context: MediaMenuContext,
         availability: MediaMenuAvailability
     ) -> [MediaMenuSection] {
@@ -439,51 +475,55 @@ enum MediaMenuCatalog {
         }
         sections.append(section(.offline, offlinePinning))
 
-        if availability.canGetInfo || (context.allowsPlaylistManagement && !isSmart) {
-            var management: [MediaMenuActionID] = []
-            if availability.canGetInfo {
-                management.append(.getInfo)
-            }
-            if context.allowsPlaylistManagement, !isSmart, availability.canRename {
-                management.append(.rename)
-            }
-            if context.allowsPlaylistManagement, !isSmart, availability.canEditPlaylist {
-                management.append(.editPlaylist)
-            }
-            if context.allowsPlaylistManagement, !isSmart, availability.canDelete {
-                management.append(.deletePlaylist)
-            }
-            sections.append(section(.management, management, destructive: [.deletePlaylist]))
+        if availability.canShareEnsembleLink {
+            sections.append(section(.sharing, [.shareEnsembleLink]))
         }
 
+        var management: [MediaMenuActionID] = []
+        if availability.canGetInfo {
+            management.append(.getInfo)
+        }
+        if context.allowsPlaylistManagement, availability.canRename {
+            management.append(.rename)
+        }
+        if context.allowsPlaylistManagement, availability.canEditPlaylist {
+            management.append(.editPlaylist)
+        }
+        management.append(.toggleHidden)
+        if context.allowsPlaylistManagement, availability.canDelete {
+            management.append(.deletePlaylist)
+        }
+        sections.append(section(.management, management, destructive: [.deletePlaylist]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
     private static func mergedPlaylistSections(
-        isSmart: Bool,
+        isSmart _: Bool,
         context: MediaMenuContext,
         availability: MediaMenuAvailability
     ) -> [MediaMenuSection] {
         var sections = [
             section(.playback, [.play, .shuffle, .playNext, .playLast]),
-            section(.offline, [.downloadAll, .removeDownloads])
+            section(.offline, [.download])
         ]
 
         if context == .pinned || context == .sidebar {
             sections.append(section(.pinning, [.unpinAll], role: .destructive))
         }
 
-        if context.allowsPlaylistManagement, !isSmart {
-            var management: [MediaMenuActionID] = []
-            if availability.canRename {
-                management.append(.renameAll)
-            }
-            if availability.canDelete {
-                management.append(.deleteAll)
-            }
-            sections.append(section(.management, management, destructive: [.deleteAll]))
+        if availability.canShareEnsembleLink {
+            sections.append(section(.sharing, [.shareEnsembleLink]))
         }
 
+        var management: [MediaMenuActionID] = availability.canGetInfo ? [.getInfo] : []
+        if context.allowsPlaylistManagement, availability.canRename {
+            management.append(.rename)
+        }
+        management.append(.toggleHidden)
+        if context.allowsPlaylistManagement, availability.canDelete {
+            management.append(.deletePlaylist)
+        }
+        sections.append(section(.management, management, destructive: [.deletePlaylist]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -495,7 +535,7 @@ enum MediaMenuCatalog {
     ) -> MediaMenuSection {
         MediaMenuSection(
             id: id,
-            actions: actions.map { action in
+            actions: sharedOrdered(actions).map { action in
                 MediaMenuActionDescriptor(
                     action,
                     role: destructive.contains(action) ? .destructive : role
@@ -503,10 +543,51 @@ enum MediaMenuCatalog {
             }
         )
     }
+
+    private static func sharedOrdered(_ actions: [MediaMenuActionID]) -> [MediaMenuActionID] {
+        let rank = Dictionary(
+            uniqueKeysWithValues: EnsembleMediaActionCatalog.ordered.enumerated().map { ($1.action, $0) }
+        )
+        var shared = actions.filter { $0.ensembleAction != nil }.sorted {
+            ($0.ensembleAction.flatMap { rank[$0] } ?? .max)
+                < ($1.ensembleAction.flatMap { rank[$0] } ?? .max)
+        }.makeIterator()
+        return actions.map { action in
+            action.ensembleAction == nil ? action : shared.next() ?? action
+        }
+    }
+}
+
+private extension MediaMenuActionID {
+    var ensembleAction: EnsembleMediaAction? {
+        switch self {
+        case .play: .play
+        case .shuffle: .shuffle
+        case .radio: .radio
+        case .playNext: .playNext
+        case .playLast: .playLast
+        case .addToPlaylist: .addToPlaylist
+        case .addToRecentPlaylist: .addToRecentPlaylist
+        case .favorite: .favorite
+        case .pin: .pin
+        case .goToAlbum: .goToAlbum
+        case .goToArtist: .goToArtist
+        case .shareEnsembleLink: .share
+        case .deleteTrack, .deleteAlbum, .deletePlaylist: .delete
+        default: nil
+        }
+    }
 }
 
 extension MediaMenuActionDescriptor {
     func label(state: MediaMenuState) -> MediaMenuLabel? {
+        if let sharedDescriptor,
+           ![.addToRecentPlaylist, .favorite, .pin, .delete].contains(sharedDescriptor.action) {
+            return MediaMenuLabel(
+                title: sharedDescriptor.title,
+                systemImage: sharedDescriptor.systemImage
+            )
+        }
         switch id {
         case .play:
             return MediaMenuLabel(title: "Play", systemImage: EnsembleDesign.Icon.play)
@@ -533,6 +614,8 @@ extension MediaMenuActionDescriptor {
             return MediaMenuLabel(title: "Play Next", systemImage: EnsembleDesign.Icon.playNext)
         case .playLast:
             return MediaMenuLabel(title: "Play Last", systemImage: EnsembleDesign.Icon.playLast)
+        case .addToLibrary:
+            return MediaMenuLabel(title: "Add to Library", systemImage: "text.badge.plus")
         case .addToRecentPlaylist:
             guard let title = state.recentPlaylistTitle else { return nil }
             return MediaMenuLabel(title: "Add to \(title)", systemImage: EnsembleDesign.Icon.recentPlaylist)
@@ -548,19 +631,13 @@ extension MediaMenuActionDescriptor {
             return MediaMenuLabel(title: "Edit Metadata…", systemImage: EnsembleDesign.Icon.edit)
         case .rename:
             return MediaMenuLabel(title: "Rename…", systemImage: EnsembleDesign.Icon.edit)
-        case .renameAll:
-            return MediaMenuLabel(title: "Rename All…", systemImage: EnsembleDesign.Icon.edit)
         case .editPlaylist:
-            return MediaMenuLabel(title: "Edit Playlist", systemImage: EnsembleDesign.Icon.editPlaylist)
+            return MediaMenuLabel(title: "Edit Playlist…", systemImage: EnsembleDesign.Icon.editPlaylist)
         case .download:
             return MediaMenuLabel(
                 title: state.isDownloaded ? "Remove Download" : "Download",
                 systemImage: state.isDownloaded ? EnsembleDesign.Icon.removeDownload : EnsembleDesign.Icon.download
             )
-        case .downloadAll:
-            return MediaMenuLabel(title: "Download All", systemImage: EnsembleDesign.Icon.download)
-        case .removeDownloads:
-            return MediaMenuLabel(title: "Remove Downloads", systemImage: EnsembleDesign.Icon.removeDownload)
         case .favorite:
             return MediaMenuLabel(
                 title: state.isFavorited ? "Unfavorite" : "Favorite",
@@ -573,6 +650,13 @@ extension MediaMenuActionDescriptor {
             )
         case .unpinAll:
             return MediaMenuLabel(title: "Unpin All", systemImage: EnsembleDesign.Icon.unpin)
+        case .toggleHidden:
+            return MediaMenuLabel(
+                title: "\(state.isHidden ? "Unhide" : "Hide")\(state.hideRequiresSourceSelection ? "…" : "")",
+                systemImage: state.isHidden ? "eye" : "eye.slash"
+            )
+        case .shareEnsembleLink:
+            return MediaMenuLabel(title: "Share Ensemble Link…", systemImage: EnsembleDesign.Icon.shareLink)
         case .shareLink:
             return MediaMenuLabel(title: "Share Link…", systemImage: EnsembleDesign.Icon.shareLink)
         case .shareAudioFile:
@@ -587,9 +671,12 @@ extension MediaMenuActionDescriptor {
             return MediaMenuLabel(title: "Delete Album", systemImage: EnsembleDesign.Icon.delete)
         case .deletePlaylist:
             return MediaMenuLabel(title: "Delete Playlist", systemImage: EnsembleDesign.Icon.delete)
-        case .deleteAll:
-            return MediaMenuLabel(title: "Delete All", systemImage: EnsembleDesign.Icon.delete)
         }
+    }
+
+    private var sharedDescriptor: EnsembleMediaActionDescriptor? {
+        guard let action = id.ensembleAction else { return nil }
+        return EnsembleMediaActionCatalog.ordered.first { $0.action == action }
     }
 
     func labelKind(state: MediaMenuState) -> MediaActionLabel.Kind? {
@@ -602,6 +689,7 @@ extension MediaMenuActionDescriptor {
         case .radio: return .radio
         case .playNext: return .playNext
         case .playLast: return .playLast
+        case .addToLibrary: return .addToLibrary
         case .addToRecentPlaylist:
             guard let title = state.recentPlaylistTitle else { return nil }
             return .addToRecentPlaylist(title)
@@ -611,14 +699,17 @@ extension MediaMenuActionDescriptor {
         case .getInfo: return .getInfo
         case .editMetadata: return .editMetadata
         case .rename: return .rename
-        case .renameAll: return .renameAll
         case .editPlaylist: return .editPlaylist
         case .download: return .download(isDownloaded: state.isDownloaded)
-        case .downloadAll: return .downloadAll
-        case .removeDownloads: return .removeDownloads
         case .favorite: return .favorite(isFavorited: state.isFavorited, usesFilledIcon: false)
         case .pin: return .pin(isPinned: state.isPinned)
         case .unpinAll: return .unpinAll
+        case .toggleHidden:
+            return .toggleHidden(
+                isHidden: state.isHidden,
+                requiresSourceSelection: state.hideRequiresSourceSelection
+            )
+        case .shareEnsembleLink: return .shareEnsembleLink
         case .shareLink: return .shareLink
         case .shareAudioFile: return .shareAudioFile
         case .removeFromPlaylist: return .removeFromPlaylist
@@ -626,7 +717,6 @@ extension MediaMenuActionDescriptor {
         case .deleteTrack: return .deleteTrack
         case .deleteAlbum: return .deleteAlbum
         case .deletePlaylist: return .deletePlaylist
-        case .deleteAll: return .deleteAll
         }
     }
 }
@@ -647,6 +737,8 @@ struct SwiftUIMediaMenuRenderer: View {
                         } label: {
                             MediaActionLabel(kind: labelKind)
                         }
+                        .disabled(!descriptor.availability.isAvailable)
+                        .accessibilityHint(descriptor.availability.reason ?? "")
                     }
                 }
             }
@@ -672,10 +764,15 @@ enum UIKitMediaMenuRenderer {
                 children: section.actions.compactMap { descriptor in
                     guard let handler = handlers.handler(for: descriptor.id),
                           let label = descriptor.label(state: state) else { return nil }
+                    var attributes: UIMenuElement.Attributes = descriptor.role == .destructive ? .destructive : []
+                    if !descriptor.availability.isAvailable {
+                        attributes.insert(.disabled)
+                    }
                     return UIAction(
                         title: label.title,
+                        subtitle: descriptor.availability.reason,
                         image: UIImage(systemName: label.systemImage),
-                        attributes: descriptor.role == .destructive ? .destructive : []
+                        attributes: attributes
                     ) { _ in
                         handler()
                     }
@@ -704,6 +801,8 @@ enum AppKitMediaMenuRenderer {
                       let label = descriptor.label(state: state) else { continue }
                 let item = AppKitClosureMenuItem(title: label.title, action: handler)
                 item.image = NSImage(systemSymbolName: label.systemImage, accessibilityDescription: label.title)
+                item.isEnabled = descriptor.availability.isAvailable
+                item.toolTip = descriptor.availability.reason
                 menu.addItem(item)
             }
         }

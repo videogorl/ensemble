@@ -72,10 +72,10 @@ final class TrackRatingMutationWorkflowTests: XCTestCase {
         let workflow = TrackRatingMutationWorkflow(mutator: StubMutator())
         let track = makeTrack(title: "Wake Up")
 
-        let completed = workflow.finishRatingUpdate(track: track, newRating: .loved, outcome: .completed)
+        let completed = workflow.finishRatingUpdate(track: track, outcome: .completed)
         XCTAssertNil(completed.toast)
 
-        let queued = workflow.finishRatingUpdate(track: track, newRating: .loved, outcome: .queued)
+        let queued = workflow.finishRatingUpdate(track: track, outcome: .queued)
         XCTAssertEqual(queued.toast?.style, .info)
         XCTAssertEqual(queued.toast?.title, "Rating saved — will sync when online")
         XCTAssertEqual(queued.toast?.message, "Wake Up")

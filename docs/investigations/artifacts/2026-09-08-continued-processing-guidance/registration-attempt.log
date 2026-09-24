@@ -1,0 +1,16 @@
+Ensemble Session Log
+Session start: 2026-09-08 12:29:06.387
+Device: iPhone17,1 (iOS 27.0.0)
+App version: 0.3.0 (202609081227.5260)
+Source commit: unknown
+---
+[12:29:06.392] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=background
+[12:30:13.235] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=active
+[12:31:16.660] [DEBUG] [core] ⚠️ Skipping BG continued processing submit: handler not registered
+[12:31:21.325] [DEBUG] [api] Native download completed bytes=7281329 resumedFrom=0 status=200
+[12:31:21.622] [DEBUG] [core] Offline download installed track=22090 quality=high bytes=7281329 playbackCache=false
+[12:31:23.097] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=active
+[12:31:23.173] [INFO] [core] USER_JOURNEY context=app event=scenePhase phase=background
+[12:31:31.236] [DEBUG] [api] Native download completed bytes=10391036 resumedFrom=0 status=200
+[12:31:49.530] [DEBUG] [core] 📦 Offline short background window expired without a continued grant
+[12:31:49.967] [DEBUG] [core] Offline download installed track=24391 quality=high bytes=10391036 playbackCache=false

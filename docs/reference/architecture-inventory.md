@@ -20,7 +20,7 @@ Layer 2: EnsembleCore (ViewModels, services, domain models)
               |
 Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, extension, and Core)
-Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore (watch-portable models, Plex browsing, and watch runtime)
+Watch: EnsembleDomain + EnsemblePlex + EnsemblePersistence + EnsembleWatchCore (models, Plex, local data, and runtime)
 ```
 
 ## Package Details
@@ -57,10 +57,11 @@ Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore (watch-portable models,
 
 **Key Types:**
 - `CoreDataStack` (singleton) -- Main/background contexts, saves on background queue
-- `CD*` models -- `CDMusicSource`, `CDArtist`, `CDAlbum`, `CDTrack`, `CDGenre`, `CDPlaylist`, `CDServer`, `CDOfflineDownloadTarget`, `CDOfflineDownloadMembership`
+- `CD*` models -- `CDMusicSource`, `CDArtist`, `CDAlbum`, `CDTrack`, `CDGenre`, `CDPlaylist`, `CDServer`, `CDOfflineDownloadTarget`, `CDOfflineDownloadMembership`, `CDSyncCursor`
 - `LibraryRepository` / `PlaylistRepository` -- Protocol-based repository pattern; `LibraryRepository` keeps its protocol/initializer in the main file while focused behavior lives in extensions such as `LibraryRepository+Artists.swift`, `LibraryRepository+Albums.swift`, `LibraryRepository+Tracks.swift`, `LibraryRepository+Genres.swift`, `LibraryRepository+Search.swift`, and `LibraryRepository+SyncMetadata.swift`
 - `DownloadManager` -- Offline track file management (source-aware, quality-aware)
 - `OfflineDownloadTargetRepository` -- Offline target metadata and target->track membership persistence
+- `SyncCursorRepository` -- Durable server-playlist cursor/freshness persistence used by playlist reconciliation
 - `ArtworkDownloadManager` -- Persistent artwork caching to local filesystem
 
 ### EnsembleSiriShared (Siri Shared Rules)
@@ -85,8 +86,8 @@ Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore (watch-portable models,
 
 ### EnsembleWatchCore (watchOS Runtime)
 - **Location:** `Packages/EnsembleWatchCore/`
-- **Dependencies:** EnsembleAPI, EnsembleDomain, EnsemblePlex
-- **Purpose:** Standalone watch bootstrap, Plex Link fallback, iCloud Keychain credential restore, KVS preference hints, local catalog cache, watch-local playback, and local/remote Now Playing target state. `EnsembleWatchCore` is watchOS-first; macOS support exists only for SwiftPM unit tests.
+- **Dependencies:** EnsembleAPI, EnsembleDomain, EnsemblePersistence, EnsemblePlex
+- **Purpose:** Standalone watch bootstrap, Plex Link fallback, iCloud Keychain credential restore, KVS preference hints, normalized Core Data catalog rows, shared durable artwork caching, watch-local playback, and local/remote Now Playing target state. `EnsembleWatchCore` is watchOS-first; macOS support exists only for SwiftPM unit tests.
 
 ### EnsembleCore (Business Logic Layer)
 - **Location:** `Packages/EnsembleCore/`
@@ -133,7 +134,6 @@ Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore (watch-portable models,
 - `PlaybackQueueController` -- Internal queue/history seam extracted from `PlaybackService`; owns queue snapshot persistence, autoplay flattening/history normalization, queue streaming-quality/download-state restamping, and legacy auto-generated track identity compatibility while the service remains the playback side-effect boundary
 - `PlaybackStartupCoordinator` -- Internal restored-playback seam extracted from `PlaybackService`; owns snapshot validation, duplicate-autoplay pruning, deferred vs immediate prebuffer decisions, and restore outcome classification while the façade still applies side effects
 - `PlaybackLaunchCoordinator` -- Internal playback-launch seam extracted from `PlaybackService`; owns the successful-resolution path (visualizer planning, engine load, recovery seek application, and prefetch kickoff) while the façade still owns queue mutation and transport retry loops
-- `PlaybackRecoveryPolicy` -- Internal playback buffering/stall policy seam extracted from `PlaybackService`; owns buffering profiles, conservative-mode escalation, prefetch throttling, and unexpected-pause recovery decisions while `PlaybackService` remains the façade
 - `PlaybackSessionStateMachine` -- Internal playback-session seam extracted from `PlaybackService`; owns request validation, retry policy, supersession checks, and terminal failure classification for `playCurrentQueueItem` while queue mutation and engine control remain in the façade
 - `PlaybackResolvedFileCache` -- Internal serialized cache store extracted from `PlaybackService`; owns resolved-file URL storage, LRU eviction, stream-cache cleanup context snapshots, and prefetch in-flight bookkeeping so playback startup/prefetch flows do not mutate shared dictionaries directly
 - `PlaybackPrefetchController` -- Internal prefetch/cache seam extracted from `PlaybackService`; owns upcoming-queue selection, schedule-eligibility checks, resolved-file cache eviction, temporary stream-cache cleanup, and network-transition re-prefetch invalidation policy while the backing cache state lives in `PlaybackResolvedFileCache`
@@ -167,6 +167,7 @@ Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore (watch-portable models,
 - `PeriodicSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns foreground periodic-sync timer scheduling and WebSocket-aware polling interval changes while `SyncCoordinator` keeps the actual sync policy
 - `PlaylistRefreshController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns server-scoped playlist refresh resolution (incremental vs fallback full sync), refreshed-provider result routing, and per-server playlist-only dedupe for mutation refreshes, playlist-only sync, and WebSocket-triggered playlist updates
 - `WebSocketSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns WebSocket-triggered section resolution and server playlist refresh routing so the coordinator does not inline provider lookup logic
+- `SyncCursorRepository` -- Persistence boundary for durable server-playlist cursors used by playlist/server reconciliation
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
 - `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates, playback connection readiness checks, source-key API-client lookup, explicit endpoint refresh fan-out/fallback reset callbacks, failure-message lookup, and post-sync connection-state URL resolution while `SyncCoordinator` remains the façade
 - `SyncProviderResolver` -- Internal provider-lookup seam extracted from `SyncCoordinator`; owns exact-source and fallback provider routing for playback/download/reporting calls so source-key policy stays consistent

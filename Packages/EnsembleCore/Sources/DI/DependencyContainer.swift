@@ -1,5 +1,6 @@
 import CloudKit
 import EnsembleAPI
+import EnsembleDomain
 import EnsemblePersistence
 import Combine
 import Foundation
@@ -25,8 +26,9 @@ public final class DependencyContainer: @unchecked Sendable {
 
     public let libraryRepository: LibraryRepositoryProtocol
     public let playlistRepository: PlaylistRepositoryProtocol
+    public let syncCursorRepository: SyncCursorRepositoryProtocol
     public let hubRepository: HubRepositoryProtocol
-    public let moodRepository: MoodRepositoryProtocol
+    public let moodRepository: MoodRepository
     public let downloadManager: DownloadManagerProtocol
     public let offlineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol
     public let artworkDownloadManager: ArtworkDownloadManagerProtocol
@@ -42,12 +44,14 @@ public final class DependencyContainer: @unchecked Sendable {
     public let cacheManager: CacheManager
     public let sourceCacheCleanupService: SourceCacheCleaning
     public let homeHubLoader: HomeHubLoaderProtocol
-    public let backgroundRefreshCoordinator: BackgroundRefreshCoordinating
+    public let backgroundRefreshCoordinator: BackgroundRefreshCoordinator
     public let navigationCoordinator: NavigationCoordinator
+    public let ensemblePermalinkResolver: EnsemblePermalinkResolver
     public let appReadinessCoordinator: AppReadinessCoordinator
     public let foregroundWorkScheduler: ForegroundWorkScheduler
     public let hubOrderManager: HubOrderManager
     public let pinManager: PinManager
+    public let hiddenMediaStore: HiddenMediaStore
     public let pinMutationWorkflow: PinMutationWorkflow
     public let toastCenter: ToastCenter
     public let libraryVisibilityStore: LibraryVisibilityStore
@@ -64,6 +68,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let mutationCoordinator: MutationCoordinator
     public let playlistMutationWorkflow: PlaylistMutationWorkflow
     public let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
+    public let collectionFavoriteMutationWorkflow: CollectionFavoriteMutationWorkflow
     public let metadataMutationService: MetadataMutationService
     public let metadataMutationWorkflow: MetadataMutationWorkflow
     public let songLinkService: SongLinkService
@@ -82,11 +87,14 @@ public final class DependencyContainer: @unchecked Sendable {
     private var kvsSyncCancellables = Set<AnyCancellable>()
     private var lastSyncedAccentColor: String = AppAccentColor.blue.rawValue
     private var lastSyncedSwipeLayout: TrackSwipeLayout = .default
+    private var lastSyncedMergingPreferences = EnsembleMergingPreferences.default
     private var lastSyncedPinsData: Data?
     private var syncBootstrapTask: Task<Void, Never>?
     private var firstConnectRetryTask: Task<Void, Never>?
     private var firstConnectRetryAttempt = 0
     private var lastKnownICloudAccountStatus: CKAccountStatus = .couldNotDetermine
+    private var lastKnownProfileTransportState: CloudSyncService.ProfileTransportState = .unknown
+    private var hasScheduledDeferredSyncStartup = false
     private static let firstConnectRetryDelays: [TimeInterval] = [5, 15, 30, 60]
 
     // MARK: - Network Infrastructure
@@ -116,8 +124,9 @@ public final class DependencyContainer: @unchecked Sendable {
         let authService: PlexAuthService
         let libraryRepository: LibraryRepositoryProtocol
         let playlistRepository: PlaylistRepositoryProtocol
+        let syncCursorRepository: SyncCursorRepositoryProtocol
         let hubRepository: HubRepositoryProtocol
-        let moodRepository: MoodRepositoryProtocol
+        let moodRepository: MoodRepository
         let downloadManager: DownloadManagerProtocol
         let offlineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol
         let artworkDownloadManager: ArtworkDownloadManagerProtocol
@@ -126,6 +135,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let navigationCoordinator: NavigationCoordinator
         let hubOrderManager: HubOrderManager
         let pinManager: PinManager
+        let hiddenMediaStore: HiddenMediaStore
         let pinMutationWorkflow: PinMutationWorkflow
         let toastCenter: ToastCenter
         let libraryVisibilityStore: LibraryVisibilityStore
@@ -168,6 +178,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let mutationCoordinator: MutationCoordinator
         let playlistMutationWorkflow: PlaylistMutationWorkflow
         let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
+        let collectionFavoriteMutationWorkflow: CollectionFavoriteMutationWorkflow
         let metadataMutationService: MetadataMutationService
         let metadataMutationWorkflow: MetadataMutationWorkflow
     }
@@ -186,7 +197,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let network = Self.buildNetworkBootstrap(core: core)
         let sync = Self.buildSyncBootstrap(core: core, network: network)
         let builtForegroundWorkScheduler = MainActor.assumeIsolated {
-            ForegroundWorkScheduler()
+            ForegroundWorkScheduler(thermalState: { core.powerStateMonitor.thermalState })
         }
         let builtAppReadinessCoordinator = MainActor.assumeIsolated {
             AppReadinessCoordinator(
@@ -210,7 +221,6 @@ public final class DependencyContainer: @unchecked Sendable {
         let siri = Self.buildSiriBootstrap(
             core: core,
             network: network,
-            sync: sync,
             playback: playback,
             mutation: mutation,
             foregroundWorkScheduler: builtForegroundWorkScheduler
@@ -221,6 +231,7 @@ public final class DependencyContainer: @unchecked Sendable {
         authService = core.authService
         libraryRepository = core.libraryRepository
         playlistRepository = core.playlistRepository
+        syncCursorRepository = core.syncCursorRepository
         hubRepository = core.hubRepository
         moodRepository = core.moodRepository
         downloadManager = core.downloadManager
@@ -228,10 +239,20 @@ public final class DependencyContainer: @unchecked Sendable {
         artworkDownloadManager = core.artworkDownloadManager
         settingsManager = core.settingsManager
         navigationCoordinator = core.navigationCoordinator
+        ensemblePermalinkResolver = MainActor.assumeIsolated {
+            EnsemblePermalinkResolver(
+                accountManager: network.accountManager,
+                settingsManager: core.settingsManager,
+                visibilityStore: core.libraryVisibilityStore,
+                libraryRepository: core.libraryRepository,
+                playlistRepository: core.playlistRepository
+            )
+        }
         appReadinessCoordinator = builtAppReadinessCoordinator
         foregroundWorkScheduler = builtForegroundWorkScheduler
         hubOrderManager = core.hubOrderManager
         pinManager = core.pinManager
+        hiddenMediaStore = core.hiddenMediaStore
         pinMutationWorkflow = core.pinMutationWorkflow
         toastCenter = core.toastCenter
         libraryVisibilityStore = core.libraryVisibilityStore
@@ -261,8 +282,10 @@ public final class DependencyContainer: @unchecked Sendable {
         shareService = playback.shareService
         let builtSourceCacheCleanupService = SourceCacheCleanupService(
             libraryRepository: libraryRepository,
+            hubRepository: hubRepository,
             downloadManager: downloadManager,
             targetRepository: offlineDownloadTargetRepository,
+            pendingMutationRepository: core.pendingMutationRepository,
             artworkDownloadManager: artworkDownloadManager,
             fetchArtworkRatingKeys: { [libraryRepository = core.libraryRepository] sourceKey in
                 guard let repository = libraryRepository as? LibraryRepository else { return [] }
@@ -289,14 +312,13 @@ public final class DependencyContainer: @unchecked Sendable {
                 return try await manager.getArtworkCacheFileCount()
             },
             clearLyricsCache: { [lyricsService = playback.lyricsService] sourceKey in
-                await MainActor.run {
-                    lyricsService.clearCache(forSourceCompositeKey: sourceKey)
-                }
+                await lyricsService.clearCache(forSourceCompositeKey: sourceKey)
             },
             clearAllLyricsCaches: { [lyricsService = playback.lyricsService] in
-                await MainActor.run {
-                    lyricsService.clearAllCaches()
-                }
+                await lyricsService.clearAllCaches()
+            },
+            clearSharedArtworkCaches: { [weak artworkLoader = playback.artworkLoader as? ArtworkLoader] in
+                try await artworkLoader?.resetTransientCaches()
             }
         )
         sourceCacheCleanupService = builtSourceCacheCleanupService
@@ -305,6 +327,7 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         let builtHomeHubLoader = HomeHubLoader(
             accountManager: accountManager,
+            syncCoordinator: syncCoordinator,
             hubRepository: hubRepository,
             hubOrderManager: hubOrderManager
         )
@@ -312,10 +335,19 @@ public final class DependencyContainer: @unchecked Sendable {
 
         offlineBackgroundExecutionCoordinator = mutation.offlineBackgroundExecutionCoordinator
         offlineDownloadService = mutation.offlineDownloadService
+        builtSourceCacheCleanupService.onDownloadsRemoved = { [weak service = mutation.offlineDownloadService] in
+            await service?.reconcileNativeTransfers()
+        }
+        MainActor.assumeIsolated {
+            playback.cacheManager.onDownloadsRemoved = { [weak service = mutation.offlineDownloadService] in
+                await service?.reconcileNativeTransfers()
+            }
+        }
         downloadMutationWorkflow = mutation.downloadMutationWorkflow
         mutationCoordinator = mutation.mutationCoordinator
         playlistMutationWorkflow = mutation.playlistMutationWorkflow
         trackRatingMutationWorkflow = mutation.trackRatingMutationWorkflow
+        collectionFavoriteMutationWorkflow = mutation.collectionFavoriteMutationWorkflow
         metadataMutationService = mutation.metadataMutationService
         metadataMutationWorkflow = mutation.metadataMutationWorkflow
 
@@ -345,12 +377,12 @@ public final class DependencyContainer: @unchecked Sendable {
         MainActor.assumeIsolated {
             lastSyncedAccentColor = settingsManager.accentColorName
             lastSyncedSwipeLayout = settingsManager.trackSwipeLayout
+            lastSyncedMergingPreferences = settingsManager.mergingPreferences
             lastSyncedPinsData = pinManager.exportPinsData()
         }
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.refreshSyncState(reason: "launch")
+        MainActor.assumeIsolated {
+            scheduleDeferredSyncStartup()
         }
         Task { @MainActor [weak builtForegroundWorkScheduler] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -364,6 +396,10 @@ public final class DependencyContainer: @unchecked Sendable {
         let keychain = KeychainService.shared
         let coreDataStack = CoreDataStack.shared
         let pinManager = MainActor.assumeIsolated { PinManager() }
+        let artworkDownloadManager = ArtworkDownloadManager()
+        Task.detached(priority: .utility) {
+            artworkDownloadManager.preparePersistentCache()
+        }
 
         return CoreBootstrap(
             keychain: keychain,
@@ -371,16 +407,18 @@ public final class DependencyContainer: @unchecked Sendable {
             authService: PlexAuthService(keychain: keychain),
             libraryRepository: LibraryRepository(coreDataStack: coreDataStack),
             playlistRepository: PlaylistRepository(coreDataStack: coreDataStack),
+            syncCursorRepository: SyncCursorRepository(coreDataStack: coreDataStack),
             hubRepository: HubRepository(),
             moodRepository: MoodRepository(coreDataStack: coreDataStack),
             downloadManager: DownloadManager(coreDataStack: coreDataStack),
             offlineDownloadTargetRepository: OfflineDownloadTargetRepository(coreDataStack: coreDataStack),
-            artworkDownloadManager: ArtworkDownloadManager(),
+            artworkDownloadManager: artworkDownloadManager,
             pendingMutationRepository: PendingMutationRepository(coreDataStack: coreDataStack),
             settingsManager: MainActor.assumeIsolated { SettingsManager() },
             navigationCoordinator: MainActor.assumeIsolated { NavigationCoordinator() },
             hubOrderManager: HubOrderManager(),
             pinManager: pinManager,
+            hiddenMediaStore: MainActor.assumeIsolated { .shared },
             pinMutationWorkflow: MainActor.assumeIsolated { PinMutationWorkflow(pinManager: pinManager) },
             toastCenter: MainActor.assumeIsolated { ToastCenter() },
             libraryVisibilityStore: MainActor.assumeIsolated { LibraryVisibilityStore() },
@@ -416,12 +454,11 @@ public final class DependencyContainer: @unchecked Sendable {
             )
         }
 
-        let plexClientId = (try? core.keychain.get(KeychainKey.plexClientIdentifier)) ?? UUID().uuidString
+        let plexClientId = PlexAuthService.storedClientIdentifier()
         let webSocketCoordinator = MainActor.assumeIsolated {
             PlexWebSocketCoordinator(
                 accountManager: accountManager,
                 connectionRegistry: connectionRegistry,
-                serverHealthChecker: serverHealthChecker,
                 networkMonitor: networkMonitor,
                 clientIdentifier: plexClientId
             )
@@ -430,8 +467,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let trackAvailabilityResolver = MainActor.assumeIsolated {
             TrackAvailabilityResolver(
                 networkMonitor: networkMonitor,
-                serverHealthChecker: serverHealthChecker,
-                downloadManager: core.downloadManager
+                serverHealthChecker: serverHealthChecker
             )
         }
 
@@ -455,6 +491,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 accountManager: network.accountManager,
                 libraryRepository: core.libraryRepository,
                 playlistRepository: core.playlistRepository,
+                syncCursorRepository: core.syncCursorRepository,
                 artworkDownloadManager: core.artworkDownloadManager,
                 networkMonitor: network.networkMonitor,
                 serverHealthChecker: network.serverHealthChecker,
@@ -474,7 +511,10 @@ public final class DependencyContainer: @unchecked Sendable {
         let lyricsService = MainActor.assumeIsolated {
             LyricsService(syncCoordinator: sync.syncCoordinator)
         }
-        let artworkLoader = ArtworkLoader(syncCoordinator: sync.syncCoordinator)
+        let artworkLoader = ArtworkLoader(
+            syncCoordinator: sync.syncCoordinator,
+            artworkDownloadManager: core.artworkDownloadManager
+        )
         let audioAnalyzer = MainActor.assumeIsolated {
             FrequencyAnalysisService()
         }
@@ -493,7 +533,10 @@ public final class DependencyContainer: @unchecked Sendable {
                 libraryRepository: core.libraryRepository,
                 artworkDownloadManager: core.artworkDownloadManager,
                 downloadManager: core.downloadManager,
-                lyricsService: lyricsService
+                lyricsService: lyricsService,
+                artworkCacheClear: {
+                    try await artworkLoader.clearCaches()
+                }
             )
         }
 
@@ -506,8 +549,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let shareService = MainActor.assumeIsolated {
             ShareService(
                 songLinkService: songLinkService,
-                syncCoordinator: sync.syncCoordinator,
-                downloadManager: core.downloadManager
+                syncCoordinator: sync.syncCoordinator
             )
         }
 
@@ -551,7 +593,8 @@ public final class DependencyContainer: @unchecked Sendable {
             MutationCoordinator(
                 repository: core.pendingMutationRepository,
                 networkMonitor: network.networkMonitor,
-                syncCoordinator: sync.syncCoordinator
+                syncCoordinator: sync.syncCoordinator,
+                playlistRepository: core.playlistRepository
             )
         }
         let downloadMutationWorkflow = MainActor.assumeIsolated {
@@ -562,6 +605,13 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         let trackRatingMutationWorkflow = MainActor.assumeIsolated {
             TrackRatingMutationWorkflow(mutator: mutationCoordinator)
+        }
+        let collectionFavoriteMutationWorkflow = MainActor.assumeIsolated {
+            CollectionFavoriteMutationWorkflow(
+                mutationCoordinator: mutationCoordinator,
+                coreDataStack: core.coreDataStack,
+                toastCenter: core.toastCenter
+            )
         }
         let metadataMutationService = MainActor.assumeIsolated {
             MetadataMutationService(
@@ -581,7 +631,7 @@ public final class DependencyContainer: @unchecked Sendable {
                     network.accountManager.makeAPIClient(accountId: accountId, serverId: serverId)
                 },
                 clearLyricsCache: { ratingKey, sourceCompositeKey in
-                    playback.lyricsService.clearCache(
+                    await playback.lyricsService.clearCache(
                         forTrackRatingKey: ratingKey,
                         sourceCompositeKey: sourceCompositeKey
                     )
@@ -602,6 +652,7 @@ public final class DependencyContainer: @unchecked Sendable {
             mutationCoordinator: mutationCoordinator,
             playlistMutationWorkflow: playlistMutationWorkflow,
             trackRatingMutationWorkflow: trackRatingMutationWorkflow,
+            collectionFavoriteMutationWorkflow: collectionFavoriteMutationWorkflow,
             metadataMutationService: metadataMutationService,
             metadataMutationWorkflow: metadataMutationWorkflow
         )
@@ -610,19 +661,19 @@ public final class DependencyContainer: @unchecked Sendable {
     private static func buildSiriBootstrap(
         core: CoreBootstrap,
         network: NetworkBootstrap,
-        sync: SyncBootstrap,
         playback: PlaybackBootstrap,
         mutation: MutationBootstrap,
         foregroundWorkScheduler: ForegroundWorkScheduler
     ) -> SiriBootstrap {
         let enabledSystemMediaSourceKeys: SystemMediaEnabledSourceKeysProvider = { @MainActor in
-            Set(network.accountManager.enabledSources().map(\.compositeKey))
+            SystemMediaSourceScope.enabledLibraryKeys(for: network.accountManager.enabledSources())
         }
         let siriMediaIndexStore = MainActor.assumeIsolated {
             SiriMediaIndexStore(
                 libraryRepository: core.libraryRepository,
                 playlistRepository: core.playlistRepository,
-                enabledSourceKeysProvider: enabledSystemMediaSourceKeys
+                enabledSourceKeysProvider: enabledSystemMediaSourceKeys,
+                hiddenMediaStore: core.hiddenMediaStore
             )
         }
         let siriPlaybackCoordinator = MainActor.assumeIsolated {
@@ -630,7 +681,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 accountManager: network.accountManager,
                 libraryRepository: core.libraryRepository,
                 playlistRepository: core.playlistRepository,
-                playbackService: playback.playbackService
+                playbackService: playback.playbackService,
+                hiddenMediaStore: core.hiddenMediaStore
             )
         }
         let siriAffinityCoordinator = MainActor.assumeIsolated {
@@ -740,6 +792,8 @@ public final class DependencyContainer: @unchecked Sendable {
                             restoreOutcome = "not-attempted"
                         case .noSnapshot:
                             restoreOutcome = "no-snapshot"
+                        case .readFailed:
+                            restoreOutcome = "snapshot-read-failed"
                         case .historyOnly(let count):
                             restoreOutcome = "history-only(\(count))"
                         case .skippedBecausePlaybackAlreadyActive:
@@ -775,15 +829,33 @@ public final class DependencyContainer: @unchecked Sendable {
             wireOfflineCallbacks()
             wirePlaybackCallbacks()
             wireArtworkCallbacks()
-            wireProfileAndCloudCallbacks()
-            wireKVSSyncCallbacks()
+        }
+    }
+
+    @MainActor
+    private func scheduleDeferredSyncStartup() {
+        guard !hasScheduledDeferredSyncStartup else { return }
+        hasScheduledDeferredSyncStartup = true
+        wireProfileAndCloudCallbacks()
+        wireKVSSyncCallbacks()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard await self.foregroundWorkScheduler.waitUntilAllowed(.startupSync, policy: .idleOnly) else {
+                EnsembleLogger.info("Sync startup: deferred iCloud/KVS bootstrap skipped because foreground work is unavailable")
+                return
+            }
+            await self.refreshSyncState(reason: "launch")
         }
     }
 
     @MainActor
     private func wireWebSocketCallbacks() {
-        webSocketCoordinator.onLibraryUpdate = { [weak syncCoordinator] sectionKey in
-            await syncCoordinator?.syncSectionIncremental(sectionKey: sectionKey)
+        webSocketCoordinator.onLibraryUpdate = { [weak syncCoordinator] sectionKey, serverKey, changes in
+            await syncCoordinator?.syncSectionIncremental(
+                sectionKey: sectionKey,
+                serverKey: serverKey,
+                changes: changes
+            )
         }
         webSocketCoordinator.onPlaylistUpdate = { [weak syncCoordinator] serverKey in
             await syncCoordinator?.syncServerPlaylistsIncremental(serverKey: serverKey)
@@ -806,7 +878,9 @@ public final class DependencyContainer: @unchecked Sendable {
             let currentState = await MainActor.run {
                 serverHealthChecker.getServerState(accountId: accountId, serverId: serverId)
             }
-            if !currentState.isAvailable {
+            if currentState.isAvailable {
+                serverHealthChecker.markServerHealthy(accountId: accountId, serverId: serverId)
+            } else {
                 _ = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId)
             }
         }
@@ -831,6 +905,9 @@ public final class DependencyContainer: @unchecked Sendable {
             Task { @MainActor in
                 await offlineDownloadService?.handlePlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
             }
+        }
+        syncCoordinator.downloadedPlaylistServerSourceKeys = { [weak offlineDownloadService] in
+            offlineDownloadService?.downloadedPlexPlaylistServerSourceKeys ?? []
         }
         syncCoordinator.onFavoritesRatingChanged = { [weak offlineDownloadService] in
             await offlineDownloadService?.reconcileFavoritesTargetIfEnabled()
@@ -857,6 +934,10 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     private func wirePlaybackCallbacks() {
         playbackService.setMutationCoordinator(mutationCoordinator)
+        playbackService.onNetworkWorkPressureChanged = { [weak syncCoordinator, weak offlineDownloadService] low in
+            syncCoordinator?.isPlaybackBufferLow = low
+            Task { @MainActor in await offlineDownloadService?.setPlaybackBufferLow(low) }
+        }
         if let audioAnalyzer = audioAnalyzer as? FrequencyAnalysisService {
             audioAnalyzer.visualizationEnabled = PlaybackSettingsObserver.visualizerEnabled(in: .standard)
         }
@@ -869,15 +950,34 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         syncCoordinator.onTrackAlbumChanged = { [weak self] reparentedTracks in
             guard let artworkLoader = self?.artworkLoader as? ArtworkLoader else { return }
-            for info in reparentedTracks {
-                await artworkLoader.invalidateArtwork(ratingKey: info.oldAlbumRatingKey, type: .album)
-                await artworkLoader.invalidateArtwork(ratingKey: info.trackRatingKey, type: .album)
-            }
+            await artworkLoader.invalidateArtwork(reparentedTracks.flatMap { info in
+                [
+                    ArtworkInvalidationInfo(
+                        ratingKey: info.oldAlbumRatingKey,
+                        type: .album,
+                        reason: .metadataModified,
+                        sourceCompositeKey: info.sourceCompositeKey
+                    ),
+                    ArtworkInvalidationInfo(
+                        ratingKey: info.trackRatingKey,
+                        type: .track,
+                        reason: .metadataModified,
+                        sourceCompositeKey: info.sourceCompositeKey
+                    )
+                ]
+            })
         }
         syncCoordinator.onArtworkMetadataChanged = { [weak self] invalidations in
-            guard let artworkLoader = self?.artworkLoader as? ArtworkLoader else { return }
+            guard let self, let artworkLoader = self.artworkLoader as? ArtworkLoader else { return }
+            await artworkLoader.invalidateArtwork(invalidations)
             for info in invalidations {
-                await artworkLoader.invalidateArtwork(ratingKey: info.ratingKey, type: info.type)
+                if info.reason == .removed, let sourceCompositeKey = info.sourceCompositeKey {
+                    self.artworkDownloadManager.deleteArtwork(
+                        ratingKey: info.ratingKey,
+                        type: info.type,
+                        sourceCompositeKey: sourceCompositeKey
+                    )
+                }
             }
         }
         syncCoordinator.sourceCacheCleanupService = sourceCacheCleanupService
@@ -901,6 +1001,7 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         let profileStore = userProfileStore
+        let hiddenStore = hiddenMediaStore
         let syncSettings = syncSettingsManager
         Task { [weak cloudSyncService] in
             await cloudSyncService?.setRemoteChangeHandler { [profileStore] profile, imageData in
@@ -913,8 +1014,44 @@ public final class DependencyContainer: @unchecked Sendable {
                     )
                 }
             }
+            await cloudSyncService?.setHiddenMediaChangeHandler { [hiddenStore, syncSettings] mutations in
+                await MainActor.run {
+                    guard syncSettings.isFeatureEnabled(.hiddenItems) else { return }
+                    hiddenStore.applyRemote(mutations)
+                    syncSettings.recordFeatureActivity(
+                        for: .hiddenItems,
+                        state: .appliedRemote,
+                        direction: .pulledFromICloud,
+                        detail: "Pulled hidden items from iCloud."
+                    )
+                }
+            }
             await cloudSyncService?.subscribeToChanges()
         }
+
+        hiddenMediaStore.$snapshot
+            .dropFirst()
+            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+            .sink { [weak hiddenMediaStore, weak cloudSyncService, weak syncSettingsManager] _ in
+                guard let hiddenMediaStore, let cloudSyncService, let syncSettingsManager else { return }
+                guard syncSettingsManager.isFeatureEnabled(.hiddenItems) else { return }
+                if let lastApply = hiddenMediaStore.lastRemoteApplyTime,
+                   Date().timeIntervalSince(lastApply) < 2 { return }
+                let mutations = hiddenMediaStore.exportMutations()
+                Task {
+                    guard let merged = await cloudSyncService.pushHiddenMedia(mutations) else { return }
+                    await MainActor.run {
+                        hiddenMediaStore.applyRemote(merged)
+                        syncSettingsManager.recordFeatureActivity(
+                            for: .hiddenItems,
+                            state: .seededLocal,
+                            direction: .pushedFromThisDevice,
+                            detail: "Pushed hidden items from this device."
+                        )
+                    }
+                }
+            }
+            .store(in: &kvsSyncCancellables)
     }
 
     @MainActor
@@ -955,6 +1092,20 @@ public final class DependencyContainer: @unchecked Sendable {
             settings.trackSwipeLayout = layout
         }
 
+        kvsSyncService.onRemoteMergingPreferencesChanged = { [weak self] data in
+            guard let self else { return }
+            guard syncToggles.isFeatureEnabled(.merging) else { return }
+            guard let preferences = try? JSONDecoder().decode(EnsembleMergingPreferences.self, from: data) else { return }
+            self.lastSyncedMergingPreferences = preferences
+            syncToggles.recordFeatureActivity(
+                for: .merging,
+                state: .appliedRemote,
+                direction: .pulledFromICloud,
+                detail: "Pulled merging preferences from iCloud."
+            )
+            settings.setMergingPreferences(preferences)
+        }
+
         settings.objectWillChange
             .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
             .sink { [weak self, weak settings, weak kvs, weak syncToggles] _ in
@@ -971,20 +1122,35 @@ public final class DependencyContainer: @unchecked Sendable {
                     kvs.pushString(settings.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
                 }
 
-                guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
-                let currentLayout = settings.trackSwipeLayout
-                guard currentLayout != self.lastSyncedSwipeLayout else { return }
-                self.lastSyncedSwipeLayout = currentLayout
+                if syncToggles.isFeatureEnabled(.swipeActions) {
+                    let currentLayout = settings.trackSwipeLayout
+                    if currentLayout != self.lastSyncedSwipeLayout {
+                        self.lastSyncedSwipeLayout = currentLayout
+                        syncToggles.recordFeatureActivity(
+                            for: .swipeActions,
+                            state: .seededLocal,
+                            direction: .pushedFromThisDevice,
+                            detail: "Pushed swipe actions from this device."
+                        )
+                        if let data = try? JSONEncoder().encode(currentLayout) {
+                            kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
+                        }
+                    }
+                }
+
+                guard syncToggles.isFeatureEnabled(.merging) else { return }
+                let preferences = settings.mergingPreferences
+                guard preferences != self.lastSyncedMergingPreferences,
+                      let data = try? JSONEncoder().encode(preferences) else { return }
+                self.lastSyncedMergingPreferences = preferences
                 syncToggles.recordFeatureActivity(
-                    for: .swipeActions,
+                    for: .merging,
                     state: .seededLocal,
                     direction: .pushedFromThisDevice,
-                    detail: "Pushed swipe actions from this device."
+                    detail: "Pushed merging preferences from this device."
                 )
-                if let data = try? JSONEncoder().encode(currentLayout) {
-                    kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
+                kvs.pushData(data, forKey: KVSSyncService.KVSKey.mergingPreferences)
                 }
-            }
             .store(in: &kvsSyncCancellables)
 
         kvsSyncService.onRemotePinsChanged = { [weak self, weak pins] data in
@@ -1110,6 +1276,11 @@ public final class DependencyContainer: @unchecked Sendable {
 
                 let disabledSourcesToCleanup = Array(Set(result.disabledSources))
                 if !disabledSourcesToCleanup.isEmpty {
+                    for source in disabledSourcesToCleanup {
+                        EnsembleLogger.info(
+                            "[SourceReconciliation] Cleanup requested source=\(source.compositeKey) reason=icloud-library-disabled"
+                        )
+                    }
                     await self.syncCoordinator.cleanupRemovedSourcesIfPresent(disabledSourcesToCleanup)
                 }
 
@@ -1182,14 +1353,27 @@ public final class DependencyContainer: @unchecked Sendable {
     @MainActor
     private func refreshSyncState(
         reason: String,
-        feature: SyncSettingsManager.SyncFeature? = nil
+        feature: SyncSettingsManager.SyncFeature? = nil,
+        retryUnsettledOnly: Bool = false
     ) async {
+        var shouldReconcileProfile = !retryUnsettledOnly
         if syncSettingsManager.isMasterSyncEnabled {
+            lastKnownProfileTransportState = await cloudSyncService.currentProfileTransportState()
             lastKnownICloudAccountStatus = await cloudSyncService.currentAccountStatus()
-            await performSyncBootstrap(reason: reason, feature: feature)
+            if retryUnsettledOnly {
+                shouldReconcileProfile = profileNeedsRetry
+            }
+            await performSyncBootstrap(
+                reason: reason,
+                features: retryUnsettledOnly
+                    ? syncSettingsManager.enabledFeaturesNeedingRetry
+                    : feature.map { [$0] }
+            )
         }
 
-        await reconcileProfileSync(reason: reason)
+        if shouldReconcileProfile {
+            await reconcileProfileSync(reason: reason)
+        }
         scheduleFirstConnectRetryIfNeeded(reason: reason)
     }
 
@@ -1279,6 +1463,8 @@ public final class DependencyContainer: @unchecked Sendable {
             return "iCloud storage is full for profile sync."
         case .rateLimited:
             return "CloudKit rate-limited the profile sync. Try again shortly."
+        case .unavailable:
+            return "Profile sync is unavailable in this build."
         case .error:
             return "Profile sync could not confirm iCloud status right now."
         }
@@ -1301,22 +1487,38 @@ public final class DependencyContainer: @unchecked Sendable {
 
     @MainActor
     private var needsFirstConnectRetry: Bool {
-        guard shouldKeepFirstConnectPending else { return false }
+        guard firstConnectRetryAttempt < Self.firstConnectRetryDelays.count else { return false }
+        if !syncSettingsManager.enabledFeaturesNeedingRetry.isEmpty {
+            return true
+        }
 
         let waitingForSources =
             Self.shouldRetryFirstConnectForSources(
                 sourcesFeatureEnabled: syncSettingsManager.isFeatureEnabled(.sources),
                 hasAnySources: accountManager.hasAnySources,
                 hasSyncedCloudCredentials: accountManager.hasSyncedCloudCredentials(),
-                accountStatus: lastKnownICloudAccountStatus
+                accountStatus: lastKnownICloudAccountStatus,
+                profileTransportState: lastKnownProfileTransportState
             )
 
-        let waitingForProfile =
-            userProfileStore.profile.isEmpty &&
-            syncSettingsManager.profileStatus.phase == .unknown &&
-            !Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus)
+        return waitingForSources || profileNeedsRetry
+    }
 
-        return waitingForSources || waitingForProfile
+    @MainActor
+    private var profileNeedsRetry: Bool {
+        switch syncSettingsManager.profileStatus.phase {
+        case .transport(.networkUnavailable), .transport(.rateLimited), .transport(.error):
+            return true
+        case .unknown:
+            return !syncSettingsManager.hasCompletedFirstConnect &&
+                userProfileStore.profile.isEmpty &&
+                !Self.isBootstrapTransportUnavailable(
+                    accountStatus: lastKnownICloudAccountStatus,
+                    profileTransportState: lastKnownProfileTransportState
+                )
+        case .noRecord, .transport:
+            return false
+        }
     }
 
     @MainActor
@@ -1328,16 +1530,10 @@ public final class DependencyContainer: @unchecked Sendable {
             return
         }
 
-        guard !syncSettingsManager.hasCompletedFirstConnect else {
-            firstConnectRetryTask?.cancel()
-            firstConnectRetryTask = nil
-            firstConnectRetryAttempt = 0
-            return
-        }
-
         guard needsFirstConnectRetry else {
             firstConnectRetryTask?.cancel()
             firstConnectRetryTask = nil
+            firstConnectRetryAttempt = 0
             return
         }
 
@@ -1347,31 +1543,32 @@ public final class DependencyContainer: @unchecked Sendable {
         firstConnectRetryAttempt += 1
 
         EnsembleLogger.info(
-            "Sync bootstrap: scheduling first-connect retry \(attemptNumber)/\(Self.firstConnectRetryDelays.count) in \(Int(delay))s after \(reason)"
+            "Sync bootstrap: scheduling retry \(attemptNumber)/\(Self.firstConnectRetryDelays.count) in \(Int(delay))s after \(reason)"
         )
 
         firstConnectRetryTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.firstConnectRetryTask = nil }
 
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled else { return }
 
-            await self.refreshSyncState(reason: "first-connect-retry-\(attemptNumber)")
+            self.firstConnectRetryTask = nil
+            await self.refreshSyncState(
+                reason: "sync-retry-\(attemptNumber)",
+                retryUnsettledOnly: true
+            )
         }
     }
 
     @MainActor
-    private func performSyncBootstrap(reason: String, feature: SyncSettingsManager.SyncFeature? = nil) async {
+    private func performSyncBootstrap(
+        reason: String,
+        features: [SyncSettingsManager.SyncFeature]? = nil
+    ) async {
         guard syncSettingsManager.isMasterSyncEnabled else { return }
 
-        let featuresToBootstrap: [SyncSettingsManager.SyncFeature]
-        if let feature {
-            featuresToBootstrap = [feature]
-        } else {
-            featuresToBootstrap = SyncSettingsManager.SyncFeature.allCases.filter {
-                syncSettingsManager.isFeatureEnabled($0)
-            }
+        let featuresToBootstrap = features ?? SyncSettingsManager.SyncFeature.allCases.filter {
+            syncSettingsManager.isFeatureEnabled($0)
         }
 
         for feature in featuresToBootstrap {
@@ -1411,8 +1608,12 @@ public final class DependencyContainer: @unchecked Sendable {
             return await bootstrapAccentColor(reason: reason)
         case .swipeActions:
             return await bootstrapSwipeActions(reason: reason)
+        case .merging:
+            return await bootstrapMergingPreferences(reason: reason)
         case .pins:
             return await bootstrapPins(reason: reason)
+        case .hiddenItems:
+            return await bootstrapHiddenMedia(reason: reason)
         case .sources:
             return bootstrapSources(reason: reason)
         case .libraries:
@@ -1445,7 +1646,10 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         guard accountManager.hasAnySources else {
-            if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
+            if Self.isBootstrapTransportUnavailable(
+                accountStatus: lastKnownICloudAccountStatus,
+                profileTransportState: lastKnownProfileTransportState
+            ) {
                 accountManager.setAwaitingCloudSources(false)
                 syncSettingsManager.setFeatureState(.transportUnavailable, for: .sources)
                 return true
@@ -1579,6 +1783,51 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     @MainActor
+    private func bootstrapMergingPreferences(reason: String) async -> Bool {
+        guard syncSettingsManager.isFeatureEnabled(.merging) else {
+            syncSettingsManager.setFeatureState(.idle, for: .merging)
+            return true
+        }
+        guard kvsSyncService.isAvailable else {
+            syncSettingsManager.setFeatureState(.transportUnavailable, for: .merging)
+            return true
+        }
+
+        syncSettingsManager.setFeatureState(.bootstrapping, for: .merging)
+        kvsSyncService.synchronize()
+        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.mergingPreferences) {
+            kvsSyncService.onRemoteMergingPreferencesChanged?(data)
+            return true
+        }
+        if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
+            syncSettingsManager.setFeatureState(.transportUnavailable, for: .merging)
+            return true
+        }
+
+        let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
+        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.mergingPreferences) {
+            kvsSyncService.onRemoteMergingPreferencesChanged?(data)
+            return true
+        }
+        guard didSettleInitialSync,
+              let data = try? JSONEncoder().encode(settingsManager.mergingPreferences) else {
+            syncSettingsManager.setFeatureState(.waitingForTransport, for: .merging)
+            return false
+        }
+
+        lastSyncedMergingPreferences = settingsManager.mergingPreferences
+        EnsembleLogger.info("Sync bootstrap: seeding local merging preferences after \(reason)")
+        syncSettingsManager.recordFeatureActivity(
+            for: .merging,
+            state: .seededLocal,
+            direction: .pushedFromThisDevice,
+            detail: "Pushed merging preferences from this device."
+        )
+        kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.mergingPreferences)
+        return true
+    }
+
+    @MainActor
     private func bootstrapPins(reason: String) async -> Bool {
         guard syncSettingsManager.isFeatureEnabled(.pins) else {
             syncSettingsManager.setFeatureState(.idle, for: .pins)
@@ -1629,6 +1878,53 @@ public final class DependencyContainer: @unchecked Sendable {
             detail: "Pushed pins from this device."
         )
         kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.pins)
+        return true
+    }
+
+    @MainActor
+    private func bootstrapHiddenMedia(reason: String) async -> Bool {
+        guard syncSettingsManager.isFeatureEnabled(.hiddenItems) else {
+            syncSettingsManager.setFeatureState(.idle, for: .hiddenItems)
+            return true
+        }
+
+        syncSettingsManager.setFeatureState(.bootstrapping, for: .hiddenItems)
+        guard let remote = await cloudSyncService.pullHiddenMedia() else {
+            EnsembleLogger.info("Sync bootstrap: waiting for CloudKit hidden items after \(reason)")
+            syncSettingsManager.setFeatureState(.waitingForTransport, for: .hiddenItems)
+            return false
+        }
+
+        EnsembleLogger.info("Sync bootstrap: pulled \(remote.count) hidden-item mutations after \(reason)")
+        if !remote.isEmpty {
+            hiddenMediaStore.applyRemote(remote)
+            syncSettingsManager.recordFeatureActivity(
+                for: .hiddenItems,
+                state: .appliedRemote,
+                direction: .pulledFromICloud,
+                detail: "Pulled hidden items from iCloud."
+            )
+            if let merged = await cloudSyncService.pushHiddenMedia(hiddenMediaStore.exportMutations()) {
+                hiddenMediaStore.applyRemote(merged)
+            }
+            return true
+        }
+
+        guard !hiddenMediaStore.exportMutations().isEmpty else {
+            syncSettingsManager.setFeatureState(.idle, for: .hiddenItems)
+            return true
+        }
+        guard let merged = await cloudSyncService.pushHiddenMedia(hiddenMediaStore.exportMutations()) else {
+            syncSettingsManager.setFeatureState(.waitingForTransport, for: .hiddenItems)
+            return false
+        }
+        hiddenMediaStore.applyRemote(merged)
+        syncSettingsManager.recordFeatureActivity(
+            for: .hiddenItems,
+            state: .seededLocal,
+            direction: .pushedFromThisDevice,
+            detail: "Pushed hidden items from this device after \(reason)."
+        )
         return true
     }
 
@@ -1685,7 +1981,14 @@ public final class DependencyContainer: @unchecked Sendable {
         return true
     }
 
-    static func isBootstrapTransportUnavailable(accountStatus: CKAccountStatus) -> Bool {
+    static func isBootstrapTransportUnavailable(
+        accountStatus: CKAccountStatus,
+        profileTransportState: CloudSyncService.ProfileTransportState = .unknown
+    ) -> Bool {
+        if profileTransportState == .unavailable {
+            return true
+        }
+
         switch accountStatus {
         case .noAccount, .restricted:
             return true
@@ -1716,12 +2019,16 @@ public final class DependencyContainer: @unchecked Sendable {
         sourcesFeatureEnabled: Bool,
         hasAnySources: Bool,
         hasSyncedCloudCredentials: Bool,
-        accountStatus: CKAccountStatus
+        accountStatus: CKAccountStatus,
+        profileTransportState: CloudSyncService.ProfileTransportState = .unknown
     ) -> Bool {
         sourcesFeatureEnabled &&
         !hasAnySources &&
         !hasSyncedCloudCredentials &&
-        !isBootstrapTransportUnavailable(accountStatus: accountStatus)
+        !isBootstrapTransportUnavailable(
+            accountStatus: accountStatus,
+            profileTransportState: profileTransportState
+        )
     }
 
 }

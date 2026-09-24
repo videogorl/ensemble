@@ -20,6 +20,17 @@ private struct StageFlowActiveKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct MediaNavigationTransitionNamespaceKey: EnvironmentKey {
+    static let defaultValue: Namespace.ID? = nil
+}
+
+extension EnvironmentValues {
+    var mediaNavigationTransitionNamespace: Namespace.ID? {
+        get { self[MediaNavigationTransitionNamespaceKey.self] }
+        set { self[MediaNavigationTransitionNamespaceKey.self] = newValue }
+    }
+}
+
 public extension EnvironmentValues {
     var isViewportNowPlayingPresented: Bool {
         get { self[ViewportNowPlayingPresentedKey.self] }
@@ -42,6 +53,30 @@ public extension EnvironmentValues {
     }
 }
 
+private struct MediaNavigationTransitionSourceModifier: ViewModifier {
+    @Environment(\.mediaNavigationTransitionNamespace) private var namespace
+    let id: String?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 18.0, *), let namespace, let id {
+            content.matchedTransitionSource(id: id, in: namespace)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+extension View {
+    func mediaNavigationTransitionSource(id: String?) -> some View {
+        modifier(MediaNavigationTransitionSourceModifier(id: id))
+    }
+}
+
 /// Applies aurora background transparency in dark mode only.
 /// In light mode the system grouped background is preserved so list row
 /// backgrounds remain visible against the near-white aurora backdrop.
@@ -49,16 +84,11 @@ private struct AuroraBackgroundSupportModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
-        if colorScheme == .dark {
-            if #available(iOS 16.0, macOS 13.0, *) {
-                content
-                    .scrollContentBackground(.hidden)
-                    .background(Color.clear)
-            } else {
-                content.background(Color.clear)
-            }
+        if #available(iOS 16.0, macOS 13.0, *) {
+            content
+                .scrollContentBackground(colorScheme == .dark ? .hidden : .visible)
+                .background(Color.clear)
         } else {
-            // Light mode: keep system backgrounds so list rows are distinguishable
             content.background(Color.clear)
         }
     }
@@ -122,29 +152,33 @@ public extension View {
         #endif
     }
 
-    /// Applies additionalSafeAreaInsets.bottom to the TabView container on iOS 15.
-    /// Applied once in MainTabView — propagates to all child navigation controllers
-    /// and their content, including pushed views. This is the Apple Music approach:
-    /// the mini player controller manages the inset, not each content view.
+    /// Measures the native tab bar clearance on every iOS version and applies the
+    /// additional TabView content inset needed by iOS 15.
     @ViewBuilder
-    func miniPlayerContainerInset(_ height: CGFloat, isVisible: Bool) -> some View {
+    func miniPlayerContainerInset(
+        _ height: CGFloat,
+        isVisible: Bool,
+        tabBarBottomClearance: Binding<CGFloat>
+    ) -> some View {
         #if os(iOS)
         if #available(iOS 16.0, *) {
-            // iOS 16+ uses per-view safeAreaInset, no container inset needed
-            self
+            self.background(
+                MiniPlayerContainerInsetter(
+                    bottomInset: nil,
+                    tabBarBottomClearance: tabBarBottomClearance
+                )
+            )
         } else {
             self.background(
-                MiniPlayerContainerInsetter(bottomInset: isVisible ? height : 0)
+                MiniPlayerContainerInsetter(
+                    bottomInset: isVisible ? height : 0,
+                    tabBarBottomClearance: tabBarBottomClearance
+                )
             )
         }
         #else
         self
         #endif
-    }
-
-    /// Apply a wiggle animation to the view, useful for edit modes
-    func wiggle(isWiggling: Bool) -> some View {
-        self.modifier(WiggleModifier(isWiggling: isWiggling))
     }
 
     /// Makes the view's background transparent so the aurora visualization shows through.
@@ -210,12 +244,8 @@ private struct StageFlowRotationSupportModifier: ViewModifier {
     }
 }
 
-/// Applied once as a background on the TabView container in MainTabView.
-/// Searches the window's view controller hierarchy (top-down) for the
-/// UITabBarController backing SwiftUI's TabView, then sets
-/// additionalSafeAreaInsets.bottom on each child navigation controller.
-/// This propagates to all pushed views, matching how Apple Music handles
-/// mini player insets.
+/// Finds SwiftUI's native tab bar to report its window-bottom clearance. On
+/// iOS 15 it also sets the content inset on each tab hosting controller.
 ///
 /// The responder chain walk (bottom-up) doesn't work because the probe view
 /// sits in a SwiftUI hosting context that's a sibling of the tab bar controller,
@@ -224,28 +254,37 @@ private struct StageFlowRotationSupportModifier: ViewModifier {
 /// Uses UIViewRepresentable (not UIViewControllerRepresentable) to avoid
 /// inserting a child VC that could cause layout feedback loops.
 private struct MiniPlayerContainerInsetter: UIViewRepresentable {
-    let bottomInset: CGFloat
+    let bottomInset: CGFloat?
+    let tabBarBottomClearance: Binding<CGFloat>
 
     func makeUIView(context: Context) -> InsetProbeView {
         let view = InsetProbeView()
         view.bottomInset = bottomInset
+        view.bottomClearanceDidChange = { tabBarBottomClearance.wrappedValue = $0 }
         view.backgroundColor = .clear
         view.isUserInteractionEnabled = false
-        view.isHidden = true
         return view
     }
 
     func updateUIView(_ view: InsetProbeView, context: Context) {
         view.bottomInset = bottomInset
+        view.bottomClearanceDidChange = { tabBarBottomClearance.wrappedValue = $0 }
         view.applyInsets()
     }
 
     final class InsetProbeView: UIView {
-        var bottomInset: CGFloat = 0
+        var bottomInset: CGFloat?
+        var bottomClearanceDidChange: ((CGFloat) -> Void)?
         private var appliedInset: CGFloat = -1
+        private var reportedBottomClearance: CGFloat = -1
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            applyInsets()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
             applyInsets()
         }
 
@@ -256,6 +295,18 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
                 EnsembleLogger.debug("[MiniPlayerInset] No UITabBarController found in VC hierarchy")
                 return
             }
+
+            let tabBar = tabBarController.tabBar
+            let tabBarFrame = tabBar.convert(tabBar.bounds, to: window)
+            let bottomClearance = tabBar.isHidden
+                ? 0
+                : max(window.bounds.maxY - tabBarFrame.minY, 0)
+            if abs(bottomClearance - reportedBottomClearance) > 0.5 {
+                reportedBottomClearance = bottomClearance
+                bottomClearanceDidChange?(bottomClearance)
+            }
+
+            guard let bottomInset else { return }
 
             // Set additionalSafeAreaInsets on ALL direct children of the UITabBarController.
             // These are UIHostingControllers that SwiftUI creates for each tab — they exist
@@ -300,34 +351,6 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
 }
 
 #endif
-
-private struct WiggleModifier: ViewModifier {
-    let isWiggling: Bool
-    @State private var isAnimating = false
-    
-    func body(content: Content) -> some View {
-        content
-            .rotationEffect(.degrees(isWiggling ? (isAnimating ? 1.0 : -1.0) : 0))
-            .offset(x: isWiggling ? (isAnimating ? 0.3 : -0.3) : 0, 
-                    y: isWiggling ? (isAnimating ? -0.3 : 0.3) : 0)
-            .onAppear {
-                if isWiggling {
-                    withAnimation(.easeInOut(duration: 0.12).repeatForever(autoreverses: true)) {
-                        isAnimating = true
-                    }
-                }
-            }
-            .onChange(of: isWiggling) { newValue in
-                if newValue {
-                    withAnimation(.easeInOut(duration: 0.12).repeatForever(autoreverses: true)) {
-                        isAnimating = true
-                    }
-                } else {
-                    isAnimating = false
-                }
-            }
-    }
-}
 
 public extension ToolbarItemPlacement {
     /// Keeps action toolbar items in the platform's normal trailing action cluster.

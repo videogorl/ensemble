@@ -5,21 +5,6 @@ import EnsemblePersistence
 
 @MainActor
 final class MusicSourceAccountDetailViewModelTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-    }
 
     private final class MockDiscoveryService: PlexAccountDiscoveryServiceProtocol, @unchecked Sendable {
         var result: PlexAccountDiscoveryResult?
@@ -296,6 +281,128 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.serverLibraryErrors["server-1"], "Library fetch failed")
     }
 
+    func testRefreshPreservesCachedServerMissingFromDiscovery() async throws {
+        let harness = makeHarness()
+        let account = PlexAccountConfig(
+            id: "account-1",
+            email: "user@example.com",
+            plexUsername: "felicity",
+            displayTitle: "Felicity",
+            authToken: "auth-token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-online",
+                    name: "Online Server",
+                    url: "https://online.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://online.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "token-online",
+                    platform: "Linux",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-online", key: "lib-online", title: "Online Music", isEnabled: true)
+                    ]
+                ),
+                PlexServerConfig(
+                    id: "server-offline",
+                    name: "Offline Server",
+                    url: "https://offline.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://offline.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "token-offline",
+                    platform: "MacOSX",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-offline", key: "lib-offline", title: "Offline Music", isEnabled: true)
+                    ]
+                )
+            ]
+        )
+        harness.accountManager.addPlexAccount(account)
+
+        let offlineSource = "plex:account-1:server-offline:lib-offline"
+        try await seedTrack(repository: harness.libraryRepository, ratingKey: "track-offline", sourceCompositeKey: offlineSource)
+
+        harness.discoveryService.result = PlexAccountDiscoveryResult(
+            identity: PlexAccountIdentity(id: "account-1", email: nil, plexUsername: "tester", displayTitle: nil),
+            servers: [
+                PlexServerConfig(
+                    id: "server-online",
+                    name: "Online Server",
+                    url: "https://online.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://online.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "token-online",
+                    platform: "Linux",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-online", key: "lib-online", title: "Online Music", isEnabled: false)
+                    ]
+                )
+            ],
+            serverLibraryErrors: [:]
+        )
+
+        let viewModel = makeViewModel(accountId: account.id, harness: harness)
+        await viewModel.performInitialRefreshIfNeeded()
+
+        let updatedAccount = try XCTUnwrap(harness.accountManager.plexAccounts.first)
+        XCTAssertEqual(updatedAccount.servers.map(\.id), ["server-online", "server-offline"])
+        let offlineServer = try XCTUnwrap(updatedAccount.servers.first(where: { $0.id == "server-offline" }))
+        XCTAssertEqual(offlineServer.libraries.map(\.key), ["lib-offline"])
+        XCTAssertEqual(offlineServer.libraries.first?.isEnabled, true)
+
+        XCTAssertTrue(viewModel.sections.contains(where: { $0.id == "server-offline" }))
+
+        let tracks = try await harness.libraryRepository.fetchTracks()
+        XCTAssertTrue(tracks.contains(where: { $0.sourceCompositeKey == offlineSource }))
+    }
+
+    func testLibraryRowsExposeExpectedAndSyncedTrackCounts() async throws {
+        let harness = makeHarness()
+        let account = PlexAccountConfig(
+            id: "account-1",
+            email: "user@example.com",
+            plexUsername: "felicity",
+            displayTitle: "Felicity",
+            authToken: "auth-token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-1",
+                    name: "Server One",
+                    url: "https://server-1.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://server-1.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "token-1",
+                    platform: "Linux",
+                    libraries: [
+                        PlexLibraryConfig(
+                            id: "lib-1",
+                            key: "lib-1",
+                            title: "Library One",
+                            isEnabled: true,
+                            trackCount: 128_000
+                        )
+                    ]
+                )
+            ]
+        )
+        harness.accountManager.addPlexAccount(account)
+
+        let source = "plex:account-1:server-1:lib-1"
+        try await seedTrack(repository: harness.libraryRepository, ratingKey: "track-1", sourceCompositeKey: source)
+        try await seedTrack(repository: harness.libraryRepository, ratingKey: "track-2", sourceCompositeKey: source)
+
+        let viewModel = makeViewModel(accountId: account.id, harness: harness)
+        let row = try await waitForLibraryRow(viewModel) { row in
+            row.expectedTrackCount == 128_000 && row.syncedTrackCount == 2
+        }
+
+        XCTAssertEqual(row.expectedTrackCount, 128_000)
+        XCTAssertEqual(row.syncedTrackCount, 2)
+    }
+
     func testRefreshPreservesKnownCapabilitiesWhenDiscoveryCapabilitiesAreUnknown() async throws {
         let harness = makeHarness()
         let knownCapabilities = PlexServerCapabilities(
@@ -567,7 +674,8 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountDiscoveryService: gatedDiscovery,
             syncCoordinator: harness.syncCoordinator,
             mutationCoordinator: harness.mutationCoordinator,
-            webSocketCoordinator: harness.webSocketCoordinator
+            webSocketCoordinator: harness.webSocketCoordinator,
+            libraryRepository: harness.libraryRepository
         )
 
         let refreshTask = Task { await viewModel.performInitialRefreshIfNeeded() }
@@ -614,11 +722,9 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             syncCoordinator: syncCoordinator
         )
 
-        let shc = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         let wsc = PlexWebSocketCoordinator(
             accountManager: accountManager,
             connectionRegistry: ServerConnectionRegistry(),
-            serverHealthChecker: shc,
             networkMonitor: networkMonitor,
             clientIdentifier: "test"
         )
@@ -641,7 +747,8 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountDiscoveryService: harness.discoveryService,
             syncCoordinator: harness.syncCoordinator,
             mutationCoordinator: harness.mutationCoordinator,
-            webSocketCoordinator: harness.webSocketCoordinator
+            webSocketCoordinator: harness.webSocketCoordinator,
+            libraryRepository: harness.libraryRepository
         )
     }
 
@@ -721,5 +828,18 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             lastPlayed: nil,
             sourceCompositeKey: sourceCompositeKey
         )
+    }
+
+    private func waitForLibraryRow(
+        _ viewModel: MusicSourceAccountDetailViewModel,
+        matching predicate: (MusicSourceAccountDetailViewModel.LibraryRow) -> Bool
+    ) async throws -> MusicSourceAccountDetailViewModel.LibraryRow {
+        for _ in 0..<20 {
+            if let row = viewModel.sections.flatMap(\.libraries).first(where: predicate) {
+                return row
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return try XCTUnwrap(viewModel.sections.flatMap(\.libraries).first)
     }
 }

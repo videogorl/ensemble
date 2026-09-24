@@ -14,6 +14,15 @@ final class DependencyContainerBootstrapStateTests: XCTestCase {
         XCTAssertFalse(DependencyContainer.isBootstrapTransportUnavailable(accountStatus: .couldNotDetermine))
     }
 
+    func testBootstrapTransportUnavailableWhenBuildHasNoCloudKitEntitlement() {
+        XCTAssertTrue(
+            DependencyContainer.isBootstrapTransportUnavailable(
+                accountStatus: .couldNotDetermine,
+                profileTransportState: .unavailable
+            )
+        )
+    }
+
     func testSourceRetryStopsWhenICloudAccountIsUnavailable() {
         XCTAssertFalse(
             DependencyContainer.shouldRetryFirstConnectForSources(
@@ -30,6 +39,16 @@ final class DependencyContainerBootstrapStateTests: XCTestCase {
                 hasAnySources: false,
                 hasSyncedCloudCredentials: false,
                 accountStatus: .couldNotDetermine
+            )
+        )
+
+        XCTAssertFalse(
+            DependencyContainer.shouldRetryFirstConnectForSources(
+                sourcesFeatureEnabled: true,
+                hasAnySources: false,
+                hasSyncedCloudCredentials: false,
+                accountStatus: .couldNotDetermine,
+                profileTransportState: .unavailable
             )
         )
     }

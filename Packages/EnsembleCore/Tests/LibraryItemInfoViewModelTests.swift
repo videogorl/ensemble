@@ -4,6 +4,21 @@ import XCTest
 
 @MainActor
 final class LibraryItemInfoViewModelTests: XCTestCase {
+    func testAppleMusicSourceContextUsesNormalizedPresentation() {
+        let accountManager = AccountManager(keychain: TestKeychain())
+
+        XCTAssertEqual(
+            LibraryItemInfoViewModel.sourceContext(
+                sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+                accountManager: accountManager
+            ),
+            LibraryItemInfoViewModel.SourceContext(
+                serverName: "Apple Music",
+                libraryName: "Apple Music"
+            )
+        )
+    }
+
     func testPersistedTrackDurationConvertsMillisecondsToSeconds() {
         XCTAssertEqual(
             LibraryItemInfoViewModel.persistedTrackDurationSeconds(210_000),
@@ -23,54 +38,49 @@ final class LibraryItemInfoViewModelTests: XCTestCase {
         XCTAssertEqual(info.filePath, "/music/Harry Styles/Harry's House/04 Kiwi.flac")
     }
 
-    func testFilePathsFromTracksKeepsOriginalOrderAndDeduplicates() throws {
-        let first = try decodePlexTrack(ratingKey: "1", filePath: "/music/A/01 Kiwi.flac")
-        let duplicate = try decodePlexTrack(ratingKey: "2", filePath: "/music/A/01 Kiwi.flac")
-        let second = try decodePlexTrack(ratingKey: "3", filePath: "/music/A/02 Grape.flac")
-
+    func testAlbumFolderPathUsesTrackParentDirectory() {
         XCTAssertEqual(
-            LibraryItemInfoViewModel.filePaths(from: [first, duplicate, second]),
-            [
-                "/music/A/01 Kiwi.flac",
-                "/music/A/02 Grape.flac"
-            ]
-        )
-    }
-
-    func testAlbumFolderPathUsesTrackParentDirectory() throws {
-        let first = try decodePlexTrack(ratingKey: "1", filePath: "/music/A/Album/01 Kiwi.flac")
-        let second = try decodePlexTrack(ratingKey: "2", filePath: "/music/A/Album/02 Grape.flac")
-
-        XCTAssertEqual(
-            LibraryItemInfoViewModel.albumFolderPath(from: [first, second]),
+            PlexMusicSourceSyncProvider.albumFolderPath(from: [
+                "/music/A/Album/01 Kiwi.flac",
+                "/music/A/Album/01 Kiwi.flac",
+                "/music/A/Album/02 Grape.flac",
+            ]),
             "/music/A/Album"
         )
     }
 
-    func testAlbumFolderPathUsesCommonParentForDiscSubfolders() throws {
-        let first = try decodePlexTrack(ratingKey: "1", filePath: "/music/A/Album/Disc 1/01 Kiwi.flac")
-        let second = try decodePlexTrack(ratingKey: "2", filePath: "/music/A/Album/Disc 2/01 Grape.flac")
-
+    func testAlbumFolderPathUsesCommonParentForDiscSubfolders() {
         XCTAssertEqual(
-            LibraryItemInfoViewModel.albumFolderPath(from: [first, second]),
+            PlexMusicSourceSyncProvider.albumFolderPath(from: [
+                "/music/A/Album/Disc 1/01 Kiwi.flac",
+                "/music/A/Album/Disc 2/01 Grape.flac",
+            ]),
             "/music/A/Album"
         )
     }
 
-    func testResolvedAlbumTrackCountPrefersFetchedTracksWhenAvailable() {
+    func testAlbumFolderPathIgnoresEmptyPathsAndHandlesNoFiles() {
         XCTAssertEqual(
-            LibraryItemInfoViewModel.resolvedAlbumTrackCount(
-                albumTrackCount: 0,
+            PlexMusicSourceSyncProvider.albumFolderPath(from: ["", "/music/A/Album/01 Kiwi.flac"]),
+            "/music/A/Album"
+        )
+        XCTAssertNil(PlexMusicSourceSyncProvider.albumFolderPath(from: ["", ""]))
+    }
+
+    func testResolvedTrackCountPrefersFetchedTracksWhenAvailable() {
+        XCTAssertEqual(
+            LibraryItemInfoViewModel.resolvedTrackCount(
+                metadataTrackCount: 0,
                 fetchedTrackCount: 9
             ),
             9
         )
     }
 
-    func testResolvedAlbumTrackCountFallsBackToAlbumMetadata() {
+    func testResolvedTrackCountFallsBackToMetadata() {
         XCTAssertEqual(
-            LibraryItemInfoViewModel.resolvedAlbumTrackCount(
-                albumTrackCount: 12,
+            LibraryItemInfoViewModel.resolvedTrackCount(
+                metadataTrackCount: 12,
                 fetchedTrackCount: nil
             ),
             12

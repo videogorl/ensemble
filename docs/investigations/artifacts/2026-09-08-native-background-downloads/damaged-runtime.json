@@ -1,0 +1,5 @@
+{
+  "status": "failed",
+  "error": "Downloaded audio is damaged or incomplete. Check the server copy before retrying.",
+  "previousFileUnchanged": true
+}

@@ -9,7 +9,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] { [] }
         func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? { nil }
         func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? { nil }
-        func searchPlaylists(query: String) async throws -> [CDPlaylist] { [] }
+        func searchPlaylists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDPlaylist]) -> [Value]) async throws -> [Value] { [] }
         func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist] { [] }
         func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist { throw TestError.unimplemented }
         func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws {}
@@ -20,18 +20,30 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
     }
 
-    private struct MockProvider: MusicSourceSyncProvider, @unchecked Sendable {
+    private final class MockProvider: MusicSourceSyncProvider, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         var incrementalResult: Result<PlaylistSyncResult, Error>
         var fullResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
+        private(set) var lastForceOrphanCheck = false
+
+        init(
+            sourceIdentifier: MusicSourceIdentifier,
+            incrementalResult: Result<PlaylistSyncResult, Error>,
+            fullResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
+        ) {
+            self.sourceIdentifier = sourceIdentifier
+            self.incrementalResult = incrementalResult
+            self.fullResult = fullResult
+        }
 
         func syncLibrary(to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
         func syncLibraryIncremental(since timestamp: TimeInterval, to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
         func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult {
             try fullResult.get()
         }
-        func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult {
-            try incrementalResult.get()
+        func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, forceOrphanCheck: Bool, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult {
+            lastForceOrphanCheck = forceOrphanCheck
+            return try incrementalResult.get()
         }
         func getStreamURL(for trackRatingKey: String, trackStreamKey: String?, quality: StreamingQuality, metadataDurationSeconds: Double?) async throws -> StreamResolution { throw TestError.unimplemented }
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
@@ -91,6 +103,60 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         XCTAssertEqual(result?.provider.sourceIdentifier, source)
     }
 
+    func testMutationRefreshForcesPlaylistOrphanCheck() async throws {
+        let controller = PlaylistRefreshController()
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
+        let serverSourceKey = "plex:account-1:server-1"
+        let provider = MockProvider(sourceIdentifier: source, incrementalResult: .success(PlaylistSyncResult()))
+
+        _ = try await controller.refreshServer(
+            serverSourceKey: serverSourceKey,
+            providers: [source.compositeKey: provider],
+            playlistRepository: MockPlaylistRepository(),
+            trigger: .mutationRefresh,
+            allowFullFallback: false
+        )
+
+        XCTAssertTrue(provider.lastForceOrphanCheck)
+    }
+
+    func testPlaylistOnlyRefreshForcesPlaylistOrphanCheck() async throws {
+        let controller = PlaylistRefreshController()
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
+        let serverSourceKey = "plex:account-1:server-1"
+        let provider = MockProvider(sourceIdentifier: source, incrementalResult: .success(PlaylistSyncResult()))
+
+        _ = try await controller.refreshServer(
+            serverSourceKey: serverSourceKey,
+            providers: [source.compositeKey: provider],
+            playlistRepository: MockPlaylistRepository(),
+            trigger: .playlistOnly,
+            allowFullFallback: false
+        )
+
+        XCTAssertTrue(provider.lastForceOrphanCheck)
+    }
+
+    func testServerRefreshesForcePlaylistOrphanCheck() async throws {
+        for trigger in [PlaylistRefreshController.Trigger.webSocket, .downloadedPlaylist] {
+            let controller = PlaylistRefreshController()
+            let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
+            let serverSourceKey = "plex:account-1:server-1"
+            let provider = MockProvider(sourceIdentifier: source, incrementalResult: .success(PlaylistSyncResult()))
+
+            let result = try await controller.refreshServer(
+                serverSourceKey: serverSourceKey,
+                providers: [source.compositeKey: provider],
+                playlistRepository: MockPlaylistRepository(),
+                trigger: trigger,
+                allowFullFallback: false
+            )
+
+            XCTAssertNotNil(result)
+            XCTAssertTrue(provider.lastForceOrphanCheck)
+        }
+    }
+
     func testRefreshServerReturnsNilWhenIncrementalFailsWithoutFallback() async throws {
         let controller = PlaylistRefreshController()
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
@@ -105,6 +171,30 @@ final class PlaylistRefreshControllerTests: XCTestCase {
             providers: [source.compositeKey: provider],
             playlistRepository: MockPlaylistRepository(),
             trigger: .webSocket,
+            allowFullFallback: false
+        )
+
+        XCTAssertNil(result)
+    }
+
+    func testRefreshServerDoesNotCrossProviderBoundary() async throws {
+        let controller = PlaylistRefreshController()
+        let appleSource = MusicSourceIdentifier(
+            type: .appleMusic,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "1"
+        )
+        let provider = MockProvider(
+            sourceIdentifier: appleSource,
+            incrementalResult: .success(PlaylistSyncResult(changedPlaylists: 1))
+        )
+
+        let result = try await controller.refreshServer(
+            serverSourceKey: "plex:account-1:server-1",
+            providers: [appleSource.compositeKey: provider],
+            playlistRepository: MockPlaylistRepository(),
+            trigger: .playlistOnly,
             allowFullFallback: false
         )
 
@@ -139,5 +229,26 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(Set(results.map(\.serverSourceKey)), ["plex:account-1:server-1", "plex:account-1:server-2"])
+    }
+
+    func testRefreshAllServersKeepsProviderScopesDistinct() async {
+        let controller = PlaylistRefreshController()
+        let plexSource = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "1")
+        let appleSource = MusicSourceIdentifier(type: .appleMusic, accountId: "account", serverId: "server", libraryId: "2")
+        let providers: [String: MusicSourceSyncProvider] = [plexSource, appleSource].reduce(into: [:]) { result, source in
+            result[source.compositeKey] = MockProvider(
+                sourceIdentifier: source,
+                incrementalResult: .success(PlaylistSyncResult(changedPlaylists: 1))
+            )
+        }
+
+        let results = await controller.refreshAllServers(
+            providers: providers,
+            playlistRepository: MockPlaylistRepository(),
+            trigger: .playlistOnly,
+            allowFullFallback: false
+        )
+
+        XCTAssertEqual(Set(results.map(\.serverSourceKey)), ["plex:account:server", "appleMusic:account:server"])
     }
 }

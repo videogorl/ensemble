@@ -25,7 +25,6 @@ public struct ToastPayload: Identifiable {
     public let title: String
     public let message: String?
     public let action: ToastAction?
-    public let tapHandler: (() -> Void)?
     public let duration: TimeInterval
     public let isPersistent: Bool
     public let dedupeKey: String?
@@ -38,7 +37,6 @@ public struct ToastPayload: Identifiable {
         title: String,
         message: String? = nil,
         action: ToastAction? = nil,
-        tapHandler: (() -> Void)? = nil,
         duration: TimeInterval = 2.6,
         isPersistent: Bool = false,
         dedupeKey: String? = nil,
@@ -50,7 +48,6 @@ public struct ToastPayload: Identifiable {
         self.title = title
         self.message = message
         self.action = action
-        self.tapHandler = tapHandler
         self.duration = duration
         self.isPersistent = isPersistent
         self.dedupeKey = dedupeKey
@@ -98,13 +95,6 @@ public final class ToastCenter: ObservableObject {
         let action = currentToast?.action
         dismiss(id: toastID)
         action?.handler()
-    }
-
-    public func triggerTap(for toastID: UUID) {
-        guard currentToast?.id == toastID else { return }
-        let tapHandler = currentToast?.tapHandler
-        dismiss(id: toastID)
-        tapHandler?()
     }
 
     private func drainQueueIfNeeded() {

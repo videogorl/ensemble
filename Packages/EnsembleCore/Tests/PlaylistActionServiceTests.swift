@@ -28,13 +28,13 @@ final class PlaylistActionServiceTests: XCTestCase {
         ]
         let playlist = makePlaylist(sourceCompositeKey: "plex:account:server:playlist-library")
 
-        XCTAssertEqual(service.compatibleTrackCount(tracks, for: playlist), 3)
-        XCTAssertEqual(service.compatibleTrackCount(tracks, forServerSourceKey: "plex:account:server"), 3)
-        XCTAssertEqual(service.compatibleTrackCount(tracks, forServerSourceKey: "plex:account:missing"), 1)
+        XCTAssertEqual(service.compatibleTrackCount(tracks, for: playlist), 2)
+        XCTAssertEqual(service.compatibleTrackCount(tracks, forServerSourceKey: "plex:account:server"), 2)
+        XCTAssertEqual(service.compatibleTrackCount(tracks, forServerSourceKey: "plex:account:missing"), 0)
         XCTAssertEqual(service.compatibleTrackCount(tracks, forServerSourceKey: nil), 0)
     }
 
-    func testCompatibleTracksDedupeAndStampUnknownSources() {
+    func testCompatibleTracksDedupeAndRejectUnknownSources() {
         let tracks = [
             makeTrack(id: "same", sourceCompositeKey: "plex:account:server:library-a"),
             makeTrack(id: "same", sourceCompositeKey: "plex:account:server:library-a"),
@@ -44,10 +44,125 @@ final class PlaylistActionServiceTests: XCTestCase {
 
         let compatible = service.tracks(tracks, compatibleWithServerSourceKey: "plex:account:server")
 
-        XCTAssertEqual(compatible.map(\.id), ["same", "unknown"])
+        XCTAssertEqual(compatible.map(\.id), ["same"])
         XCTAssertEqual(compatible[0].sourceCompositeKey, "plex:account:server:library-a")
-        XCTAssertEqual(compatible[1].sourceCompositeKey, "plex:account:server")
         XCTAssertTrue(service.tracks(tracks, compatibleWithServerSourceKey: nil).isEmpty)
+    }
+
+    func testExcludingExistingTracksUsesSourceScopedIdentity() {
+        let tracks = [
+            makeTrack(id: "already-present", sourceCompositeKey: "plex:account:server:library-a"),
+            makeTrack(id: "same-id-other-source", sourceCompositeKey: "plex:account:server:library-a"),
+            makeTrack(id: "new", sourceCompositeKey: "plex:account:server:library-a")
+        ]
+        let existingTracks = [
+            makeTrack(id: "already-present", sourceCompositeKey: "plex:account:server:library-a"),
+            makeTrack(id: "same-id-other-source", sourceCompositeKey: "plex:account:other:library")
+        ]
+
+        let remaining = service.tracks(tracks, excluding: existingTracks)
+
+        XCTAssertEqual(remaining.map(\.id), ["same-id-other-source", "new"])
+    }
+
+    func testAppleMusicPlaylistAcceptsOnlyAppleMusicTracks() {
+        let apple = makeTrack(id: "apple", sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey)
+        let plex = makeTrack(id: "plex", sourceCompositeKey: "plex:account:server:library")
+
+        XCTAssertEqual(
+            service.defaultServerSourceKey(for: [apple], currentTrack: nil),
+            MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        XCTAssertEqual(
+            service.tracks([apple, apple, plex], compatibleWithServerSourceKey: MusicSourceIdentifier.appleMusic.compositeKey).map(\.id),
+            ["apple"]
+        )
+        XCTAssertEqual(
+            service.compatibleTrackCount([apple, plex], forServerSourceKey: MusicSourceIdentifier.appleMusic.compositeKey),
+            1
+        )
+    }
+
+    func testAppleMusicDuplicateMatchesCatalogAndLibraryRepresentations() {
+        let catalogTrack = makeAppleTrack(id: "1752214923", key: "apple-catalog")
+        let libraryTrack = makeAppleTrack(
+            id: "i.kGOb19mSB4rKq9",
+            key: "apple-library:i.kGOb19mSB4rKq9",
+            albumName: "Espresso - Single"
+        )
+
+        XCTAssertTrue(service.tracks([catalogTrack], excluding: [libraryTrack]).isEmpty)
+        XCTAssertEqual(
+            service.tracks([catalogTrack, libraryTrack], compatibleWithServerSourceKey: MusicSourceIdentifier.appleMusic.compositeKey).count,
+            1
+        )
+    }
+
+    func testAppleMusicTracksWithDifferentCatalogIDsAreNotDeduplicatedByMetadata() {
+        let first = makeAppleTrack(id: "catalog-1", key: "apple-catalog")
+        let second = makeAppleTrack(id: "catalog-2", key: "apple-catalog")
+
+        XCTAssertEqual(
+            service.tracks(
+                [first, second],
+                compatibleWithServerSourceKey: MusicSourceIdentifier.appleMusic.compositeKey
+            ).map(\.id),
+            ["catalog-1", "catalog-2"]
+        )
+    }
+
+    func testPlaylistCreationOptionsIncludeEnabledAppleMusicSource() {
+        let options = NowPlayingViewModel.playlistCreationOptions(
+            plexOptions: [PlaylistServerOption(id: "plex:account:server", name: "Zebra Server")],
+            includesAppleMusic: true
+        )
+
+        XCTAssertEqual(
+            options,
+            [
+                PlaylistServerOption(
+                    id: MusicSourceIdentifier.appleMusic.compositeKey,
+                    name: MusicSourceType.appleMusic.capabilities.displayName
+                ),
+                PlaylistServerOption(id: "plex:account:server", name: "Zebra Server")
+            ]
+        )
+        XCTAssertEqual(
+            NowPlayingViewModel.playlistCreationOptions(
+                plexOptions: options.filter { $0.id != MusicSourceIdentifier.appleMusic.compositeKey },
+                includesAppleMusic: false
+            ).map(\.id),
+            ["plex:account:server"]
+        )
+    }
+
+    func testMatchingPlaylistUsesNormalizedTitleAndExactSource() {
+        let apple = makePlaylist(
+            id: "apple",
+            title: "  Mixed Queue ",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let plex = makePlaylist(
+            id: "plex",
+            title: "Mixed Queue",
+            sourceCompositeKey: "plex:account:server:library"
+        )
+
+        XCTAssertEqual(
+            service.playlist(
+                named: "mixed queue",
+                forServerSourceKey: "plex:account:server",
+                in: [apple, plex]
+            )?.id,
+            "plex"
+        )
+        XCTAssertNil(
+            service.playlist(
+                named: "Mixed Queue",
+                forServerSourceKey: "plex:account:other",
+                in: [apple, plex]
+            )
+        )
     }
 
     private func makeTrack(id: String, sourceCompositeKey: String?) -> Track {
@@ -59,12 +174,28 @@ final class PlaylistActionServiceTests: XCTestCase {
         )
     }
 
-    private func makePlaylist(sourceCompositeKey: String?) -> Playlist {
+    private func makePlaylist(
+        id: String = "playlist",
+        title: String = "Playlist",
+        sourceCompositeKey: String?
+    ) -> Playlist {
         Playlist(
-            id: "playlist",
-            key: "/playlists/playlist",
-            title: "Playlist",
+            id: id,
+            key: "/playlists/\(id)",
+            title: title,
             sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
+    private func makeAppleTrack(id: String, key: String, albumName: String = "Short n' Sweet (Deluxe)") -> Track {
+        Track(
+            id: id,
+            key: key,
+            title: "Espresso",
+            artistName: "Sabrina Carpenter",
+            albumName: albumName,
+            duration: 175.5,
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
         )
     }
 }

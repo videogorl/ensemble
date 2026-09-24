@@ -1,48 +1,52 @@
 # Sync And Refresh Policy
 
-Load this reference for Feed/library freshness, stale-while-revalidate behavior, pull-to-refresh, background refresh, WebSocket-triggered sync, source cleanup, or Siri index/context refresh.
-
-## Policies
-
-- Feed and library surfaces are offline-first: show cached or last-good data immediately, then refresh in the background.
-- Empty or failed network results must not overwrite last-good Feed snapshots.
-- Browse empty/add-source decisions are readiness-owned. `AppReadinessCoordinator` is the source of truth for bootstrap-settled, cached-library/feed-ready, no-source, and no-enabled-library states; Feed/library views must not infer those states from transient account, hub, playlist, or source arrays.
-- While iCloud/source restoration is still awaiting source data, library browse surfaces must preserve or publish cached source content using cached source keys as a provisional filter. They must not clear visible album/artist/track content or schedule source cleanup until source restoration has settled.
-- Feed uses stale-while-revalidate cadence: fetch once per app session or when the last network snapshot is at least 10 minutes old; manual pull-to-refresh bypasses the cadence.
-- Refreshable root screens attach `.refreshable` to the native scroll owner for every visible content state and expose `.refreshCommand` so keyboard/menu refresh invokes the active screen's same action.
-- Background refresh routes through `BackgroundRefreshCoordinator`, not transient UI view models.
-- WebSocket library/update/download events accelerate refresh and sync. Debounce, in-flight guards, cooldowns, polling timers, and foreground refresh remain fallback paths.
-- Source cleanup is destructive and must stay outside UI view models. Removed/disabled sources should clean caches, lyrics, artwork, offline targets, downloads, and stale rows through the owning cleanup services.
-- Sync should pre-cache detail-grade album, artist, and playlist artwork before users navigate into artwork-backed detail surfaces. Existing persistent artwork should only skip sync caching when it satisfies the full-size detail requirement; undersized thumbnails remain fallback files and should be replaced during sync while the server is available.
-- If Plex returns source artwork below the requested detail size, the successful detail-size fetch attempt should be recorded with the persistent artwork identity so future syncs do not re-download the same server-limited image until the source path or modified date changes.
-- Siri media index, media context refresh, and automatic startup sync are freshness work where relevant and must stay source-scoped. Defer this work while the device is known offline and route startup sync plus Spotlight/Siri indexing through foreground idle budgeting so launch, scrolling, navigation, Now Playing gestures, share sheets, and audio-critical windows remain responsive on constrained devices.
-
-## Owners
-
-- `SyncCoordinator` is the sync facade and owns actual sync policy.
-- `NetworkLifecycleController` owns app-foreground and network-transition refresh/invalidation planning.
-- `PeriodicSyncController` owns foreground timer scheduling and WebSocket-aware polling interval policy.
-- `BackgroundRefreshCoordinator` owns app-refresh and foreground freshness sequencing.
-- `HomeHubLoader` owns Feed snapshot loading used by Feed and background refresh paths.
-- `AppReadinessCoordinator` owns launch/source/cache readiness snapshots consumed by browse surfaces.
-- `ForegroundWorkScheduler` owns idle gating for nonessential refresh-adjacent indexing and retry work.
-- `SourceCacheCleanupService` owns destructive source/all-library cache eviction.
-- `PlexWebSocketCoordinator` owns coalesced WebSocket event routing into sync/download/health flows.
-
-## Implementation Hooks
-
-- Use `HomeHubLoader` or `BackgroundRefreshCoordinator` for Feed refresh. Do not create `HomeViewModel` only to refresh background data.
-- Keep cached rows visible during refresh after a screen has shown content; mark stale/loading locally rather than blanking the surface.
-- Feed, playlist, artist, album, track, genre, and library browse refreshes should publish committed snapshots atomically. Degraded empty/partial reloads should preserve the current visible snapshot until bootstrap is settled and the repository confirms the empty state is authoritative.
-- Genre browse rows are normalized display categories keyed by title and must be backed by at least one visible album genre match. Duplicate genre titles across visible enabled sources should merge for display, and genre detail should resolve albums from cached album genre metadata across those visible sources without requiring a live Plex refetch.
-- Filter cached source rows against enabled sources before publishing browse state.
-- Mood browse rows are display categories keyed by normalized title. Plex mood keys are library-local, so merge duplicate mood titles across sources for display and carry per-source mood keys when available. Mood detail pages should use the cached per-source key first and only refetch/resolve the current library's mood key when cached metadata is missing or stale.
-- Keep WebSocket event handling idempotent and safe to miss.
-- `SyncCoordinator` owns full-size persistent artwork pre-caching through `cacheAlbumArtwork`, `cacheArtistArtwork`, and `cachePlaylistArtwork`; detail views should treat sync output as the durable cache source and use visible loading only as a recovery path.
-- `ArtworkIdentity.requestedPixelDimension` records the largest persistent artwork request already attempted for the current source identity; `ArtworkDownloadManager.localArtworkExists` uses it to distinguish stale thumbnails from server-limited detail responses.
-
-## Verification
-
-- Add or update freshness tests for Feed cadence, last-good preservation, manual refresh bypass, and background refresh behavior.
-- Use simulator validation for pull-to-refresh, refresh commands, cached-content stability, and source enable/disable flows.
-- Use performance gates when changing Feed launch/refresh or high-frequency WebSocket publication behavior.
+- Feed and library surfaces are offline-first: publish cached/last-good data
+  immediately and refresh without blanking it. Failed or empty remote results do
+  not replace a usable snapshot.
+- Watch persists normalized source, media, playlist, and Home rows in its own
+  Core Data store. Launch may read only Home rows before loading the full catalog;
+  Watch artwork uses the shared source-scoped durable artwork cache.
+- Bootstrap/no-source/disabled/empty decisions come from settled readiness, not
+  transient account, provider, hub, playlist, or row arrays. Credential and
+  discovery failures preserve provisionally scoped cache until explicit removal.
+- Provider data and identity remain source-scoped. Apple Music authorization,
+  tokens, enablement, caches, playback state, and library payloads remain device
+  local. Exact typed Hidden references may sync through private CloudKit only.
+- Merge choices and preferred library order sync as one KVS preference. Watch
+  consumes that preference without exposing management controls or publishing defaults.
+- Each provider maps normalized hubs and metadata at its boundary.
+  `HomeHubLoader` alone merges, globally orders, and saves the combined Feed
+  snapshot; Search reads it rather than creating a second fetch/save path.
+- A partial multi-provider refresh accepts successful provider data and retains
+  last-good data for failed providers. Same IDs from different exact sources are
+  distinct; aliases of the same physical item may be reconciled without losing
+  provider-actionable identity.
+- Destructive orphan cleanup requires a complete authoritative inventory. Every
+  page must agree on boundaries/total, and an inventory that would remove data
+  must satisfy the owning safety check. Failure, incompleteness, malformed data,
+  or unavailable credentials preserves rows and files.
+- WebSocket events accelerate exact-item reconciliation but are safe to miss.
+  Cold start, foreground/background lifecycle, polling, manual refresh, and
+  periodic authoritative reconciliation remain correctness paths.
+- Cursors capture the query start boundary and commit only after success.
+  Overlapping writes remain monotonic so a later completion cannot skip changes
+  made during an earlier request.
+- Source cleanup occurs only after explicit account/library removal or explicit
+  cache clearing. It rejects new source writes, drains in-flight source/server
+  leases, rechecks restoration, and publishes completion only after exact-source
+  rows, artifacts, downloads, and pending mutations are safely reconciled.
+- Source restoration during cleanup cancels destructive completion and resyncs
+  the restored source. Cleanup failure remains visible/retryable and never
+  masquerades as success.
+- Durable artwork is source-scoped. Sync pre-caches detail-usable media artwork;
+  invalidation and orphan cleanup cannot stale or delete another source's asset.
+  A server-limited smaller image remains valid until its source identity changes.
+- Provider mutations update the exact local row optimistically and protect it
+  from older concurrent sync snapshots until authoritative reconciliation.
+- Siri/Spotlight indexing is source-scoped, coalesced, and material-change-only.
+- On iOS 27+, Now Playing relevance exposes only the current source-scoped track and removes it when playback has no current track.
+  No-op syncs do not rewrite an identical shared index; bounded healing remains
+  available for lost system state.
+- Nonessential sync, indexing, artwork healing, and analysis yield to launch,
+  navigation, playback, requested downloads, thermal pressure, and constrained
+  devices. User-requested data/playback work remains eligible.

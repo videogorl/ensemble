@@ -1,31 +1,38 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
 /// Detail view for a merged playlist — shows interleaved tracks from all constituent
-/// playlists across servers, with source server chips and edit/delete-all flows.
+/// playlists across sources, with source chips and exact-source mutation flows.
 public struct MergedPlaylistDetailView: View {
     @StateObject private var viewModel: MergedPlaylistDetailViewModel
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     let nowPlayingVM: NowPlayingViewModel
+    private let displayPlaylist: DisplayPlaylist
 
     @State private var showRenamePrompt = false
     @State private var renamePromptText = ""
     @State private var showDeleteConfirmation = false
-    @State private var showEditPicker = false
-    @State private var isDeletingPlaylist = false
+    @State private var renameTargets: [Playlist] = []
+    @State private var deleteTarget: Playlist?
     @State private var editTarget: Playlist?
-    @State private var pendingEditTarget: Playlist?
-    @Environment(\.dismiss) private var dismiss
+    @State private var favoriteOverrides: [String: Bool] = [:]
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
     public init(displayPlaylist: DisplayPlaylist, nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makeMergedPlaylistDetailViewModel(displayPlaylist: displayPlaylist)
         )
         self.nowPlayingVM = nowPlayingVM
+        self.displayPlaylist = displayPlaylist
     }
 
     public var body: some View {
+        let playlists = viewModel.displayPlaylist.playlists
+        let downloadAvailabilities = playlists.map { playlist in
+            playlist.actionAvailability(for: .download)
+        }
+        let downloadState = deps.downloadMutationWorkflow.batchState(for: playlists)
         MediaDetailView(
             viewModel: viewModel,
             nowPlayingVM: nowPlayingVM,
@@ -35,32 +42,90 @@ public struct MergedPlaylistDetailView: View {
             showTrackNumbers: false,
             groupByDisc: false,
             mediaType: .playlist,
-            genreChipContent: AnyView(
-                GenreFilterHeader(
-                    availableGenres: viewModel.availableGenres,
-                    selectedGenres: $viewModel.filterOptions.selectedGenres,
-                    excludedGenres: $viewModel.filterOptions.excludedGenres,
-                    reservesEmptySpace: true
-                ) {
-                    // Source server chips — shows which servers this merge pulls from
-                    if !viewModel.sourceServerNames.isEmpty {
-                        sourceServerChips
-                    }
-                }
-            ),
+            hiddenCandidates: playlists.compactMap { $0.hiddenCandidate(deps: deps) },
             playlistMenuActions: PlaylistDetailMenuActions(
-                canRename: !viewModel.displayPlaylist.isSmart,
-                canEdit: !viewModel.displayPlaylist.isSmart && !viewModel.tracks.isEmpty,
-                canDelete: !viewModel.displayPlaylist.isSmart,
+                favoriteAvailability: .combined(
+                    playlists.map { $0.actionAvailability(for: .favorite) }
+                ),
+                isFavorite: isFavorite(viewModel.displayPlaylist.primaryPlaylist),
+                downloadAvailability: resolvedMergedDownloadMenuAvailability(
+                    isAnyDownloaded: downloadState.enabledCount > 0,
+                    sourceAvailabilities: downloadAvailabilities
+                ),
+                isDownloaded: downloadState.isEnabled,
+                renameAvailability: .combined(
+                    playlists.map { $0.actionAvailability(for: .rename) }
+                ),
+                editAvailability: .combined(
+                    playlists.map { viewModel.editAvailability(for: $0) }
+                ),
+                deleteAvailability: .combined(
+                    playlists.map { $0.actionAvailability(for: .delete) }
+                ),
+                onToggleFavorite: {
+                    sourceMutationAction(
+                        title: "Update Playlist Favorite",
+                        items: playlists,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        availability: { $0.actionAvailability(for: .favorite) },
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { playlist in
+                        setFavorite(!isFavorite(playlist), for: playlist)
+                    }?()
+                },
+                onFavorite: {
+                    let playlist = viewModel.displayPlaylist.primaryPlaylist
+                    guard !isFavorite(playlist) else { return }
+                    setFavorite(true, for: playlist)
+                },
+                onToggleDownload: {
+                    Task {
+                        await deps.downloadMutationWorkflow.toggleDownloads(for: playlists)
+                    }
+                },
                 onRename: {
-                    renamePromptText = viewModel.displayPlaylist.title
-                    showRenamePrompt = true
+                    sourceMutationAction(
+                        title: "Rename Playlist",
+                        items: viewModel.displayPlaylist.editablePlaylists,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        allAction: presentRenamePrompt(for:),
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { playlist in
+                        presentRenamePrompt(for: [playlist])
+                    }?()
                 },
                 onEdit: {
-                    showEditPicker = true
+                    sourceMutationAction(
+                        title: "Edit Playlist",
+                        items: playlists.filter { viewModel.editAvailability(for: $0).isAvailable },
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { playlist in
+                        editTarget = playlist
+                    }?()
                 },
                 onDelete: {
-                    showDeleteConfirmation = true
+                    sourceMutationAction(
+                        title: "Delete Playlist",
+                        items: viewModel.displayPlaylist.deletablePlaylists,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { playlist in
+                        deleteTarget = playlist
+                        showDeleteConfirmation = true
+                    }?()
                 },
                 onPlayNext: {
                     nowPlayingVM.playNext(viewModel.filteredTracks)
@@ -85,47 +150,31 @@ public struct MergedPlaylistDetailView: View {
                 return identities.allSatisfy { pinnedIdentities.contains($0) }
             }
         )
+        .onChange(of: displayPlaylist) { updated in
+            Task { await viewModel.updateDisplayPlaylist(updated) }
+        }
         .alert("Rename Playlist", isPresented: $showRenamePrompt) {
             TextField("Playlist name", text: $renamePromptText)
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) {
+                renameTargets = []
+            }
             Button("Save") {
-                renameMergedPlaylistFromPrompt()
+                renamePlaylistFromPrompt()
             }
             .disabled(renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
-            let count = viewModel.displayPlaylist.playlists.count
-            Text("This will rename the playlist on \(count) server\(count == 1 ? "" : "s").")
+            Text("Choose a new playlist name for the selected source or sources.")
         }
-        // Delete all constituent playlists
         .alert("Delete Playlist?", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete All", role: .destructive) {
-                guard !isDeletingPlaylist else { return }
-                guard let start = deps.playlistMutationWorkflow.beginDeleteAll(
-                    displayPlaylist: viewModel.displayPlaylist
-                ) else { return }
-                isDeletingPlaylist = true
-                let deletingToast = start.pendingToast
-                deps.toastCenter.show(deletingToast)
-                dismiss()
-                Task {
-                    let result = await deps.playlistMutationWorkflow.finishDeleteAll(
-                        displayPlaylist: viewModel.displayPlaylist
-                    )
-                    isDeletingPlaylist = false
-                    deps.toastCenter.dismiss(id: deletingToast.id)
-                    deps.toastCenter.show(result.resultToast)
-                }
+            Button("Cancel", role: .cancel) {
+                deleteTarget = nil
+            }
+            Button("Delete", role: .destructive) {
+                deleteSelectedPlaylist()
             }
         } message: {
-            let count = viewModel.displayPlaylist.playlists.count
-            Text("This will permanently delete \"\(viewModel.displayPlaylist.title)\" from \(count) server\(count == 1 ? "" : "s").")
+            Text("This will permanently delete \"\(deleteTarget?.title ?? viewModel.displayPlaylist.title)\" from the selected source.")
         }
-        // Edit picker — choose which constituent playlist to edit
-        .sheet(isPresented: $showEditPicker, onDismiss: presentPendingEditTarget) {
-            editPickerSheet
-        }
-        // Individual playlist edit sheet (opened after picking a constituent)
         .sheet(item: $editTarget) { playlist in
             PlaylistDetailView(
                 playlist: playlist,
@@ -137,27 +186,95 @@ public struct MergedPlaylistDetailView: View {
         .refreshable {
             await viewModel.refreshFromServer()
         }
+        .refreshCommand {
+            await viewModel.refreshFromServer()
+        }
     }
 
     // MARK: - Header
 
-    private func renameMergedPlaylistFromPrompt() {
+    private func isFavorite(_ playlist: Playlist) -> Bool {
+        favoriteOverrides[playlist.sourceScopedID] ?? playlist.isFavorite
+    }
+
+    private func setFavorite(_ isFavorite: Bool, for playlist: Playlist) {
+        let previous = self.isFavorite(playlist)
+        favoriteOverrides[playlist.sourceScopedID] = isFavorite
+        Task {
+            do {
+                try await deps.collectionFavoriteMutationWorkflow.setFavorite(isFavorite, for: playlist)
+            } catch {
+                favoriteOverrides[playlist.sourceScopedID] = previous
+            }
+        }
+    }
+
+    private func renamePlaylistFromPrompt() {
+        let playlists = renameTargets
+        renameTargets = []
         let newTitle = renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !newTitle.isEmpty else { return }
-        guard let start = deps.playlistMutationWorkflow.beginRenameAll(
-            displayPlaylist: viewModel.displayPlaylist,
+        for playlist in playlists {
+            renamePlaylist(playlist, to: newTitle)
+        }
+    }
+
+    private func presentRenamePrompt(for playlists: [Playlist]) {
+        guard let first = playlists.first else { return }
+        renameTargets = playlists
+        renamePromptText = first.title
+        showRenamePrompt = true
+    }
+
+    private func renamePlaylist(_ playlist: Playlist, to newTitle: String) {
+        guard let start = deps.playlistMutationWorkflow.beginRename(
+            playlist: playlist,
             to: newTitle
         ) else { return }
 
         let renamingToast = start.pendingToast
         deps.toastCenter.show(renamingToast)
         Task {
-            let result = await deps.playlistMutationWorkflow.finishRenameAll(
-                displayPlaylist: viewModel.displayPlaylist,
-                trimmedTitle: start.trimmedTitle
-            )
-            deps.toastCenter.dismiss(id: renamingToast.id)
-            deps.toastCenter.show(result.resultToast)
+            do {
+                let result = try await deps.playlistMutationWorkflow.finishRename(
+                    playlist: playlist,
+                    trimmedTitle: start.trimmedTitle
+                )
+                deps.toastCenter.dismiss(id: renamingToast.id)
+                deps.toastCenter.show(result.successToast)
+                await viewModel.refreshFromServer()
+            } catch {
+                deps.toastCenter.dismiss(id: renamingToast.id)
+                deps.toastCenter.show(
+                    deps.playlistMutationWorkflow.renameFailureToast(
+                        playlist: playlist,
+                        error: error
+                    )
+                )
+            }
+        }
+    }
+
+    private func deleteSelectedPlaylist() {
+        guard let playlist = deleteTarget,
+              let start = deps.playlistMutationWorkflow.beginDelete(playlist: playlist) else { return }
+        deleteTarget = nil
+        let deletingToast = start.pendingToast
+        deps.toastCenter.show(deletingToast)
+        Task {
+            do {
+                let result = try await deps.playlistMutationWorkflow.finishDelete(playlist: playlist)
+                deps.toastCenter.dismiss(id: deletingToast.id)
+                deps.toastCenter.show(result.successToast)
+                await viewModel.refreshFromServer()
+            } catch {
+                deps.toastCenter.dismiss(id: deletingToast.id)
+                deps.toastCenter.show(
+                    deps.playlistMutationWorkflow.deleteFailureToast(
+                        playlist: playlist,
+                        errorMessage: error.localizedDescription
+                    )
+                )
+            }
         }
     }
 
@@ -169,12 +286,12 @@ public struct MergedPlaylistDetailView: View {
             metadataParts.append("Smart Playlist")
         }
 
-        let serverCount = viewModel.sourceServerNames.count
-        metadataParts.append("Merged from \(serverCount) server\(serverCount == 1 ? "" : "s")")
-
         if !viewModel.tracks.isEmpty {
             metadataParts.append("\(viewModel.tracks.count) songs, \(viewModel.totalDuration)")
         }
+
+        let sourceCount = dp.playlists.count
+        metadataParts.append("\(sourceCount) source\(sourceCount == 1 ? "" : "s")")
 
         return MediaHeaderData(
             title: dp.title,
@@ -183,91 +300,12 @@ public struct MergedPlaylistDetailView: View {
             artworkPath: dp.compositePath,
             sourceKey: dp.sourceCompositeKey,
             ratingKey: dp.primaryPlaylist.id,
-            artworkPlaylists: dp.isMerged ? dp.playlists : nil
+            trackSourceLabels: mediaDetailTrackSourceLabels(
+                tracks: viewModel.tracks,
+                accountManager: deps.accountManager,
+                demoModeEnabled: deps.settingsManager.demoModeEnabled
+            )
         )
-    }
-
-    // MARK: - Source Server Chips
-
-    /// Horizontal row of capsule chips showing each server this merge pulls from
-    private var sourceServerChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
-                ForEach(viewModel.sourceServerNames, id: \.sourceKey) { source in
-                    Text(displayServerName(source.name))
-                        .font(EnsembleDesign.Typography.cardSubtitle)
-                        .foregroundColor(EnsembleDesign.Color.accent)
-                        .padding(.horizontal, EnsembleScaffold.Chip.horizontalPadding)
-                        .padding(.vertical, EnsembleScaffold.Chip.badgeVerticalPadding)
-                        .background(
-                            Capsule()
-                                .fill(EnsembleDesign.Color.accentBadge)
-                        )
-                }
-            }
-            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-        }
-    }
-
-    // MARK: - Edit Picker
-
-    /// Sheet listing each constituent playlist with server name — tap to edit individually
-    private var editPickerSheet: some View {
-        List {
-            ForEach(viewModel.displayPlaylist.playlists, id: \.sourceScopedID) { playlist in
-                Button {
-                    pendingEditTarget = playlist
-                    showEditPicker = false
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                            Text(serverName(for: playlist))
-                                .font(EnsembleDesign.Typography.rowPrimary)
-                            Text("\(playlist.trackCount) songs")
-                                .font(EnsembleDesign.Typography.rowSecondary)
-                                .foregroundColor(EnsembleDesign.Color.secondaryText)
-                        }
-                        Spacer()
-                        Image(systemName: EnsembleDesign.Icon.chevronRight)
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    }
-                }
-                .foregroundColor(EnsembleDesign.Color.primaryText)
-            }
-        }
-        .listStyle(.plain)
-        .navigationTitle("Choose Playlist to Edit")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Cancel") { showEditPicker = false }
-            }
-            #else
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { showEditPicker = false }
-            }
-            #endif
-        }
-        .nativeSheetNavigationContainer()
-    }
-
-    private func serverName(for playlist: Playlist) -> String {
-        guard let sourceKey = playlist.sourceCompositeKey else { return "Unknown Server" }
-        return displayServerName(DependencyContainer.shared.accountManager.serverName(for: sourceKey) ?? "Unknown Server")
-    }
-
-    private func displayServerName(_ serverName: String) -> String {
-        DemoModeRedaction.serverName(serverName, isEnabled: settingsManager.demoModeEnabled)
-    }
-
-    private func presentPendingEditTarget() {
-        guard let playlist = pendingEditTarget else { return }
-        pendingEditTarget = nil
-        editTarget = playlist
     }
 }
 
@@ -281,13 +319,18 @@ public struct MergedPlaylistDetailLoader: View {
     let isSmart: Bool
     let nowPlayingVM: NowPlayingViewModel
 
-    @StateObject private var playlistsVM: PlaylistViewModel
+    @ObservedObject private var playlistsVM: PlaylistViewModel
 
-    public init(title: String, isSmart: Bool, nowPlayingVM: NowPlayingViewModel) {
+    public init(
+        title: String,
+        isSmart: Bool,
+        nowPlayingVM: NowPlayingViewModel,
+        playlistsVM: PlaylistViewModel
+    ) {
         self.title = title
         self.isSmart = isSmart
         self.nowPlayingVM = nowPlayingVM
-        self._playlistsVM = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
+        self.playlistsVM = playlistsVM
     }
 
     public var body: some View {
@@ -333,9 +376,10 @@ public struct MergedPlaylistDetailLoader: View {
     }
 
     private func findDisplayPlaylist() -> DisplayPlaylist? {
+        let normalizedTitle = DisplayPlaylist.normalizedTitle(title)
         // Check displayPlaylists (merge-aware) — authoritative source once pipeline has fired
         if let dp = playlistsVM.displayPlaylists.first(where: {
-            $0.title == title && $0.isSmart == isSmart
+            DisplayPlaylist.normalizedTitle($0.title) == normalizedTitle && $0.isSmart == isSmart
         }) {
             return dp
         }
@@ -347,11 +391,10 @@ public struct MergedPlaylistDetailLoader: View {
         }
         // displayPlaylists is populated but no match — merge state may have changed
         // since navigation. Fall back to raw playlists wrapped as single.
-        if let playlist = playlistsVM.playlists.first(where: {
-            $0.title == title && $0.isSmart == isSmart
-        }) {
-            return .single(playlist)
-        }
-        return nil
+        return DisplayPlaylist.group(
+            playlistsVM.playlists.filter { DisplayPlaylist.normalizedTitle($0.title) == normalizedTitle },
+            merge: true,
+            preferences: SettingsManager.storedMergingPreferences()
+        ).first { $0.isSmart == isSmart }
     }
 }

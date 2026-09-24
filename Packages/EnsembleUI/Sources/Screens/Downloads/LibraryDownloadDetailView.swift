@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import EnsemblePersistence
 import SwiftUI
@@ -7,7 +8,8 @@ import SwiftUI
 struct LibraryDownloadDetailView: View {
     @StateObject private var viewModel: LibraryDownloadDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @AppStorage("downloadQuality") private var downloadQuality = "high"
+    @AppStorage(AudioQualityPreference.downloadQualityKey)
+    private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
 
     init(
         sourceCompositeKey: String,
@@ -59,6 +61,9 @@ struct LibraryDownloadDetailView: View {
         .refreshable {
             await viewModel.refresh()
         }
+        .refreshCommand {
+            await viewModel.refresh()
+        }
     }
 
     // MARK: - Background
@@ -105,9 +110,9 @@ struct LibraryDownloadDetailView: View {
                             .progressViewStyle(.linear)
                             .frame(maxWidth: EnsembleScaffold.DownloadDetail.progressMaxWidth)
 
-                        Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks \u{2022} \(statusLabel(for: viewModel.liveStatus))")
+                        Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks \u{2022} \(viewModel.liveStatus.downloadStatusLabel)")
                             .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(statusColor(for: viewModel.liveStatus))
+                            .foregroundColor(viewModel.liveStatus.downloadStatusColor)
                     }
                 }
             }
@@ -133,41 +138,6 @@ struct LibraryDownloadDetailView: View {
         }
     }
 
-    // MARK: - Queue Status Banner
-
-    @ViewBuilder
-    private var queueStatusBanner: some View {
-        let hasPendingTracks = viewModel.tracks.contains { $0.status == .pending || $0.status == .paused }
-        if hasPendingTracks {
-            switch viewModel.queueStatusReason {
-            case .waitingForWiFi:
-                queueBannerRow(
-                    icon: EnsembleDesign.Icon.offline,
-                    message: "Downloads paused \u{2014} connect to Wi-Fi to continue"
-                )
-            case .offline:
-                queueBannerRow(
-                    icon: EnsembleDesign.Icon.offline,
-                    message: "Downloads paused \u{2014} no connection"
-                )
-            case .idle, .downloading, .paused:
-                EmptyView()
-            }
-        }
-    }
-
-    private func queueBannerRow(icon: String, message: String) -> some View {
-        HStack(spacing: EnsembleScaffold.DownloadDetail.bannerSpacing) {
-            Image(systemName: icon)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-            Text(message)
-                .font(EnsembleDesign.Typography.stateMessage)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-        }
-        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-        .padding(.vertical, EnsembleDesign.Spacing.compactControlVertical)
-    }
-
     // MARK: - Track List
 
     @ViewBuilder
@@ -186,29 +156,20 @@ struct LibraryDownloadDetailView: View {
                 presentation: .compactFooter
             )
         } else {
-            queueStatusBanner
+            DownloadQueueStatusBanner(
+                tracks: viewModel.tracks,
+                queueStatusReason: viewModel.queueStatusReason
+            )
 
-            LazyVStack(spacing: EnsembleDesign.Spacing.none) {
-                ForEach(viewModel.tracks) { row in
-                    TrackDownloadRowView(row: row, currentQuality: downloadQuality) {
-                        Task { await viewModel.retryDownload(row: row) }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard row.status == .completed else { return }
-                        if let index = viewModel.playableTracks.firstIndex(where: { $0.id == row.trackRatingKey }) {
-                            nowPlayingVM.play(tracks: viewModel.playableTracks, startingAt: index)
-                        }
-                    }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-
-                    if row.id != viewModel.tracks.last?.id {
-                        Divider()
-                            .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
-                    }
+            DownloadTrackRowsList(
+                rows: viewModel.tracks,
+                playableTracks: viewModel.playableTracks,
+                currentQuality: downloadQuality,
+                retryDownload: { row in await viewModel.retryDownload(row: row) },
+                playTracks: { tracks, index in
+                    nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
-            }
-            .animation(.easeInOut(duration: 0.35), value: viewModel.tracks.map { "\($0.id)-\($0.status.rawValue)" })
+            )
             .background(EnsembleDesign.Color.groupedSurface)
             .cornerRadius(EnsembleDesign.Radius.card)
             .padding(.horizontal)
@@ -239,25 +200,6 @@ struct LibraryDownloadDetailView: View {
             return "\(count) \(noun) \u{2022} \(size)"
         }
         return size
-    }
-
-    private func statusLabel(for status: CDOfflineDownloadTarget.Status) -> String {
-        switch status {
-        case .pending: return "Queued"
-        case .downloading: return "Downloading"
-        case .completed: return "Downloaded"
-        case .paused: return "Paused"
-        case .failed: return "Failed"
-        }
-    }
-
-    private func statusColor(for status: CDOfflineDownloadTarget.Status) -> Color {
-        switch status {
-        case .failed: return .red
-        case .downloading: return .accentColor
-        case .paused: return .orange
-        case .pending, .completed: return .secondary
-        }
     }
 
 }

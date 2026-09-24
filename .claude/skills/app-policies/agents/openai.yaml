@@ -1,4 +1,4 @@
 interface:
   display_name: "App Policies"
-  short_description: "Load and maintain Ensemble behavior policies."
-  default_prompt: "Use app-policies to identify the relevant Ensemble behavior policy before changing app behavior, then update the policy when the implementation changes it."
+  short_description: "Protect durable Ensemble behavior contracts."
+  default_prompt: "Use app-policies only if this work may change a durable Ensemble product, safety, privacy, offline, queue, mutation, cross-provider, or data-integrity contract. Do not update policy for an implementation-only fix or refactor."

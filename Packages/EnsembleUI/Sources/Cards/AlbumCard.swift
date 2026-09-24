@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -65,22 +66,45 @@ public enum AlbumCardLayoutMetrics {
 }
 
 public struct AlbumCard: View {
-    let album: Album
+    let displayAlbum: DisplayAlbum
     let layout: AlbumCardLayoutMetrics
+    let allowsDragExport: Bool
 
-    public init(album: Album, layout: AlbumCardLayoutMetrics = .compact) {
-        self.album = album
+    public init(
+        album: Album,
+        layout: AlbumCardLayoutMetrics = .compact,
+        allowsDragExport: Bool = true
+    ) {
+        self.displayAlbum = .single(album)
         self.layout = layout
+        self.allowsDragExport = allowsDragExport
+    }
+
+    public init(
+        displayAlbum: DisplayAlbum,
+        layout: AlbumCardLayoutMetrics = .compact,
+        allowsDragExport: Bool = true
+    ) {
+        self.displayAlbum = displayAlbum
+        self.layout = layout
+        self.allowsDragExport = allowsDragExport
     }
 
     public var body: some View {
+        let album = displayAlbum.primaryAlbum
         let artworkCornerRadius = ArtworkCornerRadius.square(for: layout.artworkSize)
         let artistLine = album.artistName ?? " "
         let yearLine = album.year.map(String.init) ?? " "
         let artworkWidth = layout.artworkSize.cgSize.width
 
         let cardContent = VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
-            ArtworkView(album: album, size: layout.artworkSize, cornerRadius: artworkCornerRadius, isResponsive: true)
+            ArtworkView(
+                album: album,
+                size: layout.artworkSize,
+                cornerRadius: artworkCornerRadius,
+                isResponsive: true
+            )
+            .mediaNavigationTransitionSource(id: displayAlbum.id)
 
             VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
                 Text(album.title)
@@ -126,108 +150,164 @@ public struct AlbumCard: View {
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
-        .onDrag {
-            MediaDragExportPolicy.itemProvider(for: MediaDragPayload.album(album))
+        .if(allowsDragExport) { view in
+            view.onDrag {
+                MediaDragExportPolicy.itemProvider(for: MediaDragPayload.album(album))
+            }
         }
     }
+
 }
 
 // MARK: - Album Grid
 
+struct AlbumBrowseItem: Identifiable {
+    let id: String
+    let displayAlbum: DisplayAlbum
+
+    init(displayAlbum: DisplayAlbum) {
+        self.id = displayAlbum.id
+        self.displayAlbum = displayAlbum
+    }
+
+    static func identify(_ albums: [DisplayAlbum]) -> [AlbumBrowseItem] {
+        albums.map(AlbumBrowseItem.init(displayAlbum:))
+    }
+}
+
+struct AlbumGridBoundsKey: PreferenceKey {
+    static let defaultValue: [String: Anchor<CGRect>] = [:]
+
+    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct TracksAlbumGridPositionKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var tracksAlbumGridPosition: Bool {
+        get { self[TracksAlbumGridPositionKey.self] }
+        set { self[TracksAlbumGridPositionKey.self] = newValue }
+    }
+}
+
 public struct AlbumGrid: View {
-    let albums: [Album]
+    let albums: [DisplayAlbum]
+    let rawAlbums: [Album]?
     let nowPlayingVM: NowPlayingViewModel
-    let onAlbumTap: ((Album) -> Void)?
+    let navigationCoordinator: NavigationCoordinator
+    let onAlbumTap: ((DisplayAlbum) -> Void)?
     let layout: AlbumCardLayoutMetrics
     let horizontalPadding: CGFloat
+    let includesHidden: Bool
 
+    @Environment(\.tracksAlbumGridPosition) private var tracksPosition
     @Environment(\.dependencies) private var deps
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @ObservedObject private var settingsManager: SettingsManager
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
     @State private var pendingAlbumDeletion: Album?
 
     public init(
-        albums: [Album],
+        albums: [DisplayAlbum],
         nowPlayingVM: NowPlayingViewModel,
+        navigationCoordinator: NavigationCoordinator,
         layout: AlbumCardLayoutMetrics = .prominent,
         horizontalPadding: CGFloat = TrackListLayoutMetrics.rowHorizontalPadding,
-        onAlbumTap: ((Album) -> Void)? = nil
+        includesHidden: Bool = false,
+        onAlbumTap: ((DisplayAlbum) -> Void)? = nil
     ) {
         self.albums = albums
+        self.rawAlbums = nil
+        self.settingsManager = DependencyContainer.shared.settingsManager
         self.nowPlayingVM = nowPlayingVM
+        self.navigationCoordinator = navigationCoordinator
         self.layout = layout
         self.horizontalPadding = horizontalPadding
+        self.includesHidden = includesHidden
         self.onAlbumTap = onAlbumTap
+    }
+
+    public init(
+        albums: [Album],
+        nowPlayingVM: NowPlayingViewModel,
+        navigationCoordinator: NavigationCoordinator,
+        layout: AlbumCardLayoutMetrics = .prominent,
+        horizontalPadding: CGFloat = TrackListLayoutMetrics.rowHorizontalPadding,
+        includesHidden: Bool = false,
+        onAlbumTap: ((DisplayAlbum) -> Void)? = nil
+    ) {
+        self.albums = []
+        self.rawAlbums = albums
+        self.settingsManager = DependencyContainer.shared.settingsManager
+        self.nowPlayingVM = nowPlayingVM
+        self.navigationCoordinator = navigationCoordinator
+        self.layout = layout
+        self.horizontalPadding = horizontalPadding
+        self.includesHidden = includesHidden
+        self.onAlbumTap = onAlbumTap
+    }
+
+    private var displayedAlbums: [DisplayAlbum] {
+        rawAlbums.map { DisplayAlbum.group($0, preferences: settingsManager.mergingPreferences) } ?? albums
     }
 
     public var body: some View {
         LazyVGrid(columns: layout.gridColumns, spacing: layout.rowSpacing) {
-            ForEach(albums, id: \.sourceScopedID) { album in
-                if let onAlbumTap {
-                    Button {
-                        onAlbumTap(album)
-                    } label: {
-                        AlbumCard(album: album, layout: layout)
+            ForEach(AlbumBrowseItem.identify(displayedAlbums)) { item in
+                let displayAlbum = item.displayAlbum
+                Group {
+                    if let onAlbumTap {
+                        Button {
+                            onAlbumTap(displayAlbum)
+                        } label: {
+                            AlbumCard(displayAlbum: displayAlbum, layout: layout)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            albumContextMenu(for: displayAlbum)
+                        }
+                    } else {
+                        navigationCoordinator.routeLink(
+                            to: .albumDetail(displayAlbum, includesHidden: includesHidden)
+                        ) {
+                            AlbumCard(displayAlbum: displayAlbum, layout: layout)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            albumContextMenu(for: displayAlbum)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        albumContextMenu(for: album)
-                    }
-                } else {
-                    navigationCoordinator.routeLink(to: .albumDetail(album)) {
-                        AlbumCard(album: album, layout: layout)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        albumContextMenu(for: album)
-                    }
+                }
+                .id(item.id)
+                .anchorPreference(key: AlbumGridBoundsKey.self, value: .bounds) {
+                    tracksPosition ? [item.id: $0] : [:]
                 }
             }
         }
         .padding(.horizontal, horizontalPadding)
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
-        .sheet(item: $metadataEditorRequest) { request in
-            TextInputView(
-                title: request.kind.title,
-                message: "Changes are sent directly to Plex and then refreshed locally.",
-                placeholder: request.kind.fieldLabel,
-                initialText: request.currentTitle,
-                actionTitle: "Save",
-                onSubmit: request.onSave
-            )
-        }
-        .confirmationDialog(
-            "Delete Album?",
-            isPresented: Binding(
-                get: { pendingAlbumDeletion != nil },
-                set: { if !$0 { pendingAlbumDeletion = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let album = pendingAlbumDeletion {
-                Button("Delete Album", role: .destructive) {
-                    Task {
-                        await deleteAlbum(album)
-                    }
+        .metadataEditorSheet(request: $metadataEditorRequest)
+        .modifier(
+            AlbumDeletionConfirmationModifier(album: $pendingAlbumDeletion) { album in
+                Task {
+                    await deleteAlbum(album)
                 }
             }
-            Button("Cancel", role: .cancel) {
-                pendingAlbumDeletion = nil
-            }
-        } message: {
-            if let album = pendingAlbumDeletion {
-                Text("This permanently deletes \"\(album.title)\" from the Plex server and removes its local cache.")
-            }
-        }
+        )
     }
 
     @ViewBuilder
-    private func albumContextMenu(for album: Album) -> some View {
+    private func albumContextMenu(for displayAlbum: DisplayAlbum) -> some View {
+        let album = displayAlbum.primaryAlbum
         AlbumActionsContextMenu(
             album: album,
+            sourceAlbums: displayAlbum.albums,
             nowPlayingVM: nowPlayingVM,
             presentPlaylistPicker: { tracks, title in
                 playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
@@ -235,11 +315,25 @@ public struct AlbumGrid: View {
             onGetInfo: {
                 libraryItemInfoRequest = .album(album)
             },
-            onEditMetadata: {
-                presentAlbumMetadataEditor(album)
+            onEditMetadata: { selectedAlbum in
+                presentAlbumMetadataEditor(selectedAlbum)
             },
-            onDelete: {
-                pendingAlbumDeletion = album
+            onDelete: { selectedAlbum in
+                pendingAlbumDeletion = selectedAlbum
+            },
+            customPinAction: { isPinned in
+                if isPinned {
+                    deps.pinMutationWorkflow.unpinAll(identities: Set(displayAlbum.albums.map(\.sourceScopedID)))
+                } else {
+                    deps.pinMutationWorkflow.pinAll(items: displayAlbum.albums.map { album in
+                        (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
+                    })
+                }
+            },
+            customIsPinned: {
+                displayAlbum.albums.allSatisfy {
+                    deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+                }
             }
         )
     }
@@ -290,5 +384,54 @@ public struct AlbumGrid: View {
                 pendingAlbumDeletion = nil
             }
         }
+    }
+}
+
+private struct AlbumDeletionConfirmationModifier: ViewModifier {
+    @Binding var album: Album?
+    let delete: (Album) -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 27.0, macOS 27.0, watchOS 27.0, *) {
+            content.confirmationDialog(
+                "Delete Album?",
+                item: $album,
+                titleVisibility: .visible
+            ) { album in
+                Button("Delete Album", role: .destructive) {
+                    delete(album)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { album in
+                deletionMessage(for: album)
+            }
+        } else {
+            content.confirmationDialog(
+                "Delete Album?",
+                isPresented: Binding(
+                    get: { album != nil },
+                    set: { if !$0 { album = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let album {
+                    Button("Delete Album", role: .destructive) {
+                        delete(album)
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    album = nil
+                }
+            } message: {
+                if let album {
+                    deletionMessage(for: album)
+                }
+            }
+        }
+    }
+
+    private func deletionMessage(for album: Album) -> Text {
+        Text("This permanently deletes \"\(album.title)\" from the Plex server and removes its local cache.")
     }
 }

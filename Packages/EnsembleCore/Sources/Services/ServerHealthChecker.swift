@@ -96,8 +96,7 @@ public final class ServerHealthChecker: ObservableObject {
 
     /// Pre-populate serverStates with `.unknown` for all configured servers.
     /// Call this at startup (after accounts are loaded, before UI renders) so that
-    /// TrackAvailabilityResolver treats tracks from unchecked servers as unavailable
-    /// instead of defaulting to available.
+    /// the UI can distinguish unchecked servers from confirmed-offline servers.
     public func prepopulateUnknownStates() {
         for account in accountManager.plexAccounts {
             for server in account.servers {
@@ -279,6 +278,14 @@ public final class ServerHealthChecker: ObservableObject {
         return serverFailureReasons[serverKey]
     }
 
+    public func markServerHealthy(accountId: String, serverId: String) {
+        let serverKey = makeServerKey(accountId: accountId, serverId: serverId)
+        guard let state = serverStates[serverKey], state.isAvailable else { return }
+
+        recentChecks[serverKey] = CachedCheckEntry(state: state, checkedAt: nowProvider())
+        serverFailureReasons.removeValue(forKey: serverKey)
+    }
+
     // MARK: - Private Methods
 
     /// Perform health check for a single server
@@ -310,14 +317,7 @@ public final class ServerHealthChecker: ObservableObject {
         }
 
         let allowInsecurePolicy = currentAllowInsecureConnectionsPolicy()
-        let endpoints = server.orderedConnections.map { connection in
-            PlexEndpointDescriptor(
-                url: connection.uri,
-                local: connection.local,
-                relay: connection.relay ?? false,
-                secure: connection.protocol == "https"
-            )
-        }
+        let endpoints = server.orderedConnections.map(\.endpointDescriptor)
         let connectionURLs = endpoints.map(\.url)
 
         guard !connectionURLs.isEmpty else {
@@ -325,10 +325,13 @@ public final class ServerHealthChecker: ObservableObject {
             return .offline
         }
 
-        EnsembleLogger.debug("🔍 ServerHealthChecker: Testing \(connectionURLs.count) URLs for server \(server.name):")
-        for (index, url) in connectionURLs.enumerated() {
-            EnsembleLogger.debug("  [\(index + 1)] \(url)")
-        }
+        let endpointClassCounts = Dictionary(grouping: endpoints, by: \.endpointClass)
+            .map { "\($0.key.rawValue):\($0.value.count)" }
+            .sorted()
+            .joined(separator: ",")
+        EnsembleLogger.debug(
+            "🔍 ServerHealthChecker: Testing \(connectionURLs.count) endpoint(s) for server \(server.name) classes=\(endpointClassCounts)"
+        )
 
         // Try to find the best policy-compliant endpoint.
         let networkContext = networkContextProvider()
@@ -359,14 +362,7 @@ public final class ServerHealthChecker: ObservableObject {
                 serverId: serverId,
                 serverKey: serverKey
             ) {
-                let refreshedEndpoints = refreshedServer.orderedConnections.map { connection in
-                    PlexEndpointDescriptor(
-                        url: connection.uri,
-                        local: connection.local,
-                        relay: connection.relay ?? false,
-                        secure: connection.protocol == "https"
-                    )
-                }
+                let refreshedEndpoints = refreshedServer.orderedConnections.map(\.endpointDescriptor)
                 EnsembleLogger.debug(
                     "🔄 ServerHealthChecker: Retrying with refreshed resources (\(refreshedEndpoints.count) URLs)"
                 )
@@ -414,14 +410,7 @@ public final class ServerHealthChecker: ObservableObject {
     }
 
     private func classifyFailureReason(for server: PlexServerConfig) async -> ServerConnectionFailureReason {
-        let endpoints = server.orderedConnections.map { connection in
-            PlexEndpointDescriptor(
-                url: connection.uri,
-                local: connection.local,
-                relay: connection.relay ?? false,
-                secure: connection.protocol == "https"
-            )
-        }
+        let endpoints = server.orderedConnections.map(\.endpointDescriptor)
         let localEndpoints = endpoints.filter { $0.local && !$0.relay }
         let remoteEndpoints = endpoints.filter { !$0.local && !$0.relay }
         let relayEndpoints = endpoints.filter(\.relay)
@@ -466,8 +455,7 @@ public final class ServerHealthChecker: ObservableObject {
     }
 
     private func currentAllowInsecureConnectionsPolicy() -> AllowInsecureConnectionsPolicy {
-        let raw = UserDefaults.standard.string(forKey: "allowInsecureConnectionsPolicy")
-        return AllowInsecureConnectionsPolicy(rawValue: raw ?? "") ?? .defaultForEnsemble
+        AllowInsecureConnectionsPolicy.storedPreference()
     }
 
     private func refreshServerConnectionsFromResources(
@@ -515,34 +503,18 @@ public final class ServerHealthChecker: ObservableObject {
             guard !refreshedConnections.isEmpty else { return nil }
 
             let refreshedURL = matchedDevice.bestConnection?.uri ?? refreshedConnections.first?.uri ?? existingServer.url
-            let refreshedServer = PlexServerConfig(
-                id: existingServer.id,
-                name: existingServer.name,
+            let refreshedServer = existingServer.replacing(
                 url: refreshedURL,
-                connections: refreshedConnections,
-                token: existingServer.token,
-                owned: existingServer.owned,
-                platform: existingServer.platform,
-                capabilities: existingServer.capabilities,
-                libraries: existingServer.libraries
+                connections: refreshedConnections
             )
 
             let updatedServers = account.servers.map { server in
                 server.id == serverId ? refreshedServer : server
             }
-            let updatedAccount = PlexAccountConfig(
-                id: account.id,
-                email: account.email,
-                plexUsername: account.plexUsername,
-                displayTitle: account.displayTitle,
-                authToken: account.authToken,
-                authTokenMetadata: account.authTokenMetadata,
-                subscription: account.subscription,
-                servers: updatedServers
-            )
+            let updatedAccount = account.replacing(servers: updatedServers)
             accountManager.updatePlexAccount(updatedAccount)
 
-            let relayCount = refreshedConnections.filter { $0.relay ?? false }.count
+            let relayCount = refreshedConnections.lazy.filter { $0.relay ?? false }.count
             EnsembleLogger.debug(
                 "🔄 ServerHealthChecker: Refreshed resources for \(serverKey): urls=\(refreshedConnections.count), relay=\(relayCount)"
             )

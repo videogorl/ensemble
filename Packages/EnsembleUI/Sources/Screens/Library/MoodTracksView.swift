@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -85,20 +86,15 @@ public struct MoodTracksView: View {
             .task {
                 await loadTracks()
             }
-            .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
-                if keys != activeDownloadTrackIdentities { activeDownloadTrackIdentities = keys }
-            }
-            .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
-                if gen != availabilityGeneration { availabilityGeneration = gen }
-            }
-            .onReceive(nowPlayingVM.$currentTrack) { track in
-                let id = track?.playbackIdentity
-                if id != currentTrackId { currentTrackId = id }
-            }
-            .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
-                let title = target?.title
-                if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
-            }
+            .trackListRuntimeObservation(
+                activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
+                availabilityGeneration: $availabilityGeneration
+            )
+            .nowPlayingTrackListObservation(
+                nowPlayingVM: nowPlayingVM,
+                currentTrackId: $currentTrackId,
+                recentPlaylistTitle: $nvmRecentPlaylistTitle
+            )
             .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
             .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
     }
@@ -174,66 +170,17 @@ public struct MoodTracksView: View {
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
     }
 
-    private func addToRecentPlaylist(_ track: Track) {
-        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
-    }
-
-    private func recentPlaylistTitle(for track: Track) -> String? {
-        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
-    }
-
     private var trackInteractionModel: TrackRowInteractionModel {
-        TrackRowInteractionModel(
-            onPlayNext: { track in
-                nowPlayingVM.playNext(track)
-            },
-            onPlayLast: { track in
-                nowPlayingVM.playLast(track)
-            },
-            onAddToPlaylist: { track in
-                presentPlaylistPicker(with: [track])
-            },
-            onAddToRecentPlaylist: { track in
-                addToRecentPlaylist(track)
-            },
-            onToggleFavorite: { track in
-                Task {
-                    await nowPlayingVM.toggleTrackFavorite(track)
-                }
-            },
-            onGoToAlbum: { track in
-                if let albumId = track.albumRatingKey {
-                    navigationCoordinator.routeFromMenu(
-                        to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
-                        in: navigationCoordinator.selectedTab
-                    )
-                }
-            },
-            onGoToArtist: { track in
-                if let artistId = track.artistRatingKey {
-                    navigationCoordinator.routeFromMenu(
-                        to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
-                        in: navigationCoordinator.selectedTab
-                    )
-                }
-            },
-            onGetInfo: { track in
-                libraryItemInfoRequest = .track(track)
-            },
-            onShareLink: { track in
-                ShareActions.shareTrackLink(track, deps: deps)
-            },
-            onShareFile: { track in
-                ShareActions.shareTrackFile(track, deps: deps)
-            },
-            isTrackFavorited: { track in
-                nowPlayingVM.isTrackFavorited(track)
-            },
-            canAddToRecentPlaylist: { track in
-                recentPlaylistTitle(for: track) != nil
-            },
+        .nowPlayingActions(
+            nowPlayingVM: nowPlayingVM,
+            deps: deps,
+            navigationCoordinator: navigationCoordinator,
             recentPlaylistTitle: nvmRecentPlaylistTitle
-        )
+        ) { tracks in
+            presentPlaylistPicker(with: tracks)
+        } onGetInfo: { track in
+            libraryItemInfoRequest = .track(track)
+        }
     }
 
     private var headerView: some View {

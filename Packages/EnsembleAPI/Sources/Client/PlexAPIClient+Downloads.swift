@@ -5,69 +5,73 @@ extension PlexAPIClient {
 
     /// Download transcoded media using Plex's download queue flow.
     /// This primes server-side transcode before media retrieval.
+    /// The caller owns the returned temporary file and must move or remove it.
     public func downloadTranscodedMediaViaQueue(
         trackRatingKey: String,
-        quality: StreamingQuality
-    ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
+        quality: StreamingQuality,
+        networkPolicy: DownloadNetworkPolicy,
+        transferIdentity: String? = nil,
+        backgroundDownloads: BackgroundDownload = .shared,
+        progress: @escaping @Sendable (Int64, Int64) async -> Void = { _, _ in }
+    ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
         guard quality != .original else {
             throw DownloadQueueError.queueNotAvailable
         }
 
-        let queueId = try await getOrCreateDownloadQueueID()
         let metadataKey = "/library/metadata/\(trackRatingKey)"
-        let itemId = try await addDownloadQueueItem(
-            queueId: queueId,
-            metadataKey: metadataKey,
-            quality: quality
-        )
-
-        EnsembleLogger.debug(
-            "⬇️ DownloadQueue enqueued: queue=\(queueId) item=\(itemId) track=\(trackRatingKey) quality=\(quality.rawValue)"
-        )
+        let jobKey = "\(metadataKey)|\(quality.rawValue)"
+        let (queueId, itemId): (Int, Int)
+        if let job = interruptedDownloadQueueItems[jobKey] {
+            (queueId, itemId) = job
+        } else {
+            (queueId, itemId) = try await enqueueDownloadQueueItem(metadataKey: metadataKey, quality: quality)
+            interruptedDownloadQueueItems[jobKey] = (queueId, itemId)
+        }
 
         let timeoutDeadline = Date().addingTimeInterval(120)
         var pollInterval: UInt64 = 1_000_000_000
         let maxPollInterval: UInt64 = 15_000_000_000
+        var statusPollCount = 0
+        defer { recordDownloadQueueTelemetry(statusPollCount: statusPollCount) }
         while Date() < timeoutDeadline {
+            try Task.checkCancellation()
+
             let item: DownloadQueueItemRecord
             do {
+                statusPollCount += 1
                 item = try await getDownloadQueueItem(queueId: queueId, itemId: itemId)
-            } catch let urlError as URLError where [
-                .notConnectedToInternet, .networkConnectionLost,
-                .dataNotAllowed, .internationalRoamingOff
-            ].contains(urlError.code) {
-                throw urlError
-            } catch {
-                try? await Task.sleep(nanoseconds: pollInterval)
-                pollInterval = min(pollInterval * 2, maxPollInterval)
-                continue
+            } catch PlexAPIError.httpError(statusCode: 404) {
+                interruptedDownloadQueueItems.removeValue(forKey: jobKey)
+                throw URLError(.timedOut)
             }
 
             switch item.status {
             case "available":
-                return try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId)
+                let result = try await fetchDownloadQueueMedia(queueId: queueId, itemId: itemId, networkPolicy: networkPolicy, transferIdentity: transferIdentity, backgroundDownloads: backgroundDownloads, progress: progress)
+                interruptedDownloadQueueItems.removeValue(forKey: jobKey)
+                return result
             case "error":
+                interruptedDownloadQueueItems.removeValue(forKey: jobKey)
                 throw DownloadQueueError.itemFailed(item.error ?? "Unknown queue error")
             case "expired":
                 try await restartDownloadQueueItem(queueId: queueId, itemId: itemId)
-                try? await Task.sleep(nanoseconds: pollInterval)
+                try await Task.sleep(nanoseconds: pollInterval)
             case "deciding", "waiting", "processing":
-                try? await Task.sleep(nanoseconds: pollInterval)
+                try await Task.sleep(nanoseconds: pollInterval)
             default:
-                try? await Task.sleep(nanoseconds: pollInterval)
+                try await Task.sleep(nanoseconds: pollInterval)
             }
             pollInterval = min(pollInterval * 2, maxPollInterval)
         }
 
-        throw DownloadQueueError.itemProcessingTimedOut
+        throw URLError(.timedOut)
     }
 
     /// Download a universal transcode stream to a temporary file and return the file URL.
     public func downloadUniversalStreamToFile(
         ratingKey: String,
         quality: StreamingQuality = .original,
-        sessionId: String? = nil,
-        metadataDurationSeconds: Double? = nil
+        sessionId: String? = nil
     ) async throws -> URL {
         EnsembleLogger.debug("🎵 PlexAPIClient.downloadUniversalStreamToFile(ratingKey): \(ratingKey) [quality: \(quality.rawValue)]")
 
@@ -79,75 +83,25 @@ extension PlexAPIClient {
         )
 
         try await callTranscodeDecision(queryItems: queryItems)
-
-        let url = try buildTranscodeURL(
-            path: "/music/:/transcode/universal/start.mp3",
-            queryItems: queryItems
+        return try await downloadUniversalStreamFile(
+            ratingKey: ratingKey,
+            quality: quality,
+            sessionId: resolvedSessionId,
+            queryItems: queryItems,
+            logOriginalContentType: true,
+            unknownContentTypeContext: "original quality stream",
+            successLogPrefix: "Downloaded universal stream to file:"
         )
-
-        EnsembleLogger.debug("🔗 Downloading universal stream for ratingKey \(ratingKey) [session: \(resolvedSessionId.prefix(8))]")
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        addPlexHeaders(to: &request, token: serverConnection.token)
-        request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
-
-        let (tempURL, response) = try await session.download(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            EnsembleLogger.debug("⚠️ Universal stream download returned \(statusCode)")
-            throw PlexAPIError.httpError(statusCode: statusCode)
-        }
-
-        let cacheDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
-        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-
-        let fileExtension: String
-        if quality != .original {
-            fileExtension = "mp3"
-        } else {
-            let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? ""
-            switch contentType.lowercased() {
-            case let ct where ct.contains("flac"):
-                fileExtension = "flac"
-            case let ct where ct.contains("mp4"), let ct where ct.contains("m4a"):
-                fileExtension = "m4a"
-            case let ct where ct.contains("mpeg"), let ct where ct.contains("mp3"):
-                fileExtension = "mp3"
-            case let ct where ct.contains("wav"):
-                fileExtension = "wav"
-            case let ct where ct.contains("aac"):
-                fileExtension = "aac"
-            default:
-                fileExtension = "audio"
-                EnsembleLogger.debug("⚠️ Unknown Content-Type for original quality stream: '\(contentType)'")
-            }
-            EnsembleLogger.debug("📦 Original quality Content-Type: '\(contentType)' → .\(fileExtension)")
-        }
-        let destURL = cacheDir.appendingPathComponent("\(ratingKey)_\(resolvedSessionId).\(fileExtension)")
-
-        if FileManager.default.fileExists(atPath: destURL.path) {
-            try? FileManager.default.removeItem(at: destURL)
-        }
-        try FileManager.default.moveItem(at: tempURL, to: destURL)
-
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
-        EnsembleLogger.debug("Downloaded universal stream to file: \(destURL.lastPathComponent) (\(fileSize) bytes)")
-
-        return destURL
     }
 
-    /// Download universal stream with a pre-warmed session.
-    func downloadUniversalStreamToFileWithSession(
+    private func downloadUniversalStreamFile(
         ratingKey: String,
         quality: StreamingQuality,
         sessionId: String,
         queryItems: [URLQueryItem],
-        metadataDurationSeconds: Double?
+        logOriginalContentType: Bool,
+        unknownContentTypeContext: String,
+        successLogPrefix: String
     ) async throws -> URL {
         let url = try buildTranscodeURL(
             path: "/music/:/transcode/universal/start.mp3",
@@ -159,7 +113,7 @@ extension PlexAPIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        addPlexHeaders(to: &request, token: serverConnection.token)
+        requestHeaderContext.apply(to: &request, token: serverConnection.token)
         request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
 
         let (tempURL, response) = try await session.download(for: request)
@@ -180,20 +134,15 @@ extension PlexAPIClient {
             fileExtension = "mp3"
         } else {
             let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? ""
-            switch contentType.lowercased() {
-            case let ct where ct.contains("flac"):
-                fileExtension = "flac"
-            case let ct where ct.contains("mp4"), let ct where ct.contains("m4a"):
-                fileExtension = "m4a"
-            case let ct where ct.contains("mpeg"), let ct where ct.contains("mp3"):
-                fileExtension = "mp3"
-            case let ct where ct.contains("wav"):
-                fileExtension = "wav"
-            case let ct where ct.contains("aac"):
-                fileExtension = "aac"
-            default:
-                fileExtension = "audio"
-                EnsembleLogger.debug("⚠️ Unknown Content-Type for stream: '\(contentType)'")
+            fileExtension = Self.universalStreamFileExtension(
+                quality: quality,
+                contentType: contentType
+            )
+            if fileExtension == "audio" {
+                EnsembleLogger.debug("⚠️ Unknown Content-Type for \(unknownContentTypeContext): '\(contentType)'")
+            }
+            if logOriginalContentType {
+                EnsembleLogger.debug("📦 Original quality Content-Type: '\(contentType)' → .\(fileExtension)")
             }
         }
 
@@ -204,9 +153,29 @@ extension PlexAPIClient {
         try FileManager.default.moveItem(at: tempURL, to: destURL)
 
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
-        EnsembleLogger.debug("✅ Downloaded universal stream to file: \(destURL.lastPathComponent) (\(fileSize) bytes)")
+        EnsembleLogger.debug("\(successLogPrefix) \(destURL.lastPathComponent) (\(fileSize) bytes)")
 
         return destURL
+    }
+
+    static func universalStreamFileExtension(quality: StreamingQuality, contentType: String) -> String {
+        guard quality == .original else { return "mp3" }
+
+        let normalizedContentType = contentType.lowercased()
+        switch normalizedContentType {
+        case let contentType where contentType.contains("flac"):
+            return "flac"
+        case let contentType where contentType.contains("mp4") || contentType.contains("m4a"):
+            return "m4a"
+        case let contentType where contentType.contains("mpeg") || contentType.contains("mp3"):
+            return "mp3"
+        case let contentType where contentType.contains("wav"):
+            return "wav"
+        case let contentType where contentType.contains("aac"):
+            return "aac"
+        default:
+            return "audio"
+        }
     }
 
     /// Build a universal download URL for offline use, skipping the decision endpoint.
@@ -234,12 +203,71 @@ extension PlexAPIClient {
     // MARK: - Download Queue Helpers
 
     func getOrCreateDownloadQueueID() async throws -> Int {
+        if let cachedDownloadQueueID {
+            downloadQueueCacheHitCount += 1
+            return cachedDownloadQueueID
+        }
+        if let downloadQueueIDTask {
+            downloadQueueCacheHitCount += 1
+            return try await downloadQueueIDTask.value
+        }
+
+        downloadQueueCacheMissCount += 1
+        let task = Task { try await fetchDownloadQueueID() }
+        downloadQueueIDTask = task
+        do {
+            let queueId = try await task.value
+            cachedDownloadQueueID = queueId
+            downloadQueueIDTask = nil
+            return queueId
+        } catch {
+            downloadQueueIDTask = nil
+            throw error
+        }
+    }
+
+    private func fetchDownloadQueueID() async throws -> Int {
         let data = try await serverRequestPOST(path: "/downloadQueue")
         let decoded = try JSONDecoder().decode(DownloadQueueEnvelope.self, from: data)
         guard let queueId = decoded.MediaContainer.DownloadQueue?.first?.id else {
             throw DownloadQueueError.invalidQueueResponse
         }
         return queueId
+    }
+
+    func enqueueDownloadQueueItem(
+        metadataKey: String,
+        quality: StreamingQuality
+    ) async throws -> (queueId: Int, itemId: Int) {
+        var queueId = try await getOrCreateDownloadQueueID()
+        do {
+            let itemId = try await addDownloadQueueItem(
+                queueId: queueId,
+                metadataKey: metadataKey,
+                quality: quality
+            )
+            return (queueId, itemId)
+        } catch let error as PlexAPIError {
+            guard case .httpError(statusCode: 404) = error else { throw error }
+            cachedDownloadQueueID = nil
+            queueId = try await getOrCreateDownloadQueueID()
+            let itemId = try await addDownloadQueueItem(
+                queueId: queueId,
+                metadataKey: metadataKey,
+                quality: quality
+            )
+            return (queueId, itemId)
+        }
+    }
+
+    func recordDownloadQueueTelemetry(statusPollCount: Int) {
+        downloadQueueItemCount += 1
+        downloadQueueStatusPollCount += statusPollCount
+        guard downloadQueueItemCount == 1 || downloadQueueItemCount.isMultiple(of: 100) else { return }
+
+        EnsembleLogger.debug(
+            "DownloadQueue aggregate items=\(downloadQueueItemCount) statusPolls=\(downloadQueueStatusPollCount) queueCacheHits=\(downloadQueueCacheHitCount) queueCacheMisses=\(downloadQueueCacheMissCount)"
+        )
     }
 
     func addDownloadQueueItem(
@@ -287,41 +315,27 @@ extension PlexAPIClient {
 
     func fetchDownloadQueueMedia(
         queueId: Int,
-        itemId: Int
-    ) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?) {
-        let deadline = Date().addingTimeInterval(90)
-        while Date() < deadline {
-            let request = try makeServerRequest(
-                url: currentServerURL,
-                method: "GET",
-                path: "/downloadQueue/\(queueId)/item/\(itemId)/media"
-            )
-            let (data, response) = try await performRequestAllowingNon2xx(request)
-
-            if response.statusCode == 200 {
-                let suggestedFilename = response.value(forHTTPHeaderField: "Content-Disposition")
-                    .flatMap { contentDisposition -> String? in
-                        let marker = "filename="
-                        guard let range = contentDisposition.range(of: marker) else { return nil }
-                        let filename = contentDisposition[range.upperBound...]
-                            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                        return filename.isEmpty ? nil : String(filename)
-                    }
-                let mimeType = response.value(forHTTPHeaderField: "Content-Type")
-                return (data, suggestedFilename, mimeType)
-            }
-
-            if response.statusCode == 503 {
-                let retryAfter = response.value(forHTTPHeaderField: "Retry-After")
-                    .flatMap(Int.init) ?? 1
-                try? await Task.sleep(nanoseconds: UInt64(max(retryAfter, 1)) * 1_000_000_000)
-                continue
-            }
-
-            throw DownloadQueueError.mediaFetchFailed(statusCode: response.statusCode)
+        itemId: Int,
+        networkPolicy: DownloadNetworkPolicy,
+        transferIdentity: String? = nil,
+        backgroundDownloads: BackgroundDownload = .shared,
+        progress: @escaping @Sendable (Int64, Int64) async -> Void = { _, _ in }
+    ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
+        var request = try makeServerRequest(
+            url: currentServerURL,
+            method: "GET",
+            path: "/downloadQueue/\(queueId)/item/\(itemId)/media"
+        )
+        networkPolicy.apply(to: &request)
+        // The persistent queue owns transient retries, so an unavailable item cannot
+        // hold a worker here while other tracks are ready to download.
+        let (file, response): (URL, HTTPURLResponse)
+        if let transferIdentity {
+            (file, response) = try await backgroundDownloads.file(for: request, identity: transferIdentity, legacyIdentity: "", progress: progress)
+        } else {
+            (file, response) = try await ResumableDownload.file(for: request, session: session, progress: progress)
         }
-
-        throw DownloadQueueError.itemProcessingTimedOut
+        return (file, response.suggestedFilename, response.value(forHTTPHeaderField: "Content-Type"))
     }
 
     func downloadQueueBitrate(for quality: StreamingQuality) -> String? {

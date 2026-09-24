@@ -17,6 +17,7 @@ final class DownloadTargetReconciler {
         let trackReferenceCount: Int
         let newPendingCount: Int
         let downloadQuality: String
+        let targetWasRemoved: Bool
     }
 
     struct Dependencies {
@@ -25,6 +26,7 @@ final class DownloadTargetReconciler {
         let playlistRepository: PlaylistRepositoryProtocol
         let downloadManager: DownloadManagerProtocol
         let currentDownloadQuality: @MainActor () -> String
+        let didRemoveDownloads: ([OfflineTrackReference]) async -> Void
     }
 
     private let dependencies: Dependencies
@@ -35,85 +37,106 @@ final class DownloadTargetReconciler {
 
     func reconcileTarget(_ target: TargetDescriptor) async throws -> ReconcileResult {
         let previousReferences = try await dependencies.targetRepository.fetchTrackReferences(targetKey: target.key)
-        let trackReferences = try await resolveTrackReferences(for: target)
-        try await dependencies.targetRepository.replaceMemberships(targetKey: target.key, trackReferences: trackReferences)
-
         let downloadQuality = dependencies.currentDownloadQuality()
+        guard let trackReferences = try await resolveTrackReferences(for: target) else {
+            try await dependencies.targetRepository.deleteTarget(key: target.key)
+            let unreferenced = try await dependencies.targetRepository.unreferencedTrackReferences(
+                from: previousReferences
+            )
+            try await dependencies.downloadManager.deleteDownloads(forReferences: unreferenced)
+            await dependencies.didRemoveDownloads(unreferenced)
+            return ReconcileResult(
+                trackReferenceCount: 0,
+                newPendingCount: 0,
+                downloadQuality: downloadQuality,
+                targetWasRemoved: true
+            )
+        }
+        let membershipsChanged = previousReferences != trackReferences
+        if membershipsChanged {
+            try await dependencies.targetRepository.replaceMemberships(
+                targetKey: target.key,
+                trackReferences: trackReferences
+            )
+        }
+
         let newPendingCount = try await dependencies.downloadManager.batchCreateDownloads(
             references: trackReferences,
             quality: downloadQuality
         )
 
-        let removedReferences = Set(previousReferences).subtracting(Set(trackReferences))
-        for reference in removedReferences {
-            let count = try await dependencies.targetRepository.membershipCount(for: reference)
-            if count == 0 {
-                try await dependencies.downloadManager.deleteDownload(
-                    forTrackRatingKey: reference.trackRatingKey,
-                    sourceCompositeKey: reference.trackSourceCompositeKey
-                )
-            }
+        if membershipsChanged {
+            let removedReferences = Array(Set(previousReferences).subtracting(Set(trackReferences)))
+            let unreferenced = try await dependencies.targetRepository.unreferencedTrackReferences(
+                from: removedReferences
+            )
+            try await dependencies.downloadManager.deleteDownloads(forReferences: unreferenced)
+            await dependencies.didRemoveDownloads(unreferenced)
         }
 
         return ReconcileResult(
             trackReferenceCount: trackReferences.count,
             newPendingCount: newPendingCount,
-            downloadQuality: downloadQuality
+            downloadQuality: downloadQuality,
+            targetWasRemoved: false
         )
     }
 
-    private func resolveTrackReferences(for target: TargetDescriptor) async throws -> [OfflineTrackReference] {
+    private func resolveTrackReferences(for target: TargetDescriptor) async throws -> [OfflineTrackReference]? {
         switch target.kind {
         case .library:
             guard let sourceKey = target.sourceCompositeKey else { return [] }
             let tracks = try await dependencies.libraryRepository.fetchTracks(forSource: sourceKey)
-            return normalizedTrackReferences(from: tracks)
+            return normalizedTrackReferences(from: tracks, for: target)
 
         case .album:
-            guard let ratingKey = target.ratingKey else { return [] }
-            let tracks: [CDTrack]
-            if let sourceKey = target.sourceCompositeKey {
-                tracks = try await dependencies.libraryRepository.fetchTracks(
-                    forAlbum: ratingKey,
-                    sourceCompositeKey: sourceKey
-                )
-            } else {
-                tracks = try await dependencies.libraryRepository.fetchTracks(forAlbum: ratingKey)
-            }
-            return normalizedTrackReferences(from: tracks)
+            guard let ratingKey = target.ratingKey,
+                  let sourceKey = target.sourceCompositeKey,
+                  MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
+            let tracks = try await dependencies.libraryRepository.fetchTracks(
+                forAlbum: ratingKey,
+                sourceCompositeKey: sourceKey
+            )
+            return normalizedTrackReferences(from: tracks, for: target)
 
         case .artist:
-            guard let ratingKey = target.ratingKey else { return [] }
-            let tracks: [CDTrack]
-            if let sourceKey = target.sourceCompositeKey {
-                tracks = try await dependencies.libraryRepository.fetchTracks(
-                    forArtist: ratingKey,
-                    sourceCompositeKey: sourceKey
-                )
-            } else {
-                tracks = try await dependencies.libraryRepository.fetchTracks(forArtist: ratingKey)
-            }
-            return normalizedTrackReferences(from: tracks)
+            guard let ratingKey = target.ratingKey,
+                  let sourceKey = target.sourceCompositeKey,
+                  MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
+            let tracks = try await dependencies.libraryRepository.fetchTracks(
+                forArtist: ratingKey,
+                sourceCompositeKey: sourceKey
+            )
+            return normalizedTrackReferences(from: tracks, for: target)
 
         case .playlist:
-            guard let ratingKey = target.ratingKey else { return [] }
+            guard let ratingKey = target.ratingKey,
+                  let sourceKey = target.sourceCompositeKey,
+                  MediaSourceIdentity.parse(sourceKey) != nil else { return nil }
             guard let playlist = try await dependencies.playlistRepository.fetchPlaylist(
                 ratingKey: ratingKey,
-                sourceCompositeKey: target.sourceCompositeKey
+                sourceCompositeKey: sourceKey
             ) else {
-                return []
+                return nil
             }
-            return normalizedTrackReferences(from: playlist.tracksArray)
+            return normalizedTrackReferences(from: playlist.tracksArray, for: target)
 
         case .favorites:
             let tracks = try await dependencies.libraryRepository.fetchFavoriteTracks()
-            return normalizedTrackReferences(from: tracks)
+            return normalizedTrackReferences(from: tracks, for: target)
         }
     }
 
-    private func normalizedTrackReferences(from tracks: [CDTrack]) -> [OfflineTrackReference] {
+    private func normalizedTrackReferences(
+        from tracks: [CDTrack],
+        for target: TargetDescriptor
+    ) -> [OfflineTrackReference] {
         let references = tracks.compactMap { track -> OfflineTrackReference? in
             guard let sourceCompositeKey = track.sourceCompositeKey else { return nil }
+            guard MediaSourceIdentity.parse(sourceCompositeKey)?.sourceType.capabilities.supportsOfflineDownloads == true else {
+                return nil
+            }
+            guard isSourceCompatible(sourceCompositeKey, with: target) else { return nil }
             return OfflineTrackReference(
                 trackRatingKey: track.ratingKey,
                 trackSourceCompositeKey: sourceCompositeKey
@@ -125,6 +148,23 @@ final class DownloadTargetReconciler {
                 return $0.trackSourceCompositeKey < $1.trackSourceCompositeKey
             }
             return $0.trackRatingKey < $1.trackRatingKey
+        }
+    }
+
+    private func isSourceCompatible(
+        _ trackSourceCompositeKey: String,
+        with target: TargetDescriptor
+    ) -> Bool {
+        guard let targetSourceCompositeKey = target.sourceCompositeKey else { return true }
+
+        switch target.kind {
+        case .playlist:
+            return trackSourceCompositeKey == targetSourceCompositeKey
+                || MediaSourceIdentity.isSameServer(trackSourceCompositeKey, targetSourceCompositeKey)
+        case .library, .album, .artist:
+            return trackSourceCompositeKey == targetSourceCompositeKey
+        case .favorites:
+            return true
         }
     }
 }

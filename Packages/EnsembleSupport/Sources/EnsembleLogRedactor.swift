@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+public typealias EnsembleFileLogHandler = (String, String, String) -> Void
 
 /// Shared privacy redactor for log messages before they reach unified or
 /// persistent diagnostic logs.
@@ -13,9 +16,65 @@ public enum EnsembleLogRedactor {
     ]
 
     public static func redactSensitiveValues(in message: String) -> String {
-        let endpointRedacted = redactHostLiterals(in: redactPathLiterals(in: redactURLLiterals(in: message)))
-        return sensitiveNames.reduce(endpointRedacted) { partial, name in
-            redactValue(named: name, in: partial)
+        guard mayContainRedactableContent(message) else {
+            return message
+        }
+
+        var redacted = message
+        if mayContainURL(in: redacted) {
+            redacted = redactURLLiterals(in: redacted)
+        }
+        if mayContainPath(in: redacted) {
+            redacted = redactPathLiterals(in: redacted)
+        }
+        if mayContainHost(in: redacted) {
+            redacted = redactHostLiterals(in: redacted)
+        }
+        if mayContainSensitiveName(in: redacted) {
+            redacted = sensitiveNames.reduce(redacted) { partial, name in
+                redactValue(named: name, in: partial)
+            }
+        }
+        return redacted
+    }
+
+    private static func mayContainRedactableContent(_ message: String) -> Bool {
+        mayContainURL(in: message) ||
+            mayContainPath(in: message) ||
+            mayContainHost(in: message) ||
+            mayContainSensitiveName(in: message)
+    }
+
+    private static func mayContainURL(in message: String) -> Bool {
+        message.range(of: "http://", options: .caseInsensitive) != nil ||
+            message.range(of: "https://", options: .caseInsensitive) != nil
+    }
+
+    private static func mayContainPath(in message: String) -> Bool {
+        message.range(of: "file://", options: .caseInsensitive) != nil ||
+            message.contains("/Users/") ||
+            message.contains("/private/var/") ||
+            message.contains("/var/mobile/") ||
+            message.contains("/var/folders/") ||
+            message.contains("/tmp/") ||
+            message.range(of: "/library", options: .caseInsensitive) != nil ||
+            message.range(of: "/media/", options: .caseInsensitive) != nil ||
+            message.range(of: "/playlists", options: .caseInsensitive) != nil ||
+            message.range(of: "/hubs", options: .caseInsensitive) != nil
+    }
+
+    private static func mayContainHost(in message: String) -> Bool {
+        message.range(of: ".plex.direct", options: .caseInsensitive) != nil ||
+            message.contains("<redacted-path>") ||
+            message.range(of: "/library", options: .caseInsensitive) != nil ||
+            message.range(of: "/playlists", options: .caseInsensitive) != nil ||
+            message.range(of: "/hubs", options: .caseInsensitive) != nil
+    }
+
+    private static func mayContainSensitiveName(in message: String) -> Bool {
+        sensitiveNames.contains { name in
+            message.range(of: name, options: .caseInsensitive) != nil ||
+                message.range(of: "\(name)%3D", options: .caseInsensitive) != nil
         }
     }
 
@@ -35,7 +94,7 @@ public enum EnsembleLogRedactor {
                 options: [.regularExpression, .caseInsensitive]
             )
             .replacingOccurrences(
-                of: #"/(?:library|playlists|hubs)(?:/\S*|\b)"#,
+                of: #"/(?:library|media|playlists|hubs)(?:/\S*|\b)"#,
                 with: "<redacted-path>",
                 options: [.regularExpression, .caseInsensitive]
             )
@@ -79,5 +138,52 @@ public enum EnsembleLogRedactor {
                 with: "$1<redacted>",
                 options: .regularExpression
             )
+    }
+}
+
+/// Writes privacy-redacted messages to unified and optional persistent logs.
+public enum EnsembleLogEmitter {
+    public static func debug(
+        _ message: @autoclosure () -> String,
+        logger: Logger,
+        category: String,
+        fileLogHandler: EnsembleFileLogHandler?
+    ) {
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
+        logger.debug("\(msg, privacy: .public)")
+        fileLogHandler?("DEBUG", category, msg)
+    }
+
+    public static func info(
+        _ message: @autoclosure () -> String,
+        logger: Logger,
+        category: String,
+        fileLogHandler: EnsembleFileLogHandler?
+    ) {
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
+        logger.info("\(msg, privacy: .public)")
+        fileLogHandler?("INFO", category, msg)
+    }
+
+    public static func error(
+        _ message: @autoclosure () -> String,
+        logger: Logger,
+        category: String,
+        fileLogHandler: EnsembleFileLogHandler?
+    ) {
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
+        logger.error("\(msg, privacy: .public)")
+        fileLogHandler?("ERROR", category, msg)
+    }
+
+    public static func fault(
+        _ message: @autoclosure () -> String,
+        logger: Logger,
+        category: String,
+        fileLogHandler: EnsembleFileLogHandler?
+    ) {
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
+        logger.fault("\(msg, privacy: .public)")
+        fileLogHandler?("FAULT", category, msg)
     }
 }

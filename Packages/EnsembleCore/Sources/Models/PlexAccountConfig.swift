@@ -46,6 +46,19 @@ public struct PlexAccountConfig: Codable, Sendable, Identifiable, Equatable {
         self.subscription = subscription
         self.servers = servers
     }
+
+    public func replacing(servers: [PlexServerConfig]) -> PlexAccountConfig {
+        PlexAccountConfig(
+            id: id,
+            email: email,
+            plexUsername: plexUsername,
+            displayTitle: displayTitle,
+            authToken: authToken,
+            authTokenMetadata: authTokenMetadata,
+            subscription: subscription,
+            servers: servers
+        )
+    }
 }
 
 public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
@@ -79,6 +92,24 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
         self.platform = platform
         self.capabilities = capabilities
         self.libraries = libraries
+    }
+
+    public func replacing(
+        url: String? = nil,
+        connections: [PlexConnectionConfig]? = nil,
+        libraries: [PlexLibraryConfig]? = nil
+    ) -> PlexServerConfig {
+        PlexServerConfig(
+            id: id,
+            name: name,
+            url: url ?? self.url,
+            connections: connections ?? self.connections,
+            token: token,
+            owned: owned,
+            platform: platform,
+            capabilities: capabilities,
+            libraries: libraries ?? self.libraries
+        )
     }
 
     // Custom Codable implementation to handle backward compatibility
@@ -187,6 +218,15 @@ public struct PlexConnectionConfig: Codable, Sendable, Equatable {
         self.port = port
         self.protocol = `protocol`
     }
+
+    public var endpointDescriptor: PlexEndpointDescriptor {
+        PlexEndpointDescriptor(
+            url: uri,
+            local: local,
+            relay: relay ?? false,
+            secure: `protocol` == "https" || uri.lowercased().hasPrefix("https://")
+        )
+    }
 }
 
 public struct PlexLibraryConfig: Codable, Sendable, Identifiable, Equatable {
@@ -195,13 +235,22 @@ public struct PlexLibraryConfig: Codable, Sendable, Identifiable, Equatable {
     public let title: String
     public var isEnabled: Bool
     public let allowSync: Bool?
+    public let trackCount: Int?
 
-    public init(id: String, key: String, title: String, isEnabled: Bool = true, allowSync: Bool? = nil) {
+    public init(
+        id: String,
+        key: String,
+        title: String,
+        isEnabled: Bool = true,
+        allowSync: Bool? = nil,
+        trackCount: Int? = nil
+    ) {
         self.id = id
         self.key = key
         self.title = title
         self.isEnabled = isEnabled
         self.allowSync = allowSync
+        self.trackCount = trackCount
     }
 }
 

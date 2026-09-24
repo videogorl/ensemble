@@ -1,3 +1,5 @@
+import EnsembleDomain
+import EnsemblePersistence
 import Foundation
 
 // Domain models for UI layer
@@ -20,7 +22,7 @@ import Foundation
 //
 // All models conform to Sendable for safe async/concurrent usage
 
-private func sourceScopedIdentity(ratingKey: String, sourceCompositeKey: String?) -> String {
+func sourceScopedIdentity(ratingKey: String, sourceCompositeKey: String?) -> String {
     guard let sourceCompositeKey, !sourceCompositeKey.isEmpty else {
         return ratingKey
     }
@@ -53,6 +55,15 @@ public struct AudioFileInfo: Sendable, Equatable {
     }
 }
 
+/// Facts about the payload currently loaded by Ensemble's audio engine.
+public struct PlaybackFileInfo: Sendable, Equatable {
+    public let codec: String?
+    public let fileSize: Int64?
+    public let isDownloaded: Bool
+    public let quality: String?
+    public let sampleRate: Int?
+}
+
 // MARK: - Track
 
 public struct Track: Identifiable, Hashable, Sendable, Codable {
@@ -73,14 +84,18 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let streamKey: String?
     public let streamId: Int? // Audio stream ID for fetching loudness timeline data
     public let localFilePath: String?
+    public let downloadedQuality: String?
     public let dateAdded: Date?
     public let dateModified: Date?
     public let lastPlayed: Date?
     public let lastRatedAt: Date?
     public let rating: Int
+    public let favoriteState: Bool?
     public let playCount: Int
     public let genres: [String]
     public let sourceCompositeKey: String?
+    public let unavailableReason: String?
+    public let actionCapabilities: MusicItemActionCapabilities?
 
     public init(
         id: String,
@@ -100,14 +115,18 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         streamKey: String? = nil,
         streamId: Int? = nil,
         localFilePath: String? = nil,
+        downloadedQuality: String? = nil,
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
         lastPlayed: Date? = nil,
         lastRatedAt: Date? = nil,
         rating: Int = 0,
+        favoriteState: Bool? = nil,
         playCount: Int = 0,
         genres: [String] = [],
-        sourceCompositeKey: String? = nil
+        sourceCompositeKey: String? = nil,
+        unavailableReason: String? = nil,
+        actionCapabilities: MusicItemActionCapabilities? = nil
     ) {
         self.id = id
         self.key = key
@@ -130,22 +149,58 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         self.streamKey = streamKey
         self.streamId = streamId
         self.localFilePath = localFilePath
+        self.downloadedQuality = downloadedQuality
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.lastPlayed = lastPlayed
         self.lastRatedAt = lastRatedAt
         self.rating = rating
+        self.favoriteState = favoriteState
         self.playCount = playCount
         self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
+        self.unavailableReason = unavailableReason
+        self.actionCapabilities = actionCapabilities
     }
 
     public var isDownloaded: Bool {
         localFilePath != nil
     }
 
+    public var isLibraryAvailable: Bool {
+        unavailableReason == nil
+    }
+
     public var formattedDuration: String {
         MediaFormatters.trackClock(duration)
+    }
+
+    /// Provider-normalized favorite state with legacy Plex rating fallback.
+    public var isFavorite: Bool {
+        favoriteState ?? (rating >= 8)
+    }
+
+    public func withRating(_ rating: Int) -> Track {
+        copy(
+            rating: rating,
+            favoriteState: favoriteState == nil ? nil : rating >= 8,
+            useFavoriteStateOverride: favoriteState != nil
+        )
+    }
+
+    public func withLocalFilePath(_ localFilePath: String?) -> Track {
+        copy(
+            localFilePath: localFilePath,
+            useLocalFilePathOverride: true,
+            downloadedQuality: localFilePath.flatMap {
+                AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: $0))
+            },
+            useDownloadedQualityOverride: true
+        )
+    }
+
+    public func withThumbPath(_ thumbPath: String?) -> Track {
+        copy(thumbPath: thumbPath, useThumbPathOverride: true)
     }
 
     /// Stable UI identity that distinguishes the same Plex rating key across sources.
@@ -154,9 +209,12 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     }
 
     /// UI playback identity for row highlighting and other local current-track checks.
-    /// Plex rating keys are only unique within a server/library, so include source scope when present.
+    /// Plex IDs include source scope; Apple library and catalog copies share catalog identity when known.
     public var playbackIdentity: String {
-        sourceScopedID
+        if let catalogID = appleMusicCatalogID {
+            return sourceScopedIdentity(ratingKey: catalogID, sourceCompositeKey: sourceCompositeKey)
+        }
+        return sourceScopedID
     }
 
     private static func normalizedTrackTitle(
@@ -196,9 +254,101 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
 
         return URL(fileURLWithPath: rawPath).deletingPathExtension().lastPathComponent.nonEmpty
     }
+
+    private func copy(
+        rating: Int? = nil,
+        favoriteState: Bool? = nil,
+        useFavoriteStateOverride: Bool = false,
+        thumbPath: String? = nil,
+        useThumbPathOverride: Bool = false,
+        localFilePath: String? = nil,
+        useLocalFilePathOverride: Bool = false,
+        downloadedQuality: String? = nil,
+        useDownloadedQualityOverride: Bool = false
+    ) -> Track {
+        Track(
+            id: id,
+            key: key,
+            title: title,
+            artistName: artistName,
+            albumArtistName: albumArtistName,
+            albumName: albumName,
+            albumRatingKey: albumRatingKey,
+            artistRatingKey: artistRatingKey,
+            trackNumber: trackNumber,
+            discNumber: discNumber,
+            duration: duration,
+            thumbPath: useThumbPathOverride ? thumbPath : self.thumbPath,
+            fallbackThumbPath: fallbackThumbPath,
+            fallbackRatingKey: fallbackRatingKey,
+            streamKey: streamKey,
+            streamId: streamId,
+            localFilePath: useLocalFilePathOverride ? localFilePath : self.localFilePath,
+            downloadedQuality: useDownloadedQualityOverride ? downloadedQuality : self.downloadedQuality,
+            dateAdded: dateAdded,
+            dateModified: dateModified,
+            lastPlayed: lastPlayed,
+            lastRatedAt: lastRatedAt,
+            rating: rating ?? self.rating,
+            favoriteState: useFavoriteStateOverride ? favoriteState : self.favoriteState,
+            playCount: playCount,
+            genres: genres,
+            sourceCompositeKey: sourceCompositeKey,
+            unavailableReason: unavailableReason,
+            actionCapabilities: actionCapabilities
+        )
+    }
+}
+
+/// A stable server playlist membership with an optional locally synced track.
+public struct PlaylistItem: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let playlistItemID: String?
+    public let track: Track
+
+    public init(
+        id: String,
+        playlistItemID: String?,
+        track: Track
+    ) {
+        self.id = id
+        self.playlistItemID = playlistItemID
+        self.track = track
+    }
+
+    public var isAvailable: Bool {
+        track.isLibraryAvailable
+    }
 }
 
 // MARK: - Album
+
+public enum AlbumReleaseFormat: String, Sendable, Codable {
+    case album
+    case ep
+    case single
+
+    public init?(plexTag: String?) {
+        guard let normalized = plexTag?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+        else {
+            return nil
+        }
+
+        switch normalized {
+        case "album":
+            self = .album
+        case "ep":
+            self = .ep
+        case "single":
+            self = .single
+        default:
+            return nil
+        }
+    }
+}
 
 public struct Album: Identifiable, Hashable, Sendable, Codable {
     public let id: String // ratingKey
@@ -213,9 +363,12 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
     public let artPath: String?
     public let dateAdded: Date?
     public let dateModified: Date?
+    public let lastRatedAt: Date?
     public let rating: Int
     public let genres: [String]
     public let sourceCompositeKey: String?
+    public let releaseFormat: AlbumReleaseFormat?
+    public let actionCapabilities: MusicItemActionCapabilities?
 
     public init(
         id: String,
@@ -230,9 +383,12 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         artPath: String? = nil,
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
+        lastRatedAt: Date? = nil,
         rating: Int = 0,
         genres: [String] = [],
-        sourceCompositeKey: String? = nil
+        sourceCompositeKey: String? = nil,
+        releaseFormat: AlbumReleaseFormat? = nil,
+        actionCapabilities: MusicItemActionCapabilities? = nil
     ) {
         self.id = id
         self.key = key
@@ -246,9 +402,12 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         self.artPath = artPath
         self.dateAdded = dateAdded
         self.dateModified = dateModified
+        self.lastRatedAt = lastRatedAt
         self.rating = rating
         self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
+        self.releaseFormat = releaseFormat
+        self.actionCapabilities = actionCapabilities
     }
 
     /// Convenience initializer for radio/minimal album creation
@@ -267,23 +426,31 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
     }
 
-    /// Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
-    /// Skips key, artPath, dateAdded, dateModified, sourceCompositeKey, artistRatingKey.
+    public var isFavorite: Bool { rating >= 8 }
+
+    /// Includes browse metadata because equal IDs can move between source-scoped/date-sorted views.
     public static func == (lhs: Album, rhs: Album) -> Bool {
-        lhs.id == rhs.id &&
+        lhs.sourceScopedID == rhs.sourceScopedID &&
+            lhs.key == rhs.key &&
             lhs.title == rhs.title &&
             lhs.artistName == rhs.artistName &&
             lhs.albumArtist == rhs.albumArtist &&
+            lhs.artistRatingKey == rhs.artistRatingKey &&
             lhs.year == rhs.year &&
             lhs.trackCount == rhs.trackCount &&
             lhs.thumbPath == rhs.thumbPath &&
+            lhs.artPath == rhs.artPath &&
+            lhs.dateAdded == rhs.dateAdded &&
+            lhs.dateModified == rhs.dateModified &&
+            lhs.lastRatedAt == rhs.lastRatedAt &&
             lhs.rating == rhs.rating &&
-            lhs.genres == rhs.genres
+            lhs.genres == rhs.genres &&
+            lhs.releaseFormat == rhs.releaseFormat &&
+            lhs.actionCapabilities == rhs.actionCapabilities
     }
 
-    /// Hashable must be consistent with custom Equatable — hash only id.
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
+        hasher.combine(sourceScopedID)
     }
 }
 
@@ -306,6 +473,7 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let sourceCompositeKey: String?
+    public let actionCapabilities: MusicItemActionCapabilities?
 
     // Fallback artwork from first album
     public let fallbackThumbPath: String?
@@ -322,7 +490,8 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
         dateModified: Date? = nil,
         sourceCompositeKey: String? = nil,
         fallbackThumbPath: String? = nil,
-        fallbackRatingKey: String? = nil
+        fallbackRatingKey: String? = nil,
+        actionCapabilities: MusicItemActionCapabilities? = nil
     ) {
         self.id = id
         self.key = key
@@ -335,6 +504,7 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
         self.sourceCompositeKey = sourceCompositeKey
         self.fallbackThumbPath = fallbackThumbPath
         self.fallbackRatingKey = fallbackRatingKey
+        self.actionCapabilities = actionCapabilities
     }
 
     /// Convenience initializer for radio/minimal artist creation
@@ -350,6 +520,13 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
     /// Stable UI identity that distinguishes the same Plex rating key across sources.
     public var sourceScopedID: String {
         sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
+    }
+}
+
+public extension Album {
+    /// Artist detail grouping from Plex's release format metadata.
+    func isLikelySingleOrEP() -> Bool {
+        releaseFormat == .single || releaseFormat == .ep
     }
 }
 
@@ -611,10 +788,16 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
     public let trackCount: Int
     public let duration: TimeInterval
     public let compositePath: String?
+    public let fallbackArtworkPath: String?
+    public let fallbackArtworkRatingKey: String?
+    public let fallbackArtworkSourceCompositeKey: String?
     public let dateAdded: Date?
     public let dateModified: Date?
     public let lastPlayed: Date?
+    public let lastRatedAt: Date?
+    public let rating: Int?
     public let sourceCompositeKey: String?
+    public let actionCapabilities: PlaylistActionCapabilities?
 
     public init(
         id: String,
@@ -625,10 +808,16 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         trackCount: Int = 0,
         duration: TimeInterval = 0,
         compositePath: String? = nil,
+        fallbackArtworkPath: String? = nil,
+        fallbackArtworkRatingKey: String? = nil,
+        fallbackArtworkSourceCompositeKey: String? = nil,
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
         lastPlayed: Date? = nil,
-        sourceCompositeKey: String? = nil
+        lastRatedAt: Date? = nil,
+        rating: Int? = nil,
+        sourceCompositeKey: String? = nil,
+        actionCapabilities: PlaylistActionCapabilities? = nil
     ) {
         self.id = id
         self.key = key
@@ -638,10 +827,66 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         self.trackCount = trackCount
         self.duration = duration
         self.compositePath = compositePath
+        self.fallbackArtworkPath = fallbackArtworkPath
+        self.fallbackArtworkRatingKey = fallbackArtworkRatingKey
+        self.fallbackArtworkSourceCompositeKey = fallbackArtworkSourceCompositeKey
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.lastPlayed = lastPlayed
+        self.lastRatedAt = lastRatedAt
+        self.rating = rating
         self.sourceCompositeKey = sourceCompositeKey
+        self.actionCapabilities = actionCapabilities
+    }
+
+    /// Returns a renamed copy while preserving source-resolved metadata and capabilities.
+    public func withTitle(_ title: String, dateModified: Date? = nil) -> Playlist {
+        Playlist(
+            id: id,
+            key: key,
+            title: title,
+            summary: summary,
+            isSmart: isSmart,
+            trackCount: trackCount,
+            duration: duration,
+            compositePath: compositePath,
+            fallbackArtworkPath: fallbackArtworkPath,
+            fallbackArtworkRatingKey: fallbackArtworkRatingKey,
+            fallbackArtworkSourceCompositeKey: fallbackArtworkSourceCompositeKey,
+            dateAdded: dateAdded,
+            dateModified: dateModified ?? self.dateModified,
+            lastPlayed: lastPlayed,
+            lastRatedAt: lastRatedAt,
+            rating: rating,
+            sourceCompositeKey: sourceCompositeKey,
+            actionCapabilities: actionCapabilities
+        )
+    }
+
+    public var isFavorite: Bool { (rating ?? 0) >= 8 }
+
+    /// Returns a copy with updated track-derived metadata while preserving source metadata.
+    public func withTracks(_ tracks: [Track], dateModified: Date = Date()) -> Playlist {
+        Playlist(
+            id: id,
+            key: key,
+            title: title,
+            summary: summary,
+            isSmart: isSmart,
+            trackCount: tracks.count,
+            duration: tracks.reduce(0) { $0 + $1.duration },
+            compositePath: compositePath,
+            fallbackArtworkPath: fallbackArtworkPath,
+            fallbackArtworkRatingKey: fallbackArtworkRatingKey,
+            fallbackArtworkSourceCompositeKey: fallbackArtworkSourceCompositeKey,
+            dateAdded: dateAdded,
+            dateModified: dateModified,
+            lastPlayed: lastPlayed,
+            lastRatedAt: lastRatedAt,
+            rating: rating,
+            sourceCompositeKey: sourceCompositeKey,
+            actionCapabilities: actionCapabilities
+        )
     }
 
     public var formattedDuration: String {
@@ -653,20 +898,113 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
     }
 
-    /// Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
-    /// Skips key, summary, dateAdded, dateModified, lastPlayed, sourceCompositeKey.
+    public var sourceType: MusicSourceType? {
+        MediaSourceIdentity.parse(sourceCompositeKey)?.sourceType
+    }
+
+    public var isSmartForPlaylistGrouping: Bool {
+        isSmart
+    }
+
+    public var supportsPlaylistTrackAdds: Bool {
+        resolvedActionCapabilities.canAddItems
+    }
+
+    public var supportsPlaylistEditing: Bool {
+        supportsPlaylistRenaming || supportsPlaylistReordering
+    }
+
+    public var supportsPlaylistRenaming: Bool {
+        resolvedActionCapabilities.canRename
+    }
+
+    public var supportsPlaylistReordering: Bool {
+        resolvedActionCapabilities.canReorder
+    }
+
+    public var supportsPlaylistDeletion: Bool {
+        resolvedActionCapabilities.canDelete
+    }
+
+    public var playlistEditingUnavailableReason: String? {
+        guard !supportsPlaylistEditing else { return nil }
+        return resolvedActionCapabilities.unavailableReason
+            ?? (isSmart ? "Smart playlists are read-only." : "This playlist is read-only.")
+    }
+
+    public static func markAppleMusicPlaylistCreated(id: String) {
+        var ids = Set(UserDefaults.standard.stringArray(forKey: appleMusicCreatedPlaylistIDsKey) ?? [])
+        ids.insert(id)
+        UserDefaults.standard.set(Array(ids), forKey: appleMusicCreatedPlaylistIDsKey)
+    }
+
+    public static func appleMusicPlaylistWasCreatedByEnsemble(_ id: String) -> Bool {
+        Set(UserDefaults.standard.stringArray(forKey: appleMusicCreatedPlaylistIDsKey) ?? []).contains(id)
+    }
+
+    static func clearAppleMusicPlaylistCapabilityCache() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: appleMusicCreatedPlaylistIDsKey)
+        defaults.removeObject(forKey: legacyAppleMusicEditablePlaylistIDsKey)
+    }
+
+    private static let appleMusicCreatedPlaylistIDsKey = "appleMusicCreatedPlaylistIDs"
+    private static let legacyAppleMusicEditablePlaylistIDsKey = "appleMusicEditablePlaylistIDs"
+
+    var resolvedActionCapabilities: PlaylistActionCapabilities {
+        guard sourceType != nil else {
+            return PlaylistActionCapabilities(
+                canAddItems: false,
+                canRename: false,
+                canReorder: false,
+                canDelete: false,
+                unavailableReason: "This playlist’s music source is unknown."
+            )
+        }
+        if let actionCapabilities {
+            return actionCapabilities
+        }
+        if isSmart {
+            return PlaylistActionCapabilities(
+                canAddItems: false,
+                canRename: false,
+                canReorder: false,
+                canDelete: false,
+                unavailableReason: "Smart playlists are read-only."
+            )
+        }
+        let supportsMutations = sourceType?.capabilities.supportsRegularPlaylistMutationsByDefault == true
+        return PlaylistActionCapabilities(
+            canAddItems: supportsMutations,
+            canRename: supportsMutations,
+            canReorder: supportsMutations,
+            canDelete: supportsMutations,
+            unavailableReason: supportsMutations ? nil : "This playlist’s permissions are unavailable."
+        )
+    }
+
+    /// Includes header metadata because equal IDs can update in place during source sync.
     public static func == (lhs: Playlist, rhs: Playlist) -> Bool {
-        lhs.id == rhs.id &&
+        lhs.sourceScopedID == rhs.sourceScopedID &&
+            lhs.key == rhs.key &&
             lhs.title == rhs.title &&
+            lhs.summary == rhs.summary &&
             lhs.trackCount == rhs.trackCount &&
             lhs.duration == rhs.duration &&
             lhs.compositePath == rhs.compositePath &&
-            lhs.isSmart == rhs.isSmart
+            lhs.fallbackArtworkPath == rhs.fallbackArtworkPath &&
+            lhs.fallbackArtworkRatingKey == rhs.fallbackArtworkRatingKey &&
+            lhs.fallbackArtworkSourceCompositeKey == rhs.fallbackArtworkSourceCompositeKey &&
+            lhs.isSmart == rhs.isSmart &&
+            lhs.dateAdded == rhs.dateAdded &&
+            lhs.dateModified == rhs.dateModified &&
+            lhs.lastPlayed == rhs.lastPlayed &&
+            lhs.sourceCompositeKey == rhs.sourceCompositeKey &&
+            lhs.actionCapabilities == rhs.actionCapabilities
     }
 
-    /// Hashable must be consistent with custom Equatable — hash only id.
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
+        hasher.combine(sourceScopedID)
     }
 }
 
@@ -802,7 +1140,7 @@ public extension String {
         return self
     }
 
-    /// Returns the first character for indexing, handling "The" prefix and ignoring common punctuation
+    /// Returns an A-Z index letter or #, ignoring articles, punctuation, diacritics, and width differences.
     var indexingLetter: String {
         let key = sortingKey
 
@@ -822,13 +1160,13 @@ public extension String {
             cleanedKey = key
         }
 
-        let firstChar = cleanedKey.prefix(1).uppercased()
+        let letter = cleanedKey
+            .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
+            .prefix(1)
+            .uppercased()
 
-        // Return # for non-alphabetic characters (includes numbers)
-        if firstChar.rangeOfCharacter(from: .letters) == nil {
-            return "#"
-        }
-        return firstChar
+        guard letter.count == 1, ("A"..."Z").contains(letter) else { return "#" }
+        return letter
     }
 
     /// Returns a display-friendly possessive form for names and labels.
@@ -973,6 +1311,108 @@ public enum FavoritesSortOption: String, CaseIterable, Sendable {
 
 // MARK: - Hub (Home Screen Content)
 
+/// Provider-normalized meaning used to merge and order Feed sections.
+public struct HubSemanticKind: RawRepresentable, Codable, Hashable, Sendable {
+    public static let recentlyAdded = HubSemanticKind(rawValue: "music.recent.added")
+    public static let recentlyPlayed = HubSemanticKind(rawValue: "music.recent.played")
+    public static let mostPlayed = HubSemanticKind(rawValue: "music.popular")
+
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    /// Creates a stable semantic identity at the provider mapping boundary.
+    public static func provider(
+        identifier: String,
+        title: String,
+        context: String? = nil
+    ) -> HubSemanticKind {
+        if identifier.contains("#") {
+            return HubSemanticKind(rawValue: identifier)
+        }
+        let normalizedIdentifier = normalizedProviderIdentifier(identifier)
+        switch normalizedIdentifier {
+        case recentlyAdded.rawValue:
+            return .recentlyAdded
+        case recentlyPlayed.rawValue:
+            return .recentlyPlayed
+        case mostPlayed.rawValue:
+            return .mostPlayed
+        default:
+            let disambiguator = [context, title]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "|")
+            return HubSemanticKind(
+                rawValue: disambiguator.isEmpty
+                    ? normalizedIdentifier
+                    : "\(normalizedIdentifier)#\(disambiguator)"
+            )
+        }
+    }
+
+    public var mergesAcrossSources: Bool {
+        self == .recentlyAdded || self == .recentlyPlayed || self == .mostPlayed
+    }
+
+    public func displayTitle(fallback: String) -> String {
+        switch self {
+        case .recentlyAdded: return "Recently Added"
+        case .recentlyPlayed: return "Recently Played"
+        case .mostPlayed: return "Most Played"
+        default: return fallback
+        }
+    }
+
+    static func legacy(hubID: String, title: String, context: String? = nil) -> HubSemanticKind {
+        provider(identifier: providerIdentifier(from: hubID), title: title, context: context)
+    }
+
+    static func providerIdentifier(from hubID: String) -> String {
+        let components = hubID.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        if components.count >= 5 {
+            if components[3] == "merged" {
+                return components[4]
+            }
+            return components[4...].joined(separator: ":")
+        }
+        return hubID
+    }
+
+    private static func normalizedProviderIdentifier(_ identifier: String) -> String {
+        guard let lastDot = identifier.lastIndex(of: ".") else { return identifier }
+        let suffix = identifier[identifier.index(after: lastDot)...]
+        return suffix.allSatisfy(\.isNumber) ? String(identifier[..<lastDot]) : identifier
+    }
+}
+
+/// Explicit provider/source ownership used by Feed grouping.
+public struct HubSourceScope: Codable, Hashable, Sendable {
+    public static let global = HubSourceScope(sourceCompositeKey: nil, serverCompositeKey: nil)
+
+    public let sourceCompositeKey: String?
+    public let serverCompositeKey: String?
+
+    public init(source: MusicSourceIdentifier) {
+        self.init(
+            sourceCompositeKey: source.compositeKey,
+            serverCompositeKey: MediaSourceIdentity.serverSourceKey(for: source)
+        )
+    }
+
+    public init(sourceCompositeKey: String?, serverCompositeKey: String? = nil) {
+        self.sourceCompositeKey = sourceCompositeKey
+        self.serverCompositeKey = serverCompositeKey
+            ?? MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)
+    }
+
+    public static func server(_ serverCompositeKey: String) -> HubSourceScope {
+        HubSourceScope(sourceCompositeKey: nil, serverCompositeKey: serverCompositeKey)
+    }
+}
+
 /// Represents a section on the home screen
 public struct Hub: Identifiable, Sendable, Equatable, Codable {
     public let id: String
@@ -980,13 +1420,56 @@ public struct Hub: Identifiable, Sendable, Equatable, Codable {
     public let type: String
     public let items: [HubItem]
     public let context: String? // Plex hub context (e.g. "hub.music.artist" for artist-scoped hubs)
+    public let semanticKind: HubSemanticKind
+    public let sourceScope: HubSourceScope
 
-    public init(id: String, title: String, type: String, items: [HubItem], context: String? = nil) {
+    public init(
+        id: String,
+        title: String,
+        type: String,
+        items: [HubItem],
+        context: String? = nil,
+        semanticKind: HubSemanticKind? = nil,
+        sourceScope: HubSourceScope? = nil
+    ) {
         self.id = id
         self.title = title
         self.type = type
         self.items = items
         self.context = context
+        self.semanticKind = semanticKind ?? .legacy(hubID: id, title: title, context: context)
+        self.sourceScope = sourceScope ?? HubSourceScope(sourceCompositeKey: items.first?.sourceCompositeKey)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, type, items, context, semanticKind, sourceScope
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try values.decode(String.self, forKey: .id)
+        let title = try values.decode(String.self, forKey: .title)
+        let items = try values.decode([HubItem].self, forKey: .items)
+        self.init(
+            id: id,
+            title: title,
+            type: try values.decode(String.self, forKey: .type),
+            items: items,
+            context: try values.decodeIfPresent(String.self, forKey: .context),
+            semanticKind: try values.decodeIfPresent(HubSemanticKind.self, forKey: .semanticKind),
+            sourceScope: try values.decodeIfPresent(HubSourceScope.self, forKey: .sourceScope)
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(title, forKey: .title)
+        try values.encode(type, forKey: .type)
+        try values.encode(items, forKey: .items)
+        try values.encodeIfPresent(context, forKey: .context)
+        try values.encode(semanticKind, forKey: .semanticKind)
+        try values.encode(sourceScope, forKey: .sourceScope)
     }
 
     /// Artist ratingKey for artist-scoped hubs (e.g. "More by Dune Moss").
@@ -1030,6 +1513,9 @@ public struct HubItem: Identifiable, Sendable, Equatable, Codable {
     public let thumbPath: String?
     public let year: Int?
     public let sourceCompositeKey: String
+    public let addedAt: Date?
+    public let lastViewedAt: Date?
+    public let viewCount: Int?
 
     // Reference to actual domain object
     public let album: Album?
@@ -1044,7 +1530,7 @@ public struct HubItem: Identifiable, Sendable, Equatable, Codable {
 
     /// Helper to get the date added from the underlying media object
     public var dateAdded: Date? {
-        album?.dateAdded ?? track?.dateAdded ?? artist?.dateAdded ?? playlist?.dateAdded
+        addedAt ?? album?.dateAdded ?? track?.dateAdded ?? artist?.dateAdded ?? playlist?.dateAdded
     }
 
     public init(
@@ -1055,6 +1541,9 @@ public struct HubItem: Identifiable, Sendable, Equatable, Codable {
         thumbPath: String?,
         year: Int?,
         sourceCompositeKey: String,
+        addedAt: Date? = nil,
+        lastViewedAt: Date? = nil,
+        viewCount: Int? = nil,
         album: Album? = nil,
         track: Track? = nil,
         artist: Artist? = nil,
@@ -1067,6 +1556,9 @@ public struct HubItem: Identifiable, Sendable, Equatable, Codable {
         self.thumbPath = thumbPath
         self.year = year
         self.sourceCompositeKey = sourceCompositeKey
+        self.addedAt = addedAt
+        self.lastViewedAt = lastViewedAt
+        self.viewCount = viewCount
         self.album = album
         self.track = track
         self.artist = artist

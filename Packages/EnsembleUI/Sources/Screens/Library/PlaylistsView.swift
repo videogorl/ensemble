@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import Combine
 import SwiftUI
@@ -12,44 +13,44 @@ private extension Notification.Name {
 }
 
 private enum PlaylistMutationEvent {
-    case deletionStarted(playlistID: String)
-    case deletionSucceeded(playlistID: String)
-    case deletionFailed(playlistID: String)
-    case renameStarted(playlistID: String, newTitle: String)
-    case renameSucceeded(playlistID: String, newTitle: String)
-    case renameFailed(playlistID: String)
+    case deletionStarted(playlistIdentity: String)
+    case deletionSucceeded(playlistIdentity: String)
+    case deletionFailed(playlistIdentity: String)
+    case renameStarted(playlistIdentity: String, newTitle: String)
+    case renameSucceeded(playlistIdentity: String, newTitle: String)
+    case renameFailed(playlistIdentity: String)
 
     static var publisher: AnyPublisher<PlaylistMutationEvent, Never> {
         Publishers.MergeMany([
             notificationPublisher(for: .playlistDeletionStarted) { note in
-                guard let playlistID = note.playlistID else { return nil }
-                return .deletionStarted(playlistID: playlistID)
+                guard let playlistIdentity = note.playlistIdentity else { return nil }
+                return .deletionStarted(playlistIdentity: playlistIdentity)
             },
             notificationPublisher(for: .playlistDeletionSucceeded) { note in
-                guard let playlistID = note.playlistID else { return nil }
-                return .deletionSucceeded(playlistID: playlistID)
+                guard let playlistIdentity = note.playlistIdentity else { return nil }
+                return .deletionSucceeded(playlistIdentity: playlistIdentity)
             },
             notificationPublisher(for: .playlistDeletionFailed) { note in
-                guard let playlistID = note.playlistID else { return nil }
-                return .deletionFailed(playlistID: playlistID)
+                guard let playlistIdentity = note.playlistIdentity else { return nil }
+                return .deletionFailed(playlistIdentity: playlistIdentity)
             },
             notificationPublisher(for: .playlistRenameStarted) { note in
-                guard let playlistID = note.playlistID,
+                guard let playlistIdentity = note.playlistIdentity,
                       let newTitle = note.newTitle else {
                     return nil
                 }
-                return .renameStarted(playlistID: playlistID, newTitle: newTitle)
+                return .renameStarted(playlistIdentity: playlistIdentity, newTitle: newTitle)
             },
             notificationPublisher(for: .playlistRenameSucceeded) { note in
-                guard let playlistID = note.playlistID,
+                guard let playlistIdentity = note.playlistIdentity,
                       let newTitle = note.newTitle else {
                     return nil
                 }
-                return .renameSucceeded(playlistID: playlistID, newTitle: newTitle)
+                return .renameSucceeded(playlistIdentity: playlistIdentity, newTitle: newTitle)
             },
             notificationPublisher(for: .playlistRenameFailed) { note in
-                guard let playlistID = note.playlistID else { return nil }
-                return .renameFailed(playlistID: playlistID)
+                guard let playlistIdentity = note.playlistIdentity else { return nil }
+                return .renameFailed(playlistIdentity: playlistIdentity)
             }
         ])
         .eraseToAnyPublisher()
@@ -66,8 +67,8 @@ private enum PlaylistMutationEvent {
 }
 
 private extension Notification {
-    var playlistID: String? {
-        userInfo?["playlistID"] as? String
+    var playlistIdentity: String? {
+        userInfo?["playlistIdentity"] as? String
     }
 
     var newTitle: String? {
@@ -86,25 +87,24 @@ public struct PlaylistsView: View {
     private let presentationMode: PresentationMode
     private let externalSelectedPlaylist: Binding<DisplayPlaylist?>?
     @State private var localSelectedPlaylist: DisplayPlaylist?
-    @State private var pendingDeletionPlaylistIDs: Set<String> = []
+    @State private var pendingDeletionPlaylistIdentities: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
-    @State private var deletingToastIDsByPlaylistID: [String: UUID] = [:]
+    @State private var deletingToastIDsByPlaylistIdentity: [String: UUID] = [:]
     @State private var creatingPlaylistToastID: UUID?
     @State private var playlistForEditSheet: Playlist?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
-    @State private var displayPlaylistPendingDelete: DisplayPlaylist?
     @State private var showCreatePlaylistPush = false
-    @State private var renamePushPlaylist: Playlist?
+    @State private var renamePushPlaylists: [Playlist] = []
     @State private var renamePushPlaylistTitle = ""
-    @State private var renamePushDP: DisplayPlaylist?
-    @State private var renamePushDPTitle = ""
     // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
-    @State private var cachedDisplayedPlaylists: [DisplayPlaylist] = []
+    @State private var cachedDisplayedPlaylists: [DisplayPlaylist]?
     @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @State private var demoModeEnabled = DependencyContainer.shared.settingsManager.demoModeEnabled
+    private let settingsManager = DependencyContainer.shared.settingsManager
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @Environment(\.isStageFlowActive) private var rootStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
@@ -119,17 +119,6 @@ public struct PlaylistsView: View {
         #else
         return true
         #endif
-    }
-
-    private var playlistMergeButton: some View {
-        Button {
-            viewModel.toggleMerge()
-        } label: {
-            Image(systemName: viewModel.isMergeEnabled
-                  ? EnsembleDesign.Icon.merge
-                  : EnsembleDesign.Icon.mergeBranch)
-        }
-        .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
     }
 
     private var playlistSortMenu: some View {
@@ -161,50 +150,69 @@ public struct PlaylistsView: View {
 
     private func filteredDisplayedPlaylists(_ displayPlaylists: [DisplayPlaylist]) -> [DisplayPlaylist] {
         displayPlaylists.filter { dp in
-            !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
+            !dp.playlists.allSatisfy { pendingDeletionPlaylistIdentities.contains($0.sourceScopedID) }
         }
     }
 
     private func refreshCachedDisplayedPlaylists() {
-        cachedDisplayedPlaylists = filteredDisplayedPlaylists(viewModel.displayPlaylists)
+        let next = filteredDisplayedPlaylists(viewModel.displayPlaylists)
+        updateDisplayedPlaylists(next)
+    }
+
+    private func updateDisplayedPlaylists(_ displayPlaylists: [DisplayPlaylist]) {
+        if cachedDisplayedPlaylists != displayPlaylists {
+            cachedDisplayedPlaylists = displayPlaylists
+        }
+        reconcileSelectedPlaylist(with: displayPlaylists)
+    }
+
+    private func reconcileSelectedPlaylist(with displayPlaylists: [DisplayPlaylist]) {
+        guard let selectedPlaylist else { return }
+        if let refreshedSelection = displayPlaylists.first(where: { $0.id == selectedPlaylist.id }) {
+            if refreshedSelection != selectedPlaylist {
+                setSelectedPlaylist(refreshedSelection)
+            }
+        } else {
+            setSelectedPlaylist(nil)
+        }
     }
 
     private func handlePlaylistMutationEvent(_ event: PlaylistMutationEvent) {
         switch event {
-        case .deletionStarted(let playlistID):
-            pendingDeletionPlaylistIDs.insert(playlistID)
+        case .deletionStarted(let playlistIdentity):
+            pendingDeletionPlaylistIdentities.insert(playlistIdentity)
             refreshCachedDisplayedPlaylists()
 
-        case .deletionFailed(let playlistID):
-            pendingDeletionPlaylistIDs.remove(playlistID)
+        case .deletionFailed(let playlistIdentity):
+            pendingDeletionPlaylistIdentities.remove(playlistIdentity)
             refreshCachedDisplayedPlaylists()
-            if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
+            if let toastID = deletingToastIDsByPlaylistIdentity.removeValue(forKey: playlistIdentity) {
                 deps.toastCenter.dismiss(id: toastID)
             }
 
-        case .deletionSucceeded(let playlistID):
-            if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
+        case .deletionSucceeded(let playlistIdentity):
+            if let toastID = deletingToastIDsByPlaylistIdentity.removeValue(forKey: playlistIdentity) {
                 deps.toastCenter.dismiss(id: toastID)
             }
             Task {
                 await viewModel.loadPlaylists()
-                pendingDeletionPlaylistIDs.remove(playlistID)
+                pendingDeletionPlaylistIdentities.remove(playlistIdentity)
                 refreshCachedDisplayedPlaylists()
             }
 
-        case .renameStarted(let playlistID, let newTitle):
-            viewModel.applyOptimisticRename(forPlaylistID: playlistID, newTitle: newTitle)
+        case .renameStarted(let playlistIdentity, let newTitle):
+            viewModel.applyOptimisticRename(forPlaylistIdentity: playlistIdentity, newTitle: newTitle)
 
-        case .renameSucceeded(let playlistID, let newTitle):
+        case .renameSucceeded(let playlistIdentity, let newTitle):
             Task {
                 await viewModel.awaitRenamedPlaylistMaterialization(
-                    for: playlistID,
+                    forPlaylistIdentity: playlistIdentity,
                     expectedTitle: newTitle
                 )
             }
 
-        case .renameFailed(let playlistID):
-            viewModel.clearOptimisticRename(for: playlistID)
+        case .renameFailed(let playlistIdentity):
+            viewModel.clearOptimisticRename(forPlaylistIdentity: playlistIdentity)
             Task {
                 await viewModel.loadPlaylists()
             }
@@ -254,28 +262,14 @@ public struct PlaylistsView: View {
                     startOptimisticDelete(for: playlist)
                 }
             } message: {
-                Text("This will permanently delete \"\(playlistPendingSwipeDelete?.title ?? "this playlist")\" from Plex.")
+                Text("This will permanently delete \"\(playlistPendingSwipeDelete?.title ?? "this playlist")\" from its source.")
             }
             .onReceive(accountManager.$isAwaitingCloudSources) { awaiting in
                 if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
             }
-            // Alert: confirm delete for merged playlists (affects all servers)
-            .alert("Delete Merged Playlist?", isPresented: Binding(
-                get: { displayPlaylistPendingDelete != nil },
-                set: { if !$0 { displayPlaylistPendingDelete = nil } }
-            )) {
-                Button("Cancel", role: .cancel) { displayPlaylistPendingDelete = nil }
-                Button("Delete All", role: .destructive) {
-                    guard let dp = displayPlaylistPendingDelete else { return }
-                    displayPlaylistPendingDelete = nil
-                    // Delete all constituent playlists
-                    for playlist in dp.playlists {
-                        startOptimisticDelete(for: playlist)
-                    }
-                }
-            } message: {
-                let count = displayPlaylistPendingDelete?.playlists.count ?? 0
-                Text("This will permanently delete \"\(displayPlaylistPendingDelete?.title ?? "")\" from \(count) server\(count == 1 ? "" : "s").")
+            .onReceive(settingsManager.objectWillChange) { _ in
+                let latest = settingsManager.demoModeEnabled
+                if latest != demoModeEnabled { demoModeEnabled = latest }
             }
             .sheet(item: $playlistForEditSheet) { playlist in
                 PlaylistDetailView(
@@ -302,7 +296,7 @@ public struct PlaylistsView: View {
                 view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             }
             .task {
-                await viewModel.loadPlaylists()
+                await viewModel.loadPlaylistsIfNeeded()
             }
             // Keep cached displayed playlists in sync (avoids recomputing grouping on every body eval)
             .onReceive(viewModel.$displayPlaylists) { displayPlaylists in
@@ -312,7 +306,8 @@ public struct PlaylistsView: View {
                 // after sync finishes, which emits the final correct data.
                 guard !viewModel.isRefreshingFromServer else { return }
 
-                cachedDisplayedPlaylists = filteredDisplayedPlaylists(displayPlaylists)
+                let next = filteredDisplayedPlaylists(displayPlaylists)
+                updateDisplayedPlaylists(next)
             }
             // When refresh completes, catch up immediately rather than waiting for the
             // Combine pipeline's 150ms debounce to produce the next displayPlaylists emission.
@@ -331,13 +326,13 @@ public struct PlaylistsView: View {
             }
             .toolbar {
                 EnsembleBrowseToolbar(isVisible: !isStageFlowActive) {
-                    playlistMergeButton
                     PlaylistsNewButton {
                         showCreatePlaylistPush = true
                     }
                     playlistSortMenu
                 }
             }
+            .ensembleBrowseToolbarMinimization()
             // Keep modal presenters outside search/toolbar/chrome modifiers so
             // field focus does not rebuild the sheet host.
             .sheet(isPresented: $showCreatePlaylistPush) {
@@ -349,44 +344,24 @@ public struct PlaylistsView: View {
                 }
             }
             .alert("Rename Playlist", isPresented: Binding(
-                get: { renamePushPlaylist != nil },
-                set: { if !$0 { renamePushPlaylist = nil } }
+                get: { !renamePushPlaylists.isEmpty },
+                set: { if !$0 { renamePushPlaylists = [] } }
             )) {
                 TextField("Playlist name", text: $renamePushPlaylistTitle)
                 Button("Cancel", role: .cancel) {
-                    renamePushPlaylist = nil
+                    renamePushPlaylists = []
                 }
                 Button("Save") {
-                    guard let playlist = renamePushPlaylist else { return }
+                    let playlists = renamePushPlaylists
                     let title = renamePushPlaylistTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                    renamePushPlaylist = nil
-                    renamePlaylist(playlist, to: title)
+                    renamePushPlaylists = []
+                    for playlist in playlists {
+                        renamePlaylist(playlist, to: title)
+                    }
                 }
                 .disabled(renamePushPlaylistTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } message: {
                 Text("Choose a new playlist name.")
-            }
-            .alert("Rename Playlist", isPresented: Binding(
-                get: { renamePushDP != nil },
-                set: { if !$0 { renamePushDP = nil } }
-            )) {
-                TextField("Playlist name", text: $renamePushDPTitle)
-                Button("Cancel", role: .cancel) {
-                    renamePushDP = nil
-                }
-                Button("Save") {
-                    guard let dp = renamePushDP else { return }
-                    let title = renamePushDPTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                    renamePushDP = nil
-                    viewModel.applyOptimisticRenameForMerged(dp, newTitle: title)
-                    for playlist in dp.playlists {
-                        renamePlaylist(playlist, to: title)
-                    }
-                }
-                .disabled(renamePushDPTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            } message: {
-                let count = renamePushDP?.playlists.count ?? 0
-                Text("This will rename on \(count) server\(count == 1 ? "" : "s").")
             }
     }
 
@@ -413,24 +388,16 @@ public struct PlaylistsView: View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Playlists",
             iconSystemName: EnsembleDesign.Icon.playlist,
-            recovery: playlistEmptyRecovery(emptyMessage: "Create playlists in Plex to see them here"),
+            recovery: EnsembleLibraryEmptyStateScaffold.recovery(
+                isRestoringCloudSources: isRestoringCloudSources,
+                hasAnySources: accountManager.hasAnySources,
+                isSyncing: syncCoordinator.isSyncing,
+                hasEnabledLibraries: hasEnabledLibraries,
+                emptyMessage: "Create playlists in your music sources to see them here"
+            ),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )
-    }
-
-    private func playlistEmptyRecovery(emptyMessage: String) -> EnsembleLibraryEmptyStateScaffold.Recovery {
-        if isRestoringCloudSources {
-            return .restoringCloudSources
-        } else if !accountManager.hasAnySources {
-            return .noSources
-        } else if syncCoordinator.isSyncing {
-            return .syncing
-        } else if !hasEnabledLibraries {
-            return .noEnabledLibraries
-        } else {
-            return .empty(message: emptyMessage)
-        }
     }
 
     @ViewBuilder
@@ -439,7 +406,22 @@ public struct PlaylistsView: View {
         case .compactRoot:
             adaptivePlaylistView
         case .selectionColumn:
-            playlistSelectionList
+            if #available(iOS 18.0, macOS 15.0, *) {
+                NativeBrowseScrollView {
+                    ForEach(effectivePlaylists) { playlist in
+                        playlistSelectionRow(playlist)
+                            .padding(.horizontal, EnsembleScaffold.BrowseSelection.horizontalPadding)
+                            .padding(.vertical, EnsembleScaffold.BrowseSelection.verticalPadding)
+                            .browseSelectionBackground(isSelected: selectedPlaylist?.id == playlist.id)
+                            .padding(.horizontal, EnsembleScaffold.BrowseSelection.outerHorizontalPadding)
+                            .id(playlist.id)
+                    }
+                    playlistCountFooter(count: effectivePlaylists.count)
+                }
+                .accessibilityIdentifier("browse.playlists")
+            } else {
+                playlistSelectionList
+            }
         }
     }
 
@@ -487,18 +469,21 @@ public struct PlaylistsView: View {
         )
     }
 
+    private func playlistSelectionRow(_ playlist: DisplayPlaylist) -> some View {
+        let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(playlist)
+        return PlaylistRow(
+            displayPlaylist: playlist,
+            chipStyle: chipStyle(for: playlist),
+            onTap: isPendingCreation ? nil : { setSelectedPlaylist(playlist) },
+            isDisabled: isPendingCreation,
+            statusText: isPendingCreation ? "Creating..." : nil
+        )
+    }
+
     private var playlistSelectionList: some View {
         List {
             ForEach(effectivePlaylists) { dp in
-                let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(dp)
-                PlaylistRow(
-                    displayPlaylist: dp,
-                    nowPlayingVM: nowPlayingVM,
-                    chipStyle: chipStyle(for: dp),
-                    onTap: isPendingCreation ? nil : { setSelectedPlaylist(dp) },
-                    isDisabled: isPendingCreation,
-                    statusText: isPendingCreation ? "Creating..." : nil
-                )
+                playlistSelectionRow(dp)
                 .listRowBackground(
                     RoundedRectangle(
                         cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,
@@ -507,6 +492,8 @@ public struct PlaylistsView: View {
                     .fill(selectedPlaylist?.id == dp.id ? EnsembleScaffold.BrowseSelection.fillColor : Color.clear)
                 )
             }
+
+            playlistCountFooter(count: effectivePlaylists.count)
         }
         .listStyle(.plain)
         .foregroundScrollActivity()
@@ -514,13 +501,15 @@ public struct PlaylistsView: View {
     }
 
     private var playlistListView: some View {
-        List {
-            ForEach(cachedDisplayedPlaylists) { dp in
+        let displayedPlaylists = effectivePlaylists
+
+        return List {
+            ForEach(displayedPlaylists) { dp in
                 let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(dp)
                 PlaylistRow(
                     displayPlaylist: dp,
-                    nowPlayingVM: nowPlayingVM,
                     chipStyle: chipStyle(for: dp),
+                    onTap: isPendingCreation ? nil : { openPlaylist(dp) },
                     isDisabled: isPendingCreation,
                     statusText: isPendingCreation ? "Creating..." : nil
                 )
@@ -531,10 +520,11 @@ public struct PlaylistsView: View {
                                 MergedPlaylistActionsContextMenu(
                                     displayPlaylist: dp,
                                     nowPlayingVM: nowPlayingVM,
-                                    onRename: {
-                                        presentRenameAlert(for: dp)
+                                    onGetInfo: { libraryItemInfoRequest = .playlist(dp.primaryPlaylist, sources: dp.playlists) },
+                                    onRename: { playlists in
+                                        presentRenameAlert(for: playlists)
                                     },
-                                    onDelete: { displayPlaylistPendingDelete = dp }
+                                    onDelete: { playlistPendingSwipeDelete = $0 }
                                 )
                             } else {
                                 PlaylistActionsContextMenu(
@@ -543,34 +533,68 @@ public struct PlaylistsView: View {
                                     onGetInfo: {
                                         libraryItemInfoRequest = .playlist(dp.primaryPlaylist)
                                     },
-                                    onRename: {
-                                        presentRenameAlert(for: dp.primaryPlaylist)
+                                    onRename: { playlist in
+                                        presentRenameAlert(for: [playlist])
                                     },
-                                    onEdit: { playlistForEditSheet = dp.primaryPlaylist },
-                                    onDelete: { playlistPendingSwipeDelete = dp.primaryPlaylist }
+                                    onEdit: { playlistForEditSheet = $0 },
+                                    onDelete: { playlistPendingSwipeDelete = $0 }
                                 )
                             }
                         }
                     }
-                    .if(!dp.isSmart && !isPendingCreation) { row in
+                    .if(!dp.deletablePlaylists.isEmpty && !isPendingCreation) { row in
                         row.standardDeleteSwipeAction {
                             if dp.isMerged {
-                                displayPlaylistPendingDelete = dp
+                                sourceMutationAction(
+                                    title: "Delete Playlist",
+                                    items: dp.deletablePlaylists,
+                                    id: \.sourceScopedID,
+                                    itemTitle: \.title,
+                                    sourceKey: \.sourceCompositeKey,
+                                    presenter: sourceActionPresenter,
+                                    deps: deps
+                                ) { playlist in
+                                    playlistPendingSwipeDelete = playlist
+                                }?()
                             } else {
                                 playlistPendingSwipeDelete = dp.primaryPlaylist
                             }
                         }
-                    }
+                }
             }
+
+            playlistCountFooter(count: displayedPlaylists.count)
         }
         .listStyle(.plain)
         .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }
+
+    @ViewBuilder
+    private func playlistCountFooter(count: Int) -> some View {
+        let footer = LibraryBrowseCountFooter(
+            count: count,
+            singular: "playlist",
+            plural: "playlists",
+            bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
+        )
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+
+        #if os(macOS)
+        if #available(macOS 13.0, *) {
+            footer.listRowSeparator(.hidden)
+        } else {
+            footer
+        }
+        #else
+        footer.listRowSeparator(.hidden)
+        #endif
+    }
     
     private var stageFlowView: some View {
         StageFlowView(
-            items: cachedDisplayedPlaylists,
+            items: effectivePlaylists,
             nowPlayingVM: nowPlayingVM,
             itemView: { dp in
                 StageFlowItemView(displayPlaylist: dp)
@@ -591,27 +615,7 @@ public struct PlaylistsView: View {
             titleContent: { $0.title },
             subtitleContent: { "\($0.trackCount) tracks" },
             resolvePlaybackTracks: { dp in
-                // For merged playlists, load and interleave tracks from all constituents
-                if dp.isMerged {
-                    var trackSets: [[Track]] = []
-                    for playlist in dp.playlists {
-                        if let cached = try? await deps.playlistRepository.fetchPlaylist(
-                            ratingKey: playlist.id,
-                            sourceCompositeKey: playlist.sourceCompositeKey
-                        ) {
-                            trackSets.append(cached.tracksArray.map { Track(from: $0) })
-                        }
-                    }
-                    return DisplayPlaylist.interleave(trackSets)
-                }
-                // Single playlist — fetch directly
-                if let cached = try? await deps.playlistRepository.fetchPlaylist(
-                    ratingKey: dp.primaryPlaylist.id,
-                    sourceCompositeKey: dp.primaryPlaylist.sourceCompositeKey
-                ) {
-                    return cached.tracksArray.map { Track(from: $0) }
-                }
-                return []
+                (try? await dp.resolvedTracks(using: deps.playlistRepository)) ?? []
             },
             selectedItem: selectedPlaylistBinding
         )
@@ -619,11 +623,12 @@ public struct PlaylistsView: View {
 
     private var effectivePlaylists: [DisplayPlaylist] {
         // Filter out display playlists whose only constituent is pending deletion
-        cachedDisplayedPlaylists.isEmpty
-            ? viewModel.displayPlaylists.filter { dp in
-                !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
+        cachedDisplayedPlaylists
+            ?? viewModel.displayPlaylists.filter { dp in
+                !dp.playlists.allSatisfy {
+                    pendingDeletionPlaylistIdentities.contains($0.sourceScopedID)
+                }
             }
-            : cachedDisplayedPlaylists
     }
 
     /// Determines the chip style for a DisplayPlaylist row
@@ -631,7 +636,7 @@ public struct PlaylistsView: View {
         if dp.isMerged { return .merged }
         if viewModel.hasNameCollision(dp.title) {
             let name = accountManager.serverName(for: dp.primaryPlaylist.sourceCompositeKey ?? "") ?? "Unknown"
-            return .serverName(DemoModeRedaction.serverName(name, isEnabled: settingsManager.demoModeEnabled))
+            return .serverName(DemoModeRedaction.serverName(name, isEnabled: demoModeEnabled))
         }
         return nil
     }
@@ -644,6 +649,13 @@ public struct PlaylistsView: View {
         }
     }
 
+    private func openPlaylist(_ displayPlaylist: DisplayPlaylist) {
+        let destination: NavigationCoordinator.Destination = displayPlaylist.isMerged
+            ? .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
+            : .playlistDetail(displayPlaylist.primaryPlaylist)
+        navigationCoordinator.route(to: destination)
+    }
+
     private func playlistServerOptionsForDisplay() -> [PlaylistServerOption] {
         nowPlayingVM.playlistServerOptions().map { option in
             PlaylistServerOption(
@@ -654,38 +666,40 @@ public struct PlaylistsView: View {
     }
 
     private func startOptimisticDelete(for playlist: Playlist) {
-        guard !pendingDeletionPlaylistIDs.contains(playlist.id) else { return }
+        let playlistIdentity = playlist.sourceScopedID
+        guard !pendingDeletionPlaylistIdentities.contains(playlistIdentity) else { return }
         guard let start = deps.playlistMutationWorkflow.beginDelete(playlist: playlist) else { return }
 
+        viewModel.applyOptimisticDelete(for: playlist)
+
         let deletingToast = start.pendingToast
-        deletingToastIDsByPlaylistID[playlist.id] = deletingToast.id
+        deletingToastIDsByPlaylistIdentity[playlistIdentity] = deletingToast.id
         deps.toastCenter.show(deletingToast)
 
         NotificationCenter.default.post(
             name: .playlistDeletionStarted,
             object: nil,
-            userInfo: ["playlistID": playlist.id]
+            userInfo: ["playlistIdentity": playlistIdentity]
         )
 
         Task {
             do {
                 let result = try await deps.playlistMutationWorkflow.finishDelete(playlist: playlist)
-                if result.outcome == .queued {
-                    viewModel.applyOptimisticDelete(for: playlist)
-                }
                 deps.pinMutationWorkflow.unpin(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
                 NotificationCenter.default.post(
                     name: .playlistDeletionSucceeded,
                     object: nil,
-                    userInfo: ["playlistID": playlist.id]
+                    userInfo: ["playlistIdentity": playlistIdentity]
                 )
                 deps.toastCenter.show(result.successToast)
             } catch {
                 NotificationCenter.default.post(
                     name: .playlistDeletionFailed,
                     object: nil,
-                    userInfo: ["playlistID": playlist.id]
+                    userInfo: ["playlistIdentity": playlistIdentity]
                 )
+                viewModel.clearOptimisticDelete(forPlaylistIdentity: playlistIdentity)
+                await viewModel.loadPlaylists()
                 deps.toastCenter.show(
                     deps.playlistMutationWorkflow.deleteFailureToast(
                         playlist: playlist,
@@ -696,8 +710,8 @@ public struct PlaylistsView: View {
         }
     }
 
-    /// Creates a playlist on one or more servers with a single aggregate toast.
-    /// When merge is enabled, the callback may pass multiple server keys.
+    /// Creates a playlist on one or more sources with a single aggregate toast.
+    /// When merge is enabled, the callback may pass multiple source keys.
     private func createPlaylistOnServers(named title: String, serverSourceKeys: [String]) {
         let creatingToast = ToastPayload(
             style: .info,
@@ -730,7 +744,7 @@ public struct PlaylistsView: View {
             creatingPlaylistToastID = nil
 
             if successCount == serverSourceKeys.count {
-                // All servers succeeded
+                // All sources succeeded
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .success,
@@ -740,13 +754,13 @@ public struct PlaylistsView: View {
                     )
                 )
             } else if successCount > 0 {
-                // Partial success — some servers created it, others failed
+                // Partial success — some sources created it, others failed
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .warning,
                         iconSystemName: EnsembleDesign.Icon.error,
-                        title: "Created \(title) on \(successCount)/\(serverSourceKeys.count) servers",
-                        message: lastError ?? "Some servers could not create this playlist.",
+                        title: "Created \(title) on \(successCount)/\(serverSourceKeys.count) sources",
+                        message: lastError ?? "Some sources could not create this playlist.",
                         dedupeKey: "playlist-create-partial-\(title.lowercased())"
                     )
                 )
@@ -783,7 +797,7 @@ public struct PlaylistsView: View {
                 )
                 if result.outcome == .completed {
                     await viewModel.awaitRenamedPlaylistMaterialization(
-                        for: playlist.id,
+                        forPlaylistIdentity: playlist.sourceScopedID,
                         expectedTitle: start.trimmedTitle
                     )
                     deps.pinMutationWorkflow.updateTitle(
@@ -795,7 +809,7 @@ public struct PlaylistsView: View {
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(result.successToast)
             } catch {
-                viewModel.clearOptimisticRename(for: playlist.id)
+                viewModel.clearOptimisticRename(forPlaylistIdentity: playlist.sourceScopedID)
                 await viewModel.loadPlaylists()
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
@@ -808,14 +822,10 @@ public struct PlaylistsView: View {
         }
     }
 
-    private func presentRenameAlert(for playlist: Playlist) {
-        renamePushPlaylistTitle = playlist.title
-        renamePushPlaylist = playlist
-    }
-
-    private func presentRenameAlert(for displayPlaylist: DisplayPlaylist) {
-        renamePushDPTitle = displayPlaylist.title
-        renamePushDP = displayPlaylist
+    private func presentRenameAlert(for playlists: [Playlist]) {
+        guard let first = playlists.first else { return }
+        renamePushPlaylistTitle = first.title
+        renamePushPlaylists = playlists
     }
 
 }
@@ -879,10 +889,11 @@ public struct PlaylistDetailView: View {
     @State private var renamePromptText = ""
     @State private var showDeleteConfirmation = false
     @State private var isEditingPlaylist: Bool
-    @State private var editedTracks: [Track] = []
+    @State private var editedItems: [PlaylistItem] = []
     @State private var isSavingPlaylistEdits = false
     @State private var isDeletingPlaylist = false
     @State private var deletingToastID: UUID?
+    @State private var favoriteOverride: Bool?
     /// When true, Cancel in edit mode dismisses the sheet instead of just toggling edit off
     private let startedInEditMode: Bool
     private let initialArtworkImage: PlatformImage?
@@ -894,12 +905,17 @@ public struct PlaylistDetailView: View {
         nowPlayingVM: NowPlayingViewModel,
         startInEditMode: Bool = false,
         initialTracks: [Track]? = nil,
-        initialArtworkImage: PlatformImage? = nil
+        initialItems: [PlaylistItem]? = nil,
+        initialArtworkImage: PlatformImage? = nil,
+        includesHidden: Bool = false
     ) {
         self._viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makePlaylistDetailViewModel(
                 playlist: playlist,
-                initialTracks: initialTracks
+                initialTracks: initialTracks,
+                initialItems: initialItems,
+                observesExternalChanges: !startInEditMode,
+                includesHidden: includesHidden
             )
         )
         self.nowPlayingVM = nowPlayingVM
@@ -921,6 +937,7 @@ public struct PlaylistDetailView: View {
     }
 
     public var body: some View {
+        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(viewModel.playlist)
         Group {
             if isEditingPlaylist {
                 inlinePlaylistEditor
@@ -934,34 +951,54 @@ public struct PlaylistDetailView: View {
                     showTrackNumbers: false,
                     groupByDisc: false,
                     mediaType: .playlist,
-                    genreChipContent: AnyView(
-                        GenreFilterHeader(
-                            availableGenres: viewModel.availableGenres,
-                            selectedGenres: $viewModel.filterOptions.selectedGenres,
-                            excludedGenres: $viewModel.filterOptions.excludedGenres,
-                            reservesEmptySpace: true
-                        )
-                    ),
+                    hiddenCandidates: viewModel.playlist.hiddenCandidate(deps: deps).map { [$0] } ?? [],
+                    hiddenIdentity: HiddenMediaIdentity(viewModel.playlist),
                     playlistMenuActions: PlaylistDetailMenuActions(
-                        canRename: !viewModel.playlist.isSmart,
-                        canEdit: !viewModel.playlist.isSmart && !viewModel.tracks.isEmpty,
-                        canDelete: !viewModel.playlist.isSmart,
+                        favoriteAvailability: viewModel.playlist.actionAvailability(for: .favorite),
+                        isFavorite: isFavorite,
+                        downloadAvailability: resolvedDownloadMenuAvailability(
+                            isDownloaded: isDownloaded,
+                            sourceAvailability: viewModel.playlist.actionAvailability(for: .download)
+                        ),
+                        isDownloaded: isDownloaded,
+                        renameAvailability: viewModel.playlist.actionAvailability(for: .rename),
+                        editAvailability: resolvedPlaylistDetailEditAvailability(
+                            actionAvailability: viewModel.playlist.actionAvailability(for: .reorder),
+                            canEditContents: viewModel.canEditPlaylistItems,
+                            unavailableReason: "Playlist contents are not available to edit."
+                        ),
+                        deleteAvailability: viewModel.playlist.actionAvailability(for: .delete),
+                        onToggleFavorite: {
+                            setFavorite(!isFavorite)
+                        },
+                        onFavorite: {
+                            guard !isFavorite else { return }
+                            setFavorite(true)
+                        },
+                        onToggleDownload: {
+                            Task {
+                                await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
+                                    viewModel.playlist,
+                                    isEnabled: !isDownloaded
+                                )
+                            }
+                        },
                         onRename: {
                             renamePromptText = viewModel.playlist.title
                             showRenamePrompt = true
                         },
                         onEdit: {
-                            editedTracks = viewModel.tracks
+                            editedItems = viewModel.playlistItems
                             isEditingPlaylist = true
                         },
                         onDelete: {
                             showDeleteConfirmation = true
                         },
                         onPlayNext: {
-                            nowPlayingVM.playNext(viewModel.filteredTracks)
+                            nowPlayingVM.playNext(viewModel.filteredTracks.filter(\.isLibraryAvailable))
                         },
                         onPlayLast: {
-                            nowPlayingVM.playLast(viewModel.filteredTracks)
+                            nowPlayingVM.playLast(viewModel.filteredTracks.filter(\.isLibraryAvailable))
                         }
                     ),
                     initialArtworkImage: initialArtworkImage
@@ -973,13 +1010,12 @@ public struct PlaylistDetailView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if isEditingPlaylist {
                     Button("Save") {
-                        let editedSnapshot = editedTracks
-                        viewModel.applyEditedTracksLocally(editedSnapshot)
+                        let editedSnapshot = editedItems
                         isSavingPlaylistEdits = true
                         isEditingPlaylist = false
-                        editedTracks = []
+                        editedItems = []
                         Task {
-                            await viewModel.saveEditedTracks(editedSnapshot)
+                            await viewModel.saveEditedItems(editedSnapshot)
                             isSavingPlaylistEdits = false
                         }
                     }
@@ -993,7 +1029,7 @@ public struct PlaylistDetailView: View {
                             dismiss()
                         } else {
                             isEditingPlaylist = false
-                            editedTracks = []
+                            editedItems = []
                         }
                     }
                 }
@@ -1002,13 +1038,12 @@ public struct PlaylistDetailView: View {
             ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 if isEditingPlaylist {
                     Button("Save") {
-                        let editedSnapshot = editedTracks
-                        viewModel.applyEditedTracksLocally(editedSnapshot)
+                        let editedSnapshot = editedItems
                         isSavingPlaylistEdits = true
                         isEditingPlaylist = false
-                        editedTracks = []
+                        editedItems = []
                         Task {
-                            await viewModel.saveEditedTracks(editedSnapshot)
+                            await viewModel.saveEditedItems(editedSnapshot)
                             isSavingPlaylistEdits = false
                         }
                     }
@@ -1019,7 +1054,7 @@ public struct PlaylistDetailView: View {
                             dismiss()
                         } else {
                             isEditingPlaylist = false
-                            editedTracks = []
+                            editedItems = []
                         }
                     }
                 }
@@ -1044,14 +1079,14 @@ public struct PlaylistDetailView: View {
                     playlist: viewModel.playlist
                 ) else { return }
                 isDeletingPlaylist = true
-                let playlistID = viewModel.playlist.id
+                let playlistIdentity = viewModel.playlist.sourceScopedID
                 let deletingToast = start.pendingToast
                 deletingToastID = deletingToast.id
                 deps.toastCenter.show(deletingToast)
                 NotificationCenter.default.post(
                     name: .playlistDeletionStarted,
                     object: nil,
-                    userInfo: ["playlistID": playlistID]
+                    userInfo: ["playlistIdentity": playlistIdentity]
                 )
                 dismiss()
                 Task {
@@ -1067,7 +1102,7 @@ public struct PlaylistDetailView: View {
                         NotificationCenter.default.post(
                             name: .playlistDeletionSucceeded,
                             object: nil,
-                            userInfo: ["playlistID": playlistID]
+                            userInfo: ["playlistIdentity": playlistIdentity]
                         )
                         deps.toastCenter.show(deleteResult.successToast)
                     } catch {
@@ -1079,7 +1114,7 @@ public struct PlaylistDetailView: View {
                         NotificationCenter.default.post(
                             name: .playlistDeletionFailed,
                             object: nil,
-                            userInfo: ["playlistID": playlistID]
+                            userInfo: ["playlistIdentity": playlistIdentity]
                         )
                         deps.toastCenter.show(
                             deps.playlistMutationWorkflow.deleteFailureToast(
@@ -1091,7 +1126,7 @@ public struct PlaylistDetailView: View {
                 }
             }
         } message: {
-            Text("This will permanently delete \"\(viewModel.playlist.title)\" from Plex.")
+            Text("This will permanently delete \"\(viewModel.playlist.title)\" from its source.")
         }
         .refreshable {
             await viewModel.refreshFromServer()
@@ -1099,32 +1134,49 @@ public struct PlaylistDetailView: View {
         // Ensure tracks load even when starting in edit mode (where MediaDetailView
         // isn't mounted and its .task { loadTracks() } never fires).
         .task {
-            if isEditingPlaylist && viewModel.tracks.isEmpty {
+            if isEditingPlaylist && viewModel.playlistItems.isEmpty {
                 await viewModel.loadTracks()
             }
         }
-        // When opened in edit mode (from merged playlist picker), populate editedTracks
-        // once the view model finishes loading tracks.
+        // When opened in edit mode (from merged playlist picker), populate editedItems
+        // once the view model finishes loading playlist memberships.
         .onAppear {
-            if startedInEditMode && editedTracks.isEmpty && !viewModel.tracks.isEmpty {
-                editedTracks = viewModel.tracks
+            if startedInEditMode && editedItems.isEmpty && !viewModel.playlistItems.isEmpty {
+                editedItems = viewModel.playlistItems
             }
         }
-        .onChange(of: viewModel.tracks) { tracks in
-            if startedInEditMode && isEditingPlaylist && editedTracks.isEmpty && !tracks.isEmpty {
-                editedTracks = tracks
+        .onChange(of: viewModel.playlistItems) { items in
+            if startedInEditMode && isEditingPlaylist && editedItems.isEmpty && !items.isEmpty {
+                editedItems = items
             }
         }
         #if os(iOS)
         .navigationBarBackButtonHidden(isEditingPlaylist)
         #endif
     }
+
+    private var isFavorite: Bool {
+        favoriteOverride ?? viewModel.playlist.isFavorite
+    }
+
+    private func setFavorite(_ isFavorite: Bool) {
+        let playlist = viewModel.playlist
+        let previous = self.isFavorite
+        favoriteOverride = isFavorite
+        Task {
+            do {
+                try await deps.collectionFavoriteMutationWorkflow.setFavorite(isFavorite, for: playlist)
+            } catch {
+                favoriteOverride = previous
+            }
+        }
+    }
     
     private func renamePlaylistFromPrompt() {
         let newTitle = renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !newTitle.isEmpty else { return }
 
-        let playlistID = viewModel.playlist.id
+        let playlistIdentity = viewModel.playlist.sourceScopedID
         guard let start = deps.playlistMutationWorkflow.beginRename(
             playlist: viewModel.playlist,
             to: newTitle
@@ -1136,7 +1188,7 @@ public struct PlaylistDetailView: View {
             name: .playlistRenameStarted,
             object: nil,
             userInfo: [
-                "playlistID": playlistID,
+                "playlistIdentity": playlistIdentity,
                 "newTitle": start.trimmedTitle
             ]
         )
@@ -1152,7 +1204,7 @@ public struct PlaylistDetailView: View {
                     name: .playlistRenameSucceeded,
                     object: nil,
                     userInfo: [
-                        "playlistID": playlistID,
+                        "playlistIdentity": playlistIdentity,
                         "newTitle": start.trimmedTitle
                     ]
                 )
@@ -1162,7 +1214,7 @@ public struct PlaylistDetailView: View {
                 NotificationCenter.default.post(
                     name: .playlistRenameFailed,
                     object: nil,
-                    userInfo: ["playlistID": playlistID]
+                    userInfo: ["playlistIdentity": playlistIdentity]
                 )
                 deps.toastCenter.show(
                     deps.playlistMutationWorkflow.renameFailureToast(
@@ -1201,14 +1253,14 @@ public struct PlaylistDetailView: View {
     private var inlinePlaylistEditor: some View {
         EnsembleAdaptiveUtilityScaffold(title: viewModel.playlist.title) {
             List {
-                ForEach(Array(editedTracks.enumerated()), id: \.offset) { _, track in
-                    editableTrackSummary(track)
+                ForEach(editedItems) { item in
+                    editableTrackSummary(item.track)
                 }
                 .onMove { source, destination in
-                    editedTracks.move(fromOffsets: source, toOffset: destination)
+                    editedItems.move(fromOffsets: source, toOffset: destination)
                 }
                 .onDelete { offsets in
-                    editedTracks.remove(atOffsets: offsets)
+                    editedItems.remove(atOffsets: offsets)
                 }
             }
             .listStyle(.plain)
@@ -1217,18 +1269,18 @@ public struct PlaylistDetailView: View {
             #endif
         } regularContent: {
             EnsembleUtilityCardSection {
-                if editedTracks.isEmpty {
+                if editedItems.isEmpty {
                     EnsembleUtilityCardRow {
                         Text("No tracks in this playlist.")
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 } else {
-                    ForEach(Array(editedTracks.enumerated()), id: \.offset) { index, track in
+                    ForEach(Array(editedItems.enumerated()), id: \.element.id) { index, item in
                         EnsembleUtilityCardRow {
-                            editableTrackCardRow(track, index: index)
+                            editableTrackCardRow(item.track, index: index)
                         }
 
-                        if index < editedTracks.count - 1 {
+                        if index < editedItems.count - 1 {
                             EnsembleUtilityCardDivider()
                         }
                     }
@@ -1243,7 +1295,7 @@ public struct PlaylistDetailView: View {
             ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                 Text(track.title)
-                Text(track.artistName ?? "")
+                Text(track.unavailableReason ?? track.artistName ?? "")
                     .font(EnsembleDesign.Typography.rowSecondary)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
@@ -1266,15 +1318,15 @@ public struct PlaylistDetailView: View {
                 .accessibilityLabel("Move Track Up")
 
                 Button {
-                    moveEditedTrack(from: index, to: min(editedTracks.count - 1, index + 1))
+                    moveEditedTrack(from: index, to: min(editedItems.count - 1, index + 1))
                 } label: {
                     Image(systemName: EnsembleDesign.Icon.chevronDown)
                 }
-                .disabled(index >= editedTracks.count - 1)
+                .disabled(index >= editedItems.count - 1)
                 .accessibilityLabel("Move Track Down")
 
                 Button(role: .destructive) {
-                    editedTracks.remove(at: index)
+                    editedItems.remove(at: index)
                 } label: {
                     Image(systemName: EnsembleDesign.Icon.delete)
                 }
@@ -1285,20 +1337,20 @@ public struct PlaylistDetailView: View {
     }
 
     private func moveEditedTrack(from sourceIndex: Int, to destinationIndex: Int) {
-        guard editedTracks.indices.contains(sourceIndex),
-              editedTracks.indices.contains(destinationIndex),
+        guard editedItems.indices.contains(sourceIndex),
+              editedItems.indices.contains(destinationIndex),
               sourceIndex != destinationIndex else { return }
-        let track = editedTracks.remove(at: sourceIndex)
-        editedTracks.insert(track, at: destinationIndex)
+        let item = editedItems.remove(at: sourceIndex)
+        editedItems.insert(item, at: destinationIndex)
     }
 }
 
 // MARK: - Create Playlist View
 
-/// Pushed view for creating a new playlist with optional multi-server selection.
-/// When only one server is available, the server picker is hidden and the playlist
-/// is created on that server automatically. With multiple servers, a multi-select
-/// list lets the user create the same playlist on several servers at once.
+/// Pushed view for creating a new playlist with optional multi-source selection.
+/// When only one source is available, the source picker is hidden and the playlist
+/// is created there automatically. With multiple sources, a multi-select list lets
+/// the user create the same playlist on several sources at once.
 private struct CreatePlaylistView: View {
     let serverOptions: [PlaylistServerOption]
     let isMergeEnabled: Bool
@@ -1367,9 +1419,9 @@ private struct CreatePlaylistView: View {
             Section {
                 compactServerSelectionRows
             } header: {
-                Text("Servers")
+                Text("Sources")
             } footer: {
-                Text("Select which servers to create this playlist on.")
+                Text(serverSelectionFooter)
             }
         }
     }
@@ -1384,12 +1436,16 @@ private struct CreatePlaylistView: View {
 
         if serverOptions.count > 1 {
             EnsembleUtilityCardSection(
-                "Servers",
-                footer: "Select which servers to create this playlist on."
+                "Sources",
+                footer: serverSelectionFooter
             ) {
                 serverSelectionRows(cardRows: true)
             }
         }
+    }
+
+    private var serverSelectionFooter: String {
+        "\(selectedServerIDs.count) of \(serverOptions.count) sources selected. Selected sources will receive the new playlist."
     }
 
     private var playlistNameField: some View {
@@ -1425,8 +1481,10 @@ private struct CreatePlaylistView: View {
     }
 
     private func serverSelectionButton(for option: PlaylistServerOption) -> some View {
-        Button {
-            if selectedServerIDs.contains(option.id) {
+        let isSelected = selectedServerIDs.contains(option.id)
+
+        return Button {
+            if isSelected {
                 selectedServerIDs.remove(option.id)
             } else {
                 selectedServerIDs.insert(option.id)
@@ -1436,12 +1494,19 @@ private struct CreatePlaylistView: View {
                 Text(option.name)
                     .foregroundColor(EnsembleDesign.Color.primaryText)
                 Spacer()
-                if selectedServerIDs.contains(option.id) {
+                if isSelected {
+                    Text("Selected")
+                        .font(.caption)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                     Image(systemName: EnsembleDesign.Icon.selectionCheckmark)
                         .foregroundColor(EnsembleDesign.Color.accent)
                 }
             }
         }
+        .accessibilityLabel(option.name)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityHint("Toggles whether this source receives the new playlist.")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func submit() {

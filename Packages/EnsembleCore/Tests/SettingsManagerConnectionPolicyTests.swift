@@ -1,14 +1,16 @@
 import Combine
+import EnsembleDomain
 import XCTest
 @testable import EnsembleCore
 
 @MainActor
 final class SettingsManagerConnectionPolicyTests: XCTestCase {
     private let accentColorKey = "accentColor"
-    private let auroraVisualizationKey = "auroraVisualizationEnabled"
+    private let auroraVisualizationKey = AuroraVisualizationPreference.enabledKey
     private let demoModeKey = "demoModeEnabled"
-    private let defaultsKey = "allowInsecureConnectionsPolicy"
+    private let defaultsKey = AllowInsecureConnectionsPolicy.defaultsKey
     private let enabledTabsKey = "enabledTabs"
+    private let mergingPreferencesKey = SettingsManager.mergingPreferencesKey
     private let songsTableColumnsKey = "songsTableColumns"
     private let trackSwipeLayoutKey = "trackSwipeLayout"
     private var cancellables: Set<AnyCancellable> = []
@@ -20,6 +22,7 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: demoModeKey)
         UserDefaults.standard.removeObject(forKey: defaultsKey)
         UserDefaults.standard.removeObject(forKey: enabledTabsKey)
+        UserDefaults.standard.removeObject(forKey: mergingPreferencesKey)
         UserDefaults.standard.removeObject(forKey: songsTableColumnsKey)
         UserDefaults.standard.removeObject(forKey: trackSwipeLayoutKey)
         cancellables.removeAll()
@@ -32,6 +35,7 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: demoModeKey)
         UserDefaults.standard.removeObject(forKey: defaultsKey)
         UserDefaults.standard.removeObject(forKey: enabledTabsKey)
+        UserDefaults.standard.removeObject(forKey: mergingPreferencesKey)
         UserDefaults.standard.removeObject(forKey: songsTableColumnsKey)
         UserDefaults.standard.removeObject(forKey: trackSwipeLayoutKey)
         super.tearDown()
@@ -46,6 +50,11 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
     func testDemoModeDefaultsToDisabled() {
         let manager = SettingsManager()
         XCTAssertFalse(manager.demoModeEnabled)
+    }
+
+    func testMergingPreferencesUseTheSharedDefaults() {
+        XCTAssertEqual(SettingsManager.storedMergingPreferences(), .default)
+        XCTAssertEqual(SettingsManager().mergingPreferences, .default)
     }
 
     #if DEBUG

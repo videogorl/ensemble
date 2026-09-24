@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -15,7 +16,7 @@ public struct FavoritesView: View {
     // Targeted singleton observation for empty state only
     @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
-    @State private var hasEnabledLibrariesState = false
+    @State private var hasEnabledLibrariesState = !DependencyContainer.shared.accountManager.enabledSources().isEmpty
     @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
     @State private var showFilterSheet = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -30,17 +31,17 @@ public struct FavoritesView: View {
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
-    private var backgroundColor: Color {
-        #if os(macOS)
-            return EnsembleDesign.Color.windowSurface
-        #else
-            return EnsembleDesign.Color.windowSurface
-        #endif
+    public init(nowPlayingVM: NowPlayingViewModel) {
+        self.init(
+            nowPlayingVM: nowPlayingVM,
+            viewModel: DependencyContainer.shared.makeFavoritesViewModel()
+        )
     }
 
-    public init(libraryVM _: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
-        _viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeFavoritesViewModel())
+    init(nowPlayingVM: NowPlayingViewModel, viewModel: FavoritesViewModel) {
+        _viewModel = StateObject(wrappedValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
     }
 
@@ -61,6 +62,7 @@ public struct FavoritesView: View {
                 moreMenu
             }
         }
+        .ensembleBrowseToolbarMinimization()
         .onReceive(nowPlayingVM.$currentTrack) { track in
             let id = track?.playbackIdentity
             if id != currentTrackId { currentTrackId = id }
@@ -69,10 +71,9 @@ public struct FavoritesView: View {
             let title = target?.title
             if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
-        .onReceive(DependencyContainer.shared.accountManager.$plexAccounts) { accounts in
-            let has = !accounts.isEmpty
-            if has != hasAnySources { hasAnySources = has }
-            let enabledLibs = Self.computeHasEnabledLibraries()
+        .onReceive(DependencyContainer.shared.accountManager.sourceConfigurationPublisher) { snapshot in
+            if snapshot.hasAnySources != hasAnySources { hasAnySources = snapshot.hasAnySources }
+            let enabledLibs = !snapshot.enabledSources.isEmpty
             if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
         }
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
@@ -81,12 +82,10 @@ public struct FavoritesView: View {
         .onReceive(DependencyContainer.shared.accountManager.$isAwaitingCloudSources) { awaiting in
             if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
         }
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
-            if keys != activeDownloadTrackIdentities { activeDownloadTrackIdentities = keys }
-        }
-        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
-            if gen != availabilityGeneration { availabilityGeneration = gen }
-        }
+        .trackListRuntimeObservation(
+            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
+            availabilityGeneration: $availabilityGeneration
+        )
         .onReceive(viewModel.$isLoading) { isLoading in
             if !isLoading && !hasCompletedInitialLoad {
                 hasCompletedInitialLoad = true
@@ -171,7 +170,7 @@ public struct FavoritesView: View {
             EnsembleStateScaffold(
                 kind: .empty,
                 title: "No Favorites Yet",
-                message: "Rate tracks 4 or 5 stars to add them here\n\(viewModel.tracks.count) total tracks • Showing favorites from all libraries",
+                message: "Rate tracks 4 or 5 stars to add them here\n\(viewModel.tracks.count) total tracks • Showing favorites from visible libraries",
                 iconSystemName: EnsembleDesign.Icon.favorite
             )
         }
@@ -193,125 +192,37 @@ public struct FavoritesView: View {
         return .empty(message: "Rate tracks 4 or 5 stars to add them here")
     }
 
-    private static func computeHasEnabledLibraries() -> Bool {
-        DependencyContainer.shared.accountManager.plexAccounts.contains { account in
-            account.servers.contains { server in
-                server.libraries.contains(where: \.isEnabled)
-            }
-        }
-    }
-
     @ViewBuilder
     private var trackListView: some View {
-        let interactionModel = TrackRowInteractionModel(
-            onPlayNext: { track in
-                nowPlayingVM.playNext(track)
-            },
-            onPlayLast: { track in
-                nowPlayingVM.playLast(track)
-            },
-            onAddToPlaylist: { track in
-                presentPlaylistPicker(with: [track])
-            },
-            onAddToRecentPlaylist: { track in
-                addToRecentPlaylist(track)
-            },
-            onToggleFavorite: { track in
-                Task {
-                    await nowPlayingVM.toggleTrackFavorite(track)
-                }
-            },
-            onGoToAlbum: { track in
-                if let albumId = track.albumRatingKey {
-                    navigationCoordinator.routeFromMenu(
-                        to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
-                        in: navigationCoordinator.selectedTab
-                    )
-                }
-            },
-            onGoToArtist: { track in
-                if let artistId = track.artistRatingKey {
-                    navigationCoordinator.routeFromMenu(
-                        to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
-                        in: navigationCoordinator.selectedTab
-                    )
-                }
-            },
-            onGetInfo: { track in
-                libraryItemInfoRequest = .track(track)
-            },
-            onShareLink: { track in
-                ShareActions.shareTrackLink(track, deps: deps)
-            },
-            onShareFile: { track in
-                ShareActions.shareTrackFile(track, deps: deps)
-            },
-            isTrackFavorited: { track in
-                nowPlayingVM.isTrackFavorited(track)
-            },
-            canAddToRecentPlaylist: { track in
-                recentPlaylistTitle(for: track) != nil
-            },
-            recentPlaylistTitle: nvmRecentPlaylistTitle
-        )
+        let interactionModel = TrackRowInteractionModel.nowPlayingActions(
+            nowPlayingVM: nowPlayingVM,
+            deps: deps,
+            navigationCoordinator: navigationCoordinator,
+            recentPlaylistTitle: nvmRecentPlaylistTitle,
+            mutationCandidates: viewModel.mutationCandidates(for:),
+            sourceActionPresenter: sourceActionPresenter
+        ) { tracks in
+            presentPlaylistPicker(with: tracks)
+        } onGetInfo: { track in
+            libraryItemInfoRequest = .track(track)
+        }
 
-        #if os(iOS)
-            // iOS: ScrollView with embedded UITableView (MediaTrackList)
-            ScrollView {
-                VStack(spacing: EnsembleDesign.Spacing.none) {
-                    favoritesHeaderSurface
-
-                    // Track list
-                    let trackCount = viewModel.filteredTracks.count
-                    let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
-
-                    MediaTrackList(
-                        tracks: viewModel.filteredTracks,
-                        showArtwork: true,
-                        showTrackNumbers: false,
-                        groupByDisc: false,
-                        currentTrackId: currentTrackId,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        interactionModel: interactionModel,
-                        supplementalMetadataWidth: trackListSupplementalMetadataWidth
-                    ) { _, index in
-                        nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-                    }
-                    .frame(height: height)
-
-                    if let footer = favoritesFooterContent {
-                        footer
-                    }
-                }
-            }
-            .foregroundScrollActivity()
-            .miniPlayerBottomSpacing()
-            .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
-        #else
-            // macOS: AppKit-backed table owns the header and scroll range.
-            VStack(spacing: EnsembleDesign.Spacing.none) {
-                SongsTrackListHost(
-                    tracks: viewModel.filteredTracks,
-                    configuration: .songs(
-                        currentTrackId: currentTrackId,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-                        supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                        interactionModel: interactionModel
-                    ),
-                    tableHeaderContent: AnyView(favoritesHeaderSurface),
-                    tableFooterContent: favoritesFooterContent
-                ) { _, index in
-                    nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-                }
-                .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
-
-                Spacer(minLength: EnsembleDesign.Spacing.none)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        #endif
+        SongsTrackListHost(
+            tracks: viewModel.filteredTracks,
+            configuration: .songs(
+                currentTrackId: currentTrackId,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+                supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                interactionModel: interactionModel
+            ),
+            tableHeaderContent: AnyView(favoritesHeaderSurface),
+            tableFooterContent: favoritesFooterContent
+        ) { _, index in
+            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+        }
+        .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
     }
 
     private var favoritesFooterContent: AnyView? {
@@ -365,11 +276,4 @@ public struct FavoritesView: View {
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
     }
 
-    private func addToRecentPlaylist(_ track: Track) {
-        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
-    }
-
-    private func recentPlaylistTitle(for track: Track) -> String? {
-        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
-    }
 }

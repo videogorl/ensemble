@@ -1,5 +1,23 @@
 import Foundation
 
+/// Work in one user-requested queue pass, independent of overlapping download targets.
+struct OfflineDownloadBatchProgress {
+    private var units: [String: Int] = [:]
+    private(set) var completedUnitCount = 0
+    var totalUnitCount: Int { units.count * 1_000 }
+
+    mutating func include(_ identities: [String]) {
+        for identity in identities where units[identity] == nil { units[identity] = 0 }
+    }
+
+    mutating func update(_ identity: String, fraction: Double) {
+        guard let previous = units[identity], fraction.isFinite else { return }
+        let next = max(previous, Int(min(1, max(0, fraction)) * 1_000))
+        units[identity] = next
+        completedUnitCount += next - previous
+    }
+}
+
 /// Adapter around platform background execution APIs used by offline downloads.
 /// The offline queue remains the source of truth; this coordinator is best-effort acceleration only.
 @MainActor
@@ -11,6 +29,7 @@ public protocol OfflineDownloadBackgroundCoordinating: AnyObject {
     var onSystemDidWake: (() -> Void)? { get set }
 
     func register()
+    func beginExecutionWindow()
     func requestContinuedProcessingIfAvailable(pendingTrackCount: Int)
     func setProgress(completedUnitCount: Int, totalUnitCount: Int)
     func finishCurrentTask(success: Bool)
@@ -18,6 +37,10 @@ public protocol OfflineDownloadBackgroundCoordinating: AnyObject {
     func completeBackgroundURLSessionEvents(identifier: String)
     func handleSystemWillSleep()
     func handleSystemDidWake()
+}
+
+public extension OfflineDownloadBackgroundCoordinating {
+    func beginExecutionWindow() {}
 }
 
 @MainActor
@@ -60,48 +83,82 @@ private final class OfflineDownloadBackgroundEventStore {
     }
 }
 
+@MainActor
+class OfflineBackgroundExecutionCoordinatorBase: OfflineDownloadBackgroundCoordinating {
+    var onExecutionRequested: (() -> Void)? {
+        get { eventStore.onExecutionRequested }
+        set { eventStore.onExecutionRequested = newValue }
+    }
+
+    var onExpiration: (() -> Void)? {
+        get { eventStore.onExpiration }
+        set { eventStore.onExpiration = newValue }
+    }
+
+    var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)? {
+        get { eventStore.onBackgroundURLSessionEvents }
+        set { eventStore.onBackgroundURLSessionEvents = newValue }
+    }
+
+    var onSystemWillSleep: (() -> Void)? {
+        get { eventStore.onSystemWillSleep }
+        set { eventStore.onSystemWillSleep = newValue }
+    }
+
+    var onSystemDidWake: (() -> Void)? {
+        get { eventStore.onSystemDidWake }
+        set { eventStore.onSystemDidWake = newValue }
+    }
+
+    fileprivate let eventStore = OfflineDownloadBackgroundEventStore()
+
+    init() {}
+
+    func register() {}
+    func beginExecutionWindow() {}
+    func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {}
+    func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
+    func finishCurrentTask(success: Bool) {}
+
+    func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
+        eventStore.handleBackgroundURLSessionEvents(identifier: identifier, completionHandler: completionHandler)
+    }
+
+    func completeBackgroundURLSessionEvents(identifier: String) {
+        eventStore.completeBackgroundURLSessionEvents(identifier: identifier)
+    }
+
+    func handleSystemWillSleep() {
+        eventStore.handleSystemWillSleep()
+    }
+
+    func handleSystemDidWake() {
+        eventStore.handleSystemDidWake()
+    }
+}
+
 #if os(iOS) && canImport(BackgroundTasks)
 import BackgroundTasks
 import UIKit
 
 @MainActor
-public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating {
-    public var onExecutionRequested: (() -> Void)? {
-        get { eventStore.onExecutionRequested }
-        set { eventStore.onExecutionRequested = newValue }
-    }
-    public var onExpiration: (() -> Void)? {
-        get { eventStore.onExpiration }
-        set { eventStore.onExpiration = newValue }
-    }
-    public var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)? {
-        get { eventStore.onBackgroundURLSessionEvents }
-        set { eventStore.onBackgroundURLSessionEvents = newValue }
-    }
-    public var onSystemWillSleep: (() -> Void)? {
-        get { eventStore.onSystemWillSleep }
-        set { eventStore.onSystemWillSleep = newValue }
-    }
-    public var onSystemDidWake: (() -> Void)? {
-        get { eventStore.onSystemDidWake }
-        set { eventStore.onSystemDidWake = newValue }
-    }
-
+final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinatorBase {
     private static let continuedTaskIdentifier = "com.videogorl.ensemble.offline.continued"
-    private let eventStore = OfflineDownloadBackgroundEventStore()
     private var currentTask: AnyObject?
+    private var pendingIdentifier: String?
+    private var progressCounts = (completed: 0, total: 1)
     private var applicationBackgroundTask: UIBackgroundTaskIdentifier = .invalid
-    private var didRegister = false
 
-    public init() {}
+    override init() {
+        super.init()
+    }
 
-    public func register() {
-        guard #available(iOS 26.0, *) else { return }
-        guard !didRegister else { return }
+    @available(iOS 26.0, *)
+    private func registerContinuedTask(identifier: String) -> Bool {
 
         let registered = BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: Self.continuedTaskIdentifier,
-            using: nil
+            forTaskWithIdentifier: identifier,
+            using: .main
         ) { [weak self] task in
             guard let self else {
                 task.setTaskCompleted(success: false)
@@ -112,16 +169,25 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
                 return
             }
 
+            guard self.pendingIdentifier == continuedTask.identifier else {
+                continuedTask.setTaskCompleted(success: true)
+                return
+            }
+            self.pendingIdentifier = nil
             self.currentTask = continuedTask
-            continuedTask.expirationHandler = { [weak self] in
+            self.setProgress(completedUnitCount: self.progressCounts.completed, totalUnitCount: self.progressCounts.total)
+            // The continued-processing grant replaces the short UIKit safety window.
+            // Its expiration must not cancel work protected by the longer grant.
+            self.endApplicationBackgroundTaskIfNeeded()
+            EnsembleLogger.debug("📦 Offline continued processing execution granted")
+            continuedTask.expirationHandler = { [weak self, weak continuedTask] in
                 Task { @MainActor in
-                    self?.eventStore.onExpiration?()
-                    // Mark success even on expiration — downloads are best-effort
-                    // background acceleration. The persistent queue resumes in
-                    // foreground. Using success:false shows "Task Failed" in the
-                    // Dynamic Island which is misleading for a paused download.
-                    (self?.currentTask as? BGContinuedProcessingTask)?.setTaskCompleted(success: true)
-                    self?.currentTask = nil
+                    guard let self, let continuedTask, self.currentTask === continuedTask else { return }
+                    EnsembleLogger.debug("📦 Offline continued processing grant expired")
+                    self.eventStore.onExpiration?()
+                    // Relinquish this execution grant. Durable URLSession transfers and
+                    // queue recovery are independent; iOS may still display expiration.
+                    self.finishCurrentTask(success: true)
                 }
             }
             // Notify the download service so it can start/continue processing.
@@ -131,84 +197,83 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
             self.eventStore.onExecutionRequested?()
         }
 
-        didRegister = registered
         EnsembleLogger.debug("📦 Offline BG registration \(registered ? "succeeded" : "failed")")
+        return registered
     }
 
-    public func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {
-        guard pendingTrackCount > 0 else { return }
+    override func beginExecutionWindow() {
+        beginApplicationBackgroundTaskIfNeeded()
+    }
+
+    override func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {
+        guard pendingTrackCount > 0, currentTask == nil, pendingIdentifier == nil else { return }
         beginApplicationBackgroundTaskIfNeeded()
 
-        guard #available(iOS 26.0, *) else { return }
-        guard didRegister else {
-            EnsembleLogger.debug("⚠️ Skipping BG continued processing submit: handler not registered")
-            return
-        }
-
-        // Cancel any previously queued requests to prevent stale tasks from
-        // stacking up as "Task Failed" in the Dynamic Island when they expire.
-        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.continuedTaskIdentifier)
-
+        guard #available(iOS 26.0, *), UIApplication.shared.applicationState == .active else { return }
+        // Continued-processing registrations may be made after launch. The plist
+        // permits a wildcard, but register and submit the same concrete identifier.
+        let identifier = Self.continuedTaskIdentifier + "." + UUID().uuidString
+        guard registerContinuedTask(identifier: identifier) else { return }
         let request = BGContinuedProcessingTaskRequest(
-            identifier: Self.continuedTaskIdentifier,
+            identifier: identifier,
             title: "Downloading Music",
-            subtitle: "Preparing offline tracks"
+            subtitle: "0% of current batch"
         )
-        request.strategy = .queue
+        // Work already runs independently. Do not enqueue a stale accelerator grant.
+        request.strategy = .fail
+        pendingIdentifier = identifier
 
         do {
             try BGTaskScheduler.shared.submit(request)
             EnsembleLogger.debug("📦 Submitted BG continued processing request for \(pendingTrackCount) tracks")
         } catch {
+            pendingIdentifier = nil
             EnsembleLogger.debug("⚠️ BG continued processing request rejected: \(error.localizedDescription)")
         }
     }
 
-    public func setProgress(completedUnitCount: Int, totalUnitCount: Int) {
-        guard #available(iOS 26.0, *) else { return }
-        guard let currentTask = currentTask as? BGContinuedProcessingTask else { return }
-
+    override func setProgress(completedUnitCount: Int, totalUnitCount: Int) {
         let total = max(1, totalUnitCount)
+        let completed = min(max(0, completedUnitCount), total)
+        progressCounts = (completed, total)
+        guard #available(iOS 26.0, *), let currentTask = currentTask as? BGContinuedProcessingTask else { return }
+        guard currentTask.progress.totalUnitCount != Int64(total)
+                || currentTask.progress.completedUnitCount != Int64(completed) else { return }
         currentTask.progress.totalUnitCount = Int64(total)
-        currentTask.progress.completedUnitCount = Int64(min(max(0, completedUnitCount), total))
+        currentTask.progress.completedUnitCount = Int64(completed)
         currentTask.updateTitle(
             "Downloading Music",
-            subtitle: "\(min(completedUnitCount, total))/\(total) tracks"
+            subtitle: "\(Int(Double(completed) / Double(total) * 100))% of current batch"
         )
+        EnsembleLogger.debug("📦 Offline continued processing progress units=\(completed)/\(total)")
     }
 
-    public func finishCurrentTask(success: Bool) {
+    override func finishCurrentTask(success: Bool) {
         if #available(iOS 26.0, *) {
+            if let pendingIdentifier {
+                BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: pendingIdentifier)
+                self.pendingIdentifier = nil
+            }
+            if currentTask != nil {
+                EnsembleLogger.debug("📦 Offline continued processing finished success=\(success) units=\(progressCounts.completed)/\(progressCounts.total)")
+            }
             (currentTask as? BGContinuedProcessingTask)?.setTaskCompleted(success: success)
             currentTask = nil
         }
+        progressCounts = (0, 1)
         endApplicationBackgroundTaskIfNeeded()
     }
 
-    public func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
-        eventStore.handleBackgroundURLSessionEvents(identifier: identifier, completionHandler: completionHandler)
-    }
-
-    public func completeBackgroundURLSessionEvents(identifier: String) {
-        eventStore.completeBackgroundURLSessionEvents(identifier: identifier)
-    }
-
-    public func handleSystemWillSleep() {
-        eventStore.handleSystemWillSleep()
-    }
-
-    public func handleSystemDidWake() {
-        eventStore.handleSystemDidWake()
-    }
-
     private func beginApplicationBackgroundTaskIfNeeded() {
-        guard applicationBackgroundTask == .invalid else { return }
+        guard applicationBackgroundTask == .invalid, currentTask == nil else { return }
 
         applicationBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Offline Downloads") { [weak self] in
-            Task { @MainActor in
-                self?.eventStore.onExpiration?()
-                self?.endApplicationBackgroundTaskIfNeeded()
-            }
+            guard let self, self.applicationBackgroundTask != .invalid else { return }
+            self.endApplicationBackgroundTaskIfNeeded()
+            guard self.currentTask == nil else { return }
+            EnsembleLogger.debug("📦 Offline short background window expired without a continued grant")
+            self.eventStore.onExpiration?()
+            self.finishCurrentTask(success: true)
         }
         EnsembleLogger.debug("📦 Began app background task for offline downloads")
     }
@@ -225,33 +290,13 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
 import AppKit
 
 @MainActor
-public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating {
-    public var onExecutionRequested: (() -> Void)? {
-        get { eventStore.onExecutionRequested }
-        set { eventStore.onExecutionRequested = newValue }
-    }
-    public var onExpiration: (() -> Void)? {
-        get { eventStore.onExpiration }
-        set { eventStore.onExpiration = newValue }
-    }
-    public var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)? {
-        get { eventStore.onBackgroundURLSessionEvents }
-        set { eventStore.onBackgroundURLSessionEvents = newValue }
-    }
-    public var onSystemWillSleep: (() -> Void)? {
-        get { eventStore.onSystemWillSleep }
-        set { eventStore.onSystemWillSleep = newValue }
-    }
-    public var onSystemDidWake: (() -> Void)? {
-        get { eventStore.onSystemDidWake }
-        set { eventStore.onSystemDidWake = newValue }
-    }
-
-    private let eventStore = OfflineDownloadBackgroundEventStore()
+final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinatorBase {
     private var didRegister = false
     private var workspaceObservers: [NSObjectProtocol] = []
 
-    public init() {}
+    override init() {
+        super.init()
+    }
 
     deinit {
         let observers = workspaceObservers
@@ -262,7 +307,7 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
         }
     }
 
-    public func register() {
+    override func register() {
         guard !didRegister else { return }
         didRegister = true
 
@@ -289,75 +334,11 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
         ]
         EnsembleLogger.debug("📦 Offline download macOS sleep/wake recovery registered")
     }
-
-    public func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {}
-    public func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
-    public func finishCurrentTask(success: Bool) {}
-    public func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
-        eventStore.handleBackgroundURLSessionEvents(identifier: identifier, completionHandler: completionHandler)
-    }
-
-    public func completeBackgroundURLSessionEvents(identifier: String) {
-        eventStore.completeBackgroundURLSessionEvents(identifier: identifier)
-    }
-
-    public func handleSystemWillSleep() {
-        eventStore.handleSystemWillSleep()
-    }
-
-    public func handleSystemDidWake() {
-        eventStore.handleSystemDidWake()
-    }
 }
 
 #else
 
 @MainActor
-public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating {
-    public var onExecutionRequested: (() -> Void)? {
-        get { eventStore.onExecutionRequested }
-        set { eventStore.onExecutionRequested = newValue }
-    }
-    public var onExpiration: (() -> Void)? {
-        get { eventStore.onExpiration }
-        set { eventStore.onExpiration = newValue }
-    }
-    public var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)? {
-        get { eventStore.onBackgroundURLSessionEvents }
-        set { eventStore.onBackgroundURLSessionEvents = newValue }
-    }
-    public var onSystemWillSleep: (() -> Void)? {
-        get { eventStore.onSystemWillSleep }
-        set { eventStore.onSystemWillSleep = newValue }
-    }
-    public var onSystemDidWake: (() -> Void)? {
-        get { eventStore.onSystemDidWake }
-        set { eventStore.onSystemDidWake = newValue }
-    }
-
-    private let eventStore = OfflineDownloadBackgroundEventStore()
-
-    public init() {}
-
-    public func register() {}
-    public func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {}
-    public func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
-    public func finishCurrentTask(success: Bool) {}
-    public func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
-        eventStore.handleBackgroundURLSessionEvents(identifier: identifier, completionHandler: completionHandler)
-    }
-
-    public func completeBackgroundURLSessionEvents(identifier: String) {
-        eventStore.completeBackgroundURLSessionEvents(identifier: identifier)
-    }
-
-    public func handleSystemWillSleep() {
-        eventStore.handleSystemWillSleep()
-    }
-
-    public func handleSystemDidWake() {
-        eventStore.handleSystemDidWake()
-    }
-}
+final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinatorBase {}
 
 #endif

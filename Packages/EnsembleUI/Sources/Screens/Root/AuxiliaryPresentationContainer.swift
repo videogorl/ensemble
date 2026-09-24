@@ -63,37 +63,58 @@ public struct DownloadsPresentationContainer: View {
                 .nativeSheetNavigationContainer()
         }
         .accentColor(settingsManager.accentColor.color)
+        .alert("Replace Queue?", isPresented: queueReplacementConfirmationBinding) {
+            Button("Cancel", role: .cancel) {
+                nowPlayingVM.cancelQueueReplacement()
+            }
+            Button("Clear Queue and Play", role: .destructive) {
+                nowPlayingVM.confirmQueueReplacement()
+            }
+        } message: {
+            Text("This will replace the songs you added to the current queue.")
+        }
         #else
         DownloadsView(nowPlayingVM: nowPlayingVM)
             .modifier(AuxiliaryDismissToolbarModifier())
             .nativeSheetNavigationContainer()
             .accentColor(settingsManager.accentColor.color)
+            .alert("Replace Queue?", isPresented: queueReplacementConfirmationBinding) {
+                Button("Cancel", role: .cancel) {
+                    nowPlayingVM.cancelQueueReplacement()
+                }
+                Button("Clear Queue and Play", role: .destructive) {
+                    nowPlayingVM.confirmQueueReplacement()
+                }
+            } message: {
+                Text("This will replace the songs you added to the current queue.")
+            }
         #endif
+    }
+
+    private var queueReplacementConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { nowPlayingVM.isQueueReplacementConfirmationPresented },
+            set: { isPresented in
+                if !isPresented {
+                    nowPlayingVM.cancelQueueReplacement()
+                }
+            }
+        )
     }
 }
 
 private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    let accentColor: AppAccentColor
 
-    private var profileSheetBinding: Binding<Bool> {
+    private var presentationBinding: Binding<NavigationCoordinator.AuxiliaryPresentation?> {
         Binding(
-            get: { navigationCoordinator.activeAuxiliaryPresentation == .profile },
-            set: { isPresented in
-                guard !isPresented,
-                      navigationCoordinator.activeAuxiliaryPresentation == .profile else { return }
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }
-        )
-    }
-
-    private var downloadsSheetBinding: Binding<Bool> {
-        Binding(
-            get: { navigationCoordinator.activeAuxiliaryPresentation == .downloads },
-            set: { isPresented in
-                guard !isPresented,
-                      navigationCoordinator.activeAuxiliaryPresentation == .downloads else { return }
-                navigationCoordinator.dismissAuxiliaryPresentation()
+            get: { navigationCoordinator.activeAuxiliaryPresentation },
+            set: { presentation in
+                if let presentation {
+                    navigationCoordinator.activeAuxiliaryPresentation = presentation
+                } else {
+                    navigationCoordinator.dismissAuxiliaryPresentation()
+                }
             }
         )
     }
@@ -101,13 +122,13 @@ private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
     func body(content: Content) -> some View {
         #if os(iOS)
         content
-            .sheet(isPresented: profileSheetBinding) {
-                ProfilePresentationContainer()
-                    .accentColor(accentColor.color)
-            }
-            .sheet(isPresented: downloadsSheetBinding) {
-                DownloadsPresentationContainer()
-                    .accentColor(accentColor.color)
+            .sheet(item: presentationBinding) { presentation in
+                switch presentation {
+                case .profile:
+                    ProfilePresentationContainer()
+                case .downloads:
+                    DownloadsPresentationContainer()
+                }
             }
         #else
         content
@@ -116,9 +137,9 @@ private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
 }
 
 public extension View {
-    /// Presents root auxiliary profile/download sheets from the active root shell.
-    func auxiliaryPresentationSheets(accentColor: AppAccentColor) -> some View {
-        modifier(AuxiliaryPresentationSheetsModifier(accentColor: accentColor))
+    /// Presents root auxiliary profile/download sheets from the scene owner.
+    func auxiliaryPresentationSheets() -> some View {
+        modifier(AuxiliaryPresentationSheetsModifier())
     }
 }
 
@@ -128,7 +149,7 @@ private struct AddAccountPresentationSheetModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
-                AddPlexAccountView()
+                AddSourceView()
                 #if os(macOS)
                     .frame(
                         width: EnsembleScaffold.AccountSetup.macMinimumWidth,

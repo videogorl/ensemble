@@ -66,8 +66,10 @@ public final class SyncSettingsManager: ObservableObject {
         case sources = "sources"
         case libraries = "libraries"
         case pins = "pins"
+        case hiddenItems = "hiddenItems"
         case accentColor = "accentColor"
         case swipeActions = "swipeActions"
+        case merging = "merging"
 
         public var id: String { rawValue }
 
@@ -77,8 +79,10 @@ public final class SyncSettingsManager: ObservableObject {
             case .sources: return "Sources"
             case .libraries: return "Libraries"
             case .pins: return "Pins"
+            case .hiddenItems: return "Hidden Items"
             case .accentColor: return "Accent Color"
             case .swipeActions: return "Swipe Actions"
+            case .merging: return "Merging"
             }
         }
 
@@ -88,8 +92,10 @@ public final class SyncSettingsManager: ObservableObject {
             case .sources: return "Plex accounts and server credentials"
             case .libraries: return "Which libraries are enabled for each source"
             case .pins: return "Pinned albums, artists, and playlists"
+            case .hiddenItems: return "Hidden playlists, artists, albums, and tracks"
             case .accentColor: return "App accent color preference"
             case .swipeActions: return "Track swipe action layout"
+            case .merging: return "Preferred library order and merge choices"
             }
         }
 
@@ -252,6 +258,18 @@ public final class SyncSettingsManager: ObservableObject {
 
     public func featureActivity(for feature: SyncFeature) -> SyncFeatureActivity? {
         featureActivities[feature]
+    }
+
+    var enabledFeaturesNeedingRetry: [SyncFeature] {
+        SyncFeature.allCases.filter { feature in
+            guard isFeatureEnabled(feature) else { return false }
+            switch featureState(for: feature) {
+            case .waitingForTransport, .error:
+                return true
+            case .idle, .bootstrapping, .appliedRemote, .seededLocal, .transportUnavailable:
+                return false
+            }
+        }
     }
 
     /// Updates the runtime state for a feature when transport/bootstrap conditions change.

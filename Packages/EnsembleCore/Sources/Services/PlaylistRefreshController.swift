@@ -8,6 +8,7 @@ final class PlaylistRefreshController {
         case mutationRefresh
         case playlistOnly
         case webSocket
+        case downloadedPlaylist
 
         var description: String {
             switch self {
@@ -17,6 +18,15 @@ final class PlaylistRefreshController {
                 return "playlist-only sync"
             case .webSocket:
                 return "websocket sync"
+            case .downloadedPlaylist:
+                return "downloaded-playlist sync"
+            }
+        }
+
+        var forcesPlaylistOrphanCheck: Bool {
+            switch self {
+            case .mutationRefresh, .playlistOnly, .webSocket, .downloadedPlaylist:
+                return true
             }
         }
     }
@@ -39,14 +49,14 @@ final class PlaylistRefreshController {
 
         for provider in providers.values {
             let sourceId = provider.sourceIdentifier
-            let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
+            let serverKey = MediaSourceIdentity.serverSourceKey(for: sourceId)
 
             guard !refreshedServerKeys.contains(serverKey) else { continue }
             refreshedServerKeys.insert(serverKey)
 
             do {
                 if let result = try await refreshServer(
-                    serverSourceKey: "plex:\(serverKey)",
+                    serverSourceKey: serverKey,
                     providers: providers,
                     playlistRepository: playlistRepository,
                     trigger: trigger,
@@ -73,23 +83,23 @@ final class PlaylistRefreshController {
         trigger: Trigger,
         allowFullFallback: Bool
     ) async throws -> RefreshResult? {
-        guard let parsed = parseServerSourceKey(serverSourceKey) else {
+        guard let parsed = MediaSourceIdentity.parse(serverSourceKey) else {
             return nil
         }
 
         for (_, provider) in providers where
-            provider.sourceIdentifier.accountId == parsed.accountId &&
-            provider.sourceIdentifier.serverId == parsed.serverId {
+            MediaSourceIdentity.isSameServer(provider.sourceIdentifier.compositeKey, parsed.serverSourceKey) {
             let sourceId = provider.sourceIdentifier
 
             do {
                 let playlistResult = try await provider.syncPlaylistsIncremental(
                     to: playlistRepository,
+                    forceOrphanCheck: trigger.forcesPlaylistOrphanCheck,
                     progressHandler: { _ in }
                 )
                 return RefreshResult(
                     sourceId: sourceId,
-                    serverSourceKey: "plex:\(sourceId.accountId):\(sourceId.serverId)",
+                    serverSourceKey: MediaSourceIdentity.serverSourceKey(for: sourceId),
                     provider: provider,
                     playlistResult: playlistResult
                 )
@@ -111,7 +121,7 @@ final class PlaylistRefreshController {
                     )
                     return RefreshResult(
                         sourceId: sourceId,
-                        serverSourceKey: "plex:\(sourceId.accountId):\(sourceId.serverId)",
+                        serverSourceKey: MediaSourceIdentity.serverSourceKey(for: sourceId),
                         provider: provider,
                         playlistResult: playlistResult
                     )
@@ -127,10 +137,4 @@ final class PlaylistRefreshController {
         return nil
     }
 
-    private func parseServerSourceKey(_ serverSourceKey: String) -> (accountId: String, serverId: String)? {
-        let parts = serverSourceKey.split(separator: ":")
-        guard parts.count >= 3 else { return nil }
-
-        return (accountId: String(parts[1]), serverId: String(parts[2]))
-    }
 }

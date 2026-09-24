@@ -1,28 +1,73 @@
 import Combine
 import EnsembleAPI
+import EnsembleDomain
 import Foundation
+
+/// Whether the persisted source configuration was read authoritatively.
+public enum AccountCredentialLoadState: Equatable, Sendable {
+    case loading
+    case loaded
+    case unavailable
+}
+
+/// Provider-neutral source identities that affect shared browse and playback state.
+public struct SourceConfigurationSnapshot: Equatable, Sendable {
+    public let configuredSources: [MusicSourceIdentifier]
+    public let enabledSources: [MusicSourceIdentifier]
+    public let enabledSourceKeys: Set<String>
+    public let authoritativeSourceTypes: [MusicSourceType]
+    public let hasAnySources: Bool
+    /// Whether every supported provider's configuration has settled.
+    public let isAuthoritative: Bool
+
+    public init(
+        configuredSources: [MusicSourceIdentifier],
+        enabledSources: [MusicSourceIdentifier],
+        authoritativeSourceTypes: [MusicSourceType],
+        hasAnySources: Bool,
+        isAuthoritative: Bool
+    ) {
+        self.configuredSources = configuredSources
+        self.enabledSources = enabledSources
+        self.enabledSourceKeys = Set(enabledSources.map(\.compositeKey))
+        self.authoritativeSourceTypes = authoritativeSourceTypes.sorted { $0.rawValue < $1.rawValue }
+        self.hasAnySources = hasAnySources
+        self.isAuthoritative = isAuthoritative
+    }
+
+    /// Whether this snapshot can enforce enablement for an item's provider.
+    /// Missing or malformed ownership waits for full configuration authority.
+    public func isAuthoritative(for sourceKey: String?) -> Bool {
+        guard let sourceType = MediaSourceIdentity.sourceType(from: sourceKey) else {
+            return isAuthoritative
+        }
+        return authoritativeSourceTypes.contains(sourceType)
+    }
+
+    /// Keeps valid enabled items and provisionally keeps valid items whose provider is unresolved.
+    public func shouldPreserveSourceKey(_ sourceKey: String?) -> Bool {
+        guard MediaSourceIdentity.parse(sourceKey) != nil else { return false }
+        guard isAuthoritative(for: sourceKey) else { return true }
+        return MediaSourceIdentity.isEnabledSourceKey(sourceKey, within: enabledSourceKeys)
+    }
+}
 
 /// Manages connected music source accounts (Plex, future Apple Music, etc.)
 @MainActor
 public final class AccountManager: ObservableObject {
-    private struct LibraryFlagEntry: Codable, Equatable, Sendable {
-        let key: String
+    struct AppleMusicSetupState: Equatable {
         let isEnabled: Bool
-        let updatedAt: TimeInterval?
-        let originDeviceID: String?
-
-        init(
-            key: String,
-            isEnabled: Bool,
-            updatedAt: TimeInterval? = nil,
-            originDeviceID: String? = nil
-        ) {
-            self.key = key
-            self.isEnabled = isEnabled
-            self.updatedAt = updatedAt
-            self.originDeviceID = originDeviceID
-        }
+        let isInitialSyncPending: Bool
     }
+
+    private struct AccountLoadResult: Sendable {
+        let json: String?
+        let migrationWasApplied: Bool
+        let wasFreshInstall: Bool
+        let credentialState: AccountCredentialLoadState
+    }
+
+    private typealias LibraryFlagEntry = EnsembleLibraryFlagEntry
 
     public struct ServerPlaylistCleanup: Hashable, Sendable {
         public let accountId: String
@@ -54,8 +99,55 @@ public final class AccountManager: ObservableObject {
         }
     }
 
-    @Published public private(set) var plexAccounts: [PlexAccountConfig] = []
+    @Published public private(set) var plexAccounts: [PlexAccountConfig] = [] {
+        didSet {
+            recordPlexSourceConfigurationChanges(from: oldValue, to: plexAccounts)
+        }
+    }
+    @Published public private(set) var isAppleMusicEnabled: Bool {
+        didSet {
+            guard isAppleMusicEnabled != oldValue else { return }
+            advanceSourceConfigurationRevision(forSourceKey: MusicSourceIdentifier.appleMusic.compositeKey)
+        }
+    }
+    @Published public private(set) var isAppleMusicInitialSyncPending: Bool
     @Published public private(set) var isAwaitingCloudSources = false
+    /// Distinguishes a valid empty Keychain from a Keychain access failure.
+    @Published public private(set) var credentialLoadState: AccountCredentialLoadState = .loading
+
+    /// Emits once initially and when configured or enabled source identities change.
+    public var sourceConfigurationPublisher: AnyPublisher<SourceConfigurationSnapshot, Never> {
+        Publishers.CombineLatest4(
+            $plexAccounts,
+            $isAppleMusicEnabled,
+            $credentialLoadState,
+            $isAwaitingCloudSources
+        )
+            .map { accounts, appleMusicEnabled, credentialState, isAwaitingCloudSources in
+                Self.makeSourceConfigurationSnapshot(
+                    plexAccounts: accounts,
+                    isAppleMusicEnabled: appleMusicEnabled,
+                    credentialLoadState: credentialState,
+                    isAwaitingCloudSources: isAwaitingCloudSources
+                )
+            }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+
+    public var sourceConfigurationSnapshot: SourceConfigurationSnapshot {
+        Self.makeSourceConfigurationSnapshot(
+            plexAccounts: plexAccounts,
+            isAppleMusicEnabled: isAppleMusicEnabled,
+            credentialLoadState: credentialLoadState,
+            isAwaitingCloudSources: isAwaitingCloudSources
+        )
+    }
+
+    /// Whether cached data may be filtered against the current configured sources.
+    public var isSourceConfigurationAuthoritative: Bool {
+        credentialLoadState == .loaded && !isAwaitingCloudSources
+    }
 
     private let keychain: KeychainServiceProtocol
     private let connectionRegistry: ServerConnectionRegistry?
@@ -63,11 +155,17 @@ public final class AccountManager: ObservableObject {
     private var apiClientCache: [String: PlexAPIClient] = [:]  // Cache by "accountId:serverId"
     private var syncedLibraryFlagEntries: [String: LibraryFlagEntry] = [:]
     private var libraryFlagModifiedAt: [String: TimeInterval]
-    private let libraryFlagOriginDeviceID: String
-    private static let authMigrationVersionKey = "plex_auth_migration_version"
-    private static let authMigrationVersion = 2
+    private var accountLoadTask: Task<AccountLoadResult, Never>?
+    private var accountLoadGeneration = 0
+    private var nextSourceConfigurationRevision: UInt64 = 0
+    private var sourceConfigurationRevisions: [String: UInt64] = [:]
+    private static let accountLoadPollNanoseconds: UInt64 = 25_000_000
+    private static let accountLoadPollLimit = 40
+    nonisolated private static let authMigrationVersionKey = "plex_auth_migration_version"
+    nonisolated private static let authMigrationVersion = 2
     private static let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
-    private static let libraryFlagOriginDeviceIDKey = "sync.libraryFlagOriginDeviceID"
+    private static let appleMusicEnabledKey = "sources.appleMusic.enabled"
+    private static let appleMusicInitialSyncPendingKey = "sources.appleMusic.initialSyncPending"
 
     public init(
         keychain: KeychainServiceProtocol,
@@ -78,17 +176,90 @@ public final class AccountManager: ObservableObject {
         self.connectionRegistry = connectionRegistry
         self.isNetworkAvailable = isNetworkAvailable
         self.libraryFlagModifiedAt = Self.loadLibraryFlagModifiedAt()
-        self.libraryFlagOriginDeviceID = Self.loadOrCreateLibraryFlagOriginDeviceID()
+        #if os(iOS)
+        let appleMusicSetupState = Self.loadAppleMusicSetupState()
+        self.isAppleMusicEnabled = appleMusicSetupState.isEnabled
+        self.isAppleMusicInitialSyncPending = appleMusicSetupState.isInitialSyncPending
+        #else
+        self.isAppleMusicEnabled = false
+        self.isAppleMusicInitialSyncPending = false
+        #endif
     }
 
     // MARK: - Load / Save
 
     public func loadAccounts() {
-        if applyAuthMigrationIfNeeded() {
+        cancelPendingAccountLoad()
+        applyAccountLoadResult(Self.readAccountLoadResult(keychain: keychain))
+    }
+
+    /// macOS startup path. Keychain Services can block while the login keychain
+    /// is locked or awaiting authorization, so never perform this read on the UI thread.
+    public func loadAccountsAsync() async {
+        if credentialLoadState == .unavailable {
+            cancelPendingAccountLoad()
+        }
+
+        if accountLoadTask == nil {
+            credentialLoadState = .loading
+            let keychain = self.keychain
+            accountLoadGeneration += 1
+            let generation = accountLoadGeneration
+            let task = Task.detached(priority: .userInitiated) {
+                Self.readAccountLoadResult(keychain: keychain)
+            }
+            accountLoadTask = task
+
+            Task { @MainActor [weak self] in
+                let result = await task.value
+                guard let self, self.accountLoadGeneration == generation else { return }
+                self.accountLoadTask = nil
+                self.applyAccountLoadResult(result)
+            }
+        }
+
+        for _ in 0..<Self.accountLoadPollLimit {
+            guard accountLoadTask != nil else { return }
+            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: Self.accountLoadPollNanoseconds)
+        }
+
+        guard accountLoadTask != nil else { return }
+        credentialLoadState = .unavailable
+        EnsembleLogger.error("AccountManager: credential read timed out; preserving cached source data")
+    }
+
+    private func cancelPendingAccountLoad() {
+        accountLoadGeneration += 1
+        accountLoadTask?.cancel()
+        accountLoadTask = nil
+    }
+
+    private func applyAccountLoadResult(_ result: AccountLoadResult) {
+        guard result.credentialState == .loaded else {
+            credentialLoadState = .unavailable
+            EnsembleLogger.error("AccountManager: credentials unavailable; preserving cached source data")
             return
         }
 
-        guard let json = try? keychain.get(KeychainKey.plexAccounts),
+        credentialLoadState = .loaded
+        if result.migrationWasApplied {
+            plexAccounts = []
+            clearAPIClientCache()
+            UserDefaults.standard.set(Self.authMigrationVersion, forKey: Self.authMigrationVersionKey)
+            if result.wasFreshInstall {
+                EnsembleLogger.debug(
+                    "🔐 AccountManager: Marked auth migration v\(Self.authMigrationVersion) complete on fresh install"
+                )
+            } else {
+                EnsembleLogger.debug(
+                    "🔐 AccountManager: Applied auth migration v\(Self.authMigrationVersion); forcing re-login"
+                )
+            }
+            return
+        }
+
+        guard let json = result.json,
               let data = json.data(using: .utf8) else {
             plexAccounts = []
             return
@@ -96,6 +267,45 @@ public final class AccountManager: ObservableObject {
 
         plexAccounts = (try? JSONDecoder().decode([PlexAccountConfig].self, from: data)) ?? []
         _ = enforceAuthTokenPolicy()
+    }
+
+    private nonisolated static func readAccountLoadResult(
+        keychain: KeychainServiceProtocol
+    ) -> AccountLoadResult {
+        let defaults = UserDefaults.standard
+        let hasStoredMigrationVersion = defaults.object(forKey: authMigrationVersionKey) != nil
+        let previousVersion = defaults.integer(forKey: authMigrationVersionKey)
+        let json: String?
+        do {
+            json = try keychain.get(KeychainKey.plexAccounts)
+        } catch {
+            return AccountLoadResult(
+                json: nil,
+                migrationWasApplied: false,
+                wasFreshInstall: false,
+                credentialState: .unavailable
+            )
+        }
+
+        guard previousVersion < authMigrationVersion else {
+            return AccountLoadResult(
+                json: json,
+                migrationWasApplied: false,
+                wasFreshInstall: false,
+                credentialState: .loaded
+            )
+        }
+
+        let isFreshInstall = !hasStoredMigrationVersion && json == nil
+        if !isFreshInstall {
+            try? keychain.delete(KeychainKey.plexAccounts)
+        }
+        return AccountLoadResult(
+            json: nil,
+            migrationWasApplied: true,
+            wasFreshInstall: isFreshInstall,
+            credentialState: .loaded
+        )
     }
 
     /// Tracks whether first-connect source hydration is still waiting on iCloud.
@@ -149,7 +359,7 @@ public final class AccountManager: ObservableObject {
 
     /// Seed iCloud Keychain from local accounts when this device is the first sync participant.
     public func seedCloudSyncCredentialsFromLocal() {
-        guard hasAnySources else { return }
+        guard !plexAccounts.isEmpty else { return }
         pushSyncCredentials()
     }
 
@@ -193,8 +403,7 @@ public final class AccountManager: ObservableObject {
             LibraryFlagEntry(
                 key: key,
                 isEnabled: flags[key] ?? false,
-                updatedAt: ensureLibraryFlagModifiedAt(for: key),
-                originDeviceID: libraryFlagOriginDeviceID
+                updatedAt: ensureLibraryFlagModifiedAt(for: key)
             )
         }
         let encoder = JSONEncoder()
@@ -254,27 +463,34 @@ public final class AccountManager: ObservableObject {
 
                     recordRemoteLibraryFlagTimestamp(remoteEntry)
 
-                    if updatedLibraries[k].isEnabled != remoteEntry.isEnabled {
-                        let sourceId = MusicSourceIdentifier(
-                            type: .plex,
-                            accountId: plexAccounts[i].id,
-                            serverId: server.id,
-                            libraryId: updatedLibraries[k].key
-                        )
-                        if remoteEntry.isEnabled {
-                            enabledSources.append(sourceId)
-                        } else {
+                    let sourceId = MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: plexAccounts[i].id,
+                        serverId: server.id,
+                        libraryId: updatedLibraries[k].key
+                    )
+
+                    guard updatedLibraries[k].isEnabled != remoteEntry.isEnabled else {
+                        if !remoteEntry.isEnabled {
                             disabledSources.append(sourceId)
                         }
-                        updatedLibraries[k] = PlexLibraryConfig(
-                            id: updatedLibraries[k].id,
-                            key: updatedLibraries[k].key,
-                            title: updatedLibraries[k].title,
-                            isEnabled: remoteEntry.isEnabled,
-                            allowSync: updatedLibraries[k].allowSync
-                        )
-                        serverChanged = true
+                        continue
                     }
+
+                    if remoteEntry.isEnabled {
+                        enabledSources.append(sourceId)
+                    } else {
+                        disabledSources.append(sourceId)
+                    }
+                    updatedLibraries[k] = PlexLibraryConfig(
+                        id: updatedLibraries[k].id,
+                        key: updatedLibraries[k].key,
+                        title: updatedLibraries[k].title,
+                        isEnabled: remoteEntry.isEnabled,
+                        allowSync: updatedLibraries[k].allowSync,
+                        trackCount: updatedLibraries[k].trackCount
+                    )
+                    serverChanged = true
                 }
 
                 if serverChanged {
@@ -288,27 +504,8 @@ public final class AccountManager: ObservableObject {
                         )
                     }
                     var updatedServers = plexAccounts[i].servers
-                    updatedServers[j] = PlexServerConfig(
-                        id: server.id,
-                        name: server.name,
-                        url: server.url,
-                        connections: server.connections,
-                        token: server.token,
-                        owned: server.owned,
-                        platform: server.platform,
-                        capabilities: server.capabilities,
-                        libraries: updatedLibraries
-                    )
-                    plexAccounts[i] = PlexAccountConfig(
-                        id: plexAccounts[i].id,
-                        email: plexAccounts[i].email,
-                        plexUsername: plexAccounts[i].plexUsername,
-                        displayTitle: plexAccounts[i].displayTitle,
-                        authToken: plexAccounts[i].authToken,
-                        authTokenMetadata: plexAccounts[i].authTokenMetadata,
-                        subscription: plexAccounts[i].subscription,
-                        servers: updatedServers
-                    )
+                    updatedServers[j] = server.replacing(libraries: updatedLibraries)
+                    plexAccounts[i] = plexAccounts[i].replacing(servers: updatedServers)
                     didChange = true
                 }
             }
@@ -346,32 +543,14 @@ public final class AccountManager: ObservableObject {
                     key: library.key,
                     title: library.title,
                     isEnabled: remoteEntry.isEnabled,
-                    allowSync: library.allowSync
+                    allowSync: library.allowSync,
+                    trackCount: library.trackCount
                 )
             }
-            return PlexServerConfig(
-                id: server.id,
-                name: server.name,
-                url: server.url,
-                connections: server.connections,
-                token: server.token,
-                owned: server.owned,
-                platform: server.platform,
-                capabilities: server.capabilities,
-                libraries: updatedLibraries
-            )
+            return server.replacing(libraries: updatedLibraries)
         }
 
-        return PlexAccountConfig(
-            id: account.id,
-            email: account.email,
-            plexUsername: account.plexUsername,
-            displayTitle: account.displayTitle,
-            authToken: account.authToken,
-            authTokenMetadata: account.authTokenMetadata,
-            subscription: account.subscription,
-            servers: updatedServers
-        )
+        return account.replacing(servers: updatedServers)
     }
 
     /// Apply the library selection embedded in synced source credentials.
@@ -405,38 +584,22 @@ public final class AccountManager: ObservableObject {
                     key: library.key,
                     title: library.title,
                     isEnabled: credentialEnabled,
-                    allowSync: library.allowSync
+                    allowSync: library.allowSync,
+                    trackCount: library.trackCount
                 )
             }
-            return PlexServerConfig(
-                id: server.id,
-                name: server.name,
-                url: server.url,
-                connections: server.connections,
-                token: server.token,
-                owned: server.owned,
-                platform: server.platform,
-                capabilities: server.capabilities,
-                libraries: updatedLibraries
-            )
+            return server.replacing(libraries: updatedLibraries)
         }
 
-        return PlexAccountConfig(
-            id: account.id,
-            email: account.email,
-            plexUsername: account.plexUsername,
-            displayTitle: account.displayTitle,
-            authToken: account.authToken,
-            authTokenMetadata: account.authTokenMetadata,
-            subscription: account.subscription,
-            servers: updatedServers
-        )
+        return account.replacing(servers: updatedServers)
     }
 
     // MARK: - Account Management
 
     public func addPlexAccount(_ account: PlexAccountConfig) {
-        let resolvedAccount = applyingSyncedLibraryFlags(to: preservingExistingLibrarySelection(in: account))
+        cancelPendingAccountLoad()
+        credentialLoadState = .loaded
+        let resolvedAccount = applyingSyncedLibraryFlags(to: preservingExistingConfiguration(in: account))
         // Replace if same account ID already exists
         plexAccounts.removeAll { $0.id == resolvedAccount.id }
         plexAccounts.append(resolvedAccount)
@@ -444,6 +607,8 @@ public final class AccountManager: ObservableObject {
     }
 
     public func removePlexAccount(id: String) {
+        cancelPendingAccountLoad()
+        credentialLoadState = .loaded
         // Clear cached API clients for this account
         plexAccounts.first(where: { $0.id == id })?.servers.forEach { server in
             clearAPIClientCache(accountId: id, serverId: server.id)
@@ -466,6 +631,10 @@ public final class AccountManager: ObservableObject {
     }
 
     public func removeMusicSource(_ sourceId: MusicSourceIdentifier) {
+        if sourceId.type == .appleMusic {
+            setAppleMusicEnabled(false)
+            return
+        }
         guard let accountIndex = plexAccounts.firstIndex(where: { $0.id == sourceId.accountId }),
               let serverIndex = plexAccounts[accountIndex].servers.firstIndex(where: { $0.id == sourceId.serverId }),
               let libraryIndex = plexAccounts[accountIndex].servers[serverIndex].libraries.firstIndex(where: { $0.key == sourceId.libraryId }) else {
@@ -482,7 +651,8 @@ public final class AccountManager: ObservableObject {
             key: updatedLibraries[libraryIndex].key,
             title: updatedLibraries[libraryIndex].title,
             isEnabled: false,
-            allowSync: updatedLibraries[libraryIndex].allowSync
+            allowSync: updatedLibraries[libraryIndex].allowSync,
+            trackCount: updatedLibraries[libraryIndex].trackCount
         )
         recordLocalLibraryFlagMutation(
             accountId: account.id,
@@ -490,31 +660,9 @@ public final class AccountManager: ObservableObject {
             libraryKey: updatedLibraries[libraryIndex].key
         )
 
-        // Create new server with updated libraries
         var updatedServers = account.servers
-        updatedServers[serverIndex] = PlexServerConfig(
-            id: server.id,
-            name: server.name,
-            url: server.url,
-            connections: server.connections,
-            token: server.token,
-            owned: server.owned,
-            platform: server.platform,
-            capabilities: server.capabilities,
-            libraries: updatedLibraries
-        )
-
-        // Create new account with updated servers
-        plexAccounts[accountIndex] = PlexAccountConfig(
-            id: account.id,
-            email: account.email,
-            plexUsername: account.plexUsername,
-            displayTitle: account.displayTitle,
-            authToken: account.authToken,
-            authTokenMetadata: account.authTokenMetadata,
-            subscription: account.subscription,
-            servers: updatedServers
-        )
+        updatedServers[serverIndex] = server.replacing(libraries: updatedLibraries)
+        plexAccounts[accountIndex] = account.replacing(servers: updatedServers)
 
         saveAccounts()
     }
@@ -547,7 +695,8 @@ public final class AccountManager: ObservableObject {
             key: library.key,
             title: library.title,
             isEnabled: isEnabled,
-            allowSync: library.allowSync
+            allowSync: library.allowSync,
+            trackCount: library.trackCount
         )
         recordLocalLibraryFlagMutation(
             accountId: accountId,
@@ -556,28 +705,8 @@ public final class AccountManager: ObservableObject {
         )
 
         var updatedServers = account.servers
-        updatedServers[serverIndex] = PlexServerConfig(
-            id: server.id,
-            name: server.name,
-            url: server.url,
-            connections: server.connections,
-            token: server.token,
-            owned: server.owned,
-            platform: server.platform,
-            capabilities: server.capabilities,
-            libraries: updatedLibraries
-        )
-
-        plexAccounts[accountIndex] = PlexAccountConfig(
-            id: account.id,
-            email: account.email,
-            plexUsername: account.plexUsername,
-            displayTitle: account.displayTitle,
-            authToken: account.authToken,
-            authTokenMetadata: account.authTokenMetadata,
-            subscription: account.subscription,
-            servers: updatedServers
-        )
+        updatedServers[serverIndex] = server.replacing(libraries: updatedLibraries)
+        plexAccounts[accountIndex] = account.replacing(servers: updatedServers)
 
         let sourceId = MusicSourceIdentifier(
             type: .plex,
@@ -593,7 +722,141 @@ public final class AccountManager: ObservableObject {
         return true
     }
 
+    /// Monotonic identity for one configured source. Removing and re-adding the
+    /// same composite key produces a new value so older provider work can be discarded.
+    public func sourceConfigurationRevision(forSourceKey sourceKey: String) -> UInt64 {
+        sourceConfigurationRevisions[sourceKey] ?? 0
+    }
+
+    private func recordPlexSourceConfigurationChanges(
+        from previousAccounts: [PlexAccountConfig],
+        to currentAccounts: [PlexAccountConfig]
+    ) {
+        let previousStates = Self.plexSourceEnablementByKey(in: previousAccounts)
+        let currentStates = Self.plexSourceEnablementByKey(in: currentAccounts)
+        let sourceKeys = Set(previousStates.keys).union(currentStates.keys)
+
+        for sourceKey in sourceKeys where previousStates[sourceKey] != currentStates[sourceKey] {
+            advanceSourceConfigurationRevision(forSourceKey: sourceKey)
+        }
+    }
+
+    private func advanceSourceConfigurationRevision(forSourceKey sourceKey: String) {
+        nextSourceConfigurationRevision &+= 1
+        sourceConfigurationRevisions[sourceKey] = nextSourceConfigurationRevision
+    }
+
+    private nonisolated static func plexSourceEnablementByKey(
+        in accounts: [PlexAccountConfig]
+    ) -> [String: Bool] {
+        var result: [String: Bool] = [:]
+        for account in accounts {
+            for server in account.servers {
+                for library in server.libraries {
+                    let source = MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: account.id,
+                        serverId: server.id,
+                        libraryId: library.key
+                    )
+                    result[source.compositeKey] = library.isEnabled
+                }
+            }
+        }
+        return result
+    }
+
     // MARK: - Source Enumeration
+
+    private nonisolated static func makeSourceConfigurationSnapshot(
+        plexAccounts: [PlexAccountConfig],
+        isAppleMusicEnabled: Bool,
+        credentialLoadState: AccountCredentialLoadState,
+        isAwaitingCloudSources: Bool
+    ) -> SourceConfigurationSnapshot {
+        var configuredSources: [MusicSourceIdentifier] = []
+        var enabledSources: [MusicSourceIdentifier] = []
+        for account in plexAccounts {
+            for server in account.servers {
+                for library in server.libraries {
+                    let source = MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: account.id,
+                        serverId: server.id,
+                        libraryId: library.key
+                    )
+                    configuredSources.append(source)
+                    if library.isEnabled {
+                        enabledSources.append(source)
+                    }
+                }
+            }
+        }
+
+        #if os(iOS)
+        if isAppleMusicEnabled {
+            configuredSources.append(.appleMusic)
+            enabledSources.append(.appleMusic)
+        }
+        #endif
+
+        configuredSources.sort { $0.compositeKey < $1.compositeKey }
+        enabledSources.sort { $0.compositeKey < $1.compositeKey }
+        let plexIsAuthoritative = credentialLoadState == .loaded && !isAwaitingCloudSources
+        var authoritativeSourceTypes: [MusicSourceType] = [.appleMusic]
+        if plexIsAuthoritative {
+            authoritativeSourceTypes.append(.plex)
+        }
+        return SourceConfigurationSnapshot(
+            configuredSources: configuredSources,
+            enabledSources: enabledSources,
+            authoritativeSourceTypes: authoritativeSourceTypes,
+            hasAnySources: !plexAccounts.isEmpty || isAppleMusicEnabled,
+            isAuthoritative: plexIsAuthoritative
+        )
+    }
+
+    public func setAppleMusicEnabled(_ isEnabled: Bool) {
+        #if os(iOS)
+        guard isAppleMusicEnabled != isEnabled else { return }
+        Self.persistAppleMusicEnabled(isEnabled)
+        isAppleMusicInitialSyncPending = isEnabled
+        isAppleMusicEnabled = isEnabled
+        SiriMediaIndexNotifications.postRebuildRequest(reason: "account_configuration_changed")
+        #endif
+    }
+
+    func markAppleMusicInitialSyncCompleted() {
+        #if os(iOS)
+        guard isAppleMusicInitialSyncPending else { return }
+        Self.persistAppleMusicInitialSyncCompleted()
+        isAppleMusicInitialSyncPending = false
+        #endif
+    }
+
+    static func loadAppleMusicSetupState(
+        from defaults: UserDefaults = .standard
+    ) -> AppleMusicSetupState {
+        let isEnabled = defaults.bool(forKey: appleMusicEnabledKey)
+        return AppleMusicSetupState(
+            isEnabled: isEnabled,
+            isInitialSyncPending: isEnabled && defaults.bool(forKey: appleMusicInitialSyncPendingKey)
+        )
+    }
+
+    static func persistAppleMusicEnabled(
+        _ isEnabled: Bool,
+        to defaults: UserDefaults = .standard
+    ) {
+        defaults.set(isEnabled, forKey: appleMusicInitialSyncPendingKey)
+        defaults.set(isEnabled, forKey: appleMusicEnabledKey)
+    }
+
+    static func persistAppleMusicInitialSyncCompleted(
+        to defaults: UserDefaults = .standard
+    ) {
+        defaults.set(false, forKey: appleMusicInitialSyncPendingKey)
+    }
 
     /// Returns all enabled MusicSourceIdentifiers across all accounts
     public func enabledSources() -> [MusicSourceIdentifier] {
@@ -610,6 +873,11 @@ public final class AccountManager: ObservableObject {
                 }
             }
         }
+        #if os(iOS)
+        if isAppleMusicEnabled {
+            sources.append(.appleMusic)
+        }
+        #endif
         return sources
     }
 
@@ -652,6 +920,16 @@ public final class AccountManager: ObservableObject {
                 }
             }
         }
+        #if os(iOS)
+        if isAppleMusicEnabled {
+            sources.append(MusicSource(
+                id: .appleMusic,
+                displayName: "Apple Music",
+                accountName: "This Device",
+                sourceType: .appleMusic
+            ))
+        }
+        #endif
         return sources
     }
 
@@ -696,28 +974,51 @@ public final class AccountManager: ObservableObject {
         )
     }
 
-    public func sourceDisplaySubtitle(for sourceCompositeKey: String?) -> String? {
-        sourceLibraryContext(for: sourceCompositeKey)?.displaySubtitle
+    /// Normalized provider presentation for UI and interaction policy.
+    public func sourcePresentation(for sourceCompositeKey: String?) -> MusicSourcePresentation? {
+        guard let sourceCompositeKey else { return nil }
+        if MusicSourceIdentifier(compositeKey: sourceCompositeKey)?.type == .appleMusic {
+            let capabilities = MusicSourceType.appleMusic.capabilities
+            return MusicSourcePresentation(
+                capabilities: capabilities,
+                serverName: capabilities.displayName,
+                libraryName: capabilities.defaultLibraryName,
+                accountName: "This Device"
+            )
+        }
+        guard let identity = MediaSourceIdentity.parse(sourceCompositeKey),
+              identity.type == MusicSourceType.plex.rawValue,
+              let account = plexAccounts.first(where: { $0.id == identity.accountId }),
+              let server = account.servers.first(where: { $0.id == identity.serverId }) else { return nil }
+        let capabilities = MusicSourceType.plex.capabilities
+        let libraryName = identity.libraryId.flatMap { libraryID in
+            server.libraries.first(where: { $0.key == libraryID })?.title
+        } ?? capabilities.defaultLibraryName
+        return MusicSourcePresentation(
+            capabilities: capabilities,
+            serverName: server.name,
+            libraryName: libraryName,
+            accountName: account.accountIdentifier
+        )
+    }
+
+    public var smartMixCrossSourceNotice: String? {
+        enabledSources().lazy.compactMap { $0.type.capabilities.smartMixCrossSourceNotice }.first
     }
 
     /// Resolves a server name from a sourceCompositeKey (format: "plex:accountId:serverId:libraryId").
     /// Returns the server's friendly name, or nil if not found.
     public func serverName(for sourceCompositeKey: String) -> String? {
-        let parts = sourceCompositeKey.split(separator: ":")
-        guard parts.count >= 3 else { return nil }
-        let accountId = String(parts[1])
-        let serverId = String(parts[2])
-
-        guard let account = plexAccounts.first(where: { $0.id == accountId }),
-              let server = account.servers.first(where: { $0.id == serverId }) else {
-            return nil
-        }
-        return server.name
+        sourcePresentation(for: sourceCompositeKey)?.serverName
     }
 
     /// Whether any sources are configured
     public var hasAnySources: Bool {
+        #if os(iOS)
+        !plexAccounts.isEmpty || isAppleMusicEnabled
+        #else
         !plexAccounts.isEmpty
+        #endif
     }
 
     /// Create or retrieve cached PlexAPIClient for a specific server
@@ -735,22 +1036,16 @@ public final class AccountManager: ObservableObject {
             return nil
         }
 
-        EnsembleLogger.debug("🔄 makeAPIClient: Creating new client for \(server.name) (\(server.url))")
-
         let insecurePolicy = currentAllowInsecureConnectionsPolicy()
         let orderedConnections = policyFilteredConnections(
             from: server.orderedConnections,
             allowInsecure: insecurePolicy
         )
+        EnsembleLogger.debug(
+            "makeAPIClient: creating client serverId=\(server.id) endpoints=\(orderedConnections.count)"
+        )
 
-        let endpointDescriptors = orderedConnections.map { connection in
-            PlexEndpointDescriptor(
-                url: connection.uri,
-                local: connection.local,
-                relay: connection.relay ?? false,
-                secure: connection.protocol == "https"
-            )
-        }
+        let endpointDescriptors = orderedConnections.map(\.endpointDescriptor)
 
         let primaryURL = endpointDescriptors.first?.url ?? server.url
         let alternativeURLs = endpointDescriptors
@@ -812,8 +1107,7 @@ public final class AccountManager: ObservableObject {
     }
 
     private func currentAllowInsecureConnectionsPolicy() -> AllowInsecureConnectionsPolicy {
-        let raw = UserDefaults.standard.string(forKey: "allowInsecureConnectionsPolicy")
-        return AllowInsecureConnectionsPolicy(rawValue: raw ?? "") ?? .defaultForEnsemble
+        AllowInsecureConnectionsPolicy.storedPreference()
     }
 
     private func policyFilteredConnections(
@@ -838,36 +1132,6 @@ public final class AccountManager: ObservableObject {
             return connections
         }
         return filtered
-    }
-
-    private func applyAuthMigrationIfNeeded() -> Bool {
-        let defaults = UserDefaults.standard
-        let hasStoredMigrationVersion = defaults.object(forKey: Self.authMigrationVersionKey) != nil
-        let previousVersion = defaults.integer(forKey: Self.authMigrationVersionKey)
-        guard previousVersion < Self.authMigrationVersion else {
-            return false
-        }
-
-        // A true fresh install has no stored account payload yet. In that case
-        // there is nothing to migrate, so mark the migration as satisfied and
-        // let iCloud-synced accounts hydrate normally.
-        if !hasStoredMigrationVersion,
-           (try? keychain.get(KeychainKey.plexAccounts)) == nil {
-            defaults.set(Self.authMigrationVersion, forKey: Self.authMigrationVersionKey)
-            EnsembleLogger.debug(
-                "🔐 AccountManager: Marked auth migration v\(Self.authMigrationVersion) complete on fresh install"
-            )
-            return false
-        }
-
-        EnsembleLogger.debug(
-            "🔐 AccountManager: Applying auth migration v\(Self.authMigrationVersion) (previous: \(previousVersion)); forcing re-login"
-        )
-        try? keychain.delete(KeychainKey.plexAccounts)
-        plexAccounts = []
-        clearAPIClientCache()
-        defaults.set(Self.authMigrationVersion, forKey: Self.authMigrationVersionKey)
-        return true
     }
 
     private func libraryFlagKey(accountId: String, serverId: String, libraryKey: String) -> String {
@@ -896,7 +1160,9 @@ public final class AccountManager: ObservableObject {
     }
 
     private func shouldApplyRemoteLibraryFlag(_ entry: LibraryFlagEntry) -> Bool {
-        guard let remoteTimestamp = entry.updatedAt else { return true }
+        guard let remoteTimestamp = entry.updatedAt else {
+            return libraryFlagModifiedAt[entry.key] == nil
+        }
         return remoteTimestamp >= (libraryFlagModifiedAt[entry.key] ?? 0)
     }
 
@@ -937,12 +1203,14 @@ public final class AccountManager: ObservableObject {
         return timestamp
     }
 
-    private func preservingExistingLibrarySelection(in account: PlexAccountConfig) -> PlexAccountConfig {
+    private func preservingExistingConfiguration(in account: PlexAccountConfig) -> PlexAccountConfig {
+        guard let existingAccount = plexAccounts.first(where: { $0.id == account.id }) else {
+            return account
+        }
         let existingLibrariesByKey = localLibrariesByFlagKey(for: account.id)
-        guard !existingLibrariesByKey.isEmpty else { return account }
 
         var didChange = false
-        let updatedServers = account.servers.map { server in
+        var updatedServers = account.servers.map { server in
             let updatedLibraries = server.libraries.map { library in
                 let key = libraryFlagKey(accountId: account.id, serverId: server.id, libraryKey: library.key)
                 guard let existingLibrary = existingLibrariesByKey[key],
@@ -956,35 +1224,26 @@ public final class AccountManager: ObservableObject {
                     key: library.key,
                     title: library.title,
                     isEnabled: existingLibrary.isEnabled,
-                    allowSync: library.allowSync
+                    allowSync: library.allowSync,
+                    trackCount: library.trackCount ?? existingLibrary.trackCount
                 )
             }
 
             guard updatedLibraries != server.libraries else { return server }
-            return PlexServerConfig(
-                id: server.id,
-                name: server.name,
-                url: server.url,
-                connections: server.connections,
-                token: server.token,
-                owned: server.owned,
-                platform: server.platform,
-                capabilities: server.capabilities,
-                libraries: updatedLibraries
-            )
+            return server.replacing(libraries: updatedLibraries)
+        }
+
+        let discoveredServerIDs = Set(updatedServers.map(\.id))
+        let omittedServers = existingAccount.servers.filter { !discoveredServerIDs.contains($0.id) }
+        if !omittedServers.isEmpty {
+            // Plex resources can omit servers that are temporarily offline. Keep
+            // their cached configuration until the account is explicitly removed.
+            updatedServers.append(contentsOf: omittedServers)
+            didChange = true
         }
 
         guard didChange else { return account }
-        return PlexAccountConfig(
-            id: account.id,
-            email: account.email,
-            plexUsername: account.plexUsername,
-            displayTitle: account.displayTitle,
-            authToken: account.authToken,
-            authTokenMetadata: account.authTokenMetadata,
-            subscription: account.subscription,
-            servers: updatedServers
-        )
+        return account.replacing(servers: updatedServers)
     }
 
     private func localLibrariesByFlagKey(for accountId: String) -> [String: PlexLibraryConfig] {
@@ -1013,15 +1272,6 @@ public final class AccountManager: ObservableObject {
             return [:]
         }
         return timestamps
-    }
-
-    private static func loadOrCreateLibraryFlagOriginDeviceID() -> String {
-        if let existing = UserDefaults.standard.string(forKey: libraryFlagOriginDeviceIDKey) {
-            return existing
-        }
-        let deviceID = UUID().uuidString
-        UserDefaults.standard.set(deviceID, forKey: libraryFlagOriginDeviceIDKey)
-        return deviceID
     }
 
     private func requiresSyncReconciliation(
@@ -1107,16 +1357,6 @@ public final class AccountManager: ObservableObject {
     }
 
     private func decodeLibraryFlagEntries(from data: Data) -> [String: LibraryFlagEntry]? {
-        if let entries = try? JSONDecoder().decode([LibraryFlagEntry].self, from: data) {
-            return Dictionary(uniqueKeysWithValues: entries.map { ($0.key, $0) })
-        }
-        guard let flags = try? JSONDecoder().decode([String: Bool].self, from: data) else {
-            return nil
-        }
-        return Dictionary(
-            uniqueKeysWithValues: flags.map { key, isEnabled in
-                (key, LibraryFlagEntry(key: key, isEnabled: isEnabled))
-            }
-        )
+        EnsembleLibraryFlagPolicy.decodedEntries(from: data)
     }
 }

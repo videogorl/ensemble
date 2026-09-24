@@ -1,25 +1,29 @@
 import Combine
 import EnsembleAPI
-import EnsemblePersistence
 import Foundation
 
 /// Availability state for a single track.
 public enum TrackAvailability: Sendable, Equatable {
     /// Can play — either downloaded or server reachable.
     case available
-    /// Downloaded copy available, but server is unreachable.
+    /// Local media copy available, but server is unreachable.
     case availableDownloadedOnly
     /// Not downloaded and the track's server is offline (with classified reason).
     case unavailableServerOffline(reason: ServerConnectionFailureReason)
     /// Not downloaded and the device has no network connectivity.
     case unavailableNetworkOffline
+    /// Not downloaded and the user has disabled Plex streaming over cellular.
+    case unavailableCellularStreamingDisabled
+    /// Playlist membership exists, but its source library is not synced locally.
+    case unavailableLibraryNotSynced
 
     /// Whether the track can be played right now.
     public var canPlay: Bool {
         switch self {
         case .available, .availableDownloadedOnly:
             return true
-        case .unavailableServerOffline, .unavailableNetworkOffline:
+        case .unavailableServerOffline, .unavailableNetworkOffline,
+             .unavailableCellularStreamingDisabled, .unavailableLibraryNotSynced:
             return false
         }
     }
@@ -34,6 +38,10 @@ public enum TrackAvailability: Sendable, Equatable {
             return nil
         case .unavailableNetworkOffline:
             return "Not available offline"
+        case .unavailableCellularStreamingDisabled:
+            return "Streaming on cellular is disabled"
+        case .unavailableLibraryNotSynced:
+            return "Library not synced"
         case .unavailableServerOffline(let reason):
             return reason.userMessage
         }
@@ -54,17 +62,16 @@ public final class TrackAvailabilityResolver: ObservableObject {
 
     private let networkMonitor: NetworkMonitor
     private let serverHealthChecker: ServerHealthChecker
-    private let downloadManager: DownloadManagerProtocol
+    private let artifactCache: PlaybackArtifactCache
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         networkMonitor: NetworkMonitor,
-        serverHealthChecker: ServerHealthChecker,
-        downloadManager: DownloadManagerProtocol
+        serverHealthChecker: ServerHealthChecker
     ) {
         self.networkMonitor = networkMonitor
         self.serverHealthChecker = serverHealthChecker
-        self.downloadManager = downloadManager
+        artifactCache = .shared
 
         setupObservers()
     }
@@ -74,8 +81,21 @@ public final class TrackAvailabilityResolver: ObservableObject {
     /// Determine the current availability of a track.
     /// - Parameter track: The track to check. Must have `sourceCompositeKey` set.
     public func availability(for track: Track) -> TrackAvailability {
-        // Downloaded tracks are always playable
-        if track.isDownloaded {
+        guard track.isLibraryAvailable else {
+            return .unavailableLibraryNotSynced
+        }
+
+        let quality = StreamingQuality(
+            rawValue: AudioQualityPreference.storedStreamingQuality()
+        ) ?? .high
+        let hasLocalMedia = track.isDownloaded || artifactCache.hasCompletedArtifact(
+            trackIdentity: track.playbackIdentity,
+            sourceFingerprint: PlaybackArtifactKey.sourceFingerprint(for: track),
+            requestedQuality: quality.rawValue,
+            requireDirect: quality == .original
+        )
+
+        if hasLocalMedia {
             if networkMonitor.isConnected {
                 return .available
             } else {
@@ -88,14 +108,20 @@ public final class TrackAvailabilityResolver: ObservableObject {
             return .unavailableNetworkOffline
         }
 
+        if !track.isAppleMusic,
+           case .online(.cellular) = networkMonitor.networkState,
+           !AudioQualityPreference.storedAllowStreamingOnCellular()
+        {
+            return .unavailableCellularStreamingDisabled
+        }
+
         // Device is online — check per-server health
         let serverKey = extractServerKey(from: track.sourceCompositeKey)
-        if let serverKey {
-            let state = serverHealthChecker.serverStates[serverKey]
-            if let state, !state.isAvailable {
-                let reason = serverHealthChecker.serverFailureReasons[serverKey] ?? .offline
-                return .unavailableServerOffline(reason: reason)
-            }
+        if let serverKey,
+           serverHealthChecker.serverStates[serverKey] == .offline
+        {
+            let reason = serverHealthChecker.serverFailureReasons[serverKey] ?? .offline
+            return .unavailableServerOffline(reason: reason)
         }
 
         return .available
@@ -113,6 +139,19 @@ public final class TrackAvailabilityResolver: ObservableObject {
             }
             .store(in: &cancellables)
 
+        NotificationCenter.default.publisher(for: AudioQualityPreference.cellularStreamingPolicyDidChange)
+            .sink { [weak self] _ in
+                self?.bumpGeneration()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: PlaybackArtifactCache.didChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.bumpGeneration()
+            }
+            .store(in: &cancellables)
+
         // Server health state changes
         serverHealthChecker.$serverStates
             .removeDuplicates()
@@ -124,7 +163,7 @@ public final class TrackAvailabilityResolver: ObservableObject {
         // Download state changes — use deferred bump (5s) since download completions
         // don't affect playability of other tracks, only download icons/offline availability.
         // This prevents 8+ separate re-render cascades during bulk download sessions.
-        NotificationCenter.default.publisher(for: Notification.Name("OfflineDownloadsDidChange"))
+        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
             .sink { [weak self] _ in
                 self?.bumpGenerationDeferred()
             }
@@ -166,13 +205,7 @@ public final class TrackAvailabilityResolver: ObservableObject {
         EnsembleLogger.debug("🔄 TrackAvailabilityResolver: generation bumped to \(availabilityGeneration), serverStates=\(serverHealthChecker.serverStates.mapValues { $0.description })")
     }
 
-    /// Extract the server key (accountId:serverId) from a source composite key.
-    /// Source composite keys follow the format: "plex:<accountId>:<serverId>:<libraryId>"
     private func extractServerKey(from sourceCompositeKey: String?) -> String? {
-        guard let key = sourceCompositeKey else { return nil }
-        let parts = key.split(separator: ":")
-        // Expected format: "plex:accountId:serverId:libraryId"
-        guard parts.count >= 3 else { return nil }
-        return "\(parts[1]):\(parts[2])"
+        MediaSourceIdentity.parse(sourceCompositeKey)?.accountServerKey
     }
 }

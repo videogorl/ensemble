@@ -1,0 +1,209 @@
+{
+  "note": "Quiet-unlimited cached warmup and alternate-endpoint direct-limited control excluded. Proxy rates are shared encrypted downstream bytes/second. Curl exit 28 is the intentional 45-second observation deadline. Missing-frame counters are available only in counted/gap runs; gap figures describe the longest segment, not sum across restarted pipelines.",
+  "runs": [
+    {
+      "name": "direct-exact-limited",
+      "rate": 48000,
+      "stall": 0.0,
+      "exit": 28,
+      "elapsed": 45.018,
+      "bytes": 2142655,
+      "firstByteSeconds": 0.745,
+      "maxGapSeconds": 0.514
+    },
+    {
+      "name": "direct-exact-single-gap",
+      "rate": 48000,
+      "stall": 4.0,
+      "exit": 28,
+      "elapsed": 45.019,
+      "bytes": 1954246,
+      "firstByteSeconds": 0.754,
+      "maxGapSeconds": 4.224
+    },
+    {
+      "name": "direct-exact-unlimited",
+      "rate": 0,
+      "stall": 0.0,
+      "exit": 0,
+      "elapsed": 2.601,
+      "bytes": 10315076,
+      "firstByteSeconds": 0.152,
+      "maxGapSeconds": 0.097
+    },
+    {
+      "name": "normal-limited",
+      "mode": "normal",
+      "rate": 48000,
+      "stall": 0.0,
+      "completed": true,
+      "elapsed": 67.26,
+      "firstAudibleMs": [
+        2544
+      ],
+      "underruns": 0,
+      "restarts": 0,
+      "probes": 19,
+      "downloadAttempts": 1,
+      "proxyBytes": 4662252,
+      "proxyConnections": 23,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 19,
+      "bufferSamples": 45
+    },
+    {
+      "name": "normal-limited-counted",
+      "mode": "normal",
+      "rate": 48000,
+      "stall": 0.0,
+      "completed": true,
+      "elapsed": 66.57,
+      "firstAudibleMs": [
+        1968
+      ],
+      "underruns": 0,
+      "restarts": 0,
+      "probes": 19,
+      "downloadAttempts": 1,
+      "proxyBytes": 4626749,
+      "proxyConnections": 22,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 9,
+      "bufferSamples": 44,
+      "longestSegmentRenderedSeconds": 44.16,
+      "longestSegmentMissingSeconds": 12.159,
+      "longestSegmentMissingPercent": 27.53
+    },
+    {
+      "name": "normal-unlimited",
+      "mode": "normal",
+      "rate": 0,
+      "stall": 0.0,
+      "completed": true,
+      "elapsed": 66.25,
+      "firstAudibleMs": [
+        968
+      ],
+      "underruns": 0,
+      "restarts": 0,
+      "probes": 19,
+      "downloadAttempts": 12,
+      "proxyBytes": 91159096,
+      "proxyConnections": 21,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 0,
+      "bufferSamples": 2
+    },
+    {
+      "name": "quiet-limited",
+      "mode": "quiet",
+      "rate": 48000,
+      "stall": 0.0,
+      "completed": true,
+      "elapsed": 65.74,
+      "firstAudibleMs": [
+        977
+      ],
+      "underruns": 0,
+      "restarts": 0,
+      "probes": 19,
+      "downloadAttempts": 0,
+      "proxyBytes": 4571378,
+      "proxyConnections": 19,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 0,
+      "bufferSamples": 44
+    },
+    {
+      "name": "quiet-limited-counted",
+      "mode": "quiet",
+      "rate": 48000,
+      "stall": 0.0,
+      "completed": true,
+      "elapsed": 65.68,
+      "firstAudibleMs": [
+        881
+      ],
+      "underruns": 0,
+      "restarts": 0,
+      "probes": 19,
+      "downloadAttempts": 0,
+      "proxyBytes": 4574279,
+      "proxyConnections": 19,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 0,
+      "bufferSamples": 44,
+      "longestSegmentRenderedSeconds": 44.789,
+      "longestSegmentMissingSeconds": 0.0,
+      "longestSegmentMissingPercent": 0.0
+    },
+    {
+      "name": "quiet-single-gap",
+      "mode": "quiet",
+      "rate": 48000,
+      "stall": 4.0,
+      "completed": true,
+      "elapsed": 65.75,
+      "firstAudibleMs": [
+        902,
+        2285
+      ],
+      "underruns": 1,
+      "restarts": 1,
+      "probes": 19,
+      "downloadAttempts": 0,
+      "proxyBytes": 4377638,
+      "proxyConnections": 20,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 2,
+      "bufferSamples": 43,
+      "longestSegmentRenderedSeconds": 38.453,
+      "longestSegmentMissingSeconds": 0.0,
+      "longestSegmentMissingPercent": 0.0
+    },
+    {
+      "name": "quiet-single-gap-repeat",
+      "mode": "quiet",
+      "rate": 48000,
+      "stall": 4.0,
+      "completed": true,
+      "elapsed": 65.8,
+      "firstAudibleMs": [
+        916,
+        2559
+      ],
+      "underruns": 1,
+      "restarts": 1,
+      "probes": 19,
+      "downloadAttempts": 0,
+      "proxyBytes": 4377042,
+      "proxyConnections": 20,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 2,
+      "bufferSamples": 43,
+      "longestSegmentRenderedSeconds": 38.219,
+      "longestSegmentMissingSeconds": 0.0,
+      "longestSegmentMissingPercent": 0.0
+    },
+    {
+      "name": "quiet-unlimited-uncached",
+      "mode": "quiet",
+      "rate": 0,
+      "stall": 0.0,
+      "completed": true,
+      "elapsed": 65.09,
+      "firstAudibleMs": [
+        306
+      ],
+      "underruns": 0,
+      "restarts": 0,
+      "probes": 19,
+      "downloadAttempts": 0,
+      "proxyBytes": 12704825,
+      "proxyConnections": 19,
+      "measuredProbes": 0,
+      "zeroBufferSamples": 0,
+      "bufferSamples": 2
+    }
+  ]
+}

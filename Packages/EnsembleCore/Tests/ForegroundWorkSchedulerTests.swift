@@ -138,6 +138,30 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
         XCTAssertFalse(allowed)
     }
 
+    func testDownloadTransferDefersPlaybackSafeWorkUntilQueueStops() async {
+        let scheduler = ForegroundWorkScheduler(
+            configuration: ForegroundWorkSchedulerConfiguration(
+                isConstrainedLegacyDevice: false,
+                idleDelay: 0,
+                pollingInterval: 0.01
+            )
+        )
+        scheduler.clearLaunchState()
+        scheduler.beginInteraction(.downloadTransfer)
+
+        var didRun = false
+        let task = Task { @MainActor in
+            didRun = await scheduler.waitUntilAllowed(.sidecarAnalysis, policy: .playbackSafe)
+        }
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertFalse(didRun)
+
+        scheduler.endInteraction(.downloadTransfer)
+        await task.value
+        XCTAssertTrue(didRun)
+    }
+
     func testIdleOnlyWorkReturnsFalseWhenWaitingTaskIsCancelled() async {
         let scheduler = ForegroundWorkScheduler(
             configuration: ForegroundWorkSchedulerConfiguration(
@@ -174,5 +198,31 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
 
         XCTAssertTrue(visibleRetryAllowed)
         XCTAssertFalse(scheduler.isIdleForNonessentialWork)
+    }
+
+    func testSeriousThermalStateDefersNonessentialWorkUntilRecovery() async {
+        var thermalState: ProcessInfo.ThermalState = .serious
+        let scheduler = ForegroundWorkScheduler(
+            configuration: ForegroundWorkSchedulerConfiguration(
+                isConstrainedLegacyDevice: false,
+                idleDelay: 0,
+                pollingInterval: 0.01
+            ),
+            thermalState: { thermalState }
+        )
+        scheduler.clearLaunchState()
+
+        var didRun = false
+        let task = Task { @MainActor in
+            didRun = await scheduler.waitUntilAllowed(.artworkRetry, policy: .immediate)
+        }
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertFalse(didRun)
+        XCTAssertFalse(scheduler.isIdleForNonessentialWork)
+
+        thermalState = .nominal
+        await task.value
+        XCTAssertTrue(didRun)
     }
 }

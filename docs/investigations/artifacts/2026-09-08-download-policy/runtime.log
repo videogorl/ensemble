@@ -1,0 +1,7 @@
+[09:59:21.383] [DEBUG] [core] ⬇️ Offline download attempt: track=11631 stage=download-queue quality=high
+[09:59:24.915] [DEBUG] [api] Download transfer completed bytes=4136998 resumedFrom=0 status=200
+[09:59:24.920] [DEBUG] [core] ⚠️ Truncated download for track=11631: file=133.9s expected=279.4s — rejecting
+[09:59:24.922] [DEBUG] [core] ⚠️ Download queue failed for track=11631: Download truncated: file is 133.9s but expected 279.4s; falling back to direct original
+[09:59:24.925] [DEBUG] [core] ⬇️ Offline download attempt: track=11631 stage=direct-original-fallback
+[09:59:25.971] [DEBUG] [api] Download transfer completed bytes=15990784 resumedFrom=0 status=200
+[09:59:25.984] [DEBUG] [core] Offline download installed track=11631 quality=original bytes=15990784 playbackCache=false

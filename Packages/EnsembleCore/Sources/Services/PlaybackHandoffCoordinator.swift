@@ -170,7 +170,6 @@ struct PlaybackHandoffCoordinator {
     }
 
     func shouldSuppressAutomaticAdvance(
-        playbackState: PlaybackState,
         isInterrupted: Bool,
         isRouteChangeInProgress: Bool
     ) -> Bool {
@@ -185,15 +184,16 @@ struct PlaybackHandoffCoordinator {
 
     func remoteSkipCommandsEnabled(
         playbackState: PlaybackState,
+        isSkipTransitionInProgress: Bool,
         isInterrupted: Bool,
         isRouteChangeInProgress: Bool
     ) -> Bool {
-        guard playbackState != .loading, playbackState != .buffering else {
+        guard isSkipTransitionInProgress
+            || (playbackState != .loading && playbackState != .buffering) else {
             return false
         }
 
         return !shouldSuppressAutomaticAdvance(
-            playbackState: playbackState,
             isInterrupted: isInterrupted,
             isRouteChangeInProgress: isRouteChangeInProgress
         )
@@ -207,7 +207,7 @@ struct PlaybackHandoffCoordinator {
         state.pauseReason = pauseReason
         state.interruption = .none
 
-        guard playbackState == .playing || playbackState == .buffering else {
+        guard playbackState == .playing || playbackState == .buffering || playbackState == .loading else {
             return makeOutcome(category: .transportCommand, summary: "pause ignored", actions: [])
         }
 

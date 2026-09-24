@@ -17,13 +17,14 @@ struct WebSocketSyncControllerTests {
         )
         let provider = MockWebSocketProvider(sourceIdentifier: sourceId)
 
-        let resolution = controller.resolveSection(
+        let resolutions = controller.resolveSections(
             sectionKey: "12",
+            serverKey: "account:server",
             providers: [sourceId.compositeKey: provider],
             knownSources: [sourceId]
         )
 
-        #expect(resolution == WebSocketSyncController.SectionResolution(sourceId: sourceId, compositeKey: sourceId.compositeKey))
+        #expect(resolutions == [WebSocketSyncController.SectionResolution(sourceId: sourceId, compositeKey: sourceId.compositeKey)])
     }
 
     @Test
@@ -37,13 +38,78 @@ struct WebSocketSyncControllerTests {
         )
         let provider = MockWebSocketProvider(sourceIdentifier: sourceId)
 
-        let resolution = controller.resolveSection(
+        let resolutions = controller.resolveSections(
             sectionKey: "12",
+            serverKey: "account:server",
             providers: [sourceId.compositeKey: provider],
             knownSources: []
         )
 
-        #expect(resolution == nil)
+        #expect(resolutions.isEmpty)
+    }
+
+    @Test
+    func resolveSectionUsesServerScopeWhenLibraryKeysMatch() {
+        let controller = WebSocketSyncController()
+        let firstSource = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "first", libraryId: "5")
+        let secondSource = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "second", libraryId: "5")
+        let secondProvider = MockWebSocketProvider(sourceIdentifier: secondSource)
+
+        let resolutions = controller.resolveSections(
+            sectionKey: "5",
+            serverKey: "account:second",
+            providers: [
+                firstSource.compositeKey: MockWebSocketProvider(sourceIdentifier: firstSource),
+                secondSource.compositeKey: secondProvider,
+            ],
+            knownSources: [firstSource, secondSource]
+        )
+
+        #expect(resolutions == [WebSocketSyncController.SectionResolution(
+            sourceId: secondSource,
+            compositeKey: secondSource.compositeKey
+        )])
+    }
+
+    @Test
+    func resolveSectionsReturnsEveryAccountForPhysicalServer() {
+        let controller = WebSocketSyncController()
+        let firstSource = MusicSourceIdentifier(type: .plex, accountId: "first", serverId: "server", libraryId: "5")
+        let secondSource = MusicSourceIdentifier(type: .plex, accountId: "second", serverId: "server", libraryId: "5")
+        let otherServer = MusicSourceIdentifier(type: .plex, accountId: "first", serverId: "other", libraryId: "5")
+
+        let resolutions = controller.resolveSections(
+            sectionKey: "5",
+            serverKey: "first:server",
+            providers: [
+                firstSource.compositeKey: MockWebSocketProvider(sourceIdentifier: firstSource),
+                secondSource.compositeKey: MockWebSocketProvider(sourceIdentifier: secondSource),
+                otherServer.compositeKey: MockWebSocketProvider(sourceIdentifier: otherServer),
+            ],
+            knownSources: [firstSource, secondSource, otherServer]
+        )
+
+        #expect(resolutions.map(\.sourceId) == [firstSource, secondSource])
+    }
+
+    @Test
+    func resolveSectionsIgnoresNonPlexProviderCollisions() {
+        let controller = WebSocketSyncController()
+        let appleSource = MusicSourceIdentifier(
+            type: .appleMusic,
+            accountId: "account",
+            serverId: "server",
+            libraryId: "5"
+        )
+
+        let resolutions = controller.resolveSections(
+            sectionKey: "5",
+            serverKey: "account:server",
+            providers: [appleSource.compositeKey: MockWebSocketProvider(sourceIdentifier: appleSource)],
+            knownSources: [appleSource]
+        )
+
+        #expect(resolutions.isEmpty)
     }
 
     @Test
@@ -133,6 +199,7 @@ private final class MockWebSocketProvider: MusicSourceSyncProvider, @unchecked S
 
     func syncPlaylistsIncremental(
         to repository: PlaylistRepositoryProtocol,
+            forceOrphanCheck: Bool,
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> PlaylistSyncResult {
         incrementalPlaylistResult
@@ -161,7 +228,7 @@ private final class MockPlaylistRepository: PlaylistRepositoryProtocol, @uncheck
     func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] { [] }
     func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? { nil }
     func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? { nil }
-    func searchPlaylists(query: String) async throws -> [CDPlaylist] { [] }
+    func searchPlaylists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDPlaylist]) -> [Value]) async throws -> [Value] { [] }
     func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist] { [] }
     func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist {
         throw PlexAPIError.noServerSelected

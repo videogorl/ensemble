@@ -1,0 +1,29 @@
+session-2026-09-08-075503.log
+[07:55:03.506] [INFO] [core] USER_JOURNEY context=automation event=launchOptions disableAnimations=false refreshPlaylists=false simulateOffline=true startSurface=downloads
+[07:55:03.506] [DEBUG] [core] 📡 NetworkMonitor: State changed to Offline
+[07:55:05.165] [DEBUG] [core] 📦 Offline download recovery sweep finished reason=launch resume=true recoveredStatus=paused deferredHealing=true
+[07:55:05.659] [DEBUG] [core] 📴 ServerHealthChecker: Network offline — skipping probes for Hiigel-Server
+[07:55:05.659] [DEBUG] [core] 📴 ServerHealthChecker: Network offline — skipping probes for MattPlex
+[07:55:05.826] [DEBUG] [core] 📴 ServerHealthChecker: Network offline — skipping probes for Minibar
+[07:55:08.366] [DEBUG] [core] 📴 Offline - skipping startup sync
+session-2026-09-08-075701.log
+[07:57:01.475] [INFO] [core] USER_JOURNEY context=automation event=launchOptions disableAnimations=false refreshPlaylists=false simulateOffline=true startSurface=downloads
+[07:57:03.906] [DEBUG] [core] 📦 Offline download recovery sweep finished reason=launch resume=true recoveredStatus=paused deferredHealing=true
+[07:57:04.456] [DEBUG] [core] 📴 ServerHealthChecker: Network offline — skipping probes for MattPlex
+[07:57:04.457] [DEBUG] [core] 📴 ServerHealthChecker: Network offline — skipping probes for Hiigel-Server
+[07:57:04.457] [DEBUG] [core] 📴 ServerHealthChecker: Network offline — skipping probes for Minibar
+session-2026-09-08-075747.log
+[07:57:47.888] [INFO] [core] USER_JOURNEY context=automation event=launchOptions disableAnimations=false refreshPlaylists=false simulateOffline=false startSurface=downloads
+[07:57:50.102] [DEBUG] [core] 📦 Offline download recovery sweep finished reason=launch resume=true recoveredStatus=paused deferredHealing=true
+[07:57:50.881] [DEBUG] [core] 📴 ServerHealthChecker: Network offline — skipping probes for MattPlex
+[07:57:50.881] [DEBUG] [core] 📴 ServerHealthChecker: Network offline — skipping probes for Hiigel-Server
+[07:57:50.882] [DEBUG] [core] 📴 ServerHealthChecker: Network offline — skipping probes for Minibar
+[07:57:51.212] [DEBUG] [core] 📡 NetworkMonitor: State changed to Online (Ethernet)
+[07:57:51.237] [INFO] [core] USER_JOURNEY context=network event=stateChanged from=Offline to=Online_(Ethernet) transition=reconnect
+[07:57:53.853] [DEBUG] [core] ⏱️ Full sync complete — total 0.33s (56 artists, 69 albums, 439 tracks, 9 genres)
+[07:57:56.037] [DEBUG] [core] ⏱️ Full sync complete — total 0.05s (4 artists, 4 albums, 56 tracks, 2 genres)
+[07:57:56.834] [DEBUG] [core] ⏱️ Full sync complete — total 0.79s (215 artists, 429 albums, 3169 tracks, 19 genres)
+[07:58:00.502] [DEBUG] [core] ⏱️ Full sync complete — total 2.70s (111 artists, 238 albums, 3756 tracks, 13 genres)
+[07:58:01.095] [DEBUG] [app] 📱 AppDelegate: Startup sync complete
+[08:00:09.320] [INFO] [core] USER_JOURNEY context=network event=stateChanged from=Online_(Ethernet) to=Online_(Wi-Fi) transition=interfaceSwitch(Ethernet->Wi-Fi)
+[08:00:16.842] [INFO] [core] USER_JOURNEY context=network event=stateChanged from=Online_(Wi-Fi) to=Online_(Ethernet) transition=interfaceSwitch(Wi-Fi->Ethernet)

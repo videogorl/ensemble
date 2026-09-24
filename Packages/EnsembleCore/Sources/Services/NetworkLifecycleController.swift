@@ -9,11 +9,32 @@ final class NetworkLifecycleController {
         case interfaceSwitch(from: NetworkType, to: NetworkType)
         case disconnect
         case none
+
+        var logDescription: String {
+            switch self {
+            case .reconnect:
+                return "reconnect"
+            case .interfaceSwitch(let from, let to):
+                return "interfaceSwitch(\(from.description)->\(to.description))"
+            case .disconnect:
+                return "disconnect"
+            case .none:
+                return "none"
+            }
+        }
     }
 
     struct ForegroundDecision: Equatable {
         let offlineValue: Bool?
         let healthRefreshRequest: RefreshOrchestrator.HealthRefreshRequest?
+
+        var diagnosticSummary: String {
+            [
+                "offline=\(offlineValue.map(String.init(describing:)) ?? "nil")",
+                "refresh=\(healthRefreshRequest?.reason.description ?? "none")",
+                "force=\(healthRefreshRequest?.forceServerRefresh == true ? 1 : 0)"
+            ].joined(separator: " ")
+        }
     }
 
     struct ObservedDecision: Equatable {
@@ -24,6 +45,19 @@ final class NetworkLifecycleController {
         let shouldInvalidateArtworkConnections: Bool
         let healthRefreshRequest: RefreshOrchestrator.HealthRefreshRequest?
         let skippedAsInitialTransition: Bool
+
+        var diagnosticSummary: String {
+            [
+                "from=\(previousState?.description ?? "nil")",
+                "transition=\(transition.logDescription)",
+                "offline=\(offlineValue.map(String.init(describing:)) ?? "nil")",
+                "invalidateConnections=\(shouldInvalidateConnectionHealth ? 1 : 0)",
+                "invalidateArtwork=\(shouldInvalidateArtworkConnections ? 1 : 0)",
+                "refresh=\(healthRefreshRequest?.reason.description ?? "none")",
+                "force=\(healthRefreshRequest?.forceServerRefresh == true ? 1 : 0)",
+                "initialSkip=\(skippedAsInitialTransition ? 1 : 0)"
+            ].joined(separator: " ")
+        }
     }
 
     private var lastObservedNetworkState: NetworkState?

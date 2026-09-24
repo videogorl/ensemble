@@ -1,0 +1,14 @@
+{
+  "serial": {
+    "cpu_impact_10_55s": 11.372,
+    "cpu_impact_30_55s": 0.894,
+    "received_bytes": 109942323,
+    "sent_bytes": 152337
+  },
+  "fixed": {
+    "cpu_impact_10_55s": 13.156,
+    "cpu_impact_30_55s": 0.892,
+    "received_bytes": 173272707,
+    "sent_bytes": 227416
+  }
+}

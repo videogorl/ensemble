@@ -1,109 +1,48 @@
 import XCTest
 @testable import EnsembleCore
-import EnsembleAPI
+@testable import EnsembleAPI
 import EnsemblePersistence
 
 @MainActor
 final class SyncCoordinatorNetworkHealthTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
 
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
+    private actor SyncInvocationProbe {
+        private var libraryCallCount = 0
+        private var cancellationCount = 0
+        private var isReleased = false
+
+        func beginAndWait() async throws {
+            libraryCallCount += 1
+            do {
+                while !isReleased {
+                    try await Task.sleep(nanoseconds: 5_000_000)
+                }
+            } catch {
+                cancellationCount += 1
+                throw error
+            }
         }
 
-        func get(_ key: String) throws -> String? {
-            storage[key]
+        func release() {
+            isReleased = true
         }
 
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
+        func counts() -> (libraryCalls: Int, cancellations: Int) {
+            (libraryCallCount, cancellationCount)
         }
-    }
-
-    private final class MockLibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
-        func refreshContext() async {}
-        func fetchArtists() async throws -> [CDArtist] { [] }
-        func fetchArtist(ratingKey: String) async throws -> CDArtist? { nil }
-        func upsertArtist(ratingKey: String, key: String, name: String, summary: String?, thumbPath: String?, artPath: String?, dateAdded: Date?, dateModified: Date?, sourceCompositeKey: String?) async throws -> CDArtist { throw MockError.unimplemented }
-        func fetchAlbums() async throws -> [CDAlbum] { [] }
-        func fetchAlbum(ratingKey: String) async throws -> CDAlbum? { nil }
-        func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum] { [] }
-        func upsertAlbum(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, genreNames: String?, sourceCompositeKey: String?) async throws -> CDAlbum { throw MockError.unimplemented }
-        func fetchTracks() async throws -> [CDTrack] { [] }
-        func fetchTracks(forSource sourceCompositeKey: String) async throws -> [CDTrack] { [] }
-        func fetchSiriEligibleTracks() async throws -> [CDTrack] { [] }
-        func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack] { [] }
-        func fetchTracks(forAlbum albumRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] { [] }
-        func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack] { [] }
-        func fetchTracks(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] { [] }
-        func fetchFavoriteTracks() async throws -> [CDTrack] { [] }
-        func fetchTrack(ratingKey: String) async throws -> CDTrack? { nil }
-        func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? { nil }
-        func upsertTrack(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date?, rating: Int?, playCount: Int?, genreNames: String?, sourceCompositeKey: String?) async throws -> CDTrack { throw MockError.unimplemented }
-        func fetchGenres() async throws -> [CDGenre] { [] }
-        func upsertGenre(ratingKey: String?, key: String, title: String, sourceCompositeKey: String?) async throws -> CDGenre { throw MockError.unimplemented }
-        func searchTracks(query: String) async throws -> [CDTrack] { [] }
-        func searchArtists(query: String) async throws -> [CDArtist] { [] }
-        func searchAlbums(query: String) async throws -> [CDAlbum] { [] }
-        func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDTrack] { [] }
-        func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>?) async throws -> [CDArtist] { [] }
-        func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDAlbum] { [] }
-        func fetchMusicSources() async throws -> [CDMusicSource] { [] }
-        func upsertMusicSource(compositeKey: String, type: String, accountId: String, serverId: String, libraryId: String, displayName: String?, accountName: String?) async throws -> CDMusicSource { throw MockError.unimplemented }
-        func updateMusicSourceSyncTimestamp(compositeKey: String) async throws {}
-        func deleteAllData(forSourceCompositeKey: String) async throws {}
-        func deleteAllLibraryData() async throws {}
-        func removeOrphanedArtists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
-        func removeOrphanedAlbums(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
-        func removeOrphanedTracks(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
-        func removeOrphanedGenres(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
-        func fetchTrackRatings(forSource sourceKey: String) async throws -> [String: Int16] { [:] }
-        func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
-        func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
-        func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
-        func batchUpsertArtists(_ inputs: [ArtistUpsertInput], sourceCompositeKey: String) async throws {}
-        func batchUpsertAlbums(_ inputs: [AlbumUpsertInput], sourceCompositeKey: String) async throws {}
-        func batchUpsertTracks(_ inputs: [TrackUpsertInput], sourceCompositeKey: String) async throws {}
-        func drainTrackReparentInfo() -> [TrackReparentInfo] { [] }
-    }
-
-    private final class MockPlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
-        func fetchPlaylists() async throws -> [CDPlaylist] { [] }
-        func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] { [] }
-        func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? { nil }
-        func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? { nil }
-        func searchPlaylists(query: String) async throws -> [CDPlaylist] { [] }
-        func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist] { [] }
-        func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist { throw MockError.unimplemented }
-        func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws {}
-        func deletePlaylist(ratingKey: String) async throws {}
-        func deletePlaylists(sourceCompositeKey: String) async throws {}
-        func removeDuplicatePlaylists() async throws {}
-        func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
-        func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
-    }
-
-    private final class MockArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
-        func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
-        func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
-        func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
-        func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws {}
-        func deleteArtwork(ratingKey: String, type: ArtworkType) {}
-        func deleteArtwork(forRatingKeys ratingKeys: Set<String>) {}
-        func clearArtworkCache() async throws {}
-        func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
 
     private struct MockSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         var libraryResult: Result<LibrarySyncResult, Error> = .success(LibrarySyncResult())
         var playlistResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
+        var invocationProbe: SyncInvocationProbe?
 
         func syncLibrary(
             to repository: LibraryRepositoryProtocol,
             progressHandler: @Sendable (Double) -> Void
         ) async throws -> LibrarySyncResult {
+            try await invocationProbe?.beginAndWait()
             progressHandler(1.0)
             return try libraryResult.get()
         }
@@ -127,6 +66,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
 
         func syncPlaylistsIncremental(
             to repository: PlaylistRepositoryProtocol,
+            forceOrphanCheck: Bool,
             progressHandler: @Sendable (Double) -> Void
         ) async throws -> PlaylistSyncResult {
             progressHandler(1.0)
@@ -184,9 +124,9 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         let coordinator = SyncCoordinator(
             accountManager: accountManager,
-            libraryRepository: MockLibraryRepository(),
-            playlistRepository: MockPlaylistRepository(),
-            artworkDownloadManager: MockArtworkDownloadManager(),
+            libraryRepository: EmptyLibraryRepository(),
+            playlistRepository: EmptyPlaylistRepository(),
+            artworkDownloadManager: EmptyArtworkDownloadManager(),
             networkMonitor: networkMonitor,
             serverHealthChecker: serverHealthChecker
         )
@@ -357,7 +297,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertEqual(healthRefreshCount, 0)
     }
 
-    func testConcurrentTransitionEventsCoalesceToSingleHealthRefreshTask() async {
+    func testInterfaceSwitchQueuesFollowupAfterReconnectHealthRefresh() async {
         let (coordinator, _) = makeCoordinator()
         var now = Date(timeIntervalSince1970: 50_000)
         coordinator.nowProviderForTesting = { now }
@@ -376,7 +316,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         await coordinator.handleObservedNetworkStateForTesting(.online(.cellular))
         await coordinator.awaitHealthRefreshForTesting()
 
-        XCTAssertEqual(startedCount, 1)
+        XCTAssertEqual(startedCount, 2)
     }
 
     func testStartupHealthChecksCoalesceWithForegroundRefresh() async {
@@ -403,6 +343,79 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         await coordinator.awaitHealthRefreshForTesting()
 
         XCTAssertEqual(healthRefreshCount, 1)
+    }
+
+    func testNewlyEnabledServerGetsFollowupAfterInflightHealthRefresh() async {
+        let (coordinator, networkMonitor) = makeCoordinator()
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+
+        var invocations: [Set<String>] = []
+        coordinator.healthCheckRunnerForTesting = { _, keys in
+            invocations.append(keys)
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            return ServerHealthChecker.CheckSummary(checkedCount: keys.count, skippedCount: 0)
+        }
+        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
+
+        await coordinator.handleAppWillEnterForeground()
+        try? await Task.sleep(nanoseconds: 10_000_000)
+
+        coordinator.accountManager.updatePlexAccount(PlexAccountConfig(
+            id: "account-1",
+            displayTitle: "tester",
+            authToken: "auth",
+            servers: [
+                PlexServerConfig(
+                    id: "server-1",
+                    name: "Server",
+                    url: "https://example.com",
+                    token: "token",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-1", key: "1", title: "Music", isEnabled: true)
+                    ]
+                ),
+                PlexServerConfig(
+                    id: "server-2",
+                    name: "Restored Server",
+                    url: "https://restored.example.com",
+                    token: "token",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-2", key: "2", title: "Music", isEnabled: true)
+                    ]
+                )
+            ]
+        ))
+        await Task.yield()
+        coordinator.accountManager.setAwaitingCloudSources(true)
+
+        await coordinator.awaitSourceConfigurationHealthRefreshForTesting()
+
+        XCTAssertEqual(invocations, [
+            Set(["account-1:server-1"]),
+            Set(["account-1:server-1", "account-1:server-2"])
+        ])
+    }
+
+    func testPossiblyAvailableTreatsUnknownHealthAsPlayable() {
+        let (coordinator, networkMonitor) = makeCoordinator()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        coordinator.serverHealthChecker.prepopulateUnknownStates()
+        let resolver = TrackAvailabilityResolver(
+            networkMonitor: networkMonitor,
+            serverHealthChecker: coordinator.serverHealthChecker
+        )
+        let track = Track(
+            id: "track-1",
+            key: "/library/metadata/track-1",
+            title: "Track",
+            sourceCompositeKey: sourceKey
+        )
+
+        XCTAssertFalse(coordinator.isServerAvailable(sourceKey: sourceKey))
+        XCTAssertTrue(coordinator.isServerPossiblyAvailable(sourceKey: sourceKey))
+        XCTAssertEqual(resolver.availability(for: track), .available)
     }
 
     func testSyncPublishesOnlyMaterialLibraryChanges() async {
@@ -437,6 +450,108 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertEqual(coordinator.lastContentChange?.source, source)
         XCTAssertEqual(coordinator.lastContentChange?.libraryResult?.changedTracks, 2)
         XCTAssertTrue(coordinator.lastContentChange?.affectsLibraryBrowse == true)
+    }
+
+    func testConcurrentFullSyncEntrypointsShareOneSourceOperation() async throws {
+        let (coordinator, _) = makeCoordinator()
+        let source = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "1"
+        )
+        let probe = SyncInvocationProbe()
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(sourceIdentifier: source, invocationProbe: probe),
+            status: MusicSourceStatus(connectionState: .connected(url: "https://example.com"))
+        )
+
+        let allSourcesTask = Task { await coordinator.syncAll() }
+        try await waitForLibraryCall(in: probe)
+        let singleSourceTask = Task { await coordinator.sync(source: source) }
+        try await Task.sleep(nanoseconds: 30_000_000)
+
+        let concurrentCounts = await probe.counts()
+        XCTAssertEqual(concurrentCounts.libraryCalls, 1)
+
+        await probe.release()
+        await allSourcesTask.value
+        let outcome = await singleSourceTask.value
+        let finalCounts = await probe.counts()
+        XCTAssertEqual(outcome, .success)
+        XCTAssertEqual(finalCounts.libraryCalls, 1)
+    }
+
+    func testUnchangedProviderRefreshDoesNotInvalidateSourceSync() async throws {
+        let (coordinator, _) = makeCoordinator()
+        let source = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "1"
+        )
+        let probe = SyncInvocationProbe()
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(sourceIdentifier: source, invocationProbe: probe),
+            status: MusicSourceStatus(connectionState: .connected(url: "https://example.com"))
+        )
+
+        let syncTask = Task { await coordinator.sync(source: source) }
+        try await waitForLibraryCall(in: probe)
+        coordinator.refreshProviders()
+        await probe.release()
+
+        let outcome = await syncTask.value
+        XCTAssertEqual(outcome, .success)
+        guard case .lastSynced = coordinator.sourceStatuses[source]?.syncStatus else {
+            return XCTFail("Expected unchanged source work to complete")
+        }
+    }
+
+    func testSourceCleanupCancelsActiveSourceSyncBeforePurging() async throws {
+        let (coordinator, _) = makeCoordinator()
+        let source = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "1"
+        )
+        let probe = SyncInvocationProbe()
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(sourceIdentifier: source, invocationProbe: probe),
+            status: MusicSourceStatus(connectionState: .connected(url: "https://example.com"))
+        )
+
+        let syncTask = Task { await coordinator.sync(source: source) }
+        try await waitForLibraryCall(in: probe)
+        coordinator.accountManager.removeMusicSource(source)
+
+        let cleanupSucceeded = await coordinator.cleanupRemovedSource(source)
+        _ = await syncTask.value
+        let counts = await probe.counts()
+        XCTAssertTrue(cleanupSucceeded)
+        XCTAssertEqual(counts.libraryCalls, 1)
+        XCTAssertEqual(counts.cancellations, 1)
+        XCTAssertNil(coordinator.sourceStatuses[source])
+    }
+
+    func testUnavailableSourceSyncPublishesObservableError() async {
+        let (coordinator, _) = makeCoordinator()
+        let source = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "1"
+        )
+        let expectedMessage = "The music source is unavailable. Please try again."
+
+        let outcome = await coordinator.sync(source: source)
+
+        XCTAssertEqual(outcome, .failure(message: expectedMessage))
+        guard case .error(let message) = coordinator.sourceStatuses[source]?.syncStatus else {
+            return XCTFail("Expected an observable source error")
+        }
+        XCTAssertEqual(message, expectedMessage)
     }
 
     func testCancellationRestoresPreviousStatusInsteadOfPublishingError() async {
@@ -481,27 +596,42 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertEqual(coordinator.lastContentChange?.libraryResult?.changedAlbums, 1)
         XCTAssertTrue(coordinator.lastContentChange?.affectsPlaylists == true)
     }
+
+    private func waitForLibraryCall(in probe: SyncInvocationProbe) async throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            guard await probe.counts().libraryCalls == 0 else { break }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        let counts = await probe.counts()
+        XCTAssertEqual(counts.libraryCalls, 1)
+    }
 }
 
 @MainActor
 final class ServerHealthCheckerCachePolicyTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
 
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
+    private actor ProbeCounter {
+        private var count = 0
 
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
+        func value() -> Int { count }
 
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
+        func perform(_ request: URLRequest) throws -> (Data, URLResponse) {
+            count += 1
+            guard let url = request.url else {
+                throw URLError(.badURL)
+            }
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data(), response)
         }
     }
-    
-    private func makeChecker() -> ServerHealthChecker {
+
+    private func makeAccountManager() -> AccountManager {
         let accountManager = AccountManager(keychain: TestKeychain())
         accountManager.addPlexAccount(
             PlexAccountConfig(
@@ -513,6 +643,14 @@ final class ServerHealthCheckerCachePolicyTests: XCTestCase {
                         id: "server-1",
                         name: "Server",
                         url: "https://example.com",
+                        connections: [
+                            PlexConnectionConfig(
+                                uri: "https://example.com",
+                                local: false,
+                                relay: false,
+                                protocol: "https"
+                            )
+                        ],
                         token: "token",
                         libraries: [
                             PlexLibraryConfig(id: "lib-1", key: "1", title: "Music", isEnabled: true)
@@ -521,10 +659,13 @@ final class ServerHealthCheckerCachePolicyTests: XCTestCase {
                 ]
             )
         )
+        return accountManager
+    }
 
+    private func makeChecker() -> ServerHealthChecker {
         let networkMonitor = NetworkMonitor()
         return ServerHealthChecker(
-            accountManager: accountManager,
+            accountManager: makeAccountManager(),
             networkMonitor: networkMonitor
         )
     }
@@ -534,5 +675,34 @@ final class ServerHealthCheckerCachePolicyTests: XCTestCase {
         let availableTTL = checker.cacheTTL(for: .connected(url: "https://example.com"))
         let unavailableTTL = checker.cacheTTL(for: .offline)
         XCTAssertGreaterThan(availableTTL, unavailableTTL)
+    }
+
+    func testWebSocketHealthySignalExtendsCachedHealthWithoutProbing() async {
+        let accountManager = makeAccountManager()
+        let counter = ProbeCounter()
+        var now = Date(timeIntervalSince1970: 1_000)
+        let failover = ConnectionFailoverManager(timeout: 0.1) { request in
+            try await counter.perform(request)
+        }
+        let checker = ServerHealthChecker(
+            accountManager: accountManager,
+            failoverManager: failover,
+            cacheTTL: 120,
+            unavailableCacheTTL: 10,
+            nowProvider: { now }
+        )
+
+        _ = await checker.checkServer(accountId: "account-1", serverId: "server-1", forceRefresh: false)
+        let firstProbeCount = await counter.value()
+        XCTAssertEqual(firstProbeCount, 1)
+
+        now = now.addingTimeInterval(100)
+        checker.markServerHealthy(accountId: "account-1", serverId: "server-1")
+
+        now = now.addingTimeInterval(100)
+        _ = await checker.checkServer(accountId: "account-1", serverId: "server-1", forceRefresh: false)
+
+        let secondProbeCount = await counter.value()
+        XCTAssertEqual(secondProbeCount, 1)
     }
 }

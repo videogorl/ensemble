@@ -1,6 +1,6 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
-import Nuke
 
 #if canImport(UIKit)
 import UIKit
@@ -169,44 +169,15 @@ public class QueueItemCell: UITableViewCell {
             artworkLoadTask?.cancel()
 
             artworkLoadTask = Task { @MainActor in
-                // Guard: bail if cell was reconfigured since this task started
-                guard self.configureGeneration == expectedGeneration else { return }
-
-                guard let url = await artworkLoader.artworkURLAsync(
-                    for: track.thumbPath,
-                    sourceKey: track.sourceCompositeKey,
-                    ratingKey: track.id,
-                    fallbackPath: track.fallbackThumbPath,
-                    fallbackRatingKey: track.fallbackRatingKey,
-                    size: ArtworkSize.thumbnail.rawValue
-                ) else {
-                    if self.configureGeneration == expectedGeneration {
-                        self.artworkImageView.image = nil
-                    }
-                    return
+                let image = await TrackArtworkThumbnailLoader.image(
+                    for: track,
+                    artworkLoader: artworkLoader
+                ) {
+                    self.configureGeneration == expectedGeneration
                 }
 
-                guard self.configureGeneration == expectedGeneration else { return }
-
-                let request = ArtworkImageRequest.resized(
-                    url: url,
-                    size: ArtworkSize.thumbnail.rawValue,
-                    priority: .high
-                )
-
-                // Check cache first
-                if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                    if self.configureGeneration == expectedGeneration {
-                        self.artworkImageView.image = cachedImage.image
-                    }
-                    return
-                }
-
-                // Load asynchronously
-                if let image = try? await ImagePipeline.shared.image(for: request) {
-                    if self.configureGeneration == expectedGeneration {
-                        self.artworkImageView.image = image
-                    }
+                if self.configureGeneration == expectedGeneration {
+                    self.artworkImageView.image = image
                 }
             }
         }
@@ -220,6 +191,12 @@ public class QueueItemCell: UITableViewCell {
         titleLeadingConstraint?.isActive = false
         subtitleLeadingConstraint?.isActive = false
         contextMenuButton.menu = nil
+    }
+
+    func prepareArtworkRetry() -> Bool {
+        guard artworkImageView.image == nil else { return false }
+        currentItemID = nil
+        return true
     }
 }
 
@@ -258,56 +235,38 @@ private final class QueueMoreItemsCell: UITableViewCell {
 
 public struct QueueTableView: UIViewRepresentable {
     let queueItems: [QueueItem]
+    let hiddenQueueItemCount: Int
     let history: [QueueItem]
     let showHistory: Bool
     let currentQueueIndex: Int
     let onItemTap: (QueueItem, Int) -> Void
     let onHistoryTap: (QueueItem, Int) -> Void  // Called when tapping a history item (item, historyIndex)
-    let onPlayNext: (Track) -> Void
-    let onPlayLast: (Track) -> Void
-    let onAddToPlaylist: ((Track) -> Void)?
-    let onAddToRecentPlaylist: ((Track) -> Void)?
-    let onGoToAlbum: ((Track) -> Void)?
-    let onGoToArtist: ((Track) -> Void)?
-    let canAddToRecentPlaylist: ((Track) -> Bool)?
-    let recentPlaylistTitle: String?
+    let interactionModel: TrackRowInteractionModel
     let onRemoveFromQueue: (Int) -> Void
-    let onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
+    let onMoveItem: (String, Int, Int, QueueItemSource?) -> Void
 
     @Environment(\.dependencies) private var dependencies
 
     public init(
         queueItems: [QueueItem],
+        hiddenQueueItemCount: Int,
         history: [QueueItem],
         showHistory: Bool,
         currentQueueIndex: Int,
         onItemTap: @escaping (QueueItem, Int) -> Void,
         onHistoryTap: @escaping (QueueItem, Int) -> Void,
-        onPlayNext: @escaping (Track) -> Void,
-        onPlayLast: @escaping (Track) -> Void,
-        onAddToPlaylist: ((Track) -> Void)? = nil,
-        onAddToRecentPlaylist: ((Track) -> Void)? = nil,
-        onGoToAlbum: ((Track) -> Void)? = nil,
-        onGoToArtist: ((Track) -> Void)? = nil,
-        canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
-        recentPlaylistTitle: String? = nil,
+        interactionModel: TrackRowInteractionModel,
         onRemoveFromQueue: @escaping (Int) -> Void,
-        onMoveItem: @escaping (String, Int, Int) -> Void
+        onMoveItem: @escaping (String, Int, Int, QueueItemSource?) -> Void
     ) {
         self.queueItems = queueItems
+        self.hiddenQueueItemCount = hiddenQueueItemCount
         self.history = history
         self.showHistory = showHistory
         self.currentQueueIndex = currentQueueIndex
         self.onItemTap = onItemTap
         self.onHistoryTap = onHistoryTap
-        self.onPlayNext = onPlayNext
-        self.onPlayLast = onPlayLast
-        self.onAddToPlaylist = onAddToPlaylist
-        self.onAddToRecentPlaylist = onAddToRecentPlaylist
-        self.onGoToAlbum = onGoToAlbum
-        self.onGoToArtist = onGoToArtist
-        self.canAddToRecentPlaylist = canAddToRecentPlaylist
-        self.recentPlaylistTitle = recentPlaylistTitle
+        self.interactionModel = interactionModel
         self.onRemoveFromQueue = onRemoveFromQueue
         self.onMoveItem = onMoveItem
     }
@@ -343,6 +302,7 @@ public struct QueueTableView: UIViewRepresentable {
         // Update coordinator state
         let dataChanged = context.coordinator.queueItems.count != queueItems.count ||
             !zip(context.coordinator.queueItems, queueItems).allSatisfy { $0.id == $1.id } ||
+            context.coordinator.hiddenQueueItemCount != hiddenQueueItemCount ||
             context.coordinator.history.count != history.count ||
             !zip(context.coordinator.history, history).allSatisfy { $0.id == $1.id } ||
             context.coordinator.showHistory != showHistory
@@ -350,19 +310,13 @@ public struct QueueTableView: UIViewRepresentable {
         let currentIndexChanged = context.coordinator.currentQueueIndex != currentQueueIndex
         
         context.coordinator.queueItems = queueItems
+        context.coordinator.hiddenQueueItemCount = hiddenQueueItemCount
         context.coordinator.history = history
         context.coordinator.showHistory = showHistory
         context.coordinator.currentQueueIndex = currentQueueIndex
         context.coordinator.onItemTap = onItemTap
         context.coordinator.onHistoryTap = onHistoryTap
-        context.coordinator.onPlayNext = onPlayNext
-        context.coordinator.onPlayLast = onPlayLast
-        context.coordinator.onAddToPlaylist = onAddToPlaylist
-        context.coordinator.onAddToRecentPlaylist = onAddToRecentPlaylist
-        context.coordinator.onGoToAlbum = onGoToAlbum
-        context.coordinator.onGoToArtist = onGoToArtist
-        context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
-        context.coordinator.recentPlaylistTitle = recentPlaylistTitle
+        context.coordinator.interactionModel = interactionModel
         context.coordinator.onRemoveFromQueue = onRemoveFromQueue
         context.coordinator.onMoveItem = onMoveItem
         context.coordinator.artworkLoader = dependencies.artworkLoader
@@ -380,8 +334,8 @@ public struct QueueTableView: UIViewRepresentable {
             tableView.visibleCells.forEach { cell in
                 if let queueCell = cell as? QueueItemCell,
                    let indexPath = tableView.indexPath(for: cell),
-                   !context.coordinator.isMoreRow(indexPath) {
-                    let item = context.coordinator.item(at: indexPath)
+                   !context.coordinator.isMoreRow(indexPath),
+                   let item = context.coordinator.item(at: indexPath) {
                     let absoluteIndex = context.coordinator.absoluteQueueIndex(for: indexPath)
                     let isPlaying = absoluteIndex == currentQueueIndex
                     queueCell.configure(
@@ -398,19 +352,13 @@ public struct QueueTableView: UIViewRepresentable {
     public func makeCoordinator() -> Coordinator {
         Coordinator(
             queueItems: queueItems,
+            hiddenQueueItemCount: hiddenQueueItemCount,
             history: history,
             showHistory: showHistory,
             currentQueueIndex: currentQueueIndex,
             onItemTap: onItemTap,
             onHistoryTap: onHistoryTap,
-            onPlayNext: onPlayNext,
-            onPlayLast: onPlayLast,
-            onAddToPlaylist: onAddToPlaylist,
-            onAddToRecentPlaylist: onAddToRecentPlaylist,
-            onGoToAlbum: onGoToAlbum,
-            onGoToArtist: onGoToArtist,
-            canAddToRecentPlaylist: canAddToRecentPlaylist,
-            recentPlaylistTitle: recentPlaylistTitle,
+            interactionModel: interactionModel,
             onRemoveFromQueue: onRemoveFromQueue,
             onMoveItem: onMoveItem,
             artworkLoader: dependencies.artworkLoader,
@@ -422,29 +370,23 @@ public struct QueueTableView: UIViewRepresentable {
 
     public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate, UITableViewDropDelegate {
         var queueItems: [QueueItem]
+        var hiddenQueueItemCount: Int
         var history: [QueueItem]
         var showHistory: Bool
         var currentQueueIndex: Int
         var onItemTap: (QueueItem, Int) -> Void
         var onHistoryTap: (QueueItem, Int) -> Void
-        var onPlayNext: (Track) -> Void
-        var onPlayLast: (Track) -> Void
-        var onAddToPlaylist: ((Track) -> Void)?
-        var onAddToRecentPlaylist: ((Track) -> Void)?
-        var onGoToAlbum: ((Track) -> Void)?
-        var onGoToArtist: ((Track) -> Void)?
-        var canAddToRecentPlaylist: ((Track) -> Bool)?
-        var recentPlaylistTitle: String?
+        var interactionModel: TrackRowInteractionModel
         var onRemoveFromQueue: (Int) -> Void
-        var onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
+        var onMoveItem: (String, Int, Int, QueueItemSource?) -> Void
         var artworkLoader: ArtworkLoaderProtocol
         var shareService: ShareService
 
         var sections: [QueueSection] = []
         weak var tableView: UITableView?
-        private let queueDisplayLimit = 50
         private let reorderFeedback = UISelectionFeedbackGenerator()
         private var lastReorderFeedbackIndexPath: IndexPath?
+        private var artworkRecoveryObserver: NSObjectProtocol?
 
         struct QueueSection {
             let type: SectionType
@@ -471,44 +413,56 @@ public struct QueueTableView: UIViewRepresentable {
 
         init(
             queueItems: [QueueItem],
+            hiddenQueueItemCount: Int,
             history: [QueueItem],
             showHistory: Bool,
             currentQueueIndex: Int,
             onItemTap: @escaping (QueueItem, Int) -> Void,
             onHistoryTap: @escaping (QueueItem, Int) -> Void,
-            onPlayNext: @escaping (Track) -> Void,
-            onPlayLast: @escaping (Track) -> Void,
-            onAddToPlaylist: ((Track) -> Void)?,
-            onAddToRecentPlaylist: ((Track) -> Void)?,
-            onGoToAlbum: ((Track) -> Void)?,
-            onGoToArtist: ((Track) -> Void)?,
-            canAddToRecentPlaylist: ((Track) -> Bool)?,
-            recentPlaylistTitle: String?,
+            interactionModel: TrackRowInteractionModel,
             onRemoveFromQueue: @escaping (Int) -> Void,
-            onMoveItem: @escaping (String, Int, Int) -> Void,
+            onMoveItem: @escaping (String, Int, Int, QueueItemSource?) -> Void,
             artworkLoader: ArtworkLoaderProtocol,
             shareService: ShareService
         ) {
             self.queueItems = queueItems
+            self.hiddenQueueItemCount = hiddenQueueItemCount
             self.history = history
             self.showHistory = showHistory
             self.currentQueueIndex = currentQueueIndex
             self.onItemTap = onItemTap
             self.onHistoryTap = onHistoryTap
-            self.onPlayNext = onPlayNext
-            self.onPlayLast = onPlayLast
-            self.onAddToPlaylist = onAddToPlaylist
-            self.onAddToRecentPlaylist = onAddToRecentPlaylist
-            self.onGoToAlbum = onGoToAlbum
-            self.onGoToArtist = onGoToArtist
-            self.canAddToRecentPlaylist = canAddToRecentPlaylist
-            self.recentPlaylistTitle = recentPlaylistTitle
+            self.interactionModel = interactionModel
             self.onRemoveFromQueue = onRemoveFromQueue
             self.onMoveItem = onMoveItem
             self.artworkLoader = artworkLoader
             self.shareService = shareService
             super.init()
             rebuildSections()
+            artworkRecoveryObserver = NotificationCenter.default.addObserver(
+                forName: ArtworkLoader.serversBecameAvailable,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.retryFailedArtwork()
+            }
+        }
+
+        deinit {
+            if let artworkRecoveryObserver {
+                NotificationCenter.default.removeObserver(artworkRecoveryObserver)
+            }
+        }
+
+        private func retryFailedArtwork() {
+            guard let tableView else { return }
+            let indexPaths = tableView.visibleCells.compactMap { cell -> IndexPath? in
+                guard let cell = cell as? QueueItemCell,
+                      cell.prepareArtworkRetry() else { return nil }
+                return tableView.indexPath(for: cell)
+            }
+            guard !indexPaths.isEmpty else { return }
+            tableView.reloadRows(at: indexPaths, with: .none)
         }
         
         func rebuildSections() {
@@ -523,34 +477,35 @@ public struct QueueTableView: UIViewRepresentable {
                 }
             } else {
                 // Split queue by source
-                let visibleQueueItems = Array(queueItems.prefix(queueDisplayLimit))
-                let hiddenCount = max(0, queueItems.count - queueDisplayLimit)
-                let upNext = visibleQueueItems.filter { $0.source == .upNext }
-                let continuePlaying = visibleQueueItems.filter { $0.source == .continuePlaying }
-                let autoplay = visibleQueueItems.filter { $0.source == .autoplay }
-                
-                if !upNext.isEmpty {
-                    sections.append(QueueSection(type: .upNext, items: upNext))
-                }
-                if !continuePlaying.isEmpty {
-                    sections.append(QueueSection(type: .continuePlaying, items: continuePlaying))
-                }
-                if !autoplay.isEmpty {
-                    sections.append(QueueSection(type: .autoplay, items: autoplay))
-                }
-                if hiddenCount > 0 {
-                    sections.append(QueueSection(type: .more(hiddenCount), items: []))
+                let upNext = queueItems.filter { $0.source == .upNext }
+                let continuePlaying = queueItems.filter { $0.source == .continuePlaying }
+                let autoplay = queueItems.filter { $0.source == .autoplay }
+
+                // Stable sections keep UIKit's cross-section move batch internally consistent.
+                sections.append(QueueSection(type: .upNext, items: upNext))
+                sections.append(QueueSection(type: .continuePlaying, items: continuePlaying))
+                sections.append(QueueSection(type: .autoplay, items: autoplay))
+                if hiddenQueueItemCount > 0 {
+                    sections.append(QueueSection(type: .more(hiddenQueueItemCount), items: []))
                 }
             }
         }
         
-        func item(at indexPath: IndexPath) -> QueueItem {
-            sections[indexPath.section].items[indexPath.row]
+        func section(at index: Int) -> QueueSection? {
+            guard sections.indices.contains(index) else { return nil }
+            return sections[index]
+        }
+
+        func item(at indexPath: IndexPath) -> QueueItem? {
+            guard let section = section(at: indexPath.section),
+                  section.items.indices.contains(indexPath.row)
+            else { return nil }
+            return section.items[indexPath.row]
         }
         
         func absoluteQueueIndex(for indexPath: IndexPath) -> Int? {
             guard !showHistory else { return nil } // History has no queue index
-            let item = self.item(at: indexPath)
+            guard let item = item(at: indexPath) else { return nil }
             return queueItems.firstIndex(where: { $0.id == item.id })
         }
         
@@ -561,21 +516,25 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            if case .more = sections[section].type {
+            guard let section = self.section(at: section) else { return 0 }
+            if case .more = section.type {
                 return 1
             }
-            return sections[section].items.count
+            return section.items.count
         }
         
         public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-            if case let .more(hiddenCount) = sections[indexPath.section].type {
+            guard let section = section(at: indexPath.section) else {
+                return UITableViewCell()
+            }
+            if case let .more(hiddenCount) = section.type {
                 let cell = tableView.dequeueReusableCell(withIdentifier: "QueueMoreItemsCell", for: indexPath) as! QueueMoreItemsCell
                 cell.configure(hiddenCount: hiddenCount)
                 return cell
             }
 
             let cell = tableView.dequeueReusableCell(withIdentifier: "QueueItemCell", for: indexPath) as! QueueItemCell
-            let item = self.item(at: indexPath)
+            guard let item = item(at: indexPath) else { return cell }
             let absoluteIndex = absoluteQueueIndex(for: indexPath)
             let isPlaying = absoluteIndex == currentQueueIndex
             cell.configure(
@@ -592,8 +551,8 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-            let sectionData = sections[section]
-            if case .more = sectionData.type {
+            guard let sectionData = self.section(at: section) else { return nil }
+            if sectionData.items.isEmpty {
                 return nil
             }
             
@@ -637,7 +596,7 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-            if case .more = sections[section].type {
+            guard let section = self.section(at: section), !section.items.isEmpty else {
                 return CGFloat.leastNormalMagnitude
             }
             return 40
@@ -651,11 +610,11 @@ public struct QueueTableView: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
             tableView.deselectRow(at: indexPath, animated: true)
-            let section = sections[indexPath.section]
+            guard let section = section(at: indexPath.section) else { return }
             if case .more = section.type {
                 return
             }
-            let item = self.item(at: indexPath)
+            guard let item = item(at: indexPath) else { return }
 
             // Handle history items separately
             if case .history = section.type {
@@ -679,12 +638,12 @@ public struct QueueTableView: UIViewRepresentable {
         // MARK: - Context Menu
         
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
-            let section = sections[indexPath.section]
+            guard let section = section(at: indexPath.section) else { return nil }
             if case .more = section.type {
                 return nil
             }
 
-            let item = self.item(at: indexPath)
+            guard let item = item(at: indexPath) else { return nil }
             let absoluteIndex = absoluteQueueIndex(for: indexPath)
             if !isHistorySection(section), absoluteIndex == nil {
                 return nil
@@ -696,16 +655,6 @@ public struct QueueTableView: UIViewRepresentable {
         }
 
         func contextMenu(for track: Track, absoluteIndex: Int?) -> UIMenu? {
-            let interactionModel = TrackRowInteractionModel(
-                onPlayNext: { [weak self] track in self?.onPlayNext(track) },
-                onPlayLast: { [weak self] track in self?.onPlayLast(track) },
-                onAddToPlaylist: self.onAddToPlaylist,
-                onAddToRecentPlaylist: self.onAddToRecentPlaylist,
-                onGoToAlbum: self.onGoToAlbum,
-                onGoToArtist: self.onGoToArtist,
-                canAddToRecentPlaylist: self.canAddToRecentPlaylist,
-                recentPlaylistTitle: self.recentPlaylistTitle
-            )
             let resolvedActions = interactionModel.resolve(for: track)
 
             return NativeMediaTableActionBuilder.contextMenu(
@@ -730,8 +679,8 @@ public struct QueueTableView: UIViewRepresentable {
         // MARK: - Drag & Drop
         
         public func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-            guard !showHistory else { return false }
-            if case .more = sections[indexPath.section].type {
+            guard !showHistory, let section = section(at: indexPath.section) else { return false }
+            if case .more = section.type {
                 return false
             }
             return true
@@ -747,6 +696,11 @@ public struct QueueTableView: UIViewRepresentable {
             targetIndexPathForMoveFromRowAt sourceIndexPath: IndexPath,
             toProposedIndexPath proposedDestinationIndexPath: IndexPath
         ) -> IndexPath {
+            if sections.indices.contains(proposedDestinationIndexPath.section),
+               case .autoplay = sections[proposedDestinationIndexPath.section].type {
+                return sourceIndexPath
+            }
+
             guard sections.indices.contains(proposedDestinationIndexPath.section),
                   case .more = sections[proposedDestinationIndexPath.section].type
             else {
@@ -768,10 +722,11 @@ public struct QueueTableView: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
             guard !showHistory,
-                  !isMoreRow(indexPath) else { return [] }
+                  !isMoreRow(indexPath),
+                  let item = item(at: indexPath)
+            else { return [] }
             reorderFeedback.prepare()
             lastReorderFeedbackIndexPath = indexPath
-            let item = self.item(at: indexPath)
             let itemProvider = MediaDragPayload.trackItemProvider(for: item.track, shareService: shareService)
             itemProvider.registerObject(item.id as NSString, visibility: .ownProcess)
             let dragItem = UIDragItem(itemProvider: itemProvider)
@@ -788,6 +743,10 @@ public struct QueueTableView: UIViewRepresentable {
                 return UITableViewDropProposal(operation: .cancel)
             }
             if let destinationIndexPath {
+                if sections.indices.contains(destinationIndexPath.section),
+                   case .autoplay = sections[destinationIndexPath.section].type {
+                    return UITableViewDropProposal(operation: .cancel)
+                }
                 triggerQueueMoveFeedbackIfNeeded(for: destinationIndexPath)
             }
             return UITableViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
@@ -850,7 +809,8 @@ public struct QueueTableView: UIViewRepresentable {
             commitQueueMove(
                 itemId: sourceItem.id,
                 sourceIndex: sourceAbsoluteIndex,
-                destinationIndex: destinationAbsoluteIndex
+                destinationIndex: destinationAbsoluteIndex,
+                destinationSource: queueSource(for: destinationIndexPath)
             )
         }
 
@@ -873,7 +833,7 @@ public struct QueueTableView: UIViewRepresentable {
 
             let destinationAbsoluteIndex: Int
             if isMoreRow(destinationIndexPath) {
-                destinationAbsoluteIndex = min(queueItems.count, queueDisplayLimit)
+                destinationAbsoluteIndex = queueItems.count
             } else if sections.indices.contains(destinationIndexPath.section) {
                 let destinationItems = sections[destinationIndexPath.section].items
                 if destinationItems.indices.contains(destinationIndexPath.row),
@@ -892,15 +852,48 @@ public struct QueueTableView: UIViewRepresentable {
             commitQueueMove(
                 itemId: sourceItem.id,
                 sourceIndex: sourceAbsoluteIndex,
-                destinationIndex: destinationAbsoluteIndex
+                destinationIndex: destinationAbsoluteIndex,
+                destinationSource: queueSource(for: destinationIndexPath)
             )
         }
 
-        private func commitQueueMove(itemId: String, sourceIndex: Int, destinationIndex: Int) {
-            guard sourceIndex != destinationIndex else { return }
+        private func commitQueueMove(
+            itemId: String,
+            sourceIndex: Int,
+            destinationIndex: Int,
+            destinationSource: QueueItemSource?
+        ) {
+            guard queueItems.indices.contains(sourceIndex),
+                  sourceIndex != destinationIndex
+                    || destinationSource.map({ $0 != queueItems[sourceIndex].source }) == true,
+                  destinationIndex >= 0,
+                  destinationIndex <= queueItems.count
+            else { return }
+
+            var item = queueItems.remove(at: sourceIndex)
+            if let destinationSource {
+                item.source = destinationSource
+            } else if item.source == .autoplay {
+                item.source = .continuePlaying
+            }
+            let adjustedDestination = destinationIndex > sourceIndex
+                ? destinationIndex - 1
+                : destinationIndex
+            queueItems.insert(item, at: adjustedDestination)
+            rebuildSections()
+
             reorderFeedback.selectionChanged()
             reorderFeedback.prepare()
-            onMoveItem(itemId, sourceIndex, destinationIndex)
+            onMoveItem(itemId, sourceIndex, destinationIndex, destinationSource)
+        }
+
+        private func queueSource(for indexPath: IndexPath) -> QueueItemSource? {
+            guard sections.indices.contains(indexPath.section) else { return nil }
+            switch sections[indexPath.section].type {
+            case .upNext: return .upNext
+            case .continuePlaying: return .continuePlaying
+            case .history, .autoplay, .more: return nil
+            }
         }
 
         private func triggerQueueMoveFeedbackIfNeeded(for indexPath: IndexPath) {

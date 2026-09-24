@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -13,6 +14,7 @@ struct MediaActionLabel: View {
         case radio
         case playNext
         case playLast
+        case addToLibrary
         case addToPlaylist
         case addToRecentPlaylist(String)
         case goToAlbum
@@ -22,11 +24,11 @@ struct MediaActionLabel: View {
         case rename
         case editPlaylist
         case download(isDownloaded: Bool)
-        case downloadAll
-        case removeDownloads
         case favorite(isFavorited: Bool, usesFilledIcon: Bool)
         case pin(isPinned: Bool)
         case unpinAll
+        case toggleHidden(isHidden: Bool, requiresSourceSelection: Bool = false)
+        case shareEnsembleLink
         case shareLink
         case shareAudioFile
         case removeFromPlaylist
@@ -34,8 +36,6 @@ struct MediaActionLabel: View {
         case deleteTrack
         case deleteAlbum
         case deletePlaylist
-        case deleteAll
-        case renameAll
     }
 
     let kind: Kind
@@ -62,6 +62,8 @@ struct MediaActionLabel: View {
             return "Play Next"
         case .playLast:
             return "Play Last"
+        case .addToLibrary:
+            return "Add to Library"
         case .addToPlaylist:
             return "Add to Playlist…"
         case .addToRecentPlaylist(let playlistTitle):
@@ -77,19 +79,19 @@ struct MediaActionLabel: View {
         case .rename:
             return "Rename…"
         case .editPlaylist:
-            return "Edit Playlist"
+            return "Edit Playlist…"
         case .download(let isDownloaded):
             return isDownloaded ? "Remove Download" : "Download"
-        case .downloadAll:
-            return "Download All"
-        case .removeDownloads:
-            return "Remove Downloads"
         case .favorite(let isFavorited, _):
             return isFavorited ? "Unfavorite" : "Favorite"
         case .pin(let isPinned):
             return isPinned ? "Unpin" : "Pin"
         case .unpinAll:
             return "Unpin All"
+        case .toggleHidden(let isHidden, let requiresSourceSelection):
+            return "\(isHidden ? "Unhide" : "Hide")\(requiresSourceSelection ? "…" : "")"
+        case .shareEnsembleLink:
+            return "Share Ensemble Link…"
         case .shareLink:
             return "Share Link…"
         case .shareAudioFile:
@@ -104,10 +106,6 @@ struct MediaActionLabel: View {
             return "Delete Album"
         case .deletePlaylist:
             return "Delete Playlist"
-        case .deleteAll:
-            return "Delete All"
-        case .renameAll:
-            return "Rename All…"
         }
     }
 
@@ -127,6 +125,8 @@ struct MediaActionLabel: View {
             return EnsembleDesign.Icon.playNext
         case .playLast:
             return EnsembleDesign.Icon.playLast
+        case .addToLibrary:
+            return "text.badge.plus"
         case .addToPlaylist:
             return EnsembleDesign.Icon.addToPlaylist
         case .addToRecentPlaylist:
@@ -137,16 +137,12 @@ struct MediaActionLabel: View {
             return EnsembleDesign.Icon.artist
         case .getInfo:
             return EnsembleDesign.Icon.info
-        case .editMetadata, .rename, .renameAll:
+        case .editMetadata, .rename:
             return EnsembleDesign.Icon.edit
         case .editPlaylist:
             return EnsembleDesign.Icon.editPlaylist
         case .download(let isDownloaded):
             return isDownloaded ? EnsembleDesign.Icon.removeDownload : EnsembleDesign.Icon.download
-        case .downloadAll:
-            return EnsembleDesign.Icon.download
-        case .removeDownloads:
-            return EnsembleDesign.Icon.removeDownload
         case .favorite(let isFavorited, let usesFilledIcon):
             if usesFilledIcon {
                 return isFavorited ? EnsembleDesign.Icon.favoriteRemoveFilled : EnsembleDesign.Icon.favoriteFilled
@@ -156,7 +152,9 @@ struct MediaActionLabel: View {
             return isPinned ? EnsembleDesign.Icon.unpin : EnsembleDesign.Icon.pin
         case .unpinAll:
             return EnsembleDesign.Icon.unpin
-        case .shareLink:
+        case .toggleHidden(let isHidden, _):
+            return isHidden ? "eye" : "eye.slash"
+        case .shareEnsembleLink, .shareLink:
             return EnsembleDesign.Icon.shareLink
         case .shareAudioFile:
             return EnsembleDesign.Icon.shareAudioFile
@@ -164,7 +162,7 @@ struct MediaActionLabel: View {
             return EnsembleDesign.Icon.removeFromPlaylist
         case .removeFromQueue:
             return EnsembleDesign.Icon.removeCircle
-        case .deleteTrack, .deleteAlbum, .deletePlaylist, .deleteAll:
+        case .deleteTrack, .deleteAlbum, .deletePlaylist:
             return EnsembleDesign.Icon.delete
         }
     }

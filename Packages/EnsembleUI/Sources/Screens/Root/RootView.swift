@@ -1,5 +1,7 @@
+import EnsembleDesignTokens
 import Combine
 import EnsembleCore
+import Foundation
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
@@ -8,314 +10,248 @@ import UIKit
 import AppKit
 #endif
 
-enum RootChromeCoordinateSpace {
-    static let name = "RootChromeCoordinateSpace"
-}
-
-private struct SoftwareKeyboardVisibleKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
-extension EnvironmentValues {
-    var isSoftwareKeyboardVisible: Bool {
-        get { self[SoftwareKeyboardVisibleKey.self] }
-        set { self[SoftwareKeyboardVisibleKey.self] = newValue }
-    }
-}
-
-struct RootChromeRegistration {
-    let bounds: Anchor<CGRect>?
-    let bottomPadding: CGFloat
-    let contentLeadingInset: CGFloat
-    let centersInRootHorizontalSpace: Bool
-    let showsMiniPlayer: Bool
-    let priority: Int
-
-    static let hidden = RootChromeRegistration(
-        bounds: nil,
-        bottomPadding: 0,
-        contentLeadingInset: 0,
-        centersInRootHorizontalSpace: false,
-        showsMiniPlayer: false,
-        priority: .min
-    )
-}
-
-struct RootChromeLayout: Equatable {
-    let frame: CGRect
-    let bottomPadding: CGFloat
-    let horizontalOffset: CGFloat
-    let showsMiniPlayer: Bool
-
-    static let hidden = RootChromeLayout(
-        frame: .zero,
-        bottomPadding: 0,
-        horizontalOffset: 0,
-        showsMiniPlayer: false
-    )
-
-    var hasRenderableFrame: Bool {
-        frame.width > 0 && frame.height > 0
-    }
-
-    var horizontalAnchor: CGFloat {
-        frame.midX + horizontalOffset
-    }
-}
-
-private struct RootChromeRegistrationPreferenceKey: PreferenceKey {
-    static var defaultValue: RootChromeRegistration = .hidden
-
-    static func reduce(value: inout RootChromeRegistration, nextValue: () -> RootChromeRegistration) {
-        let next = nextValue()
-        if next.priority >= value.priority {
-            value = next
-        }
-    }
-}
-
-struct RootChromeFrameRegistrationView: View {
-    let bottomPadding: CGFloat
-    var contentLeadingInset: CGFloat = 0
-    var centersInRootHorizontalSpace = false
-    let showsMiniPlayer: Bool
-    let priority: Int
-
-    var body: some View {
-        Color.clear.anchorPreference(
-            key: RootChromeRegistrationPreferenceKey.self,
-            value: .bounds
-        ) { bounds in
-            RootChromeRegistration(
-                bounds: bounds,
-                bottomPadding: bottomPadding,
-                contentLeadingInset: contentLeadingInset,
-                centersInRootHorizontalSpace: centersInRootHorizontalSpace,
-                showsMiniPlayer: showsMiniPlayer,
-                priority: priority
-            )
-        }
-    }
-}
-
-private struct RootMiniPlayerOverlay: View {
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    let layout: RootChromeLayout
-    let accentColor: Color
-    let namespace: Namespace.ID
-    let animationID: String
-    let presentNowPlaying: () -> Void
-
-    private var isPhoneLayout: Bool {
-        #if os(iOS)
-        UIDevice.current.userInterfaceIdiom == .phone
-        #else
-        false
-        #endif
-    }
-
-    private var miniPlayerHorizontalPadding: CGFloat {
-        isPhoneLayout ? 8 : 20
-    }
-
-    private var miniPlayerWidth: CGFloat {
-        if isPhoneLayout {
-            // Keep the mini player aligned to the tab bar capsule while leaving
-            // just enough extra width to avoid looking visually under-hung.
-            return max(layout.frame.width - 28, 0)
-        }
-        return min(620, max(layout.frame.width - 32, 0))
-    }
-
-    var body: some View {
-        if layout.showsMiniPlayer && layout.hasRenderableFrame && miniPlayerWidth > 0 {
-            MiniPlayer(
-                viewModel: nowPlayingVM,
-                isFloating: true,
-                showsWaveform: !isPhoneLayout && miniPlayerWidth >= 280,
-                waveformColor: accentColor,
-                horizontalPadding: miniPlayerHorizontalPadding,
-                namespace: namespace,
-                animationID: animationID
-            ) {
-                withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
-                    presentNowPlaying()
-                }
-            }
-            .accentColor(accentColor)
-            .frame(width: miniPlayerWidth)
-            .padding(.bottom, layout.bottomPadding)
-            .frame(
-                width: layout.frame.width,
-                height: layout.frame.height,
-                alignment: .bottom
-            )
-            .offset(x: layout.frame.minX, y: layout.frame.minY)
-            .offset(x: layout.horizontalOffset)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .animation(rootChromeLayoutAnimation, value: layout.horizontalAnchor)
-            .transition(.identity)
-        }
-    }
-
-    private var rootChromeLayoutAnimation: Animation {
-        .easeInOut(duration: 0.25)
-    }
-}
-
 /// Root view that renders the main content directly (no auth gate)
 @available(iOS 15.0, macOS 12.0, *)
 public struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @State private var usesExpandedPhoneBrowse = false
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @StateObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var nowPlayingVM: NowPlayingViewModel
+    @StateObject private var screenModels: RootScreenModels
     @StateObject private var artworkDetailBackgroundContinuity = ArtworkDetailBackgroundContinuityStore()
     @StateObject private var artistDetailArtworkContinuity = ArtistDetailArtworkContinuityStore()
+    @StateObject private var sourceActionPresenter = MediaSourceActionPresenter()
     @State private var isNowPlayingPresented = false
     @State private var sidebarSelection: SidebarSelection? = .library(.home)
+    @State private var rootSidebarChromeRegistration: RootSidebarChromeRegistration = .absent
     @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @State private var isSoftwareKeyboardVisible = false
+    @State private var hasLoggedAutomationLaunchOptions = false
+    @State private var hasAppliedAutomationNetworkState = false
+    @State private var hasAppliedAutomationLaunchRoute = false
+    @State private var hasAppliedAutomationPlaylistRefresh = false
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
 
-    private var auroraAboveContent: Bool {
+    private var showsRootAurora: Bool {
         #if os(iOS)
-        UIDevice.current.userInterfaceIdiom != .phone
-        #else
-        true
-        #endif
-    }
-
-    private var showsRootBackgroundAurora: Bool {
-        #if os(iOS)
-        UIDevice.current.userInterfaceIdiom != .phone
+        UIDevice.current.userInterfaceIdiom != .phone || usesExpandedPhoneBrowse
         #else
         true
         #endif
     }
 
     public init() {
-        let navigationCoordinator = NavigationCoordinator()
+        let navigationCoordinator = NavigationCoordinator(
+            foregroundWorkScheduler: DependencyContainer.shared.foregroundWorkScheduler
+        )
         _navigationCoordinator = StateObject(wrappedValue: navigationCoordinator)
         _nowPlayingVM = StateObject(
             wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel(
                 navigationCoordinator: navigationCoordinator
             )
         )
+        _screenModels = StateObject(wrappedValue: RootScreenModels())
     }
 
     public var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                if settingsManager.auroraVisualizationEnabled &&
-                    !isNowPlayingPresented &&
-                    showsRootBackgroundAurora &&
-                    !auroraAboveContent {
-                    AuroraVisualizationView(
-                        playbackService: DependencyContainer.shared.playbackService,
-                        consumer: .rootBackdrop,
-                        accentColor: EnsembleDesign.Color.accent,
-                        isLowPowerMode: isLowPowerMode,
-                        activeContentMaxWidth: 670
-                    )
-                    .allowsHitTesting(false)
-                    .zIndex(0)
-                }
-
-                mainContentView
-                    .zIndex(1)
-
-                if settingsManager.auroraVisualizationEnabled && !isNowPlayingPresented && auroraAboveContent {
-                    AuroraVisualizationView(
-                        playbackService: DependencyContainer.shared.playbackService,
-                        consumer: .rootBackdrop,
-                        accentColor: EnsembleDesign.Color.accent,
-                        isLowPowerMode: isLowPowerMode,
-                        activeContentMaxWidth: 670
-                    )
-                    .allowsHitTesting(false)
-                    .zIndex(2)
-                }
-
-                if supportsViewportNowPlayingPresentation && isNowPlayingPresented {
-                    NowPlayingViewportRoot(
-                        viewModel: nowPlayingVM,
-                        dismissAction: dismissNowPlaying
-                    )
-                    .accentColor(settingsManager.accentColor.color)
-                    .transition(.opacity)
-                    .zIndex(10)
+        RootSceneLayerHost(
+            nowPlayingVM: nowPlayingVM,
+            playbackService: DependencyContainer.shared.playbackService,
+            accentColor: settingsManager.accentColor.color,
+            isAuroraEnabled: settingsManager.auroraVisualizationEnabled && showsRootAurora && nowPlayingVM.currentTrack?.sourceCapabilities.supportsWaveform != false,
+            isLowPowerMode: isLowPowerMode,
+            isNowPlayingPresented: isNowPlayingPresented,
+            isSoftwareKeyboardVisible: isSoftwareKeyboardVisible,
+            sidebarChromeRegistration: rootSidebarChromeRegistration,
+            supportsViewportNowPlayingPresentation: supportsViewportNowPlayingPresentation,
+            namespace: playerNamespace,
+            animationID: artworkAnimationID,
+            presentNowPlaying: presentNowPlayingFromMiniPlayer,
+            dismissNowPlaying: dismissNowPlaying
+        ) {
+            mainContentView
+        }
+        .auxiliaryPresentationSheets()
+        .environmentObject(sourceActionPresenter)
+        .sheet(item: $sourceActionPresenter.pendingRequest, onDismiss: sourceActionPresenter.completeSelection) { request in
+            MediaSourceActionPicker(request: request, presenter: sourceActionPresenter)
+        }
+        .alert("Replace Queue?", isPresented: Binding(
+            get: { nowPlayingVM.isQueueReplacementConfirmationPresented },
+            set: { isPresented in
+                if !isPresented {
+                    nowPlayingVM.cancelQueueReplacement()
                 }
             }
-            .coordinateSpace(name: RootChromeCoordinateSpace.name)
-            .overlayPreferenceValue(RootChromeRegistrationPreferenceKey.self) { registration in
-                if !isNowPlayingPresented && !isSoftwareKeyboardVisible {
-                    RootMiniPlayerOverlay(
-                        nowPlayingVM: nowPlayingVM,
-                        layout: resolvedRootChromeLayout(from: registration, in: proxy),
-                        accentColor: EnsembleDesign.Color.accent,
-                        namespace: playerNamespace,
-                        animationID: artworkAnimationID,
-                        presentNowPlaying: presentNowPlayingFromMiniPlayer
-                    )
-                    .zIndex(5)
-                }
+        )) {
+            Button("Cancel", role: .cancel) {
+                nowPlayingVM.cancelQueueReplacement()
             }
-            .environment(\.isViewportNowPlayingPresented, isNowPlayingPresented)
-            .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
-            .environment(\.isSoftwareKeyboardVisible, isSoftwareKeyboardVisible)
-            .environment(\.artworkDetailBackgroundContinuity, artworkDetailBackgroundContinuity)
-            .environment(\.artistDetailArtworkContinuity, artistDetailArtworkContinuity)
-            .environmentObject(navigationCoordinator)
-            .accentColor(settingsManager.accentColor.color)
-            .onAppear {
+            Button("Clear Queue and Play", role: .destructive) {
+                nowPlayingVM.confirmQueueReplacement()
+            }
+        } message: {
+            Text("This will replace the songs you added to the current queue.")
+        }
+        .environment(\.isViewportNowPlayingPresented, isNowPlayingPresented)
+        .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
+        .environment(\.isSoftwareKeyboardVisible, isSoftwareKeyboardVisible)
+        .environment(\.artworkDetailBackgroundContinuity, artworkDetailBackgroundContinuity)
+        .environment(\.artistDetailArtworkContinuity, artistDetailArtworkContinuity)
+        .environmentObject(navigationCoordinator)
+        .accentColor(settingsManager.accentColor.color)
+        .transaction { transaction in
+            guard AutomationLaunchOptions.current.disableAnimations else { return }
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
+        .onAppear {
+            NavigationCoordinator.setActiveSceneCoordinator(navigationCoordinator)
+            NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
+            updateAppearance()
+            DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
+            logAutomationLaunchOptionsIfNeeded()
+            applyAutomationNetworkStateIfNeeded()
+            applyAutomationLaunchRouteIfNeeded()
+            applyAutomationPlaylistRefreshIfNeeded()
+        }
+        .onDisappear {
+            NavigationCoordinator.clearActiveSceneCoordinator(navigationCoordinator)
+            NavigationCoordinator.clearActiveAuxiliaryCommandCoordinator(navigationCoordinator)
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
                 NavigationCoordinator.setActiveSceneCoordinator(navigationCoordinator)
                 NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
-                updateAppearance()
-                DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
-            }
-            .onDisappear {
-                NavigationCoordinator.clearActiveSceneCoordinator(navigationCoordinator)
-                NavigationCoordinator.clearActiveAuxiliaryCommandCoordinator(navigationCoordinator)
-            }
-            .onChange(of: scenePhase) { phase in
-                if phase == .active {
-                    NavigationCoordinator.setActiveSceneCoordinator(navigationCoordinator)
-                    NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
-                }
-            }
-            .onChange(of: settingsManager.auroraVisualizationEnabled) { _ in
-                updateAppearance()
-            }
-            .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
-                isLowPowerMode = newValue
-            }
-            #if canImport(UIKit)
-            .onReceive(Self.softwareKeyboardVisibilityPublisher) { newValue in
-                if newValue != isSoftwareKeyboardVisible {
-                    var transaction = Transaction(animation: nil)
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) {
-                        isSoftwareKeyboardVisible = newValue
-                    }
-                }
-            }
-            #endif
-            .modifier(NowPlayingPresentationModifier(rootView: self))
-            .task {
-                let deps = DependencyContainer.shared
-                deps.accountManager.loadAccounts()
-                // Pre-populate server health states so tracks from unchecked servers
-                // are dimmed until health checks confirm reachability.
-                deps.serverHealthChecker.prepopulateUnknownStates()
-                deps.syncCoordinator.refreshProviders()
-                _ = await deps.siriMediaIndexStore.rebuildIndex()
+                applyAutomationLaunchRouteIfNeeded()
+                applyAutomationPlaylistRefreshIfNeeded()
             }
         }
-        .macRootWindowMinimumFrame()
+        .onChange(of: settingsManager.auroraVisualizationEnabled) { _ in
+            updateAppearance()
+        }
+        .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
+            isLowPowerMode = newValue
+        }
+        .onReceive(navigationCoordinator.$selectedTab) { tab in
+            syncSidebarSelection(to: tab)
+        }
+        .onReceive(navigationCoordinator.$externalRouteSequence.dropFirst()) { _ in
+            if usesNativeBrowse {
+                // External routes target a library stack, never a transient Pin tab.
+                sidebarSelection = .library(navigationCoordinator.selectedTab)
+            }
+            if isNowPlayingPresented {
+                dismissNowPlaying()
+            }
+        }
+        #if canImport(UIKit)
+        .onReceive(Self.softwareKeyboardVisibilityPublisher) { newValue in
+            if newValue != isSoftwareKeyboardVisible {
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    isSoftwareKeyboardVisible = newValue
+                }
+            }
+        }
+        #endif
+        .rootNowPlayingPresentation(
+            isPresented: $isNowPlayingPresented,
+            onDismiss: completeNowPlayingDismissal
+        ) {
+            nowPlayingPresentationContent
+        }
+        .task {
+            let deps = DependencyContainer.shared
+            logRootTaskStart()
+            #if os(macOS)
+            await deps.accountManager.loadAccountsAsync()
+            #else
+            deps.accountManager.loadAccounts()
+            #endif
+            // Pre-populate server health states so tracks from unchecked servers
+            // are dimmed until health checks confirm reachability.
+            deps.serverHealthChecker.prepopulateUnknownStates()
+            deps.syncCoordinator.refreshProviders()
+            #if os(macOS)
+            if await deps.foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly),
+               await deps.siriMediaIndexStore.loadIndex(maxAge: 3600) == nil {
+                _ = await deps.siriMediaIndexStore.rebuildIndex()
+            }
+            #endif
+        }
+        .macRootWindowMinimumFrame(usesNativeBrowse: usesNativeBrowse)
         .macViewportNowPlayingWindowChromeHidden(isNowPlayingPresented)
+    }
+
+    private func logAutomationLaunchOptionsIfNeeded() {
+        guard !hasLoggedAutomationLaunchOptions else { return }
+        hasLoggedAutomationLaunchOptions = true
+        AutomationLaunchOptions.current.logLaunchIfNeeded()
+    }
+
+    private func applyAutomationNetworkStateIfNeeded() {
+        guard !hasAppliedAutomationNetworkState else { return }
+        hasAppliedAutomationNetworkState = true
+
+        let options = AutomationLaunchOptions.current
+        guard options.simulateOffline else { return }
+
+        #if DEBUG
+        DependencyContainer.shared.networkMonitor.simulateOffline(true)
+        #else
+        EnsembleLogger.info("Automation offline simulation requested in a non-debug build; ignoring")
+        #endif
+    }
+
+    private func applyAutomationLaunchRouteIfNeeded() {
+        guard !hasAppliedAutomationLaunchRoute,
+              let startSurface = AutomationLaunchOptions.current.startSurface
+        else { return }
+
+        hasAppliedAutomationLaunchRoute = true
+
+        // Sidebar shells expose app settings through the Profile presentation.
+        if usesSidebarRootNavigationShell, startSurface == .settings {
+            _ = navigationCoordinator.routeAutomationSurface(.profile, source: "launchArgument.settingsAlias")
+            return
+        }
+
+        _ = navigationCoordinator.routeAutomationSurface(startSurface, source: "launchArgument")
+    }
+
+    private func applyAutomationPlaylistRefreshIfNeeded() {
+        guard !hasAppliedAutomationPlaylistRefresh,
+              AutomationLaunchOptions.current.refreshPlaylists
+        else { return }
+
+        hasAppliedAutomationPlaylistRefresh = true
+        Task {
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "playlistRefreshRequested",
+                details: ["source": "launchArgument"]
+            )
+            await DependencyContainer.shared.syncCoordinator.syncPlaylistsOnly()
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "playlistRefreshCompleted",
+                details: ["source": "launchArgument"]
+            )
+        }
+    }
+
+    private func logRootTaskStart() {
+        if let launchTime = EnsembleStartupTiming.launchTime {
+            let elapsed = Date().timeIntervalSince(launchTime)
+            EnsembleLogger.info("PERF_LAUNCH: rootView.task.start elapsed=\(String(format: "%.3f", elapsed))s")
+        } else {
+            EnsembleLogger.info("PERF_LAUNCH: rootView.task.start elapsed=unknown")
+        }
     }
 
     #if canImport(UIKit)
@@ -383,104 +319,72 @@ public struct RootView: View {
 
     @ViewBuilder
     private var mainContentView: some View {
-        switch EnsemblePlatformFeaturePolicy.currentRootNavigationShell {
-        case .sidebar:
-            #if os(iOS)
-            if #available(iOS 16.0, *) {
-                SidebarView(nowPlayingVM: nowPlayingVM, selection: $sidebarSelection)
+        switch EnsemblePlatformFeaturePolicy.current.rootNavigationShell {
+        case .nativeBrowse:
+            if #available(iOS 18.0, macOS 15.0, *) {
+                SidebarView(
+                    nowPlayingVM: nowPlayingVM,
+                    viewModels: screenModels,
+                    selection: $sidebarSelection,
+                    usesNativeBrowse: true,
+                    rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
+                )
             } else {
-                MainTabView(nowPlayingVM: nowPlayingVM)
+                MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
             }
-            #elseif os(macOS)
-            if #available(macOS 13.0, *) {
-                SidebarView(nowPlayingVM: nowPlayingVM, selection: $sidebarSelection)
+        case .legacySidebar:
+            if #available(iOS 16.0, macOS 13.0, *) {
+                SidebarView(
+                    nowPlayingVM: nowPlayingVM,
+                    viewModels: screenModels,
+                    selection: $sidebarSelection,
+                    rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
+                )
             } else {
-                MainTabView(nowPlayingVM: nowPlayingVM)
+                MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
             }
-            #else
-            MainTabView(nowPlayingVM: nowPlayingVM)
-            #endif
         case .tabs:
-            MainTabView(nowPlayingVM: nowPlayingVM)
+            if #available(iOS 27.0, macOS 27.0, *), supportsAdaptivePhoneBrowse {
+                GeometryReader { geometry in
+                    let expanded = PhoneBrowseNavigation.usesSidebar(size: geometry.size)
+                    SidebarView(
+                        nowPlayingVM: nowPlayingVM,
+                        viewModels: screenModels,
+                        selection: $sidebarSelection,
+                        usesNativeBrowse: true,
+                        adaptsToPhone: true,
+                        wantsPhoneTabs: !expanded,
+                        rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
+                    )
+                    .onAppear { usesExpandedPhoneBrowse = expanded }
+                    .onChange(of: expanded) { usesExpandedPhoneBrowse = $0 }
+                }
+            } else {
+                MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
+            }
         }
     }
 
-    private func resolvedRootChromeLayout(
-        from registration: RootChromeRegistration,
-        in proxy: GeometryProxy
-    ) -> RootChromeLayout {
-        let rootBounds = CGRect(origin: .zero, size: proxy.size)
-
-        guard rootBounds.width > 0,
-              rootBounds.height > 0 else {
-            return .hidden
-        }
-
-        guard let bounds = registration.bounds else {
-            return RootChromeLayout(
-                frame: rootBounds,
-                bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(
-                    safeAreaBottom: proxy.safeAreaInsets.bottom
-                ),
-                horizontalOffset: 0,
-                showsMiniPlayer: true
-            )
-        }
-
-        let visibleFrame = proxy[bounds].intersection(rootBounds)
-
-        guard visibleFrame.width > 0, visibleFrame.height > 0 else {
-            return .hidden
-        }
-
-        return RootChromeLayout(
-            frame: visibleFrame,
-            bottomPadding: registration.bottomPadding,
-            horizontalOffset: rootChromeHorizontalOffset(
-                for: visibleFrame,
-                rootBounds: rootBounds,
-                contentLeadingInset: registration.contentLeadingInset,
-                centersInRootHorizontalSpace: registration.centersInRootHorizontalSpace
-            ),
-            showsMiniPlayer: registration.showsMiniPlayer
-        )
-    }
-
-    private func rootChromeHorizontalOffset(
-        for visibleFrame: CGRect,
-        rootBounds: CGRect,
-        contentLeadingInset: CGFloat,
-        centersInRootHorizontalSpace: Bool
-    ) -> CGFloat {
+    private var supportsAdaptivePhoneBrowse: Bool {
         #if os(iOS)
-        guard UIDevice.current.userInterfaceIdiom == .pad else {
-            return 0
+        if #available(iOS 27.0, *) {
+            return UIDevice.current.userInterfaceIdiom == .phone
         }
-
-        if centersInRootHorizontalSpace {
-            return rootBounds.midX - visibleFrame.midX
-        }
-
-        guard visibleFrame.minX <= 1 else {
-            return 0
-        }
-
-        let missingLeadingOffset = rootBounds.width - visibleFrame.width
-        if missingLeadingOffset > 1 {
-            return missingLeadingOffset
-        }
-
-        guard contentLeadingInset > 0 else {
-            return 0
-        }
-
-        return contentLeadingInset / 2
-        #else
-        return 0
         #endif
+        return false
     }
 
-    fileprivate var supportsViewportNowPlayingPresentation: Bool {
+    private var usesNativeBrowse: Bool {
+        EnsemblePlatformFeaturePolicy.current.usesNativeBrowse || usesExpandedPhoneBrowse
+    }
+
+    private func updateRootSidebarChromeRegistration(_ registration: RootSidebarChromeRegistration) {
+        if rootSidebarChromeRegistration != registration {
+            rootSidebarChromeRegistration = registration
+        }
+    }
+
+    private var supportsViewportNowPlayingPresentation: Bool {
         #if os(macOS)
         return true
         #else
@@ -488,39 +392,11 @@ public struct RootView: View {
         #endif
     }
 
-    fileprivate var usesFullScreenNowPlayingPresentation: Bool {
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            return UIDevice.current.userInterfaceIdiom == .pad
-        }
-        return false
-        #else
-        return false
-        #endif
-    }
-
     private var usesSidebarRootNavigationShell: Bool {
-        switch EnsemblePlatformFeaturePolicy.currentRootNavigationShell {
-        case .sidebar:
-            #if os(iOS)
-            if #available(iOS 16.0, *) {
-                return true
-            }
-            return false
-            #elseif os(macOS)
-            if #available(macOS 13.0, *) {
-                return true
-            }
-            return false
-            #else
-            return false
-            #endif
-        case .tabs:
-            return false
-        }
+        EnsemblePlatformFeaturePolicy.current.usesSidebarRootNavigation || usesExpandedPhoneBrowse
     }
 
-    fileprivate var nowPlayingPresentationContent: some View {
+    private var nowPlayingPresentationContent: some View {
         NowPlayingSheetView(
             viewModel: nowPlayingVM,
             dismissAction: dismissNowPlaying
@@ -528,10 +404,6 @@ public struct RootView: View {
         .accentColor(settingsManager.accentColor.color)
         .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
         .environmentObject(navigationCoordinator)
-    }
-
-    fileprivate var nowPlayingPresentationBinding: Binding<Bool> {
-        $isNowPlayingPresented
     }
 
     private func presentNowPlayingFromMiniPlayer() {
@@ -561,12 +433,30 @@ public struct RootView: View {
         }
     }
 
-    fileprivate func completeNowPlayingDismissal() {
+    private func syncSidebarSelection(to tab: TabItem) {
+        guard usesSidebarRootNavigationShell else { return }
+        guard sidebarSelection?.correspondingTab != tab else { return }
+
+        switch tab {
+        case .home, .songs, .artists, .albums, .genres, .playlists, .favorites, .search:
+            clearSidebarPinPath()
+            sidebarSelection = .library(tab)
+        case .downloads, .settings:
+            return
+        }
+    }
+
+    private func completeNowPlayingDismissal() {
         guard let pending = navigationCoordinator.pendingNavigation else { return }
         navigationCoordinator.pendingNavigation = nil
 
         let targetTab: TabItem
-        if usesSidebarRootNavigationShell {
+        if usesNativeBrowse {
+            clearSidebarPinPath()
+            targetTab = NavigationCoordinator.targetTab(for: pending.destination)
+            sidebarSelection = .library(targetTab)
+        } else if usesSidebarRootNavigationShell {
+            clearSidebarPinPath()
             sidebarSelection = SidebarSelection.selection(
                 for: pending.destination,
                 fallback: sidebarSelection
@@ -579,14 +469,64 @@ public struct RootView: View {
         navigationCoordinator.selectedTab = targetTab
         navigationCoordinator.push(pending.destination, in: targetTab)
     }
+
+    private func clearSidebarPinPath() {
+        guard sidebarSelection?.isPinnedDetailSelection == true,
+              let tab = sidebarSelection?.correspondingTab
+        else { return }
+
+        navigationCoordinator.setPath([], for: tab)
+    }
+}
+
+private struct MediaSourceActionPicker: View {
+    let request: MediaSourceActionRequest
+    @ObservedObject var presenter: MediaSourceActionPresenter
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            List(request.choices) { choice in
+                Button {
+                    presenter.choose(choice)
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(choice.title)
+                            .foregroundColor(EnsembleDesign.Color.primaryText)
+                        Text(choice.source)
+                            .font(.caption)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        if let reason = choice.availability.reason, !choice.availability.isAvailable {
+                            Text(reason)
+                                .font(.caption)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        }
+                    }
+                }
+                .disabled(!choice.availability.isAvailable)
+                .accessibilityHint(choice.availability.reason ?? "")
+            }
+            .navigationTitle(request.title)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        presenter.cancel()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
 }
 
 private extension View {
     @ViewBuilder
-    func macRootWindowMinimumFrame() -> some View {
+    func macRootWindowMinimumFrame(usesNativeBrowse: Bool) -> some View {
         #if os(macOS)
         self.frame(
-            minWidth: EnsembleScaffold.RootWindow.macMinimumWidth,
+            minWidth: usesNativeBrowse
+                ? EnsembleScaffold.RootWindow.nativeBrowseMacMinimumWidth
+                : EnsembleScaffold.RootWindow.macMinimumWidth,
             minHeight: EnsembleScaffold.RootWindow.macMinimumHeight
         )
         #else
@@ -914,29 +854,3 @@ private extension NSView {
     }
 }
 #endif
-
-private struct NowPlayingPresentationModifier: ViewModifier {
-    let rootView: RootView
-
-    func body(content: Content) -> some View {
-        #if os(iOS)
-        if rootView.usesFullScreenNowPlayingPresentation {
-            content.fullScreenCover(
-                isPresented: rootView.nowPlayingPresentationBinding,
-                onDismiss: rootView.completeNowPlayingDismissal
-            ) {
-                rootView.nowPlayingPresentationContent
-            }
-        } else {
-            content.sheet(
-                isPresented: rootView.nowPlayingPresentationBinding,
-                onDismiss: rootView.completeNowPlayingDismissal
-            ) {
-                rootView.nowPlayingPresentationContent
-            }
-        }
-        #else
-        content
-        #endif
-    }
-}

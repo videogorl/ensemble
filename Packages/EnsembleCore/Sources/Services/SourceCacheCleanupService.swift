@@ -49,6 +49,8 @@ public protocol SourceCacheCleaning: Sendable {
 
 /// Removes source-owned cached data without routing heavy work through UI view models.
 public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Sendable {
+    public var onDownloadsRemoved: @Sendable () async -> Void = {}
+    static let pendingMutationsDidChange = Notification.Name("SourceCacheCleanupPendingMutationsDidChange")
     public typealias LyricsCacheCleanup = @Sendable (String) async -> Int
     public typealias AllLyricsCacheCleanup = @Sendable () async -> Int
     public typealias ArtworkKeyLookup = @Sendable (String) async throws -> Set<String>
@@ -57,10 +59,13 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
     public typealias SourceTargetCounter = @Sendable (String) async throws -> Int
     public typealias AllTargetCounter = @Sendable () async throws -> Int
     public typealias ArtworkItemCounter = @Sendable () async throws -> Int
+    public typealias SharedArtworkCacheCleanup = @Sendable () async throws -> Void
 
     private let libraryRepository: LibraryRepositoryProtocol
+    private let hubRepository: HubRepositoryProtocol
     private let downloadManager: DownloadManagerProtocol
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
+    private let pendingMutationRepository: PendingMutationRepositoryProtocol
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let fetchArtworkRatingKeys: ArtworkKeyLookup
     private let countLibraryItemsForSource: SourceLibraryItemCounter
@@ -70,12 +75,15 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
     private let countArtworkItems: ArtworkItemCounter
     private let clearLyricsCache: LyricsCacheCleanup
     private let clearAllLyricsCaches: AllLyricsCacheCleanup
+    private let clearSharedArtworkCaches: SharedArtworkCacheCleanup
 
     /// Creates a source cleanup worker from repository/file-cache dependencies.
     public init(
         libraryRepository: LibraryRepositoryProtocol,
+        hubRepository: HubRepositoryProtocol,
         downloadManager: DownloadManagerProtocol,
         targetRepository: OfflineDownloadTargetRepositoryProtocol,
+        pendingMutationRepository: PendingMutationRepositoryProtocol,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         fetchArtworkRatingKeys: @escaping ArtworkKeyLookup,
         countLibraryItemsForSource: @escaping SourceLibraryItemCounter,
@@ -84,11 +92,14 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         countAllTargets: @escaping AllTargetCounter,
         countArtworkItems: @escaping ArtworkItemCounter,
         clearLyricsCache: @escaping LyricsCacheCleanup,
-        clearAllLyricsCaches: @escaping AllLyricsCacheCleanup
+        clearAllLyricsCaches: @escaping AllLyricsCacheCleanup,
+        clearSharedArtworkCaches: @escaping SharedArtworkCacheCleanup
     ) {
         self.libraryRepository = libraryRepository
+        self.hubRepository = hubRepository
         self.downloadManager = downloadManager
         self.targetRepository = targetRepository
+        self.pendingMutationRepository = pendingMutationRepository
         self.artworkDownloadManager = artworkDownloadManager
         self.fetchArtworkRatingKeys = fetchArtworkRatingKeys
         self.countLibraryItemsForSource = countLibraryItemsForSource
@@ -98,6 +109,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         self.countArtworkItems = countArtworkItems
         self.clearLyricsCache = clearLyricsCache
         self.clearAllLyricsCaches = clearAllLyricsCaches
+        self.clearSharedArtworkCaches = clearSharedArtworkCaches
     }
 
     /// Removes one source's caches while preserving unrelated sources.
@@ -117,7 +129,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
     private func cleanupAll(cachedSourceKeys: Set<String>) async throws -> SourceCacheCleanupResult {
         let startedAt = Date()
         async let libraryItemCount = countAllLibraryItems()
-        async let downloadRecordCount = downloadManager.fetchDownloads().count
+        async let downloadRecordCount = downloadManager.countDownloads()
         async let targetCount = countAllTargets()
         async let artworkItemCount = countArtworkItems()
         let counts = try await (
@@ -128,13 +140,14 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         )
 
         async let lyricsCleanup: Int = clearAllLyricsCaches()
-        async let targetCleanup: Void = targetRepository.deleteAllTargets()
-        async let downloadCleanup: Void = downloadManager.deleteAllDownloads()
-
         let lyricsItemCount = await lyricsCleanup
-        try await targetCleanup
-        try await downloadCleanup
+        try await targetRepository.deleteAllTargets()
+        try await downloadManager.deleteAllDownloads()
+        await onDownloadsRemoved()
+        try await pendingMutationRepository.deleteAllMutations()
+        NotificationCenter.default.post(name: Self.pendingMutationsDidChange, object: nil)
         try await libraryRepository.deleteAllLibraryData()
+        try await hubRepository.deleteAllHubs()
         try await artworkDownloadManager.clearArtworkCache()
 
         let result = SourceCacheCleanupResult(
@@ -162,7 +175,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         for sourceKey in sourceKeys {
             async let sourceArtworkKeys = fetchArtworkRatingKeys(sourceKey)
             async let sourceLibraryItems = countLibraryItemsForSource(sourceKey)
-            async let sourceDownloads = downloadManager.fetchDownloads(forSourceCompositeKey: sourceKey).count
+            async let sourceDownloads = downloadManager.countDownloads(forSourceCompositeKey: sourceKey)
             async let sourceTargets = countTargetsForSource(sourceKey)
 
             let sourceCounts = try await (
@@ -175,20 +188,24 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
             libraryItemCount += sourceCounts.libraryItems
             downloadRecordCount += sourceCounts.downloads
             targetCount += sourceCounts.targets
+            try artworkDownloadManager.deleteArtwork(forSourceCompositeKey: sourceKey)
 
             async let lyricsCleanup: Int = clearLyricsCache(sourceKey)
-            async let targetCleanup: Void = targetRepository.deleteTargets(forSourceCompositeKey: sourceKey)
-            async let downloadCleanup: Void = downloadManager.deleteDownloads(forSourceCompositeKey: sourceKey)
-
             lyricsItemCount += await lyricsCleanup
-            try await targetCleanup
-            try await downloadCleanup
+            try await targetRepository.deleteTargets(forSourceCompositeKey: sourceKey)
+            try await downloadManager.deleteDownloads(forSourceCompositeKey: sourceKey)
+            await onDownloadsRemoved()
+            try await pendingMutationRepository.deleteMutations(forSourceCompositeKey: sourceKey)
+            try await deletePlaylistMutations(referencingSourceCompositeKey: sourceKey)
+            NotificationCenter.default.post(name: Self.pendingMutationsDidChange, object: nil)
+            _ = try await downloadManager.removeOrphanedDownloadFiles()
 
             try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceKey)
+            try await hubRepository.deleteHubs(forSourceCompositeKey: sourceKey)
         }
 
-        if !artworkKeysToDelete.isEmpty {
-            artworkDownloadManager.deleteArtwork(forRatingKeys: artworkKeysToDelete)
+        if sourceKeys.contains(where: { MusicSourceIdentifier(compositeKey: $0)?.type == .appleMusic }) {
+            try await clearSharedArtworkCaches()
         }
 
         let result = SourceCacheCleanupResult(
@@ -203,5 +220,16 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         )
         EnsembleLogger.info("Source cache cleanup finished \(result.logDescription)")
         return result
+    }
+
+    private func deletePlaylistMutations(referencingSourceCompositeKey sourceKey: String) async throws {
+        for mutation in try await pendingMutationRepository.fetchAllMutationRecords()
+        where mutation.mutationType == .playlistAdd {
+            guard let payload = try? JSONDecoder().decode(PlaylistMutationPayload.self, from: mutation.payload),
+                  payload.trackReferences.contains(where: { $0.trackSourceCompositeKey == sourceKey }) else {
+                continue
+            }
+            try await pendingMutationRepository.deleteMutation(id: mutation.id)
+        }
     }
 }

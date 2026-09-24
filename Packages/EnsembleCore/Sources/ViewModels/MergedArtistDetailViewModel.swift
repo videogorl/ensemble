@@ -29,61 +29,59 @@ public struct MergedArtistSourceSection: Identifiable, Equatable, Sendable {
 @MainActor
 public final class MergedArtistDetailViewModel: ObservableObject {
     @Published public private(set) var displayArtist: DisplayArtist
-    @Published public private(set) var sourceSections: [MergedArtistSourceSection] = []
+    @Published public private(set) var sourceSections: [MergedArtistSourceSection] = [] {
+        didSet { rebuildDisplaySnapshots() }
+    }
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
-    @Published public var filterOptions: FilterOptions
+    @Published public var filterOptions: FilterOptions {
+        didSet { rebuildDisplaySnapshots() }
+    }
+    @Published public private(set) var displaySnapshot: ArtistDetailDisplaySnapshot = .empty
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let accountManager: AccountManager
+    private let hiddenMediaStore: HiddenMediaStore
+    private let includesHidden: Bool
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         displayArtist: DisplayArtist,
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
-        accountManager: AccountManager
+        accountManager: AccountManager,
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        includesHidden: Bool = false
     ) {
+        let hiddenMediaStore = hiddenMediaStore ?? .shared
         self.displayArtist = displayArtist
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.accountManager = accountManager
+        self.hiddenMediaStore = hiddenMediaStore
+        self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "MergedArtistDetail-\(displayArtist.id)")
 
+        guard displayArtist.isMerged else { return }
+
+        hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            self?.rebuildDisplaySnapshots()
+        }.store(in: &cancellables)
+
         setupFilterPersistence()
-        observeDownloadChanges()
-        observeMetadataChanges()
+        observeReloadTriggers()
     }
 
     private func setupFilterPersistence() {
         let key = displayArtist.id
-        $filterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "MergedArtistDetail-\(key)") }
-            .store(in: &cancellables)
+        FilterPersistence.observe($filterOptions, key: "MergedArtistDetail-\(key)", storingIn: &cancellables)
     }
 
-    private func observeDownloadChanges() {
-        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
-            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.load()
-                }
-            }
-            .store(in: &cancellables)
-    }
-
-    private func observeMetadataChanges() {
-        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.load()
-                }
-            }
-            .store(in: &cancellables)
+    private func observeReloadTriggers() {
+        ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
+            await self?.load()
+        }
     }
 
     public func load() async {
@@ -107,7 +105,7 @@ public final class MergedArtistDetailViewModel: ObservableObject {
                 ))
             }
 
-            sourceSections = sections
+            if sourceSections != sections { sourceSections = sections }
         } catch {
             self.error = error.localizedDescription
         }
@@ -140,74 +138,87 @@ public final class MergedArtistDetailViewModel: ObservableObject {
     }
 
     public var filteredAlbums: [Album] {
-        MediaFilterEngine.filterAlbums(albums, with: filterOptions, configuration: .artistDetail)
+        displaySnapshot.filteredAlbums
     }
 
     public var filteredTracks: [Track] {
-        MediaFilterEngine.filterTracks(tracks, with: filterOptions, configuration: .artistDetail)
+        displaySnapshot.filteredTracks
     }
 
     public var trackCount: Int {
-        filteredTracks.count
+        displaySnapshot.trackCount
     }
 
     public var favoritedTracks: [Track] {
-        tracks.filter { $0.rating >= 8 }
+        displaySnapshot.favoritedTracks
     }
 
     public var availableGenres: [String] {
-        LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres))
+        displaySnapshot.availableGenres
     }
 
     public var totalDuration: String {
-        let totalSeconds = filteredTracks.reduce(0) { $0 + $1.duration }
-        let minutes = Int(totalSeconds) / 60
-        if minutes >= 60 {
-            return "\(minutes / 60) hr \(minutes % 60) min"
+        MediaFormatters.trackCollectionDuration(displaySnapshot.filteredTracks)
+    }
+
+    private func rebuildDisplaySnapshots() {
+        let allAlbums = sourceSections.flatMap(\.albums)
+        let allTracks = sourceSections.flatMap(\.tracks)
+        let nextDisplay = makeDisplaySnapshot(albums: allAlbums, tracks: allTracks)
+        if displaySnapshot != nextDisplay {
+            displaySnapshot = nextDisplay
         }
-        return "\(minutes) min"
     }
 
-    public func filteredTracks(for section: MergedArtistSourceSection) -> [Track] {
-        MediaFilterEngine.filterTracks(section.tracks, with: filterOptions, configuration: .artistDetail)
-    }
-
-    public func filteredAlbums(for section: MergedArtistSourceSection) -> [Album] {
-        MediaFilterEngine.filterAlbums(section.albums, with: filterOptions, configuration: .artistDetail)
-    }
-
-    public func favoritedTracks(for section: MergedArtistSourceSection) -> [Track] {
-        section.tracks.filter { $0.rating >= 8 }
+    private func makeDisplaySnapshot(albums: [Album], tracks: [Track]) -> ArtistDetailDisplaySnapshot {
+        ArtistDetailDisplaySnapshot(
+            albums: includesHidden ? albums : albums.filter { !hiddenMediaStore.snapshot.isHidden($0) },
+            tracks: includesHidden ? tracks : hiddenMediaStore.snapshot.visibleTracks(tracks),
+            filterOptions: filterOptions
+        )
     }
 
     private func albums(for artist: Artist) async throws -> [Album] {
-        if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
-            let cached = try await libraryRepository.fetchAlbums(forArtist: artist.id, sourceCompositeKey: sourceKey)
-            if !cached.isEmpty {
-                return cached.map { Album(from: $0) }
+        guard let sourceKey = artist.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
+        let cached = try await libraryRepository.fetchAlbums(forArtist: artist.id, sourceCompositeKey: sourceKey)
+        let localAlbums = ArtistDetailAlbumCollections.sorted(cached.map { Album(from: $0) })
+        if !cached.isEmpty {
+            if MusicSourceIdentifier(compositeKey: sourceKey)?.type == .appleMusic {
+                return localAlbums
             }
-            return try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
-        }
+            if syncCoordinator.isOffline {
+                return localAlbums
+            }
 
-        return try await libraryRepository.fetchAlbums(forArtist: artist.id).map { Album(from: $0) }
+            do {
+                let remoteAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
+                return ArtistDetailAlbumCollections.merged(local: localAlbums, remote: remoteAlbums)
+            } catch {
+                EnsembleLogger.debug("MergedArtistDetailViewModel: Artist album supplement failed for \(artist.sourceScopedID): \(error.localizedDescription)")
+                return localAlbums
+            }
+        }
+        return ArtistDetailAlbumCollections.sorted(try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey))
     }
 
     private func tracks(for artist: Artist) async throws -> [Track] {
-        if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
-            let cached = try await libraryRepository.fetchTracks(forArtist: artist.id, sourceCompositeKey: sourceKey)
-            if !cached.isEmpty {
-                return cached.map { Track(from: $0) }
-            }
-            return try await syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)
+        guard let sourceKey = artist.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
+        let cached = try await libraryRepository.fetchTracks(forArtist: artist.id, sourceCompositeKey: sourceKey)
+        if !cached.isEmpty {
+            return cached.map { Track(from: $0) }
         }
-
-        return try await libraryRepository.fetchTracks(forArtist: artist.id).map { Track(from: $0) }
+        return try await syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)
     }
 
     private func sourceDisplay(for artist: Artist) -> (title: String, subtitle: String) {
-        guard let context = accountManager.sourceLibraryContext(for: artist.sourceCompositeKey) else {
+        guard let presentation = accountManager.sourcePresentation(for: artist.sourceCompositeKey) else {
             return ("Unknown Library", "Unknown Source")
         }
-        return (context.libraryTitle, "\(context.serverName) · \(context.accountName)")
+        return (
+            presentation.libraryName,
+            "\(presentation.serverName) · \(presentation.accountName)"
+        )
     }
 }

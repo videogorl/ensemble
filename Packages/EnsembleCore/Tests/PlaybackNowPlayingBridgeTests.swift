@@ -1,5 +1,6 @@
 import EnsemblePersistence
 import MediaPlayer
+import Nuke
 import XCTest
 @testable import EnsembleCore
 
@@ -73,6 +74,90 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertEqual(commandCenter.changeRepeat.currentRepeatType, .one)
     }
 
+    func testAppleMusicPublishesEnsembleSystemState() {
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let commandCenter = FakeRemoteCommandCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: MockArtworkLoader(),
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: commandCenter
+        )
+        let appleState = makeState(track: makeTrack(
+            id: "apple-track",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        ))
+
+        bridge.updateNowPlayingInfo(appleState)
+
+        XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Name")
+        XCTAssertEqual(nowPlayingCenter.playbackState, .playing)
+        XCTAssertFalse(commandCenter.play.isEnabled)
+        XCTAssertTrue(commandCenter.pause.isEnabled)
+        XCTAssertTrue(commandCenter.togglePlayPause.isEnabled)
+        XCTAssertTrue(commandCenter.nextTrack.isEnabled)
+        XCTAssertTrue(commandCenter.previousTrack.isEnabled)
+        XCTAssertTrue(commandCenter.changePlaybackPosition.isEnabled)
+    }
+
+    func testLoadingAndBufferingStopSystemClockAndSuppressDuplicates() {
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: MockArtworkLoader(),
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+        let track = makeTrack()
+        for state: PlaybackState in [.playing, .loading, .buffering, .paused, .playing] {
+            let snapshot = makeState(track: track, playbackState: state)
+            bridge.updateNowPlayingInfo(snapshot)
+            bridge.updateNowPlayingInfo(snapshot)
+            XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] as? Double,
+                           state == .playing ? 1 : 0)
+        }
+        XCTAssertEqual(nowPlayingCenter.publishedPlaybackRates, [1, 0, 0, 0, 1])
+    }
+
+    func testRepeatReanchorsIdenticalTrackAndPosition() {
+        let center = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: MockArtworkLoader(), nowPlayingCenter: center,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+        var state = makeState(track: makeTrack(), currentTime: 0)
+        bridge.updateNowPlayingInfo(state)
+        // iOS has advanced its clock while the published snapshot still says zero.
+        state.timelineRevision += 1
+        bridge.updateNowPlayingInfo(state)
+        XCTAssertEqual(center.publishedPlaybackRates, [1, 1])
+        XCTAssertEqual(center.nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double, 0)
+    }
+
+    #if os(iOS)
+    func testAppleMusicUpdateRejectsStalePlexArtworkCompletion() async throws {
+        let artworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: MockArtworkLoader(
+                artworkURL: artworkURL,
+                responseDelayNanoseconds: 200_000_000
+            ),
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+
+        bridge.updateNowPlayingInfo(makeState(track: makeTrack()))
+        bridge.updateNowPlayingInfo(makeState(track: makeTrack(
+            id: "apple-track",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )))
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Name")
+        XCTAssertEqual(nowPlayingCenter.playbackState, .playing)
+    }
+    #endif
+
     func testBridgeReplacesExistingArtworkWhenArtworkIdentityChanges() async throws {
         let artworkURL = try makeTemporaryPNG()
         defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
@@ -113,9 +198,8 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
             )
         ))
 
-        let secondArtwork = try XCTUnwrap(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
         XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Two")
-        XCTAssertTrue(firstArtwork === secondArtwork)
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork])
 
         await waitUntil("fallback artwork load") {
             guard let artwork = nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork else {
@@ -125,7 +209,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         }
     }
 
-    func testBridgeKeepsExistingArtworkUntilNewArtworkLoads() async throws {
+    func testBridgeDoesNotPublishPreviousArtworkWhileNewArtworkLoads() async throws {
         let firstArtworkURL = try makeTemporaryPNG()
         let secondArtworkURL = try makeTemporaryPNG()
         defer {
@@ -170,7 +254,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         ))
 
         XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Two")
-        XCTAssertTrue(firstArtwork === nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork])
 
         await waitUntil("second artwork load") {
             guard let artwork = nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork else {
@@ -180,7 +264,63 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         }
     }
 
-    func testBridgeReusesArtworkWhenTracksShareArtworkIdentity() async throws {
+    func testBridgePublishesSynchronouslyCachedArtworkWithNewTrackMetadata() throws {
+        let track = makeTrack(
+            id: "track-2",
+            title: "Track Two",
+            albumRatingKey: "album-2",
+            thumbPath: nil,
+            fallbackThumbPath: "/thumb/album-2",
+            fallbackRatingKey: "album-2"
+        )
+        let request = ArtworkRequest(track: track, tier: .hero, priority: .high)
+        let image = makePlatformImage()
+        let artworkLoader = MockArtworkLoader(synchronouslyCachedImage: ArtworkResolvedImage(
+            url: URL(fileURLWithPath: "/tmp/artwork.png"),
+            image: image,
+            blurCacheKey: request.stableBlurCacheKey,
+            identityKey: try XCTUnwrap(request.candidateIdentityKeys.first)
+        ))
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: artworkLoader,
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+
+        bridge.updateNowPlayingInfo(makeState(track: track))
+
+        XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Two")
+        XCTAssertTrue(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] is MPMediaItemArtwork)
+        XCTAssertEqual(artworkLoader.requestCount, 0)
+    }
+
+    func testArtworkCompletionDoesNotRestoreStalePlaybackState() async throws {
+        let artworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
+
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: MockArtworkLoader(
+                artworkURL: artworkURL,
+                responseDelayNanoseconds: 200_000_000
+            ),
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+        let track = makeTrack(thumbPath: "/thumb/track")
+
+        bridge.updateNowPlayingInfo(makeState(track: track, playbackState: .playing))
+        bridge.currentState = { self.makeState(track: track, playbackState: .paused, currentTime: 12) }
+
+        await waitUntil("artwork load") {
+            nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] is MPMediaItemArtwork
+        }
+        XCTAssertEqual(nowPlayingCenter.playbackState, .paused)
+        XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double, 12)
+    }
+
+    func testBridgeReusesFallbackArtworkWhenPrimaryThumbPathIsEmpty() async throws {
         let artworkURL = try makeTemporaryPNG()
         defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
 
@@ -197,7 +337,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
                 id: "track-1",
                 title: "Track One",
                 albumRatingKey: "album-1",
-                thumbPath: nil,
+                thumbPath: "",
                 fallbackThumbPath: "/thumb/album-1",
                 fallbackRatingKey: "album-1"
             )
@@ -212,7 +352,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
                 id: "track-2",
                 title: "Track Two",
                 albumRatingKey: "album-1",
-                thumbPath: nil,
+                thumbPath: "",
                 fallbackThumbPath: "/thumb/album-1",
                 fallbackRatingKey: "album-1"
             )
@@ -221,6 +361,80 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Two")
         XCTAssertTrue(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] is MPMediaItemArtwork)
         XCTAssertEqual(artworkLoader.requestCount, 1)
+    }
+
+    func testBridgeReloadsTrackOwnedArtworkEvenWhenPathsMatch() async throws {
+        let artworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
+
+        let artworkLoader = MockArtworkLoader(artworkURL: artworkURL)
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: artworkLoader,
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+
+        bridge.updateNowPlayingInfo(makeState(
+            track: makeTrack(
+                id: "track-1",
+                title: "Track One",
+                thumbPath: "/thumb/album-1",
+                fallbackThumbPath: nil,
+                fallbackRatingKey: nil
+            )
+        ))
+
+        await waitUntil("first artwork load") {
+            nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] is MPMediaItemArtwork
+        }
+
+        bridge.updateNowPlayingInfo(makeState(
+            track: makeTrack(
+                id: "track-2",
+                title: "Track Two",
+                thumbPath: "/thumb/album-1",
+                fallbackThumbPath: nil,
+                fallbackRatingKey: nil
+            )
+        ))
+
+        XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Two")
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork])
+        await waitUntil("second track-owned artwork load") { artworkLoader.requestCount == 2 }
+    }
+
+    func testBridgeReloadsArtworkWhenSharedPrimaryHasDifferentFallback() async throws {
+        let artworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
+
+        let artworkLoader = MockArtworkLoader(artworkURL: artworkURL)
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: artworkLoader,
+            nowPlayingCenter: FakeNowPlayingInfoCenter(),
+            commandCenter: FakeRemoteCommandCenter()
+        )
+
+        bridge.updateNowPlayingInfo(makeState(
+            track: makeTrack(
+                id: "track-1",
+                title: "Track One",
+                thumbPath: "/thumb/shared",
+                fallbackThumbPath: "/thumb/album-1"
+            )
+        ))
+        await waitUntil("first artwork load") { artworkLoader.requestCount == 1 }
+
+        bridge.updateNowPlayingInfo(makeState(
+            track: makeTrack(
+                id: "track-2",
+                title: "Track Two",
+                thumbPath: "/thumb/shared",
+                fallbackThumbPath: "/thumb/album-2"
+            )
+        ))
+
+        await waitUntil("second artwork load") { artworkLoader.requestCount == 2 }
     }
 
     func testBridgeUsesFallbackArtworkWhenTrackHasNoArtworkPath() {
@@ -241,6 +455,59 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         ))
 
         XCTAssertTrue(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] is MPMediaItemArtwork)
+        XCTAssertEqual(artworkLoader.requestCount, 0)
+    }
+
+    func testBridgeDoesNotPublishGeneratedFallbackBeforeRealArtworkLoadWhenArtworkPathExists() {
+        let artworkLoader = MockArtworkLoader(responseDelayNanoseconds: 200_000_000)
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: artworkLoader,
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+
+        bridge.updateNowPlayingInfo(makeState(
+            track: makeTrack(
+                thumbPath: nil,
+                fallbackThumbPath: "/thumb/album",
+                fallbackRatingKey: "album-1"
+            )
+        ))
+
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork])
+    }
+
+    func testBridgeUsesCachedFallbackAlbumArtworkBeforeNetworkArtwork() async throws {
+        let artworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
+
+        let artworkLoader = MockArtworkLoader(localArtworkURL: artworkURL)
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: artworkLoader,
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+
+        bridge.updateNowPlayingInfo(makeState(
+            track: makeTrack(
+                id: "track-1",
+                title: "Cut My Lip",
+                albumRatingKey: "album-1",
+                thumbPath: nil,
+                fallbackThumbPath: "/thumb/album-1",
+                fallbackRatingKey: "album-1"
+            )
+        ))
+
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork])
+
+        await waitUntil("cached fallback artwork load") {
+            nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] is MPMediaItemArtwork
+        }
+
+        XCTAssertEqual(artworkLoader.localRequestCount, 1)
         XCTAssertEqual(artworkLoader.requestCount, 0)
     }
 
@@ -267,6 +534,24 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertEqual(commandCenter.like.removedTargetCount, 1)
     }
 
+    func testFeedbackCommandsRespectProviderCapabilities() {
+        let commandCenter = FakeRemoteCommandCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: MockArtworkLoader(),
+            nowPlayingCenter: FakeNowPlayingInfoCenter(),
+            commandCenter: commandCenter
+        )
+
+        bridge.updateNowPlayingInfo(makeState(
+            track: makeTrack(),
+            canLike: true,
+            canDislike: false
+        ))
+
+        XCTAssertTrue(commandCenter.like.isEnabled)
+        XCTAssertFalse(commandCenter.dislike.isEnabled)
+    }
+
     func testShuffleAndRepeatMappingUsesExactMediaPlayerModes() {
         XCTAssertEqual(PlaybackNowPlayingBridge.shuffleType(for: false), .off)
         XCTAssertEqual(PlaybackNowPlayingBridge.shuffleType(for: true), .items)
@@ -282,24 +567,15 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertEqual(PlaybackNowPlayingBridge.repeatMode(for: .one), .one)
     }
 
-    func testRemoteSeekAllowsFreshLargeScrubOnNewTrack() {
-        XCTAssertFalse(PlaybackNowPlayingBridge.shouldRejectRemoteSeekAsStale(
-            targetPosition: 210,
-            currentTime: 2,
-            trackAge: 2.3,
-            eventTimestamp: 99.9,
-            nowTimestamp: 100
-        ))
-    }
-
-    func testRemoteSeekRejectsLargeCommandFromPreviousTrack() {
-        XCTAssertTrue(PlaybackNowPlayingBridge.shouldRejectRemoteSeekAsStale(
-            targetPosition: 210,
-            currentTime: 2,
-            trackAge: 2.3,
-            eventTimestamp: 96.5,
-            nowTimestamp: 100
-        ))
+    func testRemoteSeekRejectsPreviousTrackEventsAtAnyTrackAge() {
+        for trackAge: TimeInterval in [2.3, 131] {
+            XCTAssertFalse(PlaybackNowPlayingBridge.shouldRejectRemoteSeekAsStale(
+                trackAge: trackAge, eventTimestamp: 299.9, nowTimestamp: 300
+            ))
+            XCTAssertTrue(PlaybackNowPlayingBridge.shouldRejectRemoteSeekAsStale(
+                trackAge: trackAge, eventTimestamp: 300 - trackAge - 1, nowTimestamp: 300
+            ))
+        }
     }
 
     private func makeTrack(
@@ -308,7 +584,8 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         albumRatingKey: String? = "album-1",
         thumbPath: String? = "/thumb/track",
         fallbackThumbPath: String? = "/thumb/album",
-        fallbackRatingKey: String? = "album-1"
+        fallbackRatingKey: String? = "album-1",
+        sourceCompositeKey: String = "plex://server/library"
     ) -> Track {
         Track(
             id: id,
@@ -326,7 +603,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
             fallbackThumbPath: fallbackThumbPath,
             fallbackRatingKey: fallbackRatingKey,
             genres: ["Electronic"],
-            sourceCompositeKey: "plex://server/library"
+            sourceCompositeKey: sourceCompositeKey
         )
     }
 
@@ -341,6 +618,8 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         repeatMode: RepeatMode = .off,
         isLiked: Bool = false,
         isDisliked: Bool = false,
+        canLike: Bool = true,
+        canDislike: Bool = true,
         canPlay: Bool = false,
         canPause: Bool = true,
         canSkipForward: Bool = true,
@@ -360,6 +639,8 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
             repeatMode: repeatMode,
             isLiked: isLiked,
             isDisliked: isDisliked,
+            canLike: canLike,
+            canDislike: canDislike,
             canPlay: canPlay,
             canPause: canPause,
             canSkipForward: canSkipForward,
@@ -398,6 +679,17 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         return url
     }
 
+    private func makePlatformImage() -> PlatformImage {
+        #if canImport(UIKit)
+        return UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+        #elseif canImport(AppKit)
+        return NSImage(size: NSSize(width: 8, height: 8))
+        #endif
+    }
+
     private func waitUntil(
         _ description: String,
         timeout: TimeInterval = 2,
@@ -417,10 +709,22 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
 private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendable {
     private let lock = NSLock()
     private var _artworkURL: URL?
+    private var _localArtworkURL: URL?
+    private let _synchronouslyCachedImage: ArtworkResolvedImage?
+    private let responseDelayNanoseconds: UInt64
     private var _requestCount = 0
+    private var _localRequestCount = 0
 
-    init(artworkURL: URL? = nil) {
+    init(
+        artworkURL: URL? = nil,
+        localArtworkURL: URL? = nil,
+        synchronouslyCachedImage: ArtworkResolvedImage? = nil,
+        responseDelayNanoseconds: UInt64 = 0
+    ) {
         self._artworkURL = artworkURL
+        self._localArtworkURL = localArtworkURL
+        self._synchronouslyCachedImage = synchronouslyCachedImage
+        self.responseDelayNanoseconds = responseDelayNanoseconds
     }
 
     var artworkURL: URL? {
@@ -432,21 +736,50 @@ private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendabl
         locked { _requestCount }
     }
 
-    func artworkURLAsync(
-        for path: String?,
-        sourceKey: String?,
-        ratingKey: String?,
-        fallbackPath: String?,
-        fallbackRatingKey: String?,
-        size: Int
-    ) async -> URL? {
-        locked {
+    var localRequestCount: Int {
+        locked { _localRequestCount }
+    }
+
+    func synchronouslyCachedImage(for request: ArtworkRequest) -> ArtworkResolvedImage? {
+        _synchronouslyCachedImage
+    }
+
+    func resolve(
+        _ request: ArtworkRequest,
+        policy: ArtworkResolutionPolicy
+    ) async -> ArtworkImageResolutionOutcome {
+        if responseDelayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: responseDelayNanoseconds)
+        }
+        let url = locked { () -> URL? in
+            if policy == .cachedOnly {
+                _localRequestCount += 1
+                return _localArtworkURL
+            }
             _requestCount += 1
             return _artworkURL
         }
+        guard let url else { return .unavailable(.noArtworkURL) }
+        let imageRequest = ArtworkImageRequest.resized(
+            url: url,
+            size: request.tier.rawValue,
+            priority: request.priority.nukePriority
+        )
+        guard let image = try? await ImagePipeline.shared.image(for: imageRequest) else {
+            return .unavailable(.imageLoadFailed(url))
+        }
+        return .resolved(ArtworkResolvedImage(
+            url: url,
+            image: image,
+            blurCacheKey: request.stableBlurCacheKey,
+            identityKey: request.stableIdentityKey
+        ))
     }
 
     func invalidateURLCache() async {}
+
+    @MainActor
+    func clearCaches() async throws {}
 
     private func locked<T>(_ body: () -> T) -> T {
         lock.lock()
@@ -456,8 +789,14 @@ private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendabl
 }
 
 private final class FakeNowPlayingInfoCenter: PlaybackNowPlayingInfoCenter {
-    var nowPlayingInfo: [String: Any]?
+    var nowPlayingInfo: [String: Any]? {
+        didSet {
+            guard let rate = nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] as? Double else { return }
+            publishedPlaybackRates.append(rate)
+        }
+    }
     var playbackState: MPNowPlayingPlaybackState = .unknown
+    private(set) var publishedPlaybackRates: [Double] = []
 }
 
 private class FakeRemoteCommand: PlaybackRemoteCommand {

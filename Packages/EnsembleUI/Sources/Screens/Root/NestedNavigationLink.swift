@@ -64,12 +64,6 @@ struct NestedNavigationLink: View {
         }
     }
 
-    static func firstDestination(
-        in path: [NavigationCoordinator.Destination]
-    ) -> NavigationCoordinator.Destination? {
-        destination(in: path, at: 0)
-    }
-
     static func destination(
         in path: [NavigationCoordinator.Destination],
         at depth: Int

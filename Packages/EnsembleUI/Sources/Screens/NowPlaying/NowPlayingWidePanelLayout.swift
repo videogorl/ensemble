@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -13,6 +14,7 @@ struct NowPlayingWidePanelLayout: View {
     private let headerTrailingPadding: CGFloat
     private let centersContentInAvailableSpace: Bool
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    @ObservedObject private var queueProjection: NowPlayingQueueProjection
 
     init(
         viewModel: NowPlayingViewModel,
@@ -27,6 +29,7 @@ struct NowPlayingWidePanelLayout: View {
     ) {
         self.viewModel = viewModel
         self._currentPage = currentPage
+        self._queueProjection = ObservedObject(wrappedValue: viewModel.queueProjection)
         self.dismissAction = dismissAction
         self.topPadding = topPadding
         self.maxContentWidth = maxContentWidth
@@ -77,13 +80,12 @@ struct NowPlayingWidePanelLayout: View {
         HStack(alignment: .center, spacing: EnsembleScaffold.NowPlaying.sectionTopPadding) {
             Spacer()
 
-            Picker("Panel", selection: panelSelection) {
-                Text("Queue").tag(NowPlayingPanelPage.queue.rawValue)
-                Text("Lyrics").tag(NowPlayingPanelPage.lyrics.rawValue)
-                Text("Info").tag(NowPlayingPanelPage.info.rawValue)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: EnsembleScaffold.NowPlaying.viewportPickerWidth)
+            NowPlayingPanelSelector(
+                selection: panelSelection,
+                options: [.queue, .lyrics, .info],
+                showsHistory: queueProjection.showHistory,
+                width: EnsembleScaffold.NowPlaying.viewportPickerWidth
+            )
 
             if let dismissAction {
                 Button {
@@ -129,5 +131,68 @@ struct NowPlayingWidePanelLayout: View {
             maxContentWidth
         )
         return max((available - EnsembleScaffold.NowPlaying.viewportInnerSpacing) / 2, 0)
+    }
+}
+
+struct NowPlayingPanelSelector: View {
+    @Binding var selection: Int
+    let options: [NowPlayingPanelPage]
+    let showsHistory: Bool
+    let width: CGFloat
+
+    var body: some View {
+        HStack(spacing: EnsembleDesign.Spacing.none) {
+            ForEach(options, id: \.rawValue) { option in
+                panelButton(for: option)
+            }
+        }
+        .padding(EnsembleDesign.Spacing.xxs)
+        .frame(width: width)
+        .background(
+            Capsule()
+                .fill(EnsembleDesign.Color.secondaryControlFill)
+        )
+    }
+
+    private func panelButton(for option: NowPlayingPanelPage) -> some View {
+        let selected = selection == option.rawValue
+        let title = option.title(showsHistory: showsHistory)
+
+        return Button {
+            withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
+                selection = option.rawValue
+            }
+        } label: {
+            Text(title)
+                .font(EnsembleDesign.Typography.stateMessage.weight(selected ? .semibold : .regular))
+                .foregroundColor(selected ? EnsembleDesign.Color.primaryText : EnsembleDesign.Color.secondaryText)
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .background {
+                    if selected {
+                        Capsule()
+                            .fill(EnsembleDesign.Color.windowSurface.opacity(0.86))
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .contentShape(Capsule())
+        .accessibilityLabel(title)
+        .accessibilityValue(selected ? "Selected" : "")
+    }
+}
+
+extension NowPlayingPanelPage {
+    func title(showsHistory: Bool = false) -> String {
+        switch self {
+        case .queue:
+            return showsHistory ? "History" : "Queue"
+        case .controls:
+            return "Controls"
+        case .lyrics:
+            return "Lyrics"
+        case .info:
+            return "Info"
+        }
     }
 }

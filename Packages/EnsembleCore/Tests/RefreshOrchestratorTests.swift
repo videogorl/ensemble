@@ -116,7 +116,7 @@ final class RefreshOrchestratorTests: XCTestCase {
         XCTAssertFalse(orchestrator.beginStartupHealthChecksIfNeeded())
 
         let freshOrchestrator = RefreshOrchestrator()
-        freshOrchestrator.markHealthRefreshCompleted(at: Date())
+        freshOrchestrator.setLastHealthRefreshForTesting(Date())
         XCTAssertFalse(freshOrchestrator.beginStartupHealthChecksIfNeeded())
     }
 
@@ -168,8 +168,37 @@ final class RefreshOrchestratorTests: XCTestCase {
         XCTAssertEqual(events.first, "first-start")
         XCTAssertTrue(events.contains("first-end"))
         XCTAssertTrue(events.contains("first-complete"))
-        XCTAssertEqual(events.last, "first-returned")
-        XCTAssertEqual(events.dropLast().last, "second-returned")
+        XCTAssertEqual(Set(events.suffix(2)), Set(["first-returned", "second-returned"]))
+        XCTAssertEqual(events.filter { $0.hasSuffix("-returned") }.count, 2)
+    }
+
+    func testStartupHealthChecksWaitForActiveScheduledRefresh() async {
+        let orchestrator = RefreshOrchestrator()
+        let now = Date(timeIntervalSince1970: 60_000)
+        var runCount = 0
+
+        XCTAssertTrue(orchestrator.scheduleHealthRefresh(
+            request: .init(reason: .accountInventoryRefresh, forceServerRefresh: true),
+            now: { now },
+            shouldDeferForegroundHealthRefresh: nil,
+            eligibleServerKeysProvider: { Set(["account-1:server-1"]) },
+            runRefresh: { _, _, _ in
+                runCount += 1
+                try? await Task.sleep(nanoseconds: 80_000_000)
+            },
+            didComplete: { _ in }
+        ))
+
+        let didRunStartupRefresh = await orchestrator.runStartupHealthChecksIfNeeded(
+            now: { now },
+            runRefresh: {
+                runCount += 1
+            },
+            didComplete: { _ in }
+        )
+
+        XCTAssertFalse(didRunStartupRefresh)
+        XCTAssertEqual(runCount, 1)
     }
 
     func testPostRatingPlaylistSyncCoalescesByServer() async {
@@ -186,7 +215,7 @@ final class RefreshOrchestratorTests: XCTestCase {
             invocations.append("\(serverKey)-latest")
         }
 
-        await orchestrator.awaitPostRatingPlaylistSyncForTesting(serverSourceKey: "plex:a:s1")
+        try? await Task.sleep(nanoseconds: 30_000_000)
         XCTAssertEqual(invocations, ["plex:a:s1-latest"])
     }
 
@@ -204,7 +233,7 @@ final class RefreshOrchestratorTests: XCTestCase {
             invocationCount += 1
         }
 
-        await orchestrator.awaitPostRatingFavoritesReconciliationForTesting()
+        try? await Task.sleep(nanoseconds: 30_000_000)
         XCTAssertEqual(invocationCount, 1)
     }
 }

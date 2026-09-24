@@ -5,7 +5,7 @@ import XCTest
 final class PeriodicSyncControllerTests: XCTestCase {
     private final class FakeTimer: PeriodicSyncTimer {
         private(set) var invalidateCount = 0
-        private let handler: @MainActor () -> Void
+        let handler: @MainActor () -> Void
 
         init(handler: @escaping @MainActor () -> Void) {
             self.handler = handler
@@ -13,10 +13,6 @@ final class PeriodicSyncControllerTests: XCTestCase {
 
         func invalidate() {
             invalidateCount += 1
-        }
-
-        func fire() {
-            handler()
         }
     }
 
@@ -47,27 +43,77 @@ final class PeriodicSyncControllerTests: XCTestCase {
             }
         )
 
+        controller.start { }
         let interval = controller.adjustForWebSocket(hasActiveWebSocket: true) { }
 
         XCTAssertEqual(interval, 240)
-        XCTAssertEqual(capturedIntervals, [240])
+        XCTAssertEqual(capturedIntervals, [60, 240])
+    }
+
+    func testAdjustAfterStopDoesNotRestartTimer() {
+        var capturedIntervals: [TimeInterval] = []
+        let controller = PeriodicSyncController(
+            defaultInterval: 60,
+            relaxedWebSocketInterval: 240,
+            timerFactory: { interval, handler in
+                capturedIntervals.append(interval)
+                return FakeTimer(handler: handler)
+            }
+        )
+
+        controller.start { }
+        controller.stop()
+        _ = controller.adjustForWebSocket(hasActiveWebSocket: false) { }
+
+        XCTAssertEqual(capturedIntervals, [60])
     }
 
     func testFireRunsScheduledAction() async {
         let expectation = expectation(description: "periodic sync action")
+        var scheduledTimer: FakeTimer?
         let controller = PeriodicSyncController(
             defaultInterval: 60,
             relaxedWebSocketInterval: 240,
             timerFactory: { _, handler in
-                FakeTimer(handler: handler)
+                let timer = FakeTimer(handler: handler)
+                scheduledTimer = timer
+                return timer
             }
         )
 
         controller.start {
             expectation.fulfill()
         }
-        controller.fireForTesting()
+        scheduledTimer?.handler()
 
+        await fulfillment(of: [expectation], timeout: 1.0)
+    }
+
+    func testDownloadedPlaylistTimerStaysAtPriorityCadenceWhenWebSocketRelaxesLibrarySync() async {
+        let expectation = expectation(description: "downloaded playlist sync action")
+        var scheduledTimers: [(TimeInterval, FakeTimer)] = []
+        let controller = PeriodicSyncController(
+            defaultInterval: 60,
+            relaxedWebSocketInterval: 240,
+            downloadedPlaylistInterval: 15,
+            timerFactory: { interval, handler in
+                let timer = FakeTimer(handler: handler)
+                scheduledTimers.append((interval, timer))
+                return timer
+            }
+        )
+
+        controller.start(
+            action: {},
+            downloadedPlaylistAction: { expectation.fulfill() }
+        )
+        _ = controller.adjustForWebSocket(hasActiveWebSocket: true) {}
+
+        XCTAssertEqual(scheduledTimers.map(\.0), [60, 15, 240])
+        XCTAssertEqual(scheduledTimers[0].1.invalidateCount, 1)
+        XCTAssertEqual(scheduledTimers[1].1.invalidateCount, 0)
+
+        scheduledTimers[1].1.handler()
         await fulfillment(of: [expectation], timeout: 1.0)
     }
 }

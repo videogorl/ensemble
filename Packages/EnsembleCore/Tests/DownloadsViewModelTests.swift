@@ -1,3 +1,4 @@
+import Combine
 import EnsembleAPI
 @testable import EnsembleCore
 import EnsemblePersistence
@@ -5,10 +6,24 @@ import XCTest
 
 @MainActor
 final class DownloadsViewModelTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        func save(_ value: String, forKey key: String) throws {}
-        func get(_ key: String) throws -> String? { nil }
-        func delete(_ key: String) throws {}
+
+    private final class NoopBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating {
+        var onExecutionRequested: (() -> Void)?
+        var onExpiration: (() -> Void)?
+        var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)?
+        var onSystemWillSleep: (() -> Void)?
+        var onSystemDidWake: (() -> Void)?
+
+        func register() {}
+        func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {}
+        func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
+        func finishCurrentTask(success: Bool) {}
+        func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
+            onBackgroundURLSessionEvents?(identifier, completionHandler)
+        }
+        func completeBackgroundURLSessionEvents(identifier: String) {}
+        func handleSystemWillSleep() { onSystemWillSleep?() }
+        func handleSystemDidWake() { onSystemDidWake?() }
     }
 
     func testArtistDownloadItemsIncludeSourceDisplayText() {
@@ -34,6 +49,133 @@ final class DownloadsViewModelTests: XCTestCase {
             "Subscriber Server - Music · felicity@nysics.com"
         ])
         XCTAssertNil(items.first { $0.kind == .album }?.sourceDisplayText)
+    }
+
+    func testLibrarySummariesSeedFromEnabledLibrariesOnInit() async {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let playlistRepository = PlaylistRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+        let targetRepository = OfflineDownloadTargetRepository(coreDataStack: stack)
+        let accountManager = makeAccountManager()
+        let networkMonitor = NetworkMonitor(
+            debounceNanoseconds: 1_000,
+            monitorQueue: DispatchQueue(label: "downloads.view.model.test.network"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
+        let syncCoordinator = SyncCoordinator(
+            accountManager: accountManager,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            artworkDownloadManager: ArtworkDownloadManager(),
+            networkMonitor: networkMonitor,
+            serverHealthChecker: serverHealthChecker
+        )
+        let offlineDownloadService = OfflineDownloadService(
+            downloadManager: downloadManager,
+            targetRepository: targetRepository,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            networkMonitor: networkMonitor,
+            backgroundExecutionCoordinator: NoopBackgroundExecutionCoordinator(),
+            artworkDownloadManager: ArtworkDownloadManager(),
+            toastCenter: ToastCenter(),
+            lyricsService: LyricsService(syncCoordinator: syncCoordinator),
+            backgroundDownloads: BackgroundDownload(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), configuration: .ephemeral)
+        )
+
+        let viewModel = DownloadsViewModel(
+            offlineDownloadService: offlineDownloadService,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            mutationCoordinator: MutationCoordinator(
+                repository: PendingMutationRepository(coreDataStack: stack),
+                networkMonitor: networkMonitor,
+                syncCoordinator: syncCoordinator
+            ),
+            accountManager: accountManager,
+            downloadManager: downloadManager
+        )
+
+        XCTAssertEqual(viewModel.librarySummaries.map { $0.sourceCompositeKey }, [
+            "plex:free:server:3",
+            "plex:free:server:1",
+            "plex:subscriber:server:3"
+        ])
+
+        XCTAssertNil(viewModel.disambiguatingAccountLabel(
+            for: viewModel.librarySummaries[0],
+            demoModeEnabled: false
+        ))
+
+        let demoCollisionLibraries = viewModel.librarySummaries.filter { $0.libraryName == "Music" }
+        let demoLabels = demoCollisionLibraries.compactMap {
+            viewModel.disambiguatingAccountLabel(for: $0, demoModeEnabled: true)
+        }
+        XCTAssertEqual(demoLabels.count, 2)
+        XCTAssertEqual(Set(demoLabels).count, 2)
+        XCTAssertTrue(demoLabels.allSatisfy { $0.hasPrefix("Plex Account ") })
+
+        let summariesUpdated = expectation(description: "Duplicate library summary published")
+        let summaryObservation = viewModel.$librarySummaries
+            .first { $0.count == 4 }
+            .sink { _ in summariesUpdated.fulfill() }
+        defer { summaryObservation.cancel() }
+
+        let duplicateAccount: (String?) -> PlexAccountConfig = { email in
+            PlexAccountConfig(
+                id: "duplicate",
+                email: email,
+                authToken: "duplicate-token",
+                servers: [
+                    PlexServerConfig(
+                        id: "other-server",
+                        name: "Free Server",
+                        url: "http://127.0.0.1:32401",
+                        token: "server-token",
+                        libraries: [
+                            PlexLibraryConfig(id: "3", key: "3", title: "Music", isEnabled: true, allowSync: true)
+                        ]
+                    )
+                ]
+            )
+        }
+        accountManager.addPlexAccount(duplicateAccount("other@nysics.com"))
+        await fulfillment(of: [summariesUpdated], timeout: 1)
+
+        let collidingLibraries = viewModel.librarySummaries.filter {
+            $0.serverName == "Free Server" && $0.libraryName == "Music"
+        }
+        XCTAssertEqual(collidingLibraries.count, 2)
+        XCTAssertEqual(
+            Set(collidingLibraries.compactMap {
+                viewModel.disambiguatingAccountLabel(for: $0, demoModeEnabled: false)
+            }),
+            ["felicity+test@nysics.com", "other@nysics.com"]
+        )
+
+        let accountUpdated = expectation(description: "Account label updated")
+        let accountObservation = viewModel.$librarySummaries
+            .dropFirst()
+            .first { summaries in
+                summaries.first(where: { $0.sourceCompositeKey == "plex:duplicate:other-server:3" })?.accountName
+                    == "felicity+test@nysics.com"
+            }
+            .sink { _ in accountUpdated.fulfill() }
+        defer { accountObservation.cancel() }
+
+        accountManager.addPlexAccount(duplicateAccount("felicity+test@nysics.com"))
+        await fulfillment(of: [accountUpdated], timeout: 1)
+
+        let repeatedAccountLabels = viewModel.librarySummaries
+            .filter { $0.serverName == "Free Server" && $0.libraryName == "Music" }
+            .compactMap { viewModel.disambiguatingAccountLabel(for: $0, demoModeEnabled: false) }
+        XCTAssertEqual(repeatedAccountLabels.count, 2)
+        XCTAssertEqual(Set(repeatedAccountLabels).count, 2)
+        XCTAssertTrue(repeatedAccountLabels.allSatisfy { $0.hasPrefix("felicity+test@nysics.com ") })
     }
 
     private func makeSnapshot(

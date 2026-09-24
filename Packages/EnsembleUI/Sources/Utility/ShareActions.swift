@@ -1,9 +1,69 @@
+import EnsembleDesignTokens
 import EnsembleCore
+import EnsembleSiriShared
 import SwiftUI
 
 /// Static helpers that bridge ShareService payloads to the system share sheet.
 /// Called from context menus and buttons across the app.
 public enum ShareActions {
+
+    /// Share a library-independent Ensemble link for a track.
+    @MainActor public static func shareEnsembleLink(_ track: Track, deps: DependencyContainer) {
+        shareEnsembleLink(
+            EnsemblePermalink(
+                kind: .track,
+                title: track.title,
+                artistName: track.artistName ?? track.albumArtistName,
+                albumTitle: track.albumName,
+                duration: track.duration,
+                trackNumber: track.trackNumber,
+                discNumber: track.discNumber
+            ),
+            deps: deps
+        )
+    }
+
+    /// Share a library-independent Ensemble link for an album.
+    @MainActor public static func shareEnsembleLink(_ album: Album, deps: DependencyContainer) {
+        shareEnsembleLink(
+            EnsemblePermalink(
+                kind: .album,
+                title: album.title,
+                artistName: album.artistName ?? album.albumArtist,
+                year: album.year
+            ),
+            deps: deps
+        )
+    }
+
+    /// Share a library-independent Ensemble link for an artist.
+    @MainActor public static func shareEnsembleLink(_ artist: Artist, deps: DependencyContainer) {
+        shareEnsembleLink(EnsemblePermalink(kind: .artist, title: artist.name), deps: deps)
+    }
+
+    /// Share a library-independent Ensemble link for a playlist.
+    @MainActor public static func shareEnsembleLink(_ playlist: Playlist, deps: DependencyContainer) {
+        shareEnsembleLink(
+            EnsemblePermalink(
+                kind: .playlist,
+                title: playlist.title,
+                isSmartPlaylist: playlist.isSmart
+            ),
+            deps: deps
+        )
+    }
+
+    /// Share one portable link for a same-named merged playlist.
+    @MainActor public static func shareEnsembleLink(_ playlist: DisplayPlaylist, deps: DependencyContainer) {
+        shareEnsembleLink(
+            EnsemblePermalink(
+                kind: .playlist,
+                title: playlist.title,
+                isSmartPlaylist: playlist.isSmart
+            ),
+            deps: deps
+        )
+    }
 
     /// Share a universal link for a track (song.link → Apple Music → plain text fallback).
     public static func shareTrackLink(_ track: Track, deps: DependencyContainer) {
@@ -78,15 +138,31 @@ public enum ShareActions {
     // MARK: - Private
 
     @MainActor
+    private static func shareEnsembleLink(_ permalink: EnsemblePermalink, deps: DependencyContainer) {
+        guard let url = permalink.url else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: EnsembleDesign.Icon.error,
+                    title: "Couldn't create Ensemble link",
+                    message: nil,
+                    dedupeKey: "share-ensemble-link-failed"
+                )
+            )
+            return
+        }
+        deps.toastCenter.dismissCurrent()
+        ShareSheetPresenter.present(items: [url])
+    }
+
+    @MainActor
     private static func presentPayload(_ payload: SharePayload, deps: DependencyContainer) {
         // Dismiss any active toast so it doesn't float above the share sheet
         deps.toastCenter.dismissCurrent()
 
         switch payload {
         case .link(let url, _):
-            ShareSheetPresenter.present(items: [url]) {
-                deps.shareService.cleanupTempFiles()
-            }
+            ShareSheetPresenter.present(items: [url])
 
         case .text(let text):
             // Show a toast indicating we're sharing text instead of a link
@@ -102,9 +178,9 @@ public enum ShareActions {
             ShareSheetPresenter.present(items: [text])
 
         case .file(let url, _):
-            ShareSheetPresenter.present(items: [url]) {
-                deps.shareService.cleanupTempFiles()
-            }
+            // Keep the system-temporary file alive after the share sheet closes.
+            // Receiving apps can continue reading it after the activity callback.
+            ShareSheetPresenter.present(items: [url])
         }
     }
 }

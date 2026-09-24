@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import EnsemblePersistence
 import SwiftUI
@@ -14,7 +15,8 @@ public struct DownloadTargetDetailView: View {
     @State private var isRedownloading = false
     @State private var isRemovingDownload = false
     @State private var isShowingRemoveDownloadConfirmation = false
-    @AppStorage("downloadQuality") private var downloadQuality = "high"
+    @AppStorage(AudioQualityPreference.downloadQualityKey)
+    private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
 
     public init(summary: DownloadedItemSummary, nowPlayingVM: NowPlayingViewModel) {
         _viewModel = StateObject(
@@ -61,6 +63,9 @@ public struct DownloadTargetDetailView: View {
             .refreshable {
                 await viewModel.refresh()
             }
+            .refreshCommand {
+                await viewModel.refresh()
+            }
     }
 
     // MARK: - Header
@@ -76,7 +81,7 @@ public struct DownloadTargetDetailView: View {
                     path: viewModel.thumbPath,
                     sourceKey: viewModel.summary.sourceCompositeKey,
                     ratingKey: viewModel.summary.ratingKey,
-                    cacheHint: targetArtworkCacheHint,
+                    identity: targetArtworkIdentity,
                     size: .medium,
                     cornerRadius: ArtworkCornerRadius.square(for: ArtworkSize.medium)
                 )
@@ -129,9 +134,9 @@ public struct DownloadTargetDetailView: View {
                         .progressViewStyle(.linear)
                         .frame(maxWidth: EnsembleScaffold.DownloadDetail.progressMaxWidth)
 
-                    Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks • \(statusLabel(for: viewModel.liveStatus))")
+                    Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks • \(viewModel.liveStatus.downloadStatusLabel)")
                         .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(statusColor(for: viewModel.liveStatus))
+                        .foregroundColor(viewModel.liveStatus.downloadStatusColor)
                         .multilineTextAlignment(alignment == .center ? .center : .leading)
                 }
                 .frame(maxWidth: alignment == .center ? .infinity : nil, alignment: alignment == .center ? .center : .leading)
@@ -157,41 +162,6 @@ public struct DownloadTargetDetailView: View {
         }
     }
 
-    // MARK: - Queue Status Banner
-
-    @ViewBuilder
-    private var queueStatusBanner: some View {
-        let hasPendingTracks = viewModel.tracks.contains { $0.status == .pending || $0.status == .paused }
-        if hasPendingTracks {
-            switch viewModel.queueStatusReason {
-            case .waitingForWiFi:
-                queueBannerRow(
-                    icon: EnsembleDesign.Icon.offline,
-                    message: "Downloads paused \u{2014} connect to Wi-Fi to continue"
-                )
-            case .offline:
-                queueBannerRow(
-                    icon: EnsembleDesign.Icon.offline,
-                    message: "Downloads paused \u{2014} no connection"
-                )
-            case .idle, .downloading, .paused:
-                EmptyView()
-            }
-        }
-    }
-
-    private func queueBannerRow(icon: String, message: String) -> some View {
-        HStack(spacing: EnsembleScaffold.DownloadDetail.bannerSpacing) {
-            Image(systemName: icon)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-            Text(message)
-                .font(EnsembleDesign.Typography.stateMessage)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-        }
-        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-        .padding(.vertical, EnsembleDesign.Spacing.compactControlVertical)
-    }
-
     // MARK: - Track List
 
     @ViewBuilder
@@ -210,34 +180,21 @@ public struct DownloadTargetDetailView: View {
                 presentation: .compactFooter
             )
         } else {
-            queueStatusBanner
+            DownloadQueueStatusBanner(
+                tracks: viewModel.tracks,
+                queueStatusReason: viewModel.queueStatusReason
+            )
 
             MediaDetailSurface<EmptyView>.ListCard {
-                LazyVStack(spacing: EnsembleDesign.Spacing.none) {
-                    ForEach(viewModel.tracks) { row in
-                        TrackDownloadRowView(row: row, currentQuality: downloadQuality) {
-                            Task { await viewModel.retryDownload(row: row) }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            // Play from this track when it's completed
-                            guard row.status == .completed else { return }
-                            if let index = viewModel.playableTracks.firstIndex(where: {
-                                $0.id == row.trackRatingKey && $0.sourceCompositeKey == row.sourceCompositeKey
-                            }) {
-                                nowPlayingVM.play(tracks: viewModel.playableTracks, startingAt: index)
-                            }
-                        }
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-
-                        if row.id != viewModel.tracks.last?.id {
-                            Divider()
-                                .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
-                        }
+                DownloadTrackRowsList(
+                    rows: viewModel.tracks,
+                    playableTracks: viewModel.playableTracks,
+                    currentQuality: downloadQuality,
+                    retryDownload: { row in await viewModel.retryDownload(row: row) },
+                    playTracks: { tracks, index in
+                        nowPlayingVM.play(tracks: tracks, startingAt: index)
                     }
-                }
-                // Animate when tracks re-sort (e.g. completed tracks slide to bottom)
-                .animation(.easeInOut(duration: 0.35), value: viewModel.tracks.map { "\($0.id)-\($0.status.rawValue)" })
+                )
             }
             .padding(.bottom, TrackListLayoutMetrics.miniPlayerBottomSpacing)
         }
@@ -381,31 +338,28 @@ public struct DownloadTargetDetailView: View {
 
     private func loadArtworkImage(path: String) async {
         currentArtworkPath = path
-        let descriptor = ArtworkResolutionDescriptor(
+        let request = ArtworkRequest(
             path: path,
             sourceKey: viewModel.summary.sourceCompositeKey,
             ratingKey: viewModel.summary.ratingKey,
             fallbackPath: nil,
             fallbackRatingKey: nil,
-            cacheHint: targetArtworkCacheHint,
-            fallbackCacheHint: nil,
-            size: 600,
+            identity: targetArtworkIdentity,
+            fallbackIdentity: nil,
+            tier: .hero,
             priority: .high
         )
 
-        guard let resolved = await ArtworkImageResolver.resolvedImage(
-            for: descriptor,
-            artworkLoader: deps.artworkLoader
-        ) else { return }
+        guard let resolved = await deps.artworkLoader.resolvedImage(for: request) else { return }
 
         withAnimation(.easeInOut(duration: 0.2)) {
             artworkImage = resolved.image
         }
     }
 
-    private var targetArtworkCacheHint: PersistentArtworkCacheHint? {
-        guard let kind = PersistentArtworkCacheHint.Kind(viewModel.summary.kind) else { return nil }
-        return PersistentArtworkCacheHint(
+    private var targetArtworkIdentity: ArtworkRequest.Identity? {
+        guard let kind = ArtworkRequest.Identity.Kind(viewModel.summary.kind) else { return nil }
+        return ArtworkRequest.Identity(
             ratingKey: viewModel.summary.ratingKey,
             kind: kind,
             sourcePath: viewModel.thumbPath
@@ -461,8 +415,11 @@ public struct DownloadTargetDetailView: View {
         return size
     }
 
-    private func statusLabel(for status: CDOfflineDownloadTarget.Status) -> String {
-        switch status {
+}
+
+extension CDOfflineDownloadTarget.Status {
+    var downloadStatusLabel: String {
+        switch self {
         case .pending: return "Queued"
         case .downloading: return "Downloading"
         case .completed: return "Downloaded"
@@ -471,8 +428,8 @@ public struct DownloadTargetDetailView: View {
         }
     }
 
-    private func statusColor(for status: CDOfflineDownloadTarget.Status) -> Color {
-        switch status {
+    var downloadStatusColor: Color {
+        switch self {
         case .failed: return .red
         case .downloading: return .accentColor
         case .paused: return .orange
@@ -480,5 +437,3 @@ public struct DownloadTargetDetailView: View {
         }
     }
 }
-
-// TrackDownloadRowView has been extracted to Components/TrackDownloadRowView.swift

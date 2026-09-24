@@ -29,6 +29,10 @@ final class OfflineDownloadTargetProgressController {
     private let dependencies: Dependencies
     private var downloadedBytesByTargetKey: [String: Int64] = [:]
     private var failedTracksByTargetKey: [String: Int] = [:]
+    private var targetedRefreshCount = 0
+    private var targetedRefreshTargetCount = 0
+    private var targetedRefreshReferenceCount = 0
+    private var targetedRefreshElapsedMs = 0
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -49,14 +53,21 @@ final class OfflineDownloadTargetProgressController {
         sourceCompositeKey: String
     ) async -> OfflineDownloadTargetedProgressRefreshResult {
         do {
+            let startedAt = ProcessInfo.processInfo.systemUptime
             let reference = OfflineTrackReference(
                 trackRatingKey: ratingKey,
                 trackSourceCompositeKey: sourceCompositeKey
             )
             let targetKeys = try await dependencies.targetRepository.fetchTargetKeys(containing: reference)
+            var referenceCount = 0
             for key in targetKeys {
-                await refreshTargetProgress(forTargetKey: key)
+                referenceCount += await refreshTargetProgress(forTargetKey: key)
             }
+            recordTargetedRefreshTelemetry(
+                targetCount: targetKeys.count,
+                referenceCount: referenceCount,
+                elapsedMs: Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+            )
             return .snapshots(try await makeTargetSnapshots())
         } catch {
             EnsembleLogger.debug("Failed targeted refresh for track \(ratingKey): \(error.localizedDescription)")
@@ -99,12 +110,13 @@ final class OfflineDownloadTargetProgressController {
         }
     }
 
-    func refreshTargetProgress(forTargetKey targetKey: String) async {
+    @discardableResult
+    func refreshTargetProgress(forTargetKey targetKey: String) async -> Int {
         do {
             let references = try await dependencies.targetRepository.fetchTrackReferences(targetKey: targetKey)
             guard !references.isEmpty else {
                 try await updateEmptyTargetProgress(targetKey: targetKey)
-                return
+                return 0
             }
 
             let downloadsByKey = try await dependencies.downloadManager.fetchDownloadsBatch(forReferences: references)
@@ -120,9 +132,23 @@ final class OfflineDownloadTargetProgressController {
             )
             downloadedBytesByTargetKey[targetKey] = progress.downloadedBytes
             failedTracksByTargetKey[targetKey] = progress.failedTrackCount
+            return references.count
         } catch {
             EnsembleLogger.debug("Failed refreshing target progress for \(targetKey): \(error.localizedDescription)")
+            return 0
         }
+    }
+
+    private func recordTargetedRefreshTelemetry(targetCount: Int, referenceCount: Int, elapsedMs: Int) {
+        targetedRefreshCount += 1
+        targetedRefreshTargetCount += targetCount
+        targetedRefreshReferenceCount += referenceCount
+        targetedRefreshElapsedMs += elapsedMs
+        guard targetedRefreshCount == 1 || targetedRefreshCount.isMultiple(of: 100) else { return }
+
+        EnsembleLogger.debug(
+            "Offline target progress aggregate trackRefreshes=\(targetedRefreshCount) owningTargets=\(targetedRefreshTargetCount) referencesScanned=\(targetedRefreshReferenceCount) elapsedMs=\(targetedRefreshElapsedMs)"
+        )
     }
 
     private func makeTargetSnapshots() async throws -> [OfflineDownloadTargetSnapshot] {
@@ -197,10 +223,13 @@ final class OfflineDownloadTargetProgressController {
                 continue
             }
 
-            switch download.downloadStatus {
-            case .completed:
+            if download.hasStoredFile || download.downloadStatus == .completed {
                 completed += 1
                 downloadedBytes += max(download.fileSize, 0)
+            }
+            switch download.downloadStatus {
+            case .completed:
+                break
             case .downloading:
                 downloading += 1
             case .pending:
@@ -221,7 +250,7 @@ final class OfflineDownloadTargetProgressController {
         let status: CDOfflineDownloadTarget.Status
         if failed > 0 {
             status = .failed
-        } else if completed >= total {
+        } else if completed >= total && downloading == 0 && pending == 0 && paused == 0 {
             status = .completed
         } else if downloading > 0 || (dependencies.isQueueRunning() && pending > 0) {
             status = .downloading
@@ -268,10 +297,10 @@ final class OfflineDownloadTargetProgressController {
         let pending = try await dependencies.downloadManager.fetchPendingDownloads()
         return Set(pending.compactMap { download -> String? in
             guard let track = download.track else { return nil }
-            guard let sourceCompositeKey = track.sourceCompositeKey, !sourceCompositeKey.isEmpty else {
-                return track.ratingKey
-            }
-            return "\(sourceCompositeKey)||\(track.ratingKey)"
+            return sourceScopedIdentity(
+                ratingKey: track.ratingKey,
+                sourceCompositeKey: track.sourceCompositeKey
+            )
         })
     }
 

@@ -102,40 +102,10 @@ public struct PlaybackStartContext: Sendable, Equatable {
     }
 }
 
-@MainActor
-public protocol SystemMediaIntegrationServiceProtocol: AnyObject {
-    func donatePlaybackStart(
-        reference: SystemMediaReference,
-        shuffle: Bool,
-        origin: PlaybackStartOrigin
-    ) async
-    func refreshSpotlightIndex() async
-    func deleteUnavailableSystemMedia(_ references: [SystemMediaReference]) async
-    func updateMediaUserContext() async
-}
-
-@MainActor
-public final class NoOpSystemMediaIntegrationService: SystemMediaIntegrationServiceProtocol {
-    public init() {}
-
-    public func donatePlaybackStart(
-        reference: SystemMediaReference,
-        shuffle: Bool,
-        origin: PlaybackStartOrigin
-    ) async {}
-
-    public func refreshSpotlightIndex() async {}
-
-    public func deleteUnavailableSystemMedia(_ references: [SystemMediaReference]) async {}
-
-    public func updateMediaUserContext() async {}
-}
-
 protocol SystemSpotlightIndexing: AnyObject {
     var isIndexingAvailable: Bool { get }
     func indexSearchableItems(_ items: [CSSearchableItem]) async throws
     func deleteSearchableItems(withIdentifiers identifiers: [String]) async throws
-    func deleteSearchableItems(withDomainIdentifiers domainIdentifiers: [String]) async throws
 }
 
 final class CoreSpotlightSystemIndex: SystemSpotlightIndexing {
@@ -174,18 +144,6 @@ final class CoreSpotlightSystemIndex: SystemSpotlightIndexing {
         }
     }
 
-    func deleteSearchableItems(withDomainIdentifiers domainIdentifiers: [String]) async throws {
-        guard !domainIdentifiers.isEmpty else { return }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            index.deleteSearchableItems(withDomainIdentifiers: domainIdentifiers) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
-            }
-        }
-    }
 }
 
 #if !os(macOS)
@@ -260,16 +218,21 @@ final class LiveSystemMediaArtworkProvider: SystemMediaArtworkProviding {
             return nil
         }
 
-        guard let artworkURL = await artworkLoader.artworkURLAsync(
-            for: artworkPath,
+        let request = ArtworkRequest(
+            path: artworkPath,
             sourceKey: reference.sourceCompositeKey,
             ratingKey: reference.artworkCacheKey ?? reference.id,
             fallbackPath: nil,
             fallbackRatingKey: nil,
-            size: SystemMediaIntegrationService.systemSuggestionArtworkSize
-        ) else {
+            identity: nil,
+            fallbackIdentity: nil,
+            tier: .standard,
+            priority: .low
+        )
+        guard case .resolved(let artwork) = await artworkLoader.resolve(request) else {
             return nil
         }
+        let artworkURL = artwork.url
 
         if artworkURL.isFileURL {
             return await Task.detached(priority: .utility) {
@@ -317,18 +280,21 @@ final class LiveSystemMediaVocabularyRegistrar: SystemMediaVocabularyRegistering
 #endif
 
 @MainActor
-public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceProtocol {
+public final class SystemMediaIntegrationService {
     private static let spotlightChunkSize = 200
+    private static let spotlightFullRefreshInterval: TimeInterval = 24 * 60 * 60
+    private static let spotlightLastFullRefreshKey = "SystemMediaIntegrationService.lastSpotlightFullRefresh"
     private static let siriVocabularyLimit = 750
-    nonisolated static let systemSuggestionArtworkSize = 500
     nonisolated static let maximumSystemArtworkBytes = 5 * 1024 * 1024
 
     private let siriMediaIndexStore: SiriMediaIndexStore
-    private let mediaUserContextManager: SiriMediaUserContextManagerProtocol
+    private let mediaUserContextManager: SiriMediaUserContextManager
     private let spotlightIndex: SystemSpotlightIndexing
     private let notificationCenter: NotificationCenter
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var rebuildObserverToken: NSObjectProtocol?
+    private var spotlightRefreshTask: Task<Void, Never>?
+    private var registeredSiriVocabulary: ([String], [String])?
 
     #if !os(macOS)
     private let intentDonor: SystemMediaIntentDonating
@@ -338,7 +304,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
 
     public convenience init(
         siriMediaIndexStore: SiriMediaIndexStore,
-        mediaUserContextManager: SiriMediaUserContextManagerProtocol,
+        mediaUserContextManager: SiriMediaUserContextManager,
         artworkLoader: ArtworkLoaderProtocol? = nil,
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
@@ -366,7 +332,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     #if os(macOS)
     init(
         siriMediaIndexStore: SiriMediaIndexStore,
-        mediaUserContextManager: SiriMediaUserContextManagerProtocol,
+        mediaUserContextManager: SiriMediaUserContextManager,
         spotlightIndex: SystemSpotlightIndexing,
         notificationCenter: NotificationCenter = .default,
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil
@@ -381,7 +347,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     #else
     init(
         siriMediaIndexStore: SiriMediaIndexStore,
-        mediaUserContextManager: SiriMediaUserContextManagerProtocol,
+        mediaUserContextManager: SiriMediaUserContextManager,
         spotlightIndex: SystemSpotlightIndexing,
         intentDonor: SystemMediaIntentDonating,
         artworkProvider: SystemMediaArtworkProviding,
@@ -454,6 +420,22 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     }
 
     public func refreshSpotlightIndex() async {
+        if let spotlightRefreshTask {
+            EnsembleLogger.debug("[SystemMedia] Spotlight refresh coalesced with active refresh")
+            await spotlightRefreshTask.value
+            return
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performSpotlightIndexRefresh()
+        }
+        spotlightRefreshTask = task
+        await task.value
+        spotlightRefreshTask = nil
+    }
+
+    private func performSpotlightIndexRefresh() async {
         if let foregroundWorkScheduler {
             guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
                 EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; foreground work is not available")
@@ -461,18 +443,16 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
             }
         }
 
-        let previousIndex = siriMediaIndexStore.loadIndexUnbounded()
-        let rebuiltIndex = await siriMediaIndexStore.rebuildIndex()
+        let previousIndex = await siriMediaIndexStore.loadIndexUnbounded()
+        let rebuiltIndex = await siriMediaIndexStore.rebuildIndex(previousIndex: previousIndex)
         let index = rebuiltIndex ?? previousIndex
         guard let index else {
             EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; no media index")
             return
         }
 
-        if let rebuiltIndex {
-            let staleReferences = Self.staleSystemMediaReferences(previous: previousIndex, current: rebuiltIndex)
-            await deleteUnavailableSystemMedia(staleReferences)
-        }
+        let staleReferences = Self.staleSystemMediaReferences(previous: previousIndex, current: index)
+        await deleteUnavailableSystemMedia(staleReferences)
 
         refreshSiriVocabulary(from: index)
 
@@ -481,12 +461,42 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
             return
         }
 
-        let items = Self.makeSpotlightItems(from: index.items)
+        let lastFullRefresh = UserDefaults.standard.object(forKey: Self.spotlightLastFullRefreshKey) as? Date
+        let requiresFullRefresh = lastFullRefresh.map {
+            Date().timeIntervalSince($0) >= Self.spotlightFullRefreshInterval
+        } ?? true
+        let indexItems = Self.spotlightItemsToIndex(
+            previous: previousIndex,
+            current: index,
+            requiresFullRefresh: requiresFullRefresh
+        )
+        guard !indexItems.isEmpty else {
+            EnsembleLogger.debug("[SystemMedia] Spotlight index unchanged; skipped update")
+            return
+        }
+
+        let availableArtworkFilenames = Self.cachedArtworkFilenames()
+        var indexedCount = 0
         do {
-            for chunk in items.chunked(into: Self.spotlightChunkSize) {
-                try await spotlightIndex.indexSearchableItems(chunk)
+            for chunk in indexItems.chunked(into: Self.spotlightChunkSize) {
+                if let foregroundWorkScheduler,
+                   !foregroundWorkScheduler.isIdleForNonessentialWork {
+                    EnsembleLogger.debug("[SystemMedia] Spotlight refresh paused after \(indexedCount)/\(indexItems.count) media items; foreground work became active")
+                    return
+                }
+
+                let items = Self.makeSpotlightItems(
+                    from: chunk,
+                    availableArtworkFilenames: availableArtworkFilenames
+                )
+                try await spotlightIndex.indexSearchableItems(items)
+                indexedCount += items.count
+                await Task.yield()
             }
-            EnsembleLogger.debug("[SystemMedia] Spotlight indexed \(items.count) media items")
+            if requiresFullRefresh {
+                UserDefaults.standard.set(Date(), forKey: Self.spotlightLastFullRefreshKey)
+            }
+            EnsembleLogger.debug("[SystemMedia] Spotlight indexed \(indexedCount) \(requiresFullRefresh ? "full" : "changed") media items")
         } catch {
             EnsembleLogger.debug("[SystemMedia] Spotlight indexing failed: \(error.localizedDescription)")
         }
@@ -527,15 +537,21 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
             kind: .playlist,
             limit: Self.siriVocabularyLimit
         )
-        vocabularyRegistrar.setVocabularyStrings(
-            NSOrderedSet(array: playlistTitles),
-            of: .mediaPlaylistTitle
-        )
-
         let artistNames = Self.siriVocabularyStrings(
             from: index.items,
             kind: .artist,
             limit: Self.siriVocabularyLimit
+        )
+        guard registeredSiriVocabulary?.0 != playlistTitles
+                || registeredSiriVocabulary?.1 != artistNames else {
+            EnsembleLogger.debug("[SystemMedia] Siri vocabulary unchanged; skipped registration")
+            return
+        }
+        registeredSiriVocabulary = (playlistTitles, artistNames)
+
+        vocabularyRegistrar.setVocabularyStrings(
+            NSOrderedSet(array: playlistTitles),
+            of: .mediaPlaylistTitle
         )
         vocabularyRegistrar.setVocabularyStrings(
             NSOrderedSet(array: artistNames),
@@ -546,8 +562,11 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         #endif
     }
 
-    static func makeSpotlightItems(from indexItems: [SiriMediaIndexItem]) -> [CSSearchableItem] {
-        let artworkFilenames = cachedArtworkFilenames()
+    static func makeSpotlightItems(
+        from indexItems: [SiriMediaIndexItem],
+        availableArtworkFilenames: Set<String>? = nil
+    ) -> [CSSearchableItem] {
+        let artworkFilenames = availableArtworkFilenames ?? cachedArtworkFilenames()
         return indexItems.map { item in
             let reference = item.reference
             let attributeSet = makeSpotlightAttributeSet(
@@ -618,6 +637,26 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
                 return nil
             }
             return reference
+        }
+    }
+
+    static func spotlightItemsToIndex(
+        previous: SiriMediaIndex?,
+        current: SiriMediaIndex,
+        requiresFullRefresh: Bool
+    ) -> [SiriMediaIndexItem] {
+        guard !requiresFullRefresh,
+              let previous,
+              previous.schemaVersion == current.schemaVersion else {
+            return current.items
+        }
+
+        let previousItems = Dictionary(
+            previous.items.map { ($0.reference.sourceScopedIdentifier, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        return current.items.filter {
+            previousItems[$0.reference.sourceScopedIdentifier] != $0
         }
     }
 
@@ -840,6 +879,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         localArtworkURL(
             cacheKey: item.artworkCacheKey,
             cacheType: item.artworkCacheType,
+            sourceCompositeKey: item.sourceCompositeKey,
             artworkPath: item.artworkPath,
             fallbackKey: item.id,
             fallbackType: defaultArtworkCacheType(for: item.kind),
@@ -858,6 +898,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         localArtworkURL(
             cacheKey: reference.artworkCacheKey,
             cacheType: reference.artworkCacheType,
+            sourceCompositeKey: reference.sourceCompositeKey,
             artworkPath: reference.artworkPath,
             fallbackKey: reference.id,
             fallbackType: defaultArtworkCacheType(for: reference.kind),
@@ -909,6 +950,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     nonisolated private static func localArtworkURL(
         cacheKey: String?,
         cacheType: SiriMediaArtworkCacheType?,
+        sourceCompositeKey: String?,
         artworkPath: String?,
         fallbackKey: String,
         fallbackType: SiriMediaArtworkCacheType?,
@@ -942,7 +984,14 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
 
         var seen = Set<String>()
         for (key, type) in candidates {
-            let filename = "\(key)_\(type.rawValue).jpg"
+            guard let artworkType = ArtworkType(rawValue: type.rawValue) else { continue }
+            // A source-less legacy filename is ambiguous once provider identity is known.
+            // Scoped callers wait for the cache manager's validated migration/refetch path.
+            let filename = ArtworkDownloadManager.cacheFilename(
+                ratingKey: key,
+                type: artworkType,
+                sourceCompositeKey: sourceCompositeKey
+            )
             guard seen.insert(filename).inserted else { continue }
             let url = artworkDirectory.appendingPathComponent(filename)
             if availableArtworkFilenames?.contains(filename) == true

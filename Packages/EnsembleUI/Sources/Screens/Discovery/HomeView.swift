@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -7,19 +8,32 @@ public struct HomeView: View {
     @ObservedObject private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
-    @ObservedObject private var cacheManager = DependencyContainer.shared.cacheManager
+    private let cacheManager: CacheManager
     @State private var profileBackgroundImage: PlatformImage?
     @State private var profileBackgroundBlurredImage: PlatformImage?
     @State private var profileBackgroundCacheKey: String?
+    @State private var artworkCacheInvalidationGeneration: UInt64
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(\.scenePhase) private var scenePhase
+    private let isSelectedRoot: Bool
 
-    public init(nowPlayingVM: NowPlayingViewModel, viewModel: HomeViewModel? = nil) {
-        self.viewModel = viewModel ?? DependencyContainer.shared.makeHomeViewModel()
+    public init(
+        nowPlayingVM: NowPlayingViewModel,
+        viewModel: HomeViewModel? = nil,
+        isSelectedRoot: Bool = true
+    ) {
+        let container = DependencyContainer.shared
+        self.viewModel = viewModel ?? container.makeHomeViewModel()
         self.nowPlayingVM = nowPlayingVM
+        self.cacheManager = container.cacheManager
+        self.isSelectedRoot = isSelectedRoot
+        _artworkCacheInvalidationGeneration = State(
+            initialValue: container.cacheManager.artworkCacheInvalidationGeneration
+        )
     }
 
     public var body: some View {
@@ -54,13 +68,13 @@ public struct HomeView: View {
             #if os(macOS)
                 EnsembleToolbarLeadingSpacer()
             #endif
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                Button("Edit") {
-                    viewModel.enterEditMode()
-                    viewModel.isEditingOrder = true
+            ToolbarItemGroup(placement: .primaryActionIfAvailable) {
+                if viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty {
+                    Button("Edit") {
+                        viewModel.enterEditMode()
+                        viewModel.isEditingOrder = true
+                    }
                 }
-                .disabled(!viewModel.hasEnabledLibraries || viewModel.hubs.isEmpty)
-                .opacity(viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty ? 1 : 0)
             }
         }
         .sheet(isPresented: $viewModel.isEditingOrder) {
@@ -72,21 +86,36 @@ public struct HomeView: View {
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
-        .task {
+        .onReceive(cacheManager.$artworkCacheInvalidationGeneration) { generation in
+            if generation != artworkCacheInvalidationGeneration {
+                artworkCacheInvalidationGeneration = generation
+            }
+        }
+        .task(id: viewModel.hasEnabledLibraries) {
             await viewModel.loadHubsIfNeeded()
         }
         .task(id: profileBackgroundReloadKey) {
             await loadProfileBackgroundImage(reloadKey: profileBackgroundReloadKey)
         }
         .onAppear {
-            viewModel.handleViewVisibilityChange(isVisible: true)
+            updateViewVisibility()
         }
         .onDisappear {
             viewModel.handleViewVisibilityChange(isVisible: false)
         }
+        .onChange(of: isSelectedRoot) { isSelected in
+            viewModel.handleViewVisibilityChange(isVisible: isSelected && scenePhase == .active)
+        }
+        .onChange(of: scenePhase) { phase in
+            viewModel.handleViewVisibilityChange(isVisible: isSelectedRoot && phase == .active)
+        }
         .refreshCommand {
             await viewModel.refresh()
         }
+    }
+
+    private func updateViewVisibility() {
+        viewModel.handleViewVisibilityChange(isVisible: isSelectedRoot && scenePhase == .active)
     }
 
     private var feedTitle: String {
@@ -111,7 +140,7 @@ public struct HomeView: View {
     private var profileBackgroundReloadKey: String {
         let imagePath = profileStore.profile.profileImagePath ?? "none"
         let modified = profileStore.profile.lastModified.timeIntervalSinceReferenceDate
-        return "\(imagePath)-\(modified)-artwork-cache-\(cacheManager.artworkCacheInvalidationGeneration)"
+        return "\(imagePath)-\(modified)-artwork-cache-\(artworkCacheInvalidationGeneration)"
     }
 
     private var profileBackgroundStableCacheKey: String? {
@@ -154,6 +183,17 @@ public struct HomeView: View {
                 title: "Welcome Home",
                 iconSystemName: EnsembleDesign.Icon.library,
                 recovery: .syncing,
+                addSource: { navigationCoordinator.showingAddAccount = true },
+                manageSources: { navigationCoordinator.openProfile() }
+            )
+        } else if readiness.canRetryUnavailableCredentials {
+            EnsembleLibraryEmptyStateScaffold(
+                title: "Plex credentials unavailable",
+                iconSystemName: EnsembleDesign.Icon.error,
+                recovery: .credentialsUnavailable,
+                retryCredentials: {
+                    Task { await viewModel.retryCredentialLoad() }
+                },
                 addSource: { navigationCoordinator.showingAddAccount = true },
                 manageSources: { navigationCoordinator.openProfile() }
             )
@@ -268,7 +308,7 @@ public struct HomeView: View {
         }
 
         guard let image else { return }
-        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+        let blurredImage = await DependencyContainer.shared.artworkLoader.blurredImage(
             for: image,
             cacheKey: cacheKey
         )
@@ -288,6 +328,11 @@ struct HubSection: View {
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
     @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+
+    private var displayItems: [DisplayHubItem] {
+        DisplayHubItem.group(hub.items, preferences: settingsManager.mergingPreferences)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
@@ -295,11 +340,13 @@ struct HubSection: View {
             sectionHeader
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: EnsembleScaffold.Discovery.gridSpacing) {
-                    ForEach(hub.items, id: \.sourceScopedID) { item in
+                LazyHStack(alignment: .top, spacing: EnsembleScaffold.Discovery.gridSpacing) {
+                    ForEach(displayItems) { item in
                         HubItemCard(
-                            item: item,
+                            displayItem: item,
                             nowPlayingVM: nowPlayingVM,
+                            navigationCoordinator: navigationCoordinator,
+                            includesHidden: false,
                             playlistActionRequest: $playlistActionRequest,
                             libraryItemInfoRequest: $libraryItemInfoRequest
                         )
@@ -337,13 +384,17 @@ struct HubSection: View {
 /// Card view for individual hub items (albums, artists, tracks, playlists)
 /// Uses local-first artwork loading and skeleton models for offline-friendly navigation
 struct HubItemCard: View {
-    let item: HubItem
+    let displayItem: DisplayHubItem
     let nowPlayingVM: NowPlayingViewModel
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    let navigationCoordinator: NavigationCoordinator
+    let includesHidden: Bool
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
     @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
+    @Environment(\.dependencies) private var deps
 
     private let artworkDimension = EnsembleScaffold.MediaCard.hubArtworkDimension
+
+    private var item: HubItem { displayItem.primaryItem }
 
     private var isArtist: Bool {
         item.type == "artist"
@@ -376,7 +427,7 @@ struct HubItemCard: View {
                 path: item.thumbPath,
                 sourceKey: item.sourceCompositeKey,
                 ratingKey: item.id,
-                cacheHint: artworkCacheHint,
+                identity: artworkIdentity,
                 size: .card,
                 cornerRadius: isArtist
                     ? ArtworkCornerRadius.circle(for: artworkDimension)
@@ -385,6 +436,7 @@ struct HubItemCard: View {
             )
             .frame(width: artworkDimension, height: artworkDimension)
             .ensembleCardShadow()
+            .mediaNavigationTransitionSource(id: mediaNavigationTransitionID)
 
             // Text content
             VStack(alignment: isArtist ? .center : .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
@@ -415,48 +467,69 @@ struct HubItemCard: View {
     private var navigationDestination: NavigationCoordinator.Destination? {
         switch item.type {
         case "album":
+            if let displayAlbum = displayItem.displayAlbum {
+                return .albumDetail(displayAlbum, includesHidden: includesHidden)
+            }
             if let album = item.album {
-                return .albumDetail(album)
+                return .albumDetail(.single(album), includesHidden: includesHidden)
             } else {
                 return .album(id: item.id, sourceKey: item.sourceCompositeKey)
             }
         case "artist":
+            if let displayArtist = displayItem.displayArtist {
+                return .artistNamed(
+                    name: displayArtist.name,
+                    fallbackID: displayArtist.primaryArtist.id,
+                    sourceKey: displayArtist.primaryArtist.sourceCompositeKey,
+                    includesHidden: includesHidden
+                )
+            }
             if let artist = item.artist {
-                return .artistDetail(artist)
+                return .artistDetail(artist, includesHidden: includesHidden)
             }
             return .artist(id: item.id, sourceKey: item.sourceCompositeKey)
         case "playlist":
-            return .playlist(id: item.playlist?.id ?? item.id, sourceKey: item.sourceCompositeKey)
+            if let displayPlaylist = displayItem.displayPlaylist, displayPlaylist.isMerged {
+                return .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
+            }
+            if let playlist = item.playlist {
+                return .playlistDetail(playlist, includesHidden: includesHidden)
+            }
+            return .playlist(id: item.id, sourceKey: item.sourceCompositeKey)
         default:
             return nil
         }
     }
 
-    private var artworkCacheHint: PersistentArtworkCacheHint? {
+    private var mediaNavigationTransitionID: String? {
+        displayItem.id
+    }
+
+    private var artworkIdentity: ArtworkRequest.Identity? {
         switch item.type {
         case "album":
             if let album = item.album {
-                return PersistentArtworkCacheHint(album: album)
+                return ArtworkRequest.Identity(album: album)
             }
-            return PersistentArtworkCacheHint(
+            return ArtworkRequest.Identity(
                 ratingKey: item.id,
                 kind: .album,
                 sourcePath: item.thumbPath
             )
         case "artist":
             if let artist = item.artist {
-                return PersistentArtworkCacheHint(artist: artist)
+                return ArtworkRequest.Identity(artist: artist)
             }
-            return PersistentArtworkCacheHint(
+            return ArtworkRequest.Identity(
                 ratingKey: item.id,
                 kind: .artist,
                 sourcePath: item.thumbPath
             )
         case "playlist":
             if let playlist = item.playlist {
-                return PersistentArtworkCacheHint(playlist: playlist)
+                return ArtworkRequest.Identity(playlist: playlist)
             }
-            return PersistentArtworkCacheHint(
+            return ArtworkRequest.Identity(
                 ratingKey: item.id,
                 kind: .playlist,
                 sourcePath: item.thumbPath
@@ -499,8 +572,10 @@ struct HubItemCard: View {
     // MARK: Album Context Menu
 
     private var albumContextMenu: some View {
-        AlbumActionsContextMenu(
+        let displayAlbum = displayItem.displayAlbum ?? .single(resolvedAlbum)
+        return AlbumActionsContextMenu(
             album: resolvedAlbum,
+            sourceAlbums: displayAlbum.albums,
             nowPlayingVM: nowPlayingVM,
             presentPlaylistPicker: { tracks, title in
                 playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
@@ -514,6 +589,20 @@ struct HubItemCard: View {
             },
             onGetInfo: {
                 libraryItemInfoRequest = .album(resolvedAlbum)
+            },
+            customPinAction: { isPinned in
+                if isPinned {
+                    deps.pinMutationWorkflow.unpinAll(identities: Set(displayAlbum.albums.map(\.sourceScopedID)))
+                } else {
+                    deps.pinMutationWorkflow.pinAll(items: displayAlbum.albums.map { album in
+                        (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
+                    })
+                }
+            },
+            customIsPinned: {
+                displayAlbum.albums.allSatisfy {
+                    deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+                }
             }
         )
     }
@@ -521,24 +610,52 @@ struct HubItemCard: View {
     // MARK: Artist Context Menu
 
     private var artistContextMenu: some View {
-        ArtistActionsContextMenu(
+        let displayArtist = displayItem.displayArtist ?? .single(resolvedArtist)
+        return ArtistActionsContextMenu(
             artist: resolvedArtist,
+            sourceArtists: displayArtist.artists,
             nowPlayingVM: nowPlayingVM,
-            toastNamespace: "hub-artist-menu"
+            toastNamespace: "hub-artist-menu",
+            customPinAction: { isPinned in
+                if isPinned {
+                    deps.pinMutationWorkflow.unpinAll(identities: Set(displayArtist.artists.map(\.sourceScopedID)))
+                } else {
+                    deps.pinMutationWorkflow.pinAll(items: displayArtist.artists.map { artist in
+                        (id: artist.id, sourceKey: artist.sourceCompositeKey ?? "", type: .artist, title: displayArtist.name)
+                    })
+                }
+            },
+            customIsPinned: {
+                displayArtist.artists.allSatisfy {
+                    deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+                }
+            }
         )
     }
 
     // MARK: Playlist Context Menu
 
+    @ViewBuilder
     private var playlistContextMenu: some View {
-        PlaylistActionsContextMenu(
-            playlist: resolvedPlaylist,
-            nowPlayingVM: nowPlayingVM,
-            toastNamespace: "hub-playlist-menu",
-            onGetInfo: {
-                libraryItemInfoRequest = .playlist(resolvedPlaylist)
-            }
-        )
+        let displayPlaylist = displayItem.displayPlaylist ?? .single(resolvedPlaylist)
+        if displayPlaylist.isMerged {
+            MergedPlaylistActionsContextMenu(
+                displayPlaylist: displayPlaylist,
+                nowPlayingVM: nowPlayingVM,
+                toastNamespace: "hub-merged-playlist-menu",
+                context: .search,
+                onGetInfo: { libraryItemInfoRequest = .playlist(displayPlaylist.primaryPlaylist, sources: displayPlaylist.playlists) }
+            )
+        } else {
+            PlaylistActionsContextMenu(
+                playlist: resolvedPlaylist,
+                nowPlayingVM: nowPlayingVM,
+                toastNamespace: "hub-playlist-menu",
+                onGetInfo: {
+                    libraryItemInfoRequest = .playlist(resolvedPlaylist)
+                }
+            )
+        }
     }
 
     // MARK: Track Context Menu
@@ -548,15 +665,16 @@ struct HubItemCard: View {
         let track = resolvedTrack
         TrackActionsContextMenu(
             track: track,
+            sourceTracks: displayItem.items.compactMap(\.track),
             nowPlayingVM: nowPlayingVM,
             context: .search,
-            onAddToPlaylist: {
-                playlistActionRequest = PlaylistActionPresentationHost.request(for: [track])
+            onAddToPlaylist: { selectedTrack in
+                playlistActionRequest = PlaylistActionPresentationHost.request(for: [selectedTrack])
             },
             onGoToAlbum: {
-                if let albumId = track.albumRatingKey {
+                if let destination = NavigationCoordinator.Destination.album(for: track) {
                     navigationCoordinator.routeFromMenu(
-                        to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                        to: destination,
                         in: navigationCoordinator.selectedTab
                     )
                 }

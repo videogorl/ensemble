@@ -1,14 +1,17 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
 public struct AlbumsView: View {
-    @ObservedObject var libraryVM: LibraryViewModel
+    let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
-    @State private var selectedAlbum: Album?
+    @State private var visibleAlbumID: String?
+    @State private var selectedAlbum: DisplayAlbum?
+    @StateObject private var albumSnapshotCache = BrowseSnapshotCache(AlbumBrowseSnapshot.empty)
 
     public init(
         libraryVM: LibraryViewModel,
@@ -25,7 +28,16 @@ public struct AlbumsView: View {
     }
 
     private var albumSnapshot: AlbumBrowseSnapshot {
-        libraryVM.immediateAlbumBrowseSnapshot
+        albumSnapshotCache.snapshot.hasVisibleContent || albumSnapshotCache.snapshot.phase != .idle
+            ? albumSnapshotCache.snapshot
+            : libraryVM.albumBrowseSnapshot
+    }
+
+    private var albumFilterOptions: Binding<FilterOptions> {
+        Binding(
+            get: { libraryVM.albumsFilterOptions },
+            set: { libraryVM.albumsFilterOptions = $0 }
+        )
     }
 
     private var albumFilterButton: some View {
@@ -66,21 +78,25 @@ public struct AlbumsView: View {
 
     public var body: some View {
         Group {
-            if albumSnapshot.phase != .idle && !albumSnapshot.hasVisibleContent {
+            if albumSnapshot.phase != .idle && !hasLibraryContent {
                 loadingView
-            } else if !albumSnapshot.hasVisibleContent {
+            } else if !hasLibraryContent {
                 emptyView
-            } else if isStageFlowActive {
-                stageFlowView
             } else {
-                albumGridView
+                ZStack {
+                    albumGridView
+                        .opacity(isStageFlowActive ? 0 : 1)
+                        .allowsHitTesting(!isStageFlowActive)
+                        .accessibilityHidden(isStageFlowActive)
+                    if isStageFlowActive { stageFlowView }
+                }
             }
         }
         #if os(iOS)
         .navigationBarHidden(isStageFlowActive)
-        .if(isStageFlowActive) { view in
+        .if(true) { view in
             if #available(iOS 16.0, *) {
-                view.toolbar(.hidden, for: .navigationBar)
+                view.toolbar(isStageFlowActive ? .hidden : .automatic, for: .navigationBar)
             } else {
                 view
             }
@@ -88,10 +104,11 @@ public struct AlbumsView: View {
         .statusBar(hidden: isStageFlowActive)
         #endif
         .navigationTitle(isStageFlowActive ? "" : "Albums")
-        .if(!isStageFlowActive) { view in
-            view.searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
-        }
+        .searchable(text: albumFilterOptions.searchText, prompt: "Filter albums")
         .refreshable {
+            await libraryVM.refreshFromServer()
+        }
+        .refreshCommand {
             await libraryVM.refreshFromServer()
         }
         .toolbar {
@@ -100,9 +117,10 @@ public struct AlbumsView: View {
                 albumSortMenu
             }
         }
+        .ensembleBrowseToolbarMinimization()
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
-                filterOptions: $libraryVM.albumsFilterOptions,
+                filterOptions: albumFilterOptions,
                 availableArtists: availableArtists,
                 availableGenres: albumSnapshot.availableGenres,
                 showYearFilter: true,
@@ -111,41 +129,43 @@ public struct AlbumsView: View {
                 showHideSingles: true
             )
         }
+        .onReceive(libraryVM.$albumBrowseSnapshot) { snapshot in
+            albumSnapshotCache.snapshot = snapshot
+        }
+        .onAppear {
+            albumSnapshotCache.snapshot = libraryVM.albumBrowseSnapshot
+        }
     }
 
     private var loadingView: some View {
         EnsembleStateScaffold(kind: .loading, title: "Loading albums…")
     }
 
+    private var hasLibraryContent: Bool {
+        albumSnapshot.hasVisibleContent || !libraryVM.albums.isEmpty
+    }
+
     private var isBrowseToolbarVisible: Bool {
-        albumSnapshot.hasVisibleContent &&
-        !isStageFlowActive &&
-        navigationCoordinator.pathSnapshot(for: .albums).isEmpty &&
-        !navigationCoordinator.isRouteTransitionActive(for: .albums)
+        guard hasLibraryContent, !isStageFlowActive else { return false }
+
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            return true
+        }
+        #endif
+
+        return navigationCoordinator.pathSnapshot(for: .albums).isEmpty &&
+            !navigationCoordinator.isRouteTransitionActive(for: .albums)
     }
 
     private var emptyView: some View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Albums",
             iconSystemName: EnsembleDesign.Icon.album,
-            recovery: libraryEmptyRecovery(emptyMessage: "No albums found in enabled libraries"),
+            recovery: libraryVM.emptyStateRecovery(message: "No albums found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )
-    }
-
-    private func libraryEmptyRecovery(emptyMessage: String) -> EnsembleLibraryEmptyStateScaffold.Recovery {
-        if libraryVM.isRestoringCloudSources {
-            return .restoringCloudSources
-        } else if !libraryVM.hasAnySources {
-            return .noSources
-        } else if libraryVM.isSyncing {
-            return .syncing
-        } else if !libraryVM.hasEnabledLibraries {
-            return .noEnabledLibraries
-        } else {
-            return .empty(message: emptyMessage)
-        }
     }
 
     private var isSortIndexed: Bool {
@@ -161,18 +181,21 @@ public struct AlbumsView: View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                         albumGenreChipBar
 
                         if isSortIndexed {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(albumSnapshot.sections) { section in
-                                    Section(header: sectionHeader(section.letter)) {
+                                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        sectionHeader(section.letter)
+                                            .id(section.letter)
+
                                         AlbumGrid(
                                             albums: section.albums,
-                                            nowPlayingVM: nowPlayingVM
+                                            nowPlayingVM: nowPlayingVM,
+                                            navigationCoordinator: navigationCoordinator
                                         )
-                                            .id(section.letter)
                                     }
                                 }
                             }
@@ -180,11 +203,46 @@ public struct AlbumsView: View {
                         } else {
                             AlbumGrid(
                                 albums: albumSnapshot.albums,
-                                nowPlayingVM: nowPlayingVM
+                                nowPlayingVM: nowPlayingVM,
+                                navigationCoordinator: navigationCoordinator
                             )
                                 .padding(.vertical)
                         }
+
+                        LibraryBrowseCountFooter(
+                            count: albumSnapshot.albums.count,
+                            singular: "album",
+                            plural: "albums",
+                            bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
+                        )
                     }
+                }
+                .environment(\.tracksAlbumGridPosition, true)
+                .overlayPreferenceValue(AlbumGridBoundsKey.self) { bounds in
+                    GeometryReader { viewport in
+                        let visibleID = bounds.compactMap { id, anchor -> (String, CGRect)? in
+                            let frame = viewport[anchor]
+                            return frame.intersects(CGRect(origin: .zero, size: viewport.size)) ? (id, frame) : nil
+                        }.min {
+                            $0.1.minY == $1.1.minY ? $0.1.minX < $1.1.minX : $0.1.minY < $1.1.minY
+                        }?.0
+                        Color.clear
+                            .onChange(of: visibleID) { id in
+                                guard !isStageFlowActive else { return }
+                                visibleAlbumID = id
+                            }
+                    }
+                    .allowsHitTesting(false)
+                }
+                .onChange(of: isStageFlowActive) { active in
+                    if active {
+                        selectedAlbum = albumSnapshot.albums.first { $0.id == visibleAlbumID }
+                    } else if let id = selectedAlbum?.id {
+                        proxy.scrollTo(id, anchor: .top)
+                    }
+                }
+                .onChange(of: geometry.size) { _ in
+                    if !isStageFlowActive, let id = selectedAlbum?.id { proxy.scrollTo(id, anchor: .top) }
                 }
                 .miniPlayerBottomSpacing()
                 .libraryScrollIndexOverlay {
@@ -208,15 +266,12 @@ public struct AlbumsView: View {
         StageFlowView(
             items: albumSnapshot.albums,
             nowPlayingVM: nowPlayingVM,
-            itemView: { album in
-                StageFlowItemView(album: album)
+            itemView: { displayAlbum in
+                StageFlowItemView(album: displayAlbum.primaryAlbum)
             },
             detailView: { selectedAlbum in
                 StageFlowTrackPanel(
-                    contentType: .album(
-                        id: selectedAlbum.id,
-                        sourceCompositeKey: selectedAlbum.sourceCompositeKey
-                    ),
+                    contentType: .albumGroup(selectedAlbum.albums),
                     nowPlayingVM: nowPlayingVM
                 )
             },
@@ -229,25 +284,19 @@ public struct AlbumsView: View {
         )
     }
 
-    private func resolveStageFlowTracks(for album: Album) async -> [Track] {
-        let cachedTracks: [CDTrack]
-        if let sourceCompositeKey = album.sourceCompositeKey {
-            cachedTracks = (try? await deps.libraryRepository.fetchTracks(
-                forAlbum: album.id,
-                sourceCompositeKey: sourceCompositeKey
-            )) ?? []
-        } else {
-            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.id)) ?? []
-        }
-
-        return cachedTracks.map { Track(from: $0) }
+    private func resolveStageFlowTracks(for displayAlbum: DisplayAlbum) async -> [Track] {
+        (try? await displayAlbum.resolvedTracks(
+            using: deps.libraryRepository,
+            preferences: deps.settingsManager.mergingPreferences
+        )) ?? []
     }
 
     private var albumGenreChipBar: some View {
         GenreFilterHeader(
             availableGenres: albumSnapshot.availableGenres,
-            selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres,
-            excludedGenres: $libraryVM.albumsFilterOptions.excludedGenres
+            selectedGenres: albumFilterOptions.selectedGenres,
+            excludedGenres: albumFilterOptions.excludedGenres,
+            favoriteFilter: albumFilterOptions.favoriteFilter
         )
     }
 
@@ -262,33 +311,68 @@ public struct AlbumDetailView: View {
     @StateObject private var viewModel: AlbumDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var isBioExpanded = false
-    @State private var isConfirmingDelete = false
+    @State private var albumPendingDeletion: Album?
+    @State private var favoriteOverrides: [String: Bool] = [:]
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let album: Album
+    private let displayAlbum: DisplayAlbum
+    private let selectedTrackId: String?
+    private let includesHidden: Bool
 
-    public init(album: Album, nowPlayingVM: NowPlayingViewModel, initialTracks: [Track]? = nil) {
-        self.album = album
+    public init(
+        album: Album,
+        nowPlayingVM: NowPlayingViewModel,
+        initialTracks: [Track]? = nil,
+        selectedTrackId: String? = nil,
+        includesHidden: Bool = false
+    ) {
+        self.init(
+            displayAlbum: .single(album),
+            nowPlayingVM: nowPlayingVM,
+            initialTracks: initialTracks,
+            selectedTrackId: selectedTrackId,
+            includesHidden: includesHidden
+        )
+    }
+
+    public init(
+        displayAlbum: DisplayAlbum,
+        nowPlayingVM: NowPlayingViewModel,
+        initialTracks: [Track]? = nil,
+        selectedTrackId: String? = nil,
+        includesHidden: Bool = false
+    ) {
+        self.displayAlbum = displayAlbum
+        self.album = displayAlbum.primaryAlbum
+        self.selectedTrackId = selectedTrackId
+        self.includesHidden = includesHidden
         self._viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makeAlbumDetailViewModel(
-                album: album,
-                initialTracks: initialTracks
+                displayAlbum: displayAlbum,
+                initialTracks: initialTracks,
+                includesHidden: includesHidden
             )
         )
         self.nowPlayingVM = nowPlayingVM
     }
 
     public init(viewModel: AlbumDetailViewModel, nowPlayingVM: NowPlayingViewModel) {
+        self.displayAlbum = viewModel.displayAlbum
         self.album = viewModel.album
+        self.selectedTrackId = nil
+        self.includesHidden = false
         self._viewModel = StateObject(wrappedValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
     }
 
     public var body: some View {
+        let downloadState = deps.downloadMutationWorkflow.batchState(for: displayAlbum.albums)
         MediaDetailView(
             viewModel: viewModel,
             nowPlayingVM: nowPlayingVM,
@@ -299,38 +383,91 @@ public struct AlbumDetailView: View {
             groupByDisc: true,
             showFilter: false,
             mediaType: .album,
+            selectedTrackId: viewModel.displayedTrackIdentity(for: selectedTrackId),
+            hiddenCandidates: displayAlbum.albums.compactMap { $0.hiddenCandidate(deps: deps) },
+            hiddenIdentity: displayAlbum.isMerged ? nil : HiddenMediaIdentity(album),
+            includesHidden: includesHidden,
             albumMenuActions: AlbumDetailMenuActions(
-                onEditMetadata: {
-                    metadataEditorRequest = ContextMenuMetadataEditorRequest(
-                        kind: .album,
-                        currentTitle: album.title
-                    ) { newTitle in
-                        do {
-                            let result = try await deps.metadataMutationWorkflow.editAlbum(
-                                album,
-                                title: newTitle,
-                                scope: .albumDetail
-                            )
-                            await MainActor.run {
-                                deps.toastCenter.show(result.successToast)
-                            }
-                        } catch {
-                            await MainActor.run {
-                                deps.toastCenter.show(
-                                    deps.metadataMutationWorkflow.editFailureToast(
-                                        noun: "Album",
-                                        itemID: album.sourceScopedID,
-                                        error: error,
-                                        scope: .albumDetail
-                                    )
-                                )
-                            }
-                            throw error
-                        }
+                favoriteAvailability: .combined(
+                    displayAlbum.albums.map { $0.actionAvailability(for: .favorite) }
+                ),
+                isFavorite: isFavorite(album),
+                downloadAvailability: .combined(displayAlbum.albums.map {
+                    resolvedDownloadMenuAvailability(
+                        isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled($0),
+                        sourceAvailability: $0.actionAvailability(for: .download)
+                    )
+                }),
+                isDownloaded: downloadState.isEnabled,
+                editMetadataAvailability: .combined(
+                    displayAlbum.albums.map { $0.actionAvailability(for: .editMetadata) }
+                ),
+                deleteAvailability: .combined(
+                    displayAlbum.albums.map { $0.actionAvailability(for: .delete) }
+                ),
+                onToggleFavorite: {
+                    sourceMutationAction(
+                        title: "Update Album Favorite",
+                        items: displayAlbum.albums,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        availability: { $0.actionAvailability(for: .favorite) },
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { selectedAlbum in
+                        setFavorite(!isFavorite(selectedAlbum), for: selectedAlbum)
+                    }?()
+                },
+                onFavorite: {
+                    guard !isFavorite(album) else { return }
+                    setFavorite(true, for: album)
+                },
+                onToggleDownload: {
+                    Task {
+                        await deps.downloadMutationWorkflow.toggleDownloads(for: displayAlbum.albums)
                     }
                 },
+                onAddToPlaylist: { present in
+                    sourceMutationAction(
+                        title: "Add Album to Playlist",
+                        items: displayAlbum.albums,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { selectedAlbum in
+                        present(viewModel.filteredTracks(for: selectedAlbum), "Add Album to Playlist")
+                    }?()
+                },
+                onEditMetadata: {
+                    sourceMutationAction(
+                        title: "Edit Album Metadata",
+                        items: displayAlbum.albums,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        availability: { $0.actionAvailability(for: .editMetadata) },
+                        presenter: sourceActionPresenter,
+                        deps: deps,
+                        action: presentMetadataEditor(for:)
+                    )?()
+                },
                 onDelete: {
-                    isConfirmingDelete = true
+                    sourceMutationAction(
+                        title: "Delete Album",
+                        items: displayAlbum.albums.filter {
+                            $0.actionAvailability(for: .delete).isAvailable
+                        },
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { selectedAlbum in
+                        albumPendingDeletion = selectedAlbum
+                    }?()
                 },
                 onPlayNext: {
                     nowPlayingVM.playNext(viewModel.filteredTracks)
@@ -344,28 +481,38 @@ public struct AlbumDetailView: View {
                 await viewModel.loadAlbumDetail()
                 await viewModel.loadRelatedAlbums()
                 await viewModel.loadSimilarAlbums()
+            },
+            customPinAction: { isPinned in
+                if isPinned {
+                    deps.pinMutationWorkflow.unpinAll(
+                        identities: Set(displayAlbum.albums.map(\.sourceScopedID))
+                    )
+                } else {
+                    deps.pinMutationWorkflow.pinAll(items: displayAlbum.albums.map { album in
+                        (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
+                    })
+                }
+            },
+            customIsPinned: { pinnedIdentities in
+                displayAlbum.albums.allSatisfy { pinnedIdentities.contains($0.sourceScopedID) }
             }
         )
-        .sheet(item: $metadataEditorRequest) { request in
-            TextInputView(
-                title: request.kind.title,
-                message: "Changes are sent directly to Plex and then refreshed locally.",
-                placeholder: request.kind.fieldLabel,
-                initialText: request.currentTitle,
-                actionTitle: "Save",
-                onSubmit: request.onSave
-            )
-        }
+        .metadataEditorSheet(request: $metadataEditorRequest)
         .confirmationDialog(
             "Delete Album?",
-            isPresented: $isConfirmingDelete,
+            isPresented: Binding(
+                get: { albumPendingDeletion != nil },
+                set: { if !$0 { albumPendingDeletion = nil } }
+            ),
             titleVisibility: .visible
         ) {
             Button("Delete Album", role: .destructive) {
+                guard let deletingAlbum = albumPendingDeletion else { return }
+                albumPendingDeletion = nil
                 Task {
                     do {
                         let result = try await deps.metadataMutationWorkflow.deleteAlbum(
-                            album,
+                            deletingAlbum,
                             scope: .albumDetail
                         )
                         await MainActor.run {
@@ -377,7 +524,7 @@ public struct AlbumDetailView: View {
                             deps.toastCenter.show(
                                 deps.metadataMutationWorkflow.deleteFailureToast(
                                     noun: "Album",
-                                    itemID: album.sourceScopedID,
+                                    itemID: deletingAlbum.sourceScopedID,
                                     error: error,
                                     scope: .albumDetail
                                 )
@@ -388,7 +535,53 @@ public struct AlbumDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This permanently deletes \"\(album.title)\" from the Plex server and removes its local cache.")
+            Text("This permanently deletes \"\(albumPendingDeletion?.title ?? album.title)\" from its source and removes its local cache.")
+        }
+    }
+
+    private func isFavorite(_ album: Album) -> Bool {
+        favoriteOverrides[album.sourceScopedID] ?? album.isFavorite
+    }
+
+    private func setFavorite(_ isFavorite: Bool, for album: Album) {
+        let previous = self.isFavorite(album)
+        favoriteOverrides[album.sourceScopedID] = isFavorite
+        Task {
+            do {
+                try await deps.collectionFavoriteMutationWorkflow.setFavorite(isFavorite, for: album)
+            } catch {
+                favoriteOverrides[album.sourceScopedID] = previous
+            }
+        }
+    }
+
+    private func presentMetadataEditor(for selectedAlbum: Album) {
+        metadataEditorRequest = ContextMenuMetadataEditorRequest(
+            kind: .album,
+            currentTitle: selectedAlbum.title
+        ) { newTitle in
+            do {
+                let result = try await deps.metadataMutationWorkflow.editAlbum(
+                    selectedAlbum,
+                    title: newTitle,
+                    scope: .albumDetail
+                )
+                await MainActor.run {
+                    deps.toastCenter.show(result.successToast)
+                }
+            } catch {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        deps.metadataMutationWorkflow.editFailureToast(
+                            noun: "Album",
+                            itemID: selectedAlbum.sourceScopedID,
+                            error: error,
+                            scope: .albumDetail
+                        )
+                    )
+                }
+                throw error
+            }
         }
     }
 
@@ -403,6 +596,10 @@ public struct AlbumDetailView: View {
             metadataParts.append("\(viewModel.tracks.count) songs, \(viewModel.totalDuration)")
         }
 
+        if displayAlbum.isMerged {
+            metadataParts.append("\(displayAlbum.albums.count) sources")
+        }
+
         return MediaHeaderData(
             title: album.title,
             subtitle: album.artistName,
@@ -410,7 +607,14 @@ public struct AlbumDetailView: View {
             artworkPath: album.thumbPath,
             sourceKey: album.sourceCompositeKey,
             ratingKey: album.id,
-            artistRatingKey: album.artistRatingKey
+            artistRatingKey: album.artistRatingKey,
+            trackSourceLabels: displayAlbum.isMerged
+                ? mediaDetailTrackSourceLabels(
+                    tracks: viewModel.tracks,
+                    accountManager: deps.accountManager,
+                    demoModeEnabled: deps.settingsManager.demoModeEnabled
+                )
+                : [:]
         )
     }
 
@@ -431,7 +635,7 @@ public struct AlbumDetailView: View {
 
                 // Description (collapsible)
                 if let summary = viewModel.albumDetail?.summary, !summary.isEmpty {
-                    albumDescriptionSection(summary: summary)
+                    LibraryDescriptionSection(summary: summary, isExpanded: $isBioExpanded)
                 }
 
                 // Wikipedia link — only show when album has a description
@@ -503,59 +707,6 @@ public struct AlbumDetailView: View {
         }
     }
 
-    private func albumDescriptionSection(summary: String) -> some View {
-        // Plex sends paragraphs separated by \r\n; split on any newline variant
-        let paragraphs = summary
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-
-        return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.sm) {
-            Text("Description")
-                .font(EnsembleDesign.Typography.actionLabel)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-
-            // Tappable description text
-            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                if isBioExpanded {
-                    ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
-                        Text(paragraph)
-                            .font(EnsembleDesign.Typography.rowPrimary)
-                            .foregroundColor(EnsembleDesign.Color.primaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, index == paragraphs.indices.lowerBound ? EnsembleDesign.Spacing.none : EnsembleDesign.Spacing.md)
-                    }
-                } else {
-                    Text(paragraphs.first ?? summary)
-                        .font(EnsembleDesign.Typography.rowPrimary)
-                        .foregroundColor(EnsembleDesign.Color.primaryText)
-                        .lineLimit(4)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    isBioExpanded.toggle()
-                }
-            }
-
-            // Expand/collapse link
-            if paragraphs.count > 1 || summary.count > 200 {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        isBioExpanded.toggle()
-                    }
-                } label: {
-                    Text(isBioExpanded ? "Show less" : "Read more")
-                        .font(EnsembleDesign.Typography.rowPrimary)
-                        .fontWeight(.medium)
-                        .foregroundColor(EnsembleDesign.Color.accent)
-                }
-            }
-        }
-    }
-
     // MARK: - More by Artist / Similar Albums
 
     /// Related album cards in the album-detail footer.
@@ -565,22 +716,23 @@ public struct AlbumDetailView: View {
     /// detail table remains the only scroll view in the footer path.
     @ViewBuilder
     private func albumCardCollection(albums: [Album]) -> some View {
+        let displayAlbums = DisplayAlbum.group(albums, preferences: deps.settingsManager.mergingPreferences)
         #if os(macOS)
         LazyVGrid(
             columns: AlbumCardLayoutMetrics.shelf.gridColumns,
             alignment: .leading,
             spacing: AlbumCardLayoutMetrics.shelf.rowSpacing
         ) {
-            ForEach(albums, id: \.sourceScopedID) { scrollAlbum in
-                albumCardLink(for: scrollAlbum)
+            ForEach(AlbumBrowseItem.identify(displayAlbums)) { item in
+                albumCardLink(for: item.displayAlbum)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         #else
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: AlbumCardLayoutMetrics.shelf.gridSpacing) {
-                ForEach(albums, id: \.sourceScopedID) { scrollAlbum in
-                    albumCardLink(for: scrollAlbum)
+                ForEach(AlbumBrowseItem.identify(displayAlbums)) { item in
+                    albumCardLink(for: item.displayAlbum)
                 }
             }
         }
@@ -590,9 +742,11 @@ public struct AlbumDetailView: View {
     }
 
     @ViewBuilder
-    private func albumCardLink(for scrollAlbum: Album) -> some View {
-        navigationCoordinator.routeLink(to: .albumDetail(scrollAlbum)) {
-            AlbumCard(album: scrollAlbum, layout: .shelf)
+    private func albumCardLink(for scrollAlbum: DisplayAlbum) -> some View {
+        navigationCoordinator.routeLink(
+            to: .albumDetail(scrollAlbum, includesHidden: includesHidden)
+        ) {
+            AlbumCard(displayAlbum: scrollAlbum, layout: .shelf)
         }
         .buttonStyle(.plain)
     }

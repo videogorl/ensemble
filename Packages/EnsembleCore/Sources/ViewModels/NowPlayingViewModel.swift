@@ -1,7 +1,5 @@
 import Combine
-import EnsemblePersistence
 import Foundation
-import Nuke
 import SwiftUI
 
 /// Rating states for the three-state heart button
@@ -37,7 +35,7 @@ public enum TrackRating: Equatable {
 }
 
 public struct PlaylistServerOption: Identifiable, Equatable {
-    public let id: String // server-level source key: plex:account:server
+    public let id: String // playlist-scope source key, such as plex:account:server or appleMusic:device
     public let name: String
 
     public init(id: String, name: String) {
@@ -110,16 +108,16 @@ public final class NowPlayingViewModel: ObservableObject {
     /// Persists the selected card page (0: Queue, 1: Controls, 2: Lyrics, 3: Info) across sheet dismiss/reopen
     @Published public var currentPage: Int = 1
     @Published public private(set) var isPlaylistMutationInProgress = false
+    @Published public private(set) var isQueueReplacementConfirmationPresented = false
     @Published public var lastPlaylistTarget: LastPlaylistTarget?
     public var lastPlaylistTargetPublisher: AnyPublisher<LastPlaylistTarget?, Never> {
         $lastPlaylistTarget.eraseToAnyPublisher()
     }
 
-    @Published public private(set) var artworkImage: PlatformImage?
-    /// Pre-rendered blurred artwork for NP background — avoids live .contrast(2.0) +
-    /// .saturation(1.9) + .brightness(-0.05) + .blur(80) on every body eval.
-    @Published public private(set) var blurredArtworkImage: PlatformImage?
     @Published private var optimisticTrackRatingsByIdentity: [String: Int] = [:]
+    private var optimisticTrackFavoritesByIdentity: [String: Bool] = [:]
+    @Published private var acceptedSourceLibraryCatalogIDs = Set<String>()
+    @Published private var sourceLibraryCatalogIDsInFlight = Set<String>()
     /// Mirrors TrackAvailabilityResolver generation to drive isCurrentTrackPlayable re-evaluation
     @Published private var availabilityGeneration: UInt64 = 0
 
@@ -188,15 +186,16 @@ public final class NowPlayingViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let navigationCoordinator: NavigationCoordinator
     private let toastCenter: ToastCenter
-    private let mutationCoordinator: MutationCoordinator
     private let trackRatingLocalStore: TrackRatingLocalStoring
     private let playlistMutationWorkflow: PlaylistMutationWorkflow
     private let playlistActionService = PlaylistActionService()
     private let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
     private let trackAvailabilityResolver: TrackAvailabilityResolver
     private let lyricsService: LyricsService
+    private let hiddenMediaStore: HiddenMediaStore
     private var cancellables = Set<AnyCancellable>()
     private var currentQueueIdentity: [String]?
+    private var hiddenPlaybackScopeDepth = 0
 
     public let playbackProjection = NowPlayingPlaybackProjection()
     public let queueProjection = NowPlayingQueueProjection()
@@ -213,6 +212,7 @@ public final class NowPlayingViewModel: ObservableObject {
     // Track if we're currently updating the rating to prevent overwriting
     private var isUpdatingRating = false
     private var favoriteUpdatesInFlight = Set<String>()
+    private var pendingQueueReplacement: QueueReplacementAction?
     var isArtworkLoadingEnabledForTesting = true
     var trackRatingMutationHandlerForTesting: ((Track, Int?) async throws -> Void)?
     var trackRatingStoreHandlerForTesting: ((Track, Int) async throws -> Void)?
@@ -228,19 +228,20 @@ public final class NowPlayingViewModel: ObservableObject {
         playlistMutationWorkflow: PlaylistMutationWorkflow? = nil,
         trackRatingMutationWorkflow: TrackRatingMutationWorkflow? = nil,
         trackAvailabilityResolver: TrackAvailabilityResolver,
-        lyricsService: LyricsService
+        lyricsService: LyricsService,
+        hiddenMediaStore: HiddenMediaStore? = nil
     ) {
         self.playbackService = playbackService
         self.syncCoordinator = syncCoordinator
         self.libraryRepository = libraryRepository
         self.navigationCoordinator = navigationCoordinator
         self.toastCenter = toastCenter
-        self.mutationCoordinator = mutationCoordinator
         self.trackRatingLocalStore = trackRatingLocalStore
         self.playlistMutationWorkflow = playlistMutationWorkflow ?? PlaylistMutationWorkflow(mutator: mutationCoordinator)
         self.trackRatingMutationWorkflow = trackRatingMutationWorkflow ?? TrackRatingMutationWorkflow(mutator: mutationCoordinator)
         self.trackAvailabilityResolver = trackAvailabilityResolver
         self.lyricsService = lyricsService
+        self.hiddenMediaStore = hiddenMediaStore ?? .shared
         lyricsProjection = NowPlayingLyricsProjection(isInstrumentalModeSupported: InstrumentalModeCapability.isSupported)
         lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
         setupBindings()
@@ -255,7 +256,6 @@ public final class NowPlayingViewModel: ObservableObject {
                 guard let self else { return }
                 self.refreshCurrentTrackMetadataIfNeeded(track)
                 self.playbackProjection.updateCurrentTrack(track)
-                self.artworkProjection.updateCurrentTrack(track)
                 self.ratingProjection.updateCurrentTrack(
                     track,
                     displayRating: track.map { self.trackDisplayRating(for: $0) }
@@ -346,6 +346,13 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        playbackService.smartMixTransitionActivePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isActive in
+                self?.playbackProjection.updateSmartMixTransitionActive(isActive)
+            }
+            .store(in: &cancellables)
+
         playbackService.autoplayTracksPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] tracks in
@@ -388,6 +395,20 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        NotificationCenter.default.publisher(for: CacheManager.artworkCachesDidClear)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.artworkLoadTask?.cancel()
+                self.blurGenerationTask?.cancel()
+                self.artworkProjection.clear(track: self.currentTrack)
+                if let currentTrack = self.currentTrack,
+                   self.isArtworkLoadingEnabledForTesting {
+                    self.loadArtworkImage(for: currentTrack)
+                }
+            }
+            .store(in: &cancellables)
+
         $playbackState
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
@@ -401,7 +422,6 @@ public final class NowPlayingViewModel: ObservableObject {
                 guard let self else { return }
                 self.resetChordModeIfQueueRebuilt(queue)
                 self.queueProjection.updateQueue(queue)
-                self.queueProjection.updateQueueSections(self.playbackService.queueSections)
             }
             .store(in: &cancellables)
 
@@ -410,7 +430,6 @@ public final class NowPlayingViewModel: ObservableObject {
             .sink { [weak self] index in
                 guard let self else { return }
                 self.queueProjection.updateCurrentQueueIndex(index)
-                self.queueProjection.updateQueueSections(self.playbackService.queueSections)
             }
             .store(in: &cancellables)
 
@@ -463,20 +482,6 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        $artworkImage
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] image in
-                self?.artworkProjection.updateArtworkImage(image)
-            }
-            .store(in: &cancellables)
-
-        $blurredArtworkImage
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] image in
-                self?.artworkProjection.updateBlurredArtworkImage(image)
-            }
-            .store(in: &cancellables)
-
         $currentRating
             .receive(on: DispatchQueue.main)
             .sink { [weak self] rating in
@@ -514,6 +519,13 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        playbackService.bufferedProgressPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.publishPlaybackProjectionSnapshot()
+            }
+            .store(in: &cancellables)
+
         // Update rating when track changes (but not if we're actively updating it)
         $currentTrack
             .sink { [weak self] track in
@@ -533,15 +545,16 @@ public final class NowPlayingViewModel: ObservableObject {
                 guard let self = self else { return }
                 guard self.isArtworkLoadingEnabledForTesting else {
                     self.artworkLoadTask?.cancel()
-                    self.artworkImage = nil
-                    self.blurredArtworkImage = nil
+                    self.artworkProjection.clear(track: track)
                     return
                 }
                 if let track = track {
                     self.loadArtworkImage(for: track)
                 } else {
                     self.artworkLoadTask?.cancel()
-                    self.artworkImage = nil
+                    self.blurGenerationTask?.cancel()
+                    self.currentLoadTrackIdentity = nil
+                    self.artworkProjection.clear()
                 }
             }
             .store(in: &cancellables)
@@ -900,14 +913,11 @@ public final class NowPlayingViewModel: ObservableObject {
 
     // MARK: - Artwork Management
 
-    private var currentLoadArtworkPath: String?
-
     private func refreshCurrentTrackMetadataIfNeeded(_ track: Track?) {
         currentTrackMetadataRefreshTask?.cancel()
         guard let track else { return }
         let isMissingArtworkMetadata = track.thumbPath?.isEmpty != false && track.fallbackThumbPath?.isEmpty != false
-        let isMissingLocalArtwork = !Self.hasLocalCachedArtwork(for: track)
-        guard isMissingArtworkMetadata || isMissingLocalArtwork else { return }
+        guard isMissingArtworkMetadata else { return }
 
         let trackIdentity = track.sourceScopedID
         let libraryRepository = libraryRepository
@@ -926,21 +936,6 @@ public final class NowPlayingViewModel: ObservableObject {
                 }
             }
 
-            if refreshedTrack == nil,
-               let fallbackTrack = try? await libraryRepository.fetchTrackArtworkFallback(
-                   title: track.title,
-                   albumName: track.albumName,
-                   artistName: track.artistName,
-                   excludingRatingKey: track.id,
-                   excludingSourceCompositeKey: track.sourceCompositeKey
-               )
-            {
-                let fallbackDomainTrack = Track(from: fallbackTrack)
-                if Self.hasLocalCachedArtwork(for: fallbackDomainTrack) {
-                    refreshedTrack = Self.track(track, withArtworkFrom: fallbackDomainTrack)
-                }
-            }
-
             guard let refreshedTrack else { return }
             guard let self, self.currentTrack?.sourceScopedID == trackIdentity else {
                 return
@@ -949,149 +944,55 @@ public final class NowPlayingViewModel: ObservableObject {
         }
     }
 
-    private static func hasLocalCachedArtwork(for track: Track) -> Bool {
-        artworkRatingKeys(for: track).contains { key in
-            cachedArtworkFileExists(ratingKey: key, type: .album)
-                || cachedArtworkFileExists(ratingKey: key, type: .track)
-        }
-    }
-
-    private static func artworkRatingKeys(for track: Track) -> [String] {
-        var keys: [String] = []
-        for key in [
-            track.fallbackRatingKey,
-            track.albumRatingKey,
-            ratingKey(fromArtworkPath: track.fallbackThumbPath),
-            ratingKey(fromArtworkPath: track.thumbPath),
-            track.id
-        ] {
-            guard let key, !key.isEmpty, !keys.contains(key) else { continue }
-            keys.append(key)
-        }
-        return keys
-    }
-
-    private static func ratingKey(fromArtworkPath path: String?) -> String? {
-        guard let path else { return nil }
-        let components = path.split(separator: "/")
-        guard components.count >= 3,
-              components[0] == "library",
-              components[1] == "metadata" else { return nil }
-        return String(components[2])
-    }
-
-    private static func cachedArtworkFileExists(ratingKey: String, type: ArtworkType) -> Bool {
-        let url = ArtworkDownloadManager.artworkDirectory
-            .appendingPathComponent("\(ratingKey)_\(type.rawValue).jpg")
-        return FileManager.default.fileExists(atPath: url.path)
-    }
-
-    private static func track(_ track: Track, withArtworkFrom artworkTrack: Track) -> Track {
-        Track(
-            id: track.id,
-            key: track.key,
-            title: track.title,
-            artistName: track.artistName,
-            albumArtistName: track.albumArtistName,
-            albumName: track.albumName,
-            albumRatingKey: artworkTrack.albumRatingKey ?? track.albumRatingKey,
-            artistRatingKey: track.artistRatingKey,
-            trackNumber: track.trackNumber,
-            discNumber: track.discNumber,
-            duration: track.duration,
-            thumbPath: artworkTrack.thumbPath ?? artworkTrack.fallbackThumbPath ?? track.thumbPath,
-            fallbackThumbPath: artworkTrack.fallbackThumbPath ?? artworkTrack.thumbPath ?? track.fallbackThumbPath,
-            fallbackRatingKey: artworkTrack.fallbackRatingKey ?? artworkTrack.albumRatingKey ?? track.fallbackRatingKey,
-            streamKey: track.streamKey,
-            streamId: track.streamId,
-            localFilePath: track.localFilePath,
-            dateAdded: track.dateAdded,
-            dateModified: track.dateModified,
-            lastPlayed: track.lastPlayed,
-            lastRatedAt: track.lastRatedAt,
-            rating: track.rating,
-            playCount: track.playCount,
-            genres: track.genres,
-            sourceCompositeKey: track.sourceCompositeKey
-        )
-    }
-
     private func loadArtworkImage(for track: Track) {
         let trackIdentity = track.sourceScopedID
-        guard currentLoadTrackIdentity != trackIdentity else { return }
+        let request = ArtworkRequest(
+            track: track,
+            tier: .hero,
+            priority: .high
+        )
+        let candidateIdentities = request.candidateIdentityKeys
+        let hasResolvedArtwork = artworkProjection.state.artworkIdentityKey.map(candidateIdentities.contains) == true
+            && artworkProjection.artworkImage != nil
+        let cachedArtwork = hasResolvedArtwork
+            ? nil
+            : DependencyContainer.shared.artworkLoader.synchronouslyCachedImage(for: request)
 
-        // If the new track shares the same artwork path as the current one
-        // (e.g. tracks in the same album), skip the reload entirely
-        let effectiveArtworkPath = track.thumbPath ?? track.fallbackThumbPath
-        if effectiveArtworkPath != nil,
-           effectiveArtworkPath == currentLoadArtworkPath,
-           artworkImage != nil
-        {
-            currentLoadTrackIdentity = trackIdentity
+        guard artworkProjection.beginLoading(
+            track,
+            retaining: candidateIdentities,
+            cached: cachedArtwork
+        ) else {
+            if let cachedArtwork {
+                artworkLoadTask?.cancel()
+                currentLoadTrackIdentity = trackIdentity
+                dispatchBlurGeneration(for: cachedArtwork, trackIdentity: trackIdentity)
+            }
             return
         }
 
         artworkLoadTask?.cancel()
+        blurGenerationTask?.cancel()
         currentLoadTrackIdentity = trackIdentity
-        currentLoadArtworkPath = effectiveArtworkPath
 
         artworkLoadTask = Task { @MainActor in
-            // Check if cancelled early
             guard !Task.isCancelled else { return }
 
-            // Get artwork URL
-            let deps = DependencyContainer.shared
-            if let artworkURL = await deps.artworkLoader.artworkURLAsync(
-                for: track.thumbPath,
-                sourceKey: track.sourceCompositeKey,
-                ratingKey: track.id,
-                fallbackPath: track.fallbackThumbPath,
-                fallbackRatingKey: track.fallbackRatingKey,
-                size: 600 // Use slightly larger size for background
-            ) {
-                guard !Task.isCancelled else { return }
-
-                // Check Nuke cache first for instant display
-                let request = Nuke.ImageRequest(url: artworkURL)
-
-                // Try synchronous cache lookup first
-                if let cachedImage = Nuke.ImagePipeline.shared.cache.cachedImage(for: request) {
-                    guard !Task.isCancelled else { return }
-
-                    if self.currentLoadTrackIdentity == trackIdentity {
-                        self.artworkImage = cachedImage.image
-                        self.dispatchBlurGeneration(for: cachedImage.image, trackIdentity: trackIdentity)
-                    }
-                    return
-                }
-
-                // Load asynchronously if not cached
-                if let result = try? await Nuke.ImagePipeline.shared.image(for: request) {
-                    guard !Task.isCancelled else { return }
-
-                    // Only update if this is still the current track
-                    if self.currentLoadTrackIdentity == trackIdentity {
-                        // Using a smooth cross-fade transition.
-                        // DO NOT REMOVE THIS - it ensures beautiful track transitions.
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            self.artworkImage = result
-                        }
-                        self.dispatchBlurGeneration(for: result, trackIdentity: trackIdentity)
-                    }
-                }
-                // If Nuke fails (transient network error, pipeline cancellation),
-                // keep the previous artwork rather than flashing to a placeholder.
-                // Tracks with truly no artwork are handled by the artworkURLAsync == nil
-                // path below, which clears artworkImage correctly.
-            } else {
-                // No artwork URL available - clear previous artwork
+            switch await DependencyContainer.shared.artworkLoader.resolve(request) {
+            case .resolved(let resolved):
                 guard !Task.isCancelled else { return }
 
                 if self.currentLoadTrackIdentity == trackIdentity {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        self.artworkImage = nil
-                    }
-                    self.dispatchBlurGeneration(for: nil, trackIdentity: trackIdentity)
+                    self.artworkProjection.resolveArtwork(resolved, for: track)
+                    self.dispatchBlurGeneration(for: resolved, trackIdentity: trackIdentity)
+                }
+            case .unavailable(.imageLoadFailed):
+                return
+            case .unavailable(.noArtworkURL):
+                guard !Task.isCancelled else { return }
+
+                if self.currentLoadTrackIdentity == trackIdentity {
+                    self.artworkProjection.clear(track: track)
                 }
             }
         }
@@ -1100,25 +1001,36 @@ public final class NowPlayingViewModel: ObservableObject {
     /// Dispatch background pre-rendering of blurred artwork for NP background.
     /// Avoids live .contrast(2.0) + .saturation(1.9) + .brightness(-0.05) + .blur(80)
     /// on every SwiftUI body evaluation — saves 4 GPU render passes per body eval.
-    private func dispatchBlurGeneration(for image: PlatformImage?, trackIdentity: String) {
+    private func dispatchBlurGeneration(for resolved: ArtworkResolvedImage, trackIdentity: String) {
         blurGenerationTask?.cancel()
 
-        guard let source = image else {
-            blurredArtworkImage = nil
-            return
-        }
-
-        blurGenerationTask = Task.detached(priority: .utility) { [weak self] in
-            let blurred = ArtworkBlurRenderer.blurredImage(from: source)
-            await self?.applyGeneratedBlurredArtwork(blurred, for: trackIdentity)
+        blurGenerationTask = Task { [weak self] in
+            let blurred = await DependencyContainer.shared.artworkLoader.blurredImage(
+                for: resolved.image,
+                cacheKey: resolved.blurCacheKey
+            )
+            guard !Task.isCancelled else { return }
+            self?.applyGeneratedBlurredArtwork(
+                blurred,
+                identityKey: resolved.identityKey,
+                trackIdentity: trackIdentity
+            )
         }
     }
 
     /// Apply a completed blur render only if it still matches the currently-loaded track.
     @MainActor
-    private func applyGeneratedBlurredArtwork(_ blurred: PlatformImage?, for trackIdentity: String) {
+    private func applyGeneratedBlurredArtwork(
+        _ blurred: PlatformImage?,
+        identityKey: String,
+        trackIdentity: String
+    ) {
         guard currentLoadTrackIdentity == trackIdentity else { return }
-        blurredArtworkImage = blurred
+        artworkProjection.resolveBlurredArtwork(
+            blurred,
+            identityKey: identityKey,
+            trackIdentity: trackIdentity
+        )
     }
 
     // MARK: - Computed Properties
@@ -1146,10 +1058,6 @@ public final class NowPlayingViewModel: ObservableObject {
         return max(0, min(1, currentTime / displayDuration))
     }
 
-    public var bufferedProgress: Double {
-        max(0, min(1, playbackService.bufferedProgressValue))
-    }
-
     public var isPlaying: Bool {
         playbackState == .playing
     }
@@ -1163,26 +1071,9 @@ public final class NowPlayingViewModel: ObservableObject {
         return availability == .available || availability == .availableDownloadedOnly
     }
 
-    public var hasCurrentTrack: Bool {
-        currentTrack != nil
-    }
-
-    public var formattedCurrentTime: String {
-        MediaFormatters.trackClock(currentTime)
-    }
-
-    public var formattedDuration: String {
-        MediaFormatters.trackClock(duration)
-    }
-
     public var formattedRemainingTime: String {
         let remaining = max(0, scrubberDuration - currentTime)
         return MediaFormatters.negativeTrackClock(remaining)
-    }
-
-    /// Queue split into sections for UI display
-    public var queueSections: QueueSections {
-        playbackService.queueSections
     }
 
     // MARK: - Album Metadata
@@ -1204,18 +1095,19 @@ public final class NowPlayingViewModel: ObservableObject {
         return nil
     }
 
-    /// Returns codec and file size of what AVPlayer is actually decoding right now
-    public func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?) {
+    /// Returns facts about the payload currently loaded by the audio engine.
+    public func currentPlaybackFileInfo() -> PlaybackFileInfo? {
         playbackService.currentPlaybackFileInfo()
     }
 
     /// Fetch audio format metadata (codec, bitrate, sample rate, etc.) for the current track
     public func fetchAudioFileInfoForCurrentTrack() async -> AudioFileInfo? {
-        guard let track = currentTrack,
-              let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else { return nil }
+        guard let track = currentTrack else { return nil }
         do {
-            guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else { return nil }
-            return AudioFileInfo(from: plexTrack)
+            return try await syncCoordinator.getAudioFileInfo(
+                trackId: track.id,
+                sourceKey: track.sourceCompositeKey
+            )
         } catch {
             EnsembleLogger.debug("Failed to fetch audio file info: \(error)")
             return nil
@@ -1228,11 +1120,14 @@ public final class NowPlayingViewModel: ObservableObject {
         play(track: track, context: .userInitiated)
     }
 
+    public func playHidden(track: Track) {
+        requestPlayback(.track(track: trackWithDisplayRating(track), context: .userInitiated))
+    }
+
     public func play(track: Track, context: PlaybackStartContext) {
+        guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
         let playableTrack = trackWithDisplayRating(track)
-        Task {
-            await playbackService.play(track: playableTrack, context: context)
-        }
+        requestPlayback(.track(track: playableTrack, context: context))
     }
 
     public func play(tracks: [Track], startingAt index: Int = 0) {
@@ -1240,10 +1135,17 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func play(tracks: [Track], startingAt index: Int = 0, context: PlaybackStartContext) {
-        let playableTracks = tracksWithDisplayRatings(tracks)
-        Task {
-            await playbackService.play(tracks: playableTracks, startingAt: index, context: context)
-        }
+        let visibleTracks = tracksForNewQueue(tracks)
+        guard !visibleTracks.isEmpty else { return }
+        let selectedIdentity = tracks.indices.contains(index) ? tracks[index].sourceScopedID : nil
+        let visibleIndex = selectedIdentity.flatMap { selected in
+            visibleTracks.firstIndex { $0.sourceScopedID == selected }
+        } ?? 0
+        requestPlayback(.play(
+            tracks: tracksWithDisplayRatings(visibleTracks),
+            startingAt: visibleIndex,
+            context: context
+        ))
     }
 
     public func shufflePlay(tracks: [Track]) {
@@ -1251,9 +1153,123 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func shufflePlay(tracks: [Track], context: PlaybackStartContext) {
-        let playableTracks = tracksWithDisplayRatings(tracks)
+        let playableTracks = tracksWithDisplayRatings(tracksForNewQueue(tracks))
+        guard !playableTracks.isEmpty else { return }
+        requestPlayback(.shuffle(tracks: playableTracks, context: context))
+    }
+
+    /// Starts the queued action after the user accepts replacing manual queue edits.
+    public func confirmQueueReplacement() {
+        guard let pendingQueueReplacement else {
+            isQueueReplacementConfirmationPresented = false
+            return
+        }
+
+        logQueueReplacement("queueReplacementConfirmed", action: pendingQueueReplacement)
+        self.pendingQueueReplacement = nil
+        isQueueReplacementConfirmationPresented = false
+        performPlayback(pendingQueueReplacement)
+    }
+
+    /// Discards the replacement request and leaves the current queue intact.
+    public func cancelQueueReplacement() {
+        if let pendingQueueReplacement {
+            logQueueReplacement("queueReplacementCancelled", action: pendingQueueReplacement)
+        }
+        pendingQueueReplacement = nil
+        isQueueReplacementConfirmationPresented = false
+    }
+
+    private enum QueueReplacementAction {
+        case track(track: Track, context: PlaybackStartContext)
+        case play(tracks: [Track], startingAt: Int, context: PlaybackStartContext)
+        case shuffle(tracks: [Track], context: PlaybackStartContext)
+        case radio(tracks: [Track])
+
+        var journeyName: String {
+            switch self {
+            case .track: "track"
+            case .play: "play"
+            case .shuffle: "shuffle"
+            case .radio: "radio"
+            }
+        }
+
+        var origin: PlaybackStartOrigin {
+            switch self {
+            case let .track(_, context), let .play(_, _, context), let .shuffle(_, context):
+                context.origin
+            case .radio:
+                .appUI
+            }
+        }
+    }
+
+    private func requestPlayback(_ action: QueueReplacementAction) {
+        let queueProtected = playbackService.shouldConfirmQueueReplacement()
+        let requiresConfirmation = shouldConfirmQueueReplacement(
+            for: action,
+            queueProtected: queueProtected
+        )
+        logQueueReplacement(
+            "queueReplacementDecision",
+            action: action,
+            details: [
+                "queueProtected": "\(queueProtected)",
+                "requiresConfirmation": "\(requiresConfirmation)"
+            ]
+        )
+
+        guard requiresConfirmation else {
+            performPlayback(action)
+            return
+        }
+
+        pendingQueueReplacement = action
+        isQueueReplacementConfirmationPresented = true
+        logQueueReplacement("queueReplacementConfirmationRequested", action: action)
+    }
+
+    private func shouldConfirmQueueReplacement(
+        for action: QueueReplacementAction,
+        queueProtected: Bool
+    ) -> Bool {
+        switch action {
+        case let .track(_, context), let .play(_, _, context), let .shuffle(_, context):
+            return context.origin == .appUI && queueProtected
+        case .radio:
+            return queueProtected
+        }
+    }
+
+    private func logQueueReplacement(
+        _ event: String,
+        action: QueueReplacementAction,
+        details: [String: String] = [:]
+    ) {
+        var journeyDetails = details
+        journeyDetails["action"] = action.journeyName
+        journeyDetails["origin"] = action.origin.rawValue
+        journeyDetails["queueCount"] = "\(playbackService.queue.count)"
+        UserJourneyLogger.log(
+            context: "playback",
+            event: event,
+            details: journeyDetails
+        )
+    }
+
+    private func performPlayback(_ action: QueueReplacementAction) {
         Task {
-            await playbackService.shufflePlay(tracks: playableTracks, context: context)
+            switch action {
+            case let .track(track, context):
+                await playbackService.play(track: track, context: context)
+            case let .play(tracks, startingAt, context):
+                await playbackService.play(tracks: tracks, startingAt: startingAt, context: context)
+            case let .shuffle(tracks, context):
+                await playbackService.shufflePlay(tracks: tracks, context: context)
+            case let .radio(tracks):
+                await playbackService.enableRadio(tracks: tracks)
+            }
         }
     }
 
@@ -1309,44 +1325,42 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.updateVisualizerPosition(time)
     }
 
-    /// Begin rate-based audible scrubbing (long-press skip buttons).
-    public func startFastSeeking(forward: Bool) {
-        playbackService.startFastSeeking(forward: forward)
-    }
-
-    /// Stop rate-based scrubbing and restore normal playback.
-    public func stopFastSeeking() {
-        playbackService.stopFastSeeking()
-    }
-
     // MARK: - Queue Management
 
     public func addToQueue(_ track: Track) {
+        guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
         playbackService.addToQueue(track)
     }
 
     public func addToQueue(_ tracks: [Track]) {
-        playbackService.addToQueue(tracks)
+        playbackService.addToQueue(tracksForNewQueue(tracks))
     }
 
     public func playNext(_ track: Track) {
+        guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
         playbackService.playNext(track)
     }
 
     public func playNext(_ tracks: [Track]) {
-        playbackService.playNext(tracks)
+        playbackService.playNext(tracksForNewQueue(tracks))
     }
 
     public func playLast(_ track: Track) {
+        guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
         playbackService.playLast(track)
     }
 
     public func playLast(_ tracks: [Track]) {
-        playbackService.playLast(tracks)
+        playbackService.playLast(tracksForNewQueue(tracks))
     }
 
-    public func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int) {
-        playbackService.moveQueueItem(byId: itemId, from: sourceIndex, to: destinationIndex)
+    public func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int, destinationSource: QueueItemSource? = nil) {
+        playbackService.moveQueueItem(
+            byId: itemId,
+            from: sourceIndex,
+            to: destinationIndex,
+            destinationSource: destinationSource
+        )
     }
 
     public func removeFromQueue(at index: Int) {
@@ -1355,14 +1369,45 @@ public final class NowPlayingViewModel: ObservableObject {
 
     // MARK: - Playlist Management
 
-    /// Candidate server options for playlist creation. Deduplicated at server level.
+    /// Candidate source options for playlist creation. Plex is deduplicated at server level.
     public func playlistServerOptions() -> [PlaylistServerOption] {
-        var options: [PlaylistServerOption] = []
+        var plexOptions: [PlaylistServerOption] = []
         for account in syncCoordinator.accountManager.plexAccounts {
             for server in account.servers {
                 let sourceKey = "plex:\(account.id):\(server.id)"
-                options.append(PlaylistServerOption(id: sourceKey, name: server.name))
+                plexOptions.append(PlaylistServerOption(id: sourceKey, name: server.name))
             }
+        }
+
+        let includesAppleMusic: Bool
+        #if os(iOS)
+        if #available(iOS 18, *) {
+            includesAppleMusic = syncCoordinator.accountManager.isAppleMusicEnabled
+        } else {
+            includesAppleMusic = false
+        }
+        #else
+        includesAppleMusic = false
+        #endif
+
+        return Self.playlistCreationOptions(
+            plexOptions: plexOptions,
+            includesAppleMusic: includesAppleMusic
+        )
+    }
+
+    nonisolated static func playlistCreationOptions(
+        plexOptions: [PlaylistServerOption],
+        includesAppleMusic: Bool
+    ) -> [PlaylistServerOption] {
+        var options = plexOptions
+        if includesAppleMusic {
+            options.append(
+                PlaylistServerOption(
+                    id: MusicSourceIdentifier.appleMusic.compositeKey,
+                    name: MusicSourceType.appleMusic.capabilities.displayName
+                )
+            )
         }
         return options.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
@@ -1372,46 +1417,11 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func resolveDefaultPlaylistServerSourceKey(for tracks: [Track]) async -> String? {
-        if let inferred = defaultPlaylistServerSourceKey(for: tracks) {
-            return inferred
-        }
-
-        for track in tracks {
-            if let cachedTrack = try? await libraryRepository.fetchTrack(
-                ratingKey: track.id,
-                sourceCompositeKey: track.sourceCompositeKey
-            ),
-                let source = serverSourceKey(from: cachedTrack.sourceCompositeKey)
-            {
-                return source
-            }
-        }
-
-        if let currentTrack,
-           let cachedTrack = try? await libraryRepository.fetchTrack(
-               ratingKey: currentTrack.id,
-               sourceCompositeKey: currentTrack.sourceCompositeKey
-           ),
-           let source = serverSourceKey(from: cachedTrack.sourceCompositeKey)
-        {
-            return source
-        }
-
-        return nil
+        defaultPlaylistServerSourceKey(for: tracks)
     }
 
     public func loadPlaylists(forServerSourceKey sourceKey: String? = nil) async throws -> [Playlist] {
         try await syncCoordinator.fetchPlaylists(forServerSourceKey: sourceKey)
-    }
-
-    public func addCurrentTrack(to playlist: Playlist) async throws -> PlaylistMutationResult {
-        guard !isPlaylistMutationInProgress else {
-            throw PlaylistActionError.operationInProgress
-        }
-        guard let currentTrack else {
-            throw PlaylistMutationError.emptySelection
-        }
-        return try await addTracks([currentTrack], to: playlist)
     }
 
     public func addTracks(_ tracks: [Track], to playlist: Playlist) async throws -> PlaylistMutationResult {
@@ -1424,7 +1434,7 @@ public final class NowPlayingViewModel: ObservableObject {
         let workflowResult = try await playlistMutationWorkflow.addTracks(
             tracks,
             to: playlist,
-            tapHandler: playlistToastTapHandler(for: playlist)
+            openPlaylist: playlistToastOpenHandler(for: playlist)
         )
         toastCenter.show(workflowResult.toast)
         return workflowResult.mutationResult
@@ -1441,7 +1451,7 @@ public final class NowPlayingViewModel: ObservableObject {
         let workflowResult = try await playlistMutationWorkflow.addTracksOptimistically(
             tracks,
             to: playlist,
-            tapHandler: playlistToastTapHandler(for: playlist)
+            openPlaylist: playlistToastOpenHandler(for: playlist)
         )
         toastCenter.show(workflowResult.toast)
         return workflowResult.outcome
@@ -1467,6 +1477,35 @@ public final class NowPlayingViewModel: ObservableObject {
         return workflowResult.mutationResult
     }
 
+    public func createPlaylists(
+        title: String,
+        tracks: [Track],
+        serverSourceKeys: [String]
+    ) async throws -> PlaylistBatchMutationWorkflowResult {
+        guard !isPlaylistMutationInProgress else {
+            throw PlaylistActionError.operationInProgress
+        }
+        isPlaylistMutationInProgress = true
+        defer { isPlaylistMutationInProgress = false }
+
+        let result = await playlistMutationWorkflow.createPlaylists(
+            title: title,
+            tracks: tracks,
+            serverSourceKeys: serverSourceKeys,
+            retryHandler: { [weak self] failedSourceKeys in
+                Task { @MainActor [weak self] in
+                    _ = try? await self?.createPlaylists(
+                        title: title,
+                        tracks: tracks,
+                        serverSourceKeys: failedSourceKeys
+                    )
+                }
+            }
+        )
+        toastCenter.show(result.resultToast)
+        return result
+    }
+
     public func resolveLastPlaylistTarget() async -> Playlist? {
         guard let lastPlaylistTarget else { return nil }
         do {
@@ -1488,6 +1527,12 @@ public final class NowPlayingViewModel: ObservableObject {
         } catch {
             return nil
         }
+    }
+
+    public func lastPlaylistTarget(for tracks: [Track]) -> LastPlaylistTarget? {
+        syncCoordinator.lastPlaylistTarget(
+            forServerSourceKey: defaultPlaylistServerSourceKey(for: tracks)
+        )
     }
 
     public func compatibleTrackCount(_ tracks: [Track], for playlist: Playlist) -> Int {
@@ -1525,10 +1570,6 @@ public final class NowPlayingViewModel: ObservableObject {
             deduped.append(track)
         }
         return deduped
-    }
-
-    public func clearQueue() {
-        playbackService.clearQueue()
     }
 
     public func playFromQueue(at index: Int) {
@@ -1586,20 +1627,45 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func enableRadio(tracks: [Track]) {
+        let tracks = tracksForNewQueue(tracks)
         EnsembleLogger.debug("🎙️ NowPlayingViewModel.enableRadio() called with \(tracks.count) tracks")
-        Task {
-            await playbackService.enableRadio(tracks: tracks)
-        }
+        guard !tracks.isEmpty else { return }
+        requestPlayback(.radio(tracks: tracks))
+    }
+
+    public func beginHiddenPlaybackScope() {
+        hiddenPlaybackScopeDepth += 1
+    }
+
+    public func endHiddenPlaybackScope() {
+        hiddenPlaybackScopeDepth = max(0, hiddenPlaybackScopeDepth - 1)
+    }
+
+    private func tracksForNewQueue(_ tracks: [Track]) -> [Track] {
+        hiddenPlaybackScopeDepth > 0 ? tracks : hiddenMediaStore.snapshot.visibleTracks(tracks)
     }
 
     // MARK: - Rating Management
 
     public func isTrackFavorited(_ track: Track) -> Bool {
-        trackDisplayRating(for: track) >= 8
+        let trackIdentity = track.playbackIdentity
+        if track.isAppleMusic || track.favoriteState != nil {
+            return optimisticTrackFavoritesByIdentity[trackIdentity] ?? track.isFavorite
+        }
+        return (optimisticTrackRatingsByIdentity[trackIdentity] ?? track.rating) >= 8
     }
 
     public func setTrackFavorite(_ isFavorite: Bool, for track: Track) async {
-        let trackIdentity = track.sourceScopedID
+        if track.isAppleMusic, !isFavorite {
+            toastCenter.show(ToastPayload(
+                style: .info,
+                iconSystemName: "heart.fill",
+                title: "Managed by Apple Music",
+                message: "Removing Apple Music favorites is unavailable until Apple provides a supported action."
+            ))
+            return
+        }
+        let trackIdentity = track.playbackIdentity
         guard !favoriteUpdatesInFlight.contains(trackIdentity) else { return }
         favoriteUpdatesInFlight.insert(trackIdentity)
         defer { favoriteUpdatesInFlight.remove(trackIdentity) }
@@ -1607,6 +1673,7 @@ public final class NowPlayingViewModel: ObservableObject {
         let plexRating: Int? = isFavorite ? 10 : nil
         let optimisticRating = isFavorite ? 10 : 0
         let previousRating = trackDisplayRating(for: track)
+        let previousFavorite = isTrackFavorited(track)
         let loadingToast = trackRatingMutationWorkflow.beginFavoriteUpdate(track: track, isFavorite: isFavorite)
         toastCenter.show(loadingToast)
         defer { toastCenter.dismiss(id: loadingToast.id) }
@@ -1614,6 +1681,7 @@ public final class NowPlayingViewModel: ObservableObject {
         do {
             // Optimistically update local state so UI reflects the change immediately.
             optimisticTrackRatingsByIdentity[trackIdentity] = optimisticRating
+            optimisticTrackFavoritesByIdentity[trackIdentity] = isFavorite
             applyCurrentTrackRatingIfNeeded(track: track, rating: optimisticRating)
             await playbackService.applyRatingLocally(track: track, rating: optimisticRating)
             try await storeTrackRating(track: track, rating: optimisticRating)
@@ -1631,12 +1699,16 @@ public final class NowPlayingViewModel: ObservableObject {
                 return
             }
 
-            if let updatedTrack = try? await libraryRepository.fetchTrack(
+            if track.isAppleMusic {
+                try await storeTrackRating(track: track, rating: optimisticRating)
+                optimisticTrackRatingsByIdentity[trackIdentity] = optimisticRating
+            } else if let updatedTrack = try? await libraryRepository.fetchTrack(
                 ratingKey: track.id,
                 sourceCompositeKey: track.sourceCompositeKey
             ) {
                 let refreshedTrack = Track(from: updatedTrack)
                 optimisticTrackRatingsByIdentity[trackIdentity] = refreshedTrack.rating
+                optimisticTrackFavoritesByIdentity[trackIdentity] = refreshedTrack.isFavorite
                 updateCurrentTrackIfNeeded(refreshedTrack)
             } else {
                 optimisticTrackRatingsByIdentity[trackIdentity] = optimisticRating
@@ -1648,6 +1720,7 @@ public final class NowPlayingViewModel: ObservableObject {
         } catch {
             // Roll back optimistic state if server mutation fails.
             optimisticTrackRatingsByIdentity[trackIdentity] = previousRating
+            optimisticTrackFavoritesByIdentity[trackIdentity] = previousFavorite
             applyCurrentTrackRatingIfNeeded(track: track, rating: previousRating)
             await playbackService.applyRatingLocally(track: track, rating: previousRating)
             try? await storeTrackRating(track: track, rating: previousRating)
@@ -1659,6 +1732,49 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func toggleTrackFavorite(_ track: Track) async {
         await setTrackFavorite(!isTrackFavorited(track), for: track)
+    }
+
+    public func canAddTrackToLibrary(_ track: Track) -> Bool {
+        guard track.canAddToSourceLibrary, let catalogID = track.appleMusicCatalogID else { return false }
+        return !acceptedSourceLibraryCatalogIDs.contains(catalogID)
+            && !sourceLibraryCatalogIDsInFlight.contains(catalogID)
+    }
+
+    public func addTrackToLibrary(_ track: Track) async {
+        guard canAddTrackToLibrary(track), let catalogID = track.appleMusicCatalogID else { return }
+        sourceLibraryCatalogIDsInFlight.insert(catalogID)
+        defer { sourceLibraryCatalogIDsInFlight.remove(catalogID) }
+        let pending = ToastPayload(
+            style: .info,
+            iconSystemName: "text.badge.plus",
+            title: "Adding to Library...",
+            message: track.title,
+            duration: 1,
+            dedupeKey: "add-to-library-\(track.sourceScopedID)",
+            showsActivityIndicator: true
+        )
+        toastCenter.show(pending)
+        defer { toastCenter.dismiss(id: pending.id) }
+
+        do {
+            let outcome = try await syncCoordinator.addTrackToLibrary(track)
+            acceptedSourceLibraryCatalogIDs.insert(catalogID)
+            toastCenter.show(ToastPayload(
+                style: .success,
+                iconSystemName: "checkmark.circle.fill",
+                title: outcome == .alreadyPresent ? "Already in Library" : "Added to Library",
+                message: track.title,
+                dedupeKey: "added-to-library-\(track.sourceScopedID)"
+            ))
+        } catch {
+            toastCenter.show(ToastPayload(
+                style: .error,
+                iconSystemName: "exclamationmark.triangle.fill",
+                title: "Couldn’t Add to Library",
+                message: error.localizedDescription,
+                dedupeKey: "add-to-library-failed-\(track.sourceScopedID)"
+            ))
+        }
     }
 
     /// Toggle rating through three states: none → loved → disliked → none
@@ -1677,6 +1793,11 @@ public final class NowPlayingViewModel: ObservableObject {
     private func toggleRatingOnMainActor() async {
         guard !isUpdatingRating, let track = currentTrack else { return }
 
+        if track.isAppleMusic {
+            if !isTrackFavorited(track) { await setTrackFavorite(true, for: track) }
+            return
+        }
+
         let newRating: TrackRating
         switch currentRating {
         case .none:
@@ -1693,7 +1814,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
         isUpdatingRating = true
         currentRating = newRating
-        let trackIdentity = track.sourceScopedID
+        let trackIdentity = track.playbackIdentity
         optimisticTrackRatingsByIdentity[trackIdentity] = nextDisplayRating
 
         do {
@@ -1704,7 +1825,6 @@ public final class NowPlayingViewModel: ObservableObject {
             let outcome = try await performTrackRatingMutation(track, rating: nextPlexRating)
             let workflowResult = trackRatingMutationWorkflow.finishRatingUpdate(
                 track: track,
-                newRating: newRating,
                 outcome: outcome
             )
             if workflowResult.outcome == .queued {
@@ -1721,7 +1841,7 @@ public final class NowPlayingViewModel: ObservableObject {
             ) {
                 let refreshedTrack = Track(from: updatedTrack)
                 optimisticTrackRatingsByIdentity[trackIdentity] = refreshedTrack.rating
-                if currentTrack?.sourceScopedID == trackIdentity {
+                if currentTrack?.playbackIdentity == trackIdentity {
                     currentTrack = refreshedTrack
                 }
             } else {
@@ -1750,25 +1870,36 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     private func applyCurrentTrackRatingIfNeeded(track: Track, rating: Int) {
-        guard let currentTrack, currentTrack.sourceScopedID == track.sourceScopedID else { return }
-        self.currentTrack = trackWithRating(currentTrack, rating: rating)
+        guard let currentTrack, currentTrack.playbackIdentity == track.playbackIdentity else { return }
+        self.currentTrack = currentTrack.withRating(rating)
         currentRating = TrackRating.from(rating: rating)
     }
 
     private func updateCurrentTrackIfNeeded(_ track: Track) {
-        guard currentTrack?.sourceScopedID == track.sourceScopedID else { return }
+        guard currentTrack?.playbackIdentity == track.playbackIdentity else { return }
         currentTrack = track
-        currentRating = TrackRating.from(rating: track.rating)
+        currentRating = TrackRating.from(rating: trackDisplayRating(for: track))
     }
 
     private func trackDisplayRating(for track: Track) -> Int {
-        optimisticTrackRatingsByIdentity[track.sourceScopedID] ?? track.rating
+        let trackIdentity = track.playbackIdentity
+        if let optimisticRating = optimisticTrackRatingsByIdentity[trackIdentity] {
+            return optimisticRating
+        }
+        if (track.isAppleMusic || track.favoriteState != nil),
+           let optimisticFavorite = optimisticTrackFavoritesByIdentity[trackIdentity] {
+            return optimisticFavorite ? 10 : 0
+        }
+        if track.favoriteState != nil {
+            return track.isFavorite ? 10 : 0
+        }
+        return track.rating
     }
 
     private func trackWithDisplayRating(_ track: Track) -> Track {
         let displayRating = trackDisplayRating(for: track)
         guard displayRating != track.rating else { return track }
-        return trackWithRating(track, rating: displayRating)
+        return track.withRating(displayRating)
     }
 
     private func tracksWithDisplayRatings(_ tracks: [Track]) -> [Track] {
@@ -1777,7 +1908,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
     // MARK: - Helpers
 
-    private func playlistToastTapHandler(for playlist: Playlist) -> (() -> Void) {
+    private func playlistToastOpenHandler(for playlist: Playlist) -> (() -> Void) {
         { [weak self] in
             self?.navigationCoordinator.navigateFromNowPlaying(
                 to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
@@ -1794,35 +1925,4 @@ public final class NowPlayingViewModel: ObservableObject {
         return try await trackRatingMutationWorkflow.mutate(track, rating: rating)
     }
 
-    private func serverSourceKey(from sourceCompositeKey: String?) -> String? {
-        MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)
-    }
-
-    private func trackWithRating(_ track: Track, rating: Int) -> Track {
-        Track(
-            id: track.id,
-            key: track.key,
-            title: track.title,
-            artistName: track.artistName,
-            albumName: track.albumName,
-            albumRatingKey: track.albumRatingKey,
-            artistRatingKey: track.artistRatingKey,
-            trackNumber: track.trackNumber,
-            discNumber: track.discNumber,
-            duration: track.duration,
-            thumbPath: track.thumbPath,
-            fallbackThumbPath: track.fallbackThumbPath,
-            fallbackRatingKey: track.fallbackRatingKey,
-            streamKey: track.streamKey,
-            streamId: track.streamId,
-            localFilePath: track.localFilePath,
-            dateAdded: track.dateAdded,
-            dateModified: track.dateModified,
-            lastPlayed: track.lastPlayed,
-            lastRatedAt: track.lastRatedAt,
-            rating: rating,
-            playCount: track.playCount,
-            sourceCompositeKey: track.sourceCompositeKey
-        )
-    }
 }

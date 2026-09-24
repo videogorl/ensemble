@@ -1,0 +1,31 @@
+normal
+resumeDataSaved 7448
+status 206 offset 1048576 bytes 8388608 sha256 7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f
+
+changed
+resumeDataSaved 7452
+status 200 offset 0 bytes 8388608 sha256 3475eeb8e92fae764d14f282a08f76dbd2dc4eaa36e80614f3e6e87c64ec06d7
+
+ignore
+resumeDataSaved 7448
+status 200 offset 0 bytes 8388608 sha256 7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f
+
+malformed
+resumeDataSaved 7460
+rejected malformed range
+
+no-validator
+noResumeData -999
+status 200 offset 0 bytes 8388608 sha256 7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f
+
+missing-file
+resumeDataSaved 7472
+status 200 offset 0 bytes 8388608 sha256 7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f
+
+invalid-data
+resumeDataSaved 7472
+status 200 offset 0 bytes 8388608 sha256 7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f
+
+corrupt-record
+resumeDataSaved 7480
+status 200 offset 0 bytes 8388608 sha256 7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f

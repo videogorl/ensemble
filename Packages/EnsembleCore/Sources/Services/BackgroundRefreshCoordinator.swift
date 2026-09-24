@@ -1,12 +1,6 @@
 import Foundation
 
-public enum BackgroundRefreshKind: String, Sendable, Equatable {
-    case appRefresh
-    case foregroundFreshness
-}
-
 public struct BackgroundRefreshResult: Sendable, Equatable {
-    public let kind: BackgroundRefreshKind
     public let startedAt: Date
     public let completedAt: Date
     public let didRunEndpointRefresh: Bool
@@ -19,61 +13,51 @@ public struct BackgroundRefreshResult: Sendable, Equatable {
     public var succeeded: Bool { errorDescriptions.isEmpty }
 }
 
-public protocol BackgroundRefreshCoordinating: AnyObject {
-    @MainActor @discardableResult func performAppRefresh() async -> BackgroundRefreshResult
-    @MainActor @discardableResult func performForegroundFreshnessRefresh() async -> BackgroundRefreshResult
-}
-
-/// Runs the app's lightweight freshness path from both background tasks and foreground launch.
-public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
+/// Runs the app's background freshness path.
+public final class BackgroundRefreshCoordinator {
     public typealias AsyncStep = @MainActor @Sendable () async throws -> Void
     public typealias FeedStep = @MainActor @Sendable () async throws -> Bool
     public typealias SiriIndexStep = @MainActor @Sendable () async throws -> Bool
     public typealias ScheduleStep = @MainActor @Sendable () -> Void
 
     private let appEndpointRefresh: AsyncStep
-    private let foregroundEndpointRefresh: AsyncStep
     private let incrementalSync: AsyncStep
     private let feedRefresh: FeedStep
     private let siriIndexRefresh: SiriIndexStep
     private let siriContextRefresh: AsyncStep
     private let isNetworkAvailable: @MainActor @Sendable () -> Bool
     private let scheduleNextAppRefresh: ScheduleStep?
-    private let foregroundCooldown: TimeInterval
-    private var lastForegroundRefresh: Date?
-    private var inFlightKind: BackgroundRefreshKind?
+    private var isRefreshInFlight = false
 
     public convenience init(
         syncCoordinator: SyncCoordinator,
         homeHubLoader: HomeHubLoaderProtocol,
         siriMediaIndexStore: SiriMediaIndexStore,
         siriMediaUserContextManager: SiriMediaUserContextManager,
-        systemMediaIntegrationService: SystemMediaIntegrationServiceProtocol? = nil,
+        systemMediaIntegrationService: SystemMediaIntegrationService? = nil,
         scheduleNextAppRefresh: ScheduleStep? = nil
     ) {
         self.init(
             appEndpointRefresh: {
                 await syncCoordinator.performStartupHealthChecks()
             },
-            foregroundEndpointRefresh: {
-                await syncCoordinator.handleAppWillEnterForeground()
-            },
             incrementalSync: {
-                await syncCoordinator.syncAllIncremental()
+                await syncCoordinator.syncAllIncremental(
+                    reconcileMissedPlexEvents: true
+                )
             },
             feedRefresh: {
                 await homeHubLoader.loadSnapshot(applySavedOrder: true, hubCount: "12") != nil
             },
             siriIndexRefresh: {
-                await siriMediaIndexStore.rebuildIndex() != nil
+                if let systemMediaIntegrationService {
+                    await systemMediaIntegrationService.refreshSpotlightIndex()
+                    return true
+                }
+                return await siriMediaIndexStore.rebuildIndex() != nil
             },
             siriContextRefresh: {
-                if let systemMediaIntegrationService {
-                    await systemMediaIntegrationService.updateMediaUserContext()
-                    await systemMediaIntegrationService.refreshSpotlightIndex()
-                } else {
-                    await siriMediaUserContextManager.updateMediaUserContext()
-                }
+                await siriMediaUserContextManager.updateMediaUserContext()
             },
             isNetworkAvailable: {
                 !syncCoordinator.isOffline
@@ -82,67 +66,37 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
         )
     }
 
-    internal convenience init(
-        endpointRefresh: @escaping AsyncStep,
-        incrementalSync: @escaping AsyncStep,
-        feedRefresh: @escaping FeedStep,
-        siriIndexRefresh: @escaping SiriIndexStep,
-        siriContextRefresh: @escaping AsyncStep,
-        isNetworkAvailable: @escaping @MainActor @Sendable () -> Bool = { true },
-        scheduleNextAppRefresh: ScheduleStep? = nil,
-        foregroundCooldown: TimeInterval = 15 * 60
-    ) {
-        self.init(
-            appEndpointRefresh: endpointRefresh,
-            foregroundEndpointRefresh: endpointRefresh,
-            incrementalSync: incrementalSync,
-            feedRefresh: feedRefresh,
-            siriIndexRefresh: siriIndexRefresh,
-            siriContextRefresh: siriContextRefresh,
-            isNetworkAvailable: isNetworkAvailable,
-            scheduleNextAppRefresh: scheduleNextAppRefresh,
-            foregroundCooldown: foregroundCooldown
-        )
-    }
-
     internal init(
         appEndpointRefresh: @escaping AsyncStep,
-        foregroundEndpointRefresh: @escaping AsyncStep,
         incrementalSync: @escaping AsyncStep,
         feedRefresh: @escaping FeedStep,
         siriIndexRefresh: @escaping SiriIndexStep,
         siriContextRefresh: @escaping AsyncStep,
         isNetworkAvailable: @escaping @MainActor @Sendable () -> Bool = { true },
-        scheduleNextAppRefresh: ScheduleStep? = nil,
-        foregroundCooldown: TimeInterval = 15 * 60
+        scheduleNextAppRefresh: ScheduleStep? = nil
     ) {
         self.appEndpointRefresh = appEndpointRefresh
-        self.foregroundEndpointRefresh = foregroundEndpointRefresh
         self.incrementalSync = incrementalSync
         self.feedRefresh = feedRefresh
         self.siriIndexRefresh = siriIndexRefresh
         self.siriContextRefresh = siriContextRefresh
         self.isNetworkAvailable = isNetworkAvailable
         self.scheduleNextAppRefresh = scheduleNextAppRefresh
-        self.foregroundCooldown = foregroundCooldown
     }
 
     @discardableResult
     @MainActor
     public func performAppRefresh() async -> BackgroundRefreshResult {
         scheduleNextAppRefresh?()
-        return await run(kind: .appRefresh, force: true)
+        return await run()
     }
 
-    @discardableResult
     @MainActor
-    public func performForegroundFreshnessRefresh() async -> BackgroundRefreshResult {
-        if let lastForegroundRefresh,
-           Date().timeIntervalSince(lastForegroundRefresh) < foregroundCooldown {
+    private func run() async -> BackgroundRefreshResult {
+        if isRefreshInFlight {
             let now = Date()
-            EnsembleLogger.debug("🔄 BackgroundRefreshCoordinator: foreground freshness skipped by cooldown")
+            EnsembleLogger.debug("🔄 BackgroundRefreshCoordinator: app refresh coalesced")
             return BackgroundRefreshResult(
-                kind: .foregroundFreshness,
                 startedAt: now,
                 completedAt: now,
                 didRunEndpointRefresh: false,
@@ -154,33 +108,8 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
             )
         }
 
-        let result = await run(kind: .foregroundFreshness, force: false)
-        if result.succeeded {
-            lastForegroundRefresh = result.completedAt
-        }
-        return result
-    }
-
-    @MainActor
-    private func run(kind: BackgroundRefreshKind, force: Bool) async -> BackgroundRefreshResult {
-        if let inFlightKind {
-            let now = Date()
-            EnsembleLogger.debug("🔄 BackgroundRefreshCoordinator: \(kind.rawValue) coalesced behind \(inFlightKind.rawValue)")
-            return BackgroundRefreshResult(
-                kind: kind,
-                startedAt: now,
-                completedAt: now,
-                didRunEndpointRefresh: false,
-                didRunIncrementalSync: false,
-                didRefreshFeedSnapshot: false,
-                didRebuildSiriIndex: false,
-                didUpdateSiriContext: false,
-                errorDescriptions: []
-            )
-        }
-
-        inFlightKind = kind
-        defer { inFlightKind = nil }
+        isRefreshInFlight = true
+        defer { isRefreshInFlight = false }
 
         let startedAt = Date()
         var errors: [String] = []
@@ -192,9 +121,8 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
 
         guard isNetworkAvailable() else {
             let completedAt = Date()
-            EnsembleLogger.debug("🔄 BackgroundRefreshCoordinator: \(kind.rawValue) skipped while device network unavailable")
+            EnsembleLogger.debug("🔄 BackgroundRefreshCoordinator: app refresh skipped while device network unavailable")
             return BackgroundRefreshResult(
-                kind: kind,
                 startedAt: startedAt,
                 completedAt: completedAt,
                 didRunEndpointRefresh: false,
@@ -207,12 +135,7 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
         }
 
         do {
-            switch kind {
-            case .appRefresh:
-                try await appEndpointRefresh()
-            case .foregroundFreshness:
-                try await foregroundEndpointRefresh()
-            }
+            try await appEndpointRefresh()
             didRunEndpointRefresh = true
         } catch {
             errors.append("endpoint: \(error.localizedDescription)")
@@ -246,10 +169,9 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
 
         let completedAt = Date()
         EnsembleLogger.debug(
-            "🔄 BackgroundRefreshCoordinator: \(kind.rawValue) complete force=\(force) feed=\(didRefreshFeedSnapshot) errors=\(errors.count)"
+            "🔄 BackgroundRefreshCoordinator: app refresh complete feed=\(didRefreshFeedSnapshot) errors=\(errors.count)"
         )
         return BackgroundRefreshResult(
-            kind: kind,
             startedAt: startedAt,
             completedAt: completedAt,
             didRunEndpointRefresh: didRunEndpointRefresh,

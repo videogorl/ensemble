@@ -1,6 +1,43 @@
 import Combine
+import EnsembleDomain
 import EnsemblePersistence
 import Foundation
+
+struct PlaylistDetailTrackDerivation: Equatable {
+    let filteredTracks: [Track]
+    let availableGenres: [String]
+    let totalDuration: String
+
+    @MainActor
+    static func make(tracks: [Track], filterOptions: FilterOptions) -> PlaylistDetailTrackDerivation {
+        let filteredTracks = filter(tracks, with: filterOptions)
+        return PlaylistDetailTrackDerivation(
+            filteredTracks: filteredTracks,
+            availableGenres: LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres)),
+            totalDuration: MediaFormatters.trackCollectionDuration(filteredTracks)
+        )
+    }
+
+    static func filter(_ tracks: [Track], with options: FilterOptions) -> [Track] {
+        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .playlistDetail)
+    }
+
+    func publishChanges(
+        filteredTracks currentFilteredTracks: inout [Track],
+        availableGenres currentAvailableGenres: inout [String],
+        totalDuration currentTotalDuration: inout String
+    ) {
+        if currentFilteredTracks != filteredTracks {
+            currentFilteredTracks = filteredTracks
+        }
+        if currentAvailableGenres != availableGenres {
+            currentAvailableGenres = availableGenres
+        }
+        if currentTotalDuration != totalDuration {
+            currentTotalDuration = totalDuration
+        }
+    }
+}
 
 @MainActor
 public final class PlaylistViewModel: ObservableObject {
@@ -29,12 +66,8 @@ public final class PlaylistViewModel: ObservableObject {
 
     // MARK: - Merge Support
 
-    /// Whether cross-server playlist merging is enabled (persisted via SettingsManager)
-    @Published public var isMergeEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(isMergeEnabled, forKey: "playlistMergeEnabled")
-        }
-    }
+    @Published public private(set) var isMergeEnabled: Bool
+    @Published private var mergingPreferences: EnsembleMergingPreferences
     /// Merge-aware playlist list for the UI — groups same-named playlists when merge is on
     @Published public private(set) var displayPlaylists: [DisplayPlaylist] = []
     /// Merge-aware sorted list for the macOS sidebar
@@ -47,10 +80,21 @@ public final class PlaylistViewModel: ObservableObject {
     private let mutationCoordinator: MutationCoordinator
     private let toastCenter: ToastCenter
     private let accountManager: AccountManager?
+    private let visibilityStore: LibraryVisibilityStore
+    private let hiddenMediaStore: HiddenMediaStore
     private var cancellables = Set<AnyCancellable>()
+    private var allPlaylists: [Playlist] = []
     private var coalescedReloadTask: Task<Void, Never>?
+    private var hasLoadedPlaylists = false
     private var optimisticCreatingPlaylists: [Playlist] = []
-    private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
+    private var optimisticRenamedPlaylistTitlesByIdentity: [String: String] = [:]
+    private var optimisticDeletedPlaylistIdentities: Set<String> = []
+    private var lastObservedSourceConfiguration: SourceConfigurationSnapshot?
+    /// A settled empty credential read is not proof that cached browse data was deleted.
+    /// Once this ViewModel observes an explicit source removal, however, it must not
+    /// re-publish that source's cache while cleanup converges.
+    private var preservesAuthoritativeEmptySourceSnapshot = true
+    internal private(set) var sourceCleanupReloadCountForTesting = 0
     /// Suppresses observer-triggered reloads during pull-to-refresh so intermediate
     /// CoreData states (partial data while sync rebuilds records) don't clobber the list.
     /// Published so the view can freeze its cached list during refresh.
@@ -61,14 +105,22 @@ public final class PlaylistViewModel: ObservableObject {
         syncCoordinator: SyncCoordinator,
         mutationCoordinator: MutationCoordinator,
         toastCenter: ToastCenter,
-        accountManager: AccountManager? = nil
+        accountManager: AccountManager? = nil,
+        visibilityStore: LibraryVisibilityStore? = nil,
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        observesExternalChanges: Bool = true
     ) {
         self.playlistRepository = playlistRepository
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
         self.toastCenter = toastCenter
         self.accountManager = accountManager
-        self.isMergeEnabled = UserDefaults.standard.bool(forKey: "playlistMergeEnabled")
+        self.visibilityStore = visibilityStore ?? .shared
+        self.hiddenMediaStore = hiddenMediaStore ?? .shared
+        self.lastObservedSourceConfiguration = accountManager?.sourceConfigurationSnapshot
+        let mergingPreferences = SettingsManager.storedMergingPreferences()
+        self.mergingPreferences = mergingPreferences
+        self.isMergeEnabled = mergingPreferences.isEnabled && mergingPreferences.mergePlaylists
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
 
@@ -78,6 +130,7 @@ public final class PlaylistViewModel: ObservableObject {
         }
 
         seedFromLastGoodSnapshotIfAvailable()
+        seedFromPersistentCacheIfAvailable()
 
         // Save filter options when they change
         setupFilterPersistence()
@@ -89,7 +142,24 @@ public final class PlaylistViewModel: ObservableObject {
         // Merge-aware pipelines that group playlists into DisplayPlaylist entries
         setupDisplayPlaylistsPipeline()
         setupSortedDisplayPlaylistsPipeline()
+        setupVisibilityObservation()
+        setupPlaylistMergePreferenceObservation()
 
+        if observesExternalChanges {
+            observeExternalChanges()
+        }
+
+        ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
+            self?.handleLibraryDataCleared()
+        }
+        ViewModelNotificationObserver.observeSourceCleanupCompleted(storingIn: &cancellables) { [weak self] in
+            guard let self else { return }
+            self.sourceCleanupReloadCountForTesting += 1
+            await self.reloadPlaylists(showLoading: false)
+        }
+    }
+
+    private func observeExternalChanges() {
         // Auto-reload when sync completes (skip during pull-to-refresh — it does its own reload)
         syncCoordinator.$isSyncing
             .receive(on: DispatchQueue.main)
@@ -99,6 +169,12 @@ public final class PlaylistViewModel: ObservableObject {
                     self?.scheduleCoalescedPlaylistReload(reason: "sync-complete")
                 }
             }
+            .store(in: &cancellables)
+
+        hiddenMediaStore.$snapshot
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.applyVisibilityToPublishedPlaylists() }
             .store(in: &cancellables)
 
         // Auto-reload when playlists are refreshed after a mutation (e.g. track counts changed)
@@ -112,16 +188,57 @@ public final class PlaylistViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        accountManager?.sourceConfigurationPublisher
+            .receive(on: DispatchQueue.main)
+            .dropFirst()
+            .sink { [weak self] configuration in
+                self?.handleSourceConfigurationChange(configuration)
+            }
+            .store(in: &cancellables)
     }
     
     private func setupFilterPersistence() {
-        $filterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "Playlists") }
+        FilterPersistence.observe($filterOptions, key: "Playlists", storingIn: &cancellables)
+    }
+
+    private func setupVisibilityObservation() {
+        Publishers.CombineLatest3(
+            visibilityStore.$profiles,
+            visibilityStore.$activeProfileID,
+            visibilityStore.$focusFilter
+        )
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.applyVisibilityToPublishedPlaylists()
+            }
             .store(in: &cancellables)
     }
 
+    private func setupPlaylistMergePreferenceObservation() {
+        NotificationCenter.default.publisher(
+            for: SettingsManager.mergingPreferencesDidChange,
+            object: UserDefaults.standard
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            guard let self else { return }
+            let preferences = SettingsManager.storedMergingPreferences()
+            if self.mergingPreferences != preferences { self.mergingPreferences = preferences }
+            let isEnabled = preferences.isEnabled && preferences.mergePlaylists
+            if self.isMergeEnabled != isEnabled { self.isMergeEnabled = isEnabled }
+        }
+        .store(in: &cancellables)
+    }
+
+    public func loadPlaylistsIfNeeded() async {
+        guard !hasLoadedPlaylists else { return }
+        hasLoadedPlaylists = true
+        await reloadPlaylists(showLoading: playlists.isEmpty)
+    }
+
     public func loadPlaylists() async {
+        hasLoadedPlaylists = true
         await reloadPlaylists(showLoading: playlists.isEmpty)
     }
 
@@ -177,11 +294,8 @@ public final class PlaylistViewModel: ObservableObject {
 
     public func deletePlaylist(_ playlist: Playlist) async -> Bool {
         do {
-            let outcome = try await mutationCoordinator.deletePlaylist(playlist)
-            if outcome == .queued {
-                // Optimistically remove from list while queued
-                playlists.removeAll { $0.id == playlist.id }
-            }
+            _ = try await mutationCoordinator.deletePlaylist(playlist)
+            applyOptimisticDelete(for: playlist)
             return true
         } catch {
             self.error = error.localizedDescription
@@ -190,7 +304,18 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     public func applyOptimisticDelete(for playlist: Playlist) {
-        playlists.removeAll { $0.id == playlist.id }
+        let identity = playlist.sourceScopedID
+        optimisticDeletedPlaylistIdentities.insert(identity)
+        optimisticCreatingPlaylists.removeAll { $0.sourceScopedID == identity }
+        optimisticRenamedPlaylistTitlesByIdentity.removeValue(forKey: identity)
+        publishPlaylistsIfChanged(
+            applyOptimisticRenames(to: filterOptimisticallyDeletedPlaylists(allPlaylists))
+        )
+        updateLastGoodSnapshotIfNeeded(allPlaylists)
+    }
+
+    public func clearOptimisticDelete(forPlaylistIdentity playlistIdentity: String) {
+        optimisticDeletedPlaylistIdentities.remove(playlistIdentity)
     }
 
     public func createPlaylist(title: String, serverSourceKey: String) async -> Bool {
@@ -229,44 +354,43 @@ public final class PlaylistViewModel: ObservableObject {
     
     // MARK: - Sort & Filter (static, used by Combine pipeline)
 
-    private static func sortPlaylists(_ playlists: [Playlist], by option: PlaylistSortOption, ascending asc: Bool) -> [Playlist] {
+    /// Sorts playlists using the same options as the Playlists screen.
+    public static func sortPlaylists(_ playlists: [Playlist], by option: PlaylistSortOption, ascending asc: Bool) -> [Playlist] {
         switch option {
         case .title:
-            // Pre-compute sort keys to avoid O(n log n) calls to sortingKey
-            return sortByCachedKey(playlists, keyExtractor: { $0.title.sortingKey }, ascending: asc)
+            return playlists.sortedByCachedStringKey({ $0.title.sortingKey }, ascending: asc)
         case .trackCount:
-            return playlists.sorted { asc ? $0.trackCount < $1.trackCount : $0.trackCount > $1.trackCount }
+            return playlists.sortedByComparableKey(\.trackCount, ascending: asc)
         case .duration:
-            return playlists.sorted { asc ? $0.duration < $1.duration : $0.duration > $1.duration }
+            return playlists.sortedByComparableKey(\.duration, ascending: asc)
         case .dateAdded:
-            return playlists.sorted { asc
-                ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
-                : ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast)
-            }
+            return playlists.sortedByOptionalComparableKey(\.dateAdded, stableID: \.sourceScopedID, ascending: asc)
         case .dateModified:
-            return playlists.sorted { asc
-                ? ($0.dateModified ?? .distantPast) < ($1.dateModified ?? .distantPast)
-                : ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
-            }
+            return playlists.sortedByOptionalComparableKey(\.dateModified, stableID: \.sourceScopedID, ascending: asc)
         case .lastPlayed:
-            return playlists.sorted { asc
-                ? ($0.lastPlayed ?? .distantPast) < ($1.lastPlayed ?? .distantPast)
-                : ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast)
-            }
+            return playlists.sortedByOptionalComparableKey(\.lastPlayed, stableID: \.sourceScopedID, ascending: asc)
         }
     }
 
-    /// Sort by pre-computed string keys — computes sortingKey once per element.
-    /// Uses ID as tiebreaker for stable ordering (prevents flicker when items share the same sort key).
-    private static func sortByCachedKey<T: Identifiable>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] where T.ID == String {
-        let keyed = items.map { ($0, keyExtractor($0)) }
-        return keyed.sorted {
-            let result = $0.1.localizedStandardCompare($1.1)
-            if result == .orderedSame {
-                return $0.0.id < $1.0.id
-            }
-            return ascending ? result == .orderedAscending : result == .orderedDescending
-        }.map { $0.0 }
+    public static func sortDisplayPlaylists(
+        _ playlists: [DisplayPlaylist],
+        by option: PlaylistSortOption,
+        ascending asc: Bool
+    ) -> [DisplayPlaylist] {
+        switch option {
+        case .title:
+            return playlists.sortedByCachedStringKey({ $0.title.sortingKey }, ascending: asc)
+        case .trackCount:
+            return playlists.sortedByComparableKey(\.trackCount, ascending: asc)
+        case .duration:
+            return playlists.sortedByComparableKey(\.duration, ascending: asc)
+        case .dateAdded:
+            return playlists.sortedByOptionalComparableKey(\.dateAdded, stableID: \.id, ascending: asc)
+        case .dateModified:
+            return playlists.sortedByOptionalComparableKey(\.dateModified, stableID: \.id, ascending: asc)
+        case .lastPlayed:
+            return playlists.sortedByOptionalComparableKey(\.lastPlayed, stableID: \.id, ascending: asc)
+        }
     }
 
     private static func filterPlaylists(_ playlists: [Playlist], searchText: String) -> [Playlist] {
@@ -287,8 +411,13 @@ public final class PlaylistViewModel: ObservableObject {
                 let sorted = Self.sortPlaylists(playlists, by: sortOption, ascending: options.sortDirection == .ascending)
                 return Self.filterPlaylists(sorted, searchText: options.searchText)
             }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.filteredPlaylists = $0 }
+            .sink { [weak self] playlists in
+                if self?.filteredPlaylists != playlists {
+                    self?.filteredPlaylists = playlists
+                }
+            }
             .store(in: &cancellables)
     }
 
@@ -302,42 +431,72 @@ public final class PlaylistViewModel: ObservableObject {
         .map { playlists, sortOption, sortDirection -> [Playlist] in
             Self.sortPlaylists(playlists, by: sortOption, ascending: sortDirection == .ascending)
         }
+        .removeDuplicates()
         .receive(on: DispatchQueue.main)
-        .sink { [weak self] in self?.sortedPlaylists = $0 }
+        .sink { [weak self] playlists in
+            if self?.sortedPlaylists != playlists {
+                self?.sortedPlaylists = playlists
+            }
+        }
         .store(in: &cancellables)
     }
 
     // MARK: - Merge Pipelines
 
-    /// Downstream pipeline: groups filteredPlaylists into DisplayPlaylist entries based on merge toggle
+    /// Filters raw playlists, then groups before sorting by aggregate display metadata.
     private func setupDisplayPlaylistsPipeline() {
-        Publishers.CombineLatest($filteredPlaylists, $isMergeEnabled)
+        Publishers.CombineLatest4($playlists, $mergingPreferences, $playlistSortOption, $filterOptions)
             .debounce(for: .milliseconds(50), scheduler: Self.computeQueue)
-            .map { playlists, merge -> [DisplayPlaylist] in
-                DisplayPlaylist.group(playlists, merge: merge)
+            .map { playlists, preferences, sortOption, filterOptions -> [DisplayPlaylist] in
+                let matching = Self.filterPlaylists(playlists, searchText: filterOptions.searchText)
+                return Self.sortDisplayPlaylists(
+                    DisplayPlaylist.group(
+                        matching,
+                        merge: preferences.isEnabled && preferences.mergePlaylists,
+                        preferences: preferences
+                    ),
+                    by: sortOption,
+                    ascending: filterOptions.sortDirection == .ascending
+                )
             }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.displayPlaylists = $0 }
+            .sink { [weak self] playlists in
+                if self?.displayPlaylists != playlists {
+                    self?.displayPlaylists = playlists
+                }
+            }
             .store(in: &cancellables)
     }
 
-    /// Downstream pipeline: groups sortedPlaylists for the macOS sidebar
+    /// Groups raw playlists before aggregate sorting for the macOS sidebar.
     private func setupSortedDisplayPlaylistsPipeline() {
-        Publishers.CombineLatest($sortedPlaylists, $isMergeEnabled)
+        Publishers.CombineLatest4(
+            $playlists,
+            $mergingPreferences,
+            $playlistSortOption,
+            $filterOptions.map(\.sortDirection).removeDuplicates()
+        )
             .debounce(for: .milliseconds(50), scheduler: Self.computeQueue)
-            .map { playlists, merge -> [DisplayPlaylist] in
-                DisplayPlaylist.group(playlists, merge: merge)
+            .map { playlists, preferences, sortOption, sortDirection -> [DisplayPlaylist] in
+                Self.sortDisplayPlaylists(
+                    DisplayPlaylist.group(
+                        playlists,
+                        merge: preferences.isEnabled && preferences.mergePlaylists,
+                        preferences: preferences
+                    ),
+                    by: sortOption,
+                    ascending: sortDirection == .ascending
+                )
             }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.sortedDisplayPlaylists = $0 }
+            .sink { [weak self] playlists in
+                if self?.sortedDisplayPlaylists != playlists {
+                    self?.sortedDisplayPlaylists = playlists
+                }
+            }
             .store(in: &cancellables)
-    }
-
-    // MARK: - Merge Helpers
-
-    /// Toggles the cross-server merge setting
-    public func toggleMerge() {
-        isMergeEnabled.toggle()
     }
 
     /// Whether a playlist title has name collisions across servers (for showing server chips)
@@ -348,23 +507,6 @@ public final class PlaylistViewModel: ObservableObject {
     /// Checks if a DisplayPlaylist contains any pending-creation playlists
     public func isDisplayPlaylistPendingCreation(_ dp: DisplayPlaylist) -> Bool {
         dp.playlists.contains { Self.isOptimisticCreatingPlaylistID($0.id) }
-    }
-
-    /// Deletes all constituent playlists in a merged DisplayPlaylist
-    public func deleteMergedPlaylist(_ dp: DisplayPlaylist) async -> Bool {
-        var allSucceeded = true
-        for playlist in dp.playlists {
-            let success = await deletePlaylist(playlist)
-            if !success { allSucceeded = false }
-        }
-        return allSucceeded
-    }
-
-    /// Applies optimistic rename to all constituents of a merged DisplayPlaylist
-    public func applyOptimisticRenameForMerged(_ dp: DisplayPlaylist, newTitle: String) {
-        for playlist in dp.playlists {
-            applyOptimisticRename(forPlaylistID: playlist.id, newTitle: newTitle)
-        }
     }
 
     private func reloadPlaylists(showLoading: Bool) async {
@@ -379,19 +521,23 @@ public final class PlaylistViewModel: ObservableObject {
                 serverPlaylists.contains(where: { matchesPlaylistIdentity($0, optimistic) })
             }
             let renamedApplied = applyOptimisticRenames(to: serverPlaylists)
-            let merged = mergeWithOptimisticCreatingPlaylists(renamedApplied)
+            let merged = filterPlaylistsForSourceConfiguration(
+                filterOptimisticallyDeletedPlaylists(
+                    mergeWithOptimisticCreatingPlaylists(renamedApplied)
+                )
+            )
 
             // Never replace populated playlists with empty or degraded results.
             // CoreData can return empty mid-sync while records are being rebuilt,
             // or return partial records with empty titles before the full sync commits.
-            let hasDegradedData = merged.contains { $0.title.isEmpty }
+            let emptyTitleCount = merged.lazy.filter { $0.title.isEmpty }.count
+            let hasDegradedData = emptyTitleCount > 0
             if merged.isEmpty && shouldTreatEmptyPlaylistCacheAsAuthoritative {
                 clearLocalPlaylistCache(resetLastGoodSnapshot: true)
-            } else if (merged.isEmpty || hasDegradedData) && !playlists.isEmpty {
-                EnsembleLogger.debug("📋 PlaylistViewModel: skipping degraded reload (\(merged.count) playlists, \(merged.filter { $0.title.isEmpty }.count) empty titles, preserving \(self.playlists.count) existing)")
+            } else if (merged.isEmpty || hasDegradedData) && !allPlaylists.isEmpty {
+                EnsembleLogger.debug("📋 PlaylistViewModel: skipping degraded reload (\(merged.count) playlists, \(emptyTitleCount) empty titles, preserving \(self.allPlaylists.count) existing)")
             } else {
                 publishPlaylistsIfChanged(merged)
-                nameCollisionTitles = DisplayPlaylist.detectNameCollisions(merged)
                 updateLastGoodSnapshotIfNeeded(merged)
             }
         } catch {
@@ -406,25 +552,27 @@ public final class PlaylistViewModel: ObservableObject {
     private func seedFromLastGoodSnapshotIfAvailable() {
         let snapshot = Self.lastGoodPlaylistsSnapshot
         guard !snapshot.isEmpty else { return }
-        playlists = snapshot
-        visibleSnapshot = snapshot
-        filteredPlaylists = Self.filterPlaylists(
-            Self.sortPlaylists(
-                snapshot,
-                by: playlistSortOption,
-                ascending: filterOptions.sortDirection == .ascending
-            ),
-            searchText: filterOptions.searchText
-        )
-        sortedPlaylists = Self.sortPlaylists(
-            snapshot,
-            by: playlistSortOption,
-            ascending: filterOptions.sortDirection == .ascending
-        )
-        displayPlaylists = DisplayPlaylist.group(filteredPlaylists, merge: isMergeEnabled)
-        sortedDisplayPlaylists = DisplayPlaylist.group(sortedPlaylists, merge: isMergeEnabled)
-        nameCollisionTitles = DisplayPlaylist.detectNameCollisions(snapshot)
+        let configuredSnapshot = filterPlaylistsForSourceConfiguration(snapshot)
+        if configuredSnapshot != snapshot {
+            Self.lastGoodPlaylistsSnapshot = configuredSnapshot
+        }
+        guard !configuredSnapshot.isEmpty else { return }
+        allPlaylists = configuredSnapshot
+        applyVisibilityToPublishedPlaylists()
         isShowingStaleSnapshot = true
+    }
+
+    private func seedFromPersistentCacheIfAvailable() {
+        guard playlists.isEmpty,
+              let repository = playlistRepository as? PlaylistRepository,
+              let snapshot = try? repository.fetchPlaylistsSnapshot().map({ Playlist(from: $0) }) else {
+            return
+        }
+        let filteredSnapshot = filterPlaylistsForSourceConfiguration(snapshot)
+        guard !filteredSnapshot.isEmpty else { return }
+        allPlaylists = filteredSnapshot
+        applyVisibilityToPublishedPlaylists()
+        updateLastGoodSnapshotIfNeeded(filteredSnapshot)
     }
 
     private func updateLastGoodSnapshotIfNeeded(_ playlists: [Playlist]) {
@@ -440,15 +588,20 @@ public final class PlaylistViewModel: ObservableObject {
             return isShowingStaleSnapshot
         }
 
-        return !accountManager.isAwaitingCloudSources && accountManager.enabledSources().isEmpty
+        let configuration = accountManager.sourceConfigurationSnapshot
+        return configuration.isAuthoritative &&
+            ((configuration.enabledSources.isEmpty && configuration.hasAnySources) ||
+             !preservesAuthoritativeEmptySourceSnapshot)
     }
 
     private func clearLocalPlaylistCache(resetLastGoodSnapshot: Bool) {
         if resetLastGoodSnapshot {
             Self.lastGoodPlaylistsSnapshot = []
         }
+        allPlaylists = []
         optimisticCreatingPlaylists = []
-        optimisticRenamedPlaylistTitlesByID = [:]
+        optimisticRenamedPlaylistTitlesByIdentity = [:]
+        optimisticDeletedPlaylistIdentities = []
         publishPlaylistsIfChanged([])
         visibleSnapshot = []
         filteredPlaylists = []
@@ -460,9 +613,74 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     private func publishPlaylistsIfChanged(_ nextPlaylists: [Playlist]) {
-        guard playlists != nextPlaylists else { return }
-        playlists = nextPlaylists
-        visibleSnapshot = nextPlaylists
+        if allPlaylists != nextPlaylists {
+            allPlaylists = nextPlaylists
+        }
+        applyVisibilityToPublishedPlaylists()
+    }
+
+    private func applyVisibilityToPublishedPlaylists() {
+        let configuredPlaylists = filterPlaylistsForSourceConfiguration(allPlaylists)
+        let sourceConfiguration = accountManager?.sourceConfigurationSnapshot
+        let hiddenSourceCompositeKeys = visibilityStore.effectiveHiddenSourceCompositeKeys(
+            enabledSourceCompositeKeys: sourceConfiguration?.enabledSourceKeys ?? []
+        )
+        let visiblePlaylists = configuredPlaylists.filter { playlist in
+            guard !hiddenMediaStore.snapshot.isHidden(playlist) else { return false }
+            guard let sourceKey = playlist.sourceCompositeKey else { return false }
+            return !LibraryVisibilityFiltering.isHiddenSourceKey(
+                sourceKey,
+                hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+                sourceConfiguration: sourceConfiguration
+            )
+        }
+        guard playlists != visiblePlaylists else { return }
+        playlists = visiblePlaylists
+        visibleSnapshot = visiblePlaylists
+        applyDerivedPlaylistSnapshots(visiblePlaylists)
+    }
+
+    private func filterOptimisticallyDeletedPlaylists(_ playlists: [Playlist]) -> [Playlist] {
+        guard !optimisticDeletedPlaylistIdentities.isEmpty else { return playlists }
+        return playlists.filter { !optimisticDeletedPlaylistIdentities.contains($0.sourceScopedID) }
+    }
+
+    private func applyDerivedPlaylistSnapshots(_ snapshot: [Playlist]) {
+        let nextSorted = Self.sortPlaylists(
+            snapshot,
+            by: playlistSortOption,
+            ascending: filterOptions.sortDirection == .ascending
+        )
+        let matching = Self.filterPlaylists(snapshot, searchText: filterOptions.searchText)
+        let nextFiltered = Self.sortPlaylists(
+            matching,
+            by: playlistSortOption,
+            ascending: filterOptions.sortDirection == .ascending
+        )
+        let nextDisplay = Self.sortDisplayPlaylists(
+            DisplayPlaylist.group(
+                matching,
+                merge: isMergeEnabled,
+                preferences: mergingPreferences
+            ),
+            by: playlistSortOption,
+            ascending: filterOptions.sortDirection == .ascending
+        )
+        let nextSortedDisplay = Self.sortDisplayPlaylists(
+            DisplayPlaylist.group(
+                snapshot,
+                merge: isMergeEnabled,
+                preferences: mergingPreferences
+            ),
+            by: playlistSortOption,
+            ascending: filterOptions.sortDirection == .ascending
+        )
+
+        if filteredPlaylists != nextFiltered { filteredPlaylists = nextFiltered }
+        if sortedPlaylists != nextSorted { sortedPlaylists = nextSorted }
+        if displayPlaylists != nextDisplay { displayPlaylists = nextDisplay }
+        if sortedDisplayPlaylists != nextSortedDisplay { sortedDisplayPlaylists = nextSortedDisplay }
+        nameCollisionTitles = DisplayPlaylist.detectNameCollisions(snapshot)
     }
 
     private func scheduleCoalescedPlaylistReload(reason: String) {
@@ -474,6 +692,50 @@ public final class PlaylistViewModel: ObservableObject {
             await self.loadPlaylists()
             self.coalescedReloadTask = nil
         }
+    }
+
+    private func handleSourceConfigurationChange(_ configuration: SourceConfigurationSnapshot) {
+        let previous = lastObservedSourceConfiguration
+        lastObservedSourceConfiguration = configuration
+
+        let removedEnabledSources = previous?.enabledSourceKeys
+            .subtracting(configuration.enabledSourceKeys) ?? []
+        if configuration.hasAnySources {
+            preservesAuthoritativeEmptySourceSnapshot = true
+        } else if !removedEnabledSources.isEmpty || previous?.hasAnySources == true {
+            preservesAuthoritativeEmptySourceSnapshot = false
+        }
+
+        optimisticCreatingPlaylists = filterPlaylistsForSourceConfiguration(
+            optimisticCreatingPlaylists,
+            configuration: configuration
+        )
+        let configured = filterPlaylistsForSourceConfiguration(
+            allPlaylists,
+            configuration: configuration
+        )
+        if configured != allPlaylists {
+            publishPlaylistsIfChanged(configured)
+            if !configured.contains(where: { $0.title.isEmpty }) {
+                Self.lastGoodPlaylistsSnapshot = configured
+            }
+            if configured.isEmpty {
+                isShowingStaleSnapshot = false
+            }
+        } else {
+            applyVisibilityToPublishedPlaylists()
+        }
+
+        scheduleCoalescedPlaylistReload(reason: "source-configuration")
+    }
+
+    private func handleLibraryDataCleared() {
+        coalescedReloadTask?.cancel()
+        coalescedReloadTask = nil
+        error = nil
+        isLoading = false
+        isRefreshingFromServer = false
+        clearLocalPlaylistCache(resetLastGoodSnapshot: true)
     }
 
     private func awaitCreatedPlaylistMaterialization(title: String, serverSourceKey: String) async {
@@ -504,7 +766,11 @@ public final class PlaylistViewModel: ObservableObject {
         )
         optimisticCreatingPlaylists.removeAll(where: { matchesPlaylistIdentity($0, placeholder) })
         optimisticCreatingPlaylists.append(placeholder)
-        playlists = mergeWithOptimisticCreatingPlaylists(playlists.filter { !Self.isOptimisticCreatingPlaylistID($0.id) })
+        publishPlaylistsIfChanged(
+            mergeWithOptimisticCreatingPlaylists(
+                allPlaylists.filter { !Self.isOptimisticCreatingPlaylistID($0.id) }
+            )
+        )
     }
 
     private func removeOptimisticCreatingPlaylist(title: String, serverSourceKey: String) {
@@ -523,56 +789,51 @@ public final class PlaylistViewModel: ObservableObject {
 
     private func applyOptimisticRenames(to playlists: [Playlist]) -> [Playlist] {
         playlists.map { playlist in
-            guard let optimisticTitle = optimisticRenamedPlaylistTitlesByID[playlist.id] else {
+            guard let optimisticTitle = optimisticRenamedPlaylistTitlesByIdentity[playlist.sourceScopedID] else {
                 return playlist
             }
-            return Playlist(
-                id: playlist.id,
-                key: playlist.key,
-                title: optimisticTitle,
-                summary: playlist.summary,
-                isSmart: playlist.isSmart,
-                trackCount: playlist.trackCount,
-                duration: playlist.duration,
-                compositePath: playlist.compositePath,
-                dateAdded: playlist.dateAdded,
-                dateModified: playlist.dateModified,
-                lastPlayed: playlist.lastPlayed,
-                sourceCompositeKey: playlist.sourceCompositeKey
-            )
+            return playlist.withTitle(optimisticTitle)
         }
     }
 
     public func applyOptimisticRename(for playlist: Playlist, newTitle: String) {
-        applyOptimisticRename(forPlaylistID: playlist.id, newTitle: newTitle)
+        applyOptimisticRename(forPlaylistIdentity: playlist.sourceScopedID, newTitle: newTitle)
     }
 
-    public func applyOptimisticRename(forPlaylistID playlistID: String, newTitle: String) {
-        optimisticRenamedPlaylistTitlesByID[playlistID] = newTitle
-        playlists = applyOptimisticRenames(to: playlists)
+    public func applyOptimisticRename(forPlaylistIdentity playlistIdentity: String, newTitle: String) {
+        optimisticRenamedPlaylistTitlesByIdentity[playlistIdentity] = newTitle
+        publishPlaylistsIfChanged(applyOptimisticRenames(to: allPlaylists))
     }
 
-    public func clearOptimisticRename(for playlistID: String) {
-        optimisticRenamedPlaylistTitlesByID.removeValue(forKey: playlistID)
+    public func clearOptimisticRename(forPlaylistIdentity playlistIdentity: String) {
+        optimisticRenamedPlaylistTitlesByIdentity.removeValue(forKey: playlistIdentity)
     }
 
-    public func awaitRenamedPlaylistMaterialization(for playlistID: String, expectedTitle: String) async {
+    public func awaitRenamedPlaylistMaterialization(
+        forPlaylistIdentity playlistIdentity: String,
+        expectedTitle: String
+    ) async {
         let normalizedExpectedTitle = normalizedTitle(expectedTitle)
 
         for _ in 0..<20 {
             do {
                 let serverPlaylists = try await fetchCachedPlaylists()
                 let hasMaterializedTitle = serverPlaylists.contains {
-                    $0.id == playlistID && normalizedTitle($0.title) == normalizedExpectedTitle
+                    $0.sourceScopedID == playlistIdentity &&
+                        normalizedTitle($0.title) == normalizedExpectedTitle
                 }
 
                 if hasMaterializedTitle {
-                    clearOptimisticRename(for: playlistID)
-                    playlists = mergeWithOptimisticCreatingPlaylists(serverPlaylists)
+                    clearOptimisticRename(forPlaylistIdentity: playlistIdentity)
+                    publishPlaylistsIfChanged(
+                        mergeWithOptimisticCreatingPlaylists(applyOptimisticRenames(to: serverPlaylists))
+                    )
                     return
                 }
 
-                playlists = mergeWithOptimisticCreatingPlaylists(applyOptimisticRenames(to: serverPlaylists))
+                publishPlaylistsIfChanged(
+                    mergeWithOptimisticCreatingPlaylists(applyOptimisticRenames(to: serverPlaylists))
+                )
             } catch {
                 self.error = error.localizedDescription
                 return
@@ -581,7 +842,7 @@ public final class PlaylistViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 300_000_000)
         }
 
-        clearOptimisticRename(for: playlistID)
+        clearOptimisticRename(forPlaylistIdentity: playlistIdentity)
         await reloadPlaylists(showLoading: false)
     }
 
@@ -599,37 +860,48 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     private func fetchCachedPlaylists() async throws -> [Playlist] {
-        let cached = try await playlistRepository.fetchPlaylists()
-        let playlists = cached.map { Playlist(from: $0) }
+        guard let accountManager else {
+            return try await playlistRepository.fetchPlaylists().map { Playlist(from: $0) }
+        }
+
+        let configuration = accountManager.sourceConfigurationSnapshot
+        let cachedPlaylists: [Playlist]
+        if configuration.isAuthoritative &&
+            (configuration.hasAnySources || !preservesAuthoritativeEmptySourceSnapshot) {
+            var sourceKeys = configuration.enabledSourceKeys
+            sourceKeys.formUnion(configuration.enabledSources.map { MediaSourceIdentity.serverSourceKey(for: $0) })
+            guard !sourceKeys.isEmpty else { return [] }
+            cachedPlaylists = try await playlistRepository.fetchPlaylists(sourceCompositeKeys: sourceKeys)
+                .map(Playlist.init(from:))
+        } else {
+            cachedPlaylists = try await playlistRepository.fetchPlaylists().map(Playlist.init(from:))
+        }
+
+        return filterPlaylistsForSourceConfiguration(
+            cachedPlaylists,
+            configuration: accountManager.sourceConfigurationSnapshot
+        )
+    }
+
+    private func filterPlaylistsForSourceConfiguration(
+        _ playlists: [Playlist],
+        configuration: SourceConfigurationSnapshot? = nil
+    ) -> [Playlist] {
         guard let accountManager else {
             return playlists
         }
 
-        let enabledSources = accountManager.enabledSources()
-        guard !enabledSources.isEmpty else {
-            return []
-        }
-
-        let enabledLibraryKeys = Set(enabledSources.map(\.compositeKey))
-        let enabledServerKeys = Set(enabledSources.map { MediaSourceIdentity.serverSourceKey(for: $0) })
-        return playlists.filter {
-            Self.isPlaylistSourceEnabled(
-                $0.sourceCompositeKey,
-                enabledLibraryKeys: enabledLibraryKeys,
-                enabledServerKeys: enabledServerKeys
-            )
-        }
-    }
-
-    private static func isPlaylistSourceEnabled(
-        _ sourceCompositeKey: String?,
-        enabledLibraryKeys: Set<String>,
-        enabledServerKeys: Set<String>
-    ) -> Bool {
-        guard let sourceCompositeKey else { return false }
-        if enabledLibraryKeys.contains(sourceCompositeKey) { return true }
-        guard let serverKey = MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey) else { return false }
-        return enabledServerKeys.contains(serverKey)
+        let configuration = configuration ?? accountManager.sourceConfigurationSnapshot
+        let sourceFilter = configuration.hasAnySources ||
+            !configuration.isAuthoritative ||
+            !preservesAuthoritativeEmptySourceSnapshot
+            ? configuration
+            : nil
+        return LibraryVisibilityFiltering.visibleItems(
+            playlists,
+            hiddenSourceCompositeKeys: [],
+            sourceConfiguration: sourceFilter
+        )
     }
 }
 
@@ -638,93 +910,91 @@ public final class PlaylistViewModel: ObservableObject {
 @MainActor
 public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewModelProtocol {
     @Published public private(set) var playlist: Playlist
-    @Published public private(set) var tracks: [Track] = []
+    @Published public private(set) var tracks: [Track] = [] {
+        didSet { updateDerivedTrackState() }
+    }
+    @Published public private(set) var playlistItems: [PlaylistItem] = []
+    @Published public private(set) var availableGenres: [String] = []
+    @Published public private(set) var filteredTracks: [Track] = []
+    @Published public private(set) var totalDuration: String = "0 min"
     @Published public private(set) var isLoading = false
     @Published public private(set) var hasLoadedTracks = false
+    @Published public private(set) var hasUnavailableTracks = false
     @Published public private(set) var error: String?
-    @Published public var filterOptions: FilterOptions
+    @Published public var filterOptions: FilterOptions {
+        didSet { updateDerivedTrackState() }
+    }
 
     private let playlistRepository: PlaylistRepositoryProtocol
-    private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
+    private let hiddenMediaStore: HiddenMediaStore
+    private let includesHidden: Bool
     private var cancellables = Set<AnyCancellable>()
     private var shouldSkipNextLoadAfterLocalEdit = false
 
     public init(
         playlist: Playlist,
         playlistRepository: PlaylistRepositoryProtocol,
-        libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         mutationCoordinator: MutationCoordinator,
-        initialTracks: [Track]? = nil
+        initialTracks: [Track]? = nil,
+        initialItems: [PlaylistItem]? = nil,
+        observesExternalChanges: Bool = true,
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        includesHidden: Bool = false
     ) {
+        let hiddenMediaStore = hiddenMediaStore ?? .shared
         self.playlist = playlist
-        if let initialTracks {
+        if let initialItems {
+            self.playlistItems = initialItems
+            self.tracks = initialItems.map(\.track)
+            self.hasUnavailableTracks = initialItems.contains { !$0.isAvailable }
+            self.hasLoadedTracks = true
+        } else if let initialTracks {
             self.tracks = initialTracks
             self.hasLoadedTracks = true
         } else {
             self.isLoading = true
         }
         self.playlistRepository = playlistRepository
-        self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
+        self.hiddenMediaStore = hiddenMediaStore
+        self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "PlaylistDetail-\(playlist.id)")
+        updateDerivedTrackState()
+        hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            self?.updateDerivedTrackState()
+        }.store(in: &cancellables)
 
         // Save filter options when they change
         setupFilterPersistence()
 
-        // Re-fetch tracks when download state changes so offline dimming is accurate
-        observeDownloadChanges()
-
-        // Re-fetch tracks when playlists are refreshed after a mutation (e.g. tracks added)
-        observePlaylistRefresh()
-        observeMetadataChanges()
+        if observesExternalChanges {
+            // Re-fetch tracks when download, metadata, or playlist state changes.
+            observeReloadTriggers()
+            observePlaylistRefresh()
+        }
     }
 
     private func setupFilterPersistence() {
         let playlistId = playlist.id
-        $filterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "PlaylistDetail-\(playlistId)") }
-            .store(in: &cancellables)
-    }
-
-    private func observeDownloadChanges() {
-        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
-            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadTracks()
-                }
-            }
-            .store(in: &cancellables)
+        FilterPersistence.observe($filterOptions, key: "PlaylistDetail-\(playlistId)", storingIn: &cancellables)
     }
 
     /// Reload tracks when playlists are refreshed (e.g. after adding/removing tracks via mutation).
     private func observePlaylistRefresh() {
-        NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
-            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                EnsembleLogger.debug("📋 PlaylistDetailViewModel: playlistsDidRefresh — reloading tracks")
-                Task { @MainActor [weak self] in
-                    await self?.loadTracks()
-                }
-            }
-            .store(in: &cancellables)
-
+        ViewModelNotificationObserver.observePlaylistRefresh(storingIn: &cancellables) { [weak self] in
+            EnsembleLogger.debug("📋 PlaylistDetailViewModel: playlistsDidRefresh — reloading tracks")
+            await self?.loadTracks()
+        }
     }
 
-    private func observeMetadataChanges() {
-        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadTracks()
-                }
-            }
-            .store(in: &cancellables)
+    private func observeReloadTriggers() {
+        ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
+            await self?.loadTracks()
+        }
     }
 
     public func loadTracks() async {
@@ -742,23 +1012,41 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 sourceCompositeKey: playlist.sourceCompositeKey
             ) {
                 // Refresh playlist metadata from cache so title/count stays current after edits.
-                let loadedTracks = cachedPlaylist.tracksArray
+                let loadedItems = cachedPlaylist.playlistItemsArray.map(PlaylistItem.init(from:))
                 let nextPlaylist = Playlist(from: cachedPlaylist)
-                let nextTracks = loadedTracks.map { Track(from: $0) }
-                playlist = nextPlaylist
+                let nextTracks = loadedItems.map(\.track)
+                if playlist != nextPlaylist { playlist = nextPlaylist }
+                if hasUnavailableTracks != cachedPlaylist.hasUnavailableTracks {
+                    hasUnavailableTracks = cachedPlaylist.hasUnavailableTracks
+                }
                 if shouldPublishTrackSnapshot(nextTracks, cachedTrackCount: Int(cachedPlaylist.trackCount)) {
-                    tracks = nextTracks
+                    if playlistItems != loadedItems { playlistItems = loadedItems }
+                    if tracks != nextTracks { tracks = nextTracks }
                 } else {
                     EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': preserving \(self.tracks.count) tracks during empty intermediate reload")
                 }
                 let ptCount = (cachedPlaylist.playlistTracks as? Set<AnyHashable>)?.count ?? -1
-                EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': trackCount=\(cachedPlaylist.trackCount), playlistTracks=\(ptCount), tracksArray=\(loadedTracks.count), tracks=\(tracks.count)")
+                EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': trackCount=\(cachedPlaylist.trackCount), playlistTracks=\(ptCount), items=\(loadedItems.count), tracks=\(tracks.count)")
             } else {
-                if tracks.isEmpty {
-                    tracks = []
-                } else {
+                hasUnavailableTracks = false
+                #if os(iOS)
+                if playlist.sourceType == .appleMusic, #available(iOS 18, *) {
+                    let catalogTracks = try await syncCoordinator.getAppleMusicCatalogPlaylistTracks(
+                        playlistID: playlist.id
+                    )
+                    let catalogItems = catalogTracks.enumerated().map { index, track in
+                        PlaylistItem(id: "catalog:\(index):\(track.sourceScopedID)", playlistItemID: nil, track: track)
+                    }
+                    if playlistItems != catalogItems { playlistItems = catalogItems }
+                    if tracks != catalogTracks { tracks = catalogTracks }
+                } else if !tracks.isEmpty {
                     EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': preserving \(self.tracks.count) tracks while cached playlist is temporarily unavailable")
                 }
+                #else
+                if !tracks.isEmpty {
+                    EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': preserving \(self.tracks.count) tracks while cached playlist is temporarily unavailable")
+                }
+                #endif
             }
         } catch {
             self.error = error.localizedDescription
@@ -795,31 +1083,14 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
     // MARK: - Filtered Collections
 
-    /// Available genres for chip bar filtering (derived from playlist tracks)
-    public var availableGenres: [String] {
-        LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres))
-    }
-
-    /// Filtered tracks based on current filter options
-    public var filteredTracks: [Track] {
-        applyFilters(to: tracks, with: filterOptions)
-    }
-
-    public var totalDuration: String {
-        let total = filteredTracks.reduce(0) { $0 + $1.duration }
-        let minutes = Int(total) / 60
-        if minutes >= 60 {
-            let hours = minutes / 60
-            let mins = minutes % 60
-            return "\(hours) hr \(mins) min"
-        }
-        return "\(minutes) min"
-    }
-    
-    // MARK: - Filter Application
-    
-    private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
-        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .playlistDetail)
+    private func updateDerivedTrackState() {
+        let visibleTracks = includesHidden ? tracks : hiddenMediaStore.snapshot.visibleTracks(tracks)
+        PlaylistDetailTrackDerivation.make(tracks: visibleTracks, filterOptions: filterOptions)
+            .publishChanges(
+                filteredTracks: &filteredTracks,
+                availableGenres: &availableGenres,
+                totalDuration: &totalDuration
+            )
     }
 
     private func shouldPublishTrackSnapshot(_ nextTracks: [Track], cachedTrackCount: Int) -> Bool {
@@ -842,28 +1113,13 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         }
 
         let previousPlaylist = playlist
-        playlist = Playlist(
-            id: playlist.id,
-            key: playlist.key,
-            title: trimmed,
-            summary: playlist.summary,
-            isSmart: playlist.isSmart,
-            trackCount: playlist.trackCount,
-            duration: playlist.duration,
-            compositePath: playlist.compositePath,
-            dateAdded: playlist.dateAdded,
-            dateModified: Date(),
-            lastPlayed: playlist.lastPlayed,
-            sourceCompositeKey: playlist.sourceCompositeKey
-        )
+        playlist = playlist.withTitle(trimmed, dateModified: Date())
         error = nil
 
         do {
-            let outcome = try await mutationCoordinator.renamePlaylist(playlist, to: trimmed)
-            if outcome == .completed {
-                await loadTracks()
-            }
-            // If queued, keep the optimistic rename and it will sync when back online
+            _ = try await mutationCoordinator.renamePlaylist(playlist, to: trimmed)
+            // Keep the optimistic title. MutationCoordinator persists it and emits
+            // a refresh notification after the cache update succeeds.
             return true
         } catch {
             playlist = previousPlaylist
@@ -879,20 +1135,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         scope: PlaylistMutationToastScope = .playlist
     ) async throws -> PlaylistRenameWorkflowResult {
         let previousPlaylist = playlist
-        playlist = Playlist(
-            id: playlist.id,
-            key: playlist.key,
-            title: trimmed,
-            summary: playlist.summary,
-            isSmart: playlist.isSmart,
-            trackCount: playlist.trackCount,
-            duration: playlist.duration,
-            compositePath: playlist.compositePath,
-            dateAdded: playlist.dateAdded,
-            dateModified: Date(),
-            lastPlayed: playlist.lastPlayed,
-            sourceCompositeKey: playlist.sourceCompositeKey
-        )
+        playlist = playlist.withTitle(trimmed, dateModified: Date())
         error = nil
 
         do {
@@ -901,9 +1144,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 trimmedTitle: trimmed,
                 scope: scope
             )
-            if result.outcome == .completed {
-                await loadTracks()
-            }
+            // Keep the optimistic title until the persisted refresh arrives.
             return result
         } catch {
             playlist = previousPlaylist
@@ -922,13 +1163,16 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         }
     }
 
-    public func applyEditedTracksLocally(_ editedTracks: [Track]) {
-        applyTrackSnapshot(editedTracks, skipNextLoadAfterLocalEdit: true)
+    public var canEditPlaylistItems: Bool {
+        guard playlist.supportsPlaylistEditing, !playlistItems.isEmpty,
+              let sourceType = playlist.sourceType else { return false }
+        return !sourceType.capabilities.playlistEditsRequireItemIdentifiers
+            || playlistItems.allSatisfy { $0.playlistItemID != nil }
     }
 
     @discardableResult
     public func removeTrackFromPlaylist(_ track: Track, displayIndex: Int? = nil) async -> Bool {
-        guard !playlist.isSmart else {
+        guard playlist.supportsPlaylistEditing else {
             error = PlaylistMutationError.smartPlaylistReadOnly.localizedDescription
             return false
         }
@@ -937,13 +1181,22 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             return false
         }
 
-        let previousTracks = tracks
-        var editedTracks = tracks
-        editedTracks.remove(at: removalIndex)
-        applyTrackSnapshot(editedTracks, skipNextLoadAfterLocalEdit: true)
+        guard playlistItems.indices.contains(removalIndex) else {
+            error = "Track is no longer in this playlist."
+            return false
+        }
+        let previousItems = playlistItems
+        let previousHasUnavailableTracks = hasUnavailableTracks
+        var editedItems = playlistItems
+        editedItems.remove(at: removalIndex)
+        applyItemSnapshot(editedItems, skipNextLoadAfterLocalEdit: true)
 
         do {
-            try await mutationCoordinator.replacePlaylistContents(playlist, with: editedTracks)
+            try await mutationCoordinator.editPlaylistItems(
+                playlist,
+                originalItems: previousItems,
+                editedItems: editedItems
+            )
             Task {
                 // Refresh from cache once post-mutation sync catches up.
                 try? await Task.sleep(nanoseconds: 500_000_000)
@@ -952,7 +1205,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             }
             return true
         } catch {
-            applyTrackSnapshot(previousTracks, skipNextLoadAfterLocalEdit: false)
+            applyItemSnapshot(previousItems, skipNextLoadAfterLocalEdit: false)
+            hasUnavailableTracks = previousHasUnavailableTracks
             self.error = error.localizedDescription
             return false
         }
@@ -984,28 +1238,27 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     private func applyTrackSnapshot(_ editedTracks: [Track], skipNextLoadAfterLocalEdit: Bool) {
         shouldSkipNextLoadAfterLocalEdit = skipNextLoadAfterLocalEdit
         tracks = editedTracks
-        playlist = Playlist(
-            id: playlist.id,
-            key: playlist.key,
-            title: playlist.title,
-            summary: playlist.summary,
-            isSmart: playlist.isSmart,
-            trackCount: editedTracks.count,
-            duration: editedTracks.reduce(0) { $0 + $1.duration },
-            compositePath: playlist.compositePath,
-            dateAdded: playlist.dateAdded,
-            dateModified: Date(),
-            lastPlayed: playlist.lastPlayed,
-            sourceCompositeKey: playlist.sourceCompositeKey
-        )
+        playlist = playlist.withTracks(editedTracks)
     }
 
-    public func saveEditedTracks(_ editedTracks: [Track]) async {
+    private func applyItemSnapshot(_ editedItems: [PlaylistItem], skipNextLoadAfterLocalEdit: Bool) {
+        playlistItems = editedItems
+        hasUnavailableTracks = editedItems.contains { !$0.isAvailable }
+        applyTrackSnapshot(editedItems.map(\.track), skipNextLoadAfterLocalEdit: skipNextLoadAfterLocalEdit)
+    }
+
+    public func saveEditedItems(_ editedItems: [PlaylistItem]) async {
+        let previousItems = playlistItems
+        let previousHasUnavailableTracks = hasUnavailableTracks
         // Apply immediately so playlist detail reflects edits before network roundtrip.
-        applyTrackSnapshot(editedTracks, skipNextLoadAfterLocalEdit: true)
+        applyItemSnapshot(editedItems, skipNextLoadAfterLocalEdit: true)
 
         do {
-            try await mutationCoordinator.replacePlaylistContents(playlist, with: editedTracks)
+            try await mutationCoordinator.editPlaylistItems(
+                playlist,
+                originalItems: previousItems,
+                editedItems: editedItems
+            )
             Task {
                 // Refresh from cache once post-mutation sync catches up.
                 try? await Task.sleep(nanoseconds: 500_000_000)
@@ -1013,6 +1266,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 await self.loadTracks()
             }
         } catch {
+            applyItemSnapshot(previousItems, skipNextLoadAfterLocalEdit: false)
+            hasUnavailableTracks = previousHasUnavailableTracks
             self.error = error.localizedDescription
         }
     }

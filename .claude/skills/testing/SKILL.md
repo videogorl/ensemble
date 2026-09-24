@@ -1,104 +1,89 @@
 ---
 name: testing
-description: "Load before writing tests, after non-trivial code changes, or when deciding verification scope. Canonical definition of done for Ensemble."
+description: "Load when choosing Ensemble verification, editing tests, triaging crash/session logs, or deciding whether a production change needs new coverage. Defines the smallest sufficient proof."
 ---
 
-# Ensemble Testing Guide
+# Ensemble Testing
 
-This is the canonical verification policy. Other skills may add task-specific details, but they should not redefine done.
+Prove the changed contract with the smallest reliable check. Coverage volume is
+not a goal.
 
-## Verification Matrix
+## Before Adding A Test
 
-| Change | Required verification |
+1. Search existing tests for the owner, behavior, and failure mode.
+2. Add no test when existing coverage already protects the contract, or when the
+   change is documentation, mechanical refactoring, trivial forwarding, or pure
+   visual layout.
+3. Add one focused regression test for a new non-trivial contract or a reproduced
+   bug that existing coverage misses.
+4. Test behavior, not implementation steps. Combine equivalent inputs in one
+   table-driven test; avoid one-test-per-input, duplicate fixtures, speculative
+   edge cases, and pass-through ViewModel tests.
+5. Prefer extending the owning test file over creating a new suite.
+
+Persistence round-trips, destructive/source cleanup, queue ordering, playback
+handoffs, offline mutation/replay, download reconciliation, and trust-boundary
+parsing normally justify focused coverage when changed.
+
+## Verification Selection
+
+| Change | Smallest sufficient proof |
 |---|---|
-| Docs or agent-guidance only | Syntax/link sanity checks relevant to the edited files. No Swift tests required unless commands/scripts changed. |
-| Shell/script/tooling change | `bash -n` or equivalent static check, plus a safe dry run or targeted execution. |
-| Package business logic | Affected package tests with `swift test --package-path Packages/<Package>`. |
-| CoreData model/repository | `scripts/compile_coredata_model.sh`, `swift test --package-path Packages/EnsemblePersistence`, and dependent package tests as needed. |
-| UI, navigation, playback, sync workflow, or user-visible bug fix | Affected package tests plus visual runtime validation of the changed flow on each touched platform when feasible. Navigate to the changed surface and exercise the changed behavior; launching the app, landing on the default tab, or checking an unrelated screen is not sufficient. Capture screenshots or equivalent UI inspection evidence; if visual validation is blocked, document the blocker and residual risk. |
-| Performance-sensitive SwiftUI/playback/download change | Targeted tests plus simulator/device evidence. Use `scripts/capture_performance_gate.sh` when changing observation, root chrome, Feed launch/refresh, or Downloads queue behavior. |
-| Broad architectural refactor | Tests for new services/repositories, affected package tests, app build, and simulator verification for user-facing paths. |
+| Docs/agent guidance | Link, syntax, metadata, and diff checks only |
+| Script/tooling | Static syntax plus a safe targeted execution |
+| Localized logic | Focused owning test or existing focused filter |
+| Broad shared/package logic | Affected package suite, quiet mode preferred |
+| CoreData model | Compile the model, persistence tests, then affected dependents |
+| UI/user-visible behavior | Focused logic/build checks plus direct inspection of the changed flow |
+| Performance/lifecycle/provider behavior | Targeted tests plus the relevant simulator, trace, or physical-device evidence |
 
-Every completed turn with code, UI, behavior, script, or policy changes needs targeted verification before handoff. Select the smallest verification that proves the changed contract, but make it specific to the changed area. For example, after fixing Albums on iOS, build/run the iOS app and navigate to Albums to verify the Albums behavior itself; a Feed launch screenshot does not verify an Albums change.
-
-If runtime verification is blocked by credentials, third-party service availability, simulator state, or an external dependency, report the blocker precisely and do not present the task as fully verified.
-
-## When To Write Tests
-
-Required for:
-- New services, repositories, sync flows, playback policies, or mutation workflows.
-- CoreData model changes and persistence round-trips.
-- Playlist mutations, download reconciliation, source cleanup, and complex domain transformations.
-- Bug fixes where a small unit test can preserve the regression.
-
-Usually not required for:
-- Pure UI layout-only changes.
-- Simple pass-through ViewModels.
-- Trivial one-liners with low regression risk.
-
-For a major architectural feature, test each public service/repository behavior that future refactors could silently break.
-
-## Commands
+Use focused iteration by default:
 
 ```bash
-# Affected package examples
-swift test --package-path Packages/EnsembleAPI
-swift test --package-path Packages/EnsembleSupport
-swift test --package-path Packages/EnsembleDomain
-swift test --package-path Packages/EnsemblePlex
-swift test --package-path Packages/EnsembleWatchCore
-swift test --package-path Packages/EnsembleCore
-swift test --package-path Packages/EnsemblePersistence
-swift test --package-path Packages/EnsembleUI
-swift test --package-path Packages/EnsembleSiriShared
-
-# Core warning budget for Core refactors
-scripts/check_core_warning_budget.sh
-
-# Full app tests
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
-  -sdk iphonesimulator \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+swift test -q --package-path Packages/EnsembleCore --filter OwnerTests
 ```
 
-## Simulator Verification
+Run a full affected package only when the change crosses many owners, changes a
+shared contract, or a focused selection cannot establish safety. Do not run the
+whole app suite merely because one file changed. Do not add edit hooks that run
+broad suites automatically.
 
-Load `simulator-test` when runtime proof is required. Use the iOS Simulator MCP server to install, launch, inspect accessibility output, drive taps/typing/swipes, and capture screenshots/logs.
+## Focused Recipes
 
-Typical expectations:
-- Bug fix: reproduce the old path when feasible, then verify the corrected path visually.
-- New UI or UI fix: navigate to the affected surface, exercise the specific changed interaction/state, including representative row swipe actions when the surface exposes swipeable rows, and confirm visible labels/state with screenshots or accessibility/UI hierarchy evidence.
-- Playback/networking: combine UI interaction with focused log capture.
+Load only the recipe matching the changed behavior; these do not require a full
+surface sweep or authorize additional mutations.
 
-For macOS-visible UI changes, use the built app with Computer Use, Xcode UI tooling, screenshots, or another direct UI inspection path. A build-only check is not sufficient unless the changed surface cannot be reached because of a documented environment blocker such as missing credentials, unavailable data, or a locked desktop.
+| Behavior | Reference |
+|---|---|
+| Download recovery, quality, shared artifacts, or background playback | [Downloads and lifecycle](references/downloads-and-lifecycle.md) |
+| Crash, hang, or named session-log investigation | [Crash and log triage](references/crash-and-log-triage.md) |
+| Multi-source persistence, duplicate content, sync/indexing/publication cost | [Persistence and unchanged work](references/persistence-and-unchanged-work.md) |
+| Uncached Plex streaming or transport failure | [Transport isolation](../plex-api/media-streaming.md#transport-isolation) |
 
-## Test Locations
+## Runtime Evidence
 
-Each package owns tests beside its sources:
+Use `simulator-test` for runtime mechanics and `surface-sweep` only for an actual
+surface sweep. Navigate to and exercise the changed state; an app launch or an
+unrelated screenshot is not proof. Verify the installed/running artifact first.
 
-```text
-Packages/EnsembleAPI/Tests/
-Packages/EnsembleSupport/Tests/
-Packages/EnsembleDomain/Tests/
-Packages/EnsemblePlex/Tests/
-Packages/EnsembleWatchCore/Tests/
-Packages/EnsembleCore/Tests/
-Packages/EnsemblePersistence/Tests/
-Packages/EnsembleUI/Tests/
-Packages/EnsembleSiriShared/Tests/
-EnsembleUITests/
-```
+Treat Ensemble's debug framework as the runtime control plane. Use its launch
+surfaces and deep links to establish nearby state, stable identifiers to find
+controls, and `USER_JOURNEY` logs to confirm accepted commands. Then exercise the
+actual behavior under test: a debug route does not prove its corresponding tap,
+scroll, animation, or transition. Add the smallest shared automation hook when
+future agents would otherwise repeat fragile setup; do not add one-off shortcuts
+that bypass the contract being verified.
 
-Use `@testable import` for internal package behavior. Prefer protocol mocks for service dependencies and in-memory CoreData stacks for persistence tests. Never use `CoreDataStack.shared` in tests.
+Concurrent simulator runners require a dedicated UUID and DerivedData path per
+runner. Never target `booted` or switch the global Xcode selection. Serialize
+Device Hub, Simulator.app Computer Use, and iPhone Mirroring. Follow
+`simulator-test` and `docs/reference/agent-runtime-testing.md` for the current
+input and recovery protocol.
 
-## High-Value Coverage Areas
+Apple Music authorization/DRM, system Now Playing, AirPlay, background/locked
+handoffs, and live provider mutations require physical-device evidence when
+those contracts change. Report an unavailable environment as residual risk.
 
-- Plex request composition and failure classification.
-- Sync timestamp filtering and fallback behavior.
-- Playlist mutation and smart-playlist read-only guards.
-- CoreData mapper and repository round-trips.
-- Offline download target reconciliation and stale `.downloading` recovery.
-- Siri matching/scoring and in-app playback payload routing.
-- Feed last-good cache preservation.
-
-Check existing tests before adding new files so coverage stays focused instead of duplicated.
+Keep mocks at protocol boundaries and use in-memory CoreData stacks; never use
+`CoreDataStack.shared` in tests. Treat a flaky asynchronous failure as evidence
+to investigate, not a reason to add sleeps or duplicate retries blindly.

@@ -15,7 +15,28 @@ Artifact root:
 - iPhone simulator:
 - iPad simulator:
 - macOS:
+- Physical device and OS:
+- Source commit and installed app version:
+- Enabled providers:
 - App account/data state:
+
+## Provider Evidence
+
+| Journey | Provider | Library/catalog scope | Playback engine | Audio proof | Remote result | Local result | Cache before/after |
+|---|---|---|---|---|---|---|---|
+| | | | | heard/system progress/log only | | | |
+
+## Plex Mutation Convergence
+
+| Mutation | App lifecycle | Plex before/after | Ensemble convergence | Latency | DB/files/log/UI evidence | Cleanup |
+|---|---|---|---|---:|---|---|
+| Library add | foreground/cold | | | | | |
+| Track metadata edit | foreground/cold | | | | | |
+| Album metadata edit | foreground/cold | | | | | |
+| Downloaded-playlist add/remove/re-add | foreground | | | | | |
+| Downloaded track removal | foreground/cold | | | | | |
+| Unchanged target poll | foreground | unchanged | no artwork/reconciliation/full inventory | | | n/a |
+| Failed/incomplete inventory | automated stub | invalid/incomplete | last-good preserved | | | n/a |
 
 ## Build Results
 
@@ -77,6 +98,8 @@ Artifact root:
 - [ ] Lyrics scroll/blur behavior where available
 - [ ] Aurora/accent propagation and restoration
 - [ ] StageFlow/landscape where available
+- [ ] Provider-aware source, browse/sort, search/cache, mutation, playback, and system-integration journeys where available
+- [ ] Explicitly authorized disposable Plex mutation convergence and cleanup, when in scope
 
 ## iPad Checklist
 

@@ -37,7 +37,7 @@ public final class PersistentLogService: ObservableObject {
     private static let maxSessions = 5
 
     /// UserDefaults key for the logging toggle.
-    private static let enabledKey = "persistentLoggingEnabled"
+    nonisolated public static let enabledDefaultsKey = "persistentLoggingEnabled"
 
     /// URL of the current session's log file (survives close/reopen cycles).
     private var currentSessionURL: URL?
@@ -75,10 +75,14 @@ public final class PersistentLogService: ObservableObject {
     /// Whether persistent logging is enabled. Defaults to true.
     /// When disabled, handleLogEntry returns immediately without writing.
     public var isEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.enabledKey) }
+        get { UserDefaults.standard.bool(forKey: Self.enabledDefaultsKey) }
         set {
-            UserDefaults.standard.set(newValue, forKey: Self.enabledKey)
-            if !newValue {
+            UserDefaults.standard.set(newValue, forKey: Self.enabledDefaultsKey)
+            if newValue {
+                if currentSessionURL == nil {
+                    startSession()
+                }
+            } else {
                 writer.close()
                 currentSessionURL = nil
             }
@@ -89,7 +93,7 @@ public final class PersistentLogService: ObservableObject {
 
     public init() {
         // Register default so isEnabled returns true before first toggle
-        UserDefaults.standard.register(defaults: [Self.enabledKey: true])
+        UserDefaults.standard.register(defaults: [Self.enabledDefaultsKey: true])
         loadSessions()
     }
 
@@ -224,6 +228,7 @@ public final class PersistentLogService: ObservableObject {
         header += "Session start: \(displayFormatter.string(from: startDate))\n"
         header += "Device: \(deviceDescription())\n"
         header += "App version: \(appVersionString)\n"
+        header += "Source commit: \(Bundle.main.infoDictionary?["EnsembleSourceCommit"] as? String ?? "unknown")\n"
         header += "---\n"
         return header
     }
@@ -355,7 +360,7 @@ private final class LogFileWriter: @unchecked Sendable {
     /// Write a formatted log line to the current file. No-op if no file is open.
     private func write(level: String, category: String, message: String) {
         // Fast exit: check UserDefaults (thread-safe) before dispatching
-        guard UserDefaults.standard.bool(forKey: "persistentLoggingEnabled") else { return }
+        guard UserDefaults.standard.bool(forKey: PersistentLogService.enabledDefaultsKey) else { return }
 
         let timestamp = Date()
 
@@ -369,7 +374,7 @@ private final class LogFileWriter: @unchecked Sendable {
             handle.write(data)
 
             self.writeCount += 1
-            if self.writeCount >= 50 {
+            if self.writeCount >= 250 {
                 handle.synchronizeFile()
                 self.writeCount = 0
             }

@@ -1,9 +1,11 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
 /// Supported detail sources for the StageFlow track panel.
 enum StageFlowContentType: Equatable {
     case album(id: String, sourceCompositeKey: String?)
+    case albumGroup([Album])
     case playlist(id: String, sourceCompositeKey: String?)
     case mergedPlaylist(playlists: [Playlist])
 }
@@ -12,16 +14,17 @@ enum StageFlowContentType: Equatable {
 struct StageFlowTrackLoader {
     let libraryRepository: LibraryRepositoryProtocol
     let playlistRepository: PlaylistRepositoryProtocol
+    let mergingPreferences: EnsembleMergingPreferences
 
     func loadTracks(for contentType: StageFlowContentType) async throws -> [Track] {
         switch contentType {
         case .album(let id, let sourceCompositeKey):
-            let tracks: [CDTrack]
-            if let sourceCompositeKey {
-                tracks = try await libraryRepository.fetchTracks(forAlbum: id, sourceCompositeKey: sourceCompositeKey)
-            } else {
-                tracks = try await libraryRepository.fetchTracks(forAlbum: id)
-            }
+            guard let sourceCompositeKey,
+                  MediaSourceIdentity.parse(sourceCompositeKey) != nil else { return [] }
+            let tracks = try await libraryRepository.fetchTracks(
+                forAlbum: id,
+                sourceCompositeKey: sourceCompositeKey
+            )
 
             return tracks
                 .map { Track(from: $0) }
@@ -35,6 +38,13 @@ struct StageFlowTrackLoader {
                     return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
                 }
 
+        case .albumGroup(let albums):
+            guard let first = albums.first else { return [] }
+            return try await DisplayAlbum(id: first.sourceScopedID, albums: albums).resolvedTracks(
+                using: libraryRepository,
+                preferences: mergingPreferences
+            )
+
         case .playlist(let id, let sourceCompositeKey):
             guard let playlist = try await playlistRepository.fetchPlaylist(
                 ratingKey: id,
@@ -46,17 +56,10 @@ struct StageFlowTrackLoader {
             return playlist.tracksArray.map { Track(from: $0) }
 
         case .mergedPlaylist(let playlists):
-            // Fetch tracks from each constituent playlist and interleave them
-            var trackSets: [[Track]] = []
-            for playlist in playlists {
-                if let cached = try await playlistRepository.fetchPlaylist(
-                    ratingKey: playlist.id,
-                    sourceCompositeKey: playlist.sourceCompositeKey
-                ) {
-                    trackSets.append(cached.tracksArray.map { Track(from: $0) })
-                }
-            }
-            return DisplayPlaylist.interleave(trackSets)
+            return try await DisplayPlaylist.resolvedTracks(
+                for: playlists,
+                using: playlistRepository
+            )
         }
     }
 }
@@ -100,39 +103,7 @@ struct StageFlowTrackPanel: View {
                     managesOwnScrolling: true,
                     bottomContentInset: 4,
                     rowHeight: 58,
-                    onPlayNext: { track in
-                        nowPlayingVM.playNext(track)
-                    },
-                    onPlayLast: { track in
-                        nowPlayingVM.playLast(track)
-                    },
-                    onAddToPlaylist: { track in
-                        presentPlaylistPicker(with: [track])
-                    },
-                    onAddToRecentPlaylist: { track in
-                        addToRecentPlaylist(track)
-                    },
-                    onToggleFavorite: { track in
-                        Task {
-                            await nowPlayingVM.toggleTrackFavorite(track)
-                        }
-                    },
-                    onGetInfo: { track in
-                        libraryItemInfoRequest = .track(track)
-                    },
-                    onShareLink: { track in
-                        ShareActions.shareTrackLink(track, deps: deps)
-                    },
-                    onShareFile: { track in
-                        ShareActions.shareTrackFile(track, deps: deps)
-                    },
-                    isTrackFavorited: { track in
-                        nowPlayingVM.isTrackFavorited(track)
-                    },
-                    canAddToRecentPlaylist: { track in
-                        recentPlaylistTitle(for: track) != nil
-                    },
-                    recentPlaylistTitle: recentPlaylistTitle
+                    interactionModel: trackInteractionModel
                 ) { _, index in
                     nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
@@ -160,28 +131,15 @@ struct StageFlowTrackPanel: View {
         .padding(.leading, EnsembleDesign.Spacing.md)
         .padding(.trailing, EnsembleDesign.Spacing.md)
         .padding(.vertical, EnsembleDesign.Spacing.sm)
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
-            if keys != activeDownloadTrackIdentities {
-                activeDownloadTrackIdentities = keys
-            }
-        }
-        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { generation in
-            if generation != availabilityGeneration {
-                availabilityGeneration = generation
-            }
-        }
-        .onReceive(nowPlayingVM.$currentTrack) { track in
-            let trackID = track?.playbackIdentity
-            if trackID != currentTrackId {
-                currentTrackId = trackID
-            }
-        }
-        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
-            let updatedTitle = target?.title
-            if updatedTitle != recentPlaylistTitle {
-                recentPlaylistTitle = updatedTitle
-            }
-        }
+        .trackListRuntimeObservation(
+            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
+            availabilityGeneration: $availabilityGeneration
+        )
+        .nowPlayingTrackListObservation(
+            nowPlayingVM: nowPlayingVM,
+            currentTrackId: $currentTrackId,
+            recentPlaylistTitle: $recentPlaylistTitle
+        )
         .task(id: contentType) {
             await loadTracks()
         }
@@ -213,7 +171,8 @@ struct StageFlowTrackPanel: View {
         do {
             let loader = StageFlowTrackLoader(
                 libraryRepository: deps.libraryRepository,
-                playlistRepository: deps.playlistRepository
+                playlistRepository: deps.playlistRepository,
+                mergingPreferences: deps.settingsManager.mergingPreferences
             )
             tracks = try await loader.loadTracks(for: contentType)
             isLoading = false
@@ -227,49 +186,17 @@ struct StageFlowTrackPanel: View {
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
     }
 
-    private func addToRecentPlaylist(_ track: Track) {
-        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
-    }
-
-    private func recentPlaylistTitle(for track: Track) -> String? {
-        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
-    }
-
     private var trackInteractionModel: TrackRowInteractionModel {
-        TrackRowInteractionModel(
-            onPlayNext: { track in
-                nowPlayingVM.playNext(track)
-            },
-            onPlayLast: { track in
-                nowPlayingVM.playLast(track)
-            },
-            onAddToPlaylist: { track in
-                presentPlaylistPicker(with: [track])
-            },
-            onAddToRecentPlaylist: { track in
-                addToRecentPlaylist(track)
-            },
-            onToggleFavorite: { track in
-                Task {
-                    await nowPlayingVM.toggleTrackFavorite(track)
-                }
-            },
-            onGetInfo: { track in
-                libraryItemInfoRequest = .track(track)
-            },
-            onShareLink: { track in
-                ShareActions.shareTrackLink(track, deps: deps)
-            },
-            onShareFile: { track in
-                ShareActions.shareTrackFile(track, deps: deps)
-            },
-            isTrackFavorited: { track in
-                nowPlayingVM.isTrackFavorited(track)
-            },
-            canAddToRecentPlaylist: { track in
-                recentPlaylistTitle(for: track) != nil
-            },
+        .nowPlayingActions(
+            nowPlayingVM: nowPlayingVM,
+            deps: deps,
+            includeAlbumNavigation: false,
+            includeArtistNavigation: false,
             recentPlaylistTitle: recentPlaylistTitle
-        )
+        ) { tracks in
+            presentPlaylistPicker(with: tracks)
+        } onGetInfo: { track in
+            libraryItemInfoRequest = .track(track)
+        }
     }
 }

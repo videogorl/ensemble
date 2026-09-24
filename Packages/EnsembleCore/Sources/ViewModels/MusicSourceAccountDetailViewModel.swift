@@ -1,4 +1,5 @@
 import Combine
+import EnsemblePersistence
 import Foundation
 
 /// Drives account-level source management, including library selection and sync status display.
@@ -46,19 +47,25 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         public let isEnabled: Bool
         public let status: MusicSourceStatus?
         public let allowSync: Bool?
+        public let expectedTrackCount: Int?
+        public let syncedTrackCount: Int?
 
         public init(
             sourceIdentifier: MusicSourceIdentifier,
             title: String,
             isEnabled: Bool,
             status: MusicSourceStatus?,
-            allowSync: Bool? = nil
+            allowSync: Bool? = nil,
+            expectedTrackCount: Int? = nil,
+            syncedTrackCount: Int? = nil
         ) {
             self.sourceIdentifier = sourceIdentifier
             self.title = title
             self.isEnabled = isEnabled
             self.status = status
             self.allowSync = allowSync
+            self.expectedTrackCount = expectedTrackCount
+            self.syncedTrackCount = syncedTrackCount
         }
     }
 
@@ -80,9 +87,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
     private let accountManager: AccountManager
     private let accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol
     private let syncCoordinator: SyncCoordinator
-    private let mutationCoordinator: MutationCoordinator
-    private let webSocketCoordinator: PlexWebSocketCoordinator
+    private let libraryRepository: any LibraryRepositoryProtocol
     private var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
+    private var syncedTrackCounts: [MusicSourceIdentifier: Int] = [:]
     private var cancellables = Set<AnyCancellable>()
     private var hasPerformedInitialRefresh = false
     private var activeLibraryOperations = Set<String>()
@@ -100,14 +107,14 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol,
         syncCoordinator: SyncCoordinator,
         mutationCoordinator: MutationCoordinator,
-        webSocketCoordinator: PlexWebSocketCoordinator
+        webSocketCoordinator: PlexWebSocketCoordinator,
+        libraryRepository: any LibraryRepositoryProtocol
     ) {
         self.accountId = accountId
         self.accountManager = accountManager
         self.accountDiscoveryService = accountDiscoveryService
         self.syncCoordinator = syncCoordinator
-        self.mutationCoordinator = mutationCoordinator
-        self.webSocketCoordinator = webSocketCoordinator
+        self.libraryRepository = libraryRepository
 
         // Subscribe to library scan progress from WebSocket events
         webSocketCoordinator.$serverScanProgress
@@ -137,18 +144,25 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.rebuildSections()
+                self?.refreshSyncedTrackCounts()
             }
             .store(in: &cancellables)
 
         syncCoordinator.$sourceStatuses
             .receive(on: DispatchQueue.main)
             .sink { [weak self] statuses in
-                self?.sourceStatuses = statuses
-                self?.rebuildSections()
+                guard let self else { return }
+                let previousStatuses = self.sourceStatuses
+                self.sourceStatuses = statuses
+                self.rebuildSections()
+                if Self.shouldRefreshSyncedTrackCounts(previous: previousStatuses, next: statuses) {
+                    self.refreshSyncedTrackCounts()
+                }
             }
             .store(in: &cancellables)
 
         rebuildSections()
+        refreshSyncedTrackCounts()
     }
 
     public func performInitialRefreshIfNeeded() async {
@@ -194,23 +208,27 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             return
         }
 
-        if !nextEnabledState {
-            // Disabling a library purges only that library's cached data.
-            await syncCoordinator.cleanupRemovedSource(row.sourceIdentifier)
+        syncCoordinator.refreshProviders()
 
-            // If this was the final enabled library for the server, purge server-level playlists.
-            if !hasEnabledLibraries(accountId: row.sourceIdentifier.accountId, serverId: row.sourceIdentifier.serverId) {
-                await syncCoordinator.cleanupServerPlaylists(
-                    accountId: row.sourceIdentifier.accountId,
-                    serverId: row.sourceIdentifier.serverId
-                )
-            }
+        // Disabling a library purges only that library's cached data.
+        EnsembleLogger.info(
+            "[SourceReconciliation] Cleanup requested source=\(row.sourceIdentifier.compositeKey) reason=local-library-disabled"
+        )
+        let cleanupSucceeded = await syncCoordinator.cleanupRemovedSource(row.sourceIdentifier)
+        if !cleanupSucceeded {
+            error = "The library was disabled, but its local data could not be fully cleared. Try enabling and disabling it again."
         }
 
-        syncCoordinator.refreshProviders()
+        // If this was the final enabled library for the server, purge server-level playlists.
+        if !hasEnabledLibraries(accountId: row.sourceIdentifier.accountId, serverId: row.sourceIdentifier.serverId) {
+            await syncCoordinator.cleanupServerPlaylists(
+                accountId: row.sourceIdentifier.accountId,
+                serverId: row.sourceIdentifier.serverId
+            )
+        }
     }
 
-    /// Triggers sync for all currently enabled libraries in this account.
+    /// Forces a full sync for all currently enabled libraries in this account.
     public func syncEnabledLibraries() async {
         guard !isSyncingEnabledLibraries else { return }
 
@@ -262,19 +280,29 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         let serverIDs = account.servers.map(\.id)
 
         accountManager.removePlexAccount(id: account.id)
+        syncCoordinator.refreshProviders()
 
+        var cleanupSucceeded = true
         for source in accountSources {
-            await syncCoordinator.cleanupRemovedSource(source)
+            EnsembleLogger.info(
+                "[SourceReconciliation] Cleanup requested source=\(source.compositeKey) reason=account-removed"
+            )
+            let sourceCleanupSucceeded = await syncCoordinator.cleanupRemovedSource(source)
+            if !sourceCleanupSucceeded {
+                cleanupSucceeded = false
+            }
         }
 
         for serverID in serverIDs {
             await syncCoordinator.cleanupServerPlaylists(accountId: account.id, serverId: serverID)
         }
 
-        syncCoordinator.refreshProviders()
         isAccountMissing = true
         sections = []
-        return true
+        if !cleanupSucceeded {
+            error = "The account was removed, but some local data could not be fully cleared. Try removing cached library data from Storage."
+        }
+        return cleanupSucceeded
     }
 
     private func refreshAccountInventory() async {
@@ -293,6 +321,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
         // Keep cached inventory visible and avoid destructive reconciliation when offline.
         guard !syncCoordinator.isOffline else {
+            EnsembleLogger.info(
+                "[SourceReconciliation] Preserving cached sources account=\(accountId) reason=device-offline"
+            )
             return
         }
 
@@ -312,12 +343,15 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             // Ignore cancellation when user leaves the screen mid-refresh.
             return
         } catch {
+            EnsembleLogger.info(
+                "[SourceReconciliation] Preserving cached sources account=\(accountId) reason=account-discovery-failed error=\(error.localizedDescription)"
+            )
             self.error = error.localizedDescription
         }
 
         // Trigger a fresh server health check so library connection statuses
         // reflect actual connectivity, not stale cached states.
-        syncCoordinator.refreshServerHealthStates()
+        await syncCoordinator.refreshServerHealthStates()
     }
 
     private func syncSources(_ sources: [MusicSourceIdentifier]) async {
@@ -350,6 +384,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
             if hasLibraryError, let existingServer {
                 // Partial failure: keep existing libraries unchanged for this server.
+                EnsembleLogger.info(
+                    "[SourceReconciliation] Preserving cached libraries server=\(existingServer.id) count=\(existingServer.libraries.count) reason=library-fetch-failed"
+                )
                 resolvedLibraries = existingServer.libraries
             } else {
                 let existingLibrariesByKey = Dictionary(uniqueKeysWithValues: (existingServer?.libraries ?? []).map { ($0.key, $0) })
@@ -362,20 +399,23 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                         key: discoveredLibrary.key,
                         title: discoveredLibrary.title,
                         isEnabled: existingLibrary?.isEnabled ?? false,
-                        allowSync: discoveredLibrary.allowSync
+                        allowSync: discoveredLibrary.allowSync,
+                        trackCount: discoveredLibrary.trackCount ?? existingLibrary?.trackCount
                     )
                 }
 
                 if let existingServer {
                     for removedLibrary in existingServer.libraries where !discoveredKeys.contains(removedLibrary.key) {
-                        removedSources.insert(
-                            MusicSourceIdentifier(
-                                type: .plex,
-                                accountId: account.id,
-                                serverId: existingServer.id,
-                                libraryId: removedLibrary.key
-                            )
+                        let removedSource = MusicSourceIdentifier(
+                            type: .plex,
+                            accountId: account.id,
+                            serverId: existingServer.id,
+                            libraryId: removedLibrary.key
                         )
+                        EnsembleLogger.info(
+                            "[SourceReconciliation] Cleanup requested source=\(removedSource.compositeKey) reason=absent-from-successful-plex-inventory"
+                        )
+                        removedSources.insert(removedSource)
                     }
                 }
             }
@@ -395,19 +435,14 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             )
         }
 
-        // Servers no longer present in discovery are considered removed.
+        // A Plex resources refresh can omit servers that are temporarily offline or
+        // unreachable. Preserve cached server/library rows until the user explicitly
+        // removes the account or disables a library.
         for existingServer in account.servers where !discoveredServerIDs.contains(existingServer.id) {
-            for library in existingServer.libraries {
-                removedSources.insert(
-                    MusicSourceIdentifier(
-                        type: .plex,
-                        accountId: account.id,
-                        serverId: existingServer.id,
-                        libraryId: library.key
-                    )
-                )
-            }
-            serversNeedingPlaylistCleanup.insert(ServerKey(accountId: account.id, serverId: existingServer.id))
+            EnsembleLogger.info(
+                "[SourceReconciliation] Preserving cached server=\(existingServer.id) libraries=\(existingServer.libraries.count) reason=server-omitted-from-resources"
+            )
+            updatedServers.append(existingServer)
         }
 
         let updatedServersById = Dictionary(uniqueKeysWithValues: updatedServers.map { ($0.id, $0) })
@@ -437,7 +472,10 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         syncCoordinator.refreshProviders()
 
         for source in removedSources {
-            await syncCoordinator.cleanupRemovedSource(source)
+            let cleanupSucceeded = await syncCoordinator.cleanupRemovedSource(source)
+            if !cleanupSucceeded {
+                error = "A removed library could not be fully cleared from this device."
+            }
         }
 
         for server in serversNeedingPlaylistCleanup {
@@ -478,7 +516,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                     title: library.title,
                     isEnabled: library.isEnabled,
                     status: status,
-                    allowSync: library.allowSync
+                    allowSync: library.allowSync,
+                    expectedTrackCount: library.trackCount,
+                    syncedTrackCount: syncedTrackCounts[sourceIdentifier]
                 )
             }
 
@@ -512,5 +552,61 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             return nil
         }
         return value
+    }
+
+    private func refreshSyncedTrackCounts() {
+        let sources = currentLibrarySourceIdentifiers()
+        guard !sources.isEmpty else {
+            if !syncedTrackCounts.isEmpty {
+                syncedTrackCounts = [:]
+                rebuildSections()
+            }
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            var nextCounts: [MusicSourceIdentifier: Int] = [:]
+            for source in sources {
+                if let count = try? await libraryRepository.countTracks(forSource: source.compositeKey) {
+                    nextCounts[source] = count
+                }
+            }
+            guard !Task.isCancelled else { return }
+            if nextCounts != self.syncedTrackCounts {
+                self.syncedTrackCounts = nextCounts
+                self.rebuildSections()
+            }
+        }
+    }
+
+    private func currentLibrarySourceIdentifiers() -> [MusicSourceIdentifier] {
+        guard let account = accountManager.plexAccounts.first(where: { $0.id == accountId }) else {
+            return []
+        }
+        return account.servers.flatMap { server in
+            server.libraries.map { library in
+                MusicSourceIdentifier(
+                    type: .plex,
+                    accountId: account.id,
+                    serverId: server.id,
+                    libraryId: library.key
+                )
+            }
+        }
+    }
+
+    private static func shouldRefreshSyncedTrackCounts(
+        previous: [MusicSourceIdentifier: MusicSourceStatus],
+        next: [MusicSourceIdentifier: MusicSourceStatus]
+    ) -> Bool {
+        for (source, status) in next {
+            guard case .lastSynced(let date) = status.syncStatus else { continue }
+            guard case .lastSynced(let previousDate)? = previous[source]?.syncStatus,
+                  previousDate == date else {
+                return true
+            }
+        }
+        return false
     }
 }

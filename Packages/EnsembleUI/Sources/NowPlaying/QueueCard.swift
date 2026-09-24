@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -19,8 +20,8 @@ public struct QueueCard: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
-    @State private var lastPlaylistTargetID: String?
     #if os(macOS)
     @State private var macOSDraggingQueueItemID: String?
     #endif
@@ -112,17 +113,12 @@ public struct QueueCard: View {
             .padding(.bottom, EnsembleScaffold.NowPlaying.secondaryControlsBottomPadding)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
-        .task {
-            await refreshLastPlaylistQuickTarget()
-        }
-        .onChange(of: playbackProjection.currentTrack?.playbackIdentity) { _ in
-            Task { @MainActor in await refreshLastPlaylistQuickTarget() }
-        }
-        .onReceive(viewModel.lastPlaylistTargetPublisher) { target in
-            guard lastPlaylistTargetID != target?.id else { return }
-            lastPlaylistTargetID = target?.id
-            Task { @MainActor in await refreshLastPlaylistQuickTarget() }
-        }
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
+        .recentPlaylistTargetObservation(
+            nowPlayingVM: viewModel,
+            tracks: playbackProjection.currentTrack.map { [$0] } ?? [],
+            target: $lastPlaylistQuickTarget
+        )
     }
 
     // MARK: - Header
@@ -155,13 +151,14 @@ public struct QueueCard: View {
                 Menu {
                     Button {
                         let snapshot = viewModel.queueSnapshotForPlaylistSave()
-                        presentPlaylistPicker(with: snapshot, title: "Save Queue as Playlist")
+                        presentPlaylistPicker(
+                            with: snapshot,
+                            title: "Save Queue as Playlist",
+                            createsPlaylistAcrossSources: true
+                        )
                     } label: {
                         Label("Save Queue as Playlist", systemImage: EnsembleDesign.Icon.saveQueue)
                     }
-
-                    // TODO: Future "Replay" action for replaying past queues
-                    // Button { } label: { Label("Replay Queue...", systemImage: "clock.arrow.circlepath") }
                 } label: {
                     Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
                         .font(.system(size: EnsembleScaffold.NowPlaying.menuIconSize))
@@ -180,12 +177,15 @@ public struct QueueCard: View {
     private var queueListView: some View {
         ZStack {
             if !queueProjection.queue.isEmpty || !queueProjection.playbackHistory.isEmpty {
-                #if canImport(UIKit)
-                    let queueItemsToShow = Array(queueProjection.queue.dropFirst(queueProjection.currentQueueIndex + 1))
-                    let capturedCurrentIndex = queueProjection.currentQueueIndex
+                let upcomingQueue = queueProjection.queue.dropFirst(queueProjection.currentQueueIndex + 1)
+                let queueItemsToShow = Array(upcomingQueue.prefix(queueDisplayLimit))
+                let hiddenQueueItemCount = max(0, upcomingQueue.count - queueItemsToShow.count)
+                let capturedCurrentIndex = queueProjection.currentQueueIndex
 
+                #if canImport(UIKit)
                     QueueTableView(
                         queueItems: queueItemsToShow,
+                        hiddenQueueItemCount: hiddenQueueItemCount,
                         history: queueProjection.playbackHistory,
                         showHistory: queueProjection.showHistory,
                         currentQueueIndex: -1,
@@ -195,50 +195,18 @@ public struct QueueCard: View {
                         onHistoryTap: { _, historyIndex in
                             viewModel.playFromHistory(at: historyIndex)
                         },
-                        onPlayNext: { track in
-                            viewModel.playNext(track)
-                        },
-                        onPlayLast: { track in
-                            viewModel.playLast(track)
-                        },
-                        onAddToPlaylist: { track in
-                            presentPlaylistPicker(with: [track], title: "Add to Playlist")
-                        },
-                        onAddToRecentPlaylist: { track in
-                            PlaylistActionPresentationHost.addToRecentPlaylist(
-                                [track],
-                                target: lastPlaylistQuickTarget,
-                                nowPlayingVM: viewModel
-                            )
-                        },
-                        onGoToAlbum: { track in
-                            if let albumId = track.albumRatingKey {
-                                navigateFromNowPlaying(
-                                    to: .album(id: albumId, sourceKey: track.sourceCompositeKey)
-                                )
-                            }
-                        },
-                        onGoToArtist: { track in
-                            if let artistId = track.artistRatingKey {
-                                navigateFromNowPlaying(
-                                    to: .artist(id: artistId, sourceKey: track.sourceCompositeKey)
-                                )
-                            }
-                        },
-                        canAddToRecentPlaylist: { track in
-                            PlaylistActionPresentationHost.recentPlaylistTitle(
-                                for: [track],
-                                target: lastPlaylistQuickTarget,
-                                nowPlayingVM: viewModel
-                            ) != nil
-                        },
-                        recentPlaylistTitle: lastPlaylistQuickTarget?.title,
+                        interactionModel: trackInteractionModel,
                         onRemoveFromQueue: { absoluteIndex in
                             viewModel.removeFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
                         },
-                        onMoveItem: { itemId, sourceIndex, destinationIndex in
+                        onMoveItem: { itemId, sourceIndex, destinationIndex, destinationSource in
                             let offset = capturedCurrentIndex + 1
-                            viewModel.moveQueueItem(byId: itemId, from: sourceIndex + offset, to: destinationIndex + offset)
+                            viewModel.moveQueueItem(
+                                byId: itemId,
+                                from: sourceIndex + offset,
+                                to: destinationIndex + offset,
+                                destinationSource: destinationSource
+                            )
                         }
                     )
                     .padding(.horizontal, TrackListLayoutMetrics.queueOuterContentPadding)
@@ -259,7 +227,11 @@ public struct QueueCard: View {
                     }
                 #else
                     // macOS: SwiftUI-based queue list
-                    macOSQueueListView
+                    macOSQueueListView(
+                        queueItemsToShow: queueItemsToShow,
+                        hiddenQueueItemCount: hiddenQueueItemCount,
+                        capturedCurrentIndex: capturedCurrentIndex
+                    )
                 #endif
             } else {
                 // Empty state
@@ -282,12 +254,11 @@ public struct QueueCard: View {
 
     #if os(macOS)
         @ViewBuilder
-        private var macOSQueueListView: some View {
-            let fullQueueItemsToShow = Array(queueProjection.queue.dropFirst(queueProjection.currentQueueIndex + 1))
-            let queueItemsToShow = Array(fullQueueItemsToShow.prefix(queueDisplayLimit))
-            let hiddenQueueItemCount = max(0, fullQueueItemsToShow.count - queueDisplayLimit)
-            let capturedCurrentIndex = queueProjection.currentQueueIndex
-
+        private func macOSQueueListView(
+            queueItemsToShow: [QueueItem],
+            hiddenQueueItemCount: Int,
+            capturedCurrentIndex: Int
+        ) -> some View {
             if queueProjection.showHistory {
                 // History list
                 List {
@@ -474,14 +445,13 @@ public struct QueueCard: View {
                 track: item.track,
                 nowPlayingVM: viewModel,
                 context: context,
-                recentPlaylistTarget: lastPlaylistQuickTarget,
-                onAddToPlaylist: {
-                    presentPlaylistPicker(with: [item.track], title: "Add to Playlist")
+                onAddToPlaylist: { selectedTrack in
+                    presentPlaylistPicker(with: [selectedTrack], title: "Add to Playlist")
                 },
                 onGoToAlbum: {
-                    if let albumId = item.track.albumRatingKey {
+                    if let destination = NavigationCoordinator.Destination.album(for: item.track) {
                         navigateFromNowPlaying(
-                            to: .album(id: albumId, sourceKey: item.track.sourceCompositeKey)
+                            to: destination
                         )
                     }
                 },
@@ -491,6 +461,9 @@ public struct QueueCard: View {
                             to: .artist(id: artistId, sourceKey: item.track.sourceCompositeKey)
                         )
                     }
+                },
+                onGetInfo: {
+                    libraryItemInfoRequest = .track(item.track)
                 },
                 onRemoveFromQueue: onRemoveFromQueue
             )
@@ -507,6 +480,8 @@ public struct QueueCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(playbackProjection.isShuffleEnabled ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
+            .accessibilityLabel("Shuffle")
+            .accessibilityValue(playbackProjection.isShuffleEnabled ? "On" : "Off")
 
             // Repeat
             Button(action: viewModel.cycleRepeatMode) {
@@ -514,6 +489,8 @@ public struct QueueCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(playbackProjection.repeatMode.isActive ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
+            .accessibilityLabel("Repeat")
+            .accessibilityValue(repeatAccessibilityValue)
 
             // SmartMix
             Button(action: viewModel.toggleSmartMix) {
@@ -521,6 +498,8 @@ public struct QueueCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(smartMixColor)
             }
+            .accessibilityLabel("Smart Mix")
+            .accessibilityValue(queueProjection.isSmartMixEnabled ? "On" : "Off")
 
             // Autoplay — dimmed and non-interactive when offline (no network for recommendations)
             Button(action: viewModel.toggleAutoplay) {
@@ -528,6 +507,8 @@ public struct QueueCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(autoplayColor)
             }
+            .accessibilityLabel("Autoplay")
+            .accessibilityValue(queueProjection.isAutoplayEnabled ? "On" : "Off")
             .disabled(!deps.networkMonitor.isConnected)
             .opacity(!deps.networkMonitor.isConnected ? EnsembleScaffold.NowPlaying.offlineControlOpacity : 1.0)
         }
@@ -539,6 +520,14 @@ public struct QueueCard: View {
 
     private var autoplayIcon: String {
         EnsembleDesign.Icon.infinity
+    }
+
+    private var repeatAccessibilityValue: String {
+        switch playbackProjection.repeatMode {
+        case .off: return "Off"
+        case .all: return "All"
+        case .one: return "One"
+        }
     }
 
     private var autoplayColor: Color {
@@ -555,19 +544,24 @@ public struct QueueCard: View {
 
     // MARK: - Helper Methods
 
-    @MainActor
-    private func refreshLastPlaylistQuickTarget() async {
-        guard let currentTrack = playbackProjection.currentTrack else {
-            lastPlaylistQuickTarget = nil
-            return
+    private var trackInteractionModel: TrackRowInteractionModel {
+        .nowPlayingActions(
+            nowPlayingVM: viewModel,
+            deps: deps,
+            onNavigate: navigateFromNowPlaying(to:),
+            recentPlaylistTitle: lastPlaylistQuickTarget?.title
+        ) { tracks in
+            presentPlaylistPicker(with: tracks, title: "Add to Playlist")
+        } onGetInfo: { track in
+            libraryItemInfoRequest = .track(track)
         }
-        lastPlaylistQuickTarget = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
-            for: [currentTrack],
-            nowPlayingVM: viewModel
-        )
     }
 
-    private func presentPlaylistPicker(with tracks: [Track], title: String) {
+    private func presentPlaylistPicker(
+        with tracks: [Track],
+        title: String,
+        createsPlaylistAcrossSources: Bool = false
+    ) {
         guard !tracks.isEmpty else {
             deps.toastCenter.show(
                 ToastPayload(
@@ -580,7 +574,11 @@ public struct QueueCard: View {
             )
             return
         }
-        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+        playlistActionRequest = PlaylistActionPresentationHost.request(
+            for: tracks,
+            title: title,
+            createsPlaylistAcrossSources: createsPlaylistAcrossSources
+        )
     }
 
     private func navigateFromNowPlaying(to destination: NavigationCoordinator.Destination) {

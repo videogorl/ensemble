@@ -27,7 +27,9 @@ public struct QualitySizeEstimates {
         case "high": return MediaFormatters.bytes(highBytes)
         case "medium": return MediaFormatters.bytes(mediumBytes)
         case "low": return MediaFormatters.bytes(lowBytes)
-        case "original": return "> \(MediaFormatters.bytes(highBytes))"
+        case "original":
+            let highEstimate = MediaFormatters.bytes(highBytes)
+            return highBytes > 0 ? "> \(highEstimate)" : highEstimate
         default: return MediaFormatters.bytes(actualBytes)
         }
     }
@@ -36,6 +38,7 @@ public struct QualitySizeEstimates {
 @MainActor
 public final class DownloadManagerSettingsViewModel: ObservableObject {
     @Published public private(set) var items: [DownloadManagerItem] = []
+    @Published public private(set) var replacementCount = 0
     @Published public private(set) var sizeEstimates: QualitySizeEstimates?
 
     private let offlineDownloadService: OfflineDownloadService
@@ -73,6 +76,9 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
     public func refresh() async {
         await offlineDownloadService.refreshState()
         await loadSizeEstimates()
+        replacementCount = ((try? await downloadManager.fetchDownloads()) ?? []).filter {
+            $0.downloadStatus != .completed && $0.hasStoredFile
+        }.count
     }
 
     /// True when there are any download targets or downloaded files
@@ -88,6 +94,11 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
     public func removeAllDownloads() async {
         await downloadMutationWorkflow.removeAllDownloads()
         sizeEstimates = nil
+    }
+
+    public func cancelReplacements() async {
+        await offlineDownloadService.cancelDownloadReplacements()
+        await refresh()
     }
 
     // MARK: - Size Estimation

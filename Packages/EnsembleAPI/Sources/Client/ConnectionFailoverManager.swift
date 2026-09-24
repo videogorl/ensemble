@@ -7,8 +7,10 @@ public actor ConnectionFailoverManager {
     private let requestPerformer: DataRequestPerformer
     private let timeout: TimeInterval
     private let preferredConnectionReuseWindow: TimeInterval = 5 * 60
+    private let transportFailureCooldownDuration: TimeInterval = 60
     private var connectionHealth: [String: ConnectionHealth] = [:]
     private var lastProbeResultsByURL: [String: ConnectionProbeResult] = [:]
+    private var inFlightSelections: [ConnectionSelectionKey: Task<ConnectionSelectionResult, Never>] = [:]
 
     // TLS failure cooldown tracking - deprioritize endpoints with persistent TLS errors
     private var tlsFailureCooldowns: [String: Date] = [:]  // URL -> cooldown expiry
@@ -89,13 +91,53 @@ public actor ConnectionFailoverManager {
         allowInsecure: AllowInsecureConnectionsPolicy,
         networkContext: NetworkReachabilityContext = .unknown
     ) async -> ConnectionSelectionResult {
+        let key = ConnectionSelectionKey(
+            endpoints: endpoints,
+            token: token,
+            selectionPolicy: selectionPolicy,
+            allowInsecure: allowInsecure,
+            networkContext: networkContext
+        )
+
+        if let task = inFlightSelections[key] {
+            EnsembleLogger.debug(
+                "🌐 ConnectionFailover: Reusing in-flight selection endpoints=\(endpoints.count) context=\(networkContext.logDescription)"
+            )
+            return await task.value
+        }
+
+        let task = Task {
+            await self.performFindBestConnection(
+                endpoints: endpoints,
+                token: token,
+                selectionPolicy: selectionPolicy,
+                allowInsecure: allowInsecure,
+                networkContext: networkContext
+            )
+        }
+        inFlightSelections[key] = task
+        let result = await task.value
+        inFlightSelections[key] = nil
+        return result
+    }
+
+    private func performFindBestConnection(
+        endpoints: [PlexEndpointDescriptor],
+        token: String,
+        selectionPolicy: ConnectionSelectionPolicy,
+        allowInsecure: AllowInsecureConnectionsPolicy,
+        networkContext: NetworkReachabilityContext
+    ) async -> ConnectionSelectionResult {
+        let selectionStart = Date()
         guard !endpoints.isEmpty else {
-            return ConnectionSelectionResult(
+            let result = ConnectionSelectionResult(
                 selected: nil,
                 probes: [],
                 reusedPreferredPath: false,
                 skippedInsecureCount: 0
             )
+            logSelectionCompleted(result, startedAt: selectionStart, originalCount: 0, networkContext: networkContext)
+            return result
         }
 
         // Filter by network reachability first to skip unreachable endpoint classes
@@ -104,13 +146,12 @@ public actor ConnectionFailoverManager {
         // Filter out endpoints in TLS cooldown (recent persistent TLS failures)
         let activeCandidates = filterByTLSCooldown(reachableEndpoints)
 
-        // Move endpoints with recent network-unreachable failures to the end.
-        // This avoids wasting time probing IPv6 addresses that consistently fail
-        // while still trying them if all other endpoints fail.
-        let orderedCandidates = deprioritizeNetworkUnreachable(activeCandidates)
+        // Skip endpoints that recently failed at the transport layer while keeping
+        // them as fallbacks if every candidate is currently cooling down.
+        let viableCandidates = filterByRecentTransportFailures(activeCandidates)
 
         let ordering = PlexEndpointPolicy.orderedCandidates(
-            from: orderedCandidates,
+            from: viableCandidates,
             selectionPolicy: selectionPolicy,
             allowInsecure: allowInsecure
         )
@@ -119,8 +160,12 @@ public actor ConnectionFailoverManager {
         // Compute adaptive timeout based on network context
         let adaptiveTimeout = probeTimeout(for: networkContext)
 
+        EnsembleLogger.debug(
+            "🌐 ConnectionFailover: Selection start endpoints=\(endpoints.count) reachable=\(reachableEndpoints.count) active=\(activeCandidates.count) candidates=\(candidates.count) context=\(networkContext.logDescription) timeoutMs=\(Int(adaptiveTimeout * 1000)) skippedInsecure=\(ordering.skippedInsecureCount)"
+        )
+
         if let preferred = preferredRecentHealthyEndpoint(from: candidates) {
-            EnsembleLogger.debug("⚡️ ConnectionFailover: Trying preferred recent endpoint first: \(preferred.url)")
+            EnsembleLogger.debug("⚡️ ConnectionFailover: Trying preferred recent endpoint \(probeLogDescription(for: preferred))")
 
             // Use a tighter timeout for the preferred endpoint — it recently worked,
             // so if it doesn't respond quickly, something changed and we should fall
@@ -128,13 +173,15 @@ public actor ConnectionFailoverManager {
             let preferredTimeout = preferred.local ? min(1.5, adaptiveTimeout) : min(3.0, adaptiveTimeout)
             let probe = await probeConnection(endpoint: preferred, token: token, probeTimeout: preferredTimeout)
             if probe.success {
-                EnsembleLogger.debug("⚡️ ConnectionFailover: Reused preferred endpoint \(preferred.url)")
-                return ConnectionSelectionResult(
+                EnsembleLogger.debug("⚡️ ConnectionFailover: Reused preferred endpoint \(probeLogDescription(for: preferred))")
+                let result = ConnectionSelectionResult(
                     selected: preferred,
                     probes: [probe],
                     reusedPreferredPath: true,
                     skippedInsecureCount: ordering.skippedInsecureCount
                 )
+                logSelectionCompleted(result, startedAt: selectionStart, originalCount: endpoints.count, networkContext: networkContext)
+                return result
             }
 
             candidates.removeAll { $0.url == preferred.url }
@@ -142,12 +189,14 @@ public actor ConnectionFailoverManager {
         }
 
         guard !candidates.isEmpty else {
-            return ConnectionSelectionResult(
+            let result = ConnectionSelectionResult(
                 selected: nil,
                 probes: [],
                 reusedPreferredPath: false,
                 skippedInsecureCount: ordering.skippedInsecureCount
             )
+            logSelectionCompleted(result, startedAt: selectionStart, originalCount: endpoints.count, networkContext: networkContext)
+            return result
         }
 
         // Determine the best possible endpoint class among candidates so we know
@@ -177,9 +226,9 @@ public actor ConnectionFailoverManager {
             for await optionalProbe in group {
                 // nil = grace period deadline expired
                 guard let probe = optionalProbe else {
-                    if bestSoFar != nil {
+                    if let bestSoFar {
                         EnsembleLogger.debug(
-                            "⚡️ ConnectionFailover: Grace period expired — using class-\(bestSoFar!.endpoint.endpointClass.rawValue) endpoint, cancelling remaining probe(s)"
+                            "⚡️ ConnectionFailover: Grace period expired — using class-\(bestSoFar.endpoint.endpointClass.rawValue) endpoint, cancelling remaining probe(s)"
                         )
                         group.cancelAll()
                         break
@@ -228,24 +277,28 @@ public actor ConnectionFailoverManager {
 
         guard let selected else {
             EnsembleLogger.debug("❌ ConnectionFailover: No successful endpoints from \(candidates.count) probes")
-            return ConnectionSelectionResult(
+            let result = ConnectionSelectionResult(
                 selected: nil,
                 probes: probes,
                 reusedPreferredPath: false,
                 skippedInsecureCount: ordering.skippedInsecureCount
             )
+            logSelectionCompleted(result, startedAt: selectionStart, originalCount: endpoints.count, networkContext: networkContext)
+            return result
         }
 
         EnsembleLogger.debug(
-            "🏆 ConnectionFailover: Selected endpoint \(selected.url) class=\(selected.endpointClass.rawValue)"
+            "🏆 ConnectionFailover: Selected endpoint \(probeLogDescription(for: selected))"
         )
 
-        return ConnectionSelectionResult(
+        let result = ConnectionSelectionResult(
             selected: selected,
             probes: probes,
             reusedPreferredPath: false,
             skippedInsecureCount: ordering.skippedInsecureCount
         )
+        logSelectionCompleted(result, startedAt: selectionStart, originalCount: endpoints.count, networkContext: networkContext)
+        return result
     }
     
     /// Get connection health status
@@ -257,11 +310,47 @@ public actor ConnectionFailoverManager {
     public func getLastProbeResult(url: String) -> ConnectionProbeResult? {
         lastProbeResultsByURL[url]
     }
+
+    /// Records a failed endpoint observation so immediate failover does not reprobe a recently broken candidate.
+    public func recordConnectionFailure(endpoint: PlexEndpointDescriptor, error: Error) {
+        let category = failureCategory(for: error)
+        let result = ConnectionProbeResult(
+            endpoint: endpoint,
+            success: false,
+            duration: 0,
+            failureCategory: category
+        )
+        lastProbeResultsByURL[endpoint.url] = result
+
+        if category != .cancelled {
+            updateConnectionHealth(url: endpoint.url, success: false)
+        }
+
+        if category == .tls {
+            recordTLSFailure(endpoint.url)
+        }
+    }
+
+    /// Records an externally verified healthy endpoint so future selections can use the preferred fast path.
+    public func recordConnectionSuccess(endpoint: PlexEndpointDescriptor) {
+        let result = ConnectionProbeResult(
+            endpoint: endpoint,
+            success: true,
+            duration: 0,
+            failureCategory: nil
+        )
+        lastProbeResultsByURL[endpoint.url] = result
+        updateConnectionHealth(url: endpoint.url, success: true)
+    }
     
     /// Reset connection health tracking
     public func resetHealthTracking() {
         connectionHealth.removeAll()
         lastProbeResultsByURL.removeAll()
+        for task in inFlightSelections.values {
+            task.cancel()
+        }
+        inFlightSelections.removeAll()
         tlsFailureCooldowns.removeAll()
     }
     
@@ -308,7 +397,7 @@ public actor ConnectionFailoverManager {
     /// Record a TLS failure for a URL (places it in cooldown)
     private func recordTLSFailure(_ url: String) {
         tlsFailureCooldowns[url] = Date().addingTimeInterval(tlsCooldownDuration)
-        EnsembleLogger.debug("🔒 ConnectionFailover: Endpoint \(url) in TLS cooldown for \(Int(tlsCooldownDuration))s")
+        EnsembleLogger.debug("🔒 ConnectionFailover: Endpoint entered TLS cooldown for \(Int(tlsCooldownDuration))s")
     }
 
     /// Filter out endpoints that are in TLS cooldown
@@ -318,33 +407,52 @@ public actor ConnectionFailoverManager {
         if skipped > 0 {
             EnsembleLogger.debug("🔒 ConnectionFailover: Skipping \(skipped) endpoint(s) in TLS cooldown")
         }
+        if filtered.isEmpty, !endpoints.isEmpty {
+            EnsembleLogger.debug("🔒 ConnectionFailover: Retrying \(endpoints.count) TLS-cooled endpoint(s); no fallback candidates remain")
+            return endpoints
+        }
         return filtered
     }
 
-    /// Deprioritize endpoints that had recent network-unreachable failures (-1009).
-    /// These are typically IPv6 endpoints that aren't routable on the current network.
-    /// They're moved to the end of the list (not removed) so they're still tried if
-    /// all higher-priority endpoints fail. This avoids wasting time on consistently
-    /// unreachable addresses while preserving correctness if the network changes.
-    private func deprioritizeNetworkUnreachable(_ endpoints: [PlexEndpointDescriptor]) -> [PlexEndpointDescriptor] {
-        var prioritized: [PlexEndpointDescriptor] = []
-        var deprioritized: [PlexEndpointDescriptor] = []
+    /// Filter endpoints that had a recent transport-layer failure.
+    private func filterByRecentTransportFailures(_ endpoints: [PlexEndpointDescriptor]) -> [PlexEndpointDescriptor] {
+        let now = Date()
+        var filtered: [PlexEndpointDescriptor] = []
+        var skippedCount = 0
 
         for endpoint in endpoints {
             if let lastResult = lastProbeResultsByURL[endpoint.url],
                !lastResult.success,
-               lastResult.failureCategory == .network {
-                deprioritized.append(endpoint)
+               shouldCoolDownFailureCategory(lastResult.failureCategory),
+               let lastAttempt = connectionHealth[endpoint.url]?.lastAttempt,
+               now.timeIntervalSince(lastAttempt) < transportFailureCooldownDuration {
+                skippedCount += 1
             } else {
-                prioritized.append(endpoint)
+                filtered.append(endpoint)
             }
         }
 
-        if !deprioritized.isEmpty {
-            EnsembleLogger.debug("🌐 ConnectionFailover: Deprioritized \(deprioritized.count) endpoint(s) with recent network-unreachable failures")
+        guard !filtered.isEmpty else {
+            if skippedCount > 0 {
+                EnsembleLogger.debug("🌐 ConnectionFailover: Retrying \(skippedCount) transport-failed endpoint(s); no fallback candidates remain")
+            }
+            return endpoints
         }
 
-        return prioritized + deprioritized
+        if skippedCount > 0 {
+            EnsembleLogger.debug("🌐 ConnectionFailover: Skipping \(skippedCount) endpoint(s) in transport failure cooldown")
+        }
+
+        return filtered
+    }
+
+    private func shouldCoolDownFailureCategory(_ category: ConnectionProbeFailureCategory?) -> Bool {
+        switch category {
+        case .dns, .network, .refused, .timeout:
+            return true
+        case .cancelled, .other, .tls, nil:
+            return false
+        }
     }
 
     private func updateConnectionHealth(url: String, success: Bool) {
@@ -385,8 +493,9 @@ public actor ConnectionFailoverManager {
         probeTimeout: TimeInterval? = nil
     ) async -> ConnectionProbeResult {
         let url = endpoint.url
+        let logDescription = probeLogDescription(for: endpoint)
         guard URL(string: url) != nil else {
-            EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Invalid URL")
+            EnsembleLogger.debug("❌ ConnectionTest \(logDescription): Invalid URL")
             let result = ConnectionProbeResult(
                 endpoint: endpoint,
                 success: false,
@@ -402,7 +511,7 @@ public actor ConnectionFailoverManager {
         testURL?.queryItems = [URLQueryItem(name: "X-Plex-Token", value: token)]
 
         guard let requestURL = testURL?.url else {
-            EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Failed to build test URL")
+            EnsembleLogger.debug("❌ ConnectionTest \(logDescription): Failed to build test URL")
             let result = ConnectionProbeResult(
                 endpoint: endpoint,
                 success: false,
@@ -418,7 +527,7 @@ public actor ConnectionFailoverManager {
         request.setValue(token, forHTTPHeaderField: "X-Plex-Token")
         request.timeoutInterval = probeTimeout ?? timeout
 
-        EnsembleLogger.debug("🔄 ConnectionTest[\(url)]: Testing...")
+        EnsembleLogger.debug("🔄 ConnectionTest \(logDescription): Testing...")
 
         if Task.isCancelled {
             let result = ConnectionProbeResult(
@@ -428,7 +537,7 @@ public actor ConnectionFailoverManager {
                 failureCategory: .cancelled
             )
             lastProbeResultsByURL[url] = result
-            EnsembleLogger.debug("ℹ️ ConnectionTest[\(url)]: Cancelled before test (hedged probe)")
+            EnsembleLogger.debug("ℹ️ ConnectionTest \(logDescription): Cancelled before test (hedged probe)")
             return result
         }
 
@@ -446,7 +555,7 @@ public actor ConnectionFailoverManager {
                 )
                 lastProbeResultsByURL[url] = result
                 updateConnectionHealth(url: url, success: false)
-                EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Invalid response after \(String(format: "%.1f", duration))s")
+                EnsembleLogger.debug("❌ ConnectionTest \(logDescription): Invalid response after \(String(format: "%.1f", duration))s")
                 return result
             }
 
@@ -461,9 +570,9 @@ public actor ConnectionFailoverManager {
             updateConnectionHealth(url: url, success: isSuccessful)
 
             if isSuccessful {
-                EnsembleLogger.debug("✅ ConnectionTest[\(url)]: Success in \(String(format: "%.1f", duration))s")
+                EnsembleLogger.debug("✅ ConnectionTest \(logDescription): Success in \(String(format: "%.1f", duration))s")
             } else {
-                EnsembleLogger.debug("❌ ConnectionTest[\(url)]: HTTP \(httpResponse.statusCode) after \(String(format: "%.1f", duration))s")
+                EnsembleLogger.debug("❌ ConnectionTest \(logDescription): HTTP \(httpResponse.statusCode) after \(String(format: "%.1f", duration))s")
             }
 
             return result
@@ -488,9 +597,25 @@ public actor ConnectionFailoverManager {
                 recordTLSFailure(url)
             }
 
-            EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Failed - \(error.localizedDescription)")
+            EnsembleLogger.debug("❌ ConnectionTest \(logDescription): Failed category=\(category.rawValue)")
             return result
         }
+    }
+
+    private func probeLogDescription(for endpoint: PlexEndpointDescriptor) -> String {
+        "class=\(endpoint.endpointClass.rawValue) local=\(endpoint.local ? 1 : 0) relay=\(endpoint.relay ? 1 : 0) secure=\(endpoint.secure ? 1 : 0)"
+    }
+
+    private func logSelectionCompleted(
+        _ result: ConnectionSelectionResult,
+        startedAt: Date,
+        originalCount: Int,
+        networkContext: NetworkReachabilityContext
+    ) {
+        let elapsedMs = Int((Date().timeIntervalSince(startedAt) * 1000).rounded())
+        EnsembleLogger.debug(
+            "🌐 ConnectionFailover: Selection complete elapsedMs=\(elapsedMs) originalEndpoints=\(originalCount) context=\(networkContext.logDescription) \(result.diagnosticSummary)"
+        )
     }
 
     private func failureCategory(for error: Error) -> ConnectionProbeFailureCategory {
@@ -521,6 +646,55 @@ public actor ConnectionFailoverManager {
             return .tls
         }
         return .other
+    }
+}
+
+private struct ConnectionSelectionKey: Hashable {
+    let endpoints: [EndpointKey]
+    let token: String
+    let selectionPolicy: String
+    let allowInsecure: String
+    let networkContext: String
+
+    init(
+        endpoints: [PlexEndpointDescriptor],
+        token: String,
+        selectionPolicy: ConnectionSelectionPolicy,
+        allowInsecure: AllowInsecureConnectionsPolicy,
+        networkContext: NetworkReachabilityContext
+    ) {
+        self.endpoints = endpoints.map(EndpointKey.init)
+        self.token = token
+        self.selectionPolicy = selectionPolicy.rawValue
+        self.allowInsecure = allowInsecure.rawValue
+        self.networkContext = networkContext.logDescription
+    }
+}
+
+private struct EndpointKey: Hashable {
+    let url: String
+    let local: Bool
+    let relay: Bool
+    let secure: Bool
+
+    init(_ endpoint: PlexEndpointDescriptor) {
+        url = endpoint.url
+        local = endpoint.local
+        relay = endpoint.relay
+        secure = endpoint.secure
+    }
+}
+
+private extension NetworkReachabilityContext {
+    var logDescription: String {
+        switch self {
+        case .localNetwork:
+            return "local"
+        case .remoteNetwork:
+            return "remote"
+        case .unknown:
+            return "unknown"
+        }
     }
 }
 

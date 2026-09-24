@@ -1,15 +1,26 @@
 import EnsemblePersistence
 import Foundation
 
-/// Protocol for mood repository operations
-public protocol MoodRepositoryProtocol: Sendable {
-    func fetchMoods() async throws -> [Mood]
-    func saveMoods(_ moods: [Mood]) async throws
-    func deleteAllMoods() async throws
+private final class MoodSaveCancellationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isCancelled = false
+
+    func cancel() {
+        lock.lock()
+        isCancelled = true
+        lock.unlock()
+    }
+
+    func commit(_ operation: () throws -> Void) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isCancelled else { throw CancellationError() }
+        try operation()
+    }
 }
 
 /// Repository for managing cached mood data
-public final class MoodRepository: MoodRepositoryProtocol, @unchecked Sendable {
+public final class MoodRepository: @unchecked Sendable {
     private let coreDataStack: CoreDataStack
 
     public init(coreDataStack: CoreDataStack) {
@@ -35,31 +46,39 @@ public final class MoodRepository: MoodRepositoryProtocol, @unchecked Sendable {
     }
 
     public func saveMoods(_ moods: [Mood]) async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    // Clear existing moods
-                    let deleteRequest = CDMood.fetchRequest()
-                    let deleteResults = try context.fetch(deleteRequest)
-                    for mood in deleteResults {
-                        context.delete(mood)
+        let cancellationGate = MoodSaveCancellationGate()
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            try await withCheckedThrowingContinuation { continuation in
+                coreDataStack.performBackgroundTask { context in
+                    do {
+                        // Clear existing moods
+                        let deleteRequest = CDMood.fetchRequest()
+                        let deleteResults = try context.fetch(deleteRequest)
+                        for mood in deleteResults {
+                            context.delete(mood)
+                        }
+
+                        // Save new moods
+                        for mood in moods {
+                            let cdMood = CDMood(context: context)
+                            cdMood.id = mood.id
+                            cdMood.key = mood.key
+                            cdMood.title = mood.title
+                            cdMood.sourceCompositeKey = mood.sourceCompositeKey
+                        }
+
+                        try cancellationGate.commit {
+                            try context.save()
+                        }
+                        continuation.resume()
+                    } catch {
+                        continuation.resume(throwing: error)
                     }
-                    
-                    // Save new moods
-                    for mood in moods {
-                        let cdMood = CDMood(context: context)
-                        cdMood.id = mood.id
-                        cdMood.key = mood.key
-                        cdMood.title = mood.title
-                        cdMood.sourceCompositeKey = mood.sourceCompositeKey
-                    }
-                    
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
                 }
             }
+        } onCancel: {
+            cancellationGate.cancel()
         }
     }
 

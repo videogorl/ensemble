@@ -109,6 +109,9 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 | Shuffle button | control | Toggle shuffle mode (accent when active) | `shuffle` |
 | Repeat button | control | Cycle repeat mode (off/all/one, accent when active) | `repeat`, `repeat.1` |
 | SmartMix button | control | Toggle per-device silence-aware, tempo-assisted DJ-style overlap between adjacent tracks | `circle.dotted.and.circle` (`sparkles` fallback), `isSmartMixEnabled` |
+| SmartMix settings | settings page | Profile playback settings for the shared SmartMix toggle and same-album protection | `SmartMixSettingsView`, `isSmartMixDisabledForAlbums` |
+| Mixing indicator | status | Centered Now Playing scrubber status shown while a SmartMix overlap is active; scrubbing temporarily replaces it | `isSmartMixTransitionActive` |
+| SmartMix artwork dissolve | animation | Now Playing album art dissolves from the outgoing track to the incoming track at a SmartMix transition midpoint | `ControlsCard` |
 | Autoplay button | control | Toggle autoplay with cross-through when offline | `play.circle.fill`, `play.circle` |
 | Secondary controls region | region | Bottom row with shuffle/repeat/SmartMix/autoplay | `secondaryControlsView` |
 | Page indicator | indicator | Below secondary controls on Queue card | `PageIndicator` |
@@ -162,6 +165,7 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 | Hub section title | text | Bold title for each hub (e.g., "Recently Added") | `hub.title` |
 | Hub item card | control | Tappable card showing album/artist/track/playlist artwork and info | `HubItemCard` |
 | Hub item context menu | menu | Catalog-backed long-press menu for hub album/artist/playlist/track actions | `AlbumActionsContextMenu`, `ArtistActionsContextMenu`, `PlaylistActionsContextMenu`, `TrackActionsContextMenu` |
+| Share Ensemble Link action | action | Opens the system share sheet with a portable `https://ensemble.videogorl.me/media/v1/...` Universal Link while preserving separate streaming-link and audio-file actions | `Share Ensemble Link…` |
 | Hub item artwork | artwork | Square artwork thumbnail for hub items (140x140) | `ArtworkView` |
 | Hub item title | text | Primary title text on hub cards | `item.title` |
 | Hub item subtitle | text | Secondary text (artist name, year) on hub cards | `item.subtitle` |
@@ -604,6 +608,24 @@ Generic detail view used by Album, Playlist, merged playlist, and similar media-
 | Help & support link | control | External link to support website | `Help & Support` |
 | Remove account dialog | menu | Confirmation alert for account removal | `Remove Account` |
 | Clear data dialog | menu | Confirmation alert for clearing library data | `Clear All Library Data` |
+
+---
+
+## AudioQualitySettingsView
+
+- **View name:** `AudioQualitySettingsView`
+- **Canonical name:** Audio Quality
+- **Area:** Settings
+- **Platform:** iOS, iPadOS, macOS
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Streaming quality selector | control | Selects Original/High/Medium/Low quality for Plex streams | `Picker("Streaming Quality")` |
+| Cellular streaming toggle | control | Allows or blocks Plex streaming over cellular; defaults on | `Toggle("Allow Streaming on Cellular")`, `allowStreamingOnCellular` |
+| Download quality selector | control | Selects Original/High/Medium/Low quality for offline files | `Picker("Download Quality")` |
+| Cellular download toggle | control | Mirrors the Manage Downloads cellular preference | `Toggle("Allow Downloading on Cellular")`, `allowCellularDownloads` |
 
 ---
 

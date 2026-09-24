@@ -1,0 +1,20 @@
+[
+  {
+    "path": "local-A",
+    "status": 206,
+    "bytes": 65536,
+    "elapsed": 0.358,
+    "etag": true
+  },
+  {
+    "path": "local-B",
+    "status": 206,
+    "bytes": 65536,
+    "elapsed": 0.309,
+    "etag": true
+  },
+  {
+    "path": "remote",
+    "error": "URLError"
+  }
+]

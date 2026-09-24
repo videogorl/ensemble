@@ -1,3 +1,4 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
@@ -7,11 +8,12 @@ public struct GenresView: View {
         case selectionColumn
     }
 
-    @ObservedObject var libraryVM: LibraryViewModel
+    let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     private let presentationMode: PresentationMode
     private let externalSelectedGenre: Binding<DisplayGenre?>?
     @State private var localSelectedGenre: DisplayGenre?
+    @StateObject private var genreSnapshotCache = BrowseSnapshotCache(GenreBrowseSnapshot.empty)
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(
@@ -30,6 +32,13 @@ public struct GenresView: View {
         genreSnapshot.displayGenres
     }
 
+    private var genreFilterOptions: Binding<FilterOptions> {
+        Binding(
+            get: { libraryVM.genresFilterOptions },
+            set: { libraryVM.genresFilterOptions = $0 }
+        )
+    }
+
     public var body: some View {
         Group {
             if genreSnapshot.phase != .idle && !genreSnapshot.hasVisibleContent {
@@ -43,7 +52,7 @@ public struct GenresView: View {
         .navigationTitle("Genres")
         .genreBrowseSearchable(
             isVisible: isGenreBrowseSearchVisible,
-            text: $libraryVM.genresFilterOptions.searchText
+            text: genreFilterOptions.searchText
         )
         .refreshable {
             await libraryVM.refreshFromServer()
@@ -51,14 +60,26 @@ public struct GenresView: View {
         .refreshCommand {
             await libraryVM.refreshFromServer()
         }
+        .onReceive(libraryVM.$genreBrowseSnapshot) { snapshot in
+            genreSnapshotCache.snapshot = snapshot
+        }
+        .onAppear {
+            genreSnapshotCache.snapshot = libraryVM.genreBrowseSnapshot
+        }
     }
 
     private var genreSnapshot: GenreBrowseSnapshot {
-        libraryVM.immediateGenreBrowseSnapshot
+        genreSnapshotCache.snapshot.hasVisibleContent || genreSnapshotCache.snapshot.phase != .idle
+            ? genreSnapshotCache.snapshot
+            : libraryVM.genreBrowseSnapshot
     }
 
     private var isGenreBrowseSearchVisible: Bool {
-        selectedGenre == nil &&
+        #if os(iOS)
+        if presentationMode == .selectionColumn { return true }
+        #endif
+        // macOS has one toolbar search item, shared with genre album search.
+        return selectedGenre == nil &&
         navigationCoordinator.pathSnapshot(for: .genres).isEmpty &&
         !navigationCoordinator.isRouteTransitionActive(for: .genres)
     }
@@ -69,7 +90,25 @@ public struct GenresView: View {
         case .compactRoot:
             adaptiveGenreView
         case .selectionColumn:
-            genreSelectionList
+            if #available(iOS 18.0, macOS 15.0, *) {
+                NativeBrowseScrollView {
+                    ForEach(filteredGenres) { genre in
+                        Button { setSelectedGenre(genre) } label: {
+                            genreRow(genre)
+                                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+                                .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
+                                .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .browseSelectionBackground(isSelected: selectedGenre?.id == genre.id)
+                        .padding(.horizontal, EnsembleScaffold.BrowseSelection.outerHorizontalPadding)
+                        .id(genre.id)
+                    }
+                }
+                .accessibilityIdentifier("browse.genres")
+            } else {
+                genreSelectionList
+            }
         }
     }
 
@@ -125,24 +164,10 @@ public struct GenresView: View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Genres",
             iconSystemName: EnsembleDesign.Icon.genreEmpty,
-            recovery: libraryEmptyRecovery(emptyMessage: "No genres found in enabled libraries"),
+            recovery: libraryVM.emptyStateRecovery(message: "No genres found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )
-    }
-
-    private func libraryEmptyRecovery(emptyMessage: String) -> EnsembleLibraryEmptyStateScaffold.Recovery {
-        if libraryVM.isRestoringCloudSources {
-            return .restoringCloudSources
-        } else if !libraryVM.hasAnySources {
-            return .noSources
-        } else if libraryVM.isSyncing {
-            return .syncing
-        } else if !libraryVM.hasEnabledLibraries {
-            return .noEnabledLibraries
-        } else {
-            return .empty(message: emptyMessage)
-        }
     }
 
     private var genreListView: some View {
@@ -215,9 +240,11 @@ struct GenreDetailContentView: View {
     }
 
     @ObservedObject var libraryVM: LibraryViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     let genre: DisplayGenre
     let nowPlayingVM: NowPlayingViewModel
     let presentationStyle: PresentationStyle
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
 
     init(
@@ -235,16 +262,17 @@ struct GenreDetailContentView: View {
     var body: some View {
         let genreAlbums = albums(for: genre)
         let albums = filteredAndSortedAlbums(from: genreAlbums)
-        let sections = albumSections(from: albums)
+        let displayAlbums = DisplayAlbum.group(albums, preferences: settingsManager.mergingPreferences)
+        let sections = albumSections(from: displayAlbums)
 
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
             if genreAlbums.isEmpty {
                 LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.album, title: "No Albums")
             } else {
                 genreAlbumList(
-                    albums: albums,
+                    albums: displayAlbums,
                     sections: sections,
-                    playbackTracks: playbackTracks(for: albums)
+                    playbackTracks: playbackTracks(for: displayAlbums)
                 )
             }
         }
@@ -267,7 +295,7 @@ struct GenreDetailContentView: View {
         }
     }
 
-    private func genreHeader(albums: [Album]) -> some View {
+    private func genreHeader(albums: [DisplayAlbum]) -> some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.Genres.detailHeaderSpacing) {
             Text(genre.title)
                 .font(EnsembleDesign.Typography.stateTitle)
@@ -303,14 +331,14 @@ struct GenreDetailContentView: View {
     }
 
     private func genreAlbumList(
-        albums: [Album],
+        albums: [DisplayAlbum],
         sections: [LibraryViewModel.AlbumSection],
         playbackTracks: [Track]
     ) -> some View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                         if presentationStyle == .splitPane {
                             genreHeader(albums: albums)
                         }
@@ -321,18 +349,22 @@ struct GenreDetailContentView: View {
                             LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.album, title: "No Matching Albums")
                         } else if isSortIndexed {
                             ForEach(sections) { section in
-                                Section(header: sectionHeader(section.letter)) {
+                                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                    sectionHeader(section.letter)
+                                        .id(section.letter)
+
                                     AlbumGrid(
                                         albums: section.albums,
-                                        nowPlayingVM: nowPlayingVM
+                                        nowPlayingVM: nowPlayingVM,
+                                        navigationCoordinator: navigationCoordinator
                                     )
-                                    .id(section.letter)
                                 }
                             }
                         } else {
                             AlbumGrid(
                                 albums: albums,
-                                nowPlayingVM: nowPlayingVM
+                                nowPlayingVM: nowPlayingVM,
+                                navigationCoordinator: navigationCoordinator
                             )
                         }
                     }
@@ -457,7 +489,7 @@ struct GenreDetailContentView: View {
         }
     }
 
-    private func albumSections(from albums: [Album]) -> [LibraryViewModel.AlbumSection] {
+    private func albumSections(from albums: [DisplayAlbum]) -> [LibraryViewModel.AlbumSection] {
         let grouped = Dictionary(grouping: albums) { indexingLetter(for: $0) }
         return grouped.map { LibraryViewModel.AlbumSection(letter: $0.key, albums: $0.value) }
             .sorted {
@@ -476,7 +508,7 @@ struct GenreDetailContentView: View {
         }
     }
 
-    private func indexingLetter(for album: Album) -> String {
+    private func indexingLetter(for album: DisplayAlbum) -> String {
         switch libraryVM.genreDetailAlbumSortOption {
         case .title:
             return album.title.indexingLetter
@@ -493,7 +525,7 @@ struct GenreDetailContentView: View {
         Array(Set(albums.compactMap { $0.artistName ?? $0.albumArtist })).sorted()
     }
 
-    private func playbackTracks(for albums: [Album]) -> [Track] {
+    private func playbackTracks(for albums: [DisplayAlbum]) -> [Track] {
         var tracksByAlbum: [String: [Track]] = [:]
 
         for track in libraryVM.tracks {
@@ -505,8 +537,11 @@ struct GenreDetailContentView: View {
             tracksByAlbum[key]?.sort(by: trackPrecedes)
         }
 
-        return albums.flatMap { album in
-            tracksByAlbum[sourceScopedAlbumKey(id: album.id, sourceCompositeKey: album.sourceCompositeKey)] ?? []
+        return albums.flatMap { displayAlbum in
+            let tracks = displayAlbum.albums.flatMap { album in
+                tracksByAlbum[sourceScopedAlbumKey(id: album.id, sourceCompositeKey: album.sourceCompositeKey)] ?? []
+            }
+            return MergingProjection.albumTracks(tracks, preferences: settingsManager.mergingPreferences)
         }
     }
 

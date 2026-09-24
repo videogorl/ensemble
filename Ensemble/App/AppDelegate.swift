@@ -14,7 +14,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     var earlyHealthCheckTask: Task<Void, Never>?
     var playbackRestoreTask: Task<Void, Never>?
     var startupSyncTask: Task<Void, Never>?
-    var coldLaunchDiagnosticsTask: Task<Void, Never>?
     var startupRestoreWasSuppressedForSiri = false
 
     /// Set synchronously when iOS delivers a Siri intent during launch so restoration does not overwrite Siri playback.

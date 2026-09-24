@@ -1,6 +1,31 @@
+import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
-import Nuke
+
+func compareTrackListState(_ lhs: [Track], _ rhs: [Track]) -> (identityOrderMatches: Bool, downloadStateChanged: Bool) {
+    guard lhs.count == rhs.count else { return (false, false) }
+
+    var downloadStateChanged = false
+    for (oldTrack, newTrack) in zip(lhs, rhs) {
+        guard oldTrack.sourceScopedID == newTrack.sourceScopedID else { return (false, false) }
+        downloadStateChanged = downloadStateChanged || oldTrack.isDownloaded != newTrack.isDownloaded
+    }
+    return (true, downloadStateChanged)
+}
+
+func arraysShareStorage<Element>(_ lhs: [Element], _ rhs: [Element]) -> Bool {
+    guard lhs.count == rhs.count else { return false }
+    guard !lhs.isEmpty else { return true }
+    return lhs.withUnsafeBufferPointer { lhsBuffer in
+        rhs.withUnsafeBufferPointer { rhsBuffer in
+            lhsBuffer.baseAddress == rhsBuffer.baseAddress
+        }
+    }
+}
+
+func trackIdentityOrderMatches(_ lhs: [Track], _ rhs: [Track]) -> Bool {
+    compareTrackListState(lhs, rhs).identityOrderMatches
+}
 
 #if canImport(UIKit)
 import UIKit
@@ -12,21 +37,91 @@ import UIKit
 /// eagerly creates table views for navigation destinations not yet displayed.
 class DeferredLayoutTableView: UITableView {
     private var hasAppearedInWindow = false
+    var defersLayoutUntilWindow = true
+    var onLayout: (() -> Void)?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil && !hasAppearedInWindow {
             hasAppearedInWindow = true
-            // Trigger the first real layout now that we're in a window
-            reloadData()
+            if defersLayoutUntilWindow {
+                reloadData()
+            }
+            layoutIfNeeded()
         }
     }
 
     override func layoutSubviews() {
         // Skip layout passes before the table is in a window — these cause
         // unnecessary work and "layout outside view hierarchy" warnings.
-        guard window != nil else { return }
+        guard !defersLayoutUntilWindow || window != nil else { return }
         super.layoutSubviews()
+        onLayout?()
+    }
+}
+
+private final class HostedContentController: UIHostingController<AnyView> {
+    var onContentHeightChange: ((CGFloat) -> Void)?
+    private var contentHeight: CGFloat = 0
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard view.bounds.width > 0 else { return }
+
+        let fittingHeight = view.systemLayoutSizeFitting(
+            CGSize(width: view.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        guard abs(contentHeight - fittingHeight) > 1 else { return }
+        contentHeight = fittingHeight
+        onContentHeightChange?(fittingHeight)
+    }
+}
+
+private final class HostedContentCell: UITableViewCell {
+    static let reuseIdentifier = "HostedContentCell"
+    private var hostingController: HostedContentController?
+
+    func configure(content: AnyView, tableView: UITableView) {
+        selectionStyle = .none
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        separatorInset = UIEdgeInsets(top: 0, left: tableView.bounds.width, bottom: 0, right: 0)
+
+        if #available(iOS 16.0, *) {
+            hostingController?.view.removeFromSuperview()
+            hostingController = nil
+            contentConfiguration = UIHostingConfiguration {
+                content
+            }
+            .margins(.all, 0)
+            return
+        }
+
+        if let hostingController {
+            hostingController.rootView = content
+            return
+        }
+
+        let hostingController = HostedContentController(rootView: content)
+        hostingController.view.backgroundColor = .clear
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(hostingController.view)
+        NSLayoutConstraint.activate([
+            hostingController.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            hostingController.view.topAnchor.constraint(equalTo: contentView.topAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+        hostingController.onContentHeightChange = { [weak self, weak tableView] _ in
+            guard self?.window != nil, let tableView else { return }
+            UIView.performWithoutAnimation {
+                tableView.beginUpdates()
+                tableView.endUpdates()
+            }
+        }
+        self.hostingController = hostingController
     }
 }
 
@@ -87,6 +182,10 @@ public class TrackTableViewCell: UITableViewCell {
     }
     
     private func setupViews() {
+        let selectedBackground = UIView()
+        selectedBackground.backgroundColor = UIColor(EnsembleScaffold.BrowseSelection.fillColor)
+        selectedBackgroundView = selectedBackground
+
         artworkImageView.contentMode = .scaleAspectFill
         artworkImageView.clipsToBounds = true
         artworkImageView.backgroundColor = UIColor.systemGray5
@@ -258,6 +357,7 @@ public class TrackTableViewCell: UITableViewCell {
         isActivelyDownloading: Bool = false,
         isFavorited: Bool = false,
         supplementalMetadataWidth: CGFloat? = nil,
+        sourceLabel: String? = nil,
         menu: UIMenu?,
         rowHeight: CGFloat = 68,
         artworkLoader: ArtworkLoaderProtocol
@@ -301,10 +401,17 @@ public class TrackTableViewCell: UITableViewCell {
         if showAlbumName, let album = track.albumName {
             subtitleParts.append(album)
         }
+        if let unavailableReason = track.unavailableReason {
+            subtitleParts.append(unavailableReason)
+        }
+        if let sourceLabel {
+            subtitleParts.append(sourceLabel)
+        }
         subtitleLabel.text = showsArtistMetadataColumn ? nil : subtitleParts.joined(separator: " · ")
         subtitleLabel.isHidden = showsArtistMetadataColumn
-        artistMetadataLabel.text = track.artistName ?? "Unknown Artist"
-        albumMetadataLabel.text = track.albumName ?? "Unknown Album"
+        let artistMetadata = track.unavailableReason ?? track.artistName ?? "Unknown Artist"
+        artistMetadataLabel.text = [artistMetadata, sourceLabel].compactMap { $0 }.joined(separator: " · ")
+        albumMetadataLabel.text = track.unavailableReason == nil ? track.albumName ?? "Unknown Album" : ""
         
         durationLabel.text = track.formattedDuration
         durationLabel.isHidden = isPlaying
@@ -345,49 +452,26 @@ public class TrackTableViewCell: UITableViewCell {
             if currentTrackID != playbackIdentity {
                 currentTrackID = playbackIdentity
                 artworkImageView.backgroundColor = UIColor.systemGray5
+                artworkImageView.image = TrackArtworkThumbnailLoader.cachedImage(
+                    for: track,
+                    artworkLoader: artworkLoader
+                )
                 
                 // Cancel any previous artwork load task
                 artworkLoadTask?.cancel()
                 
-                artworkLoadTask = Task { @MainActor in
-                guard let url = await artworkLoader.artworkURLAsync(
-                    for: track.thumbPath,
-                    sourceKey: track.sourceCompositeKey,
-                    ratingKey: track.id,
-                    fallbackPath: track.fallbackThumbPath,
-                    fallbackRatingKey: track.fallbackRatingKey,
-                    size: ArtworkSize.thumbnail.rawValue
-                ) else {
-                    // No artwork available - clear any stale image from cell reuse
-                    if self.currentTrackID == playbackIdentity {
-                        self.artworkImageView.image = nil
+                artworkLoadTask = artworkImageView.image == nil ? Task { @MainActor in
+                    let image = await TrackArtworkThumbnailLoader.image(
+                        for: track,
+                        artworkLoader: artworkLoader
+                    ) {
+                        self.currentTrackID == playbackIdentity
                     }
-                    return
-                }
-                
-                let request = ArtworkImageRequest.resized(
-                    url: url,
-                    size: ArtworkSize.thumbnail.rawValue,
-                    priority: .high
-                )
-                
-                // Check cache first for instant display
-                if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                    // Only update if still showing same track
-                    if self.currentTrackID == playbackIdentity {
-                        self.artworkImageView.image = cachedImage.image
-                    }
-                    return
-                }
-                
-                // Load asynchronously if not cached
-                if let image = try? await ImagePipeline.shared.image(for: request) {
-                    // Only update if still showing same track
+
                     if self.currentTrackID == playbackIdentity {
                         self.artworkImageView.image = image
                     }
-                }
-            }
+                } : nil
             } else {
                 // Same track - just update playing state without reloading artwork
             }
@@ -483,6 +567,12 @@ public class TrackTableViewCell: UITableViewCell {
         titleLeadingConstraint?.isActive = false
         subtitleLeadingConstraint?.isActive = false
     }
+
+    func prepareArtworkRetry() -> Bool {
+        guard artworkImageView.image == nil else { return false }
+        currentTrackID = nil
+        return true
+    }
 }
 
 // MARK: - Media Track List
@@ -495,6 +585,8 @@ public struct MediaTrackList: UIViewRepresentable {
     let showAlbumName: Bool
     let groupByDisc: Bool
     let currentTrackId: String?
+    let selectedTrackId: String?
+    let contentRevision: UInt64?
     let onTrackTap: (Track, Int) -> Void
     let onPlayNext: ((Track) -> Void)?
     let onPlayLast: ((Track) -> Void)?
@@ -516,6 +608,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let interactionModel: TrackRowInteractionModel
     /// Optional available width used to reveal wide artist/album metadata columns.
     let supplementalMetadataWidth: CGFloat?
+    let trackSourceLabels: [String: String]
 
     /// Change token from TrackAvailabilityResolver — parent observes the singleton
     /// and passes the generation here so MediaTrackList doesn't subscribe itself.
@@ -534,19 +627,16 @@ public struct MediaTrackList: UIViewRepresentable {
     let bottomContentInset: CGFloat
     /// Fixed height for each row. StageFlow uses a denser value while standard lists keep 68pt.
     let rowHeight: CGFloat
-    /// Optional SwiftUI content to embed as the UITableView's `tableHeaderView`.
+    /// Optional SwiftUI content to embed as the table's self-sizing first row.
     /// Scrolls naturally with the table while preserving full cell recycling.
     /// Used by MediaDetailView to scroll album art + action buttons with the track list.
     let tableHeaderContent: AnyView?
+    let tableHeaderRevision: String?
     /// Optional SwiftUI content to embed as the UITableView's `tableFooterView`.
     /// Used to show loading/empty indicators below the track list while keeping
     /// the header (chips + artwork + buttons) structurally identical across all states.
     let tableFooterContent: AnyView?
-    /// When provided, a UISearchController is attached to the navigation bar —
-    /// hidden by default, revealed on pull-down like Apple Music / Settings.
-    /// The binding syncs the search text back to the parent view model.
-    let searchTextBinding: Binding<String>?
-
+    let onRefresh: (() async -> Void)?
     @Environment(\.dependencies) private var dependencies
     @Environment(\.trackListDisplayRatingsRevision) private var displayRatingsRevision
 
@@ -557,6 +647,8 @@ public struct MediaTrackList: UIViewRepresentable {
         showAlbumName: Bool = true,
         groupByDisc: Bool = false,
         currentTrackId: String? = nil,
+        selectedTrackId: String? = nil,
+        contentRevision: UInt64? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         managesOwnScrolling: Bool = false,
@@ -564,10 +656,12 @@ public struct MediaTrackList: UIViewRepresentable {
         bottomContentInset: CGFloat = 0,
         rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
         tableHeaderContent: AnyView? = nil,
+        tableHeaderRevision: String? = nil,
         tableFooterContent: AnyView? = nil,
-        searchTextBinding: Binding<String>? = nil,
+        onRefresh: (() async -> Void)? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
+        trackSourceLabels: [String: String] = [:],
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -591,6 +685,8 @@ public struct MediaTrackList: UIViewRepresentable {
         self.showAlbumName = showAlbumName
         self.groupByDisc = groupByDisc
         self.currentTrackId = currentTrackId
+        self.selectedTrackId = selectedTrackId
+        self.contentRevision = contentRevision
         self.availabilityGeneration = availabilityGeneration
         self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         self.managesOwnScrolling = managesOwnScrolling
@@ -598,9 +694,11 @@ public struct MediaTrackList: UIViewRepresentable {
         self.bottomContentInset = bottomContentInset
         self.rowHeight = rowHeight
         self.tableHeaderContent = tableHeaderContent
+        self.tableHeaderRevision = tableHeaderRevision
         self.tableFooterContent = tableFooterContent
-        self.searchTextBinding = searchTextBinding
+        self.onRefresh = onRefresh
         self.supplementalMetadataWidth = supplementalMetadataWidth
+        self.trackSourceLabels = trackSourceLabels
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
@@ -642,16 +740,20 @@ public struct MediaTrackList: UIViewRepresentable {
         showTrackNumbers: Bool = false,
         showAlbumName: Bool = true,
         currentTrackId: String? = nil,
+        selectedTrackId: String? = nil,
+        contentRevision: UInt64? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
         tableHeaderContent: AnyView? = nil,
+        tableHeaderRevision: String? = nil,
         tableFooterContent: AnyView? = nil,
-        searchTextBinding: Binding<String>? = nil,
+        onRefresh: (() async -> Void)? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
+        trackSourceLabels: [String: String] = [:],
         showsNativeSectionIndex: Bool = false,
         sectionScrollRequestID: Int? = nil,
         sectionScrollTargetID: String? = nil,
@@ -665,6 +767,8 @@ public struct MediaTrackList: UIViewRepresentable {
         self.showAlbumName = showAlbumName
         self.groupByDisc = false
         self.currentTrackId = currentTrackId
+        self.selectedTrackId = selectedTrackId
+        self.contentRevision = contentRevision
         self.availabilityGeneration = availabilityGeneration
         self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         self.managesOwnScrolling = true
@@ -672,9 +776,11 @@ public struct MediaTrackList: UIViewRepresentable {
         self.bottomContentInset = bottomContentInset
         self.rowHeight = rowHeight
         self.tableHeaderContent = tableHeaderContent
+        self.tableHeaderRevision = tableHeaderRevision
         self.tableFooterContent = tableFooterContent
-        self.searchTextBinding = searchTextBinding
+        self.onRefresh = onRefresh
         self.supplementalMetadataWidth = supplementalMetadataWidth
+        self.trackSourceLabels = trackSourceLabels
         self.onPlayNext = nil
         self.onPlayLast = nil
         self.onAddToPlaylist = nil
@@ -697,17 +803,12 @@ public struct MediaTrackList: UIViewRepresentable {
     }
     
     public func makeUIView(context: Context) -> UITableView {
-        let tableView: UITableView
-        if managesOwnScrolling {
-            // Regular UITableView — manages its own scrolling and cell recycling.
-            tableView = UITableView(frame: .zero, style: .plain)
-        } else {
-            // DeferredLayoutTableView — parent ScrollView handles scrolling.
-            tableView = DeferredLayoutTableView(frame: .zero, style: .plain)
-        }
+        let tableView = DeferredLayoutTableView(frame: .zero, style: .plain)
+        tableView.defersLayoutUntilWindow = !managesOwnScrolling
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.register(TrackTableViewCell.self, forCellReuseIdentifier: "TrackCell")
+        tableView.register(HostedContentCell.self, forCellReuseIdentifier: HostedContentCell.reuseIdentifier)
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = UIEdgeInsets(
             top: 0,
@@ -721,6 +822,16 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.separatorColor = TrackListLayoutMetrics.nativeSeparatorColor
         tableView.backgroundColor = .clear
         tableView.isScrollEnabled = managesOwnScrolling
+
+        if managesOwnScrolling, onRefresh != nil {
+            let refreshControl = UIRefreshControl()
+            refreshControl.addTarget(
+                context.coordinator,
+                action: #selector(Coordinator.refresh(_:)),
+                for: .valueChanged
+            )
+            tableView.refreshControl = refreshControl
+        }
 
         // Self-scrolling tables extend under the nav bar (via .ignoresSafeArea on the
         // SwiftUI side) and use .automatic so UIKit adds the correct top content inset.
@@ -752,61 +863,19 @@ public struct MediaTrackList: UIViewRepresentable {
         // Enable drag-and-drop for downloaded tracks on iPad
         tableView.dragDelegate = context.coordinator
         tableView.dragInteractionEnabled = true
-
-        // Install optional SwiftUI table header (album art, action buttons, etc.).
-        // Uses UIHostingController to bridge SwiftUI content into the UITableView's
-        // native tableHeaderView, which scrolls with the table and preserves cell recycling.
-        if let tableHeaderContent {
-            let hostingController = UIHostingController(rootView: tableHeaderContent)
-            hostingController.view.backgroundColor = .clear
-            // Size the header to fit its content
-            let targetWidth = tableView.bounds.width > 0 ? tableView.bounds.width : UIScreen.main.bounds.width
-            let fittingSize = hostingController.view.systemLayoutSizeFitting(
-                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
-                withHorizontalFittingPriority: .required,
-                verticalFittingPriority: .fittingSizeLevel
-            )
-            hostingController.view.frame = CGRect(origin: .zero, size: fittingSize)
-            tableView.tableHeaderView = hostingController.view
-            context.coordinator.headerHostingController = hostingController
+        context.coordinator.tableView = tableView
+        tableView.onLayout = { [weak coordinator = context.coordinator] in
+            coordinator?.selectRequestedTrack()
         }
-
-        // Install optional SwiftUI table footer (loading/empty indicators).
-        // Only set tableFooterView when the content has real height — an empty
-        // hosting controller can interfere with bottomContentInset scroll-behind.
-        if let tableFooterContent {
-            let footerHost = UIHostingController(rootView: tableFooterContent)
-            footerHost.view.backgroundColor = .clear
-            let targetWidth = tableView.bounds.width > 0 ? tableView.bounds.width : UIScreen.main.bounds.width
-            let fittingSize = footerHost.view.systemLayoutSizeFitting(
-                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
-                withHorizontalFittingPriority: .required,
-                verticalFittingPriority: .fittingSizeLevel
-            )
-            footerHost.view.frame = CGRect(origin: .zero, size: fittingSize)
-            if fittingSize.height >= 1 {
-                tableView.tableFooterView = footerHost.view
-            }
-            context.coordinator.footerHostingController = footerHost
-        }
-
-        // When a search binding is provided, set up a UISearchController once the
-        // table is in the view hierarchy. Uses didMoveToWindow to find the hosting
-        // UIViewController and attach the search controller to its navigation item.
-        if let searchTextBinding {
-            context.coordinator.pendingSearchBinding = searchTextBinding
-            context.coordinator.pendingTableView = tableView
-        }
-
         return tableView
     }
     
     public func updateUIView(_ tableView: UITableView, context: Context) {
-        // Attach UISearchController once the table is in a window.
-        // Must happen after the view is in the hierarchy so we can find the
-        // hosting UIViewController and its navigation controller.
-        if context.coordinator.pendingSearchBinding != nil && tableView.window != nil {
-            context.coordinator.attachSearchController()
+        context.coordinator.selectedTrackId = selectedTrackId
+        if managesOwnScrolling,
+           context.coordinator.contentScrollViewOwner == nil,
+           tableView.window != nil {
+            context.coordinator.registerContentScrollView(tableView)
         }
 
         // Re-apply content insets if they were cleared. This can happen when
@@ -820,17 +889,34 @@ public struct MediaTrackList: UIViewRepresentable {
             tableView.contentInset.bottom = bottomContentInset
         }
 
-        let newGroupedTracks = makeTrackGroups()
-        
-        // Check if track list structure changed (additions/removals/reordering)
-        let newGroupSignature = newGroupedTracks.map(\.signature)
-        let dataChanged = context.coordinator.tracks.count != tracks.count ||
-            !zip(context.coordinator.tracks, tracks).allSatisfy { $0.id == $1.id } ||
-            context.coordinator.groupSignature != newGroupSignature
+        let contentIsUnchanged: Bool = if let contentRevision {
+            contentRevision == context.coordinator.contentRevision
+        } else {
+            switch (context.coordinator.sections, sections) {
+            case let (.some(previous), .some(current)):
+                arraysShareStorage(previous, current)
+            case (nil, nil):
+                arraysShareStorage(context.coordinator.tracks, tracks)
+            default:
+                false
+            }
+        }
+        let newGroupedTracks = contentIsUnchanged ? context.coordinator.groupedTracks : makeTrackGroups()
+
+        // Check if track list structure changed (additions/removals/reordering).
+        // Shared array storage avoids repeating this linear scan on unrelated updates.
+        let newGroupSignature = contentIsUnchanged ? context.coordinator.groupSignature : newGroupedTracks.map(\.signature)
+        let trackState = contentIsUnchanged
+            ? (identityOrderMatches: true, downloadStateChanged: false)
+            : compareTrackListState(context.coordinator.tracks, tracks)
+        let dataChanged = !trackState.identityOrderMatches ||
+            context.coordinator.groupSignature != newGroupSignature ||
+            (context.coordinator.tableHeaderContent == nil) != (tableHeaderContent == nil) ||
+            context.coordinator.tableHeaderRevision != tableHeaderRevision ||
+            (context.coordinator.tableFooterContent == nil) != (tableFooterContent == nil)
 
         // Check if any track's download state changed (localFilePath set or cleared)
-        let downloadStateChanged = !dataChanged &&
-            !zip(context.coordinator.tracks, tracks).allSatisfy { $0.isDownloaded == $1.isDownloaded }
+        let downloadStateChanged = !dataChanged && trackState.downloadStateChanged
 
         let currentTrackChanged = context.coordinator.currentTrackId != currentTrackId
         // Read network state from DependencyContainer (not observed — parent drives re-renders)
@@ -839,12 +925,20 @@ public struct MediaTrackList: UIViewRepresentable {
         let activeDownloadsChanged = context.coordinator.activeDownloadTrackIdentities != activeDownloadTrackIdentities
         let availabilityChanged = context.coordinator.lastAvailabilityGeneration != availabilityGeneration
         let supplementalMetadataWidthChanged = context.coordinator.supplementalMetadataWidth != supplementalMetadataWidth
+        let trackSourceLabelsChanged = context.coordinator.trackSourceLabels != trackSourceLabels
         let displayRatingsChanged = context.coordinator.lastDisplayRatingsRevision != displayRatingsRevision
-        let newFavoriteStateSignature = favoriteStateSignature(for: tracks)
-        let favoriteStateChanged = !dataChanged && (displayRatingsChanged || context.coordinator.favoriteStateSignature != newFavoriteStateSignature)
+        let newFavoriteStateSignature = !dataChanged && displayRatingsChanged
+            ? favoriteStateSignature(for: tracks)
+            : context.coordinator.favoriteStateSignature
+        let favoriteStateChanged = !dataChanged && context.coordinator.favoriteStateSignature != newFavoriteStateSignature
+
+        let selectedRowIdentity = tableView.indexPathForSelectedRow
+            .flatMap { context.coordinator.track(at: $0)?.playbackIdentity }
 
         // Update coordinator state
         context.coordinator.tracks = tracks
+        context.coordinator.sections = sections
+        context.coordinator.contentRevision = contentRevision
         context.coordinator.groupedTracks = newGroupedTracks
         context.coordinator.groupSignature = newGroupSignature
         context.coordinator.favoriteStateSignature = newFavoriteStateSignature
@@ -870,6 +964,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.showsNativeSectionIndex = showsNativeSectionIndex
         context.coordinator.interactionModel = interactionModel
         context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
+        context.coordinator.trackSourceLabels = trackSourceLabels
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.settingsManager = dependencies.settingsManager
@@ -879,6 +974,10 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.rowHeight = rowHeight
         context.coordinator.lastAvailabilityGeneration = availabilityGeneration
         context.coordinator.lastDisplayRatingsRevision = displayRatingsRevision
+        context.coordinator.tableHeaderContent = tableHeaderContent
+        context.coordinator.tableHeaderRevision = tableHeaderRevision
+        context.coordinator.tableFooterContent = tableFooterContent
+        context.coordinator.onRefresh = onRefresh
 
         // Reload data immediately after updating groupedTracks to keep UIKit's geometry
         // in sync with the backing data. Previously there was a ~85 line gap between the
@@ -887,59 +986,17 @@ public struct MediaTrackList: UIViewRepresentable {
         if tableView.window != nil && dataChanged {
             tableView.reloadData()
             tableView.reloadSectionIndexTitles()
-        }
-
-        // Update table header view size if needed (e.g., after initial width becomes available).
-        // UITableView requires explicit header resizing — it doesn't auto-layout the header.
-        if let headerHost = context.coordinator.headerHostingController,
-           let headerView = tableView.tableHeaderView,
-           tableView.bounds.width > 0 {
-            if let tableHeaderContent {
-                headerHost.rootView = tableHeaderContent
-            }
-            let targetWidth = tableView.bounds.width
-            let fittingSize = headerHost.view.systemLayoutSizeFitting(
-                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
-                withHorizontalFittingPriority: .required,
-                verticalFittingPriority: .fittingSizeLevel
-            )
-            // Only reassign when height actually changes to avoid layout loops
-            if abs(headerView.frame.height - fittingSize.height) > 1 {
-                headerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
-                tableView.tableHeaderView = headerView
+            if let selectedRowIdentity,
+               let indexPath = context.coordinator.indexPath(forTrackId: selectedRowIdentity) {
+                tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
             }
         }
 
-        // Update table footer view — dynamically add/remove based on content height.
-        // An empty footer (EmptyView) must be removed entirely so it doesn't interfere
-        // with bottomContentInset scroll-behind behavior (mini player / tab bar).
-        if let footerHost = context.coordinator.footerHostingController,
-           tableView.bounds.width > 0 {
-            if let tableFooterContent {
-                footerHost.rootView = tableFooterContent
-            }
-            let targetWidth = tableView.bounds.width
-            let fittingSize = footerHost.view.systemLayoutSizeFitting(
-                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
-                withHorizontalFittingPriority: .required,
-                verticalFittingPriority: .fittingSizeLevel
-            )
-            if fittingSize.height < 1 {
-                // Footer content is empty — remove to preserve scroll-behind inset
-                if tableView.tableFooterView != nil {
-                    tableView.tableFooterView = nil
-                }
-            } else if let footerView = tableView.tableFooterView {
-                // Footer exists — resize if height changed
-                if abs(footerView.frame.height - fittingSize.height) > 1 {
-                    footerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
-                    tableView.tableFooterView = footerView
-                }
-            } else {
-                // Footer became non-empty — install it
-                footerHost.view.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
-                tableView.tableFooterView = footerHost.view
-            }
+        if let tableFooterContent,
+           let footerCell = tableView.cellForRow(
+               at: IndexPath(row: 0, section: context.coordinator.footerSection)
+           ) as? HostedContentCell {
+            footerCell.configure(content: tableFooterContent, tableView: tableView)
         }
 
         // Skip remaining work when the table isn't in a window yet — DeferredLayoutTableView
@@ -965,17 +1022,18 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
-        if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged || supplementalMetadataWidthChanged || favoriteStateChanged) {
+        context.coordinator.selectRequestedTrack()
+
+        if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged || supplementalMetadataWidthChanged || trackSourceLabelsChanged || favoriteStateChanged) {
             // Reconfigure visible cells when track state or adaptive metadata width changes.
             // Bounds-check indexPaths since visible cells may reference stale geometry.
             tableView.visibleCells.forEach { cell in
                 if let trackCell = cell as? TrackTableViewCell,
                    let indexPath = tableView.indexPath(for: cell),
-                   indexPath.section < newGroupedTracks.count,
-                   indexPath.row < newGroupedTracks[indexPath.section].tracks.count {
-                    let track = newGroupedTracks[indexPath.section].tracks[indexPath.row]
+                   let groupIndex = context.coordinator.groupIndex(forTableSection: indexPath.section),
+                   indexPath.row < newGroupedTracks[groupIndex].tracks.count {
+                    let track = newGroupedTracks[groupIndex].tracks[indexPath.row]
                     let isPlaying = track.playbackIdentity == currentTrackId
-                    let resolvedActions = context.coordinator.interactionModel.resolve(for: track)
                     trackCell.configure(
                         with: track,
                         showArtwork: showArtwork,
@@ -984,13 +1042,10 @@ public struct MediaTrackList: UIViewRepresentable {
                         isPlaying: isPlaying,
                         isUnavailableOffline: context.coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
                         isActivelyDownloading: context.coordinator.activeDownloadTrackIdentities.contains(track.sourceScopedID),
-                        isFavorited: resolvedActions.isFavorited,
+                        isFavorited: context.coordinator.interactionModel.isFavorited(track),
                         supplementalMetadataWidth: context.coordinator.supplementalMetadataWidth,
-                        menu: context.coordinator.makeContextMenu(
-                            for: track,
-                            at: indexPath,
-                            resolvedActions: resolvedActions
-                        ),
+                        sourceLabel: context.coordinator.sourceLabel(for: track),
+                        menu: context.coordinator.makeDeferredContextMenu(for: track, at: indexPath),
                         rowHeight: context.coordinator.rowHeight,
                         artworkLoader: dependencies.artworkLoader
                     )
@@ -998,10 +1053,16 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
     }
+
+    public static func dismantleUIView(_ tableView: UITableView, coordinator: Coordinator) {
+        coordinator.unregisterContentScrollView(tableView)
+    }
     
     public func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator(
             tracks: tracks,
+            sections: sections,
+            contentRevision: contentRevision,
             groupedTracks: makeTrackGroups(),
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
@@ -1025,6 +1086,7 @@ public struct MediaTrackList: UIViewRepresentable {
             showsNativeSectionIndex: showsNativeSectionIndex,
             interactionModel: interactionModel,
             supplementalMetadataWidth: supplementalMetadataWidth,
+            trackSourceLabels: trackSourceLabels,
             artworkLoader: dependencies.artworkLoader,
             shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
@@ -1032,7 +1094,12 @@ public struct MediaTrackList: UIViewRepresentable {
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
             isOffline: !dependencies.networkMonitor.isConnected,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-            rowHeight: rowHeight
+            rowHeight: rowHeight,
+            displayRatingsRevision: displayRatingsRevision,
+            tableHeaderContent: tableHeaderContent,
+            tableHeaderRevision: tableHeaderRevision,
+            tableFooterContent: tableFooterContent,
+            onRefresh: onRefresh
         )
         return coordinator
     }
@@ -1057,9 +1124,7 @@ public struct MediaTrackList: UIViewRepresentable {
     }
 
     private func favoriteStateSignature(for tracks: [Track]) -> [Bool] {
-        tracks.map { track in
-            interactionModel.resolve(for: track).isFavorited
-        }
+        tracks.map { interactionModel.isFavorited($0) }
     }
 
     private func groupTracksByDisc(_ tracks: [Track]) -> [MediaTrackGroup] {
@@ -1080,7 +1145,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
     }
     
-    public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate, UISearchResultsUpdating {
+    public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate {
         var tracks: [Track]
         fileprivate var groupedTracks: [MediaTrackGroup]
         var groupSignature: [String]
@@ -1089,6 +1154,8 @@ public struct MediaTrackList: UIViewRepresentable {
         var showTrackNumbers: Bool
         var showAlbumName: Bool
         var currentTrackId: String?
+        var sections: [NativeTrackListSection]?
+        var contentRevision: UInt64?
         var onTrackTap: (Track, Int) -> Void
         var onPlayNext: ((Track) -> Void)?
         var onPlayLast: ((Track) -> Void)?
@@ -1106,8 +1173,11 @@ public struct MediaTrackList: UIViewRepresentable {
         var recentPlaylistTitle: String?
         var showsNativeSectionIndex: Bool
         var consumedSectionScrollRequestID: Int?
+        var selectedTrackId: String?
+        var consumedSelectedTrackId: String?
         var interactionModel: TrackRowInteractionModel
         var supplementalMetadataWidth: CGFloat?
+        var trackSourceLabels: [String: String]
         var artworkLoader: ArtworkLoaderProtocol
         var shareService: ShareService
         var toastCenter: ToastCenter
@@ -1116,24 +1186,20 @@ public struct MediaTrackList: UIViewRepresentable {
         var isOffline: Bool
         var activeDownloadTrackIdentities: Set<String>
         var rowHeight: CGFloat
+        var tableFooterContent: AnyView?
         var lastAvailabilityGeneration: UInt64 = 0
         var lastDisplayRatingsRevision: UInt64 = 0
-        /// Retains the UIHostingController used for the table header view
-        var headerHostingController: UIHostingController<AnyView>?
-        /// Retains the UIHostingController used for the table footer view
-        var footerHostingController: UIHostingController<AnyView>?
-        /// Pending search binding — set before the table is in a window, consumed
-        /// once the UISearchController is attached to the navigation item.
-        var pendingSearchBinding: Binding<String>?
-        /// Reference to the table view for setContentScrollView
-        weak var pendingTableView: UITableView?
-        /// Retains the search controller so it isn't deallocated
-        private var searchController: UISearchController?
-        /// Active search binding for UISearchResultsUpdating
-        private var activeSearchBinding: Binding<String>?
+        var tableHeaderContent: AnyView?
+        var tableHeaderRevision: String?
+        var onRefresh: (() async -> Void)?
+        weak var contentScrollViewOwner: UIViewController?
+        weak var tableView: UITableView?
+        private var artworkRecoveryObserver: NSObjectProtocol?
 
         fileprivate init(
             tracks: [Track],
+            sections: [NativeTrackListSection]?,
+            contentRevision: UInt64?,
             groupedTracks: [MediaTrackGroup],
             showArtwork: Bool,
             showTrackNumbers: Bool,
@@ -1157,6 +1223,7 @@ public struct MediaTrackList: UIViewRepresentable {
             showsNativeSectionIndex: Bool,
             interactionModel: TrackRowInteractionModel,
             supplementalMetadataWidth: CGFloat?,
+            trackSourceLabels: [String: String],
             artworkLoader: ArtworkLoaderProtocol,
             shareService: ShareService,
             toastCenter: ToastCenter,
@@ -1164,14 +1231,19 @@ public struct MediaTrackList: UIViewRepresentable {
             trackAvailabilityResolver: TrackAvailabilityResolver,
             isOffline: Bool,
             activeDownloadTrackIdentities: Set<String> = [],
-            rowHeight: CGFloat
+            rowHeight: CGFloat,
+            displayRatingsRevision: UInt64,
+            tableHeaderContent: AnyView?,
+            tableHeaderRevision: String?,
+            tableFooterContent: AnyView?,
+            onRefresh: (() async -> Void)?
         ) {
             self.tracks = tracks
+            self.sections = sections
+            self.contentRevision = contentRevision
             self.groupedTracks = groupedTracks
             self.groupSignature = groupedTracks.map(\.signature)
-            self.favoriteStateSignature = tracks.map { track in
-                interactionModel.resolve(for: track).isFavorited
-            }
+            self.favoriteStateSignature = []
             self.showArtwork = showArtwork
             self.showTrackNumbers = showTrackNumbers
             self.showAlbumName = showAlbumName
@@ -1194,6 +1266,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.showsNativeSectionIndex = showsNativeSectionIndex
             self.interactionModel = interactionModel
             self.supplementalMetadataWidth = supplementalMetadataWidth
+            self.trackSourceLabels = trackSourceLabels
             self.artworkLoader = artworkLoader
             self.shareService = shareService
             self.toastCenter = toastCenter
@@ -1202,6 +1275,48 @@ public struct MediaTrackList: UIViewRepresentable {
             self.isOffline = isOffline
             self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
             self.rowHeight = rowHeight
+            self.lastDisplayRatingsRevision = displayRatingsRevision
+            self.tableHeaderContent = tableHeaderContent
+            self.tableHeaderRevision = tableHeaderRevision
+            self.tableFooterContent = tableFooterContent
+            self.onRefresh = onRefresh
+            super.init()
+            artworkRecoveryObserver = NotificationCenter.default.addObserver(
+                forName: ArtworkLoader.serversBecameAvailable,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.retryFailedArtwork()
+            }
+        }
+
+        deinit {
+            if let artworkRecoveryObserver {
+                NotificationCenter.default.removeObserver(artworkRecoveryObserver)
+            }
+        }
+
+        private func retryFailedArtwork() {
+            guard let tableView else { return }
+            let indexPaths = tableView.visibleCells.compactMap { cell -> IndexPath? in
+                guard let cell = cell as? TrackTableViewCell,
+                      cell.prepareArtworkRetry() else { return nil }
+                return tableView.indexPath(for: cell)
+            }
+            guard !indexPaths.isEmpty else { return }
+            tableView.reloadRows(at: indexPaths, with: .none)
+        }
+
+        @objc func refresh(_ refreshControl: UIRefreshControl) {
+            guard let onRefresh else {
+                refreshControl.endRefreshing()
+                return
+            }
+
+            Task { @MainActor in
+                await onRefresh()
+                refreshControl.endRefreshing()
+            }
         }
         
         // MARK: - Bounds-Safe Accessor
@@ -1209,38 +1324,110 @@ public struct MediaTrackList: UIViewRepresentable {
         /// Safely access a track, returning nil if indices are out of bounds.
         /// Protects against race conditions where UIKit requests cells for stale index paths
         /// after groupedTracks has been updated but before reloadData completes.
-        private func track(at indexPath: IndexPath) -> Track? {
+        fileprivate func track(at indexPath: IndexPath) -> Track? {
             indexedTrack(at: indexPath)?.track
         }
 
+        func sourceLabel(for track: Track) -> String? {
+            track.sourceCompositeKey.flatMap { trackSourceLabels[$0] }
+        }
+
         private func indexedTrack(at indexPath: IndexPath) -> (track: Track, index: Int)? {
-            guard indexPath.section < groupedTracks.count,
-                  indexPath.row < groupedTracks[indexPath.section].tracks.count else {
+            guard let groupIndex = groupIndex(forTableSection: indexPath.section),
+                  indexPath.row < groupedTracks[groupIndex].tracks.count else {
                 return nil
             }
-            let index = groupedTracks[..<indexPath.section].reduce(0) { $0 + $1.tracks.count } + indexPath.row
-            return (groupedTracks[indexPath.section].tracks[indexPath.row], index)
+            let index = groupedTracks[..<groupIndex].reduce(0) { $0 + $1.tracks.count } + indexPath.row
+            return (groupedTracks[groupIndex].tracks[indexPath.row], index)
+        }
+
+        private var headerSectionCount: Int {
+            tableHeaderContent == nil ? 0 : 1
+        }
+
+        var footerSection: Int {
+            headerSectionCount + groupedTracks.count
+        }
+
+        fileprivate func groupIndex(forTableSection section: Int) -> Int? {
+            let groupIndex = section - headerSectionCount
+            return groupedTracks.indices.contains(groupIndex) ? groupIndex : nil
+        }
+
+        private func tableSection(forGroupIndex groupIndex: Int) -> Int {
+            headerSectionCount + groupIndex
         }
 
         func sectionIndex(forID sectionID: String) -> Int? {
-            groupedTracks.firstIndex { $0.id == sectionID }
+            groupedTracks.firstIndex { $0.id == sectionID }.map(tableSection(forGroupIndex:))
+        }
+
+        // SwiftUI can supply the request before the table enters its window.
+        // Consume it only once UIKit has laid out the destination's rows.
+        func selectRequestedTrack() {
+            guard let tableView, tableView.window != nil,
+                  tableView.bounds.width > 0, tableView.bounds.height > 0,
+                  let selectedTrackId, consumedSelectedTrackId != selectedTrackId,
+                  let indexPath = indexPath(forTrackId: selectedTrackId),
+                  indexPath.section < tableView.numberOfSections,
+                  indexPath.row < tableView.numberOfRows(inSection: indexPath.section) else { return }
+            consumedSelectedTrackId = selectedTrackId
+            tableView.selectRow(at: indexPath, animated: false, scrollPosition: .middle)
+        }
+
+        func indexPath(forTrackId id: String) -> IndexPath? {
+            for (section, group) in groupedTracks.enumerated() {
+                if let row = group.tracks.firstIndex(where: { $0.playbackIdentity == id }) {
+                    return IndexPath(row: row, section: tableSection(forGroupIndex: section))
+                }
+            }
+            return nil
         }
 
         public func numberOfSections(in tableView: UITableView) -> Int {
-            groupedTracks.count
+            footerSection + (tableFooterContent == nil ? 0 : 1)
         }
 
         public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            guard section < groupedTracks.count else { return 0 }
-            return groupedTracks[section].tracks.count
+            if tableHeaderContent != nil, section == 0 {
+                return 1
+            }
+            if section == footerSection {
+                return tableFooterContent == nil ? 0 : 1
+            }
+            guard let groupIndex = groupIndex(forTableSection: section) else { return 0 }
+            return groupedTracks[groupIndex].tracks.count
         }
 
         public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+            if tableHeaderContent != nil, indexPath.section == 0, let tableHeaderContent {
+                let targetWidth = tableView.bounds.width > 1
+                    ? tableView.bounds.width
+                    : (tableView.superview?.bounds.width ?? 0)
+                let cell = tableView.dequeueReusableCell(
+                    withIdentifier: HostedContentCell.reuseIdentifier,
+                    for: indexPath
+                ) as! HostedContentCell
+                cell.configure(
+                    content: AnyView(tableHeaderContent.nativeTrackListHeaderWidth(targetWidth)),
+                    tableView: tableView
+                )
+                return cell
+            }
+
+            if indexPath.section == footerSection, let tableFooterContent {
+                let cell = tableView.dequeueReusableCell(
+                    withIdentifier: HostedContentCell.reuseIdentifier,
+                    for: indexPath
+                ) as! HostedContentCell
+                cell.configure(content: tableFooterContent, tableView: tableView)
+                return cell
+            }
+
             let cell = tableView.dequeueReusableCell(withIdentifier: "TrackCell", for: indexPath) as! TrackTableViewCell
             cell.backgroundColor = .clear
             guard let track = track(at: indexPath) else { return cell }
             let isPlaying = track.playbackIdentity == currentTrackId
-            let resolvedActions = interactionModel.resolve(for: track)
             cell.configure(
                 with: track,
                 showArtwork: showArtwork,
@@ -1249,9 +1436,10 @@ public struct MediaTrackList: UIViewRepresentable {
                 isPlaying: isPlaying,
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadTrackIdentities.contains(track.sourceScopedID),
-                isFavorited: resolvedActions.isFavorited,
+                isFavorited: interactionModel.isFavorited(track),
                 supplementalMetadataWidth: supplementalMetadataWidth,
-                menu: makeContextMenu(for: track, at: indexPath, resolvedActions: resolvedActions),
+                sourceLabel: sourceLabel(for: track),
+                menu: makeDeferredContextMenu(for: track, at: indexPath),
                 rowHeight: rowHeight,
                 artworkLoader: artworkLoader
             )
@@ -1263,7 +1451,8 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-            guard section < groupedTracks.count, let title = groupedTracks[section].title else { return nil }
+            guard let groupIndex = groupIndex(forTableSection: section),
+                  let title = groupedTracks[groupIndex].title else { return nil }
 
             let headerView = UIView()
             headerView.backgroundColor = .clear
@@ -1292,8 +1481,8 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-            guard section < groupedTracks.count else { return 0 }
-            return groupedTracks[section].title == nil ? 0 : Self.sectionHeaderHeight
+            guard let groupIndex = groupIndex(forTableSection: section) else { return 0 }
+            return groupedTracks[groupIndex].title == nil ? 0 : Self.sectionHeaderHeight
         }
 
         private static var sectionHeaderFont: UIFont {
@@ -1315,14 +1504,14 @@ public struct MediaTrackList: UIViewRepresentable {
 
         public func tableView(_ tableView: UITableView, sectionForSectionIndexTitle title: String, at index: Int) -> Int {
             if let section = groupedTracks.firstIndex(where: { $0.isIndexable && $0.title == title }) {
-                return section
+                return tableSection(forGroupIndex: section)
             }
 
             guard index >= 0, index < groupedTracks.count else {
                 return NSNotFound
             }
 
-            return index
+            return tableSection(forGroupIndex: index)
         }
 
         public func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
@@ -1352,9 +1541,9 @@ public struct MediaTrackList: UIViewRepresentable {
 
             onTrackTap(track, indexed.index)
         }
-        
+
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-            rowHeight
+            groupIndex(forTableSection: indexPath.section) == nil ? UITableView.automaticDimension : rowHeight
         }
 
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
@@ -1373,16 +1562,34 @@ public struct MediaTrackList: UIViewRepresentable {
             resolvedActions: TrackRowInteractionModel.ResolvedActions
         ) -> UIMenu? {
             let indexed = indexedTrack(at: indexPath)
+            let canRemove = interactionModel.allowsRemovalFromPlaylist(track)
             return NativeMediaTableActionBuilder.contextMenu(
                 for: track,
                 resolvedActions: resolvedActions,
-                context: onRemoveFromPlaylist == nil ? .library : .playlistTrack(canRemove: true),
-                onRemoveFromPlaylist: indexed.flatMap { indexed in
+                context: onRemoveFromPlaylist == nil ? .library : .playlistTrack(canRemove: canRemove),
+                onRemoveFromPlaylist: canRemove ? indexed.flatMap { indexed in
                     onRemoveFromPlaylist.map { callback in
                         { callback(indexed.track, indexed.index) }
                     }
-                }
+                } : nil
             )
+        }
+
+        func makeDeferredContextMenu(for track: Track, at indexPath: IndexPath) -> UIMenu? {
+            guard interactionModel.hasContextMenu(for: track) || onRemoveFromPlaylist != nil else { return nil }
+
+            return UIMenu(children: [
+                UIDeferredMenuElement.uncached { [weak self] completion in
+                    guard let self else {
+                        completion([])
+                        return
+                    }
+
+                    let resolvedActions = self.interactionModel.resolve(for: track)
+                    let menu = self.makeContextMenu(for: track, at: indexPath, resolvedActions: resolvedActions)
+                    completion(menu?.children ?? [])
+                }
+            ])
         }
 
         // MARK: - Drag Delegate (iPad drag-and-drop for media references)
@@ -1420,27 +1627,32 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         private func swipeActions(from configured: [TrackSwipeAction?], track: Track) -> [UIContextualAction] {
-            let resolvedActions = interactionModel.resolve(for: track)
+            guard track.isLibraryAvailable else { return [] }
+            let isFavorited = interactionModel.isFavorited(track)
             return configured.compactMap { candidate -> UIContextualAction? in
-                guard let action = candidate,
-                      TrackActionPresentation.isSupported(action, resolvedActions: resolvedActions) else { return nil }
+                guard let action = candidate, interactionModel.hasHandler(for: action) else { return nil }
                 let contextual = UIContextualAction(
                     style: .normal,
-                    title: TrackActionPresentation.title(for: action, resolvedActions: resolvedActions)
+                    title: TrackActionPresentation.title(for: action, isFavorited: isFavorited)
                 ) { [weak self] _, _, completion in
                     guard let self else {
+                        completion(false)
+                        return
+                    }
+                    let resolvedActions = self.interactionModel.resolve(for: track)
+                    guard TrackActionPresentation.isSupported(action, resolvedActions: resolvedActions) else {
                         completion(false)
                         return
                     }
                     if action == .favoriteToggle {
                         self.showFavoriteLoadingToast(for: track, willFavorite: !resolvedActions.isFavorited)
                     }
-                    TrackActionPresentation.execute(action, track: track, resolvedActions: resolvedActions)
+                    TrackActionPresentation.execute(action, resolvedActions: resolvedActions)
                     self.showSwipeConfirmation(for: action, track: track)
                     completion(true)
                 }
-                contextual.backgroundColor = UIColor(TrackActionPresentation.tint(for: action, resolvedActions: resolvedActions))
-                contextual.image = UIImage(systemName: TrackActionPresentation.systemImage(for: action, resolvedActions: resolvedActions))
+                contextual.backgroundColor = UIColor(TrackActionPresentation.tint(for: action, isFavorited: isFavorited))
+                contextual.image = UIImage(systemName: TrackActionPresentation.systemImage(for: action, isFavorited: isFavorited))
                 return contextual
             }
         }
@@ -1467,46 +1679,26 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
-        // MARK: - Search Controller
+        // MARK: - Navigation Content Scroll View
 
-        /// Finds the hosting UIViewController and attaches a UISearchController to its
-        /// navigation item. Uses setContentScrollView so the navigation controller
-        /// knows which scroll view to observe for hide-on-scroll behavior.
-        func attachSearchController() {
-            guard let binding = pendingSearchBinding,
-                  let tableView = pendingTableView else { return }
-
-            // Walk up the responder chain to find the hosting UIViewController
+        func registerContentScrollView(_ tableView: UITableView) {
             var responder: UIResponder? = tableView
             while let next = responder?.next {
                 if let vc = next as? UIViewController, vc.navigationController != nil {
-                    let sc = UISearchController(searchResultsController: nil)
-                    sc.searchResultsUpdater = self
-                    sc.obscuresBackgroundDuringPresentation = false
-                    sc.searchBar.placeholder = "Search tracks"
-                    sc.searchBar.text = binding.wrappedValue
-
-                    vc.navigationItem.searchController = sc
-                    vc.navigationItem.hidesSearchBarWhenScrolling = true
-                    vc.definesPresentationContext = true
-
-                    // Tell UIKit which scroll view to observe for hide-on-scroll.
-                    // Without this, the navigation controller can't detect scrolling
-                    // from a UIViewRepresentable's table view.
                     vc.setContentScrollView(tableView, for: .top)
-
-                    searchController = sc
-                    activeSearchBinding = binding
-                    pendingSearchBinding = nil
-                    pendingTableView = nil
+                    contentScrollViewOwner = vc
                     return
                 }
                 responder = next
             }
         }
 
-        public func updateSearchResults(for searchController: UISearchController) {
-            activeSearchBinding?.wrappedValue = searchController.searchBar.text ?? ""
+        func unregisterContentScrollView(_ tableView: UITableView) {
+            guard let contentScrollViewOwner else { return }
+            if contentScrollViewOwner.contentScrollView(for: .top) === tableView {
+                contentScrollViewOwner.setContentScrollView(nil, for: .top)
+            }
+            self.contentScrollViewOwner = nil
         }
     }
 }

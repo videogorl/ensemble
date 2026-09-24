@@ -19,24 +19,34 @@ import Foundation
 public enum ArtworkBlurRenderer {
     private static let renderVersion = "v2"
     private static let gaussianBlurRadius = 180.0
-    private static let cache = NSCache<NSString, PlatformImage>()
+    private static let cache: NSCache<NSString, PlatformImage> = {
+        let cache = NSCache<NSString, PlatformImage>()
+        cache.totalCostLimit = 16 * 1024 * 1024
+        cache.countLimit = 8
+        return cache
+    }()
+    private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private static let diskCacheDirectoryName = "ArtworkBlurCache"
 
     public static func cachedBlurredImage(for source: PlatformImage) -> PlatformImage? {
         cache.object(forKey: cacheKey(for: source))
     }
 
+    public static func memoryCachedBlurredImage(forStableKey stableKey: String) -> PlatformImage? {
+        cache.object(forKey: cacheKey(forStableKey: stableKey))
+    }
+
     public static func cachedBlurredImage(forStableKey stableKey: String) -> PlatformImage? {
-        let key = cacheKey(forStableKey: stableKey)
-        if let cached = cache.object(forKey: key) {
+        if let cached = memoryCachedBlurredImage(forStableKey: stableKey) {
             return cached
         }
 
+        let key = cacheKey(forStableKey: stableKey)
         guard let diskURL = diskCacheURL(forStableKey: stableKey),
               let image = imageFromDisk(at: diskURL) else {
             return nil
         }
-        cache.setObject(image, forKey: key)
+        cache.setObject(image, forKey: key, cost: memoryCost(of: image))
         return image
     }
 
@@ -49,14 +59,14 @@ public enum ArtworkBlurRenderer {
         if let stableKey,
            let diskURL = diskCacheURL(forStableKey: stableKey),
            let diskImage = imageFromDisk(at: diskURL) {
-            cache.setObject(diskImage, forKey: key)
+            cache.setObject(diskImage, forKey: key, cost: memoryCost(of: diskImage))
             return diskImage
         }
 
         guard let rendered = generateBlurredImage(from: source) else {
             return nil
         }
-        cache.setObject(rendered, forKey: key)
+        cache.setObject(rendered, forKey: key, cost: memoryCost(of: rendered))
         if let stableKey {
             writeImageToDisk(rendered, stableKey: stableKey)
         }
@@ -67,6 +77,26 @@ public enum ArtworkBlurRenderer {
         cache.removeAllObjects()
         guard let directoryURL = diskCacheDirectoryURL() else { return }
         try? FileManager.default.removeItem(at: directoryURL)
+    }
+
+    public static func clearMemoryCache() {
+        cache.removeAllObjects()
+    }
+
+    private static func memoryCost(of image: PlatformImage) -> Int {
+        #if os(iOS) || os(tvOS) || os(watchOS)
+            if let cgImage = image.cgImage {
+                return cgImage.bytesPerRow * cgImage.height
+            }
+            let width = Int(image.size.width * image.scale)
+            let height = Int(image.size.height * image.scale)
+            return width * height * 4
+        #elseif os(macOS)
+            guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                return Int(image.size.width * image.size.height * 4)
+            }
+            return cgImage.bytesPerRow * cgImage.height
+        #endif
     }
 
     private static func cacheKey(for source: PlatformImage) -> NSString {
@@ -177,8 +207,7 @@ public enum ArtworkBlurRenderer {
         guard let blurred = blurFilter.outputImage else { return nil }
         let output = blurred.cropped(to: ciImage.extent)
 
-        let context = CIContext(options: [.useSoftwareRenderer: false])
-        guard let cgImage = context.createCGImage(output, from: output.extent) else { return nil }
+        guard let cgImage = ciContext.createCGImage(output, from: output.extent) else { return nil }
 
         #if os(iOS) || os(tvOS) || os(watchOS)
             return UIImage(cgImage: cgImage)
