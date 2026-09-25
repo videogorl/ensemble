@@ -215,81 +215,62 @@ public struct SongsView: View {
 
     private var trackListView: some View {
         GeometryReader { geometry in
+            #if os(macOS)
+            largeScreenSongBrowserView(width: geometry.size.width)
+            #else
             if usesLargeScreenSongBrowser(for: geometry.size) {
                 largeScreenSongBrowserView(width: geometry.size.width)
             } else {
                 compactTrackListView(width: geometry.size.width)
             }
+            #endif
         }
     }
 
+    #if os(iOS)
     private func compactTrackListView(width: CGFloat) -> some View {
         Group {
             if libraryVM.trackSortOption == .title {
-                #if os(iOS)
-                    SongsTrackListHost(
-                        sections: largeScreenTrackSections,
-                        currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
-                        contentRevision: trackContentRevision,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
-                        supplementalMetadataWidth: width,
-                        showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
-                        interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: songsTableHeaderContent,
-                        tableFooterContent: songsCountFooterContent,
-                        onRefresh: refreshLibrary
-                    ) { track, _ in
-                        playAvailableTrack(track)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                #else
-                    SongsTrackListHost(
-                        sections: largeScreenTrackSections,
-                        currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
-                        contentRevision: trackContentRevision,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
-                        usesDynamicTableHeaderHeight: true,
-                        supplementalMetadataWidth: width,
-                        showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
-                        interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: songsTableHeaderContent,
-                        tableFooterContent: songsCountFooterContent,
-                        onRefresh: refreshLibrary
-                    ) { track, _ in
-                        playTrack(track)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                #endif
+                SongsTrackListHost(
+                    sections: largeScreenTrackSections,
+                    currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                    contentRevision: trackContentRevision,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                    bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
+                    supplementalMetadataWidth: width,
+                    showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
+                    interactionModel: largeScreenTrackInteractionModel,
+                    tableHeaderContent: songsTableHeaderContent,
+                    tableFooterContent: songsCountFooterContent,
+                    onRefresh: refreshLibrary
+                ) { track, _ in
+                    playAvailableTrack(track)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                #if os(iOS)
-                    SongsTrackListHost(
-                        tracks: trackSnapshot.tracks,
-                        currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
-                        contentRevision: trackContentRevision,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
-                        supplementalMetadataWidth: width,
-                        interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: songsTableHeaderContent,
-                        tableFooterContent: songsCountFooterContent,
-                        onRefresh: refreshLibrary
-                    ) { track, index in
-                        playAvailableTrack(track, index: index)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                #else
-                    unsortedTrackListContent(width: width)
-                #endif
+                SongsTrackListHost(
+                    tracks: trackSnapshot.tracks,
+                    currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                    contentRevision: trackContentRevision,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                    bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
+                    supplementalMetadataWidth: width,
+                    interactionModel: largeScreenTrackInteractionModel,
+                    tableHeaderContent: songsTableHeaderContent,
+                    tableFooterContent: songsCountFooterContent,
+                    onRefresh: refreshLibrary
+                ) { track, index in
+                    playAvailableTrack(track, index: index)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
     }
+    #endif
 
     private var songsGenreChipBar: some View {
         GenreFilterHeader(
@@ -461,30 +442,6 @@ public struct SongsView: View {
         }
 
         nowPlayingVM.play(tracks: trackSnapshot.tracks, startingAt: index)
-    }
-
-    /// Non-indexed table backend used by non-phone platforms.
-    private func unsortedTrackListContent(width: CGFloat? = nil) -> some View {
-        #if os(iOS)
-            EmptyView()
-        #else
-            SongsTrackListHost(
-                tracks: trackSnapshot.tracks,
-                currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
-                contentRevision: trackContentRevision,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
-                usesDynamicTableHeaderHeight: true,
-                supplementalMetadataWidth: width,
-                interactionModel: largeScreenTrackInteractionModel,
-                tableHeaderContent: songsTableHeaderContent,
-                tableFooterContent: songsCountFooterContent,
-                onRefresh: refreshLibrary
-            ) { track, _ in
-                playTrack(track)
-            }
-        #endif
     }
 
     private func presentPlaylistPicker(with tracks: [Track]) {

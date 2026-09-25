@@ -14,6 +14,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     let tableFooterContent: AnyView?
     let currentTrackId: String?
     let selectedTrackId: String?
+    let contentRevision: UInt64?
     let availabilityGeneration: UInt64
     let activeDownloadTrackIdentities: Set<String>
     let bottomContentInset: CGFloat
@@ -90,7 +91,18 @@ struct MacNativeTrackTableView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let tableView = scrollView.documentView as? NSTableView else { return }
-        context.coordinator.sections = sections
+        let coordinator = context.coordinator
+        let contentChanged = if let contentRevision {
+            coordinator.contentRevision != contentRevision
+        } else {
+            !arraysShareStorage(coordinator.sections, sections)
+        }
+        let structureChanged = contentChanged ||
+            (coordinator.tableHeaderContent == nil) != (tableHeaderContent == nil) ||
+            (coordinator.tableFooterContent == nil) != (tableFooterContent == nil) ||
+            coordinator.bottomContentInset != bottomContentInset
+        coordinator.sections = sections
+        coordinator.contentRevision = contentRevision
         context.coordinator.showArtwork = showArtwork
         context.coordinator.showTrackNumbers = showTrackNumbers
         context.coordinator.showAlbumName = showAlbumName
@@ -111,17 +123,19 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         context.coordinator.onRemoveFromPlaylist = onRemoveFromPlaylist
-        context.coordinator.rebuildRows()
+        if structureChanged {
+            coordinator.rebuildRows()
+        }
 
-        if tableView.numberOfRows != context.coordinator.rows.count {
+        if structureChanged || tableView.numberOfRows != coordinator.rows.count {
             tableView.reloadData()
         } else {
-            context.coordinator.invalidateDynamicRowHeights(in: tableView)
+            coordinator.invalidateDynamicRowHeights(in: tableView)
             tableView.enumerateAvailableRowViews { _, row in
-                guard row < context.coordinator.rows.count else { return }
+                guard row < coordinator.rows.count else { return }
                 let view = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
-                context.coordinator.configure(view: view, row: row)
-                context.coordinator.configureHostingView(view, row: row, in: tableView)
+                coordinator.configure(view: view, row: row)
+                coordinator.configureHostingView(view, row: row, in: tableView)
             }
         }
 
@@ -144,6 +158,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             sections: sections,
+            contentRevision: contentRevision,
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
             showAlbumName: showAlbumName,
@@ -171,6 +186,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         var sections: [NativeTrackListSection]
+        var contentRevision: UInt64?
         var showArtwork: Bool
         var showTrackNumbers: Bool
         var showAlbumName: Bool
@@ -196,9 +212,13 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         var consumedSectionScrollRequestID: Int?
         var consumedSelectedTrackId: String?
         private(set) var rows: [NativeTrackListFlattenedRow] = []
+        private var heightMeasuringView: NSHostingView<AnyView>?
+        private var measuredHeader: (width: CGFloat, height: CGFloat)?
+        private var measuredFooter: (width: CGFloat, height: CGFloat)?
 
         init(
             sections: [NativeTrackListSection],
+            contentRevision: UInt64? = nil,
             showArtwork: Bool,
             showTrackNumbers: Bool,
             showAlbumName: Bool,
@@ -222,6 +242,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             onTrackTap: @escaping (Track, Int) -> Void
         ) {
             self.sections = sections
+            self.contentRevision = contentRevision
             self.showArtwork = showArtwork
             self.showTrackNumbers = showTrackNumbers
             self.showAlbumName = showAlbumName
@@ -254,6 +275,8 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 hasFooter: tableFooterContent != nil,
                 bottomContentInset: bottomContentInset
             )
+            measuredHeader = nil
+            measuredFooter = nil
         }
 
         func rowIndex(forSectionID id: String) -> Int? {
@@ -305,23 +328,31 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 return headerHeight(for: tableHeaderContent, in: tableView)
             }
             if case .footer = rows[row], let tableFooterContent {
-                return hostingHeight(for: tableFooterContent, width: tableView.bounds.width)
+                return footerHeight(for: tableFooterContent, width: tableView.bounds.width)
             }
             return rowHeight
         }
 
         func invalidateDynamicRowHeights(in tableView: NSTableView) {
-            let indexes = rows.enumerated().reduce(into: IndexSet()) { result, element in
-                switch element.element {
-                case .header:
-                    if shouldInvalidateHeaderHeight(in: tableView, row: element.offset) {
-                        result.insert(element.offset)
-                    }
-                case .footer, .bottomSpacer:
-                    result.insert(element.offset)
-                case .section, .track:
-                    break
+            var indexes = IndexSet()
+            if let tableHeaderContent, !rows.isEmpty {
+                let height = headerHeight(for: tableHeaderContent, in: tableView, forceMeasure: true)
+                if abs(tableView.rect(ofRow: 0).height - height) > 0.5 {
+                    indexes.insert(0)
                 }
+            }
+            if let tableFooterContent {
+                let row = rows.count - (bottomContentInset > 0 ? 2 : 1)
+                if row >= 0 {
+                    let height = footerHeight(for: tableFooterContent, width: tableView.bounds.width, forceMeasure: true)
+                    if abs(tableView.rect(ofRow: row).height - height) > 0.5 {
+                        indexes.insert(row)
+                    }
+                }
+            }
+            if bottomContentInset > 0, let row = rows.indices.last,
+               abs(tableView.rect(ofRow: row).height - bottomContentInset) > 0.5 {
+                indexes.insert(row)
             }
 
             if !indexes.isEmpty {
@@ -491,26 +522,34 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             let layout = DependencyContainer.shared.settingsManager.trackSwipeLayout
             let configured = edge == .leading ? layout.leading : layout.trailing
             let slots = MacNativeTrackTableView.appKitRowActionSlots(for: configured, edge: edge)
+            guard slots.contains(where: { $0 != nil }) else { return [] }
+            let resolvedActions = interactionModel.resolve(for: track)
 
             return slots.compactMap { candidate in
                 guard let action = candidate else { return nil }
-                return rowAction(for: action, track: track)
+                return rowAction(for: action, track: track, resolvedActions: resolvedActions)
             }
         }
 
-        private func rowAction(for action: TrackSwipeAction, track: Track) -> NSTableViewRowAction? {
-            let resolvedActions = interactionModel.resolve(for: track)
+        private func rowAction(
+            for action: TrackSwipeAction,
+            track: Track,
+            resolvedActions: TrackRowInteractionModel.ResolvedActions
+        ) -> NSTableViewRowAction? {
             guard TrackActionPresentation.isSupported(action, resolvedActions: resolvedActions) else { return nil }
 
             let rowAction = NSTableViewRowAction(
                 style: .regular,
                 title: TrackActionPresentation.title(for: action, resolvedActions: resolvedActions)
             ) { [weak self] _, _ in
+                guard let self else { return }
+                let currentActions = self.interactionModel.resolve(for: track)
+                guard TrackActionPresentation.isSupported(action, resolvedActions: currentActions) else { return }
                 if action == .favoriteToggle {
-                    self?.showFavoriteLoadingToast(for: track, willFavorite: !resolvedActions.isFavorited)
+                    self.showFavoriteLoadingToast(for: track, willFavorite: !currentActions.isFavorited)
                 }
-                TrackActionPresentation.execute(action, resolvedActions: resolvedActions)
-                self?.showSwipeConfirmation(for: action, track: track)
+                TrackActionPresentation.execute(action, resolvedActions: currentActions)
+                self.showSwipeConfirmation(for: action, track: track)
             }
             rowAction.backgroundColor = NSColor(TrackActionPresentation.tint(for: action, resolvedActions: resolvedActions))
             rowAction.image = NSImage(
@@ -550,14 +589,24 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         }
 
         private func hostingHeight(for rootView: AnyView, width: CGFloat) -> CGFloat {
-            let hostingView = NSHostingView(rootView: rootView.frame(width: max(width, 1)))
-            return max(1, hostingView.fittingSize.height)
+            let content = AnyView(rootView.frame(width: max(width, 1)))
+            if let heightMeasuringView {
+                heightMeasuringView.rootView = content
+            } else {
+                heightMeasuringView = NSHostingView(rootView: content)
+            }
+            return max(1, heightMeasuringView?.fittingSize.height ?? 1)
         }
 
-        private func headerHeight(for rootView: AnyView, in tableView: NSTableView) -> CGFloat {
+        private func headerHeight(for rootView: AnyView, in tableView: NSTableView, forceMeasure: Bool = false) -> CGFloat {
             let width = effectiveTableWidth(tableView)
             if usesDynamicTableHeaderHeight {
-                return hostingHeight(for: headerRootView(rootView, width: width), width: width)
+                if !forceMeasure, let measuredHeader, measuredHeader.width == width {
+                    return measuredHeader.height
+                }
+                let height = hostingHeight(for: headerRootView(rootView, width: width), width: width)
+                measuredHeader = (width, height)
+                return height
             }
 
             let wideHeaderHeight = MacNativeTrackTableView.deterministicWideHeaderHeight(
@@ -567,24 +616,21 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 return wideHeaderHeight
             }
 
-            return hostingHeight(for: headerRootView(rootView, width: width), width: width)
+            if !forceMeasure, let measuredHeader, measuredHeader.width == width {
+                return measuredHeader.height
+            }
+            let height = hostingHeight(for: headerRootView(rootView, width: width), width: width)
+            measuredHeader = (width, height)
+            return height
         }
 
-        private func shouldInvalidateHeaderHeight(in tableView: NSTableView, row: Int) -> Bool {
-            if usesDynamicTableHeaderHeight {
-                return true
+        private func footerHeight(for rootView: AnyView, width: CGFloat, forceMeasure: Bool = false) -> CGFloat {
+            if !forceMeasure, let measuredFooter, measuredFooter.width == width {
+                return measuredFooter.height
             }
-
-            let width = effectiveTableWidth(tableView)
-            guard width >= EnsembleScaffold.DetailSurface.wideHeaderThreshold else {
-                return true
-            }
-
-            let expectedHeight = MacNativeTrackTableView.deterministicWideHeaderHeight(
-                tableHeaderExtraHeight: tableHeaderExtraHeight
-            )
-            let currentHeight = tableView.rect(ofRow: row).height
-            return currentHeight <= 1 || abs(currentHeight - expectedHeight) > 0.5
+            let height = hostingHeight(for: rootView, width: width)
+            measuredFooter = (width, height)
+            return height
         }
 
         private func effectiveTableWidth(_ tableView: NSTableView) -> CGFloat {
@@ -776,13 +822,13 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         menuProvider: @escaping () -> NSMenu?
     ) {
         self.menuProvider = menuProvider
-        titleField.stringValue = track.title
-        trackNumberField.stringValue = isPlaying ? "" : "\(track.trackNumber)"
-        artistField.stringValue = [track.artistName ?? "Unknown Artist", sourceLabel]
+        setText(track.title, on: titleField)
+        setText(isPlaying ? "" : "\(track.trackNumber)", on: trackNumberField)
+        setText([track.artistName ?? "Unknown Artist", sourceLabel]
             .compactMap { $0 }
-            .joined(separator: " · ")
-        albumField.stringValue = track.albumName ?? "Unknown Album"
-        durationField.stringValue = track.formattedDuration
+            .joined(separator: " · "), on: artistField)
+        setText(track.albumName ?? "Unknown Album", on: albumField)
+        setText(track.formattedDuration, on: durationField)
 
         let showsArtist = Self.showsArtistMetadataColumn(for: supplementalMetadataWidth)
         let showsAlbum = showAlbumName && Self.showsAlbumMetadataColumn(for: supplementalMetadataWidth)
@@ -794,7 +840,7 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         if showAlbumName, let album = track.albumName { subtitleParts.append(album) }
         if let unavailableReason = track.unavailableReason { subtitleParts.append(unavailableReason) }
         if let sourceLabel { subtitleParts.append(sourceLabel) }
-        subtitleField.stringValue = showsArtist ? "" : subtitleParts.joined(separator: " · ")
+        setText(showsArtist ? "" : subtitleParts.joined(separator: " · "), on: subtitleField)
         subtitleField.isHidden = showsArtist
 
         artworkImageView.isHidden = !showArtwork
@@ -969,6 +1015,14 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         addSubview(field)
     }
 
+    private func setText(_ text: String, on field: NSTextField) {
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    private func setActive(_ constraint: NSLayoutConstraint?, _ isActive: Bool) {
+        if let constraint, constraint.isActive != isActive { constraint.isActive = isActive }
+    }
+
     private func applySupplementalMetadataLayout(
         width: CGFloat?,
         showsArtist: Bool,
@@ -979,19 +1033,19 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         artistWidthConstraint?.constant = showsArtist ? Self.artistMetadataColumnWidth(for: width) : 0
         albumWidthConstraint?.constant = showsAlbum ? Self.albumMetadataColumnWidth(for: width) : 0
 
-        titleTopConstraint?.isActive = !showsArtist
-        titleCenterYConstraint?.isActive = showsArtist
-        titleTrailingToDurationConstraint?.isActive = !showsArtist
-        titleTrailingToArtistConstraint?.isActive = showsArtist
-        artistTrailingToAlbumConstraint?.isActive = showsArtist && showsAlbum
-        artistTrailingToDurationConstraint?.isActive = showsArtist && !showsAlbum
-        albumTrailingToDurationConstraint?.isActive = showsAlbum
+        setActive(titleTopConstraint, !showsArtist)
+        setActive(titleCenterYConstraint, showsArtist)
+        setActive(titleTrailingToDurationConstraint, !showsArtist)
+        setActive(titleTrailingToArtistConstraint, showsArtist)
+        setActive(artistTrailingToAlbumConstraint, showsArtist && showsAlbum)
+        setActive(artistTrailingToDurationConstraint, showsArtist && !showsAlbum)
+        setActive(albumTrailingToDurationConstraint, showsAlbum)
     }
 
     private func applyPrimaryLeadingLayout(showArtwork: Bool, showTrackNumber: Bool) {
-        titleLeadingToArtworkConstraint?.isActive = showArtwork
-        titleLeadingToTrackNumberConstraint?.isActive = !showArtwork && showTrackNumber
-        titleLeadingToContentConstraint?.isActive = !showArtwork && !showTrackNumber
+        setActive(titleLeadingToArtworkConstraint, showArtwork)
+        setActive(titleLeadingToTrackNumberConstraint, !showArtwork && showTrackNumber)
+        setActive(titleLeadingToContentConstraint, !showArtwork && !showTrackNumber)
     }
 
     private func loadArtwork(for track: Track, artworkLoader: ArtworkLoaderProtocol) {

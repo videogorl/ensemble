@@ -251,6 +251,7 @@ public struct SongsTrackListHost: View {
             tableFooterContent: tableFooterContent,
             currentTrackId: configuration.currentTrackId,
             selectedTrackId: configuration.selectedTrackId,
+            contentRevision: configuration.contentRevision,
             availabilityGeneration: configuration.availabilityGeneration,
             activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
             bottomContentInset: configuration.bottomContentInset,

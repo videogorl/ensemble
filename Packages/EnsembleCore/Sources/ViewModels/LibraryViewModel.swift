@@ -56,7 +56,10 @@ public final class LibraryViewModel: ObservableObject {
 
     @Published public private(set) var artists: [Artist] = []
     @Published public private(set) var albums: [Album] = []
-    @Published public private(set) var tracks: [Track] = []
+    @Published public private(set) var tracks: [Track] = [] {
+        didSet { trackMutationIndex = nil }
+    }
+    private var trackMutationIndex: MergingProjection.TrackMutationIndex?
     @Published public private(set) var genres: [Genre] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
@@ -104,7 +107,11 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var genreBrowseSnapshot: GenreBrowseSnapshot = .empty
 
     public func mutationCandidates(for track: Track) -> [Track] {
-        MergingProjection.mutationCandidates(
+        if let trackMutationIndex,
+           trackMutationIndex.matches(tracks: tracks, preferences: settingsManager.mergingPreferences) {
+            return trackMutationIndex.candidates(for: track)
+        }
+        return MergingProjection.mutationCandidates(
             for: track,
             in: tracks,
             preferences: settingsManager.mergingPreferences
@@ -285,6 +292,17 @@ public final class LibraryViewModel: ObservableObject {
                     rawTrackCount: result.rawCount,
                     availableGenres: result.availableGenres
                 )
+            }
+            .store(in: &cancellables)
+
+        Publishers.CombineLatest($tracks, settingsManager.$mergingPreferences)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
+            .map { MergingProjection.TrackMutationIndex(tracks: $0, preferences: $1) }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] index in
+                guard let self,
+                      index.matches(tracks: self.tracks, preferences: self.settingsManager.mergingPreferences) else { return }
+                self.trackMutationIndex = index
             }
             .store(in: &cancellables)
 

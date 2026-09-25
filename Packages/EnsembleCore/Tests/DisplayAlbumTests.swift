@@ -1,4 +1,4 @@
-import EnsembleCore
+@testable import EnsembleCore
 import EnsembleDomain
 import XCTest
 
@@ -103,6 +103,16 @@ final class DisplayAlbumTests: XCTestCase {
             ).map(\.id),
             ["apple-15"]
         )
+
+        let preferences = EnsembleMergingPreferences(
+            mergeTracks: true,
+            preferredSourceKeys: [plexSource, appleSource]
+        )
+        let index = MergingProjection.TrackMutationIndex(tracks: tracks, preferences: preferences)
+        XCTAssertEqual(index.candidates(for: merged[0]).map(\.id), ["plex-14", "apple-14"])
+        XCTAssertEqual(index.candidates(for: merged[2]).map(\.id), ["apple-15"])
+        XCTAssertTrue(index.matches(tracks: tracks, preferences: preferences))
+        XCTAssertFalse(index.matches(tracks: Array(tracks.dropLast()) + [tracks[0]], preferences: preferences))
     }
 
     private func makeTrack(
