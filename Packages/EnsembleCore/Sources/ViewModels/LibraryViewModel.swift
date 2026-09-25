@@ -106,6 +106,59 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var albumBrowseSnapshot: AlbumBrowseSnapshot = .empty
     @Published public private(set) var genreBrowseSnapshot: GenreBrowseSnapshot = .empty
 
+    public func hasPlaybackTracks(for albums: [DisplayAlbum]) -> Bool {
+        let albumIDs = Set(albums.flatMap { $0.albums.map(\.sourceScopedID) })
+        return tracks.contains { track in
+            guard let albumID = track.albumRatingKey else { return false }
+            return albumIDs.contains(sourceScopedIdentity(ratingKey: albumID, sourceCompositeKey: track.sourceCompositeKey))
+        }
+    }
+
+    /// Resolve the displayed album order only when playback is requested.
+    public func playbackTracks(for albums: [DisplayAlbum]) async -> [Track] {
+        let tracks = tracks
+        let preferences = settingsManager.mergingPreferences
+        let work = Task.detached(priority: .userInitiated) {
+            Self.albumPlaybackTracks(albums, tracks: tracks, preferences: preferences)
+        }
+        let result = await withTaskCancellationHandler {
+            await work.value
+        } onCancel: {
+            work.cancel()
+        }
+        guard !Task.isCancelled,
+              tracks == self.tracks,
+              preferences == settingsManager.mergingPreferences else { return [] }
+        return result
+    }
+
+    nonisolated static func albumPlaybackTracks(
+        _ albums: [DisplayAlbum], tracks: [Track], preferences: EnsembleMergingPreferences
+    ) -> [Track] {
+        let albumIDs = Set(albums.flatMap { $0.albums.map(\.sourceScopedID) })
+        var tracksByAlbum: [String: [Track]] = [:]
+        for track in tracks {
+            guard let albumID = track.albumRatingKey else { continue }
+            let key = sourceScopedIdentity(ratingKey: albumID, sourceCompositeKey: track.sourceCompositeKey)
+            guard albumIDs.contains(key) else { continue }
+            tracksByAlbum[key, default: []].append(track)
+        }
+        for key in tracksByAlbum.keys {
+            tracksByAlbum[key]?.sort {
+                if $0.discNumber != $1.discNumber { return $0.discNumber < $1.discNumber }
+                if $0.trackNumber != $1.trackNumber { return $0.trackNumber < $1.trackNumber }
+                return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
+        }
+        return albums.flatMap { album in
+            guard !Task.isCancelled else { return [Track]() }
+            return MergingProjection.albumTracks(
+                album.albums.flatMap { tracksByAlbum[$0.sourceScopedID] ?? [] },
+                preferences: preferences
+            )
+        }
+    }
+
     public func mutationCandidates(for track: Track) -> [Track] {
         if let trackMutationIndex,
            trackMutationIndex.matches(tracks: tracks, preferences: settingsManager.mergingPreferences) {

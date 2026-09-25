@@ -95,7 +95,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         let contentChanged = if let contentRevision {
             coordinator.contentRevision != contentRevision
         } else {
-            !arraysShareStorage(coordinator.sections, sections)
+            coordinator.sections != sections
         }
         let structureChanged = contentChanged ||
             (coordinator.tableHeaderContent == nil) != (tableHeaderContent == nil) ||

@@ -246,6 +246,7 @@ struct GenreDetailContentView: View {
     let presentationStyle: PresentationStyle
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
+    @State private var shuffleRequested: Bool?
 
     init(
         libraryVM: LibraryViewModel,
@@ -271,11 +272,23 @@ struct GenreDetailContentView: View {
             } else {
                 genreAlbumList(
                     albums: displayAlbums,
-                    sections: sections,
-                    playbackTracks: playbackTracks(for: displayAlbums)
+                    sections: sections
                 )
             }
         }
+        .task(id: shuffleRequested) {
+            guard let shuffle = shuffleRequested else { return }
+            let tracks = await libraryVM.playbackTracks(for: displayAlbums)
+            guard !Task.isCancelled else { return }
+            shuffleRequested = nil
+            guard !tracks.isEmpty else { return }
+            if shuffle {
+                nowPlayingVM.shufflePlay(tracks: tracks)
+            } else {
+                nowPlayingVM.play(tracks: tracks)
+            }
+        }
+        .onDisappear { shuffleRequested = nil }
         .genreDetailNavigationTitle(genre.title, presentationStyle: presentationStyle)
         .genreAlbumSearchable(text: $libraryVM.genreDetailAlbumFilterOptions.searchText)
         .toolbar {
@@ -307,24 +320,20 @@ struct GenreDetailContentView: View {
         .padding(EnsembleDesign.Spacing.lg)
     }
 
-    private func genreControls(tracks: [Track]) -> some View {
-        playbackActionButtons(tracks: tracks)
+    private func genreControls(albums: [DisplayAlbum]) -> some View {
+        playbackActionButtons(albums: albums)
         .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         .padding(.top, presentationStyle == .splitPane ? EnsembleDesign.Spacing.none : EnsembleDesign.Spacing.md)
         .padding(.bottom, EnsembleDesign.Spacing.md)
     }
 
-    private func playbackActionButtons(tracks: [Track]) -> some View {
+    private func playbackActionButtons(albums: [DisplayAlbum]) -> some View {
         MediaDetailSurface<EmptyView>.PlaybackActionRow(
             horizontalPadding: EnsembleDesign.Spacing.none,
             bottomPadding: EnsembleDesign.Spacing.none,
-            isDisabled: tracks.isEmpty,
-            play: {
-                nowPlayingVM.play(tracks: tracks)
-            },
-            shuffle: {
-                nowPlayingVM.shufflePlay(tracks: tracks)
-            }
+            isDisabled: shuffleRequested != nil || !libraryVM.hasPlaybackTracks(for: albums),
+            play: { shuffleRequested = false },
+            shuffle: { shuffleRequested = true }
         ) {
             EmptyView()
         }
@@ -332,8 +341,7 @@ struct GenreDetailContentView: View {
 
     private func genreAlbumList(
         albums: [DisplayAlbum],
-        sections: [LibraryViewModel.AlbumSection],
-        playbackTracks: [Track]
+        sections: [LibraryViewModel.AlbumSection]
     ) -> some View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
@@ -343,7 +351,7 @@ struct GenreDetailContentView: View {
                             genreHeader(albums: albums)
                         }
 
-                        genreControls(tracks: playbackTracks)
+                        genreControls(albums: albums)
 
                         if albums.isEmpty {
                             LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.album, title: "No Matching Albums")
@@ -523,43 +531,6 @@ struct GenreDetailContentView: View {
 
     private func availableArtists(from albums: [Album]) -> [String] {
         Array(Set(albums.compactMap { $0.artistName ?? $0.albumArtist })).sorted()
-    }
-
-    private func playbackTracks(for albums: [DisplayAlbum]) -> [Track] {
-        var tracksByAlbum: [String: [Track]] = [:]
-
-        for track in libraryVM.tracks {
-            guard let albumRatingKey = track.albumRatingKey else { continue }
-            tracksByAlbum[sourceScopedAlbumKey(id: albumRatingKey, sourceCompositeKey: track.sourceCompositeKey), default: []].append(track)
-        }
-
-        for key in tracksByAlbum.keys {
-            tracksByAlbum[key]?.sort(by: trackPrecedes)
-        }
-
-        return albums.flatMap { displayAlbum in
-            let tracks = displayAlbum.albums.flatMap { album in
-                tracksByAlbum[sourceScopedAlbumKey(id: album.id, sourceCompositeKey: album.sourceCompositeKey)] ?? []
-            }
-            return MergingProjection.albumTracks(tracks, preferences: settingsManager.mergingPreferences)
-        }
-    }
-
-    private func sourceScopedAlbumKey(id: String, sourceCompositeKey: String?) -> String {
-        if let sourceCompositeKey, !sourceCompositeKey.isEmpty {
-            return "\(sourceCompositeKey)||\(id)"
-        }
-        return id
-    }
-
-    private func trackPrecedes(_ left: Track, _ right: Track) -> Bool {
-        if left.discNumber != right.discNumber {
-            return left.discNumber < right.discNumber
-        }
-        if left.trackNumber != right.trackNumber {
-            return left.trackNumber < right.trackNumber
-        }
-        return left.title.localizedStandardCompare(right.title) == .orderedAscending
     }
 
     private func sectionHeader(_ letter: String) -> some View {
