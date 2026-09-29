@@ -169,10 +169,13 @@ public protocol MusicSourcePlaybackReporting: Sendable {
     func scrobble(ratingKey: String) async throws
 }
 
+/// Opt-in lookup for source-owned artists not present in the local library.
+public protocol MusicSourceArtistResolving: Sendable {
+    func getArtist(artistKey: String?, name: String?) async throws -> Artist?
+}
+
 /// Loads provider-owned collection relationships and Get Info metadata.
 public protocol MusicSourceDetailProviding: Sendable {
-    /// Resolves an artist not present in the local library, using source-owned metadata.
-    func getArtist(artistKey: String?, name: String?) async throws -> Artist?
     func getAlbumTracks(albumKey: String) async throws -> [Track]
     func getArtistAlbums(artistKey: String) async throws -> [Album]
     func getArtistTracks(artistKey: String) async throws -> [Track]
@@ -305,7 +308,6 @@ extension MusicSourceSyncProvider {
 }
 
 extension MusicSourceDetailProviding {
-    public func getArtist(artistKey: String?, name: String?) async throws -> Artist? { nil }
     public func getArtistDetail(artistKey: String) async throws -> ArtistDetail? { nil }
     public func getAlbumDetail(albumKey: String) async throws -> AlbumDetail? { nil }
     public func getSimilarAlbums(albumKey: String) async throws -> [Album] { [] }

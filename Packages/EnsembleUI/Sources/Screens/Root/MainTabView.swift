@@ -1459,7 +1459,7 @@ public struct SidebarView: View {
             case .mergedAlbum(let displayAlbum, _):
                 AlbumDetailView(displayAlbum: displayAlbum, nowPlayingVM: nowPlayingVM)
             case .artist(let artist, _):
-                ArtistDetailLoader(artist: artist, nowPlayingVM: nowPlayingVM)
+                ArtistDetailLoader(request: .artist(artist), libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .mergedArtist(let displayArtist, _):
                 ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
             case .playlist(let playlist, _):
@@ -1472,7 +1472,7 @@ public struct SidebarView: View {
             case .album:
                 AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
             case .artist:
-                ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+                ArtistDetailLoader(request: .reference(id: id, name: nil, sourceKey: sourceKey), libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .playlist:
                 PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
             }

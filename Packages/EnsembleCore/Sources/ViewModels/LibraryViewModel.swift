@@ -54,6 +54,11 @@ public final class LibraryViewModel: ObservableObject {
 
     private var hasPreparedInitialBrowse = false
 
+    /// Reuses committed library values for detail resolution, independent of browse filters.
+    public var cachedArtistsForDetailResolution: [Artist]? {
+        hasPreparedInitialBrowse ? allArtists : nil
+    }
+
     @Published public private(set) var artists: [Artist] = []
     @Published public private(set) var albums: [Album] = []
     @Published public private(set) var tracks: [Track] = [] {

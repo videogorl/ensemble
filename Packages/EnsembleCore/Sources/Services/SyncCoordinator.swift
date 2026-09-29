@@ -1729,7 +1729,7 @@ public final class SyncCoordinator: ObservableObject {
         let detailProvider = try providerResolver.requireCapability(
             sourceKey: sourceKey,
             name: "artist details",
-            as: MusicSourceDetailProviding.self
+            as: MusicSourceArtistResolving.self
         )
         return try await detailProvider.getArtist(artistKey: artistId, name: name)
     }

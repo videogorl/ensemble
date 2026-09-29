@@ -166,7 +166,8 @@ public actor AppleMusicSourceProvider:
     MusicSourceRatingMutating,
     MusicSourcePlaylistReconciling,
     MusicSourcePlaybackReporting,
-    MusicSourceDetailProviding
+    MusicSourceDetailProviding,
+    MusicSourceArtistResolving
 {
     public nonisolated let sourceIdentifier = MusicSourceIdentifier.appleMusic
     static let librarySongsPath = "/v1/me/library/songs?limit=100&extend=inFavorites&include=albums,artists,catalog"

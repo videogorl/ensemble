@@ -33,29 +33,15 @@ struct NavigationDestinationFactory {
         let libraryVM = viewModels.library
         switch destination {
         case .displayArtist(let id):
-            if let displayArtist = displayArtist(for: id, libraryVM: libraryVM) {
-                ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
-            } else {
-                EnsembleStateScaffold(kind: .empty, title: "Artist not found")
-            }
+            ArtistDetailLoader(request: .display(id: id), libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .artistNamed(let name, let fallbackID, let sourceKey, let includesHidden):
-            if let displayArtist = displayArtist(named: name, libraryVM: libraryVM) {
-                ArtistDetailView(
-                    displayArtist: displayArtist,
-                    nowPlayingVM: nowPlayingVM,
-                    includesHidden: includesHidden
-                )
-                .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
-            } else {
-                ArtistDetailLoader(
-                    artistId: fallbackID,
-                    artistName: name,
-                    artistSourceKey: sourceKey,
-                    nowPlayingVM: nowPlayingVM,
-                    includesHidden: includesHidden
-                )
-                .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
-            }
+            ArtistDetailLoader(
+                request: .reference(id: fallbackID, name: name, sourceKey: sourceKey),
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM,
+                includesHidden: includesHidden
+            )
+            .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
         case .displayGenre(let id):
             if let displayGenre = displayGenre(for: id, libraryVM: libraryVM) {
                 GenreDetailContentView(
@@ -69,7 +55,8 @@ struct NavigationDestinationFactory {
             }
         case .artistDetail(let artist, let includesHidden):
             let detailView = ArtistDetailLoader(
-                artist: artist,
+                request: .artist(artist),
+                libraryVM: libraryVM,
                 nowPlayingVM: nowPlayingVM,
                 includesHidden: includesHidden
             )
@@ -86,7 +73,7 @@ struct NavigationDestinationFactory {
             detailView
             #endif
         case .artist(let id, let sourceKey):
-            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+            ArtistDetailLoader(request: .reference(id: id, name: nil, sourceKey: sourceKey), libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .album(let id, let sourceKey, let selectedTrackId):
             AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, selectedTrackId: selectedTrackId, nowPlayingVM: nowPlayingVM)
         case .albumDetail(let displayAlbum, let includesHidden, let selectedTrackId):
@@ -181,31 +168,6 @@ struct NavigationDestinationFactory {
                 isMoreRoot: false,
                 isSelectedRoot: true
             )
-        }
-    }
-
-    @MainActor
-    private static func displayArtist(for id: String, libraryVM: LibraryViewModel) -> DisplayArtist? {
-        if let displayArtist = libraryVM.artistBrowseSnapshot.displayArtists.first(where: { $0.id == id }) {
-            return displayArtist
-        }
-
-        return DisplayArtist.group(
-            libraryVM.artists,
-            preferences: SettingsManager.storedMergingPreferences()
-        ).first { $0.id == id }
-    }
-
-    @MainActor
-    private static func displayArtist(named name: String, libraryVM: LibraryViewModel) -> DisplayArtist? {
-        let normalizedName = DisplayArtist.normalizedName(name)
-        return libraryVM.artistBrowseSnapshot.displayArtists.first {
-            DisplayArtist.normalizedName($0.name) == normalizedName
-        } ?? DisplayArtist.group(
-            libraryVM.artists,
-            preferences: SettingsManager.storedMergingPreferences()
-        ).first {
-            DisplayArtist.normalizedName($0.name) == normalizedName
         }
     }
 

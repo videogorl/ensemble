@@ -84,6 +84,28 @@ public extension DependencyContainer {
     }
 
     @MainActor
+    func makeArtistDetailResolver(includesHidden: Bool = false) -> ArtistDetailResolver {
+        ArtistDetailResolver(
+            libraryRepository: libraryRepository,
+            remoteArtist: { [syncCoordinator] id, name, sourceKey in
+                try await syncCoordinator.getArtist(artistId: id, name: name, sourceKey: sourceKey)
+            },
+            visibleArtists: { [accountManager, libraryVisibilityStore, hiddenMediaStore] artists in
+                let source = accountManager.sourceConfigurationSnapshot
+                return LibraryVisibilityFiltering.visibleArtists(
+                    artists,
+                    hiddenSourceCompositeKeys: libraryVisibilityStore.effectiveHiddenSourceCompositeKeys(
+                        enabledSourceCompositeKeys: source.enabledSourceKeys
+                    ),
+                    sourceConfiguration: source.hasAnySources || !source.isAuthoritative ? source : nil,
+                    hiddenMedia: includesHidden ? .empty : hiddenMediaStore.snapshot
+                )
+            },
+            mergingPreferences: { [settingsManager] in settingsManager.mergingPreferences }
+        )
+    }
+
+    @MainActor
     func makeMergedArtistDetailViewModel(
         displayArtist: DisplayArtist,
         includesHidden: Bool = false
