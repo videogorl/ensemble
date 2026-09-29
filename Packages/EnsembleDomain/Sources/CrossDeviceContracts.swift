@@ -107,6 +107,14 @@ public enum EnsembleMergeIdentity {
         return normalized.isEmpty ? nil : normalized
     }
 
+    public static func normalizedArtist(_ value: String?) -> String? {
+        normalized(value)?.replacingOccurrences(
+            of: "(?<=[\\p{L}\\p{N}])[•·](?=[\\p{L}\\p{N}])",
+            with: "-",
+            options: .regularExpression
+        )
+    }
+
     public static func albumFamily(
         title: String,
         artist: String?,
