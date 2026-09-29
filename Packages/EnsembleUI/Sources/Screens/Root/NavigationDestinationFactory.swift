@@ -46,16 +46,15 @@ struct NavigationDestinationFactory {
                     includesHidden: includesHidden
                 )
                 .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
-            } else if let fallbackID {
+            } else {
                 ArtistDetailLoader(
                     artistId: fallbackID,
+                    artistName: name,
                     artistSourceKey: sourceKey,
                     nowPlayingVM: nowPlayingVM,
                     includesHidden: includesHidden
                 )
                 .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
-            } else {
-                EnsembleStateScaffold(kind: .empty, title: "Artist not found")
             }
         case .displayGenre(let id):
             if let displayGenre = displayGenre(for: id, libraryVM: libraryVM) {

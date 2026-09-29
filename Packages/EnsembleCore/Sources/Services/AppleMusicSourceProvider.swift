@@ -958,6 +958,35 @@ public actor AppleMusicSourceProvider:
         } ?? []
     }
 
+    public func getArtist(artistKey: String?, name: String?) async throws -> Artist? {
+        let artist: MusicKit.Artist?
+        if let artistKey, !artistKey.hasPrefix("apple-artist:") {
+            let request = MusicCatalogResourceRequest<MusicKit.Artist>(matching: \.id, equalTo: MusicItemID(artistKey))
+            artist = try await AppleMusicCatalogRequestBoundary.run(timeoutNanoseconds: 15_000_000_000) {
+                try await request.response().items.first
+            }
+        } else if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            var request = MusicCatalogSearchRequest(term: name, types: [MusicKit.Artist.self])
+            request.limit = 25
+            let configuredRequest = request
+            let response = try await AppleMusicCatalogRequestBoundary.run(timeoutNanoseconds: 15_000_000_000) {
+                try await configuredRequest.response()
+            }
+            artist = response.artists.first { DisplayArtist.normalizedName($0.name) == DisplayArtist.normalizedName(name) }
+        } else {
+            return nil
+        }
+        return artist.map {
+            Artist(
+                id: $0.id.rawValue,
+                key: "apple-catalog",
+                name: $0.name,
+                thumbPath: $0.artwork?.ensembleResolvableURL(),
+                sourceCompositeKey: sourceIdentifier.compositeKey
+            )
+        }
+    }
+
     public func getArtistAlbums(artistKey: String) async throws -> [Album] {
         if artistKey.hasPrefix("apple-artist:") {
             return []

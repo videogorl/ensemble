@@ -1724,6 +1724,16 @@ public final class SyncCoordinator: ObservableObject {
         return try await detailProvider.getAlbumTracks(albumKey: albumId)
     }
 
+    /// Resolve an uncached artist within its exact source.
+    public func getArtist(artistId: String?, name: String?, sourceKey: String) async throws -> Artist? {
+        let detailProvider = try providerResolver.requireCapability(
+            sourceKey: sourceKey,
+            name: "artist details",
+            as: MusicSourceDetailProviding.self
+        )
+        return try await detailProvider.getArtist(artistKey: artistId, name: name)
+    }
+
     /// Get albums for an artist from the music source
     public func getArtistAlbums(artistId: String, sourceKey: String) async throws -> [Album] {
         let detailProvider = try providerResolver.requireCapability(

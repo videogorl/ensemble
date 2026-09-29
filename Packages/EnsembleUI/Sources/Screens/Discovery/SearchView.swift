@@ -914,7 +914,7 @@ public struct SearchView: View {
                     items: displayedResults(viewModel.displayArtistResults)
                 ) { displayArtist in
                     Button {
-                        routeSearchResult(to: .displayArtist(id: displayArtist.id))
+                        routeSearchResult(to: .artistDetail(displayArtist.primaryArtist))
                     } label: {
                         CompactArtistRow(displayArtist: displayArtist)
                     }

@@ -2,7 +2,8 @@ import EnsembleCore
 import SwiftUI
 
 struct ArtistDetailLoader: View {
-    let artistId: String
+    let artistId: String?
+    let artistName: String?
     let artistSourceKey: String?
     let nowPlayingVM: NowPlayingViewModel
     let includesHidden: Bool
@@ -14,12 +15,14 @@ struct ArtistDetailLoader: View {
     @Environment(\.dependencies) private var deps
 
     init(
-        artistId: String,
+        artistId: String?,
+        artistName: String? = nil,
         artistSourceKey: String? = nil,
         nowPlayingVM: NowPlayingViewModel,
         includesHidden: Bool = false
     ) {
         self.artistId = artistId
+        self.artistName = artistName
         self.artistSourceKey = artistSourceKey
         self.nowPlayingVM = nowPlayingVM
         self.includesHidden = includesHidden
@@ -28,6 +31,7 @@ struct ArtistDetailLoader: View {
 
     init(artist: Artist, nowPlayingVM: NowPlayingViewModel, includesHidden: Bool = false) {
         self.artistId = artist.id
+        self.artistName = artist.name
         self.artistSourceKey = artist.sourceCompositeKey
         self.nowPlayingVM = nowPlayingVM
         self.includesHidden = includesHidden
@@ -58,14 +62,21 @@ struct ArtistDetailLoader: View {
     @MainActor
     private func loadArtist() async {
         do {
-            let artist: Artist?
+            var artist: Artist?
             if let initialArtist {
                 artist = initialArtist
-            } else {
+            } else if let artistId {
                 artist = try await deps.libraryRepository.fetchArtist(
                     ratingKey: artistId,
                     sourceCompositeKey: artistSourceKey
                 ).map { Artist(from: $0) }
+            }
+            if artist == nil, let artistSourceKey {
+                artist = try await deps.syncCoordinator.getArtist(
+                    artistId: artistId,
+                    name: artistName,
+                    sourceKey: artistSourceKey
+                )
             }
             guard let artist else {
                 finishLoading(displayArtist: nil, error: nil)
