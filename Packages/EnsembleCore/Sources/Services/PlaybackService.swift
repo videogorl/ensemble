@@ -4194,9 +4194,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         commitQueueMutation(refreshAutoplay: false)
     }
 
-    /// Only direct app UI starts ask before replacing a manually edited queue.
+    /// Only active playback protects a manually edited queue from direct app UI starts.
     public func shouldConfirmQueueReplacement() -> Bool {
-        hasUserQueueEdits && !queue.isEmpty
+        Self.shouldConfirmQueueReplacement(
+            playbackState: playbackState,
+            hasUserQueueEdits: hasUserQueueEdits,
+            isQueueEmpty: queue.isEmpty
+        )
+    }
+
+    static func shouldConfirmQueueReplacement(
+        playbackState: PlaybackState,
+        hasUserQueueEdits: Bool,
+        isQueueEmpty: Bool
+    ) -> Bool {
+        playbackState == .playing && hasUserQueueEdits && !isQueueEmpty
     }
 
     private func setQueueProtection(_ isProtected: Bool, reason: String) {

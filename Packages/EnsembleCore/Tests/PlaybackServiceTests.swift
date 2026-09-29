@@ -3,6 +3,25 @@ import AVFoundation
 import XCTest
 
 final class PlaybackServiceTests: XCTestCase {
+    func testQueueReplacementConfirmationRequiresActivePlaybackAndEditedNonemptyQueue() {
+        let states: [PlaybackState] = [.stopped, .loading, .buffering, .playing, .paused, .failed("Test")]
+        for state in states {
+            for edited in [false, true] {
+                for empty in [false, true] {
+                    XCTAssertEqual(
+                        PlaybackService.shouldConfirmQueueReplacement(
+                            playbackState: state,
+                            hasUserQueueEdits: edited,
+                            isQueueEmpty: empty
+                        ),
+                        state == .playing && edited && !empty,
+                        "state=\(state), edited=\(edited), empty=\(empty)"
+                    )
+                }
+            }
+        }
+    }
+
     private func sourceConfiguration(
         enabledSourceKeys: Set<String>,
         isAuthoritative: Bool = true

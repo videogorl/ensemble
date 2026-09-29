@@ -23,7 +23,8 @@
   original order, keeps the current item when toggled, excludes autoplay and
   already-played candidates, and restores original order when disabled.
 - Up Next, Continue Playing, Autoplay, and History remain distinct. Manual queue
-  mutations protect the queue from direct app-UI replacement until confirmed;
+  mutations protect the queue from direct app-UI replacement only while media
+  is playing, until confirmed. Otherwise replacement needs no confirmation;
   background/system recovery never presents confirmation UI.
 - SmartMix is an opt-in, device-local Plex-only enhancement. It uses the existing
   two-deck model and must gracefully fall back to ordinary gapless playback when
