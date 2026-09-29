@@ -227,8 +227,12 @@ public struct AlbumsView: View {
                             $0.1.minY == $1.1.minY ? $0.1.minX < $1.1.minX : $0.1.minY < $1.1.minY
                         }?.0
                         Color.clear
+                            .onAppear {
+                                if !isStageFlowActive, let visibleID { visibleAlbumID = visibleID }
+                            }
                             .onChange(of: visibleID) { id in
-                                guard !isStageFlowActive else { return }
+                                // Rotation can briefly collapse the viewport before StageFlow activates.
+                                guard !isStageFlowActive, let id else { return }
                                 visibleAlbumID = id
                             }
                     }

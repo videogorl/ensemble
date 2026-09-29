@@ -298,9 +298,9 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
 
             let tabBar = tabBarController.tabBar
             let tabBarFrame = tabBar.convert(tabBar.bounds, to: window)
-            let bottomClearance = tabBar.isHidden
-                ? 0
-                : max(window.bounds.maxY - tabBarFrame.minY, 0)
+            // The root suppresses the mini player during StageFlow. UIKit can still
+            // report a hidden tab bar while restoring its correct portrait frame.
+            let bottomClearance = max(window.bounds.maxY - tabBarFrame.minY, 0)
             if abs(bottomClearance - reportedBottomClearance) > 0.5 {
                 reportedBottomClearance = bottomClearance
                 bottomClearanceDidChange?(bottomClearance)
