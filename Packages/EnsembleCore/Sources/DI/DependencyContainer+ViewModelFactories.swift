@@ -57,6 +57,8 @@ public extension DependencyContainer {
             trackRatingMutationWorkflow: trackRatingMutationWorkflow,
             trackAvailabilityResolver: trackAvailabilityResolver,
             lyricsService: lyricsService,
+            artworkLoader: artworkLoader,
+            foregroundWorkScheduler: foregroundWorkScheduler,
             hiddenMediaStore: hiddenMediaStore
         )
     }

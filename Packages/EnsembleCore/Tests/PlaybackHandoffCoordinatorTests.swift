@@ -3,6 +3,33 @@ import XCTest
 @testable import EnsembleCore
 
 final class PlaybackHandoffCoordinatorTests: XCTestCase {
+    func testSystemPauseKeepsPlaybackSuppressedUntilExplicitResume() {
+        let now = Date()
+        let sequences: [[PlaybackHandoffCoordinator.Signal]] = [
+            [.interruptionBegan(now: now), .interruptionEnded(shouldResume: false)],
+            [.routeChanged(reason: .oldDeviceUnavailable, now: now, settleUntil: nil)]
+        ]
+        for signals in sequences {
+            var coordinator = PlaybackHandoffCoordinator()
+            for (index, signal) in signals.enumerated() {
+                _ = coordinator.handle(signal, playbackState: index == 0 ? .playing : .paused)
+            }
+            XCTAssertTrue(coordinator.shouldSuppressAutomaticAdvance)
+            XCTAssertFalse(coordinator.remoteSkipCommandsEnabled(
+                playbackState: .paused,
+                isSkipTransitionInProgress: true
+            ))
+
+            _ = coordinator.handle(.resumeRequested(.user), playbackState: .paused)
+
+            XCTAssertFalse(coordinator.shouldSuppressAutomaticAdvance)
+            XCTAssertTrue(coordinator.remoteSkipCommandsEnabled(
+                playbackState: .playing,
+                isSkipTransitionInProgress: false
+            ))
+        }
+    }
+
     func testPauseCancelsLoadingAndBufferingLikePlaying() {
         for playbackState: PlaybackState in [.loading, .buffering, .playing] {
             var coordinator = PlaybackHandoffCoordinator()
@@ -25,7 +52,6 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.state.interruption, .none)
         XCTAssertEqual(outcome.actions, [
             .refreshPresentationLatency,
-            .setRouteChangeInProgress(false),
             .pausePlayback(.disconnect)
         ])
         XCTAssertEqual(outcome.summary, "disconnect route change")
@@ -48,7 +74,6 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.state.pauseReason, .user)
         XCTAssertEqual(outcome.actions, [
             .refreshPresentationLatency,
-            .setRouteChangeInProgress(false)
         ])
         XCTAssertEqual(outcome.summary, "disconnect route change while already paused")
     }
@@ -82,7 +107,6 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(outcome.category, .audioSessionInterruption)
         XCTAssertEqual(outcome.actions, [
-            .setInterrupted(true),
             .pausePlayback(.interruption)
         ])
         XCTAssertEqual(coordinator.state.pauseReason, .interruption)
@@ -99,11 +123,10 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
             playbackState: .paused
         )
 
-        XCTAssertEqual(outcome.actions.count, 3)
+        XCTAssertEqual(outcome.actions.count, 2)
         XCTAssertEqual(outcome.actions[0], .refreshPresentationLatency)
-        XCTAssertEqual(outcome.actions[1], .setRouteChangeInProgress(true))
 
-        guard case .scheduleSettleWindow(let actualUntil) = outcome.actions[2] else {
+        guard case .scheduleSettleWindow(let actualUntil) = outcome.actions[1] else {
             return XCTFail("Expected settle window scheduling action")
         }
         XCTAssertEqual(actualUntil, settleUntil)
@@ -137,7 +160,6 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(outcome.actions, [
             .refreshPresentationLatency,
-            .setRouteChangeInProgress(false)
         ])
         XCTAssertEqual(coordinator.state.routeTransition, .idle)
     }
@@ -159,7 +181,6 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(outcome.actions, [
             .refreshPresentationLatency,
-            .setRouteChangeInProgress(false),
             .resumePlayback(.system)
         ])
         XCTAssertEqual(coordinator.state.routeTransition, .idle)
@@ -179,8 +200,6 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         )
 
         XCTAssertEqual(outcome.actions, [
-            .setInterrupted(false),
-            .setRouteChangeInProgress(false),
             .resumePlayback(.system)
         ])
         XCTAssertNil(coordinator.state.pauseReason)
@@ -202,8 +221,6 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         )
 
         XCTAssertEqual(outcome.actions, [
-            .setInterrupted(false),
-            .setRouteChangeInProgress(false),
             .resumePlayback(.system)
         ])
         XCTAssertNil(coordinator.state.pauseReason)
@@ -244,7 +261,6 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         )
 
         XCTAssertEqual(outcome.actions, [
-            .setInterrupted(false),
             .resumePlayback(.system)
         ])
         XCTAssertNil(coordinator.state.pauseReason)
@@ -265,7 +281,6 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         )
 
         XCTAssertEqual(outcome.actions, [
-            .setInterrupted(false),
             .pausePlayback(.interruption)
         ])
         XCTAssertEqual(coordinator.state.pauseReason, .interruption)
@@ -285,7 +300,7 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
             playbackState: .paused
         )
 
-        XCTAssertEqual(outcome.actions, [.setInterrupted(false)])
+        XCTAssertEqual(outcome.actions, [])
         XCTAssertEqual(coordinator.state.pauseReason, .disconnect)
         XCTAssertEqual(
             coordinator.state.interruption,
@@ -302,10 +317,7 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            coordinator.shouldSuppressAutomaticAdvance(
-                isInterrupted: false,
-                isRouteChangeInProgress: false
-            )
+            coordinator.shouldSuppressAutomaticAdvance
         )
     }
 
@@ -320,9 +332,7 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         XCTAssertFalse(
             coordinator.remoteSkipCommandsEnabled(
                 playbackState: .paused,
-                isSkipTransitionInProgress: false,
-                isInterrupted: true,
-                isRouteChangeInProgress: false
+                isSkipTransitionInProgress: false
             )
         )
     }

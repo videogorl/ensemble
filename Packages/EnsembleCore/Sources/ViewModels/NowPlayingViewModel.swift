@@ -192,6 +192,8 @@ public final class NowPlayingViewModel: ObservableObject {
     private let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
     private let trackAvailabilityResolver: TrackAvailabilityResolver
     private let lyricsService: LyricsService
+    private let artworkLoader: ArtworkLoaderProtocol
+    private let foregroundWorkScheduler: ForegroundWorkScheduling
     private let hiddenMediaStore: HiddenMediaStore
     private var cancellables = Set<AnyCancellable>()
     private var currentQueueIdentity: [String]?
@@ -229,6 +231,8 @@ public final class NowPlayingViewModel: ObservableObject {
         trackRatingMutationWorkflow: TrackRatingMutationWorkflow? = nil,
         trackAvailabilityResolver: TrackAvailabilityResolver,
         lyricsService: LyricsService,
+        artworkLoader: ArtworkLoaderProtocol,
+        foregroundWorkScheduler: ForegroundWorkScheduling,
         hiddenMediaStore: HiddenMediaStore? = nil
     ) {
         self.playbackService = playbackService
@@ -241,6 +245,8 @@ public final class NowPlayingViewModel: ObservableObject {
         self.trackRatingMutationWorkflow = trackRatingMutationWorkflow ?? TrackRatingMutationWorkflow(mutator: mutationCoordinator)
         self.trackAvailabilityResolver = trackAvailabilityResolver
         self.lyricsService = lyricsService
+        self.artworkLoader = artworkLoader
+        self.foregroundWorkScheduler = foregroundWorkScheduler
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
         lyricsProjection = NowPlayingLyricsProjection(isInstrumentalModeSupported: InstrumentalModeCapability.isSupported)
         lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
@@ -956,7 +962,7 @@ public final class NowPlayingViewModel: ObservableObject {
             && artworkProjection.artworkImage != nil
         let cachedArtwork = hasResolvedArtwork
             ? nil
-            : DependencyContainer.shared.artworkLoader.synchronouslyCachedImage(for: request)
+            : artworkLoader.synchronouslyCachedImage(for: request)
 
         guard artworkProjection.beginLoading(
             track,
@@ -978,7 +984,7 @@ public final class NowPlayingViewModel: ObservableObject {
         artworkLoadTask = Task { @MainActor in
             guard !Task.isCancelled else { return }
 
-            switch await DependencyContainer.shared.artworkLoader.resolve(request) {
+            switch await artworkLoader.resolve(request) {
             case .resolved(let resolved):
                 guard !Task.isCancelled else { return }
 
@@ -1004,10 +1010,11 @@ public final class NowPlayingViewModel: ObservableObject {
     private func dispatchBlurGeneration(for resolved: ArtworkResolvedImage, trackIdentity: String) {
         blurGenerationTask?.cancel()
 
-        blurGenerationTask = Task { [weak self] in
-            let blurred = await DependencyContainer.shared.artworkLoader.blurredImage(
+        blurGenerationTask = Task { [weak self, artworkLoader, foregroundWorkScheduler] in
+            let blurred = await artworkLoader.blurredImage(
                 for: resolved.image,
-                cacheKey: resolved.blurCacheKey
+                cacheKey: resolved.blurCacheKey,
+                scheduler: foregroundWorkScheduler
             )
             guard !Task.isCancelled else { return }
             self?.applyGeneratedBlurredArtwork(
