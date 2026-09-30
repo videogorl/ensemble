@@ -35,6 +35,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
         }
 
         var completionCalls: [CompletionCall] = []
+        var completionError: Error?
         private let stack = CoreDataStack.inMemory()
         var createdDownload: CDDownload?
 
@@ -59,6 +60,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
         func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String?) async throws {}
         func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {}
         func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws {
+            if let completionError { throw completionError }
             completionCalls.append(
                 CompletionCall(
                     downloadID: downloadId,
@@ -177,7 +179,8 @@ final class DownloadTransferExecutorTests: XCTestCase {
         let downloadManager = DownloadManagerMock()
         let ctx = makeContext(trackRatingKey: "queue-track", quality: "high")
         let completionExpectation = expectation(description: "completion observed")
-        let payload = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00])
+        let file = try writeAudioFixture(named: "queue-track.wav")
+        let payload = try Data(contentsOf: file)
 
         let executor = DownloadTransferExecutor(
             dependencies: .init(
@@ -187,7 +190,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
                     return URL(string: "https://example.com/unused.mp3")!
                 },
                 fetchOfflineDownloadQueueMedia: { _, _ in
-                    (try self.writeTemporaryFile(named: "queue.tmp", data: payload), "queue-track.mp3", "audio/mpeg")
+                    (file, "queue-track.wav", "audio/wav")
                 },
                 shouldAttemptDirectFallback: { _, _ in false },
                 performDirectDownload: { _, _, _ in
@@ -207,8 +210,8 @@ final class DownloadTransferExecutorTests: XCTestCase {
             ratingKey: ctx.trackRatingKey,
             safeSourceKey: ctx.safeSourceKey,
             quality: .high,
-            suggestedFilename: "queue-track.mp3",
-            mimeType: "audio/mpeg",
+            suggestedFilename: "queue-track.wav",
+            mimeType: "audio/wav",
             payload: payload
         )
         cleanupURLs.append(destinationURL)
@@ -222,10 +225,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
     func testExecuteAdoptsMatchingPlaybackArtifactWithoutNetworkTransfer() async throws {
         let downloadManager = DownloadManagerMock()
         let ctx = makeContext(trackRatingKey: "cached-track", quality: "high")
-        let artifactURL = try writeTemporaryFile(
-            named: "cached-track.mp3",
-            data: Data([0x49, 0x44, 0x33, 0x04, 0x00, 0x00])
-        )
+        let artifactURL = try writeAudioFixture(named: "cached-track.wav")
         let executor = DownloadTransferExecutor(
             dependencies: .init(
                 downloadManager: downloadManager,
@@ -272,7 +272,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
         for empty in [false, true] {
             let downloadManager = DownloadManagerMock()
             let ctx = makeContext(trackRatingKey: "fallback-track", quality: "medium")
-            let response = makeHTTPResponse(url: URL(string: "https://example.com/fallback-track.mp3")!, mimeType: "audio/mpeg")
+            let response = makeHTTPResponse(url: URL(string: "https://example.com/fallback-track.wav")!, mimeType: "audio/wav")
             cleanupURLs.append(DownloadTransferExecutor.localFileURL(ratingKey: ctx.trackRatingKey, safeSourceKey: ctx.safeSourceKey, quality: .medium, response: response))
             let completionExpectation = expectation(description: "completion observed")
             var fallbackDecisionCalls = 0
@@ -290,7 +290,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
                         return true
                     },
                     performDirectDownload: { _, _, _ in
-                        let tempURL = try self.writeTemporaryFile(named: "fallback-track.tmp", data: Data([0x49, 0x44, 0x33, 0x04]))
+                        let tempURL = try self.writeAudioFixture(named: "fallback-track.wav")
                         return (tempURL, response)
                     },
                     didComplete: { _, _ in completionExpectation.fulfill() },
@@ -319,48 +319,54 @@ final class DownloadTransferExecutorTests: XCTestCase {
     }
 
     func testExecuteSkipsPersistingWhenTargetIsRemovedBeforeCompletion() async throws {
-        let downloadManager = DownloadManagerMock()
-        let ctx = makeContext(trackRatingKey: "removed-target", quality: "original")
-        let response = makeHTTPResponse(url: URL(string: "https://example.com/removed-target.mp3")!, mimeType: "audio/mpeg")
-        var completionCount = 0
-        var notificationCount = 0
+        for removalAt in [1, 2] {
+            let downloadManager = DownloadManagerMock()
+            let ctx = makeContext(trackRatingKey: "removed-target", quality: "original")
+            let response = makeHTTPResponse(url: URL(string: "https://example.com/removed-target.wav")!, mimeType: "audio/wav")
+            var reads = 0
+            var completionCount = 0
+            var notificationCount = 0
 
-        let executor = DownloadTransferExecutor(
-            dependencies: .init(
-                downloadManager: downloadManager,
-                fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/removed-target.mp3")! },
-                fetchOfflineDownloadQueueMedia: { _, _ in
-                    XCTFail("Queue download should not be used for original quality")
-                    throw URLError(.badServerResponse)
-                },
-                shouldAttemptDirectFallback: { _, _ in false },
-                performDirectDownload: { _, _, _ in
-                    let tempURL = try self.writeTemporaryFile(named: "removed-target.tmp", data: Data([0x49, 0x44, 0x33, 0x04]))
-                    return (tempURL, response)
-                },
-                didComplete: { _, _ in completionCount += 1 },
-                scheduleDownloadsChanged: {
-                    notificationCount += 1
-                },
-                isStillReferenced: { _ in false }
+            let executor = DownloadTransferExecutor(
+                dependencies: .init(
+                    downloadManager: downloadManager,
+                    fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/removed-target.wav")! },
+                    fetchOfflineDownloadQueueMedia: { _, _ in
+                        XCTFail("Queue download should not be used for original quality")
+                        throw URLError(.badServerResponse)
+                    },
+                    shouldAttemptDirectFallback: { _, _ in false },
+                    performDirectDownload: { _, _, _ in
+                        let tempURL = try self.writeAudioFixture(named: "removed-target.wav")
+                        return (tempURL, response)
+                    },
+                    didComplete: { _, _ in completionCount += 1 },
+                    scheduleDownloadsChanged: {
+                        notificationCount += 1
+                    },
+                    isStillReferenced: { _ in
+                        reads += 1
+                        return reads < removalAt
+                    }
+                )
             )
-        )
 
-        let result = try await executor.execute(ctx: ctx, requestedQuality: .original)
+            let result = try await executor.execute(ctx: ctx, requestedQuality: .original)
 
-        let destinationURL = DownloadTransferExecutor.localFileURL(
-            ratingKey: ctx.trackRatingKey,
-            safeSourceKey: ctx.safeSourceKey,
-            quality: .original,
-            response: response
-        )
+            let destinationURL = DownloadTransferExecutor.localFileURL(
+                ratingKey: ctx.trackRatingKey,
+                safeSourceKey: ctx.safeSourceKey,
+                quality: .original,
+                response: response
+            )
 
-        XCTAssertFalse(result.attemptedDirectFallback)
-        XCTAssertFalse(result.persisted)
-        XCTAssertTrue(downloadManager.completionCalls.isEmpty)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: destinationURL.path))
-        XCTAssertEqual(completionCount, 0)
-        XCTAssertEqual(notificationCount, 0)
+            XCTAssertFalse(result.attemptedDirectFallback)
+            XCTAssertFalse(result.persisted)
+            XCTAssertTrue(downloadManager.completionCalls.isEmpty)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: destinationURL.path))
+            XCTAssertEqual(completionCount, 0)
+            XCTAssertEqual(notificationCount, 0)
+        }
     }
 
     func testExecuteThrowsWrappedErrorWhenFallbackIsBlocked() async throws {
@@ -393,8 +399,12 @@ final class DownloadTransferExecutorTests: XCTestCase {
         }
     }
 
-    func testTruncatedReplacementPreservesExistingFileForDirectAndQueueTransfers() async throws {
-        for (quality, misleadingHeader) in [(StreamingQuality.original, false), (.high, false), (.original, true), (.high, true)] {
+    func testInvalidReplacementPreservesExistingFileForDirectAndQueueTransfers() async throws {
+        for (quality, misleadingHeader, unreadable) in [
+            (StreamingQuality.original, false, false), (.high, false, false),
+            (.original, true, false), (.high, true, false),
+            (.original, false, true), (.high, false, true)
+        ] {
             let ctx = makeContext(trackRatingKey: UUID().uuidString, quality: quality.rawValue, duration: 30_000)
             let filename = misleadingHeader ? "file.flac" : "file.wav"
             let source = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + filename)
@@ -402,7 +412,10 @@ final class DownloadTransferExecutorTests: XCTestCase {
             let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 8_000, channels: 1))
             let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8_000))
             buffer.frameLength = 8_000
-            if misleadingHeader {
+            if unreadable {
+                try Data("this is not audio".utf8).write(to: source)
+                XCTAssertThrowsError(try AVAudioFile(forReading: source))
+            } else if misleadingHeader {
                 let settings: [String: Any] = [AVFormatIDKey: kAudioFormatFLAC, AVSampleRateKey: 8_000, AVNumberOfChannelsKey: 1]
                 do {
                     let file = try AVAudioFile(forWriting: source, settings: settings)
@@ -419,8 +432,9 @@ final class DownloadTransferExecutorTests: XCTestCase {
             let response = makeHTTPResponse(url: URL(string: "https://example.com/\(filename)")!, mimeType: "audio/wav")
             let destination = DownloadTransferExecutor.localFileURL(ratingKey: ctx.trackRatingKey, safeSourceKey: ctx.safeSourceKey, quality: quality, response: response)
             cleanupURLs.append(destination)
-            let previous = Data("previous playable file".utf8)
+            let previous = try Data(contentsOf: writeAudioFixture(named: "previous.wav"))
             try previous.write(to: destination)
+            XCTAssertNoThrow(try AVAudioFile(forReading: destination))
             let manager = DownloadManagerMock()
             let executor = DownloadTransferExecutor(dependencies: .init(
                 downloadManager: manager,
@@ -433,13 +447,59 @@ final class DownloadTransferExecutorTests: XCTestCase {
             ))
             do {
                 _ = try await executor.execute(ctx: ctx, requestedQuality: quality)
-                XCTFail("Truncated replacement must fail")
+                XCTFail("Invalid replacement must fail")
             } catch let error as DownloadTransferExecutionError {
                 XCTAssertTrue(error.underlying is DownloadProcessingError, "Expected audio validation rejection")
             }
             XCTAssertEqual(try Data(contentsOf: destination), previous)
             XCTAssertTrue(manager.completionCalls.isEmpty)
             XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        }
+    }
+
+    func testMembershipReadFailurePreservesAudioWithoutCompletingOrEvictingCache() async throws {
+        for (failureAt, usePlaybackCache, failCompletion) in [
+            (1, false, false), (2, false, false), (3, true, false), (3, false, true)
+        ] {
+            let ctx = makeContext(trackRatingKey: UUID().uuidString, quality: "original")
+            let source = try writeAudioFixture(named: "membership.wav")
+            let response = makeHTTPResponse(url: URL(string: "https://example.com/membership.wav")!, mimeType: "audio/wav")
+            let destination = DownloadTransferExecutor.localFileURL(
+                ratingKey: ctx.trackRatingKey, safeSourceKey: ctx.safeSourceKey, quality: .original, response: response
+            )
+            cleanupURLs.append(destination)
+            try Data(contentsOf: source).write(to: destination)
+            let manager = DownloadManagerMock()
+            let readError = NSError(domain: NSCocoaErrorDomain, code: NSPersistentStoreOperationError)
+            if failCompletion { manager.completionError = readError }
+            var reads = 0
+            let executor = DownloadTransferExecutor(dependencies: .init(
+                downloadManager: manager,
+                fetchDirectDownloadURL: { _, _ in response.url! },
+                fetchOfflineDownloadQueueMedia: { _, _ in throw URLError(.badServerResponse) },
+                shouldAttemptDirectFallback: { _, _ in false },
+                performDirectDownload: { _, _, _ in (source, response) },
+                didComplete: { _, _ in XCTFail("Membership error must not complete") },
+                scheduleDownloadsChanged: {},
+                isStillReferenced: { _ in
+                    reads += 1
+                    if reads == failureAt { throw readError }
+                    return true
+                },
+                matchingPlaybackArtifact: { _, _ in usePlaybackCache ? source : nil },
+                rejectPlaybackArtifact: { _ in XCTFail("Membership error must not evict playable cache") }
+            ))
+
+            do {
+                _ = try await executor.execute(ctx: ctx, requestedQuality: .original)
+                XCTFail("Expected the membership lookup error")
+            } catch let error as DownloadTransferExecutionError {
+                XCTAssertEqual(error.underlying as NSError, readError)
+            }
+            XCTAssertEqual(reads, failureAt)
+            XCTAssertNoThrow(try AVAudioFile(forReading: destination))
+            XCTAssertTrue(manager.completionCalls.isEmpty)
+            if usePlaybackCache { XCTAssertNoThrow(try AVAudioFile(forReading: source)) }
         }
     }
 
@@ -477,6 +537,18 @@ final class DownloadTransferExecutorTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-\(name)")
         try data.write(to: url, options: [.atomic])
         cleanupURLs.append(url)
+        return url
+    }
+
+    private func writeAudioFixture(named name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-\(name)")
+        cleanupURLs.append(url)
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 8_000, channels: 1))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8_000))
+        buffer.frameLength = 8_000
+        buffer.floatChannelData![0].initialize(repeating: 0, count: 8_000)
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        for _ in 0..<5 { try file.write(from: buffer) }
         return url
     }
 

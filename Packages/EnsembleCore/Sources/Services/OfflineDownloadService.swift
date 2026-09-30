@@ -293,12 +293,12 @@ public final class OfflineDownloadService: ObservableObject {
                 self?.notificationBridge.scheduleDownloadsChanged()
             },
             isStillReferenced: { [weak self] ctx in
-                guard let self else { return false }
+                guard let self else { throw CancellationError() }
                 let reference = OfflineTrackReference(
                     trackRatingKey: ctx.trackRatingKey,
                     trackSourceCompositeKey: ctx.sourceCompositeKey
                 )
-                return (try? await self.targetRepository.hasAnyMembership(for: reference)) ?? false
+                return try await self.targetRepository.hasAnyMembership(for: reference)
             },
             restoredTransfer: { [weak self] ctx, quality in
                 guard let self else { return nil }
