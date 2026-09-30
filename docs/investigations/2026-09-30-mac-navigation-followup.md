@@ -88,8 +88,9 @@ the measured table-sizing cost only.
 The previous physical-phone screenshot shows empty-playlist text beneath the
 floating mini player. A fresh iPad run on UUID
 `08CA3DD8-D174-40E9-A361-62B95671B969` with the already-installed current build
-displayed the empty state clearly. The compact-phone case remains to reproduce
-and fix. The three pre-existing Core test failures are diagnosed below.
+displayed the empty state clearly. The original iOS 27 compact-phone case still
+needs a fresh physical reproduction; the iOS 26.5 follow-up is below. The three
+pre-existing Core test failures are diagnosed below.
 
 ## Pre-existing Core test failures
 
@@ -110,6 +111,37 @@ The three affected classes passed all 64 tests, including stale remote-flag
 rejection. The complete Core run then passed 1,195 XCTest tests and eight Swift
 Testing tests with no failures. Logs: `failure-fixtures-isolated.log` and
 `core-full-isolated-fixtures.log` in the run directory below.
+
+## Compact-phone follow-up
+
+Device Hub continued to time out when opening the physical iPhone view. Used
+the verified iPhone 17 Pro / iOS 26.5 simulator, UUID
+`C01A1C06-F40B-4B39-93A7-7D1D9C89D9A1`, instead. Its older installed build was
+excluded from current behavior evidence. A fresh Debug workspace build passed;
+built and installed executable hashes matched, and PID 81568 ran the exact
+installed path. Version: `0.4.0 (202609301325.5719)`.
+
+Opened an existing empty playlist without changing its remote data. At normal
+text size, “No tracks” was readable above the floating mini player. Scrolling
+raised it fully clear. At accessibility-large size, the taller header initially
+placed the empty state below the viewport; it again scrolled fully above the
+mini player. These checks do not establish the original physical-phone iOS 27
+behavior. No root inset or leaf padding workaround was added.
+
+The accessibility-large screenshot also reproduces a truncated visible Shuffle
+label. Its accessibility label remains “Shuffle”; the visual layout needs a
+separate correction. Restored the simulator's original `large` text size and
+verified playback was paused, then closed the app and shut down that exact
+simulator.
+
+Local screenshots: `phone-current-empty-normal.png`,
+`phone-current-empty-scrolled.png`,
+`phone-current-empty-accessibility-large.png`, and
+`phone-current-empty-accessibility-large-scrolled.png`. The fresh-build hashes
+are in `phone-current-provenance.json`.
+
+The physical phone's external test helper was uninstalled successfully, and a
+fresh installed-app inventory confirmed its bundle was absent.
 
 Raw captures and local runtime artifacts are under
 `/tmp/ensemble-runtime-followup.jGowFN`; the committed JSON contains the portable,
