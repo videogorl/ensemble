@@ -582,14 +582,6 @@ public final class MutationCoordinator: ObservableObject {
         }
     }
 
-    /// Save the current queue as a playlist snapshot. Delegates to addTracksToPlaylist.
-    public func saveQueueSnapshot(
-        _ tracks: [Track],
-        to playlist: Playlist
-    ) async throws -> (PlaylistMutationResult?, MutationOutcome) {
-        return try await addTracksToPlaylist(tracks, playlist: playlist)
-    }
-
     private func requireSourceKey(for playlist: Playlist) throws -> String {
         guard let sourceKey = playlist.sourceCompositeKey,
               MediaSourceIdentity.parse(sourceKey) != nil else {

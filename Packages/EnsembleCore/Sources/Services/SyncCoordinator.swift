@@ -1316,11 +1316,6 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
-    /// Save queue snapshot tracks to a playlist.
-    public func saveQueueSnapshot(_ tracks: [Track], to playlist: Playlist) async throws -> PlaylistMutationResult {
-        try await addTracksToPlaylist(tracks, playlist: playlist)
-    }
-
     /// Perform appropriate sync on app startup based on staleness
     /// - If last full sync > 24 hours: full sync
     /// - If last sync > 1 hour: incremental sync
