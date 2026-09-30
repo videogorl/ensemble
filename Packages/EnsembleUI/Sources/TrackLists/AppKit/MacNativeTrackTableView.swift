@@ -212,7 +212,9 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         var consumedSectionScrollRequestID: Int?
         var consumedSelectedTrackId: String?
         private(set) var rows: [NativeTrackListFlattenedRow] = []
-        private var heightMeasuringView: NSHostingView<AnyView>?
+        // Sharing a sizing host replaces the header tree each time the footer is measured.
+        private var headerMeasuringView: NSHostingView<AnyView>?
+        private var footerMeasuringView: NSHostingView<AnyView>?
         private var measuredHeader: (width: CGFloat, height: CGFloat)?
         private var measuredFooter: (width: CGFloat, height: CGFloat)?
 
@@ -588,38 +590,35 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             )
         }
 
-        private func hostingHeight(for rootView: AnyView, width: CGFloat) -> CGFloat {
+        private static func hostingHeight(
+            for rootView: AnyView,
+            width: CGFloat,
+            measuringView: inout NSHostingView<AnyView>?
+        ) -> CGFloat {
             let content = AnyView(rootView.frame(width: max(width, 1)))
-            if let heightMeasuringView {
-                heightMeasuringView.rootView = content
+            if let measuringView {
+                measuringView.rootView = content
             } else {
-                heightMeasuringView = NSHostingView(rootView: content)
+                measuringView = NSHostingView(rootView: content)
             }
-            return max(1, heightMeasuringView?.fittingSize.height ?? 1)
+            return max(1, measuringView?.fittingSize.height ?? 1)
         }
 
         private func headerHeight(for rootView: AnyView, in tableView: NSTableView, forceMeasure: Bool = false) -> CGFloat {
             let width = effectiveTableWidth(tableView)
-            if usesDynamicTableHeaderHeight {
-                if !forceMeasure, let measuredHeader, measuredHeader.width == width {
-                    return measuredHeader.height
-                }
-                let height = hostingHeight(for: headerRootView(rootView, width: width), width: width)
-                measuredHeader = (width, height)
-                return height
-            }
-
-            let wideHeaderHeight = MacNativeTrackTableView.deterministicWideHeaderHeight(
-                tableHeaderExtraHeight: tableHeaderExtraHeight
-            )
-            guard width > 1, width < EnsembleScaffold.DetailSurface.wideHeaderThreshold else {
-                return wideHeaderHeight
+            if !usesDynamicTableHeaderHeight, width >= EnsembleScaffold.DetailSurface.wideHeaderThreshold {
+                return MacNativeTrackTableView.deterministicWideHeaderHeight(
+                    tableHeaderExtraHeight: tableHeaderExtraHeight
+                )
             }
 
             if !forceMeasure, let measuredHeader, measuredHeader.width == width {
                 return measuredHeader.height
             }
-            let height = hostingHeight(for: headerRootView(rootView, width: width), width: width)
+            let height = Self.hostingHeight(
+                for: headerRootView(rootView, width: width), width: width,
+                measuringView: &headerMeasuringView
+            )
             measuredHeader = (width, height)
             return height
         }
@@ -628,7 +627,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             if !forceMeasure, let measuredFooter, measuredFooter.width == width {
                 return measuredFooter.height
             }
-            let height = hostingHeight(for: rootView, width: width)
+            let height = Self.hostingHeight(for: rootView, width: width, measuringView: &footerMeasuringView)
             measuredFooter = (width, height)
             return height
         }
