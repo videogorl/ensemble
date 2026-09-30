@@ -115,7 +115,10 @@ final class EnsemblePermalinkResolverTests: XCTestCase {
         let resolver = EnsemblePermalinkResolver(
             libraryRepository: library,
             playlistRepository: playlists,
-            enabledSourceKeys: { [sourceA, sourceB] }
+            enabledSourceKeys: { [sourceA, sourceB] },
+            mergingPreferences: {
+                EnsembleMergingPreferences(preferredSourceKeys: [sourceA, sourceB])
+            }
         )
         let destination = try await resolver.resolve(
             EnsemblePermalink(kind: .playlist, title: "ROAD TRIP", isSmartPlaylist: false)

@@ -89,7 +89,27 @@ The previous physical-phone screenshot shows empty-playlist text beneath the
 floating mini player. A fresh iPad run on UUID
 `08CA3DD8-D174-40E9-A361-62B95671B969` with the already-installed current build
 displayed the empty state clearly. The compact-phone case remains to reproduce
-and fix. The three pre-existing Core test failures also remain to diagnose.
+and fix. The three pre-existing Core test failures are diagnosed below.
+
+## Pre-existing Core test failures
+
+All three failures reproduced before editing the tests (15 failed assertions).
+The two remote library cleanup tests inherited persisted local flag timestamps
+from other tests/runs. Their untimestamped legacy payloads were correctly
+rejected by `AccountManager` before cleanup began. The cleanup test class now
+saves, clears, and restores just that defaults key around each test. Production
+sync ordering and deletion protections are unchanged.
+
+The case-insensitive merged-playlist permalink test expected the first inserted
+title spelling, despite repository ordering by newest update for equal titles.
+It now supplies the source preference that makes that spelling authoritative.
+Merged detail lookup already normalizes titles; no production routing change was
+needed.
+
+The three affected classes passed all 64 tests, including stale remote-flag
+rejection. The complete Core run then passed 1,195 XCTest tests and eight Swift
+Testing tests with no failures. Logs: `failure-fixtures-isolated.log` and
+`core-full-isolated-fixtures.log` in the run directory below.
 
 Raw captures and local runtime artifacts are under
 `/tmp/ensemble-runtime-followup.jGowFN`; the committed JSON contains the portable,
