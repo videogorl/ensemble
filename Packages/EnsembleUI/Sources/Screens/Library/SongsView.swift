@@ -53,28 +53,16 @@ public struct SongsView: View {
 
     private var songsMoreMenu: some View {
         Menu {
-            Menu {
-                ForEach(TrackSortOption.allCases, id: \.self) { option in
-                    Button {
-                        if libraryVM.trackSortOption == option {
-                            libraryVM.tracksFilterOptions.sortDirection =
-                                libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                        } else {
-                            libraryVM.trackSortOption = option
-                            libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
-                        }
-                    } label: {
-                        HStack {
-                            Text(option.rawValue)
-                            if libraryVM.trackSortOption == option {
-                                Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
-                                    ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
-                            }
-                        }
-                    }
+            EnsembleBrowseSortMenu(
+                model: libraryVM,
+                options: TrackSortOption.allCases,
+                selection: { $0.trackSortOption },
+                direction: { $0.tracksFilterOptions.sortDirection }
+            ) { option, direction in
+                if libraryVM.trackSortOption != option {
+                    libraryVM.trackSortOption = option
                 }
-            } label: {
-                Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+                libraryVM.tracksFilterOptions.sortDirection = direction
             }
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)

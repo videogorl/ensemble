@@ -50,28 +50,16 @@ public struct AlbumsView: View {
     }
 
     private var albumSortMenu: some View {
-        Menu {
-            ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                Button {
-                    if libraryVM.albumSortOption == option {
-                        libraryVM.albumsFilterOptions.sortDirection =
-                            libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                    } else {
-                        libraryVM.albumSortOption = option
-                        libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
-                    }
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if libraryVM.albumSortOption == option {
-                            Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
-                                  ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
-                        }
-                    }
-                }
+        EnsembleBrowseSortMenu(
+            model: libraryVM,
+            options: AlbumSortOption.allCases,
+            selection: { $0.albumSortOption },
+            direction: { $0.albumsFilterOptions.sortDirection }
+        ) { option, direction in
+            if libraryVM.albumSortOption != option {
+                libraryVM.albumSortOption = option
             }
-        } label: {
-            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+            libraryVM.albumsFilterOptions.sortDirection = direction
         }
         .accessibilityLabel("Sort Albums")
     }

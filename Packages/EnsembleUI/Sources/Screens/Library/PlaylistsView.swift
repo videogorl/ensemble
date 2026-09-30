@@ -3,15 +3,6 @@ import EnsembleCore
 import Combine
 import SwiftUI
 
-private extension Notification.Name {
-    static let playlistDeletionStarted = Notification.Name("playlistDeletionStarted")
-    static let playlistDeletionSucceeded = Notification.Name("playlistDeletionSucceeded")
-    static let playlistDeletionFailed = Notification.Name("playlistDeletionFailed")
-    static let playlistRenameStarted = Notification.Name("playlistRenameStarted")
-    static let playlistRenameSucceeded = Notification.Name("playlistRenameSucceeded")
-    static let playlistRenameFailed = Notification.Name("playlistRenameFailed")
-}
-
 private enum PlaylistMutationEvent {
     case deletionStarted(playlistIdentity: String)
     case deletionSucceeded(playlistIdentity: String)
@@ -20,59 +11,16 @@ private enum PlaylistMutationEvent {
     case renameSucceeded(playlistIdentity: String, newTitle: String)
     case renameFailed(playlistIdentity: String)
 
-    static var publisher: AnyPublisher<PlaylistMutationEvent, Never> {
-        Publishers.MergeMany([
-            notificationPublisher(for: .playlistDeletionStarted) { note in
-                guard let playlistIdentity = note.playlistIdentity else { return nil }
-                return .deletionStarted(playlistIdentity: playlistIdentity)
-            },
-            notificationPublisher(for: .playlistDeletionSucceeded) { note in
-                guard let playlistIdentity = note.playlistIdentity else { return nil }
-                return .deletionSucceeded(playlistIdentity: playlistIdentity)
-            },
-            notificationPublisher(for: .playlistDeletionFailed) { note in
-                guard let playlistIdentity = note.playlistIdentity else { return nil }
-                return .deletionFailed(playlistIdentity: playlistIdentity)
-            },
-            notificationPublisher(for: .playlistRenameStarted) { note in
-                guard let playlistIdentity = note.playlistIdentity,
-                      let newTitle = note.newTitle else {
-                    return nil
-                }
-                return .renameStarted(playlistIdentity: playlistIdentity, newTitle: newTitle)
-            },
-            notificationPublisher(for: .playlistRenameSucceeded) { note in
-                guard let playlistIdentity = note.playlistIdentity,
-                      let newTitle = note.newTitle else {
-                    return nil
-                }
-                return .renameSucceeded(playlistIdentity: playlistIdentity, newTitle: newTitle)
-            },
-            notificationPublisher(for: .playlistRenameFailed) { note in
-                guard let playlistIdentity = note.playlistIdentity else { return nil }
-                return .renameFailed(playlistIdentity: playlistIdentity)
-            }
-        ])
-        .eraseToAnyPublisher()
-    }
+    private static let notificationName = Notification.Name("playlistMutationEvent")
 
-    private static func notificationPublisher(
-        for name: Notification.Name,
-        transform: @escaping (Notification) -> PlaylistMutationEvent?
-    ) -> AnyPublisher<PlaylistMutationEvent, Never> {
-        NotificationCenter.default.publisher(for: name)
-            .compactMap(transform)
+    static var publisher: AnyPublisher<PlaylistMutationEvent, Never> {
+        NotificationCenter.default.publisher(for: notificationName)
+            .compactMap { $0.object as? PlaylistMutationEvent }
             .eraseToAnyPublisher()
     }
-}
 
-private extension Notification {
-    var playlistIdentity: String? {
-        userInfo?["playlistIdentity"] as? String
-    }
-
-    var newTitle: String? {
-        userInfo?["newTitle"] as? String
+    func post() {
+        NotificationCenter.default.post(name: Self.notificationName, object: self)
     }
 }
 
@@ -89,7 +37,6 @@ public struct PlaylistsView: View {
     @State private var localSelectedPlaylist: DisplayPlaylist?
     @State private var pendingDeletionPlaylistIdentities: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
-    @State private var deletingToastIDsByPlaylistIdentity: [String: UUID] = [:]
     @State private var creatingPlaylistToastID: UUID?
     @State private var playlistForEditSheet: Playlist?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
@@ -122,28 +69,16 @@ public struct PlaylistsView: View {
     }
 
     private var playlistSortMenu: some View {
-        Menu {
-            ForEach(PlaylistSortOption.allCases, id: \.self) { option in
-                Button {
-                    if viewModel.playlistSortOption == option {
-                        viewModel.filterOptions.sortDirection =
-                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
-                    } else {
-                        viewModel.playlistSortOption = option
-                        viewModel.filterOptions.sortDirection = option.defaultDirection
-                    }
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if viewModel.playlistSortOption == option {
-                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
-                                  ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
-                        }
-                    }
-                }
+        EnsembleBrowseSortMenu(
+            model: viewModel,
+            options: PlaylistSortOption.allCases,
+            selection: { $0.playlistSortOption },
+            direction: { $0.filterOptions.sortDirection }
+        ) { option, direction in
+            if viewModel.playlistSortOption != option {
+                viewModel.playlistSortOption = option
             }
-        } label: {
-            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+            viewModel.filterOptions.sortDirection = direction
         }
         .accessibilityLabel("Sort Playlists")
     }
@@ -186,14 +121,8 @@ public struct PlaylistsView: View {
         case .deletionFailed(let playlistIdentity):
             pendingDeletionPlaylistIdentities.remove(playlistIdentity)
             refreshCachedDisplayedPlaylists()
-            if let toastID = deletingToastIDsByPlaylistIdentity.removeValue(forKey: playlistIdentity) {
-                deps.toastCenter.dismiss(id: toastID)
-            }
 
         case .deletionSucceeded(let playlistIdentity):
-            if let toastID = deletingToastIDsByPlaylistIdentity.removeValue(forKey: playlistIdentity) {
-                deps.toastCenter.dismiss(id: toastID)
-            }
             Task {
                 await viewModel.loadPlaylists()
                 pendingDeletionPlaylistIdentities.remove(playlistIdentity)
@@ -673,31 +602,19 @@ public struct PlaylistsView: View {
         viewModel.applyOptimisticDelete(for: playlist)
 
         let deletingToast = start.pendingToast
-        deletingToastIDsByPlaylistIdentity[playlistIdentity] = deletingToast.id
         deps.toastCenter.show(deletingToast)
 
-        NotificationCenter.default.post(
-            name: .playlistDeletionStarted,
-            object: nil,
-            userInfo: ["playlistIdentity": playlistIdentity]
-        )
+        PlaylistMutationEvent.deletionStarted(playlistIdentity: playlistIdentity).post()
 
         Task {
+            defer { deps.toastCenter.dismiss(id: deletingToast.id) }
             do {
                 let result = try await deps.playlistMutationWorkflow.finishDelete(playlist: playlist)
                 deps.pinMutationWorkflow.unpin(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
-                NotificationCenter.default.post(
-                    name: .playlistDeletionSucceeded,
-                    object: nil,
-                    userInfo: ["playlistIdentity": playlistIdentity]
-                )
+                PlaylistMutationEvent.deletionSucceeded(playlistIdentity: playlistIdentity).post()
                 deps.toastCenter.show(result.successToast)
             } catch {
-                NotificationCenter.default.post(
-                    name: .playlistDeletionFailed,
-                    object: nil,
-                    userInfo: ["playlistIdentity": playlistIdentity]
-                )
+                PlaylistMutationEvent.deletionFailed(playlistIdentity: playlistIdentity).post()
                 viewModel.clearOptimisticDelete(forPlaylistIdentity: playlistIdentity)
                 await viewModel.loadPlaylists()
                 deps.toastCenter.show(
@@ -790,6 +707,7 @@ public struct PlaylistsView: View {
         deps.toastCenter.show(renamingToast)
 
         Task {
+            defer { deps.toastCenter.dismiss(id: renamingToast.id) }
             do {
                 let result = try await deps.playlistMutationWorkflow.finishRename(
                     playlist: playlist,
@@ -806,12 +724,10 @@ public struct PlaylistsView: View {
                         title: start.trimmedTitle
                     )
                 }
-                deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(result.successToast)
             } catch {
                 viewModel.clearOptimisticRename(forPlaylistIdentity: playlist.sourceScopedID)
                 await viewModel.loadPlaylists()
-                deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
                     deps.playlistMutationWorkflow.renameFailureToast(
                         playlist: playlist,
@@ -892,7 +808,6 @@ public struct PlaylistDetailView: View {
     @State private var editedItems: [PlaylistItem] = []
     @State private var isSavingPlaylistEdits = false
     @State private var isDeletingPlaylist = false
-    @State private var deletingToastID: UUID?
     @State private var favoriteOverride: Bool?
     /// When true, Cancel in edit mode dismisses the sheet instead of just toggling edit off
     private let startedInEditMode: Bool
@@ -1081,41 +996,22 @@ public struct PlaylistDetailView: View {
                 isDeletingPlaylist = true
                 let playlistIdentity = viewModel.playlist.sourceScopedID
                 let deletingToast = start.pendingToast
-                deletingToastID = deletingToast.id
                 deps.toastCenter.show(deletingToast)
-                NotificationCenter.default.post(
-                    name: .playlistDeletionStarted,
-                    object: nil,
-                    userInfo: ["playlistIdentity": playlistIdentity]
-                )
+                PlaylistMutationEvent.deletionStarted(playlistIdentity: playlistIdentity).post()
                 dismiss()
                 Task {
+                    defer {
+                        isDeletingPlaylist = false
+                        deps.toastCenter.dismiss(id: deletingToast.id)
+                    }
                     do {
                         let deleteResult = try await deps.playlistMutationWorkflow.finishDelete(
                             playlist: viewModel.playlist
                         )
-                        isDeletingPlaylist = false
-                        if let deletingToastID {
-                            deps.toastCenter.dismiss(id: deletingToastID)
-                        }
-                        deletingToastID = nil
-                        NotificationCenter.default.post(
-                            name: .playlistDeletionSucceeded,
-                            object: nil,
-                            userInfo: ["playlistIdentity": playlistIdentity]
-                        )
+                        PlaylistMutationEvent.deletionSucceeded(playlistIdentity: playlistIdentity).post()
                         deps.toastCenter.show(deleteResult.successToast)
                     } catch {
-                        isDeletingPlaylist = false
-                        if let deletingToastID {
-                            deps.toastCenter.dismiss(id: deletingToastID)
-                        }
-                        deletingToastID = nil
-                        NotificationCenter.default.post(
-                            name: .playlistDeletionFailed,
-                            object: nil,
-                            userInfo: ["playlistIdentity": playlistIdentity]
-                        )
+                        PlaylistMutationEvent.deletionFailed(playlistIdentity: playlistIdentity).post()
                         deps.toastCenter.show(
                             deps.playlistMutationWorkflow.deleteFailureToast(
                                 playlist: viewModel.playlist,
@@ -1184,38 +1080,25 @@ public struct PlaylistDetailView: View {
 
         let renamingToast = start.pendingToast
         deps.toastCenter.show(renamingToast)
-        NotificationCenter.default.post(
-            name: .playlistRenameStarted,
-            object: nil,
-            userInfo: [
-                "playlistIdentity": playlistIdentity,
-                "newTitle": start.trimmedTitle
-            ]
-        )
+        PlaylistMutationEvent.renameStarted(
+            playlistIdentity: playlistIdentity,
+            newTitle: start.trimmedTitle
+        ).post()
 
         Task {
+            defer { deps.toastCenter.dismiss(id: renamingToast.id) }
             do {
                 let renameResult = try await viewModel.renamePlaylist(
                     toTrimmedTitle: start.trimmedTitle,
                     using: deps.playlistMutationWorkflow
                 )
-                deps.toastCenter.dismiss(id: renamingToast.id)
-                NotificationCenter.default.post(
-                    name: .playlistRenameSucceeded,
-                    object: nil,
-                    userInfo: [
-                        "playlistIdentity": playlistIdentity,
-                        "newTitle": start.trimmedTitle
-                    ]
-                )
+                PlaylistMutationEvent.renameSucceeded(
+                    playlistIdentity: playlistIdentity,
+                    newTitle: start.trimmedTitle
+                ).post()
                 deps.toastCenter.show(renameResult.successToast)
             } catch {
-                deps.toastCenter.dismiss(id: renamingToast.id)
-                NotificationCenter.default.post(
-                    name: .playlistRenameFailed,
-                    object: nil,
-                    userInfo: ["playlistIdentity": playlistIdentity]
-                )
+                PlaylistMutationEvent.renameFailed(playlistIdentity: playlistIdentity).post()
                 deps.toastCenter.show(
                     deps.playlistMutationWorkflow.renameFailureToast(
                         playlist: viewModel.playlist,

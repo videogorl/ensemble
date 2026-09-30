@@ -405,28 +405,16 @@ struct GenreDetailContentView: View {
     }
 
     private var sortMenu: some View {
-        Menu {
-            ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                Button {
-                    if libraryVM.genreDetailAlbumSortOption == option {
-                        libraryVM.genreDetailAlbumFilterOptions.sortDirection =
-                            libraryVM.genreDetailAlbumFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                    } else {
-                        libraryVM.genreDetailAlbumSortOption = option
-                        libraryVM.genreDetailAlbumFilterOptions.sortDirection = option.defaultDirection
-                    }
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if libraryVM.genreDetailAlbumSortOption == option {
-                            Image(systemName: libraryVM.genreDetailAlbumFilterOptions.sortDirection == .ascending
-                                ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
-                        }
-                    }
-                }
+        EnsembleBrowseSortMenu(
+            model: libraryVM,
+            options: AlbumSortOption.allCases,
+            selection: { $0.genreDetailAlbumSortOption },
+            direction: { $0.genreDetailAlbumFilterOptions.sortDirection }
+        ) { option, direction in
+            if libraryVM.genreDetailAlbumSortOption != option {
+                libraryVM.genreDetailAlbumSortOption = option
             }
-        } label: {
-            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+            libraryVM.genreDetailAlbumFilterOptions.sortDirection = direction
         }
         .accessibilityLabel("Sort Genre Albums")
     }
