@@ -587,7 +587,7 @@ final class SearchViewModelResponseTests: XCTestCase {
         )
         let staleWrite = Task {
             await gate.wait()
-            try await harness.moodRepository.saveMoods([staleMood])
+            try await harness.moodRepository.saveMoods([staleMood], replacingSources: [Self.plexSourceOne])
         }
         await gate.waitUntilBlocked()
 
@@ -603,6 +603,51 @@ final class SearchViewModelResponseTests: XCTestCase {
         }
         let cachedMoods = try await harness.moodRepository.fetchMoods()
         XCTAssertTrue(cachedMoods.isEmpty)
+    }
+
+    func testMoodRefreshPreservesFailedSourceReferencesAndAppliesSuccessfulEmptyResults() async throws {
+        let sourceA = Self.plexSourceOne
+        let sourceB = Self.plexSourceTwo
+        let refreshed = [
+            Mood(id: "mood:ambient", key: "a-new", title: "Ambient",
+                 sourceCompositeKey: Mood.sourceReference(sourceCompositeKey: sourceA, moodKey: "a-new")),
+            Mood(id: "mood:warm", key: "warm", title: "Warm",
+                 sourceCompositeKey: Mood.sourceReference(sourceCompositeKey: sourceA, moodKey: "warm"))
+        ]
+        for replacement in [refreshed, []] {
+            let stack = CoreDataStack.inMemory()
+            let repository = MoodRepository(coreDataStack: stack)
+            try await repository.saveMoods([
+                Mood(id: "mood:ambient", key: "a-old", title: "Ambient", sourceCompositeKey: [
+                    Mood.sourceReference(sourceCompositeKey: sourceA, moodKey: "a-old"),
+                    Mood.sourceReference(sourceCompositeKey: sourceB, moodKey: "b")
+                ].joined(separator: "|")),
+                Mood(id: "stale-a", key: "stale-a", title: "Stale A", sourceCompositeKey: sourceA),
+                Mood(id: "only-b", key: "only-b", title: "Only B", sourceCompositeKey: sourceB)
+            ], replacingSources: [sourceA, sourceB])
+
+            try await repository.saveMoods(replacement, replacingSources: [sourceA])
+            let cached = try await repository.fetchMoods()
+            let displayed = SearchViewModel.mergeMoodsForDisplay(cached)
+            XCTAssertEqual(Set(displayed.map(\.title)), replacement.isEmpty ? ["Ambient", "Only B"] : ["Ambient", "Only B", "Warm"])
+            let ambient = try XCTUnwrap(displayed.first { $0.title == "Ambient" })
+            let references = Dictionary(uniqueKeysWithValues: Mood.sourceReferences(from: ambient.sourceCompositeKey).map {
+                ($0.sourceCompositeKey, $0.moodKey)
+            })
+            XCTAssertEqual(references[sourceB], "b")
+            if replacement.isEmpty {
+                XCTAssertFalse(references.keys.contains(sourceA))
+                XCTAssertEqual(ambient.key, "b")
+            } else {
+                XCTAssertEqual(references[sourceA], "a-new")
+            }
+            XCTAssertEqual(cached.first { $0.title == "Only B" }?.key, "only-b")
+
+            let objectIDs = Set(try stack.viewContext.fetch(CDMood.fetchRequest()).map(\.objectID))
+            try await repository.saveMoods(replacement, replacingSources: [sourceA])
+            XCTAssertEqual(Set(try stack.viewContext.fetch(CDMood.fetchRequest()).map(\.objectID)), objectIDs,
+                           "Unchanged source response should not replace cache rows")
+        }
     }
 
     private func makeViewModel() -> SearchViewModel {

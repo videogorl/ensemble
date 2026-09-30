@@ -861,7 +861,7 @@ public final class SearchViewModel: ObservableObject {
         }
 
         // Load cached moods immediately while fresh network fetch runs.
-        if let cachedMoods = try? await moodRepository.fetchMoods(), !cachedMoods.isEmpty {
+        if let cachedMoods = try? await moodRepository.fetchMoods() {
             guard isCurrentExploreLoad(generation) else { return }
             unfilteredMoods = Self.mergeMoodsForDisplay(cachedMoods)
             applyVisibilityToExploreContent()
@@ -872,60 +872,37 @@ public final class SearchViewModel: ObservableObject {
         let fetchTasks = buildExploreFetchTasks()
         guard !fetchTasks.isEmpty else { return }
 
-        // Plex mood keys are library-local. Deduplicate browse moods by title and
-        // carry each source's resolved key so detail pages can skip refetching moods.
-        var moodsByTitle: [String: Mood] = [:]
-        var moodSourceReferencesByTitle: [String: [String: String]] = [:]
+        // Cache source-local keys; merge titles only after preserving failed sources.
+        var refreshedMoods: [Mood] = []
+        var refreshedSources = Set<String>()
         for task in fetchTasks {
             guard isCurrentExploreLoad(generation) else { return }
             do {
                 let plexMoods = try await task.client.getMoods(sectionKey: task.sectionKey)
                 for plexMood in plexMoods {
                     let titleKey = Self.normalizedMoodTitleKey(plexMood.title)
-                    guard !titleKey.isEmpty else { continue }
-                    moodSourceReferencesByTitle[titleKey, default: [:]][task.sourceKey] = plexMood.key
-
-                    if moodsByTitle[titleKey] == nil {
-                        moodsByTitle[titleKey] = Mood(
-                            id: "mood:\(titleKey)",
-                            key: plexMood.key,
-                            title: plexMood.title,
-                            sourceCompositeKey: task.sourceKey
-                        )
-                    }
+                    refreshedMoods.append(Mood(
+                        id: "mood:\(titleKey)", key: plexMood.key, title: plexMood.title,
+                        sourceCompositeKey: Mood.sourceReference(sourceCompositeKey: task.sourceKey, moodKey: plexMood.key)
+                    ))
                 }
+                refreshedSources.insert(task.sourceKey)
             } catch {
                 EnsembleLogger.debug("⚠️ Failed to fetch moods: \(error)")
             }
         }
 
-        for (titleKey, sourceReferences) in moodSourceReferencesByTitle {
-            guard let mood = moodsByTitle[titleKey] else { continue }
-            let mergedSourceKey = Self.mergedMoodSourceCompositeKey(from: sourceReferences)
-            moodsByTitle[titleKey] = Mood(
-                id: mood.id,
-                key: mood.key,
-                title: mood.title,
-                sourceCompositeKey: mergedSourceKey
-            )
-        }
-
-        guard isCurrentExploreLoad(generation) else { return }
-
-        if !moodsByTitle.isEmpty {
-            let moodsToPublish = moodsByTitle.values.sorted {
-                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-            }
-            do {
-                try await moodRepository.saveMoods(moodsToPublish)
-            } catch is CancellationError {
-                return
-            } catch {
-                EnsembleLogger.debug("⚠️ Failed to cache moods: \(error)")
-            }
+        guard isCurrentExploreLoad(generation), !refreshedSources.isEmpty else { return }
+        do {
+            try await moodRepository.saveMoods(refreshedMoods, replacingSources: refreshedSources)
+            let cachedMoods = try await moodRepository.fetchMoods()
             guard isCurrentExploreLoad(generation) else { return }
-            unfilteredMoods = moodsToPublish
+            unfilteredMoods = Self.mergeMoodsForDisplay(cachedMoods)
             applyVisibilityToExploreContent()
+        } catch is CancellationError {
+            return
+        } catch {
+            EnsembleLogger.debug("⚠️ Failed to cache moods: \(error)")
         }
     }
 

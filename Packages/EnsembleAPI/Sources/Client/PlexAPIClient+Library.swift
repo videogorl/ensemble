@@ -337,7 +337,16 @@ extension PlexAPIClient {
 
     /// Get moods in a library section
     public func getMoods(sectionKey: String) async throws -> [PlexMood] {
-        try await mediaContainerItems(path: "/library/sections/\(sectionKey)/mood")
+        let data = try await serverRequest(path: "/library/sections/\(sectionKey)/mood", query: [:])
+        let container = try JSONDecoder().decode(PlexMediaContainer<PlexMood>.self, from: data).mediaContainer
+        let moods = container.directory ?? container.metadata ?? []
+        let size = container.size ?? moods.count
+        guard size == moods.count, (container.totalSize ?? size) == size, (container.offset ?? 0) == 0,
+              container.directory != nil || container.metadata != nil || container.size == 0,
+              moods.allSatisfy({ !$0.key.isEmpty && !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            throw PlexAPIError.invalidResponse
+        }
+        return moods
     }
 
     /// Get tracks by genre
