@@ -1634,7 +1634,6 @@ public struct SidebarView: View {
                 artist: $selectedArtist, genre: $selectedGenre, playlist: $selectedPlaylist,
                 columnVisibility: $columnVisibility
             )
-            .id(tab)
         } else {
             splitNavigationViewWithCompactColumn
         }
