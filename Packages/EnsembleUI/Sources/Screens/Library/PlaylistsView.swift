@@ -37,7 +37,6 @@ public struct PlaylistsView: View {
     @State private var localSelectedPlaylist: DisplayPlaylist?
     @State private var pendingDeletionPlaylistIdentities: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
-    @State private var creatingPlaylistToastID: UUID?
     @State private var playlistForEditSheet: Playlist?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var showCreatePlaylistPush = false
@@ -638,61 +637,11 @@ public struct PlaylistsView: View {
             dedupeKey: "playlist-create-pending-\(title.lowercased())",
             showsActivityIndicator: true
         )
-        creatingPlaylistToastID = creatingToast.id
         deps.toastCenter.show(creatingToast)
 
         Task {
-            var successCount = 0
-            var lastError: String?
-
-            for key in serverSourceKeys {
-                let didCreate = await viewModel.createPlaylist(title: title, serverSourceKey: key)
-                if didCreate {
-                    successCount += 1
-                } else {
-                    lastError = viewModel.error
-                }
-            }
-
-            // Always dismiss the persistent toast regardless of outcome
-            if let toastID = creatingPlaylistToastID {
-                deps.toastCenter.dismiss(id: toastID)
-            }
-            creatingPlaylistToastID = nil
-
-            if successCount == serverSourceKeys.count {
-                // All sources succeeded
-                deps.toastCenter.show(
-                    ToastPayload(
-                        style: .success,
-                        iconSystemName: EnsembleDesign.Icon.addCircle,
-                        title: "Created \(title)",
-                        dedupeKey: "playlist-create-success-\(title.lowercased())"
-                    )
-                )
-            } else if successCount > 0 {
-                // Partial success — some sources created it, others failed
-                deps.toastCenter.show(
-                    ToastPayload(
-                        style: .warning,
-                        iconSystemName: EnsembleDesign.Icon.error,
-                        title: "Created \(title) on \(successCount)/\(serverSourceKeys.count) sources",
-                        message: lastError ?? "Some sources could not create this playlist.",
-                        dedupeKey: "playlist-create-partial-\(title.lowercased())"
-                    )
-                )
-            } else {
-                // All failed
-                deps.toastCenter.show(
-                    ToastPayload(
-                        style: .error,
-                        iconSystemName: EnsembleDesign.Icon.failure,
-                        title: "Could not create \(title)",
-                        message: lastError ?? "Try again later.",
-                        dedupeKey: "playlist-create-error-\(title.lowercased())"
-                    )
-                )
-            }
+            defer { deps.toastCenter.dismiss(id: creatingToast.id) }
+            _ = await viewModel.createPlaylists(title: title, serverSourceKeys: serverSourceKeys)
         }
     }
 

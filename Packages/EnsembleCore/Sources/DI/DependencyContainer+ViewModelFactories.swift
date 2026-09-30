@@ -159,6 +159,7 @@ public extension DependencyContainer {
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator,
             toastCenter: toastCenter,
+            playlistMutationWorkflow: playlistMutationWorkflow,
             accountManager: accountManager,
             visibilityStore: libraryVisibilityStore,
             hiddenMediaStore: hiddenMediaStore,

@@ -55,6 +55,7 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
     case playlistNotFound
     case smartPlaylistReadOnly
     case emptySelection
+    case emptyTitle
     case duplicateName
     case incompletePlaylistContents
 
@@ -68,6 +69,8 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
             return "Smart playlists are read-only."
         case .emptySelection:
             return "No compatible tracks were selected."
+        case .emptyTitle:
+            return "Playlist name cannot be empty."
         case .duplicateName:
             return "A playlist with that name already exists in this source."
         case .incompletePlaylistContents:

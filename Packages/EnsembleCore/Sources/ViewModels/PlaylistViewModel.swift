@@ -87,6 +87,7 @@ public final class PlaylistViewModel: ObservableObject {
     private var coalescedReloadTask: Task<Void, Never>?
     private var hasLoadedPlaylists = false
     private var optimisticCreatingPlaylists: [Playlist] = []
+    private let playlistMutationWorkflow: PlaylistMutationWorkflow
     private var optimisticRenamedPlaylistTitlesByIdentity: [String: String] = [:]
     private var optimisticDeletedPlaylistIdentities: Set<String> = []
     private var lastObservedSourceConfiguration: SourceConfigurationSnapshot?
@@ -105,6 +106,7 @@ public final class PlaylistViewModel: ObservableObject {
         syncCoordinator: SyncCoordinator,
         mutationCoordinator: MutationCoordinator,
         toastCenter: ToastCenter,
+        playlistMutationWorkflow: PlaylistMutationWorkflow? = nil,
         accountManager: AccountManager? = nil,
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
@@ -114,6 +116,7 @@ public final class PlaylistViewModel: ObservableObject {
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
         self.toastCenter = toastCenter
+        self.playlistMutationWorkflow = playlistMutationWorkflow ?? PlaylistMutationWorkflow(mutator: mutationCoordinator)
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
@@ -319,10 +322,32 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     public func createPlaylist(title: String, serverSourceKey: String) async -> Bool {
+        do {
+            try await createPlaylistOptimistically(title: title, serverSourceKey: serverSourceKey)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
+    public func createPlaylists(title: String, serverSourceKeys: [String]) async -> PlaylistBatchMutationWorkflowResult {
+        let result = await playlistMutationWorkflow.createPlaylists(
+            title: title,
+            tracks: [],
+            serverSourceKeys: serverSourceKeys,
+            createPlaylist: { [self] sourceKey in
+                try await createPlaylistOptimistically(title: title, serverSourceKey: sourceKey)
+            }
+        )
+        toastCenter.show(result.resultToast)
+        return result
+    }
+
+    private func createPlaylistOptimistically(title: String, serverSourceKey: String) async throws {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            error = "Playlist name cannot be empty."
-            return false
+            throw PlaylistMutationError.emptyTitle
         }
 
         addOptimisticCreatingPlaylist(title: trimmed, serverSourceKey: serverSourceKey)
@@ -339,12 +364,11 @@ public final class PlaylistViewModel: ObservableObject {
                     serverSourceKey: serverSourceKey
                 )
             }
-            return true
         } catch {
             removeOptimisticCreatingPlaylist(title: trimmed, serverSourceKey: serverSourceKey)
             await reloadPlaylists(showLoading: false)
             self.error = error.localizedDescription
-            return false
+            throw error
         }
     }
 
