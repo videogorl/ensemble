@@ -494,47 +494,78 @@ final class SyncExecutionController {
                 }
             }
 
-            let syncedAt = Date()
-            let resolvedConnectionState = await dependencies.connectionStateAfterSuccessfulSync(
-                source,
-                currentConnectionState
+            return await completeSourceSync(
+                source: source,
+                sourceWork: sourceWork,
+                currentConnectionState: currentConnectionState,
+                libraryResult: libraryResult,
+                playlistResult: playlistResult
             )
-            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
-                return staleSourceOutcome(for: source)
-            }
-            dependencies.markSourceSyncCompleted(source)
-            dependencies.setStatus(
-                source,
-                MusicSourceStatus(syncStatus: .lastSynced(syncedAt), connectionState: resolvedConnectionState)
+        } catch {
+            return failSourceSync(
+                error,
+                source: source,
+                sourceWork: sourceWork,
+                previousStatus: previousStatus,
+                currentConnectionState: currentConnectionState,
+                libraryResult: libraryResult
             )
-            dependencies.publishContentChange(source, libraryResult, playlistResult, syncedAt)
-            if libraryResult?.hasMaterialChanges == true || playlistResult?.hasMaterialChanges == true {
-                dependencies.postSiriRebuildRequest()
-            }
-            return .success
-        } catch is CancellationError {
-            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
-                return staleSourceOutcome(for: source)
-            }
-            publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
+        }
+    }
+
+    private func completeSourceSync(
+        source: MusicSourceIdentifier,
+        sourceWork: (revision: SourceProviderRevision, lease: SourcePersistenceLease),
+        currentConnectionState: ServerConnectionState,
+        libraryResult: LibrarySyncResult?,
+        playlistResult: PlaylistSyncResult?
+    ) async -> MusicSourceSyncOutcome {
+        let syncedAt = Date()
+        let resolvedConnectionState = await dependencies.connectionStateAfterSuccessfulSync(
+            source,
+            currentConnectionState
+        )
+        guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+            return staleSourceOutcome(for: source)
+        }
+        dependencies.markSourceSyncCompleted(source)
+        dependencies.setStatus(
+            source,
+            MusicSourceStatus(syncStatus: .lastSynced(syncedAt), connectionState: resolvedConnectionState)
+        )
+        dependencies.publishContentChange(source, libraryResult, playlistResult, syncedAt)
+        if libraryResult?.hasMaterialChanges == true || playlistResult?.hasMaterialChanges == true {
+            dependencies.postSiriRebuildRequest()
+        }
+        return .success
+    }
+
+    private func failSourceSync(
+        _ error: Error,
+        source: MusicSourceIdentifier,
+        sourceWork: (revision: SourceProviderRevision, lease: SourcePersistenceLease),
+        previousStatus: MusicSourceStatus?,
+        currentConnectionState: ServerConnectionState,
+        libraryResult: LibrarySyncResult?
+    ) -> MusicSourceSyncOutcome {
+        guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+            return staleSourceOutcome(for: source)
+        }
+        publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
+        if error is CancellationError {
             dependencies.restoreStatusAfterCancellation(source, previousStatus, currentConnectionState)
             return .failure(message: "Sync was cancelled.")
-        } catch {
-            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
-                return staleSourceOutcome(for: source)
-            }
-            publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
-            let message = dependencies.syncErrorMessage(error)
-            EnsembleLogger.error("Sync failed for \(source.compositeKey): \(message)")
-            dependencies.setStatus(
-                source,
-                MusicSourceStatus(
-                    syncStatus: .error(message),
-                    connectionState: dependencies.effectiveConnectionState(currentConnectionState)
-                )
-            )
-            return .failure(message: message)
         }
+        let message = dependencies.syncErrorMessage(error)
+        EnsembleLogger.error("Sync failed for \(source.compositeKey): \(message)")
+        dependencies.setStatus(
+            source,
+            MusicSourceStatus(
+                syncStatus: .error(message),
+                connectionState: dependencies.effectiveConnectionState(currentConnectionState)
+            )
+        )
+        return .failure(message: message)
     }
 
     private func publishCommittedLibraryChangesIfNeeded(
@@ -654,45 +685,22 @@ final class SyncExecutionController {
                 )
             }
 
-            let syncedAt = Date()
-            let resolvedConnectionState = await dependencies.connectionStateAfterSuccessfulSync(
-                source,
-                currentConnectionState
+            return await completeSourceSync(
+                source: source,
+                sourceWork: sourceWork,
+                currentConnectionState: currentConnectionState,
+                libraryResult: libraryResult,
+                playlistResult: playlistResult
             )
-            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
-                return staleSourceOutcome(for: source)
-            }
-            dependencies.markSourceSyncCompleted(source)
-            dependencies.setStatus(
-                source,
-                MusicSourceStatus(syncStatus: .lastSynced(syncedAt), connectionState: resolvedConnectionState)
-            )
-            dependencies.publishContentChange(source, libraryResult, playlistResult, syncedAt)
-            if libraryResult?.hasMaterialChanges == true || playlistResult?.hasMaterialChanges == true {
-                dependencies.postSiriRebuildRequest()
-            }
-            return .success
-        } catch is CancellationError {
-            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
-                return staleSourceOutcome(for: source)
-            }
-            publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
-            dependencies.restoreStatusAfterCancellation(source, previousStatus, currentConnectionState)
-            return .failure(message: "Sync was cancelled.")
         } catch {
-            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
-                return staleSourceOutcome(for: source)
-            }
-            publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
-            let message = dependencies.syncErrorMessage(error)
-            dependencies.setStatus(
-                source,
-                MusicSourceStatus(
-                    syncStatus: .error(message),
-                    connectionState: dependencies.effectiveConnectionState(currentConnectionState)
-                )
+            return failSourceSync(
+                error,
+                source: source,
+                sourceWork: sourceWork,
+                previousStatus: previousStatus,
+                currentConnectionState: currentConnectionState,
+                libraryResult: libraryResult
             )
-            return .failure(message: message)
         }
     }
 
