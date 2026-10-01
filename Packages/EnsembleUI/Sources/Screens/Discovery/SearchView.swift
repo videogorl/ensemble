@@ -37,9 +37,7 @@ public struct SearchView: View {
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadTrackIdentities: Set<String>
     @State private var availabilityGeneration: UInt64
-    @State private var isSearchTabActive = false
-    @State private var isSearchPathEmpty = true
-    @State private var isMoreSearchRootActive = false
+    @State private var wasSearchTabActive = false
     @State private var preservesSearchChromeDuringTabExit = false
     @Environment(\.dismissSearch) private var dismissSearch
     @Environment(\.dependencies) private var deps
@@ -143,20 +141,12 @@ public struct SearchView: View {
         )
         .onReceive(navigationCoordinator.$selectedTab) { tab in
             let isActive = tab == .search
-            if isSearchTabActive && !isActive {
+            if wasSearchTabActive && !isActive {
                 preservesSearchChromeDuringTabExit = true
             } else if isActive {
                 preservesSearchChromeDuringTabExit = false
             }
-            if isActive != isSearchTabActive { isSearchTabActive = isActive }
-        }
-        .onReceive(navigationCoordinator.$searchPath) { path in
-            let isEmpty = path.isEmpty
-            if isEmpty != isSearchPathEmpty { isSearchPathEmpty = isEmpty }
-        }
-        .onReceive(navigationCoordinator.$settingsPath) { path in
-            let isMoreRoot = Self.isMoreSearchRootPath(path)
-            if isMoreRoot != isMoreSearchRootActive { isMoreSearchRootActive = isMoreRoot }
+            if isActive != wasSearchTabActive { wasSearchTabActive = isActive }
         }
         .onChange(of: shouldShowSearchChrome) { shouldShow in
             EnsembleLogger.debug(
@@ -168,11 +158,6 @@ public struct SearchView: View {
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
-        .onAppear {
-            isSearchTabActive = navigationCoordinator.selectedTab == .search
-            isSearchPathEmpty = navigationCoordinator.searchPath.isEmpty
-            isMoreSearchRootActive = Self.isMoreSearchRootPath(navigationCoordinator.settingsPath)
-        }
         // Keep the search controller mounted through the native tab handoff so
         // Search does not relayout under the outgoing tab transition frame.
         .task(id: preservesSearchChromeDuringTabExit) {
@@ -213,6 +198,18 @@ public struct SearchView: View {
         } else {
             content
         }
+    }
+
+    private var isSearchTabActive: Bool {
+        navigationCoordinator.selectedTab == .search
+    }
+
+    private var isSearchPathEmpty: Bool {
+        navigationCoordinator.searchPath.isEmpty
+    }
+
+    private var isMoreSearchRootActive: Bool {
+        Self.isMoreSearchRootPath(navigationCoordinator.settingsPath)
     }
 
     private var shouldShowSearchChrome: Bool {
