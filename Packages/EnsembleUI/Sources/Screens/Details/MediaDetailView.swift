@@ -1246,11 +1246,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @ViewBuilder
     private func subtitleView(alignment: TextAlignment) -> some View {
         if let subtitle = headerData.subtitle {
-            if let artistId = headerData.artistRatingKey {
+            if headerData.artistRatingKey != nil || mediaType == .album {
                 navigationCoordinator.routeLink(
                     to: .artistNamed(
                         name: subtitle,
-                        fallbackID: artistId,
+                        fallbackID: headerData.artistRatingKey,
                         sourceKey: headerData.sourceKey,
                         includesHidden: includesHidden
                     )

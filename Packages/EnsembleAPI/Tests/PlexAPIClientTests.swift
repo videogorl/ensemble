@@ -44,6 +44,38 @@ private final class PlexAPIClientURLProtocol: URLProtocol {
 
 final class PlexAPIClientTests: XCTestCase {
 
+    func testMoodsRequireCompleteResponsesBeforeReplacingCachedSources() async throws {
+        let responses: [(String, Bool)] = [
+            (#"{"MediaContainer":{"size":1,"Directory":[{"key":"warm","title":"Warm"}]}}"#, true),
+            (#"{"MediaContainer":{"Directory":[{"key":"warm","title":"Warm"}]}}"#, true),
+            (#"{"MediaContainer":{"size":0}}"#, true),
+            (#"{"MediaContainer":{"Directory":[]}}"#, true),
+            (#"{"MediaContainer":{}}"#, false),
+            (#"{"MediaContainer":{"size":1}}"#, false),
+            (#"{"MediaContainer":{"size":0,"totalSize":1,"Directory":[]}}"#, false),
+            (#"{"MediaContainer":{"size":1,"totalSize":2,"Directory":[{"key":"warm","title":"Warm"}]}}"#, false),
+            (#"{"MediaContainer":{"size":1,"offset":1,"Directory":[{"key":"warm","title":"Warm"}]}}"#, false),
+            (#"{"MediaContainer":{"size":1,"Directory":[{"key":"warm","title":" "}]}}"#, false)
+        ]
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(url: "https://example.com", token: "test", identifier: "server", name: "Server"),
+            keychain: TestKeychain(), urlSession: session
+        )
+        for (json, valid) in responses {
+            PlexAPIClientURLProtocol.install { _ in (200, Data(json.utf8)) }
+            do {
+                _ = try await client.getMoods(sectionKey: "1")
+                XCTAssertTrue(valid, "Accepted incomplete mood response: \(json)")
+            } catch PlexAPIError.invalidResponse {
+                XCTAssertFalse(valid, "Rejected complete mood response: \(json)")
+            }
+        }
+    }
+
     func testTrackRadioCreatesFreshStationAndOmitsSeed() async throws {
         PlexAPIClientURLProtocol.install { request in
             XCTAssertEqual(request.httpMethod, "POST")

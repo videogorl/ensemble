@@ -387,8 +387,7 @@ public struct DownloadTargetDetailView: View {
                 )
             case .artist:
                 ArtistDetailLoader(
-                    artistId: ratingKey,
-                    artistSourceKey: viewModel.summary.sourceCompositeKey,
+                    request: .reference(id: ratingKey, name: nil, sourceKey: viewModel.summary.sourceCompositeKey),
                     nowPlayingVM: nowPlayingVM
                 )
             case .playlist:

@@ -390,19 +390,48 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
 
         let events = await recorder.snapshot()
         XCTAssertEqual(completedSources, [source])
-        XCTAssertEqual(
-            events,
-            [
-                "library-incremental",
-                "reparent",
-                "artwork",
-                "playlists-incremental",
-                "artwork",
-                "cache-albums",
-                "cache-artists",
-                "cache-playlists"
-            ]
-        )
+        XCTAssertEqual(Array(events.prefix(5)), [
+            "library-incremental", "reparent", "artwork", "playlists-incremental", "artwork"
+        ])
+        XCTAssertEqual(events.count, 8)
+        XCTAssertEqual(Set(events.dropFirst(5)), Set(["cache-albums", "cache-artists", "cache-playlists"]))
+    }
+
+    func testCancelledPlaylistPhasePreservesCommittedLibraryForFullAndIncrementalSync() async {
+        for incremental in [false, true] {
+            let recorder = EventRecorder()
+            let source = makeSourceIdentifier()
+            let provider = RecordingProvider(
+                sourceIdentifier: source,
+                recorder: recorder,
+                syncPlaylistsHandler: { _ in throw CancellationError() },
+                syncPlaylistsIncrementalHandler: { _ in throw CancellationError() }
+            )
+            var completedSources: [MusicSourceIdentifier] = []
+            var publishedLibraryResult: LibrarySyncResult?
+            var restoredCount = 0
+            let controller = makeController(
+                source: source,
+                recorder: recorder,
+                markSourceSyncCompleted: { completedSources.append($0) },
+                publishContentChange: { _, libraryResult, playlistResult, _ in
+                    publishedLibraryResult = libraryResult
+                    XCTAssertNil(playlistResult)
+                },
+                didRestoreStatusAfterCancellation: { restoredCount += 1 }
+            )
+
+            if incremental {
+                await controller.syncIncremental(source: source, providers: [source.compositeKey: provider])
+            } else {
+                let outcome = await controller.sync(source: source, providers: [source.compositeKey: provider])
+                XCTAssertEqual(outcome, .failure(message: "Sync was cancelled."))
+            }
+
+            XCTAssertTrue(completedSources.isEmpty)
+            XCTAssertEqual(publishedLibraryResult?.changedAlbums, 1)
+            XCTAssertEqual(restoredCount, 1)
+        }
     }
 
     func testIncrementalSyncPublishesCommittedLibraryChangesWhenPlaylistSyncFails() async {
@@ -627,18 +656,12 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         await controller.syncIncremental(source: source, providers: [source.compositeKey: provider])
 
         let events = await recorder.snapshot()
-        XCTAssertEqual(
-            events,
-            [
-                "library-incremental",
-                "reparent",
-                "playlists-incremental",
-                "artwork-playlist",
-                "cache-albums",
-                "cache-artists",
-                "cache-playlists"
-            ]
-        )
+        XCTAssertEqual(Array(events.prefix(4)), [
+            "library-incremental", "reparent", "playlists-incremental", "artwork-playlist"
+        ])
+        // Artwork caching runs concurrently; only its boundary after invalidation is ordered.
+        XCTAssertEqual(events.count, 7)
+        XCTAssertEqual(Set(events.dropFirst(4)), Set(["cache-albums", "cache-artists", "cache-playlists"]))
     }
 
     private func makeSourceIdentifier() -> MusicSourceIdentifier {
@@ -673,6 +696,7 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
             Date
         ) -> Void = { _, _, _, _ in },
         postSiriRebuildRequest: @escaping () -> Void = {},
+        didRestoreStatusAfterCancellation: @escaping () -> Void = {},
         publishPreflightFailure: @escaping (MusicSourceIdentifier, String) -> Void = { _, _ in }
     ) -> SyncExecutionController {
         let stack = CoreDataStack.inMemory()
@@ -720,6 +744,7 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
                 publishContentChange: publishContentChange,
                 restoreStatusAfterCancellation: { source, status, connectionState in
                     statuses[source] = status ?? MusicSourceStatus(connectionState: connectionState)
+                    didRestoreStatusAfterCancellation()
                 },
                 syncErrorMessage: { $0.localizedDescription },
                 effectiveConnectionState: { $0 },

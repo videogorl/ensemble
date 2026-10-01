@@ -1,4 +1,5 @@
 import Combine
+import EnsembleAPI
 import EnsembleDomain
 import EnsemblePersistence
 import Foundation
@@ -339,68 +340,33 @@ public final class PinnedViewModel: ObservableObject {
         }
     }
 
-    /// Groups resolved playlist pins with the same normalized title and semantic kind.
-    /// Non-playlist pins pass through unchanged. The first occurrence of each group key
-    /// determines the merged entry's position in the output.
     private func mergePlaylistPins(
         _ pins: [ResolvedPin],
         preferences: EnsembleMergingPreferences
     ) -> [ResolvedPin] {
-        struct GroupKey: Hashable {
-            let normalizedTitle: String
-            let isSmart: Bool
-        }
-
-        var output: [ResolvedPin] = []
-        // Track playlist groups: key -> index in output where the group lives
-        var groupIndex: [GroupKey: Int] = [:]
-        // Accumulate playlists and pin metadata per group
-        var groupPlaylists: [GroupKey: [Playlist]] = [:]
-        var groupPins: [GroupKey: [PinnedItem]] = [:]
-
-        for pin in pins {
-            switch pin {
-            case let .playlist(playlist, pinnedItem):
-                let key = GroupKey(
-                    normalizedTitle: DisplayPlaylist.normalizedTitle(playlist.title),
+        mergePins(
+            pins,
+            preferences: preferences,
+            value: { pin in
+                guard case let .playlist(playlist, pinnedItem) = pin else { return nil }
+                let identity = PlexPlaylistMergeRules.key(
+                    title: playlist.title,
                     isSmart: playlist.isSmartForPlaylistGrouping
                 )
-                if groupIndex[key] == nil {
-                    // First occurrence — reserve a slot in the output
-                    groupIndex[key] = output.count
-                    output.append(pin) // Placeholder, will be replaced if merged
-                    groupPlaylists[key] = [playlist]
-                    groupPins[key] = [pinnedItem]
-                } else {
-                    // Additional occurrence — accumulate into the group
-                    groupPlaylists[key, default: []].append(playlist)
-                    groupPins[key, default: []].append(pinnedItem)
-                }
-            default:
-                output.append(pin)
-            }
-        }
-
-        // Replace single-playlist placeholders with merged entries where applicable
-        for (key, index) in groupIndex {
-            let playlists = groupPlaylists[key] ?? []
-            let pinnedItems = groupPins[key] ?? []
-            if playlists.count > 1 {
-                let ordered = preferences.ordered(
-                    Array(zip(playlists, pinnedItems)),
-                    sourceKey: { $0.0.sourceCompositeKey }
+                return (identity, playlist, pinnedItem)
+            },
+            sourceKey: { $0.sourceCompositeKey },
+            merged: { values, pinnedItems in
+                .mergedPlaylist(
+                    DisplayPlaylist.merged(
+                        title: values[0].value.title,
+                        isSmart: values.contains { $0.value.isSmart },
+                        playlists: values.map(\.value)
+                    ),
+                    pinnedItems
                 )
-                let dp = DisplayPlaylist.merged(
-                    title: ordered[0].0.title,
-                    isSmart: playlists.contains(where: \.isSmart),
-                    playlists: ordered.map(\.0)
-                )
-                output[index] = .mergedPlaylist(dp, ordered.map(\.1))
             }
-            // If only 1 playlist, the original .playlist entry is already in place
-        }
-
-        return output
+        )
     }
 
     /// Move a resolved pin from one position to another

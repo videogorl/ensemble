@@ -532,11 +532,7 @@ final class PlaybackServiceTests: XCTestCase {
         _ = coordinator.handle(.interruptionBegan(now: Date()), playbackState: .playing)
 
         XCTAssertTrue(
-            PlaybackService.shouldSuppressAutomaticAdvanceDuringHandoff(
-                coordinator: coordinator,
-                isInterrupted: true,
-                isRouteChangeInProgress: false
-            )
+            coordinator.shouldSuppressAutomaticAdvance
         )
     }
 
@@ -548,11 +544,7 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            PlaybackService.shouldSuppressAutomaticAdvanceDuringHandoff(
-                coordinator: coordinator,
-                isInterrupted: false,
-                isRouteChangeInProgress: true
-            )
+            coordinator.shouldSuppressAutomaticAdvance
         )
     }
 
@@ -560,12 +552,9 @@ final class PlaybackServiceTests: XCTestCase {
         let coordinator = PlaybackHandoffCoordinator()
 
         XCTAssertFalse(
-            PlaybackService.remoteSkipCommandsEnabled(
+            coordinator.remoteSkipCommandsEnabled(
                 playbackState: .buffering,
-                isSkipTransitionInProgress: false,
-                coordinator: coordinator,
-                isInterrupted: false,
-                isRouteChangeInProgress: false
+                isSkipTransitionInProgress: false
             )
         )
     }
@@ -574,24 +563,18 @@ final class PlaybackServiceTests: XCTestCase {
         var coordinator = PlaybackHandoffCoordinator()
 
         XCTAssertTrue(
-            PlaybackService.remoteSkipCommandsEnabled(
+            coordinator.remoteSkipCommandsEnabled(
                 playbackState: .loading,
-                isSkipTransitionInProgress: true,
-                coordinator: coordinator,
-                isInterrupted: false,
-                isRouteChangeInProgress: false
+                isSkipTransitionInProgress: true
             )
         )
 
         _ = coordinator.handle(.interruptionBegan(now: Date()), playbackState: .loading)
 
         XCTAssertFalse(
-            PlaybackService.remoteSkipCommandsEnabled(
+            coordinator.remoteSkipCommandsEnabled(
                 playbackState: .loading,
-                isSkipTransitionInProgress: true,
-                coordinator: coordinator,
-                isInterrupted: true,
-                isRouteChangeInProgress: false
+                isSkipTransitionInProgress: true
             )
         )
     }
@@ -601,12 +584,9 @@ final class PlaybackServiceTests: XCTestCase {
         _ = coordinator.handle(.interruptionBegan(now: Date()), playbackState: .playing)
 
         XCTAssertFalse(
-            PlaybackService.remoteSkipCommandsEnabled(
+            coordinator.remoteSkipCommandsEnabled(
                 playbackState: .paused,
-                isSkipTransitionInProgress: false,
-                coordinator: coordinator,
-                isInterrupted: true,
-                isRouteChangeInProgress: false
+                isSkipTransitionInProgress: false
             )
         )
     }
@@ -616,12 +596,9 @@ final class PlaybackServiceTests: XCTestCase {
         _ = coordinator.handle(.pauseRequested(.user), playbackState: .playing)
 
         XCTAssertTrue(
-            PlaybackService.remoteSkipCommandsEnabled(
+            coordinator.remoteSkipCommandsEnabled(
                 playbackState: .paused,
-                isSkipTransitionInProgress: false,
-                coordinator: coordinator,
-                isInterrupted: false,
-                isRouteChangeInProgress: false
+                isSkipTransitionInProgress: false
             )
         )
     }

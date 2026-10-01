@@ -157,7 +157,7 @@ public struct WatchMediaGroup: Identifiable, Equatable, Sendable {
             ) else { return nil }
             return "album:\(identity)"
         case .artist where preferences.mergeArtists:
-            return EnsembleMergeIdentity.normalized(item.title).map { "artist:\($0)" }
+            return EnsembleMergeIdentity.normalizedArtist(item.title).map { "artist:\($0)" }
         case .playlist where preferences.mergePlaylists:
             return "playlist:\(PlexPlaylistMergeRules.key(title: item.title, isSmart: item.isSmart ?? false))"
         default:
@@ -171,7 +171,7 @@ public struct WatchMediaGroup: Identifiable, Equatable, Sendable {
             return EnsembleMergeIdentity.albumFamily(title: item.title, artist: item.subtitle, year: item.year)
                 .map { "album:\($0)" }
         case .artist:
-            return EnsembleMergeIdentity.normalized(item.title).map { "artist:\($0)" }
+            return EnsembleMergeIdentity.normalizedArtist(item.title).map { "artist:\($0)" }
         case .playlist:
             return "playlist:\(PlexPlaylistMergeRules.key(title: item.title, isSmart: item.isSmart ?? false))"
         case .track:

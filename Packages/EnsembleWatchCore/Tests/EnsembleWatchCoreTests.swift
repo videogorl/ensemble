@@ -477,6 +477,18 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertEqual(WatchExperienceModel.trackLoadStatus(trackCount: 4, failureCount: 1), "Some sources unavailable.")
     }
 
+    func testWatchArtistGroupsUseTheSharedTypographicIdentity() {
+        for names in [["Guns N’ Roses", "GUNS N' ROSES"], ["half•alive", "half·alive", "half-alive"]] {
+            let artists = names.enumerated().map { index, name in
+                EnsembleMediaSummary(id: "\(index)", kind: .artist, title: name, sourceKey: "plex:a:s:\(index)")
+            }
+            let groups = WatchMediaGroup.grouped(artists)
+            XCTAssertEqual(groups.map { $0.items.map(\.id) }, [artists.map(\.id)])
+            XCTAssertEqual(groups.first?.id, "merged:artist:\(EnsembleMergeIdentity.normalizedArtist(names[0])!)")
+            XCTAssertEqual(WatchExperienceModel.mergedPinnedItems(artists).map(\.id), ["0"])
+        }
+    }
+
     func testWatchAlbumGroupsUseSyncedIdentityAndSourceOrder() {
         let plex = EnsembleMediaSummary(
             id: "plex",

@@ -1,0 +1,1073 @@
+{
+  "method": "Time Profiler main-thread sample weights in fixed 1.5-second windows starting at accepted navigation journey events; overlapping hang intervals are separate observations, not CPU time or complete event latency.",
+  "baseline_commit": "8cdcc099",
+  "host": {
+    "uuid": "E3A3882D-C3B6-5B96-805E-B89E87E9E955",
+    "os": "macOS 27.0.1 (26A434)",
+    "instruments": "27.0 (27A266a)",
+    "configuration": "signed Release",
+    "screenshot_pixels": [
+      4968,
+      2780
+    ]
+  },
+  "capture_order": [
+    "candidate-matched-1",
+    "baseline-matched-2",
+    "candidate-matched-2",
+    "baseline-matched-3"
+  ],
+  "groups": {
+    "baseline": {
+      "binary_sha256": "0036ac312059b4fc73d26fa0967473a899e4b6f3a442af17dd71815a50a7fd3f",
+      "version": "0.4.0",
+      "build": "202609301347.8099",
+      "targeted_browse": {
+        "n": 8,
+        "mean_sampled_main_thread_ms": 657.625,
+        "mean_sampled_sidebar_ms": 14.625,
+        "flagged_events": 8
+      },
+      "all_events": {
+        "n": 32,
+        "mean_sampled_main_thread_ms": 808.125,
+        "flagged_events": 32
+      },
+      "routes": [
+        {
+          "from": "Artists",
+          "to": "Genres",
+          "n": 4,
+          "mean_sampled_main_thread_ms": 604.25,
+          "mean_sampled_sidebar_ms": 14.25,
+          "flagged_events": 4
+        },
+        {
+          "from": "Genres",
+          "to": "Playlists",
+          "n": 4,
+          "mean_sampled_main_thread_ms": 711.0,
+          "mean_sampled_sidebar_ms": 15.0,
+          "flagged_events": 4
+        }
+      ],
+      "runs": [
+        {
+          "trace": "baseline-matched-2",
+          "start": "2026-09-30T14:28:51.320000-07:00",
+          "end": "2026-09-30T14:29:57.560000-07:00",
+          "window_seconds": 1.5,
+          "actions": [
+            {
+              "from": "Songs",
+              "to": "Home",
+              "start_s": 22.884,
+              "sampled_main_thread_ms": 890.0,
+              "sampled_accessibility_ms": 283.0,
+              "sampled_sidebar_ms": 4.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 22.881976583,
+                  "duration_ms": 887.490208
+                }
+              ]
+            },
+            {
+              "from": "Home",
+              "to": "Search",
+              "start_s": 25.111,
+              "sampled_main_thread_ms": 1460.0,
+              "sampled_accessibility_ms": 1103.0,
+              "sampled_sidebar_ms": 6.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 25.10982975,
+                  "duration_ms": 1947.621541
+                }
+              ]
+            },
+            {
+              "from": "Search",
+              "to": "Albums",
+              "start_s": 27.506,
+              "sampled_main_thread_ms": 1050.0,
+              "sampled_accessibility_ms": 493.0,
+              "sampled_sidebar_ms": 4.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 27.505528166,
+                  "duration_ms": 1038.253459
+                }
+              ]
+            },
+            {
+              "from": "Albums",
+              "to": "Songs",
+              "start_s": 29.603,
+              "sampled_main_thread_ms": 632.0,
+              "sampled_accessibility_ms": 50.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 29.600478833,
+                  "duration_ms": 616.77125
+                }
+              ]
+            },
+            {
+              "from": "Songs",
+              "to": "Artists",
+              "start_s": 31.68,
+              "sampled_main_thread_ms": 852.0,
+              "sampled_accessibility_ms": 55.0,
+              "sampled_sidebar_ms": 12.0,
+              "sampled_native_browse_ms": 1.0,
+              "hangs": [
+                {
+                  "start_s": 31.676752291,
+                  "duration_ms": 837.752042
+                }
+              ]
+            },
+            {
+              "from": "Artists",
+              "to": "Genres",
+              "start_s": 33.752,
+              "sampled_main_thread_ms": 638.0,
+              "sampled_accessibility_ms": 41.0,
+              "sampled_sidebar_ms": 18.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 33.74877175,
+                  "duration_ms": 604.85475
+                }
+              ]
+            },
+            {
+              "from": "Genres",
+              "to": "Playlists",
+              "start_s": 35.82,
+              "sampled_main_thread_ms": 650.0,
+              "sampled_accessibility_ms": 55.0,
+              "sampled_sidebar_ms": 19.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 35.818229416,
+                  "duration_ms": 622.524584
+                }
+              ]
+            },
+            {
+              "from": "Playlists",
+              "to": "Songs",
+              "start_s": 38.089,
+              "sampled_main_thread_ms": 920.0,
+              "sampled_accessibility_ms": 73.0,
+              "sampled_sidebar_ms": 10.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 38.087224291,
+                  "duration_ms": 902.59975
+                }
+              ]
+            },
+            {
+              "from": "Songs",
+              "to": "Home",
+              "start_s": 40.1,
+              "sampled_main_thread_ms": 471.0,
+              "sampled_accessibility_ms": 29.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 40.098850958,
+                  "duration_ms": 424.8985
+                }
+              ]
+            },
+            {
+              "from": "Home",
+              "to": "Search",
+              "start_s": 42.344,
+              "sampled_main_thread_ms": 728.0,
+              "sampled_accessibility_ms": 70.0,
+              "sampled_sidebar_ms": 5.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 42.342701583,
+                  "duration_ms": 709.40025
+                }
+              ]
+            },
+            {
+              "from": "Search",
+              "to": "Albums",
+              "start_s": 44.741,
+              "sampled_main_thread_ms": 748.0,
+              "sampled_accessibility_ms": 40.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 44.740181125,
+                  "duration_ms": 641.020125
+                }
+              ]
+            },
+            {
+              "from": "Albums",
+              "to": "Songs",
+              "start_s": 46.816,
+              "sampled_main_thread_ms": 624.0,
+              "sampled_accessibility_ms": 44.0,
+              "sampled_sidebar_ms": 3.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 46.815591833,
+                  "duration_ms": 616.432333
+                }
+              ]
+            },
+            {
+              "from": "Songs",
+              "to": "Artists",
+              "start_s": 48.917,
+              "sampled_main_thread_ms": 803.0,
+              "sampled_accessibility_ms": 64.0,
+              "sampled_sidebar_ms": 14.0,
+              "sampled_native_browse_ms": 1.0,
+              "hangs": [
+                {
+                  "start_s": 48.91563025,
+                  "duration_ms": 777.343958
+                }
+              ]
+            },
+            {
+              "from": "Artists",
+              "to": "Genres",
+              "start_s": 50.969,
+              "sampled_main_thread_ms": 658.0,
+              "sampled_accessibility_ms": 46.0,
+              "sampled_sidebar_ms": 19.0,
+              "sampled_native_browse_ms": 2.0,
+              "hangs": [
+                {
+                  "start_s": 50.968105583,
+                  "duration_ms": 587.746958
+                }
+              ]
+            },
+            {
+              "from": "Genres",
+              "to": "Playlists",
+              "start_s": 53.053,
+              "sampled_main_thread_ms": 883.0,
+              "sampled_accessibility_ms": 78.0,
+              "sampled_sidebar_ms": 17.0,
+              "sampled_native_browse_ms": 2.0,
+              "hangs": [
+                {
+                  "start_s": 53.049014291,
+                  "duration_ms": 824.609917
+                }
+              ]
+            },
+            {
+              "from": "Playlists",
+              "to": "Songs",
+              "start_s": 55.325,
+              "sampled_main_thread_ms": 1048.0,
+              "sampled_accessibility_ms": 101.0,
+              "sampled_sidebar_ms": 16.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 55.323180208,
+                  "duration_ms": 1027.633542
+                }
+              ]
+            }
+          ],
+          "pid": 18729
+        },
+        {
+          "trace": "baseline-matched-3",
+          "start": "2026-09-30T14:34:38.560000-07:00",
+          "end": "2026-09-30T14:35:35.877000-07:00",
+          "window_seconds": 1.5,
+          "actions": [
+            {
+              "from": "Songs",
+              "to": "Home",
+              "start_s": 15.488,
+              "sampled_main_thread_ms": 815.0,
+              "sampled_accessibility_ms": 305.0,
+              "sampled_sidebar_ms": 7.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 15.485619208,
+                  "duration_ms": 820.518292
+                }
+              ]
+            },
+            {
+              "from": "Home",
+              "to": "Search",
+              "start_s": 17.796,
+              "sampled_main_thread_ms": 1457.0,
+              "sampled_accessibility_ms": 1080.0,
+              "sampled_sidebar_ms": 3.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 17.793160125,
+                  "duration_ms": 2145.87425
+                }
+              ]
+            },
+            {
+              "from": "Search",
+              "to": "Albums",
+              "start_s": 20.442,
+              "sampled_main_thread_ms": 1154.0,
+              "sampled_accessibility_ms": 562.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 20.439692375,
+                  "duration_ms": 1227.654333
+                }
+              ]
+            },
+            {
+              "from": "Albums",
+              "to": "Songs",
+              "start_s": 22.466,
+              "sampled_main_thread_ms": 671.0,
+              "sampled_accessibility_ms": 65.0,
+              "sampled_sidebar_ms": 4.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 22.4624905,
+                  "duration_ms": 651.160083
+                }
+              ]
+            },
+            {
+              "from": "Songs",
+              "to": "Artists",
+              "start_s": 24.545,
+              "sampled_main_thread_ms": 809.0,
+              "sampled_accessibility_ms": 69.0,
+              "sampled_sidebar_ms": 6.0,
+              "sampled_native_browse_ms": 1.0,
+              "hangs": [
+                {
+                  "start_s": 24.541982041,
+                  "duration_ms": 805.003792
+                }
+              ]
+            },
+            {
+              "from": "Artists",
+              "to": "Genres",
+              "start_s": 26.581,
+              "sampled_main_thread_ms": 514.0,
+              "sampled_accessibility_ms": 26.0,
+              "sampled_sidebar_ms": 9.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 26.579204375,
+                  "duration_ms": 484.14525
+                }
+              ]
+            },
+            {
+              "from": "Genres",
+              "to": "Playlists",
+              "start_s": 28.683,
+              "sampled_main_thread_ms": 650.0,
+              "sampled_accessibility_ms": 52.0,
+              "sampled_sidebar_ms": 12.0,
+              "sampled_native_browse_ms": 1.0,
+              "hangs": [
+                {
+                  "start_s": 28.680313708,
+                  "duration_ms": 626.406542
+                }
+              ]
+            },
+            {
+              "from": "Playlists",
+              "to": "Songs",
+              "start_s": 30.914,
+              "sampled_main_thread_ms": 902.0,
+              "sampled_accessibility_ms": 82.0,
+              "sampled_sidebar_ms": 11.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 30.912593625,
+                  "duration_ms": 877.34725
+                }
+              ]
+            },
+            {
+              "from": "Songs",
+              "to": "Home",
+              "start_s": 32.998,
+              "sampled_main_thread_ms": 578.0,
+              "sampled_accessibility_ms": 37.0,
+              "sampled_sidebar_ms": 7.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 32.995955625,
+                  "duration_ms": 564.674708
+                }
+              ]
+            },
+            {
+              "from": "Home",
+              "to": "Search",
+              "start_s": 35.305,
+              "sampled_main_thread_ms": 768.0,
+              "sampled_accessibility_ms": 80.0,
+              "sampled_sidebar_ms": 6.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 35.302164416,
+                  "duration_ms": 790.8815
+                }
+              ]
+            },
+            {
+              "from": "Search",
+              "to": "Albums",
+              "start_s": 37.711,
+              "sampled_main_thread_ms": 668.0,
+              "sampled_accessibility_ms": 39.0,
+              "sampled_sidebar_ms": 1.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 37.707809875,
+                  "duration_ms": 571.243875
+                }
+              ]
+            },
+            {
+              "from": "Albums",
+              "to": "Songs",
+              "start_s": 39.699,
+              "sampled_main_thread_ms": 595.0,
+              "sampled_accessibility_ms": 38.0,
+              "sampled_sidebar_ms": 1.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 39.696035375,
+                  "duration_ms": 564.741333
+                }
+              ]
+            },
+            {
+              "from": "Songs",
+              "to": "Artists",
+              "start_s": 41.794,
+              "sampled_main_thread_ms": 884.0,
+              "sampled_accessibility_ms": 90.0,
+              "sampled_sidebar_ms": 14.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 41.790020458,
+                  "duration_ms": 854.752
+                }
+              ]
+            },
+            {
+              "from": "Artists",
+              "to": "Genres",
+              "start_s": 43.847,
+              "sampled_main_thread_ms": 607.0,
+              "sampled_accessibility_ms": 38.0,
+              "sampled_sidebar_ms": 11.0,
+              "sampled_native_browse_ms": 1.0,
+              "hangs": [
+                {
+                  "start_s": 43.846090791,
+                  "duration_ms": 562.715667
+                }
+              ]
+            },
+            {
+              "from": "Genres",
+              "to": "Playlists",
+              "start_s": 45.969,
+              "sampled_main_thread_ms": 661.0,
+              "sampled_accessibility_ms": 55.0,
+              "sampled_sidebar_ms": 12.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 45.96638275,
+                  "duration_ms": 636.941416
+                }
+              ]
+            },
+            {
+              "from": "Playlists",
+              "to": "Songs",
+              "start_s": 48.219,
+              "sampled_main_thread_ms": 1072.0,
+              "sampled_accessibility_ms": 100.0,
+              "sampled_sidebar_ms": 10.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 48.217540291,
+                  "duration_ms": 1043.448584
+                }
+              ]
+            }
+          ],
+          "pid": 21430
+        }
+      ],
+      "source_sha256": {
+        "Packages/EnsembleUI/Sources/Screens/Root/MainTabView.swift": "ea8de6fed91ad14a586b253ed3a769e49f5bc604869e995e7938067fe3215b71",
+        "Packages/EnsembleUI/Sources/Screens/Root/NativeBrowseSection.swift": "9441b6ac733ab91f5f04a6bd4ed06cfbf3bf0cc53566d2cebcb046b7d6ffc7a4"
+      }
+    },
+    "candidate": {
+      "binary_sha256": "b43ac245bb7ebe2cec1a61223615ac81fb905282829569d77975ba2fc21d3bd0",
+      "version": "0.4.0",
+      "build": "202609301347.8099",
+      "targeted_browse": {
+        "n": 8,
+        "mean_sampled_main_thread_ms": 261.375,
+        "mean_sampled_sidebar_ms": 2.125,
+        "flagged_events": 3
+      },
+      "all_events": {
+        "n": 32,
+        "mean_sampled_main_thread_ms": 688.125,
+        "flagged_events": 27
+      },
+      "routes": [
+        {
+          "from": "Artists",
+          "to": "Genres",
+          "n": 4,
+          "mean_sampled_main_thread_ms": 249.0,
+          "mean_sampled_sidebar_ms": 2.25,
+          "flagged_events": 1
+        },
+        {
+          "from": "Genres",
+          "to": "Playlists",
+          "n": 4,
+          "mean_sampled_main_thread_ms": 273.75,
+          "mean_sampled_sidebar_ms": 2.0,
+          "flagged_events": 2
+        }
+      ],
+      "runs": [
+        {
+          "trace": "candidate-matched-1",
+          "start": "2026-09-30T14:26:05.583000-07:00",
+          "end": "2026-09-30T14:27:05.628000-07:00",
+          "window_seconds": 1.5,
+          "actions": [
+            {
+              "from": "Songs",
+              "to": "Home",
+              "start_s": 14.308,
+              "sampled_main_thread_ms": 862.0,
+              "sampled_accessibility_ms": 326.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 14.30339325,
+                  "duration_ms": 781.8255
+                }
+              ]
+            },
+            {
+              "from": "Home",
+              "to": "Search",
+              "start_s": 16.638,
+              "sampled_main_thread_ms": 1483.0,
+              "sampled_accessibility_ms": 1129.0,
+              "sampled_sidebar_ms": 5.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 16.636760041,
+                  "duration_ms": 2019.121167
+                }
+              ]
+            },
+            {
+              "from": "Search",
+              "to": "Albums",
+              "start_s": 19.104,
+              "sampled_main_thread_ms": 1199.0,
+              "sampled_accessibility_ms": 600.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 19.101933875,
+                  "duration_ms": 1209.336625
+                }
+              ]
+            },
+            {
+              "from": "Albums",
+              "to": "Songs",
+              "start_s": 21.088,
+              "sampled_main_thread_ms": 591.0,
+              "sampled_accessibility_ms": 43.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 21.08681025,
+                  "duration_ms": 571.526666
+                }
+              ]
+            },
+            {
+              "from": "Songs",
+              "to": "Artists",
+              "start_s": 23.173,
+              "sampled_main_thread_ms": 777.0,
+              "sampled_accessibility_ms": 54.0,
+              "sampled_sidebar_ms": 9.0,
+              "sampled_native_browse_ms": 1.0,
+              "hangs": [
+                {
+                  "start_s": 23.170162041,
+                  "duration_ms": 762.499375
+                }
+              ]
+            },
+            {
+              "from": "Artists",
+              "to": "Genres",
+              "start_s": 25.262,
+              "sampled_main_thread_ms": 236.0,
+              "sampled_accessibility_ms": 10.0,
+              "sampled_sidebar_ms": 3.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": []
+            },
+            {
+              "from": "Genres",
+              "to": "Playlists",
+              "start_s": 27.357,
+              "sampled_main_thread_ms": 250.0,
+              "sampled_accessibility_ms": 14.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": []
+            },
+            {
+              "from": "Playlists",
+              "to": "Songs",
+              "start_s": 29.613,
+              "sampled_main_thread_ms": 803.0,
+              "sampled_accessibility_ms": 59.0,
+              "sampled_sidebar_ms": 14.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 29.611158833,
+                  "duration_ms": 757.562458
+                }
+              ]
+            },
+            {
+              "from": "Songs",
+              "to": "Home",
+              "start_s": 31.659,
+              "sampled_main_thread_ms": 523.0,
+              "sampled_accessibility_ms": 30.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 31.653615416,
+                  "duration_ms": 485.697792
+                }
+              ]
+            },
+            {
+              "from": "Home",
+              "to": "Search",
+              "start_s": 33.994,
+              "sampled_main_thread_ms": 749.0,
+              "sampled_accessibility_ms": 86.0,
+              "sampled_sidebar_ms": 9.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 33.991488208,
+                  "duration_ms": 767.804625
+                }
+              ]
+            },
+            {
+              "from": "Search",
+              "to": "Albums",
+              "start_s": 36.439,
+              "sampled_main_thread_ms": 761.0,
+              "sampled_accessibility_ms": 42.0,
+              "sampled_sidebar_ms": 3.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 36.436998333,
+                  "duration_ms": 628.623375
+                }
+              ]
+            },
+            {
+              "from": "Albums",
+              "to": "Songs",
+              "start_s": 38.488,
+              "sampled_main_thread_ms": 621.0,
+              "sampled_accessibility_ms": 45.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 38.487026375,
+                  "duration_ms": 610.695125
+                }
+              ]
+            },
+            {
+              "from": "Songs",
+              "to": "Artists",
+              "start_s": 40.548,
+              "sampled_main_thread_ms": 711.0,
+              "sampled_accessibility_ms": 52.0,
+              "sampled_sidebar_ms": 9.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 40.546438208,
+                  "duration_ms": 679.109583
+                }
+              ]
+            },
+            {
+              "from": "Artists",
+              "to": "Genres",
+              "start_s": 42.638,
+              "sampled_main_thread_ms": 224.0,
+              "sampled_accessibility_ms": 9.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": []
+            },
+            {
+              "from": "Genres",
+              "to": "Playlists",
+              "start_s": 44.71,
+              "sampled_main_thread_ms": 298.0,
+              "sampled_accessibility_ms": 19.0,
+              "sampled_sidebar_ms": 3.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 44.707437458,
+                  "duration_ms": 259.994042
+                }
+              ]
+            },
+            {
+              "from": "Playlists",
+              "to": "Songs",
+              "start_s": 46.986,
+              "sampled_main_thread_ms": 819.0,
+              "sampled_accessibility_ms": 64.0,
+              "sampled_sidebar_ms": 13.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 46.9837545,
+                  "duration_ms": 783.874166
+                }
+              ]
+            }
+          ],
+          "pid": 17560
+        },
+        {
+          "trace": "candidate-matched-2",
+          "start": "2026-09-30T14:31:40.683000-07:00",
+          "end": "2026-09-30T14:32:36.728000-07:00",
+          "window_seconds": 1.5,
+          "actions": [
+            {
+              "from": "Songs",
+              "to": "Home",
+              "start_s": 11.992,
+              "sampled_main_thread_ms": 1018.0,
+              "sampled_accessibility_ms": 345.0,
+              "sampled_sidebar_ms": 4.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 11.985348375,
+                  "duration_ms": 1016.271541
+                }
+              ]
+            },
+            {
+              "from": "Home",
+              "to": "Search",
+              "start_s": 14.214,
+              "sampled_main_thread_ms": 1445.0,
+              "sampled_accessibility_ms": 1091.0,
+              "sampled_sidebar_ms": 8.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 14.211715708,
+                  "duration_ms": 1959.642708
+                }
+              ]
+            },
+            {
+              "from": "Search",
+              "to": "Albums",
+              "start_s": 16.671,
+              "sampled_main_thread_ms": 1089.0,
+              "sampled_accessibility_ms": 504.0,
+              "sampled_sidebar_ms": 3.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 16.668149,
+                  "duration_ms": 1080.614
+                }
+              ]
+            },
+            {
+              "from": "Albums",
+              "to": "Songs",
+              "start_s": 18.72,
+              "sampled_main_thread_ms": 588.0,
+              "sampled_accessibility_ms": 42.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 18.718731291,
+                  "duration_ms": 579.281959
+                }
+              ]
+            },
+            {
+              "from": "Songs",
+              "to": "Artists",
+              "start_s": 20.794,
+              "sampled_main_thread_ms": 794.0,
+              "sampled_accessibility_ms": 55.0,
+              "sampled_sidebar_ms": 10.0,
+              "sampled_native_browse_ms": 1.0,
+              "hangs": [
+                {
+                  "start_s": 20.791000125,
+                  "duration_ms": 650.164541
+                }
+              ]
+            },
+            {
+              "from": "Artists",
+              "to": "Genres",
+              "start_s": 22.837,
+              "sampled_main_thread_ms": 236.0,
+              "sampled_accessibility_ms": 7.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": []
+            },
+            {
+              "from": "Genres",
+              "to": "Playlists",
+              "start_s": 24.932,
+              "sampled_main_thread_ms": 279.0,
+              "sampled_accessibility_ms": 20.0,
+              "sampled_sidebar_ms": 1.0,
+              "sampled_native_browse_ms": 1.0,
+              "hangs": [
+                {
+                  "start_s": 24.927616708,
+                  "duration_ms": 253.156583
+                }
+              ]
+            },
+            {
+              "from": "Playlists",
+              "to": "Songs",
+              "start_s": 27.177,
+              "sampled_main_thread_ms": 837.0,
+              "sampled_accessibility_ms": 67.0,
+              "sampled_sidebar_ms": 9.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 27.175619041,
+                  "duration_ms": 813.31875
+                }
+              ]
+            },
+            {
+              "from": "Songs",
+              "to": "Home",
+              "start_s": 29.293,
+              "sampled_main_thread_ms": 542.0,
+              "sampled_accessibility_ms": 40.0,
+              "sampled_sidebar_ms": 1.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 29.29071825,
+                  "duration_ms": 509.984666
+                }
+              ]
+            },
+            {
+              "from": "Home",
+              "to": "Search",
+              "start_s": 31.514,
+              "sampled_main_thread_ms": 738.0,
+              "sampled_accessibility_ms": 65.0,
+              "sampled_sidebar_ms": 6.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 31.512003875,
+                  "duration_ms": 771.863708
+                }
+              ]
+            },
+            {
+              "from": "Search",
+              "to": "Albums",
+              "start_s": 33.837,
+              "sampled_main_thread_ms": 702.0,
+              "sampled_accessibility_ms": 37.0,
+              "sampled_sidebar_ms": 3.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 33.835577833,
+                  "duration_ms": 592.185708
+                }
+              ]
+            },
+            {
+              "from": "Albums",
+              "to": "Songs",
+              "start_s": 35.888,
+              "sampled_main_thread_ms": 607.0,
+              "sampled_accessibility_ms": 40.0,
+              "sampled_sidebar_ms": 1.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 35.885611583,
+                  "duration_ms": 583.542208
+                }
+              ]
+            },
+            {
+              "from": "Songs",
+              "to": "Artists",
+              "start_s": 37.929,
+              "sampled_main_thread_ms": 803.0,
+              "sampled_accessibility_ms": 63.0,
+              "sampled_sidebar_ms": 12.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 37.926923458,
+                  "duration_ms": 780.871167
+                }
+              ]
+            },
+            {
+              "from": "Artists",
+              "to": "Genres",
+              "start_s": 40.055,
+              "sampled_main_thread_ms": 300.0,
+              "sampled_accessibility_ms": 11.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 40.052346291,
+                  "duration_ms": 267.226917
+                }
+              ]
+            },
+            {
+              "from": "Genres",
+              "to": "Playlists",
+              "start_s": 42.128,
+              "sampled_main_thread_ms": 268.0,
+              "sampled_accessibility_ms": 12.0,
+              "sampled_sidebar_ms": 2.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": []
+            },
+            {
+              "from": "Playlists",
+              "to": "Songs",
+              "start_s": 44.361,
+              "sampled_main_thread_ms": 867.0,
+              "sampled_accessibility_ms": 85.0,
+              "sampled_sidebar_ms": 6.0,
+              "sampled_native_browse_ms": 0,
+              "hangs": [
+                {
+                  "start_s": 44.358598208,
+                  "duration_ms": 842.432208
+                }
+              ]
+            }
+          ],
+          "pid": 20282
+        }
+      ],
+      "source_sha256": {
+        "Packages/EnsembleUI/Sources/Screens/Root/MainTabView.swift": "68b0e3c32552efb8542e3a2b7fcfeaa004c106b45c99f1d2f795508279455cc9",
+        "Packages/EnsembleUI/Sources/Screens/Root/NativeBrowseSection.swift": "e094326252148171b78b7f1f796c0c6f310368b117e03552b3e355c50259279a"
+      }
+    }
+  }
+}

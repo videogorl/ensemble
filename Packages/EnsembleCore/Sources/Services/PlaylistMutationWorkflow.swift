@@ -220,17 +220,22 @@ public final class PlaylistMutationWorkflow {
         title: String,
         tracks: [Track],
         serverSourceKeys: [String],
+        createPlaylist: ((String) async throws -> Void)? = nil,
         retryHandler: (([String]) -> Void)? = nil
     ) async -> PlaylistBatchMutationWorkflowResult {
         var succeededCount = 0
         var failedSourceKeys: [String] = []
         for sourceKey in serverSourceKeys {
             do {
-                _ = try await mutator.createPlaylist(
-                    title: title,
-                    tracks: tracks,
-                    serverSourceKey: sourceKey
-                )
+                if let createPlaylist {
+                    try await createPlaylist(sourceKey)
+                } else {
+                    _ = try await mutator.createPlaylist(
+                        title: title,
+                        tracks: tracks,
+                        serverSourceKey: sourceKey
+                    )
+                }
                 succeededCount += 1
             } catch {
                 failedSourceKeys.append(sourceKey)
@@ -249,7 +254,7 @@ public final class PlaylistMutationWorkflow {
                 iconSystemName: completedAll ? Icon.playlistCreate : Icon.failure,
                 title: completedAll ? "Created \(title)" : "Created on \(succeededCount)/\(totalCount) sources",
                 message: completedAll ? nil : "Some sources could not create this playlist.",
-                action: failedSourceKeys.isEmpty ? nil : ToastAction(title: "Retry") {
+                action: failedSourceKeys.isEmpty || retryHandler == nil ? nil : ToastAction(title: "Retry") {
                     retryHandler?(failedSourceKeys)
                 },
                 isPersistent: !completedAll,

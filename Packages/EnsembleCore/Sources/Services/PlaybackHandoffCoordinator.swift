@@ -121,8 +121,6 @@ struct PlaybackHandoffCoordinator {
 
     enum Action: Equatable, Sendable {
         case refreshPresentationLatency
-        case setRouteChangeInProgress(Bool)
-        case setInterrupted(Bool)
         case pausePlayback(PauseReason)
         case scheduleSettleWindow(until: Date)
         case resumePlayback(CommandSource)
@@ -169,34 +167,21 @@ struct PlaybackHandoffCoordinator {
         }
     }
 
-    func shouldSuppressAutomaticAdvance(
-        isInterrupted: Bool,
-        isRouteChangeInProgress: Bool
-    ) -> Bool {
-        if isInterrupted || isRouteChangeInProgress {
-            return true
-        }
-
-        return state.hasActiveInterruptionSignal
+    var shouldSuppressAutomaticAdvance: Bool {
+        state.hasActiveInterruptionSignal
             || state.hasActiveRouteTransitionSignal
             || state.hasSystemManagedPause
     }
 
     func remoteSkipCommandsEnabled(
         playbackState: PlaybackState,
-        isSkipTransitionInProgress: Bool,
-        isInterrupted: Bool,
-        isRouteChangeInProgress: Bool
+        isSkipTransitionInProgress: Bool
     ) -> Bool {
         guard isSkipTransitionInProgress
             || (playbackState != .loading && playbackState != .buffering) else {
             return false
         }
-
-        return !shouldSuppressAutomaticAdvance(
-            isInterrupted: isInterrupted,
-            isRouteChangeInProgress: isRouteChangeInProgress
-        )
+        return !shouldSuppressAutomaticAdvance
     }
 
     private mutating func handlePauseRequest(
@@ -237,11 +222,7 @@ struct PlaybackHandoffCoordinator {
         return makeOutcome(
             category: .transportCommand,
             summary: "resume playback",
-            actions: [
-                .setInterrupted(false),
-                .setRouteChangeInProgress(false),
-                .resumePlayback(source)
-            ]
+            actions: [.resumePlayback(source)]
         )
     }
 
@@ -257,10 +238,7 @@ struct PlaybackHandoffCoordinator {
                 return makeOutcome(
                     category: .audioSessionRouteChange,
                     summary: "disconnect route change while already paused",
-                    actions: [
-                        .refreshPresentationLatency,
-                        .setRouteChangeInProgress(false)
-                    ]
+                    actions: [.refreshPresentationLatency]
                 )
             }
             state.routeTransition = .disconnecting(startedAt: now)
@@ -271,7 +249,6 @@ struct PlaybackHandoffCoordinator {
                 summary: "disconnect route change",
                 actions: [
                     .refreshPresentationLatency,
-                    .setRouteChangeInProgress(false),
                     .pausePlayback(.disconnect)
                 ]
             )
@@ -282,10 +259,7 @@ struct PlaybackHandoffCoordinator {
                 return makeOutcome(
                     category: .audioSessionRouteChange,
                     summary: "new device without settle window",
-                    actions: [
-                        .refreshPresentationLatency,
-                        .setRouteChangeInProgress(false)
-                    ]
+                    actions: [.refreshPresentationLatency]
                 )
             }
             state.routeTransition = .settlingNewDevice(until: settleUntil)
@@ -294,7 +268,6 @@ struct PlaybackHandoffCoordinator {
                 summary: "new device settle window",
                 actions: [
                     .refreshPresentationLatency,
-                    .setRouteChangeInProgress(true),
                     .scheduleSettleWindow(until: settleUntil)
                 ]
             )
@@ -304,10 +277,7 @@ struct PlaybackHandoffCoordinator {
             return makeOutcome(
                 category: .audioSessionRouteChange,
                 summary: "non-handoff route change",
-                actions: [
-                    .refreshPresentationLatency,
-                    .setRouteChangeInProgress(false)
-                ]
+                actions: [.refreshPresentationLatency]
             )
         }
     }
@@ -332,10 +302,7 @@ struct PlaybackHandoffCoordinator {
         }
 
         state.routeTransition = .idle
-        var actions: [Action] = [
-            .refreshPresentationLatency,
-            .setRouteChangeInProgress(false)
-        ]
+        var actions: [Action] = [.refreshPresentationLatency]
 
         // Route handoff can leave AVPlayer stalled in buffering even though the
         // interruption/route transition state is clear. Re-assert playback once
@@ -370,7 +337,7 @@ struct PlaybackHandoffCoordinator {
         state.interruption = .began
         state.pauseReason = .interruption
 
-        var actions: [Action] = [.setInterrupted(true)]
+        var actions: [Action] = []
         if playbackState == .playing || playbackState == .buffering {
             actions.append(.pausePlayback(.interruption))
         }
@@ -387,7 +354,7 @@ struct PlaybackHandoffCoordinator {
     ) -> Outcome {
         state.interruption = .ended(shouldResume: shouldResume)
 
-        var actions: [Action] = [.setInterrupted(false)]
+        var actions: [Action] = []
         if state.pauseReason == .interruption,
            playbackState == .buffering || playbackState == .paused {
             if shouldResume {

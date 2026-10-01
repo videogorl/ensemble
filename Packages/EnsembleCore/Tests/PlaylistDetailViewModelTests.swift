@@ -973,6 +973,44 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isShowingStaleSnapshot)
     }
 
+    func testBatchCreationKeepsSuccessfulPlaceholderAndRollsBackFailedSource() async {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let provider = makeRecordingPlaylistProvider()
+        let syncCoordinator = makeSyncCoordinator(providers: [provider])
+        syncCoordinator.refreshServerPlaylistsHandlerForTesting = { _ in }
+        let repository = MockPlaylistRepository()
+        let viewModel = PlaylistViewModel(
+            playlistRepository: repository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            observesExternalChanges: false
+        )
+        let successfulSource = "plex:account-1:server-1"
+        let failedSource = "plex:account-2:server-2"
+
+        let result = await viewModel.createPlaylists(
+            title: "Batch Audit",
+            serverSourceKeys: [successfulSource, failedSource]
+        )
+
+        XCTAssertEqual(result.succeededCount, 1)
+        XCTAssertEqual(result.failedSourceKeys, [failedSource])
+        XCTAssertEqual(result.resultToast.style, .warning)
+        XCTAssertNil(result.resultToast.action)
+        XCTAssertEqual(viewModel.playlists.map(\.sourceCompositeKey), [successfulSource])
+        XCTAssertTrue(viewModel.playlists.allSatisfy(viewModel.isPlaylistPendingCreation))
+
+        let materialized = makePlaylist(id: "created", title: "Batch Audit", sourceCompositeKey: successfulSource)
+        let stack = CoreDataStack.inMemory()
+        repository.playlists[repository.playlistKey(ratingKey: materialized.id, sourceCompositeKey: successfulSource)] =
+            makeCachedPlaylist(materialized, tracks: [], context: stack.viewContext)
+        await viewModel.loadPlaylists()
+
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["created"])
+        XCTAssertFalse(viewModel.playlists.contains(where: viewModel.isPlaylistPendingCreation))
+    }
+
     func testPlaylistViewModelKeepsCompletedDeleteHiddenWhenCacheReloadIsStale() async {
         PlaylistViewModel.resetLastGoodSnapshotForTesting()
         let provider = makeRecordingPlaylistProvider()

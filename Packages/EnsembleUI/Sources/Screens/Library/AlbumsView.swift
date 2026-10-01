@@ -19,6 +19,9 @@ public struct AlbumsView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        #if os(macOS)
+        self._albumSnapshotCache = StateObject(wrappedValue: BrowseSnapshotCache(libraryVM.albumBrowseSnapshot))
+        #endif
     }
     
     // Get unique artist names for filter
@@ -50,28 +53,16 @@ public struct AlbumsView: View {
     }
 
     private var albumSortMenu: some View {
-        Menu {
-            ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                Button {
-                    if libraryVM.albumSortOption == option {
-                        libraryVM.albumsFilterOptions.sortDirection =
-                            libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                    } else {
-                        libraryVM.albumSortOption = option
-                        libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
-                    }
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if libraryVM.albumSortOption == option {
-                            Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
-                                  ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
-                        }
-                    }
-                }
+        EnsembleBrowseSortMenu(
+            model: libraryVM,
+            options: AlbumSortOption.allCases,
+            selection: { $0.albumSortOption },
+            direction: { $0.albumsFilterOptions.sortDirection }
+        ) { option, direction in
+            if libraryVM.albumSortOption != option {
+                libraryVM.albumSortOption = option
             }
-        } label: {
-            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+            libraryVM.albumsFilterOptions.sortDirection = direction
         }
         .accessibilityLabel("Sort Albums")
     }
@@ -227,8 +218,12 @@ public struct AlbumsView: View {
                             $0.1.minY == $1.1.minY ? $0.1.minX < $1.1.minX : $0.1.minY < $1.1.minY
                         }?.0
                         Color.clear
+                            .onAppear {
+                                if !isStageFlowActive, let visibleID { visibleAlbumID = visibleID }
+                            }
                             .onChange(of: visibleID) { id in
-                                guard !isStageFlowActive else { return }
+                                // Rotation can briefly collapse the viewport before StageFlow activates.
+                                guard !isStageFlowActive, let id else { return }
                                 visibleAlbumID = id
                             }
                     }

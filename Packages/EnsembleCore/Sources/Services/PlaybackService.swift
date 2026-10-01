@@ -1040,8 +1040,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Tracks the in-progress next()/previous() transition task so it can be
     /// cancelled if the user presses next/previous again before it completes.
     private var skipTransitionTask: Task<Void, Never>?
-    private var isInterrupted = false
-    private var isRouteChangeInProgress = false
     private var handoffCoordinator = PlaybackHandoffCoordinator()
     private var handoffSettleTask: Task<Void, Never>?
     private var handoffEventCounter: UInt64 = 0
@@ -1288,7 +1286,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Initialization
 
-    public init(
+    public convenience init(
         syncCoordinator: SyncCoordinator,
         networkMonitor: NetworkMonitor,
         artworkLoader: ArtworkLoaderProtocol,
@@ -1297,35 +1295,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         trackRatingLocalStore: TrackRatingLocalStoring = TrackRatingLocalStore(coreDataStack: .shared),
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
-        self.syncCoordinator = syncCoordinator
-        self.networkMonitor = networkMonitor
-        self.artworkLoader = artworkLoader
-        self.audioAnalyzer = audioAnalyzer
-        self.downloadManager = downloadManager
-        self.trackRatingLocalStore = trackRatingLocalStore
-        self.foregroundWorkScheduler = foregroundWorkScheduler
-        queueStore = PlaybackQueueStore()
-        queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: Self.maxHistorySize)
-        artifactCache = .shared
-        prefetchController = PlaybackPrefetchController(artifactCache: artifactCache)
-        smartMixAnalysisService = SmartMixAnalysisService(foregroundWorkScheduler: foregroundWorkScheduler)
-        nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
-        audioSessionCoordinator = PlaybackAudioSessionCoordinator()
-        startupCoordinator = PlaybackStartupCoordinator()
-        resolvedFileCache = PlaybackResolvedFileCache(maxCachedFileURLs: maxCachedFileURLs)
-        settingsObserver = PlaybackSettingsObserver()
-        reportingController = PlaybackReportingController(syncCoordinator: syncCoordinator)
-        super.init()
-        setupAudioSession()
-        setupRemoteCommands()
-        refreshPresentationLatencyEstimate()
-        setupNetworkObservation()
-        setupHealthCheckObservation()
-        setupAccountSourcesObservation()
-        setupAudioAnalyzer()
-        setupPlaybackSettingsObservation()
-        setupDownloadChangeObservation()
-        setupArtworkCacheResetObservation()
+        self.init(
+            syncCoordinator: syncCoordinator,
+            networkMonitor: networkMonitor,
+            artworkLoader: artworkLoader,
+            audioAnalyzer: audioAnalyzer,
+            downloadManager: downloadManager,
+            queueStore: PlaybackQueueStore(),
+            trackRatingLocalStore: trackRatingLocalStore,
+            foregroundWorkScheduler: foregroundWorkScheduler
+        )
     }
 
     init(
@@ -2213,32 +2192,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return currentTrackID != engineTrackID
     }
 
-    static func shouldSuppressAutomaticAdvanceDuringHandoff(
-        coordinator: PlaybackHandoffCoordinator,
-        isInterrupted: Bool,
-        isRouteChangeInProgress: Bool
-    ) -> Bool {
-        coordinator.shouldSuppressAutomaticAdvance(
-            isInterrupted: isInterrupted,
-            isRouteChangeInProgress: isRouteChangeInProgress
-        )
-    }
-
-    static func remoteSkipCommandsEnabled(
-        playbackState: PlaybackState,
-        isSkipTransitionInProgress: Bool,
-        coordinator: PlaybackHandoffCoordinator,
-        isInterrupted: Bool,
-        isRouteChangeInProgress: Bool
-    ) -> Bool {
-        coordinator.remoteSkipCommandsEnabled(
-            playbackState: playbackState,
-            isSkipTransitionInProgress: isSkipTransitionInProgress,
-            isInterrupted: isInterrupted,
-            isRouteChangeInProgress: isRouteChangeInProgress
-        )
-    }
-
     private func refreshPresentationTime() {
         presentationTime = presentationTime(for: currentTime)
         let syncedPresentationTime = presentationTime
@@ -2289,11 +2242,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private var shouldSuppressAutomaticAdvanceDuringHandoff: Bool {
-        Self.shouldSuppressAutomaticAdvanceDuringHandoff(
-            coordinator: handoffCoordinator,
-            isInterrupted: isInterrupted,
-            isRouteChangeInProgress: isRouteChangeInProgress
-        )
+        handoffCoordinator.shouldSuppressAutomaticAdvance
     }
 
     private func syncHandoffStateWithPlaybackState() {
@@ -2376,12 +2325,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             case .refreshPresentationLatency:
                 refreshPresentationLatencyEstimate()
 
-            case let .setRouteChangeInProgress(isInProgress):
-                isRouteChangeInProgress = isInProgress
-
-            case let .setInterrupted(isInterrupted):
-                self.isInterrupted = isInterrupted
-
             case let .pausePlayback(reason):
                 applyPauseForHandoff(reason: reason)
 
@@ -2432,7 +2375,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             updatePlaybackTimes(rawTime: engine.currentTimeSubject.value.time)
         }
         playbackState = .paused
-        isInterrupted = reason == .interruption
         updateNowPlayingInfo()
 
         Task { @MainActor in
@@ -2459,12 +2401,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private func shouldAcceptRemoteSkipCommand() -> Bool {
         let now = CACurrentMediaTime()
-        guard Self.remoteSkipCommandsEnabled(
+        guard handoffCoordinator.remoteSkipCommandsEnabled(
             playbackState: playbackState,
-            isSkipTransitionInProgress: isSkipTransitionInProgress,
-            coordinator: handoffCoordinator,
-            isInterrupted: isInterrupted,
-            isRouteChangeInProgress: isRouteChangeInProgress
+            isSkipTransitionInProgress: isSkipTransitionInProgress
         ) else {
             EnsembleLogger.debug(
                 "[Handoff] remote skip ignored — playbackState=\(playbackState), pauseReason=\(currentPauseReason?.rawValue ?? "none"), interruption=\(handoffCoordinator.state.interruption.logValue), routeTransition=\(handoffCoordinator.state.routeTransition.logValue)"
@@ -2751,8 +2690,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func resetHandoffForUserPlaybackIntent() {
         startupCoordinator.recordMutation()
         _ = handoffCoordinator.handle(.explicitPlaybackStart, playbackState: playbackState)
-        isInterrupted = false
-        isRouteChangeInProgress = false
     }
 
     public func play(track: Track) async {
@@ -5753,8 +5690,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // CRITICAL: If the audio session is currently interrupted or a route change
         // is in progress, do NOT attempt to play yet.
-        if isInterrupted || isRouteChangeInProgress {
-            EnsembleLogger.debug("[loadAndPlaySource] deferred: interrupted=\(isInterrupted), routeChange=\(isRouteChangeInProgress)")
+        if handoffCoordinator.shouldSuppressAutomaticAdvance {
+            EnsembleLogger.debug("[loadAndPlaySource] deferred: \(handoffStateSnapshot())")
             do {
                 PlaybackJourneyLogger.mark("engineLoadStarted", trackId: trackIdentity, detail: source.journeyDescription)
                 try await engine.load(
@@ -6950,12 +6887,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             isLiked: feedbackFlags.isLiked
         )
         let hasCurrentTrack = currentTrack != nil
-        let remoteSkipCommandsEnabled = Self.remoteSkipCommandsEnabled(
+        let remoteSkipCommandsEnabled = handoffCoordinator.remoteSkipCommandsEnabled(
             playbackState: playbackState,
-            isSkipTransitionInProgress: isSkipTransitionInProgress,
-            coordinator: handoffCoordinator,
-            isInterrupted: isInterrupted,
-            isRouteChangeInProgress: isRouteChangeInProgress
+            isSkipTransitionInProgress: isSkipTransitionInProgress
         )
         let canSkipForward = remoteSkipCommandsEnabled && (queue.indices.contains(currentQueueIndex + 1) || repeatMode == .all)
         let canSkipBackward = remoteSkipCommandsEnabled && (currentQueueIndex > 0 || !playbackHistory.isEmpty || currentTime > 3)

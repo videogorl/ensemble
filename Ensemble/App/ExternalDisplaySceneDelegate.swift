@@ -4,24 +4,15 @@ import EnsembleUI
 import SwiftUI
 import UIKit
 
-/// Scene delegate for the external display (AirPlay screen mirroring).
+/// Scene delegate for a noninteractive supplementary display.
 ///
 /// When the user activates Screen Mirroring from Control Center, iOS creates a
 /// `UIWindowSceneSessionRoleExternalDisplayNonInteractive` scene. This delegate
 /// hosts a dedicated Now Playing view on the TV via `UIHostingController`.
 ///
-/// On iPadOS with a wired display in "Extend" mode, the system also creates this
-/// scene. We detect wired displays and skip window creation so the extended
-/// desktop is not replaced by our view.
-///
-/// ## Rendering strategy
-///
-/// The SwiftUI view lays out at a 1024×768 reference size (iPad proportions)
-/// and uses `scaleEffect` to fill the 4:3 container on the TV. SwiftUI renders
-/// Metal drawables at `UIScreen.scale` (1x for AirPlay TVs), so some elements
-/// with compositing boundaries may appear slightly soft after scaling — this is
-/// a SwiftUI platform limitation, not something we can override via trait
-/// collection or contentScaleFactor (both were tried and reverted).
+/// Interactive extended-desktop windows use the application scene role and
+/// remain owned by the normal root shell. This scene uses the shared wide
+/// Now Playing layout at the external window's available size.
 class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
 
@@ -30,7 +21,8 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
         willConnectTo session: UISceneSession,
         options connectionOptions: UIScene.ConnectionOptions
     ) {
-        guard let windowScene = scene as? UIWindowScene else { return }
+        guard session.role.rawValue == "UIWindowSceneSessionRoleExternalDisplayNonInteractive",
+              let windowScene = scene as? UIWindowScene else { return }
 
         let externalScreen = windowScene.screen
         let screenBounds = externalScreen.bounds
@@ -68,29 +60,10 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
             }
         }
 
-        // Detect wired external displays (USB-C, HDMI) vs AirPlay.
-        // Wired displays expose multiple screen modes for different resolutions.
-        // AirPlay virtual screens typically have exactly 1 mode (the negotiated resolution).
-        // On iPadOS with Stage Manager, wired displays are used as extended desktops —
-        // don't replace the extended desktop with our Now Playing view.
-        // NOTE: UIScreen.mirrored is unreliable for this (returns non-nil even in
-        // extend mode on iPadOS 26).
-        let isLikelyWiredDisplay = modeCount > 1
+        EnsembleLogger.debug("[ExternalDisplay] Noninteractive external scene — setting up Now Playing window")
 
-        if isLikelyWiredDisplay {
-            EnsembleLogger.debug(
-                "[ExternalDisplay] Wired display detected (\(modeCount) modes)"
-                + " — skipping custom view to preserve extended desktop"
-            )
-            return
-        }
-
-        EnsembleLogger.debug("[ExternalDisplay] AirPlay mirroring detected — setting up Now Playing window")
-
-        // Tell PlaybackService that screen mirroring is active so it suppresses
-        // AirPlay latency compensation. During mirroring, AVAudioSession reports
-        // .airPlay but the mirroring protocol syncs A/V together — no separate
-        // audio pipeline delay exists. Without this, lyrics lag by ~2s.
+        // Preserve the existing supplementary-display timing policy. Actual
+        // AirPlay latency compensation still requires hardware verification.
         DependencyContainer.shared.playbackService.isScreenMirroringActive = true
 
         // Use the shared NowPlayingViewModel from the main UI so playback state,
@@ -127,7 +100,9 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneDidDisconnect(_ scene: UIScene) {
         EnsembleLogger.debug("[ExternalDisplay] scene disconnected — tearing down window")
-        DependencyContainer.shared.playbackService.isScreenMirroringActive = false
+        DependencyContainer.shared.playbackService.isScreenMirroringActive = UIApplication.shared.connectedScenes.contains {
+            $0 !== scene && $0.session.role.rawValue == "UIWindowSceneSessionRoleExternalDisplayNonInteractive"
+        }
         window = nil
     }
 }

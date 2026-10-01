@@ -5,6 +5,20 @@ import EnsemblePersistence
 
 @MainActor
 final class LibraryViewModelCacheCleanupTests: XCTestCase {
+    private let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
+    private var savedLibraryFlagTimestamps: Data?
+
+    override func setUp() {
+        super.setUp()
+        savedLibraryFlagTimestamps = UserDefaults.standard.data(forKey: libraryFlagModifiedAtKey)
+        UserDefaults.standard.removeObject(forKey: libraryFlagModifiedAtKey)
+    }
+
+    override func tearDown() {
+        UserDefaults.standard.set(savedLibraryFlagTimestamps, forKey: libraryFlagModifiedAtKey)
+        super.tearDown()
+    }
+
     private struct FailingSourceCacheCleanup: SourceCacheCleaning {
         struct Failure: Error {}
 

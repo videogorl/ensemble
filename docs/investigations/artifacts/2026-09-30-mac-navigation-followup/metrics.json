@@ -1,0 +1,415 @@
+{
+  "host": {
+    "device_uuid": "E3A3882D-C3B6-5B96-805E-B89E87E9E955",
+    "os": "macOS 27.0.1 (26A434)",
+    "configuration": "Release",
+    "template": "Time Profiler + Activity Monitor"
+  },
+  "base_commit": "845aff79",
+  "source_sha256_before": "6baac2397023074d873827e7ea14940c73fb5d36e2ea4335dc9e8f8afe68514b",
+  "source_sha256_after": "6886891ba8a73ec0843810c6bd88d0b3009072594572e3ec74d2d81487c7d016",
+  "binary_sha256_before": "3c2bc5ffe8038ba89cafca8f48a10638a30c21229fa8c09d99a0a54f7f1761fd",
+  "binary_sha256_after": "e7c6a742c7a35ae7342264a4f59af2633176adbe011a675963ffc53ead0b1ff9",
+  "runs": [
+    {
+      "name": "baseline-release-navigation",
+      "condition": "before",
+      "pid": 48684,
+      "duration_s": 46.20479,
+      "hang_flags": 12,
+      "transitions": [
+        {
+          "from": "Songs",
+          "to": "Home",
+          "at_s": 19.504,
+          "hang_ms": 736.164,
+          "sizing_samples_ms": 23.0
+        },
+        {
+          "from": "Home",
+          "to": "Search",
+          "at_s": 21.57,
+          "hang_ms": 389.661,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Search",
+          "to": "Albums",
+          "at_s": 23.692,
+          "hang_ms": 379.49,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Albums",
+          "to": "Songs",
+          "at_s": 25.745,
+          "hang_ms": 447.63,
+          "sizing_samples_ms": 68.0
+        },
+        {
+          "from": "Songs",
+          "to": "Artists",
+          "at_s": 27.84,
+          "hang_ms": 601.169,
+          "sizing_samples_ms": 20.0
+        },
+        {
+          "from": "Artists",
+          "to": "Songs",
+          "at_s": 30.127,
+          "hang_ms": 1002.202,
+          "sizing_samples_ms": 208.0
+        },
+        {
+          "from": "Songs",
+          "to": "Home",
+          "at_s": 32.243,
+          "hang_ms": 356.296,
+          "sizing_samples_ms": 18.0
+        },
+        {
+          "from": "Home",
+          "to": "Search",
+          "at_s": 34.395,
+          "hang_ms": 373.977,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Search",
+          "to": "Albums",
+          "at_s": 36.463,
+          "hang_ms": 295.133,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Albums",
+          "to": "Songs",
+          "at_s": 38.543,
+          "hang_ms": 411.776,
+          "sizing_samples_ms": 61.0
+        },
+        {
+          "from": "Songs",
+          "to": "Artists",
+          "at_s": 40.728,
+          "hang_ms": 883.148,
+          "sizing_samples_ms": 21.0
+        },
+        {
+          "from": "Artists",
+          "to": "Songs",
+          "at_s": 42.894,
+          "hang_ms": 1144.7,
+          "sizing_samples_ms": 277.0
+        }
+      ]
+    },
+    {
+      "name": "candidate-release-navigation",
+      "condition": "after",
+      "pid": 57110,
+      "duration_s": 61.407373,
+      "hang_flags": 10,
+      "transitions": [
+        {
+          "from": "Songs",
+          "to": "Home",
+          "at_s": 21.786,
+          "hang_ms": 850.03,
+          "sizing_samples_ms": 2.0
+        },
+        {
+          "from": "Home",
+          "to": "Search",
+          "at_s": 23.792,
+          "hang_ms": 286.939,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Search",
+          "to": "Albums",
+          "at_s": 25.825,
+          "hang_ms": 265.607,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Albums",
+          "to": "Songs",
+          "at_s": 27.858,
+          "hang_ms": 338.689,
+          "sizing_samples_ms": 30.0
+        },
+        {
+          "from": "Songs",
+          "to": "Artists",
+          "at_s": 29.892,
+          "hang_ms": 364.055,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Artists",
+          "to": "Songs",
+          "at_s": 31.932,
+          "hang_ms": 516.543,
+          "sizing_samples_ms": 63.0
+        },
+        {
+          "from": "Songs",
+          "to": "Home",
+          "at_s": 33.958,
+          "hang_ms": null,
+          "sizing_samples_ms": null
+        },
+        {
+          "from": "Home",
+          "to": "Search",
+          "at_s": 35.993,
+          "hang_ms": 265.102,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Search",
+          "to": "Albums",
+          "at_s": 38.025,
+          "hang_ms": null,
+          "sizing_samples_ms": null
+        },
+        {
+          "from": "Albums",
+          "to": "Songs",
+          "at_s": 40.058,
+          "hang_ms": 301.721,
+          "sizing_samples_ms": 27.0
+        },
+        {
+          "from": "Songs",
+          "to": "Artists",
+          "at_s": 42.103,
+          "hang_ms": 426.691,
+          "sizing_samples_ms": 1.0
+        },
+        {
+          "from": "Artists",
+          "to": "Songs",
+          "at_s": 44.159,
+          "hang_ms": 540.772,
+          "sizing_samples_ms": 72.0
+        }
+      ],
+      "resources": {
+        "peak_footprint_mib": 477.0482940673828,
+        "end_footprint_mib": 438.4701690673828,
+        "mean_cpu_percent": 17.42107904519442,
+        "samples": 58
+      }
+    },
+    {
+      "name": "control-release-navigation",
+      "condition": "before",
+      "pid": 59825,
+      "duration_s": 61.240457,
+      "hang_flags": 12,
+      "transitions": [
+        {
+          "from": "Songs",
+          "to": "Home",
+          "at_s": 22.656,
+          "hang_ms": 662.424,
+          "sizing_samples_ms": 19.0
+        },
+        {
+          "from": "Home",
+          "to": "Search",
+          "at_s": 24.719,
+          "hang_ms": 373.497,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Search",
+          "to": "Albums",
+          "at_s": 26.797,
+          "hang_ms": 325.928,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Albums",
+          "to": "Songs",
+          "at_s": 28.851,
+          "hang_ms": 464.197,
+          "sizing_samples_ms": 73.0
+        },
+        {
+          "from": "Songs",
+          "to": "Artists",
+          "at_s": 30.895,
+          "hang_ms": 578.391,
+          "sizing_samples_ms": 21.0
+        },
+        {
+          "from": "Artists",
+          "to": "Songs",
+          "at_s": 32.95,
+          "hang_ms": 940.945,
+          "sizing_samples_ms": 211.0
+        },
+        {
+          "from": "Songs",
+          "to": "Home",
+          "at_s": 35.018,
+          "hang_ms": 479.008,
+          "sizing_samples_ms": 22.0
+        },
+        {
+          "from": "Home",
+          "to": "Search",
+          "at_s": 37.053,
+          "hang_ms": 338.526,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Search",
+          "to": "Albums",
+          "at_s": 39.119,
+          "hang_ms": 320.601,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Albums",
+          "to": "Songs",
+          "at_s": 41.2,
+          "hang_ms": 465.636,
+          "sizing_samples_ms": 68.0
+        },
+        {
+          "from": "Songs",
+          "to": "Artists",
+          "at_s": 43.244,
+          "hang_ms": 479.796,
+          "sizing_samples_ms": 19.0
+        },
+        {
+          "from": "Artists",
+          "to": "Songs",
+          "at_s": 45.299,
+          "hang_ms": 784.811,
+          "sizing_samples_ms": 182.0
+        }
+      ],
+      "resources": {
+        "peak_footprint_mib": 563.9545669555664,
+        "end_footprint_mib": 480.8920669555664,
+        "mean_cpu_percent": 21.095878101101654,
+        "samples": 58
+      }
+    },
+    {
+      "name": "confirmation-release-navigation",
+      "condition": "after",
+      "pid": 61493,
+      "duration_s": 60.942797,
+      "hang_flags": 12,
+      "transitions": [
+        {
+          "from": "Songs",
+          "to": "Home",
+          "at_s": 29.401,
+          "hang_ms": 533.854,
+          "sizing_samples_ms": 1.0
+        },
+        {
+          "from": "Home",
+          "to": "Search",
+          "at_s": 31.453,
+          "hang_ms": 353.074,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Search",
+          "to": "Albums",
+          "at_s": 33.513,
+          "hang_ms": 391.302,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Albums",
+          "to": "Songs",
+          "at_s": 35.568,
+          "hang_ms": 438.282,
+          "sizing_samples_ms": 31.0
+        },
+        {
+          "from": "Songs",
+          "to": "Artists",
+          "at_s": 37.628,
+          "hang_ms": 563.262,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Artists",
+          "to": "Songs",
+          "at_s": 39.667,
+          "hang_ms": 598.958,
+          "sizing_samples_ms": 69.0
+        },
+        {
+          "from": "Songs",
+          "to": "Home",
+          "at_s": 41.733,
+          "hang_ms": 358.876,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Home",
+          "to": "Search",
+          "at_s": 43.775,
+          "hang_ms": 344.124,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Search",
+          "to": "Albums",
+          "at_s": 45.868,
+          "hang_ms": 265.809,
+          "sizing_samples_ms": 0
+        },
+        {
+          "from": "Albums",
+          "to": "Songs",
+          "at_s": 47.936,
+          "hang_ms": 385.148,
+          "sizing_samples_ms": 30.0
+        },
+        {
+          "from": "Songs",
+          "to": "Artists",
+          "at_s": 50.0,
+          "hang_ms": 482.572,
+          "sizing_samples_ms": 1.0
+        },
+        {
+          "from": "Artists",
+          "to": "Songs",
+          "at_s": 52.083,
+          "hang_ms": 615.923,
+          "sizing_samples_ms": 69.0
+        }
+      ],
+      "resources": {
+        "peak_footprint_mib": 547.75146484375,
+        "end_footprint_mib": 547.56396484375,
+        "mean_cpu_percent": 19.195961797273753,
+        "samples": 58
+      }
+    }
+  ],
+  "before": {
+    "song_returns": 8,
+    "mean_sizing_samples_ms": 143.5,
+    "mean_hang_interval_ms": 707.737125
+  },
+  "after": {
+    "song_returns": 8,
+    "mean_sizing_samples_ms": 48.875,
+    "mean_hang_interval_ms": 467.0045
+  }
+}

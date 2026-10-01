@@ -68,7 +68,7 @@ public struct DisplayHubItem: Identifiable, Equatable, Sendable {
             return "album:\(identity)"
         case "artist" where preferences.mergeArtists:
             guard item.artist != nil else { return nil }
-            return EnsembleMergeIdentity.normalized(item.title).map { "artist:\($0)" }
+            return EnsembleMergeIdentity.normalizedArtist(item.title).map { "artist:\($0)" }
         case "playlist" where preferences.mergePlaylists:
             guard let playlist = item.playlist else { return nil }
             return "playlist:\(PlexPlaylistMergeRules.key(title: playlist.title, isSmart: playlist.isSmartForPlaylistGrouping))"

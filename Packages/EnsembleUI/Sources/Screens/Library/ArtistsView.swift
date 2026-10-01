@@ -60,6 +60,9 @@ public struct ArtistsView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        #if os(macOS)
+        self._artistSnapshotCache = StateObject(wrappedValue: BrowseSnapshotCache(libraryVM.artistBrowseSnapshot))
+        #endif
         self.presentationMode = presentationMode
         self.externalSelectedArtist = selectedArtist
     }
@@ -182,28 +185,16 @@ public struct ArtistsView: View {
     }
 
     private var artistSortMenu: some View {
-        Menu {
-            ForEach(ArtistSortOption.allCases, id: \.self) { option in
-                Button {
-                    if libraryVM.artistSortOption == option {
-                        libraryVM.artistsFilterOptions.sortDirection =
-                            libraryVM.artistsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                    } else {
-                        libraryVM.artistSortOption = option
-                        libraryVM.artistsFilterOptions.sortDirection = option.defaultDirection
-                    }
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if libraryVM.artistSortOption == option {
-                            Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
-                                  ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
-                        }
-                    }
-                }
+        EnsembleBrowseSortMenu(
+            model: libraryVM,
+            options: ArtistSortOption.allCases,
+            selection: { $0.artistSortOption },
+            direction: { $0.artistsFilterOptions.sortDirection }
+        ) { option, direction in
+            if libraryVM.artistSortOption != option {
+                libraryVM.artistSortOption = option
             }
-        } label: {
-            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+            libraryVM.artistsFilterOptions.sortDirection = direction
         }
         .accessibilityLabel("Sort Artists")
     }
@@ -865,24 +856,13 @@ public struct ArtistDetailView: View {
     }
 
     private var artistAlbumSortMenu: some View {
-        Menu {
-            ForEach(AlbumSortOption.allCases.filter { $0 != .albumArtist }, id: \.self) { option in
-                Button {
-                    selectAlbumSortOption(option)
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if albumSortOption == option {
-                            Image(systemName: albumSortDirection == .ascending
-                                ? EnsembleDesign.Icon.chevronUp
-                                : EnsembleDesign.Icon.chevronDown)
-                        }
-                    }
-                }
-            }
-        } label: {
-            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
-        }
+        EnsembleBrowseSortMenu(
+            model: viewModel,
+            options: AlbumSortOption.allCases.filter { $0 != .albumArtist },
+            selection: { _ in albumSortOption },
+            direction: { _ in albumSortDirection },
+            select: selectAlbumSortOption
+        )
         .accessibilityLabel("Sort Artist Albums")
     }
 
@@ -898,13 +878,9 @@ public struct ArtistDetailView: View {
         detailFilterOptions.sortBy == "default" ? .descending : detailFilterOptions.sortDirection
     }
 
-    private func selectAlbumSortOption(_ option: AlbumSortOption) {
+    private func selectAlbumSortOption(_ option: AlbumSortOption, direction: SortDirection) {
         var filterOptions = detailFilterOptions
-        if albumSortOption == option {
-            filterOptions.sortDirection = albumSortDirection == .ascending ? .descending : .ascending
-        } else {
-            filterOptions.sortDirection = option.defaultDirection
-        }
+        filterOptions.sortDirection = direction
         filterOptions.sortBy = option.rawValue
 
         if displayArtist.isMerged {

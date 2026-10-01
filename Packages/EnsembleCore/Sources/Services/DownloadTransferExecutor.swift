@@ -76,7 +76,7 @@ final class DownloadTransferExecutor {
         let performDirectDownload: (URL, NSManagedObjectID, Int64) async throws -> (URL, URLResponse)
         let didComplete: (DownloadTransferContext, URL) async -> Void
         let scheduleDownloadsChanged: () -> Void
-        let isStillReferenced: (DownloadTransferContext) async -> Bool
+        let isStillReferenced: (DownloadTransferContext) async throws -> Bool
         var restoredTransfer: (DownloadTransferContext, StreamingQuality) async throws -> (URL, HTTPURLResponse)? = { _, _ in nil }
         var discardTransfer: (DownloadTransferContext, StreamingQuality) async -> Void = { _, _ in }
         var matchingPlaybackArtifact: (DownloadTransferContext, StreamingQuality) -> URL? = { _, _ in nil }
@@ -121,7 +121,7 @@ final class DownloadTransferExecutor {
                         ctx: ctx,
                         quality: requestedQuality
                     )
-                } catch {
+                } catch let error as DownloadProcessingError {
                     dependencies.rejectPlaybackArtifact(artifactURL)
                     EnsembleLogger.debug(
                         "⚠️ Playback cache adoption failed for track=\(ctx.trackRatingKey): \(error.localizedDescription); using download transport"
@@ -221,7 +221,7 @@ final class DownloadTransferExecutor {
         ctx: DownloadTransferContext,
         quality: StreamingQuality
     ) async throws -> DownloadTransferResult {
-        guard await dependencies.isStillReferenced(ctx) else {
+        guard try await dependencies.isStillReferenced(ctx) else {
             return DownloadTransferResult(attemptedDirectFallback: false, persisted: false)
         }
 
@@ -271,7 +271,7 @@ final class DownloadTransferExecutor {
         _ sourceURL: URL, at destinationURL: URL, ctx: DownloadTransferContext,
         quality: StreamingQuality, preserveSource: Bool = false
     ) async throws -> Bool {
-        guard await dependencies.isStillReferenced(ctx) else { return false }
+        guard try await dependencies.isStillReferenced(ctx) else { return false }
         try Task.checkCancellation()
         try FileManager.default.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let stagingURL = destinationURL.deletingLastPathComponent()
@@ -309,7 +309,7 @@ final class DownloadTransferExecutor {
         quality: StreamingQuality,
         fileURL: URL
     ) async throws -> Bool {
-        guard await dependencies.isStillReferenced(ctx) else {
+        guard try await dependencies.isStillReferenced(ctx) else {
             Self.removeLocalDownloadArtifact(fileURL)
             EnsembleLogger.debug(
                 "🗑️ Skipped persisting completed download for unreferenced target: track=\(ctx.trackRatingKey)"
@@ -326,7 +326,7 @@ final class DownloadTransferExecutor {
             )
             return true
         } catch {
-            guard await dependencies.isStillReferenced(ctx) else {
+            guard try await dependencies.isStillReferenced(ctx) else {
                 Self.removeLocalDownloadArtifact(fileURL)
                 EnsembleLogger.debug(
                     "🗑️ Skipped recovery for unreferenced completed download: track=\(ctx.trackRatingKey)"
@@ -419,7 +419,7 @@ final class DownloadTransferExecutor {
             audioFile = try AVAudioFile(forReading: fileURL)
         } catch {
             EnsembleLogger.debug("Could not open download for native duration validation domain=\((error as NSError).domain) code=\((error as NSError).code)")
-            return
+            throw DownloadProcessingError.audioValidationFailed
         }
         let sampleRate = audioFile.processingFormat.sampleRate
         guard sampleRate > 0,
@@ -452,6 +452,7 @@ final class DownloadTransferExecutor {
                 if attempt == 1 { throw DownloadProcessingError.audioValidationFailed }
             }
         }
+        guard decodedFrames > 0 else { throw DownloadProcessingError.audioValidationFailed }
         guard ctx.trackDuration > 10_000 else { return }
         let expectedSeconds = Double(ctx.trackDuration) / 1_000
         let fileDuration = Double(decodedFrames) / sampleRate

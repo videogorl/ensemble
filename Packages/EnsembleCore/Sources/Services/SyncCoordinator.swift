@@ -55,6 +55,7 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
     case playlistNotFound
     case smartPlaylistReadOnly
     case emptySelection
+    case emptyTitle
     case duplicateName
     case incompletePlaylistContents
 
@@ -68,6 +69,8 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
             return "Smart playlists are read-only."
         case .emptySelection:
             return "No compatible tracks were selected."
+        case .emptyTitle:
+            return "Playlist name cannot be empty."
         case .duplicateName:
             return "A playlist with that name already exists in this source."
         case .incompletePlaylistContents:
@@ -1316,11 +1319,6 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
-    /// Save queue snapshot tracks to a playlist.
-    public func saveQueueSnapshot(_ tracks: [Track], to playlist: Playlist) async throws -> PlaylistMutationResult {
-        try await addTracksToPlaylist(tracks, playlist: playlist)
-    }
-
     /// Perform appropriate sync on app startup based on staleness
     /// - If last full sync > 24 hours: full sync
     /// - If last sync > 1 hour: incremental sync
@@ -1722,6 +1720,16 @@ public final class SyncCoordinator: ObservableObject {
             as: MusicSourceDetailProviding.self
         )
         return try await detailProvider.getAlbumTracks(albumKey: albumId)
+    }
+
+    /// Resolve an uncached artist within its exact source.
+    public func getArtist(artistId: String?, name: String?, sourceKey: String) async throws -> Artist? {
+        let detailProvider = try providerResolver.requireCapability(
+            sourceKey: sourceKey,
+            name: "artist details",
+            as: MusicSourceArtistResolving.self
+        )
+        return try await detailProvider.getArtist(artistKey: artistId, name: name)
     }
 
     /// Get albums for an artist from the music source

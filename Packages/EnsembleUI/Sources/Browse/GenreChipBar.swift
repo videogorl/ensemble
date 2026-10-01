@@ -122,38 +122,56 @@ public struct GenreChipBar: View {
     }
 
     private var chipRow: some View {
-        HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
-            // Clear button — animates width to/from zero so it doesn't
-            // cause a jarring shift when chips are toggled mid-scroll
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    selectedGenres.removeAll()
-                    excludedGenres.removeAll()
-                    favoriteFilter = nil
+        Group {
+            #if os(macOS)
+            LazyHStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
+                chipRowContent
+            }
+            .accessibilityRepresentation {
+                HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
+                    chipRowContent
                 }
-            } label: {
-                Image(systemName: EnsembleDesign.Icon.closeCircle)
-                    .font(.system(size: EnsembleScaffold.Chip.clearButtonIconSize, weight: .medium))
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
-            .buttonStyle(.plain)
-            .frame(width: hasActiveChips ? nil : 0)
-            .clipped()
-            .opacity(hasActiveChips ? 1 : 0)
-            .disabled(!hasActiveChips)
-            .animation(.easeInOut(duration: 0.2), value: hasActiveChips)
-
-            favoriteButton
-
-            ForEach(availableGenres, id: \.self) { genre in
-                GenreChip(
-                    title: genre,
-                    state: chipState(for: genre),
-                    onTap: { cycleState(for: genre) }
-                )
+            #else
+            HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
+                chipRowContent
             }
+            #endif
         }
         .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+    }
+
+    @ViewBuilder
+    private var chipRowContent: some View {
+        // Clear button — animates width to/from zero so it doesn't
+        // cause a jarring shift when chips are toggled mid-scroll
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedGenres.removeAll()
+                excludedGenres.removeAll()
+                favoriteFilter = nil
+            }
+        } label: {
+            Image(systemName: EnsembleDesign.Icon.closeCircle)
+                .font(.system(size: EnsembleScaffold.Chip.clearButtonIconSize, weight: .medium))
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+        }
+        .buttonStyle(.plain)
+        .frame(width: hasActiveChips ? nil : 0)
+        .clipped()
+        .opacity(hasActiveChips ? 1 : 0)
+        .disabled(!hasActiveChips)
+        .animation(.easeInOut(duration: 0.2), value: hasActiveChips)
+
+        favoriteButton
+
+        ForEach(availableGenres, id: \.self) { genre in
+            GenreChip(
+                title: genre,
+                state: chipState(for: genre),
+                onTap: { cycleState(for: genre) }
+            )
+        }
     }
 
     private var favoriteButton: some View {

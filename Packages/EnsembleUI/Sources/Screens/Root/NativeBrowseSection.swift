@@ -15,6 +15,11 @@ struct NativeBrowseSection<Sidebar: View>: View {
     @Binding var columnVisibility: NavigationSplitViewVisibility
     @State private var compactColumn: NavigationSplitViewColumn = .content
 
+    private struct BrowseSelection: Equatable {
+        let tab: TabItem
+        let id: String?
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $compactColumn) {
             sidebar
@@ -29,10 +34,14 @@ struct NativeBrowseSection<Sidebar: View>: View {
         }
         .navigationSplitViewStyle(.balanced)
         .toolbarMaterialBackground()
-        .onChange(of: selectedID) { _, newValue in
+        .onChange(of: BrowseSelection(tab: tab, id: selectedID)) { previous, current in
             guard rootSelection == .library(tab) else { return }
-            navigationCoordinator.setPath([], for: tab)
-            compactColumn = newValue == nil ? .content : .detail
+            // A new item replaces this tab's detail; a tab switch restores its path.
+            if previous.tab == current.tab {
+                navigationCoordinator.setPath([], for: tab)
+            }
+            compactColumn = current.id == nil && navigationCoordinator.pathSnapshot(for: tab).isEmpty
+                ? .content : .detail
         }
         .onChange(of: navigationCoordinator.pathSnapshot(for: tab).count) { _, count in
             if rootSelection == .library(tab), count > 0 {

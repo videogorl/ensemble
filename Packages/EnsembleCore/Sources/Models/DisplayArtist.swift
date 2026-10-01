@@ -80,6 +80,6 @@ public struct DisplayArtist: Identifiable, Equatable, Sendable {
     }
 
     public static func normalizedName(_ name: String) -> String {
-        EnsembleMergeIdentity.normalized(name) ?? ""
+        EnsembleMergeIdentity.normalizedArtist(name) ?? ""
     }
 }
