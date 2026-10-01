@@ -16,7 +16,9 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
     @Binding var genre: DisplayGenre?
     @Binding var playlist: DisplayPlaylist?
     @Binding var columnVisibility: NavigationSplitViewVisibility
+    #if !os(macOS)
     @State private var compactColumn: NavigationSplitViewColumn = .content
+    #endif
     #if os(macOS)
     @State private var showsArtistFilters = false
     @State private var showsCreatePlaylist = false
@@ -35,9 +37,12 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
             if previous.tab == current.tab {
                 navigationCoordinator.setPath([], for: tab)
             }
+            #if !os(macOS)
             compactColumn = current.id == nil && navigationCoordinator.pathSnapshot(for: tab).isEmpty
                 ? .content : .detail
+            #endif
         }
+        #if !os(macOS)
         .onChange(of: detailPathCount) { _, count in
             if let tab, rootSelection == .library(tab), count > 0 {
                 compactColumn = .detail
@@ -48,6 +53,7 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
                 compactColumn = .detail
             }
         }
+        #endif
     }
 
     private var detailPathCount: Int {
