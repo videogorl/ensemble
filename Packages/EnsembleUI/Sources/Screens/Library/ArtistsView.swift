@@ -60,6 +60,9 @@ public struct ArtistsView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        #if os(macOS)
+        self._artistSnapshotCache = StateObject(wrappedValue: BrowseSnapshotCache(libraryVM.artistBrowseSnapshot))
+        #endif
         self.presentationMode = presentationMode
         self.externalSelectedArtist = selectedArtist
     }

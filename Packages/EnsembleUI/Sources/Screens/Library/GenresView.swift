@@ -24,6 +24,9 @@ public struct GenresView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        #if os(macOS)
+        self._genreSnapshotCache = StateObject(wrappedValue: BrowseSnapshotCache(libraryVM.genreBrowseSnapshot))
+        #endif
         self.presentationMode = presentationMode
         self.externalSelectedGenre = selectedGenre
     }

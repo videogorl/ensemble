@@ -19,6 +19,9 @@ public struct AlbumsView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        #if os(macOS)
+        self._albumSnapshotCache = StateObject(wrappedValue: BrowseSnapshotCache(libraryVM.albumBrowseSnapshot))
+        #endif
     }
     
     // Get unique artist names for filter

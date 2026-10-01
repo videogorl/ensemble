@@ -73,6 +73,12 @@ public struct SongsView: View {
     public init(libraryVM: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        #if os(macOS)
+        // The first table already displays this snapshot; receiving it must not reload it.
+        let snapshot = libraryVM.trackBrowseSnapshot
+        self._trackSnapshotCache = StateObject(wrappedValue: BrowseSnapshotCache(snapshot))
+        self._cachedNativeTrackSections = State(initialValue: nativeTrackSections(from: snapshot.sections))
+        #endif
     }
 
     public var body: some View {
