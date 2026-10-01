@@ -82,7 +82,11 @@ public struct HomeView: View {
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
+        #if os(macOS)
+        .toolbarMaterialBackground()
+        #else
         .artworkBackedToolbarBleed()
+        #endif
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }

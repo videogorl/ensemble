@@ -270,6 +270,79 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         try await waitForArtistName(viewModel: viewModel, expectedName: "Janelle Monáe")
     }
 
+    func testArtistDownloadsFilterPreparesInitialSnapshotAndTracksDownloadChanges() async throws {
+        let filterKey = "Ensemble.FilterOptions.Artists"
+        let savedFilters = UserDefaults.standard.data(forKey: filterKey)
+        defer { UserDefaults.standard.set(savedFilters, forKey: filterKey) }
+        let harness = makeHarness()
+        let sources = ["plex:account-1:server-1:lib-1", "plex:account-1:server-1:lib-2"]
+        harness.accountManager.addPlexAccount(makeAccount(libraries: [
+            ("lib-1", "One", true), ("lib-2", "Two", true)
+        ]))
+        for source in sources {
+            try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: source)
+            try await harness.libraryRepository.batchUpsertArtists([
+                ArtistUpsertInput(ratingKey: "artist", key: "artist", name: "Shared Artist",
+                                  summary: nil, thumbPath: nil, artPath: nil, dateAdded: nil, dateModified: nil)
+            ], sourceCompositeKey: source)
+        }
+        var options = FilterOptions()
+        options.showDownloadedOnly = true
+        FilterPersistence.save(options, for: "Artists")
+        let viewModel = makeViewModel(harness: harness)
+        await viewModel.loadLibrary()
+        XCTAssertTrue(viewModel.artistBrowseSnapshot.displayArtists.isEmpty,
+                      "The first snapshot must honor the persisted download filter")
+
+        func waitForSources(_ expected: Set<String>) async throws {
+            let predicate = NSPredicate { _, _ in
+                Set(viewModel.artistBrowseSnapshot.displayArtists.flatMap(\.artists).compactMap(\.sourceCompositeKey)) == expected
+            }
+            let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+            await fulfillment(of: [expectation], timeout: 3)
+        }
+        for enabled in [false, true, false, true] {
+            viewModel.artistsFilterOptions.showDownloadedOnly = enabled
+            try await waitForSources(enabled ? [] : Set(sources))
+        }
+
+        // Only track state changes below; artist and album metadata remain stable.
+        let filename = "artist-filter-test-\(UUID().uuidString).mp3"
+        let file = DownloadManager.downloadsDirectory.appendingPathComponent(filename)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let stack = harness.libraryRepository.backingCoreDataStack
+        try await stack.performViewContext { context in
+            let track = try XCTUnwrap(context.fetch(CDTrack.fetchRequest()).first { $0.sourceCompositeKey == sources[0] })
+            let artist = try XCTUnwrap(context.fetch(CDArtist.fetchRequest()).first { $0.sourceCompositeKey == sources[0] })
+            let album = CDAlbum(context: context)
+            album.ratingKey = "album"
+            album.key = "album"
+            album.title = "Album"
+            album.sourceCompositeKey = sources[0]
+            album.artist = artist
+            track.album = album
+            try context.save()
+        }
+        await viewModel.loadLibrary()
+        try await waitForSources([])
+        try await stack.performViewContext { context in
+            let track = try XCTUnwrap(context.fetch(CDTrack.fetchRequest()).first { $0.sourceCompositeKey == sources[0] })
+            track.localFilePath = filename
+            try context.save()
+        }
+        await viewModel.loadLibrary()
+        try await waitForSources([sources[0]])
+        try await stack.performViewContext { context in
+            let track = try XCTUnwrap(context.fetch(CDTrack.fetchRequest()).first { $0.sourceCompositeKey == sources[0] })
+            track.localFilePath = nil
+            try context.save()
+        }
+        await viewModel.loadLibrary()
+        try await waitForSources([])
+    }
+
     func testHiddenItemUpdatesLoadedBrowseSnapshot() async throws {
         let harness = makeHarness()
         let firstSource = "plex:account-1:server-1:lib-1"

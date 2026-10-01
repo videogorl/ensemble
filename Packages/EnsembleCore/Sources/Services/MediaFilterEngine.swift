@@ -172,7 +172,8 @@ public struct MediaFilterEngine {
     public static func filterArtists(
         _ artists: [Artist],
         with options: FilterOptions,
-        albums: [Album] = []
+        albums: [Album] = [],
+        downloadedArtistIDs: Set<String> = []
     ) -> [Artist] {
         var filtered = artists
 
@@ -197,6 +198,10 @@ public struct MediaFilterEngine {
                     return options.excludedGenres.isDisjoint(with: genres)
                 }
             }
+        }
+
+        if options.showDownloadedOnly {
+            filtered = filtered.filter { downloadedArtistIDs.contains($0.sourceScopedID) }
         }
 
         if let favoriteFilter = options.favoriteFilter {
