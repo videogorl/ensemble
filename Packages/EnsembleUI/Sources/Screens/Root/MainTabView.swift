@@ -624,6 +624,9 @@ public struct SidebarView: View {
     @State private var playlistsPendingRename: [Playlist] = []
     @State private var playlistPendingRenameTitle = ""
     @State private var playlistPendingDelete: Playlist?
+    #if os(macOS)
+    @State private var pendingSidebarSelection: (from: SidebarSelection?, to: SidebarSelection?)?
+    #endif
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
@@ -1112,7 +1115,21 @@ public struct SidebarView: View {
     }
 
     private func selectSidebar(_ newSelection: SidebarSelection?) {
-        let previousSelection = selection
+        if usesMacNativeContainer {
+            // The native List calls this binding during its own update. Change
+            // local selection here; publish coordinator changes from onChange.
+            if selection != newSelection {
+                #if os(macOS)
+                pendingSidebarSelection = (selection, newSelection)
+                #endif
+                selection = newSelection
+            }
+            return
+        }
+        commitSidebarSelection(newSelection, from: selection)
+    }
+
+    private func commitSidebarSelection(_ newSelection: SidebarSelection?, from previousSelection: SidebarSelection?) {
         let didChangeSelection = previousSelection != newSelection
 
         if let tab = newSelection?.correspondingTab {
@@ -1177,6 +1194,28 @@ public struct SidebarView: View {
         case .library(.playlists): return .playlists
         default: return nil
         }
+    }
+
+    private var usesMacNativeContainer: Bool {
+        #if os(macOS)
+        return usesNativeBrowse
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder
+    private var sidebarToolbarControls: some View {
+        downloadsToolbarButton
+        ProfileToolbarButton()
+    }
+
+    private var downloadsToolbarButton: some View {
+        Button { navigationCoordinator.openDownloads() } label: {
+            Image(systemName: EnsembleDesign.Icon.download)
+        }
+        .accessibilityIdentifier(AutomationIdentifiers.Sidebar.downloadsToolbar)
+        .help("Downloads")
     }
 
     private func publishRootSidebarChromeRegistration(frame: CGRect? = nil, fallbackWidth: CGFloat? = nil) {
@@ -1266,21 +1305,19 @@ public struct SidebarView: View {
             max: RootSidebarColumnWidth.maximum
         )
         .toolbar {
-            ToolbarItemGroup(placement: .primaryActionIfAvailable) {
-                Button { navigationCoordinator.openDownloads() } label: {
-                    Image(systemName: EnsembleDesign.Icon.download)
+            if !usesMacNativeContainer {
+                ToolbarItemGroup(placement: .primaryActionIfAvailable) {
+                    downloadsToolbarButton
+                    #if !os(macOS)
+                    ProfileToolbarButton()
+                    #endif
                 }
-                .accessibilityIdentifier(AutomationIdentifiers.Sidebar.downloadsToolbar)
-                .help("Downloads")
-                #if !os(macOS)
-                ProfileToolbarButton()
+                #if os(macOS)
+                ToolbarItem {
+                    ProfileToolbarButton()
+                }
                 #endif
             }
-            #if os(macOS)
-            ToolbarItem {
-                ProfileToolbarButton()
-            }
-            #endif
         }
         // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
         // instead of computed properties ensures updates survive NavigationSplitView
@@ -1289,22 +1326,24 @@ public struct SidebarView: View {
             rebuildCachedSidebarPlaylists()
         }
         .background {
-            GeometryReader { proxy in
-                let width = proxy.size.width
-                let frame = usesNativeBrowse ? proxy.frame(in: .named(RootChromeCoordinateSpace.name)) : nil
-                RootSidebarChromeRegistrationView(isVisible: isSidebarChromeVisible)
-                    .onAppear {
-                        publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: width)
-                    }
-                    .onChange(of: width) { newWidth in
-                        publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: newWidth)
-                    }
-                    .onChange(of: frame) { newFrame in
-                        publishRootSidebarChromeRegistration(frame: newFrame, fallbackWidth: width)
-                    }
-                    .onChange(of: isSidebarChromeVisible) { _ in
-                        publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: width)
-                    }
+            if !usesMacNativeContainer {
+                GeometryReader { proxy in
+                    let width = proxy.size.width
+                    let frame = usesNativeBrowse ? proxy.frame(in: .named(RootChromeCoordinateSpace.name)) : nil
+                    RootSidebarChromeRegistrationView(isVisible: isSidebarChromeVisible)
+                        .onAppear {
+                            publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: width)
+                        }
+                        .onChange(of: width) { newWidth in
+                            publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: newWidth)
+                        }
+                        .onChange(of: frame) { newFrame in
+                            publishRootSidebarChromeRegistration(frame: newFrame, fallbackWidth: width)
+                        }
+                        .onChange(of: isSidebarChromeVisible) { _ in
+                            publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: width)
+                        }
+                }
             }
         }
     }
@@ -1626,9 +1665,30 @@ public struct SidebarView: View {
     @available(iOS 18.0, macOS 15.0, *)
     @ViewBuilder
     private var nativeExplorerColumns: some View {
+        #if os(macOS)
+        NativeBrowseSection(
+            tab: nativeBrowseTab, sidebar: sidebarColumn,
+            fallbackDetail: detailContainerView.macEditorToolbarRoleIfAvailable(),
+            sidebarControls: sidebarToolbarControls,
+            sidebarChromeChanged: rootSidebarChromeRegistrationHandler,
+            nowPlayingVM: nowPlayingVM, viewModels: viewModels,
+            rootSelection: $selection,
+            artist: $selectedArtist, genre: $selectedGenre, playlist: $selectedPlaylist,
+            columnVisibility: $columnVisibility
+        )
+        .onChange(of: selection) { _, current in
+            let pending = pendingSidebarSelection
+            pendingSidebarSelection = nil
+            // External routes already update the coordinator and must keep
+            // their pushed path; only commit an actual sidebar input here.
+            guard let pending, pending.to == current else { return }
+            commitSidebarSelection(current, from: pending.from)
+        }
+        #else
         if let tab = nativeBrowseTab {
             NativeBrowseSection(
                 tab: tab, sidebar: sidebarColumn,
+                fallbackDetail: EmptyView(), sidebarControls: EmptyView(),
                 nowPlayingVM: nowPlayingVM, viewModels: viewModels,
                 rootSelection: $selection,
                 artist: $selectedArtist, genre: $selectedGenre, playlist: $selectedPlaylist,
@@ -1637,6 +1697,7 @@ public struct SidebarView: View {
         } else {
             splitNavigationViewWithCompactColumn
         }
+        #endif
     }
 
 

@@ -265,6 +265,7 @@ public struct SongsTrackListHost: View {
             sectionScrollRequest: sectionScrollRequest,
             onTrackTap: onTrackTap
         )
+        .ignoresSafeArea(.container, edges: .top)
         .libraryScrollIndexOverlay(.centered) {
             sectionIndex { sectionID in
                 sectionScrollRequestID += 1

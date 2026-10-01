@@ -158,7 +158,12 @@ extension MediaDetailSurface {
             case .primary:
                 return EnsembleDesign.Color.accent
             case .secondary:
+                #if os(macOS)
+                // AppKit hosting roots otherwise inherit the system accent.
+                return .clear
+                #else
                 return nil
+                #endif
             }
         }
     }

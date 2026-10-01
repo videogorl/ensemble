@@ -30,6 +30,31 @@ extension EnvironmentValues {
     }
 }
 
+struct ArtistBrowseControls: View {
+    @ObservedObject var libraryVM: LibraryViewModel
+    let showFilters: () -> Void
+
+    var body: some View {
+        if libraryVM.artistBrowseSnapshot.hasVisibleContent || !libraryVM.artists.isEmpty {
+            EnsembleBrowseFilterButton(
+                title: "Filter Artists",
+                hasActiveFilters: libraryVM.artistsFilterOptions.hasActiveFilters,
+                action: showFilters
+            )
+            EnsembleBrowseSortMenu(
+                model: libraryVM,
+                options: ArtistSortOption.allCases,
+                selection: { $0.artistSortOption },
+                direction: { $0.artistsFilterOptions.sortDirection }
+            ) { option, direction in
+                if libraryVM.artistSortOption != option { libraryVM.artistSortOption = option }
+                libraryVM.artistsFilterOptions.sortDirection = direction
+            }
+            .accessibilityLabel("Sort Artists")
+        }
+    }
+}
+
 public struct ArtistsView: View {
     public enum PresentationMode {
         case compactRoot
@@ -40,7 +65,13 @@ public struct ArtistsView: View {
     let nowPlayingVM: NowPlayingViewModel
     private let presentationMode: PresentationMode
     private let externalSelectedArtist: Binding<DisplayArtist?>?
+    private let externalFilterSheetPresentation: Binding<Bool>?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    #if os(macOS)
+    @Environment(\.isMacBrowsePicker) private var isMacBrowsePicker
+    #else
+    private let isMacBrowsePicker = false
+    #endif
     @State private var showFilterSheet = false
     @State private var localSelectedArtist: DisplayArtist?
     @StateObject private var artistSnapshotCache = BrowseSnapshotCache(ArtistBrowseSnapshot.empty)
@@ -56,7 +87,8 @@ public struct ArtistsView: View {
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
         presentationMode: PresentationMode = .compactRoot,
-        selectedArtist: Binding<DisplayArtist?>? = nil
+        selectedArtist: Binding<DisplayArtist?>? = nil,
+        filterSheetPresentation: Binding<Bool>? = nil
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
@@ -65,6 +97,7 @@ public struct ArtistsView: View {
         #endif
         self.presentationMode = presentationMode
         self.externalSelectedArtist = selectedArtist
+        self.externalFilterSheetPresentation = filterSheetPresentation
     }
 
     public var body: some View {
@@ -78,7 +111,9 @@ public struct ArtistsView: View {
             }
         }
         .navigationTitle("Artists")
-        .searchable(text: artistFilterOptions.searchText, prompt: "Filter artists")
+        .if(!isMacBrowsePicker) { view in
+            view.searchable(text: artistFilterOptions.searchText, prompt: "Filter artists")
+        }
         .refreshable {
             await libraryVM.refreshFromServer()
         }
@@ -86,16 +121,15 @@ public struct ArtistsView: View {
             await libraryVM.refreshFromServer()
         }
         .toolbar {
-            EnsembleBrowseToolbar(isVisible: isBrowseToolbarVisible) {
-                artistFilterButton
-                artistSortMenu
+            EnsembleBrowseToolbar(isVisible: isBrowseToolbarVisible && !isMacBrowsePicker) {
+                ArtistBrowseControls(libraryVM: libraryVM) { filterSheetPresentation.wrappedValue = true }
             }
         }
         .ensembleBrowseToolbarMinimization()
         .if(selectedArtist == nil) { view in
             view.toolbarMaterialBackground()
         }
-        .sheet(isPresented: $showFilterSheet) {
+        .sheet(isPresented: filterSheetPresentation) {
             FilterSheet(
                 filterOptions: artistFilterOptions,
                 availableGenres: artistSnapshot.availableGenres,
@@ -175,28 +209,8 @@ public struct ArtistsView: View {
         )
     }
 
-    private var artistFilterButton: some View {
-        EnsembleBrowseFilterButton(
-            title: "Filter Artists",
-            hasActiveFilters: libraryVM.artistsFilterOptions.hasActiveFilters
-        ) {
-            showFilterSheet = true
-        }
-    }
-
-    private var artistSortMenu: some View {
-        EnsembleBrowseSortMenu(
-            model: libraryVM,
-            options: ArtistSortOption.allCases,
-            selection: { $0.artistSortOption },
-            direction: { $0.artistsFilterOptions.sortDirection }
-        ) { option, direction in
-            if libraryVM.artistSortOption != option {
-                libraryVM.artistSortOption = option
-            }
-            libraryVM.artistsFilterOptions.sortDirection = direction
-        }
-        .accessibilityLabel("Sort Artists")
+    private var filterSheetPresentation: Binding<Bool> {
+        externalFilterSheetPresentation ?? $showFilterSheet
     }
 
     @available(iOS 18.0, macOS 15.0, *)

@@ -24,6 +24,25 @@ private enum PlaylistMutationEvent {
     }
 }
 
+struct PlaylistBrowseControls: View {
+    @ObservedObject var viewModel: PlaylistViewModel
+    let createPlaylist: () -> Void
+
+    var body: some View {
+        PlaylistsNewButton(action: createPlaylist)
+        EnsembleBrowseSortMenu(
+            model: viewModel,
+            options: PlaylistSortOption.allCases,
+            selection: { $0.playlistSortOption },
+            direction: { $0.filterOptions.sortDirection }
+        ) { option, direction in
+            if viewModel.playlistSortOption != option { viewModel.playlistSortOption = option }
+            viewModel.filterOptions.sortDirection = direction
+        }
+        .accessibilityLabel("Sort Playlists")
+    }
+}
+
 public struct PlaylistsView: View {
     public enum PresentationMode: Equatable {
         case compactRoot
@@ -34,6 +53,7 @@ public struct PlaylistsView: View {
     let nowPlayingVM: NowPlayingViewModel
     private let presentationMode: PresentationMode
     private let externalSelectedPlaylist: Binding<DisplayPlaylist?>?
+    private let externalCreatePlaylistPresentation: Binding<Bool>?
     @State private var localSelectedPlaylist: DisplayPlaylist?
     @State private var pendingDeletionPlaylistIdentities: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
@@ -53,6 +73,11 @@ public struct PlaylistsView: View {
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @Environment(\.isStageFlowActive) private var rootStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    #if os(macOS)
+    @Environment(\.isMacBrowsePicker) private var isMacBrowsePicker
+    #else
+    private let isMacBrowsePicker = false
+    #endif
 
     private var isStageFlowActive: Bool {
         presentationMode == .compactRoot && rootStageFlowActive
@@ -67,19 +92,8 @@ public struct PlaylistsView: View {
         #endif
     }
 
-    private var playlistSortMenu: some View {
-        EnsembleBrowseSortMenu(
-            model: viewModel,
-            options: PlaylistSortOption.allCases,
-            selection: { $0.playlistSortOption },
-            direction: { $0.filterOptions.sortDirection }
-        ) { option, direction in
-            if viewModel.playlistSortOption != option {
-                viewModel.playlistSortOption = option
-            }
-            viewModel.filterOptions.sortDirection = direction
-        }
-        .accessibilityLabel("Sort Playlists")
+    private var createPlaylistPresentation: Binding<Bool> {
+        externalCreatePlaylistPresentation ?? $showCreatePlaylistPush
     }
 
     private func filteredDisplayedPlaylists(_ displayPlaylists: [DisplayPlaylist]) -> [DisplayPlaylist] {
@@ -151,7 +165,8 @@ public struct PlaylistsView: View {
         nowPlayingVM: NowPlayingViewModel,
         viewModel: PlaylistViewModel? = nil,
         presentationMode: PresentationMode = .compactRoot,
-        selectedPlaylist: Binding<DisplayPlaylist?>? = nil
+        selectedPlaylist: Binding<DisplayPlaylist?>? = nil,
+        createPlaylistPresentation: Binding<Bool>? = nil
     ) {
         self._viewModel = StateObject(
             wrappedValue: viewModel ?? DependencyContainer.shared.makePlaylistViewModel()
@@ -159,6 +174,7 @@ public struct PlaylistsView: View {
         self.nowPlayingVM = nowPlayingVM
         self.presentationMode = presentationMode
         self.externalSelectedPlaylist = selectedPlaylist
+        self.externalCreatePlaylistPresentation = createPlaylistPresentation
     }
 
     public var body: some View {
@@ -220,7 +236,7 @@ public struct PlaylistsView: View {
             .statusBar(hidden: isStageFlowActive)
             #endif
             .navigationTitle(isStageFlowActive ? "" : "Playlists")
-            .if(shouldShowPlaylistSearch) { view in
+            .if(shouldShowPlaylistSearch && !isMacBrowsePicker) { view in
                 view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             }
             .task {
@@ -253,17 +269,14 @@ public struct PlaylistsView: View {
                 await viewModel.refreshFromServer()
             }
             .toolbar {
-                EnsembleBrowseToolbar(isVisible: !isStageFlowActive) {
-                    PlaylistsNewButton {
-                        showCreatePlaylistPush = true
-                    }
-                    playlistSortMenu
+                EnsembleBrowseToolbar(isVisible: !isStageFlowActive && !isMacBrowsePicker) {
+                    PlaylistBrowseControls(viewModel: viewModel) { createPlaylistPresentation.wrappedValue = true }
                 }
             }
             .ensembleBrowseToolbarMinimization()
             // Keep modal presenters outside search/toolbar/chrome modifiers so
             // field focus does not rebuild the sheet host.
-            .sheet(isPresented: $showCreatePlaylistPush) {
+            .sheet(isPresented: createPlaylistPresentation) {
                 CreatePlaylistView(
                     serverOptions: playlistServerOptionsForDisplay(),
                     isMergeEnabled: viewModel.isMergeEnabled

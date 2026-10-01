@@ -15,6 +15,11 @@ public struct GenresView: View {
     @State private var localSelectedGenre: DisplayGenre?
     @StateObject private var genreSnapshotCache = BrowseSnapshotCache(GenreBrowseSnapshot.empty)
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    #if os(macOS)
+    @Environment(\.isMacBrowsePicker) private var isMacBrowsePicker
+    #else
+    private let isMacBrowsePicker = false
+    #endif
 
     public init(
         libraryVM: LibraryViewModel,
@@ -54,7 +59,7 @@ public struct GenresView: View {
         }
         .navigationTitle("Genres")
         .genreBrowseSearchable(
-            isVisible: isGenreBrowseSearchVisible,
+            isVisible: isGenreBrowseSearchVisible && !isMacBrowsePicker,
             text: genreFilterOptions.searchText
         )
         .refreshable {
