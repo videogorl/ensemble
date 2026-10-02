@@ -18,20 +18,27 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
     }
 
     private final class LostAppendAcknowledgment: URLProtocol {
+        static let lock = NSLock()
         static var members: [String] = []
         static var appends = 0
+        static var appendHosts: [String] = []
         static var incomplete = false
         override class func canInit(with request: URLRequest) -> Bool { true }
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
         override func startLoading() {
+            Self.lock.lock()
             if request.httpMethod == "PUT" {
                 Self.members.append("track")
                 Self.appends += 1
+                Self.appendHosts.append(request.url?.host ?? "")
+                Self.lock.unlock()
                 client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
                 return
             }
             let metadata = Self.members.map { ["ratingKey": $0, "key": "/library/metadata/" + $0, "title": "Track", "type": "track"] }
-            let body = try! JSONSerialization.data(withJSONObject: ["MediaContainer": ["size": Self.incomplete ? metadata.count + 1 : metadata.count, "Metadata": metadata]])
+            let size = Self.incomplete ? metadata.count + 1 : metadata.count
+            Self.lock.unlock()
+            let body = try! JSONSerialization.data(withJSONObject: ["MediaContainer": ["size": size, "Metadata": metadata]])
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: body)
             client?.urlProtocolDidFinishLoading(self)
@@ -42,17 +49,26 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
     func testPlaylistReplayDoesNotRepeatAnAcceptedAppendAndRejectsIncompleteMembership() async throws {
         LostAppendAcknowledgment.members = []
         LostAppendAcknowledgment.appends = 0
+        LostAppendAcknowledgment.appendHosts = []
         LostAppendAcknowledgment.incomplete = false
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [LostAppendAcknowledgment.self]
         let session = URLSession(configuration: config)
         defer { session.invalidateAndCancel() }
-        let client = PlexAPIClient(connection: .init(url: "https://playlist.invalid", token: "test", identifier: "server", name: "Test"), keychain: TestKeychain(), urlSession: session)
-        let source = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "3")
+        let serverID = UUID().uuidString
+        let client = PlexAPIClient(
+            connection: .init(url: "https://playlist.invalid", alternativeURLs: ["https://alternate-playlist.invalid"], token: "test", identifier: serverID, name: "Test"),
+            keychain: TestKeychain(),
+            failoverManager: ConnectionFailoverManager(urlSession: session),
+            urlSession: session
+        )
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: serverID, libraryId: "3")
         let provider = PlexMusicSourceSyncProvider(sourceIdentifier: source, apiClient: client, sectionKey: "3")
         let track = Track(id: "track", key: "/library/metadata/track", title: "Track", sourceCompositeKey: source.compositeKey)
         do { _ = try await provider.addTracks([track], to: "playlist"); XCTFail("Acknowledgment should be lost") }
         catch { XCTAssertTrue(PlexErrorClassification.classify(error).isRetryable) }
+        XCTAssertEqual(LostAppendAcknowledgment.members, ["track"])
+        XCTAssertEqual(LostAppendAcknowledgment.appendHosts, ["playlist.invalid"])
         let repeated = try await provider.addTracks([track], to: "playlist")
         XCTAssertEqual(repeated, 0)
         XCTAssertEqual(LostAppendAcknowledgment.appends, 1)
@@ -60,6 +76,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         do { _ = try await provider.addTracks([track], to: "playlist"); XCTFail("Partial membership must not authorize another append") }
         catch { guard case PlexAPIError.invalidResponse = error else { return XCTFail("Expected incomplete response rejection") } }
         XCTAssertEqual(LostAppendAcknowledgment.appends, 1)
+        XCTAssertEqual(LostAppendAcknowledgment.members, ["track"])
     }
 
     private struct IncrementalItem: Equatable {

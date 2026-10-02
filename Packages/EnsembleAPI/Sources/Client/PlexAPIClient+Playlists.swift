@@ -84,7 +84,8 @@ extension PlexAPIClient {
             query["uri"] = buildMetadataURI(serverIdentifier: serverIdentifier, ratingKeys: trackRatingKeys)
         }
 
-        _ = try await serverRequestPOST(path: "/playlists", query: query)
+        // PMS may have created the playlist even if its acknowledgment was lost.
+        _ = try await serverRequestPOST(path: "/playlists", query: query, retryAfterFailover: false)
     }
 
     /// Rename an existing playlist
@@ -102,9 +103,11 @@ extension PlexAPIClient {
     /// Add tracks to an existing playlist
     public func addItemsToPlaylist(playlistId: String, trackRatingKeys: [String], serverIdentifier: String) async throws {
         let uri = buildMetadataURI(serverIdentifier: serverIdentifier, ratingKeys: trackRatingKeys)
+        // Let the mutation owner reconcile membership before retrying an ambiguous append.
         _ = try await serverRequestPUT(
             path: "/playlists/\(playlistId)/items",
-            query: ["uri": uri]
+            query: ["uri": uri],
+            retryAfterFailover: false
         )
     }
 
