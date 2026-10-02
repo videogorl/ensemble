@@ -619,7 +619,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         if let customAction = customPinAction {
                             customAction(isPinned)
                         } else {
-                            deps.pinMutationWorkflow.togglePin(
+                            deps.pinManager.togglePin(
                                 id: ratingKey,
                                 sourceKey: headerData.sourceKey ?? "",
                                 type: mediaType,
@@ -684,7 +684,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     if let customAction = customPinAction {
                         customAction(isPinned)
                     } else {
-                        deps.pinMutationWorkflow.togglePin(
+                        deps.pinManager.togglePin(
                             id: ratingKey,
                             sourceKey: headerData.sourceKey ?? "",
                             type: mediaType,
@@ -712,7 +712,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     )
                     Button {
                         Task {
-                            await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+                            await deps.offlineDownloadService.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
                         }
                     } label: {
                         MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
@@ -737,7 +737,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     )
                     Button {
                         Task {
-                            await deps.downloadMutationWorkflow.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+                            await deps.offlineDownloadService.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
                         }
                     } label: {
                         MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
@@ -768,7 +768,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                             playlistMenuActions.onToggleDownload()
                         } else {
                             Task {
-                                await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
+                                await deps.offlineDownloadService.setPlaylistDownloadEnabled(
                                     playlist,
                                     isEnabled: !isDownloaded
                                 )
@@ -917,17 +917,17 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             currentTitle: track.title
         ) { newTitle in
             do {
-                let result = try await deps.metadataMutationWorkflow.editTrack(
+                let toast = try await deps.metadataMutationService.editTrack(
                     track,
                     title: newTitle
                 )
                 await MainActor.run {
-                    deps.toastCenter.show(result.successToast)
+                    deps.toastCenter.show(toast)
                 }
             } catch {
                 await MainActor.run {
                     deps.toastCenter.show(
-                        deps.metadataMutationWorkflow.editFailureToast(
+                        deps.metadataMutationService.editFailureToast(
                             noun: "Track",
                             itemID: track.sourceScopedID,
                             error: error,
@@ -943,16 +943,16 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private func deleteTrack(_ track: Track) {
         Task {
             do {
-                let result = try await deps.metadataMutationWorkflow.deleteTrack(track)
+                let toast = try await deps.metadataMutationService.deleteTrack(track)
                 await MainActor.run {
                     trackPendingDeletion = nil
-                    deps.toastCenter.show(result.successToast)
+                    deps.toastCenter.show(toast)
                 }
             } catch {
                 await MainActor.run {
                     trackPendingDeletion = nil
                     deps.toastCenter.show(
-                        deps.metadataMutationWorkflow.deleteFailureToast(
+                        deps.metadataMutationService.deleteFailureToast(
                             noun: "Track",
                             itemID: track.sourceScopedID,
                             error: error,

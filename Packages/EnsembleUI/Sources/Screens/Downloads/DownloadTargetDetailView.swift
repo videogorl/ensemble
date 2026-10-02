@@ -304,7 +304,7 @@ public struct DownloadTargetDetailView: View {
         guard !isRemovingDownload else { return }
         isRemovingDownload = true
         isShowingRemoveDownloadConfirmation = false
-        await deps.downloadMutationWorkflow.removeTarget(key: viewModel.summary.key)
+        await deps.offlineDownloadService.removeTarget(key: viewModel.summary.key)
         isRemovingDownload = false
         deps.toastCenter.show(
             ToastPayload(

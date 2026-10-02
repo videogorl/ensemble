@@ -51,7 +51,6 @@ public final class DependencyContainer: @unchecked Sendable {
     public let hubOrderManager: HubOrderManager
     public let pinManager: PinManager
     public let hiddenMediaStore: HiddenMediaStore
-    public let pinMutationWorkflow: PinMutationWorkflow
     public let toastCenter: ToastCenter
     public let libraryVisibilityStore: LibraryVisibilityStore
     public let siriMediaIndexStore: SiriMediaIndexStore
@@ -62,14 +61,12 @@ public final class DependencyContainer: @unchecked Sendable {
     public let systemMediaIntegrationService: SystemMediaIntegrationService
     public let offlineBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating
     public let offlineDownloadService: OfflineDownloadService
-    public let downloadMutationWorkflow: DownloadMutationWorkflow
     public let lyricsService: LyricsService
     public let mutationCoordinator: MutationCoordinator
     public let playlistMutationWorkflow: PlaylistMutationWorkflow
     public let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
     public let collectionFavoriteMutationWorkflow: CollectionFavoriteMutationWorkflow
     public let metadataMutationService: MetadataMutationService
-    public let metadataMutationWorkflow: MetadataMutationWorkflow
     public let songLinkService: SongLinkService
     public let shareService: ShareService
     public let powerStateMonitor: PowerStateMonitor
@@ -120,7 +117,6 @@ public final class DependencyContainer: @unchecked Sendable {
         let hubOrderManager: HubOrderManager
         let pinManager: PinManager
         let hiddenMediaStore: HiddenMediaStore
-        let pinMutationWorkflow: PinMutationWorkflow
         let toastCenter: ToastCenter
         let libraryVisibilityStore: LibraryVisibilityStore
         let powerStateMonitor: PowerStateMonitor
@@ -157,13 +153,11 @@ public final class DependencyContainer: @unchecked Sendable {
     private struct MutationBootstrap {
         let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinator
         let offlineDownloadService: OfflineDownloadService
-        let downloadMutationWorkflow: DownloadMutationWorkflow
         let mutationCoordinator: MutationCoordinator
         let playlistMutationWorkflow: PlaylistMutationWorkflow
         let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
         let collectionFavoriteMutationWorkflow: CollectionFavoriteMutationWorkflow
         let metadataMutationService: MetadataMutationService
-        let metadataMutationWorkflow: MetadataMutationWorkflow
     }
 
     private struct SiriBootstrap {
@@ -236,7 +230,6 @@ public final class DependencyContainer: @unchecked Sendable {
         hubOrderManager = core.hubOrderManager
         pinManager = core.pinManager
         hiddenMediaStore = core.hiddenMediaStore
-        pinMutationWorkflow = core.pinMutationWorkflow
         toastCenter = core.toastCenter
         libraryVisibilityStore = core.libraryVisibilityStore
         powerStateMonitor = core.powerStateMonitor
@@ -325,13 +318,11 @@ public final class DependencyContainer: @unchecked Sendable {
                 await service?.reconcileNativeTransfers()
             }
         }
-        downloadMutationWorkflow = mutation.downloadMutationWorkflow
         mutationCoordinator = mutation.mutationCoordinator
         playlistMutationWorkflow = mutation.playlistMutationWorkflow
         trackRatingMutationWorkflow = mutation.trackRatingMutationWorkflow
         collectionFavoriteMutationWorkflow = mutation.collectionFavoriteMutationWorkflow
         metadataMutationService = mutation.metadataMutationService
-        metadataMutationWorkflow = mutation.metadataMutationWorkflow
 
         siriMediaIndexStore = siri.siriMediaIndexStore
         siriPlaybackCoordinator = siri.siriPlaybackCoordinator
@@ -409,7 +400,6 @@ public final class DependencyContainer: @unchecked Sendable {
             hubOrderManager: HubOrderManager(),
             pinManager: pinManager,
             hiddenMediaStore: MainActor.assumeIsolated { .shared },
-            pinMutationWorkflow: MainActor.assumeIsolated { PinMutationWorkflow(pinManager: pinManager) },
             toastCenter: MainActor.assumeIsolated { ToastCenter() },
             libraryVisibilityStore: MainActor.assumeIsolated { LibraryVisibilityStore() },
             powerStateMonitor: MainActor.assumeIsolated { PowerStateMonitor() },
@@ -577,9 +567,6 @@ public final class DependencyContainer: @unchecked Sendable {
                 playlistRepository: core.playlistRepository
             )
         }
-        let downloadMutationWorkflow = MainActor.assumeIsolated {
-            DownloadMutationWorkflow(mutator: offlineDownloadService)
-        }
         let playlistMutationWorkflow = MainActor.assumeIsolated {
             PlaylistMutationWorkflow(mutator: mutationCoordinator)
         }
@@ -621,20 +608,15 @@ public final class DependencyContainer: @unchecked Sendable {
                 }
             )
         }
-        let metadataMutationWorkflow = MainActor.assumeIsolated {
-            MetadataMutationWorkflow(mutator: metadataMutationService)
-        }
 
         return MutationBootstrap(
             offlineBackgroundExecutionCoordinator: offlineBackgroundExecutionCoordinator,
             offlineDownloadService: offlineDownloadService,
-            downloadMutationWorkflow: downloadMutationWorkflow,
             mutationCoordinator: mutationCoordinator,
             playlistMutationWorkflow: playlistMutationWorkflow,
             trackRatingMutationWorkflow: trackRatingMutationWorkflow,
             collectionFavoriteMutationWorkflow: collectionFavoriteMutationWorkflow,
-            metadataMutationService: metadataMutationService,
-            metadataMutationWorkflow: metadataMutationWorkflow
+            metadataMutationService: metadataMutationService
         )
     }
 

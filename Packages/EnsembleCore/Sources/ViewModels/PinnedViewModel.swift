@@ -103,7 +103,6 @@ public final class PinnedViewModel: ObservableObject {
     @Published public var draggingPinId: String?
 
     private let pinManager: PinManager
-    private let pinMutationWorkflow: PinMutationWorkflow
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let accountManager: AccountManager
@@ -115,7 +114,6 @@ public final class PinnedViewModel: ObservableObject {
 
     public init(
         pinManager: PinManager,
-        pinMutationWorkflow: PinMutationWorkflow? = nil,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         accountManager: AccountManager,
@@ -123,7 +121,6 @@ public final class PinnedViewModel: ObservableObject {
         hiddenMediaStore: HiddenMediaStore? = nil
     ) {
         self.pinManager = pinManager
-        self.pinMutationWorkflow = pinMutationWorkflow ?? PinMutationWorkflow(pinManager: pinManager)
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.accountManager = accountManager
@@ -375,7 +372,7 @@ public final class PinnedViewModel: ObservableObject {
         resolvedPins.move(fromOffsets: source, toOffset: destination)
         // Persist the new order to PinManager
         let identities = resolvedPins.flatMap(\.reorderIdentities)
-        pinMutationWorkflow.reorder(identities: identities)
+        pinManager.reorder(identities: identities)
         isMoving = false
     }
 
@@ -410,22 +407,17 @@ public final class PinnedViewModel: ObservableObject {
     public func persistOrder() {
         isMoving = true
         let identities = resolvedPins.flatMap(\.reorderIdentities)
-        pinMutationWorkflow.reorder(identities: identities)
+        pinManager.reorder(identities: identities)
         isMoving = false
     }
 
     /// Unpin an item by its persisted rating key and source key.
     public func unpin(id: String, sourceKey: String) {
-        pinMutationWorkflow.unpin(id: id, sourceKey: sourceKey)
+        pinManager.unpin(id: id, sourceKey: sourceKey)
     }
 
     /// Unpin all items in a resolved pin (handles merged playlists with multiple identities)
     public func unpinAll(_ pin: ResolvedPin) {
-        let identities = pin.allPinnedIdentities
-        if identities.count > 1 {
-            pinMutationWorkflow.unpinAll(identities: identities)
-        } else if let identity = identities.first {
-            pinMutationWorkflow.unpinAll(identities: [identity])
-        }
+        pinManager.unpinAll(identities: pin.allPinnedIdentities)
     }
 }

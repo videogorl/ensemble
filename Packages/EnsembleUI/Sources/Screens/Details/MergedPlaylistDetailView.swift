@@ -32,7 +32,7 @@ public struct MergedPlaylistDetailView: View {
         let downloadAvailabilities = playlists.map { playlist in
             playlist.actionAvailability(for: .download)
         }
-        let downloadState = deps.downloadMutationWorkflow.batchState(for: playlists)
+        let downloadState = deps.offlineDownloadService.batchState(for: playlists)
         MediaDetailView(
             viewModel: viewModel,
             nowPlayingVM: nowPlayingVM,
@@ -83,7 +83,7 @@ public struct MergedPlaylistDetailView: View {
                 },
                 onToggleDownload: {
                     Task {
-                        await deps.downloadMutationWorkflow.toggleDownloads(for: playlists)
+                        await deps.offlineDownloadService.toggleDownloads(for: playlists)
                     }
                 },
                 onRename: {
@@ -138,9 +138,9 @@ public struct MergedPlaylistDetailView: View {
             customPinAction: { isPinned in
                 let dp = viewModel.displayPlaylist
                 if isPinned {
-                    deps.pinMutationWorkflow.unpinAll(identities: Set(dp.playlists.map(\.sourceScopedID)))
+                    deps.pinManager.unpinAll(identities: Set(dp.playlists.map(\.sourceScopedID)))
                 } else {
-                    deps.pinMutationWorkflow.pinAll(items: dp.playlists.map { playlist in
+                    deps.pinManager.pinAll(items: dp.playlists.map { playlist in
                         (id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "", type: .playlist, title: dp.title)
                     })
                 }

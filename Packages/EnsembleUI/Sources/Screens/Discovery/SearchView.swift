@@ -551,16 +551,16 @@ public struct SearchView: View {
                         nowPlayingVM: nowPlayingVM,
                         customPinAction: { isPinned in
                             if isPinned {
-                                deps.pinMutationWorkflow.unpinAll(identities: Set(displayArtist.artists.map(\.sourceScopedID)))
+                                deps.pinManager.unpinAll(identities: Set(displayArtist.artists.map(\.sourceScopedID)))
                             } else {
-                                deps.pinMutationWorkflow.pinAll(items: displayArtist.artists.map { artist in
+                                deps.pinManager.pinAll(items: displayArtist.artists.map { artist in
                                     (id: artist.id, sourceKey: artist.sourceCompositeKey ?? "", type: .artist, title: displayArtist.name)
                                 })
                             }
                         },
                         customIsPinned: {
                             displayArtist.artists.allSatisfy {
-                                deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+                                deps.pinManager.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
                             }
                         }
                     )
@@ -1073,16 +1073,16 @@ public struct SearchView: View {
             },
             customPinAction: { isPinned in
                 if isPinned {
-                    deps.pinMutationWorkflow.unpinAll(identities: Set(displayAlbum.albums.map(\.sourceScopedID)))
+                    deps.pinManager.unpinAll(identities: Set(displayAlbum.albums.map(\.sourceScopedID)))
                 } else {
-                    deps.pinMutationWorkflow.pinAll(items: displayAlbum.albums.map { album in
+                    deps.pinManager.pinAll(items: displayAlbum.albums.map { album in
                         (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
                     })
                 }
             },
             customIsPinned: {
                 displayAlbum.albums.allSatisfy {
-                    deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+                    deps.pinManager.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
                 }
             }
         )

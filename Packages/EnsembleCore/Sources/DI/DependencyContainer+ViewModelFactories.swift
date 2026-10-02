@@ -215,7 +215,6 @@ public extension DependencyContainer {
     func makeDownloadsViewModel() -> DownloadsViewModel {
         DownloadsViewModel(
             offlineDownloadService: offlineDownloadService,
-            downloadMutationWorkflow: downloadMutationWorkflow,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             mutationCoordinator: mutationCoordinator,
@@ -241,7 +240,6 @@ public extension DependencyContainer {
     func makeDownloadManagerSettingsViewModel() -> DownloadManagerSettingsViewModel {
         DownloadManagerSettingsViewModel(
             offlineDownloadService: offlineDownloadService,
-            downloadMutationWorkflow: downloadMutationWorkflow,
             targetRepository: offlineDownloadTargetRepository,
             downloadManager: downloadManager
         )
@@ -297,7 +295,6 @@ public extension DependencyContainer {
     func makePinnedViewModel() -> PinnedViewModel {
         PinnedViewModel(
             pinManager: pinManager,
-            pinMutationWorkflow: pinMutationWorkflow,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             accountManager: accountManager,

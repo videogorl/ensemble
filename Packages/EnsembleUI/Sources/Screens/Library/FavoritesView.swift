@@ -109,7 +109,7 @@ public struct FavoritesView: View {
             Button {
                 Task {
                     let isEnabled = deps.offlineDownloadService.isFavoritesDownloadEnabled()
-                    await deps.downloadMutationWorkflow.setFavoritesDownloadEnabled(isEnabled: !isEnabled)
+                    await deps.offlineDownloadService.setFavoritesDownloadEnabled(isEnabled: !isEnabled)
                 }
             } label: {
                 MediaActionLabel(kind: .download(isDownloaded: deps.offlineDownloadService.isFavoritesDownloadEnabled()))

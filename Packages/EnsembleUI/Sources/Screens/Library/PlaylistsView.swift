@@ -634,7 +634,7 @@ public struct PlaylistsView: View {
             defer { deps.toastCenter.dismiss(id: deletingToast.id) }
             do {
                 let result = try await deps.playlistMutationWorkflow.finishDelete(playlist: playlist)
-                deps.pinMutationWorkflow.unpin(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
+                deps.pinManager.unpin(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
                 PlaylistMutationEvent.deletionSucceeded(playlistIdentity: playlistIdentity).post()
                 deps.toastCenter.show(result.successToast)
             } catch {
@@ -672,7 +672,7 @@ public struct PlaylistsView: View {
                         forPlaylistIdentity: playlist.sourceScopedID,
                         expectedTitle: start.trimmedTitle
                     )
-                    deps.pinMutationWorkflow.updateTitle(
+                    deps.pinManager.updateTitle(
                         id: playlist.id,
                         sourceKey: playlist.sourceCompositeKey ?? "",
                         title: start.trimmedTitle
@@ -846,7 +846,7 @@ public struct PlaylistDetailView: View {
                         },
                         onToggleDownload: {
                             Task {
-                                await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
+                                await deps.offlineDownloadService.setPlaylistDownloadEnabled(
                                     viewModel.playlist,
                                     isEnabled: !isDownloaded
                                 )

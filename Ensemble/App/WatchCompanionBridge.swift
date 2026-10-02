@@ -475,7 +475,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
                 return rejected(command, message: "The current item changed.")
             }
             do {
-                _ = try await deps.metadataMutationWorkflow.deleteTrack(track)
+                _ = try await deps.metadataMutationService.deleteTrack(track)
             } catch {
                 return rejected(command, message: error.localizedDescription)
             }

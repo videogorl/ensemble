@@ -513,14 +513,14 @@ private struct DisplayArtistGrid: View {
             currentTitle: artist.name
         ) { newTitle in
             do {
-                let result = try await deps.metadataMutationWorkflow.editArtist(artist, title: newTitle)
+                let toast = try await deps.metadataMutationService.editArtist(artist, title: newTitle)
                 await MainActor.run {
-                    deps.toastCenter.show(result.successToast)
+                    deps.toastCenter.show(toast)
                 }
             } catch {
                 await MainActor.run {
                     deps.toastCenter.show(
-                        deps.metadataMutationWorkflow.editFailureToast(
+                        deps.metadataMutationService.editFailureToast(
                             noun: "Artist",
                             itemID: artist.sourceScopedID,
                             error: error,
@@ -813,18 +813,18 @@ public struct ArtistDetailView: View {
     /// Toolbar menu with Pin/Unpin action for the artist
     private var artistPinMenuButton: some View {
         let isPinned = isArtistPinned
-        let downloadState = dependencies.downloadMutationWorkflow.batchState(for: displayArtist.artists)
+        let downloadState = dependencies.offlineDownloadService.batchState(for: displayArtist.artists)
         let isDownloaded = downloadState.isEnabled
         let canDownload = viewModel.artist.actionAvailability(for: .download).isAvailable
         let downloadableMergedArtists = mergedDownloadableArtists
         return Menu {
             Button {
                 if isPinned {
-                    dependencies.pinMutationWorkflow.unpinAll(
+                    dependencies.pinManager.unpinAll(
                         identities: Set(displayArtist.artists.map(\.sourceScopedID))
                     )
                 } else {
-                    dependencies.pinMutationWorkflow.pinAll(items: displayArtist.artists.map { artist in
+                    dependencies.pinManager.pinAll(items: displayArtist.artists.map { artist in
                         (id: artist.id, sourceKey: artist.sourceCompositeKey ?? "", type: .artist, title: displayArtist.name)
                     })
                 }
@@ -835,7 +835,7 @@ public struct ArtistDetailView: View {
             if displayArtist.isMerged, !downloadableMergedArtists.isEmpty {
                 Button {
                     Task {
-                        await dependencies.downloadMutationWorkflow.toggleDownloads(
+                        await dependencies.offlineDownloadService.toggleDownloads(
                             for: displayArtist.artists
                         )
                     }
@@ -845,7 +845,7 @@ public struct ArtistDetailView: View {
             } else if canDownload {
                 Button {
                     Task {
-                        await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
+                        await dependencies.offlineDownloadService.setArtistDownloadEnabled(
                             viewModel.artist,
                             isEnabled: !isDownloaded
                         )

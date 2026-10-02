@@ -953,7 +953,7 @@ public struct SidebarView: View {
                 }
 
                 handlePinnedSelectionRemoval(identities: [playlist.sourceScopedID], fallback: .library(.playlists))
-                deps.pinMutationWorkflow.unpin(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
+                deps.pinManager.unpin(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
                 deps.toastCenter.dismiss(id: deletingToast.id)
                 deps.toastCenter.show(result.successToast)
             } catch {
@@ -992,7 +992,7 @@ public struct SidebarView: View {
                         forPlaylistIdentity: playlist.sourceScopedID,
                         expectedTitle: start.trimmedTitle
                     )
-                    deps.pinMutationWorkflow.updateTitle(
+                    deps.pinManager.updateTitle(
                         id: playlist.id,
                         sourceKey: playlist.sourceCompositeKey ?? "",
                         title: start.trimmedTitle
@@ -1945,9 +1945,9 @@ public struct SidebarView: View {
                 customPinAction: { isPinned in
                     if isPinned {
                         handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.artists))
-                        deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
+                        deps.pinManager.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
                     } else {
-                        deps.pinMutationWorkflow.pin(
+                        deps.pinManager.pin(
                             id: artist.id,
                             sourceKey: artist.sourceCompositeKey ?? "",
                             type: .artist,
@@ -1969,7 +1969,7 @@ public struct SidebarView: View {
                     guard isPinned else { return }
                     let identities = Set(pinnedItems.map(\.sourceScopedID))
                     handlePinnedSelectionRemoval(identities: identities, fallback: .library(.artists))
-                    deps.pinMutationWorkflow.unpinAll(identities: identities)
+                    deps.pinManager.unpinAll(identities: identities)
                 }
             )
 
@@ -1997,9 +1997,9 @@ public struct SidebarView: View {
                 customPinAction: { isPinned in
                     if isPinned {
                         handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.albums))
-                        deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
+                        deps.pinManager.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
                     } else {
-                        deps.pinMutationWorkflow.pin(
+                        deps.pinManager.pin(
                             id: album.id,
                             sourceKey: album.sourceCompositeKey ?? "",
                             type: .album,
@@ -2025,7 +2025,7 @@ public struct SidebarView: View {
                     guard isPinned else { return }
                     let identities = Set(pinnedItems.map(\.sourceScopedID))
                     handlePinnedSelectionRemoval(identities: identities, fallback: .library(.albums))
-                    deps.pinMutationWorkflow.unpinAll(identities: identities)
+                    deps.pinManager.unpinAll(identities: identities)
                 }
             )
 
@@ -2051,9 +2051,9 @@ public struct SidebarView: View {
                 customPinAction: { isPinned in
                     if isPinned {
                         handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.playlists))
-                        deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
+                        deps.pinManager.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
                     } else {
-                        deps.pinMutationWorkflow.pin(
+                        deps.pinManager.pin(
                             id: playlist.id,
                             sourceKey: playlist.sourceCompositeKey ?? "",
                             type: .playlist,
@@ -2084,7 +2084,7 @@ public struct SidebarView: View {
                         identities: Set(pinnedItems.map(\.sourceScopedID)),
                         fallback: .library(.playlists)
                     )
-                    deps.pinMutationWorkflow.unpinAll(identities: Set(pinnedItems.map(\.sourceScopedID)))
+                    deps.pinManager.unpinAll(identities: Set(pinnedItems.map(\.sourceScopedID)))
                 }
             )
         }

@@ -186,7 +186,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
     private func makeService(
         downloadManager: DownloadManagerProtocol = MockDownloadManager(),
-        targetRepository: MockTargetRepository = MockTargetRepository(),
+        targetRepository: OfflineDownloadTargetRepositoryProtocol = MockTargetRepository(),
         backgroundCoordinator: OfflineDownloadBackgroundCoordinating? = nil,
         networkMonitor suppliedNetworkMonitor: NetworkMonitor? = nil,
         launchRecoveryStartedAt: Date = Date()
@@ -227,6 +227,35 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         await Task.yield()
         return service
+    }
+
+    func testBatchDownloadsFillMissingEligibleSourcesThenRemoveUnavailableEnabledCopies() async throws {
+        let targets = OfflineDownloadTargetRepository(coreDataStack: .inMemory())
+        let service = await makeService(targetRepository: targets)
+        await service.pauseQueue()
+        let first = Album(id: "shared", key: "/library/metadata/shared", title: "Album", sourceCompositeKey: "plex:a:server:library")
+        let second = Album(id: "shared", key: "/library/metadata/shared", title: "Album", sourceCompositeKey: "plex:b:server:library")
+        let apple = Album(id: "apple", key: "apple", title: "Album", sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey)
+        await service.setAlbumDownloadEnabled(first, isEnabled: true)
+
+        XCTAssertTrue(service.isAlbumDownloadEnabled(first))
+        XCTAssertFalse(service.isAlbumDownloadEnabled(second))
+        XCTAssertEqual(service.batchState(for: [first, second, apple]), DownloadBatchState(eligibleCount: 2, enabledCount: 1))
+
+        await service.toggleDownloads(for: [first, second, apple])
+        XCTAssertTrue(service.batchState(for: [first, second, apple]).isEnabled)
+        let enabledTargets = try await targets.fetchTargets()
+        XCTAssertEqual(Set(enabledTargets.compactMap(\.sourceCompositeKey)), [first.sourceCompositeKey!, second.sourceCompositeKey!])
+
+        let unavailableFirst = Album(
+            id: first.id, key: first.key, title: first.title, sourceCompositeKey: first.sourceCompositeKey,
+            actionCapabilities: MusicItemActionCapabilities([.download: .unavailable(reason: "No longer available")])
+        )
+        XCTAssertEqual(service.batchState(for: [unavailableFirst, second, apple]), DownloadBatchState(eligibleCount: 2, enabledCount: 2))
+        await service.toggleDownloads(for: [unavailableFirst, second, apple])
+        let remainingTargets = try await targets.fetchTargets()
+        XCTAssertTrue(remainingTargets.isEmpty)
+        XCTAssertEqual(service.batchState(for: [unavailableFirst, second, apple]), DownloadBatchState(eligibleCount: 1, enabledCount: 0))
     }
 
     func testLowDataModePausesActiveDownloads() async {

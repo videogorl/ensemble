@@ -323,16 +323,16 @@ public struct AlbumGrid: View {
             },
             customPinAction: { isPinned in
                 if isPinned {
-                    deps.pinMutationWorkflow.unpinAll(identities: Set(displayAlbum.albums.map(\.sourceScopedID)))
+                    deps.pinManager.unpinAll(identities: Set(displayAlbum.albums.map(\.sourceScopedID)))
                 } else {
-                    deps.pinMutationWorkflow.pinAll(items: displayAlbum.albums.map { album in
+                    deps.pinManager.pinAll(items: displayAlbum.albums.map { album in
                         (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
                     })
                 }
             },
             customIsPinned: {
                 displayAlbum.albums.allSatisfy {
-                    deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+                    deps.pinManager.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
                 }
             }
         )
@@ -344,14 +344,14 @@ public struct AlbumGrid: View {
             currentTitle: album.title
         ) { newTitle in
             do {
-                let result = try await deps.metadataMutationWorkflow.editAlbum(album, title: newTitle)
+                let toast = try await deps.metadataMutationService.editAlbum(album, title: newTitle)
                 await MainActor.run {
-                    deps.toastCenter.show(result.successToast)
+                    deps.toastCenter.show(toast)
                 }
             } catch {
                 await MainActor.run {
                     deps.toastCenter.show(
-                        deps.metadataMutationWorkflow.editFailureToast(
+                        deps.metadataMutationService.editFailureToast(
                             noun: "Album",
                             itemID: album.sourceScopedID,
                             error: error,
@@ -366,15 +366,15 @@ public struct AlbumGrid: View {
 
     private func deleteAlbum(_ album: Album) async {
         do {
-            let result = try await deps.metadataMutationWorkflow.deleteAlbum(album)
+            let toast = try await deps.metadataMutationService.deleteAlbum(album)
             await MainActor.run {
-                deps.toastCenter.show(result.successToast)
+                deps.toastCenter.show(toast)
                 pendingAlbumDeletion = nil
             }
         } catch {
             await MainActor.run {
                 deps.toastCenter.show(
-                    deps.metadataMutationWorkflow.deleteFailureToast(
+                    deps.metadataMutationService.deleteFailureToast(
                         noun: "Album",
                         itemID: album.sourceScopedID,
                         error: error,

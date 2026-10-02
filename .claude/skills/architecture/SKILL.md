@@ -59,7 +59,7 @@ Dependency flow is one-way:
 - `PlaybackService` is the playback facade and holds the single live queue state. Queue commands and transport side effects enter through it; `PlaybackQueueController` receives queue values for focused transformations and persistence coordination but must not retain or publish a second live queue. Audio session, queue storage, launch/recovery policy, file cache, prefetch, now-playing metadata, reporting, settings observation, system-media donations, and transport resolution belong in focused collaborators.
 - `OfflineDownloadService` remains the target/queue source of truth. Platform events route through the offline background coordinator, not directly from app delegates into queue workers.
 - `NavigationCoordinator` is scene/window-scoped for user navigation. Do not route user-driven navigation through a shared singleton coordinator that would mirror iPad/macOS windows.
-- Shared workflows own cross-screen business rules: playlist mutation, metadata mutation, pin mutation, download mutation, drag/drop playlist resolution, track actions, media filtering, and Siri playback execution.
+- `PinManager`, `OfflineDownloadService`, and `MetadataMutationService` own their user commands and shared feedback directly. Views own confirmation and navigation. Shared workflows still own playlist/rating mutation, drag/drop playlist resolution, track actions, media filtering, and Siri playback execution.
 
 ## System Media Integration Rules
 

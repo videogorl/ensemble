@@ -367,7 +367,7 @@ public struct AlbumDetailView: View {
     }
 
     public var body: some View {
-        let downloadState = deps.downloadMutationWorkflow.batchState(for: displayAlbum.albums)
+        let downloadState = deps.offlineDownloadService.batchState(for: displayAlbum.albums)
         MediaDetailView(
             viewModel: viewModel,
             nowPlayingVM: nowPlayingVM,
@@ -420,7 +420,7 @@ public struct AlbumDetailView: View {
                 },
                 onToggleDownload: {
                     Task {
-                        await deps.downloadMutationWorkflow.toggleDownloads(for: displayAlbum.albums)
+                        await deps.offlineDownloadService.toggleDownloads(for: displayAlbum.albums)
                     }
                 },
                 onAddToPlaylist: { present in
@@ -479,11 +479,11 @@ public struct AlbumDetailView: View {
             },
             customPinAction: { isPinned in
                 if isPinned {
-                    deps.pinMutationWorkflow.unpinAll(
+                    deps.pinManager.unpinAll(
                         identities: Set(displayAlbum.albums.map(\.sourceScopedID))
                     )
                 } else {
-                    deps.pinMutationWorkflow.pinAll(items: displayAlbum.albums.map { album in
+                    deps.pinManager.pinAll(items: displayAlbum.albums.map { album in
                         (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
                     })
                 }
@@ -506,18 +506,18 @@ public struct AlbumDetailView: View {
                 albumPendingDeletion = nil
                 Task {
                     do {
-                        let result = try await deps.metadataMutationWorkflow.deleteAlbum(
+                        let toast = try await deps.metadataMutationService.deleteAlbum(
                             deletingAlbum,
                             scope: .albumDetail
                         )
                         await MainActor.run {
-                            deps.toastCenter.show(result.successToast)
+                            deps.toastCenter.show(toast)
                             dismiss()
                         }
                     } catch {
                         await MainActor.run {
                             deps.toastCenter.show(
-                                deps.metadataMutationWorkflow.deleteFailureToast(
+                                deps.metadataMutationService.deleteFailureToast(
                                     noun: "Album",
                                     itemID: deletingAlbum.sourceScopedID,
                                     error: error,
@@ -556,18 +556,18 @@ public struct AlbumDetailView: View {
             currentTitle: selectedAlbum.title
         ) { newTitle in
             do {
-                let result = try await deps.metadataMutationWorkflow.editAlbum(
+                let toast = try await deps.metadataMutationService.editAlbum(
                     selectedAlbum,
                     title: newTitle,
                     scope: .albumDetail
                 )
                 await MainActor.run {
-                    deps.toastCenter.show(result.successToast)
+                    deps.toastCenter.show(toast)
                 }
             } catch {
                 await MainActor.run {
                     deps.toastCenter.show(
-                        deps.metadataMutationWorkflow.editFailureToast(
+                        deps.metadataMutationService.editFailureToast(
                             noun: "Album",
                             itemID: selectedAlbum.sourceScopedID,
                             error: error,

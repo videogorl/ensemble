@@ -75,6 +75,20 @@ public final class PinManager: ObservableObject {
         savePins()
     }
 
+    public func togglePin(
+        id: String,
+        sourceKey: String,
+        type: PinnedItemType,
+        title: String,
+        isPinned: Bool? = nil
+    ) {
+        if isPinned ?? self.isPinned(id: id, sourceKey: sourceKey) {
+            unpin(id: id, sourceKey: sourceKey)
+        } else {
+            pin(id: id, sourceKey: sourceKey, type: type, title: title)
+        }
+    }
+
     /// Remove a pinned item
     public func unpin(id: String, sourceKey: String) {
         removePins { $0.matches(id: id, sourceKey: sourceKey) }
