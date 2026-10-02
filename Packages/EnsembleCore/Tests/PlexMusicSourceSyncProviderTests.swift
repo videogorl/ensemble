@@ -59,7 +59,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         let client = PlexAPIClient(
             connection: .init(url: "https://playlist.invalid", alternativeURLs: ["https://alternate-playlist.invalid"], token: "test", identifier: serverID, name: "Test"),
             keychain: TestKeychain(),
-            failoverManager: ConnectionFailoverManager(urlSession: session),
+            probeURLSession: session,
             urlSession: session
         )
         let source = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: serverID, libraryId: "3")
@@ -561,7 +561,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         let client = PlexAPIClient(
             connection: .init(url: "https://playlist-clear.invalid", alternativeURLs: ["https://alternate-clear.invalid"], token: "test", identifier: serverID, name: "Test"),
             keychain: TestKeychain(),
-            failoverManager: ConnectionFailoverManager(urlSession: session),
+            probeURLSession: session,
             urlSession: session
         )
         let source = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: serverID, libraryId: "3")

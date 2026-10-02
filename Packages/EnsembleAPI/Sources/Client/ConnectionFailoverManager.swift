@@ -14,6 +14,7 @@ public actor ConnectionFailoverManager {
 
     // TLS failure cooldown tracking - deprioritize endpoints with persistent TLS errors
     private var tlsFailureCooldowns: [String: Date] = [:]  // URL -> cooldown expiry
+    private var isRetired = false
     private let tlsCooldownDuration: TimeInterval = 300     // 5 minutes
     
     public init(timeout: TimeInterval = 5.0, urlSession: URLSession? = nil) {
@@ -91,6 +92,9 @@ public actor ConnectionFailoverManager {
         allowInsecure: AllowInsecureConnectionsPolicy,
         networkContext: NetworkReachabilityContext = .unknown
     ) async -> ConnectionSelectionResult {
+        guard !isRetired, !Task.isCancelled else {
+            return ConnectionSelectionResult(selected: nil, probes: [], reusedPreferredPath: false, skippedInsecureCount: 0)
+        }
         let key = ConnectionSelectionKey(
             endpoints: endpoints,
             token: token,
@@ -311,49 +315,24 @@ public actor ConnectionFailoverManager {
         lastProbeResultsByURL[url]
     }
 
-    /// Records a failed endpoint observation so immediate failover does not reprobe a recently broken candidate.
-    public func recordConnectionFailure(endpoint: PlexEndpointDescriptor, error: Error) {
-        let category = failureCategory(for: error)
-        let result = ConnectionProbeResult(
-            endpoint: endpoint,
-            success: false,
-            duration: 0,
-            failureCategory: category
-        )
-        lastProbeResultsByURL[endpoint.url] = result
-
-        if category != .cancelled {
-            updateConnectionHealth(url: endpoint.url, success: false)
-        }
-
-        if category == .tls {
-            recordTLSFailure(endpoint.url)
-        }
+    /// Older failures must not overwrite a newer successful request or probe.
+    public func recordConnectionFailure(endpoint: PlexEndpointDescriptor, error: Error, startedAt: UInt64 = DispatchTime.now().uptimeNanoseconds) {
+        recordObservation(ConnectionProbeResult(endpoint: endpoint, success: false, duration: 0,
+            failureCategory: failureCategory(for: error)), startedAt: startedAt)
     }
 
-    /// Records an externally verified healthy endpoint so future selections can use the preferred fast path.
-    public func recordConnectionSuccess(endpoint: PlexEndpointDescriptor) {
-        let result = ConnectionProbeResult(
-            endpoint: endpoint,
-            success: true,
-            duration: 0,
-            failureCategory: nil
-        )
-        lastProbeResultsByURL[endpoint.url] = result
-        updateConnectionHealth(url: endpoint.url, success: true)
+    public func recordConnectionSuccess(endpoint: PlexEndpointDescriptor, startedAt: UInt64 = DispatchTime.now().uptimeNanoseconds) {
+        recordObservation(ConnectionProbeResult(endpoint: endpoint, success: true, duration: 0,
+            failureCategory: nil), startedAt: startedAt)
     }
-    
-    /// Reset connection health tracking
-    public func resetHealthTracking() {
-        connectionHealth.removeAll()
-        lastProbeResultsByURL.removeAll()
-        for task in inFlightSelections.values {
-            task.cancel()
-        }
+
+    /// A replacement owns fresh history; old callbacks can only reach this retired helper.
+    func retire() {
+        isRetired = true
+        for task in inFlightSelections.values { task.cancel() }
         inFlightSelections.removeAll()
-        tlsFailureCooldowns.removeAll()
     }
-    
+
     // MARK: - Private Methods
 
     /// Filter endpoints by network reachability context.
@@ -455,15 +434,16 @@ public actor ConnectionFailoverManager {
         }
     }
 
-    private func updateConnectionHealth(url: String, success: Bool) {
-        if var health = connectionHealth[url] {
-            health.recordAttempt(success: success)
-            connectionHealth[url] = health
-        } else {
-            var health = ConnectionHealth()
-            health.recordAttempt(success: success)
-            connectionHealth[url] = health
-        }
+    private func recordObservation(_ result: ConnectionProbeResult, startedAt: UInt64) {
+        guard !isRetired, !Task.isCancelled, result.failureCategory != .cancelled else { return }
+        var health = connectionHealth[result.endpoint.url] ?? ConnectionHealth()
+        guard startedAt >= health.lastEvidenceStartedAt else { return }
+        health.lastEvidenceStartedAt = startedAt
+        health.recordAttempt(success: result.success)
+        connectionHealth[result.endpoint.url] = health
+        lastProbeResultsByURL[result.endpoint.url] = result
+        if result.success { tlsFailureCooldowns.removeValue(forKey: result.endpoint.url) }
+        if result.failureCategory == .tls { recordTLSFailure(result.endpoint.url) }
     }
 
     private func preferredRecentHealthyEndpoint(from endpoints: [PlexEndpointDescriptor]) -> PlexEndpointDescriptor? {
@@ -492,6 +472,7 @@ public actor ConnectionFailoverManager {
         token: String,
         probeTimeout: TimeInterval? = nil
     ) async -> ConnectionProbeResult {
+        let startedAt = DispatchTime.now().uptimeNanoseconds
         let url = endpoint.url
         let logDescription = probeLogDescription(for: endpoint)
         guard URL(string: url) != nil else {
@@ -502,7 +483,7 @@ public actor ConnectionFailoverManager {
                 duration: 0,
                 failureCategory: .other
             )
-            lastProbeResultsByURL[url] = result
+            recordObservation(result, startedAt: startedAt)
             return result
         }
 
@@ -518,7 +499,7 @@ public actor ConnectionFailoverManager {
                 duration: 0,
                 failureCategory: .other
             )
-            lastProbeResultsByURL[url] = result
+            recordObservation(result, startedAt: startedAt)
             return result
         }
 
@@ -529,14 +510,14 @@ public actor ConnectionFailoverManager {
 
         EnsembleLogger.debug("🔄 ConnectionTest \(logDescription): Testing...")
 
-        if Task.isCancelled {
+        if Task.isCancelled || isRetired {
             let result = ConnectionProbeResult(
                 endpoint: endpoint,
                 success: false,
                 duration: 0,
                 failureCategory: .cancelled
             )
-            lastProbeResultsByURL[url] = result
+            recordObservation(result, startedAt: startedAt)
             EnsembleLogger.debug("ℹ️ ConnectionTest \(logDescription): Cancelled before test (hedged probe)")
             return result
         }
@@ -545,6 +526,9 @@ public actor ConnectionFailoverManager {
         do {
             let (_, response) = try await requestPerformer(request)
             let duration = Date().timeIntervalSince(startTime)
+            if Task.isCancelled || isRetired {
+                return ConnectionProbeResult(endpoint: endpoint, success: false, duration: duration, failureCategory: .cancelled)
+            }
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 let result = ConnectionProbeResult(
@@ -553,8 +537,7 @@ public actor ConnectionFailoverManager {
                     duration: duration,
                     failureCategory: .other
                 )
-                lastProbeResultsByURL[url] = result
-                updateConnectionHealth(url: url, success: false)
+                recordObservation(result, startedAt: startedAt)
                 EnsembleLogger.debug("❌ ConnectionTest \(logDescription): Invalid response after \(String(format: "%.1f", duration))s")
                 return result
             }
@@ -566,8 +549,7 @@ public actor ConnectionFailoverManager {
                 duration: duration,
                 failureCategory: isSuccessful ? nil : .other
             )
-            lastProbeResultsByURL[url] = result
-            updateConnectionHealth(url: url, success: isSuccessful)
+            recordObservation(result, startedAt: startedAt)
 
             if isSuccessful {
                 EnsembleLogger.debug("✅ ConnectionTest \(logDescription): Success in \(String(format: "%.1f", duration))s")
@@ -585,17 +567,7 @@ public actor ConnectionFailoverManager {
                 duration: duration,
                 failureCategory: category
             )
-            lastProbeResultsByURL[url] = result
-
-            // Cancellation is expected in hedged probes and should not poison health scoring.
-            if category != .cancelled {
-                updateConnectionHealth(url: url, success: false)
-            }
-
-            // Record TLS failures for cooldown tracking
-            if category == .tls {
-                recordTLSFailure(url)
-            }
+            recordObservation(result, startedAt: startedAt)
 
             EnsembleLogger.debug("❌ ConnectionTest \(logDescription): Failed category=\(category.rawValue)")
             return result
@@ -700,6 +672,7 @@ private extension NetworkReachabilityContext {
 
 /// Tracks the health of a connection over time
 public struct ConnectionHealth: Sendable {
+    var lastEvidenceStartedAt: UInt64 = 0
     public private(set) var successCount: Int = 0
     public private(set) var failureCount: Int = 0
     public private(set) var lastAttempt: Date?

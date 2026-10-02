@@ -118,7 +118,7 @@ final class PlexPlaylistRetryTests: XCTestCase {
                 XCTAssertEqual(libraries.map(\.title), ["Music"])
             }
             XCTAssertEqual(attempts, 2)
-            let currentURL = await client.getCurrentServerURL()
+            let currentURL = try await client.getCurrentServerURL()
             XCTAssertEqual(currentURL, "https://fallback.invalid")
         }
     }
@@ -143,7 +143,7 @@ final class PlexPlaylistRetryTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         let client = PlexAPIClient(
             connection: PlexServerConnection(url: "https://failed.invalid", alternativeURLs: ["https://fallback.invalid"], token: "test", identifier: "server", name: "Test"),
-            failoverManager: ConnectionFailoverManager(timeout: 0.1, urlSession: session),
+            probeURLSession: session,
             urlSession: session
         )
         return (client, session)

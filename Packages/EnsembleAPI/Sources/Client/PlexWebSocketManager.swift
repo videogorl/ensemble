@@ -31,7 +31,7 @@ public enum PlexServerEvent: Sendable {
 /// receive session-level notifications (e.g. `playing`). The WebSocket still
 /// provides implicit health signals for all account types.
 public actor PlexWebSocketManager {
-    private var serverURL: String
+    private let serverURL: String
     private let token: String
     private let serverName: String
     private let clientIdentifier: String
@@ -76,7 +76,7 @@ public actor PlexWebSocketManager {
 
     /// Start the WebSocket connection. Safe to call multiple times.
     public func start() {
-        guard isStopped else { return }
+        guard isStopped, !Task.isCancelled else { return }
         isStopped = false
         currentBackoff = Self.minBackoff
         consecutiveFailures = 0
@@ -92,26 +92,8 @@ public actor PlexWebSocketManager {
         receiveTask?.cancel()
         receiveTask = nil
         disconnect()
-    }
-
-    /// Update the server URL and force a reconnect.
-    /// Called when the connection registry discovers a new working endpoint
-    /// (e.g., after a health check switches from a stale local IP to a remote endpoint).
-    public func updateServerURL(_ newURL: String) {
-        guard newURL != serverURL else { return }
-        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Endpoint changed")
-        serverURL = newURL
-        // Reset backoff since this is a deliberate endpoint switch, not a failure
-        currentBackoff = Self.minBackoff
-        consecutiveFailures = 0
-        isCircuitOpen = false
-        // Force reconnect if currently active
-        if !isStopped {
-            reconnectTask?.cancel()
-            reconnectTask = nil
-            disconnect()
-            connect()
-        }
+        for continuation in continuations.values { continuation.finish() }
+        continuations.removeAll()
     }
 
     // MARK: - Subscribe
@@ -194,7 +176,7 @@ public actor PlexWebSocketManager {
     // MARK: - Receive Loop
 
     private func receiveLoop() async {
-        guard let task = webSocketTask else {
+        guard !Task.isCancelled, !isStopped, let task = webSocketTask else {
             EnsembleLogger.error("🔌 WebSocket[\(serverName)]: receiveLoop called but no webSocketTask")
             return
         }
@@ -215,6 +197,7 @@ public actor PlexWebSocketManager {
 
         // Consume messages from the stream until it finishes or is cancelled
         for await message in messageStream {
+            guard !Task.isCancelled, !isStopped, webSocketTask === task else { break }
             handleReceivedMessage(message)
         }
 
@@ -222,7 +205,7 @@ public actor PlexWebSocketManager {
         // Only reconnect if not deliberately stopped AND not cancelled by disconnect().
         // Without the cancellation check, a stale receiveLoop from a prior connection
         // would trigger a spurious reconnect that kills the new connection.
-        if !isStopped && !Task.isCancelled {
+        if !isStopped && !Task.isCancelled && webSocketTask === task {
             isConnected = false
             scheduleReconnect()
         }

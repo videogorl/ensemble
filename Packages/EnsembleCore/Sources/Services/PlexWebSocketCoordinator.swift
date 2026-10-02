@@ -35,7 +35,6 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     @Published public private(set) var serverScanProgress: [String: Int] = [:]
 
     private let accountManager: AccountManager
-    private let connectionRegistry: ServerConnectionRegistry
     private let networkMonitor: NetworkMonitor
     private let clientIdentifier: String
 
@@ -66,11 +65,27 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     /// True means at least one server currently has an active WebSocket manager.
     public var onConnectionAvailabilityChanged: ((Bool) async -> Void)?
 
-    private var managers: [String: PlexWebSocketManager] = [:]
-    private var eventTasks: [String: Task<Void, Never>] = [:]
+    private final class ConnectionSlot {
+        let accountId: String
+        let serverId: String
+        let client: PlexAPIClient
+        var observationTask: Task<Void, Never>?
+        var manager: PlexWebSocketManager?
+        var eventTask: Task<Void, Never>?
+        var revision: UInt64?
+        var routingGeneration: UInt64?
+        var url: String?
+
+        init(accountId: String, serverId: String, client: PlexAPIClient) {
+            self.accountId = accountId
+            self.serverId = serverId
+            self.client = client
+        }
+    }
+
+    private var slots: [String: ConnectionSlot] = [:]
     private var accountObserver: AnyCancellable?
     private var networkObserver: AnyCancellable?
-    private var registrySubscriptionTask: Task<Void, Never>?
     private var isActive = false
 
     // Debounce library/playlist update triggers to avoid spamming sync for batch updates
@@ -91,12 +106,10 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
     public init(
         accountManager: AccountManager,
-        connectionRegistry: ServerConnectionRegistry,
         networkMonitor: NetworkMonitor,
         clientIdentifier: String
     ) {
         self.accountManager = accountManager
-        self.connectionRegistry = connectionRegistry
         self.networkMonitor = networkMonitor
         self.clientIdentifier = clientIdentifier
     }
@@ -112,7 +125,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
         subscribeToNetworkChanges()
 
-        if networkMonitor.networkState.isConnected {
+        if networkMonitor.networkState != .offline {
             refreshConnections()
         } else {
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Delaying start — network is \(networkMonitor.networkState.description)")
@@ -125,10 +138,6 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             .sink { [weak self] _ in
                 self?.refreshConnections()
             }
-
-        // Subscribe to registry endpoint changes so existing WebSocket managers
-        // reconnect to the correct URL when health checks find a new endpoint.
-        subscribeToRegistryChanges()
     }
 
     /// Stop all WebSocket connections. Call on background.
@@ -142,14 +151,9 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         accountObserver = nil
         networkObserver?.cancel()
         networkObserver = nil
-        registrySubscriptionTask?.cancel()
-        registrySubscriptionTask = nil
-
-        // Stop all managers
-        for (key, _) in managers {
-            removeManager(for: key)
+        for key in Array(slots.keys) {
+            removeSlot(for: key)
         }
-        managers.removeAll()
         applyConnectedState(Set())
 
         // Cancel pending debounced updates
@@ -167,7 +171,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     /// Sync WebSocket managers with current account/server configuration.
     private func refreshConnections() {
         guard isActive else { return }
-        guard networkMonitor.networkState.isConnected else {
+        guard networkMonitor.networkState != .offline else {
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Skipping refresh — network is \(networkMonitor.networkState.description)")
             disconnectManagersForOffline()
             return
@@ -184,98 +188,162 @@ public final class PlexWebSocketCoordinator: ObservableObject {
                 let serverKey = "\(account.id):\(server.id)"
                 activeKeys.insert(serverKey)
 
-                // Skip if already connected or pending connection
-                if managers[serverKey] != nil { continue }
+                guard let client = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else { continue }
+                if slots[serverKey]?.client.instanceID == client.instanceID { continue }
+                removeSlot(for: serverKey)
 
-                // Reserve the slot synchronously to prevent duplicate connections
-                // when refreshConnections() is called multiple times rapidly.
-                let fallbackURL = server.url
-                let serverToken = server.token
-                let serverName = server.name
-                let cid = self.clientIdentifier
-                let placeholder = PlexWebSocketManager(serverURL: fallbackURL, token: serverToken, serverName: serverName, clientIdentifier: cid)
-                managers[serverKey] = placeholder
-
-                // Resolve the best endpoint asynchronously, then connect
-                Task {
-                    let url = await self.connectionRegistry.currentURL(for: serverKey) ?? fallbackURL
-
-                    // If registry returned a different URL, replace the placeholder
-                    if url != fallbackURL {
-                        let replacement = PlexWebSocketManager(serverURL: url, token: serverToken, serverName: serverName, clientIdentifier: cid)
-                        self.setupAndStartManager(replacement, for: serverKey, name: serverName)
-                    } else {
-                        self.setupAndStartManager(placeholder, for: serverKey, name: serverName)
+                let slot = ConnectionSlot(accountId: account.id, serverId: server.id, client: client)
+                slots[serverKey] = slot
+                slot.observationTask = Task { [weak self, weak slot] in
+                    let stream = await client.connectionSnapshots()
+                    guard let self, let slot, self.isCurrentSlot(slot, for: serverKey) else { return }
+                    for await snapshot in stream {
+                        guard self.isCurrentSlot(slot, for: serverKey) else { break }
+                        await self.updateManager(for: slot, serverKey: serverKey, snapshot: snapshot)
                     }
                 }
             }
         }
 
         // Remove managers for servers that are no longer active
-        let staleKeys = Set(managers.keys).subtracting(activeKeys)
+        let staleKeys = Set(slots.keys).subtracting(activeKeys)
         for key in staleKeys {
-            removeManager(for: key)
-            managers.removeValue(forKey: key)
-            applyConnectedState(connectedServerKeys.subtracting([key]))
+            removeSlot(for: key)
         }
     }
 
-    /// Wire up event listening and start the WebSocket connection for a manager.
-    ///
-    /// Important: `events()` must be called before `start()` on the same actor
-    /// to ensure the continuation is registered before the receive loop begins.
-    /// Using separate Tasks would race — `start()` could win and broadcast to zero subscribers.
-    private func setupAndStartManager(_ manager: PlexWebSocketManager, for serverKey: String, name: String) {
-        managers[serverKey] = manager
+    private func updateManager(for slot: ConnectionSlot, serverKey: String, snapshot: PlexConnectionSnapshot) async {
+        if snapshot.availability == .retired {
+            removeSlot(for: serverKey)
+            return
+        }
+        if slot.revision != snapshot.revision || slot.routingGeneration != snapshot.routingGeneration
+            || slot.url != snapshot.endpoint?.url || snapshot.availability == .unavailable {
+            stopManager(in: slot, for: serverKey)
+        }
+        guard snapshot.availability != .unavailable else { return }
 
-        // Subscribe first, then start — sequentially on the same Task to avoid race.
-        let eventTask = Task { [weak self] in
+        let connection: PlexServerConnection
+        do {
+            connection = try await slot.client.getServerConnection(expectedRevision: snapshot.revision)
+        } catch {
+            return
+        }
+        guard isCurrentSlot(slot, for: serverKey),
+              connection.revision == snapshot.revision,
+              connection.routingGeneration == snapshot.routingGeneration,
+              !connection.isDeviceOffline,
+              let url = snapshot.endpoint?.url else { return }
+        if slot.manager != nil, slot.revision == connection.revision,
+           slot.routingGeneration == connection.routingGeneration, slot.url == url { return }
+
+        stopManager(in: slot, for: serverKey)
+        let manager = PlexWebSocketManager(
+            serverURL: url,
+            token: connection.token,
+            serverName: connection.name,
+            clientIdentifier: clientIdentifier
+        )
+        slot.manager = manager
+        slot.revision = connection.revision
+        slot.routingGeneration = connection.routingGeneration
+        slot.url = url
+        slot.eventTask = Task { [weak self, weak slot] in
             let stream = await manager.events()
+            guard let self, let slot,
+                  await self.isCurrentManager(manager, in: slot, for: serverKey, connection: connection, url: url) else { return }
             await manager.start()
-
-            await MainActor.run {
-                guard let self else { return }
-                self.applyConnectedState(self.connectedServerKeys.union([serverKey]))
+            guard await self.isCurrentManager(manager, in: slot, for: serverKey, connection: connection, url: url) else {
+                await manager.stop()
+                return
             }
+            self.applyConnectedState(self.connectedServerKeys.union([serverKey]))
 
             for await event in stream {
-                guard let self, !Task.isCancelled else { break }
-                await self.handleEvent(event, from: serverKey)
+                guard await self.isCurrentManager(manager, in: slot, for: serverKey, connection: connection, url: url) else { break }
+                if case .connectionHealthy = event {
+                    await slot.client.recordServerActivity(
+                        expectedRevision: connection.revision,
+                        expectedRoutingGeneration: connection.routingGeneration
+                    )
+                    guard await self.isCurrentManager(manager, in: slot, for: serverKey, connection: connection, url: url) else { break }
+                }
+                await self.handleEvent(event, from: serverKey) {
+                    await self.isCurrentManager(manager, in: slot, for: serverKey, connection: connection, url: url)
+                }
             }
         }
-        eventTasks[serverKey] = eventTask
-
-        EnsembleLogger.debug("🔌 WebSocketCoordinator: Connected manager for \(serverKey) (\(name))")
     }
 
-    private func removeManager(for serverKey: String) {
-        eventTasks[serverKey]?.cancel()
-        eventTasks.removeValue(forKey: serverKey)
+    private func isCurrentSlot(_ slot: ConnectionSlot, for serverKey: String) -> Bool {
+        guard isActive, !Task.isCancelled, slots[serverKey] === slot,
+              let account = accountManager.plexAccounts.first(where: { $0.id == slot.accountId }),
+              let server = account.servers.first(where: { $0.id == slot.serverId }),
+              server.libraries.contains(where: \.isEnabled) else { return false }
+        return accountManager.makeAPIClient(accountId: slot.accountId, serverId: slot.serverId)?.instanceID == slot.client.instanceID
+    }
 
-        if let manager = managers[serverKey] {
+    private func isCurrentManager(
+        _ manager: PlexWebSocketManager,
+        in slot: ConnectionSlot,
+        for serverKey: String,
+        connection: PlexServerConnection,
+        url: String
+    ) async -> Bool {
+        guard isCurrentSlot(slot, for: serverKey), slot.manager === manager else { return false }
+        let snapshot = await slot.client.currentConnectionSnapshot()
+        return isCurrentSlot(slot, for: serverKey) && slot.manager === manager
+            && snapshot.revision == connection.revision
+            && snapshot.routingGeneration == connection.routingGeneration
+            && snapshot.endpoint?.url == url
+            && snapshot.availability != .retired && snapshot.availability != .unavailable
+    }
+
+    private func stopManager(in slot: ConnectionSlot, for serverKey: String) {
+        slot.eventTask?.cancel()
+        slot.eventTask = nil
+        if let manager = slot.manager {
             Task { await manager.stop() }
         }
+        slot.manager = nil
+        slot.revision = nil
+        slot.routingGeneration = nil
+        slot.url = nil
+        applyConnectedState(connectedServerKeys.subtracting([serverKey]))
+    }
 
+    private func removeSlot(for serverKey: String) {
+        if let slot = slots.removeValue(forKey: serverKey) {
+            slot.observationTask?.cancel()
+            stopManager(in: slot, for: serverKey)
+        }
         pendingLibraryUpdates.cancel { $0.hasPrefix("\(serverKey):") }
         pendingLibraryChanges = pendingLibraryChanges.filter { !$0.key.hasPrefix("\(serverKey):") }
+        activeLibrarySyncs = activeLibrarySyncs.filter { !$0.hasPrefix("\(serverKey):") }
+        lastLibrarySyncCompletion = lastLibrarySyncCompletion.filter { !$0.key.hasPrefix("\(serverKey):") }
         pendingPlaylistUpdates.cancel(key: serverKey)
+        pendingDownloadCompletions.cancel(key: serverKey)
         pendingSettingsUpdates.cancel(key: serverKey)
+        serverScanProgress.removeValue(forKey: serverKey)
     }
 
     private func disconnectManagersForOffline() {
-        guard !managers.isEmpty || !connectedServerKeys.isEmpty else { return }
+        guard !slots.isEmpty || !connectedServerKeys.isEmpty else { return }
 
         EnsembleLogger.debug("🔌 WebSocketCoordinator: Disconnecting managers while network is \(networkMonitor.networkState.description)")
-        for key in Array(managers.keys) {
-            removeManager(for: key)
+        for key in Array(slots.keys) {
+            removeSlot(for: key)
         }
-        managers.removeAll()
         applyConnectedState(Set())
     }
 
     // MARK: - Event Routing
 
-    private func handleEvent(_ event: PlexServerEvent, from serverKey: String) async {
+    private func handleEvent(
+        _ event: PlexServerEvent,
+        from serverKey: String,
+        isCurrent: (() async -> Bool)? = nil
+    ) async {
         switch event {
         case .libraryUpdate(let sectionID, let itemID, let type, let state):
             // Playlist changes (type 15) trigger a playlist-only sync for the server
@@ -290,12 +358,14 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             if type == 9 && state == 5 {
                 let ratingKey = String(itemID)
                 await onArtworkInvalidation?(ratingKey, "album")
+                guard await isCurrent?() ?? true else { return }
             }
 
             // Artist metadata update (type=8, state=5) may include artwork changes
             if type == 8 && state == 5 {
                 let ratingKey = String(itemID)
                 await onArtworkInvalidation?(ratingKey, "artist")
+                guard await isCurrent?() ?? true else { return }
             }
 
             let actionableStates = [0, 5, 9]
@@ -342,7 +412,6 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         case .serverShutdown:
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Server shutdown for \(serverKey)")
             // Mark server offline immediately
-            await connectionRegistry.removeEndpoint(for: serverKey)
             await onServerOffline?(serverKey)
 
         case .settingsUpdate:
@@ -380,7 +449,9 @@ public final class PlexWebSocketCoordinator: ObservableObject {
                 }
                 return
             }
-            defer { self.finishLibrarySync(for: debounceKey) }
+            defer {
+                if !Task.isCancelled { self.finishLibrarySync(for: debounceKey) }
+            }
             let changes = self.pendingLibraryChanges.removeValue(forKey: debounceKey) ?? []
 
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Triggering incremental sync for section \(sectionKey) (items=\(changes.count))")
@@ -414,24 +485,6 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         }
     }
 
-    // MARK: - Registry Subscription
-
-    /// Listen for endpoint changes from the registry and update existing WebSocket
-    /// managers to use the new URL. Without this, managers created before the first
-    /// health check keep reconnecting to a stale (possibly unreachable) endpoint.
-    private func subscribeToRegistryChanges() {
-        registrySubscriptionTask = Task { [weak self] in
-            guard let self else { return }
-            let stream = await connectionRegistry.endpointChanges()
-            for await state in stream {
-                guard !Task.isCancelled else { break }
-                if let manager = self.managers[state.serverKey] {
-                    await manager.updateServerURL(state.endpoint.url)
-                }
-            }
-        }
-    }
-
     private func subscribeToNetworkChanges() {
         networkObserver?.cancel()
         networkObserver = networkMonitor.$networkState
@@ -439,7 +492,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 guard let self, self.isActive else { return }
-                if state.isConnected {
+                if state != .offline {
                     EnsembleLogger.debug("🔌 WebSocketCoordinator: Network restored — refreshing connections")
                     self.refreshConnections()
                 } else {
@@ -452,13 +505,11 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private func triggerSyncForServer(serverKey: String) {
         let parts = serverKey.split(separator: ":", maxSplits: 1)
         guard parts.count == 2 else { return }
+        let accountId = String(parts[0])
         let serverId = String(parts[1])
-
-        var sectionKeys = Set<String>()
-        for account in accountManager.plexAccounts {
-            guard let server = account.servers.first(where: { $0.id == serverId }) else { continue }
-            sectionKeys.formUnion(server.libraries.filter(\.isEnabled).map(\.key))
-        }
+        guard let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
+              let server = account.servers.first(where: { $0.id == serverId }) else { return }
+        let sectionKeys = Set(server.libraries.filter(\.isEnabled).map(\.key))
 
         for sectionKey in sectionKeys.sorted() {
             debouncedLibraryUpdate(sectionKey: sectionKey, serverKey: serverKey)
@@ -507,7 +558,8 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
         guard previousHasConnections != hasConnections else { return }
         Task { [weak self] in
-            await self?.onConnectionAvailabilityChanged?(hasConnections)
+            guard let self, !self.connectedServerKeys.isEmpty == hasConnections else { return }
+            await self.onConnectionAvailabilityChanged?(hasConnections)
         }
     }
 }

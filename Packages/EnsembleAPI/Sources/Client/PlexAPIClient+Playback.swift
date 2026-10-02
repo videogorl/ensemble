@@ -4,7 +4,8 @@ extension PlexAPIClient {
     // MARK: - Playback URLs
 
     /// Generate streaming URL for a track using its stream key.
-    public func getStreamURL(trackKey: String?, download: Bool = false) throws -> URL {
+    public func getStreamURL(trackKey: String?, download: Bool = false) async throws -> URL {
+        let attempt = try await authorizedServerAttempt()
         guard let partKey = trackKey, !partKey.isEmpty else {
             EnsembleLogger.debug("❌ PlexAPIClient: trackKey is nil or empty")
             throw PlexAPIError.invalidURL
@@ -13,14 +14,14 @@ extension PlexAPIClient {
         EnsembleLogger.debug("🔍 PlexAPIClient: Building stream URL with partKey: \(partKey)")
         EnsembleLogger.debug("🔍 PlexAPIClient: Current server URL: \(currentServerURL)")
 
-        guard var components = URLComponents(string: currentServerURL) else {
+        guard var components = URLComponents(string: attempt.endpoint.url) else {
             EnsembleLogger.debug("❌ PlexAPIClient: Failed to create URLComponents from current server URL")
             throw PlexAPIError.invalidURL
         }
 
         components.path = partKey
         components.queryItems = [
-            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
+            URLQueryItem(name: "X-Plex-Token", value: attempt.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
 
@@ -128,20 +129,21 @@ extension PlexAPIClient {
 
     /// Phase 2: Assemble a `StreamResolution` from a `StreamDecision` using the current server endpoint.
     public func assembleStreamResolution(from decision: StreamDecision) async throws -> StreamResolution {
-        await syncCurrentEndpointFromRegistryIfNeeded(reason: "stream assembly")
-
         switch decision {
         case .directStream(let partKey):
-            let url = try getStreamURL(trackKey: partKey)
+            let url = try await getStreamURL(trackKey: partKey)
             EnsembleLogger.debug("[assembleStream] directStream → \(url)")
             return .directStream(url)
 
         case .progressiveTranscode(let transcode):
-            let url = try buildTranscodeURL(path: transcode.path, queryItems: transcode.queryItems)
+            let attempt = try await authorizedServerAttempt()
+            let queryItems = transcode.queryItems.filter { $0.name != "X-Plex-Token" }
+                + [URLQueryItem(name: "X-Plex-Token", value: attempt.token)]
+            let url = try buildTranscodeURL(path: transcode.path, queryItems: queryItems)
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            requestHeaderContext.apply(to: &request, token: serverConnection.token)
+            requestHeaderContext.apply(to: &request, token: attempt.token)
             request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
 
             let config = ProgressiveStreamConfig(
@@ -218,13 +220,14 @@ extension PlexAPIClient {
     /// Call the transcode decision endpoint to warm up the session and parse PMS's decision.
     @discardableResult
     func callTranscodeDecision(queryItems: [URLQueryItem]) async throws -> TranscodeDecisionResult {
-        await syncCurrentEndpointFromRegistryIfNeeded(reason: "transcode decision")
-
         var didRetry = false
         while true {
+            let attempt = try await authorizedServerAttempt()
+            let currentQueryItems = queryItems.filter { $0.name != "X-Plex-Token" }
+                + [URLQueryItem(name: "X-Plex-Token", value: attempt.token)]
             let url = try buildTranscodeURL(
                 path: "/music/:/transcode/universal/decision",
-                queryItems: queryItems
+                queryItems: currentQueryItems
             )
 
             EnsembleLogger.debug("🔄 Calling transcode decision endpoint")
@@ -232,7 +235,7 @@ extension PlexAPIClient {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            requestHeaderContext.apply(to: &request, token: serverConnection.token)
+            requestHeaderContext.apply(to: &request, token: attempt.token)
             request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
 
             do {
@@ -247,23 +250,24 @@ extension PlexAPIClient {
                     throw PlexAPIError.httpError(statusCode: httpResponse.statusCode)
                 }
 
+                try await recordServerAttemptSuccess(attempt)
                 let result = parseTranscodeDecision(from: data)
                 EnsembleLogger.debug("✅ Transcode decision completed: \(result.decision.rawValue), partKey: \(result.directStreamPartKey ?? "nil")")
                 return result
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                guard !didRetry,
-                      !serverConnection.alternativeURLs.isEmpty,
+                try Task.checkCancellation()
+                let isCurrent = await recordServerAttemptFailure(attempt, error: error)
+                guard !didRetry, isCurrent,
+                      serverConnection.endpoints.count > 1,
                       shouldAttemptFailover(after: error) else {
                     throw error
                 }
 
                 didRetry = true
-                let failedURL = currentServerURL
-                await recordCurrentEndpointFailure(error)
                 EnsembleLogger.debug("⚠️ Transcode decision failed with current endpoint, attempting failover...")
-                _ = try await attemptFailover(excluding: failedURL)
+                _ = try await attemptFailover(excluding: attempt.endpoint.url)
             }
         }
     }

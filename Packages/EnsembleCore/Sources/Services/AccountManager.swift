@@ -102,6 +102,8 @@ public final class AccountManager: ObservableObject {
     @Published public private(set) var plexAccounts: [PlexAccountConfig] = [] {
         didSet {
             recordPlexSourceConfigurationChanges(from: oldValue, to: plexAccounts)
+            reconcileAPIClients(previousAccounts: oldValue, previousPolicy: connectionPolicy)
+            connectionPolicy = AllowInsecureConnectionsPolicy.storedPreference()
         }
     }
     @Published public private(set) var isAppleMusicEnabled: Bool {
@@ -150,9 +152,24 @@ public final class AccountManager: ObservableObject {
     }
 
     private let keychain: KeychainServiceProtocol
-    private let connectionRegistry: ServerConnectionRegistry?
-    private let isNetworkAvailable: @Sendable () async -> Bool
-    private var apiClientCache: [String: PlexAPIClient] = [:]  // Cache by "accountId:serverId"
+    private struct CachedClient {
+        let accountId: String
+        let serverId: String
+        let client: PlexAPIClient
+        var revision: UInt64 = 0
+        var wakeTask: Task<Void, Never>?
+    }
+    private struct ResourceRefresh {
+        let id = UUID()
+        let authToken: String
+        let task: Task<[PlexDevice], Error>
+    }
+    private let networkMonitor: NetworkMonitor?
+    private let urlSession: URLSession?
+    private var connectionPolicy = AllowInsecureConnectionsPolicy.storedPreference()
+    private var apiClientCache: [String: CachedClient] = [:]
+    private var resourceRefreshTasks: [String: ResourceRefresh] = [:]
+    private var resourceRefreshDates: [String: [String: Date]] = [:]
     private var syncedLibraryFlagEntries: [String: LibraryFlagEntry] = [:]
     private var libraryFlagModifiedAt: [String: TimeInterval]
     private var accountLoadTask: Task<AccountLoadResult, Never>?
@@ -169,12 +186,12 @@ public final class AccountManager: ObservableObject {
 
     public init(
         keychain: KeychainServiceProtocol,
-        connectionRegistry: ServerConnectionRegistry? = nil,
-        isNetworkAvailable: @escaping @Sendable () async -> Bool = { true }
+        networkMonitor: NetworkMonitor? = nil,
+        urlSession: URLSession? = nil
     ) {
         self.keychain = keychain
-        self.connectionRegistry = connectionRegistry
-        self.isNetworkAvailable = isNetworkAvailable
+        self.networkMonitor = networkMonitor
+        self.urlSession = urlSession
         self.libraryFlagModifiedAt = Self.loadLibraryFlagModifiedAt()
         #if os(iOS)
         let appleMusicSetupState = Self.loadAppleMusicSetupState()
@@ -184,6 +201,9 @@ public final class AccountManager: ObservableObject {
         self.isAppleMusicEnabled = false
         self.isAppleMusicInitialSyncPending = false
         #endif
+        networkMonitor?.onRoutingChanged = { [weak self] in
+            self?.networkConditionsDidChange()
+        }
     }
 
     // MARK: - Load / Save
@@ -600,19 +620,13 @@ public final class AccountManager: ObservableObject {
         cancelPendingAccountLoad()
         credentialLoadState = .loaded
         let resolvedAccount = applyingSyncedLibraryFlags(to: preservingExistingConfiguration(in: account))
-        // Replace if same account ID already exists
-        plexAccounts.removeAll { $0.id == resolvedAccount.id }
-        plexAccounts.append(resolvedAccount)
+        plexAccounts = plexAccounts.filter { $0.id != resolvedAccount.id } + [resolvedAccount]
         saveAccounts()
     }
 
     public func removePlexAccount(id: String) {
         cancelPendingAccountLoad()
         credentialLoadState = .loaded
-        // Clear cached API clients for this account
-        plexAccounts.first(where: { $0.id == id })?.servers.forEach { server in
-            clearAPIClientCache(accountId: id, serverId: server.id)
-        }
         plexAccounts.removeAll { $0.id == id }
         saveAccounts()
     }
@@ -620,11 +634,6 @@ public final class AccountManager: ObservableObject {
     public func updatePlexAccount(_ account: PlexAccountConfig) {
         let resolvedAccount = applyingSyncedLibraryFlags(to: account)
         if let index = plexAccounts.firstIndex(where: { $0.id == resolvedAccount.id }) {
-            // NOTE: We intentionally do NOT clear the API client cache here.
-            // Clearing the cache invalidates existing references held by providers,
-            // causing them to use stale URLs when building stream requests.
-            // The cached API client's currentServerURL is updated separately by
-            // SyncCoordinator.refreshAPIClientConnections() after health checks.
             plexAccounts[index] = resolvedAccount
             saveAccounts()
         }
@@ -1021,67 +1030,162 @@ public final class AccountManager: ObservableObject {
         #endif
     }
 
-    /// Create or retrieve cached PlexAPIClient for a specific server
+    /// Canonical client shared by libraries of one exact account/server.
     public func makeAPIClient(accountId: String, serverId: String) -> PlexAPIClient? {
-        let cacheKey = "\(accountId):\(serverId)"
-
-        // Return cached client if available (no log — called frequently)
-        if let cachedClient = apiClientCache[cacheKey] {
-            return cachedClient
-        }
-
-        guard let account = plexAccounts.first(where: { $0.id == accountId }),
-              let server = account.servers.first(where: { $0.id == serverId }) else {
-            EnsembleLogger.debug("❌ makeAPIClient: account/server not found — accountId:\(accountId) serverId:\(serverId)")
-            return nil
-        }
-
-        let insecurePolicy = currentAllowInsecureConnectionsPolicy()
-        let orderedConnections = policyFilteredConnections(
-            from: server.orderedConnections,
-            allowInsecure: insecurePolicy
-        )
-        EnsembleLogger.debug(
-            "makeAPIClient: creating client serverId=\(server.id) endpoints=\(orderedConnections.count)"
-        )
-
-        let endpointDescriptors = orderedConnections.map(\.endpointDescriptor)
-
-        let primaryURL = endpointDescriptors.first?.url ?? server.url
-        let alternativeURLs = endpointDescriptors
-            .map(\.url)
-            .filter { $0 != primaryURL }
-        let connection = PlexServerConnection(
-            url: primaryURL,
-            alternativeURLs: alternativeURLs,
-            endpoints: endpointDescriptors,
-            selectionPolicy: .plexSpecBalanced,
-            allowInsecurePolicy: insecurePolicy,
-            token: server.token,
-            identifier: server.id,
-            name: server.name
-        )
-
+        connectionPolicyDidChange()
+        let key = "\(accountId):\(serverId)"
+        guard let connection = connectionConfiguration(accountId: accountId, serverId: serverId) else { return nil }
+        if let cached = apiClientCache[key] { return cached.client }
+        let instanceID = UUID()
         let client = PlexAPIClient(
             connection: connection,
             keychain: keychain,
-            connectionRegistry: connectionRegistry,
-            serverKey: cacheKey,
-            isNetworkAvailable: isNetworkAvailable
+            instanceID: instanceID,
+            configurationReader: { [weak self] in
+                await self?.readConnectionConfiguration(key: key, instanceID: instanceID)
+            },
+            probeURLSession: urlSession,
+            urlSession: urlSession
         )
-        apiClientCache[cacheKey] = client
+        apiClientCache[key] = CachedClient(accountId: accountId, serverId: serverId, client: client)
         return client
     }
 
-    /// Clear the API client cache (useful when accounts/servers are removed or reconfigured)
-    public func clearAPIClientCache() {
-        apiClientCache.removeAll()
+    func requireAPIClient(sourceKey: String?) throws -> PlexAPIClient {
+        guard let identity = MediaSourceIdentity.parse(sourceKey), identity.sourceType == .plex,
+              let client = makeAPIClient(accountId: identity.accountId, serverId: identity.serverId) else {
+            throw PlexAPIError.noServerSelected
+        }
+        return client
     }
 
-    /// Clear cache for a specific server
-    public func clearAPIClientCache(accountId: String, serverId: String) {
-        let cacheKey = "\(accountId):\(serverId)"
-        apiClientCache.removeValue(forKey: cacheKey)
+    public func clearAPIClientCache() {
+        for key in Array(apiClientCache.keys) { retireClient(key: key) }
+    }
+
+    func connectionPolicyDidChange() {
+        let policy = AllowInsecureConnectionsPolicy.storedPreference()
+        guard policy != connectionPolicy else { return }
+        reconcileAPIClients(previousAccounts: plexAccounts, previousPolicy: connectionPolicy)
+        connectionPolicy = policy
+    }
+
+    func networkConditionsDidChange() {
+        for key in Array(apiClientCache.keys) { advanceClientRevision(key: key) }
+    }
+
+    private func readConnectionConfiguration(key: String, instanceID: UUID) -> PlexServerConnection? {
+        connectionPolicyDidChange()
+        guard let entry = apiClientCache[key], entry.client.instanceID == instanceID else { return nil }
+        return connectionConfiguration(accountId: entry.accountId, serverId: entry.serverId, revision: entry.revision)
+    }
+
+    private func connectionConfiguration(
+        accountId: String, serverId: String, revision: UInt64 = 0,
+        accounts: [PlexAccountConfig]? = nil, policy: AllowInsecureConnectionsPolicy? = nil
+    ) -> PlexServerConnection? {
+        guard let account = (accounts ?? plexAccounts).first(where: { $0.id == accountId }),
+              let server = account.servers.first(where: { $0.id == serverId }) else { return nil }
+        let policy = policy ?? AllowInsecureConnectionsPolicy.storedPreference()
+        let endpoints = policyFilteredConnections(from: server.orderedConnections, allowInsecure: policy).map(\.endpointDescriptor)
+        return PlexServerConnection(
+            url: endpoints.first?.url ?? "", alternativeURLs: endpoints.dropFirst().map(\.url), endpoints: endpoints,
+            selectionPolicy: .plexSpecBalanced, allowInsecurePolicy: policy,
+            token: server.token, identifier: server.id, name: server.name,
+            revision: revision, routingGeneration: networkMonitor?.routingGeneration ?? 0,
+            networkContext: networkMonitor?.reachabilityContext ?? .unknown,
+            isDeviceOffline: networkMonitor?.networkState == .offline
+        )
+    }
+
+    private func reconcileAPIClients(previousAccounts: [PlexAccountConfig], previousPolicy: AllowInsecureConnectionsPolicy) {
+        for (key, entry) in apiClientCache {
+            guard let current = connectionConfiguration(accountId: entry.accountId, serverId: entry.serverId) else {
+                retireClient(key: key)
+                continue
+            }
+            let previous = connectionConfiguration(accountId: entry.accountId, serverId: entry.serverId, accounts: previousAccounts, policy: previousPolicy)
+            if previous?.token != current.token || previous?.endpoints != current.endpoints || previous?.allowInsecurePolicy != current.allowInsecurePolicy {
+                advanceClientRevision(key: key)
+            }
+        }
+        for accountId in Set(resourceRefreshTasks.keys).union(resourceRefreshDates.keys) {
+            guard let account = plexAccounts.first(where: { $0.id == accountId }),
+                  previousAccounts.first(where: { $0.id == accountId })?.authToken == account.authToken else {
+                resourceRefreshTasks.removeValue(forKey: accountId)?.task.cancel()
+                resourceRefreshDates.removeValue(forKey: accountId)
+                continue
+            }
+            resourceRefreshDates[accountId] = resourceRefreshDates[accountId]?.filter { serverId, _ in
+                account.servers.contains(where: { $0.id == serverId })
+            }
+        }
+    }
+
+    private func retireClient(key: String) {
+        guard let entry = apiClientCache.removeValue(forKey: key) else { return }
+        entry.wakeTask?.cancel()
+        Task { await entry.client.refreshConfiguration() }
+    }
+
+    private func advanceClientRevision(key: String) {
+        guard var entry = apiClientCache[key] else { return }
+        entry.revision &+= 1
+        let client = entry.client
+        if entry.wakeTask == nil {
+            entry.wakeTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    let applied = await client.refreshConfiguration()
+                    guard let self, let current = self.apiClientCache[key], current.client === client else { return }
+                    if applied == nil || applied == current.revision {
+                        self.apiClientCache[key]?.wakeTask = nil
+                        return
+                    }
+                }
+            }
+        }
+        apiClientCache[key] = entry
+    }
+
+    /// Refresh candidate descriptors without replacing newer credentials/library choices.
+    func refreshServerResources(accountId: String, serverId: String, force: Bool = false) async -> Bool {
+        guard networkMonitor?.networkState != .offline,
+              let account = plexAccounts.first(where: { $0.id == accountId }),
+              let client = makeAPIClient(accountId: accountId, serverId: serverId) else { return false }
+        let token = account.authToken
+        let revision = apiClientCache["\(accountId):\(serverId)"]?.revision
+        let refresh: ResourceRefresh
+        if let existing = resourceRefreshTasks[accountId], existing.authToken == token {
+            refresh = existing
+        } else {
+            let obsolete = resourceRefreshTasks.removeValue(forKey: accountId)
+            obsolete?.task.cancel()
+            if obsolete == nil, !force, let date = resourceRefreshDates[accountId]?[serverId], Date().timeIntervalSince(date) < 60 { return false }
+            refresh = ResourceRefresh(authToken: token, task: Task { try await client.getResources(token: token) })
+            resourceRefreshTasks[accountId] = refresh
+        }
+        resourceRefreshDates[accountId, default: [:]][serverId] = Date()
+        defer {
+            if resourceRefreshTasks[accountId]?.id == refresh.id { resourceRefreshTasks[accountId] = nil }
+        }
+        do {
+            let devices = try await refresh.task.value
+            guard !Task.isCancelled, apiClientCache["\(accountId):\(serverId)"]?.client === client,
+                  apiClientCache["\(accountId):\(serverId)"]?.revision == revision,
+                  resourceRefreshTasks[accountId] == nil || resourceRefreshTasks[accountId]?.id == refresh.id,
+                  let latest = plexAccounts.first(where: { $0.id == accountId }), latest.authToken == refresh.authToken,
+                  let server = latest.servers.first(where: { $0.id == serverId }),
+                  let device = devices.first(where: { $0.clientIdentifier == serverId }), !device.connections.isEmpty else { return false }
+            let connections = device.connections.map {
+                PlexConnectionConfig(uri: $0.uri, local: $0.local, relay: $0.relay, address: $0.address, port: $0.port, protocol: $0.protocol)
+            }
+            let refreshed = server.replacing(url: device.bestConnection?.uri ?? server.url, connections: connections)
+            updatePlexAccount(latest.replacing(servers: latest.servers.map { $0.id == serverId ? refreshed : $0 }))
+            return true
+        } catch {
+            EnsembleLogger.debug("Plex resources refresh failed: \(PlexErrorClassification.classify(error))")
+            return false
+        }
     }
 
     /// Remove accounts with expired auth tokens.
@@ -1101,13 +1205,8 @@ public final class AccountManager: ObservableObject {
             "🔐 AccountManager: Removed \(plexAccounts.count - validAccounts.count) account(s) with expired auth tokens"
         )
         plexAccounts = validAccounts
-        clearAPIClientCache()
         saveAccounts()
         return true
-    }
-
-    private func currentAllowInsecureConnectionsPolicy() -> AllowInsecureConnectionsPolicy {
-        AllowInsecureConnectionsPolicy.storedPreference()
     }
 
     private func policyFilteredConnections(
@@ -1127,10 +1226,6 @@ public final class AccountManager: ObservableObject {
             }
         }
 
-        // Guard against policy lockout when only insecure endpoints are returned.
-        if filtered.isEmpty {
-            return connections
-        }
         return filtered
     }
 

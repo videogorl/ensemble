@@ -137,7 +137,6 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         coordinator.healthCheckRunnerForTesting = { _, _ in
             ServerHealthChecker.CheckSummary(checkedCount: 1, skippedCount: 0)
         }
-        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
 
         let sourceKey = sourceId.compositeKey
         _ = try await libraryRepository.upsertMusicSource(
@@ -261,7 +260,6 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             networkMonitor: networkMonitor,
             serverHealthChecker: serverHealthChecker
         )
-        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
 
         var healthChecksCompleted = false
         coordinator.healthCheckRunnerForTesting = { _, _ in

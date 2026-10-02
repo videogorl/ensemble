@@ -96,7 +96,12 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
     }
 
     private func makeCoordinator() -> (SyncCoordinator, NetworkMonitor) {
-        let accountManager = AccountManager(keychain: TestKeychain())
+        let networkMonitor = NetworkMonitor(
+            debounceNanoseconds: 1_000,
+            monitorQueue: DispatchQueue(label: "test.network.monitor"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
+        let accountManager = AccountManager(keychain: TestKeychain(), networkMonitor: networkMonitor)
         accountManager.addPlexAccount(
             PlexAccountConfig(
                 id: "account-1",
@@ -116,11 +121,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             )
         )
 
-        let networkMonitor = NetworkMonitor(
-            debounceNanoseconds: 1_000,
-            monitorQueue: DispatchQueue(label: "test.network.monitor"),
-            monitorFactory: { SystemNetworkPathMonitor() }
-        )
         let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         let coordinator = SyncCoordinator(
             accountManager: accountManager,
@@ -143,7 +143,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             invocations.append((force, keys))
             return ServerHealthChecker.CheckSummary(checkedCount: keys.count, skippedCount: 0)
         }
-        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
 
         await coordinator.handleObservedNetworkStateForTesting(.offline)
         await coordinator.awaitHealthRefreshForTesting()
@@ -171,7 +170,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             healthRefreshCount += 1
             return ServerHealthChecker.CheckSummary(checkedCount: 1, skippedCount: 0)
         }
-        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
 
         await coordinator.handleObservedNetworkStateForTesting(.online(.wifi))
         await coordinator.awaitHealthRefreshForTesting()
@@ -195,7 +193,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             healthRefreshCount += 1
             return ServerHealthChecker.CheckSummary(checkedCount: 1, skippedCount: 0)
         }
-        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
 
         await coordinator.handleObservedNetworkStateForTesting(.offline)
         await coordinator.awaitHealthRefreshForTesting()
@@ -224,7 +221,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             healthRefreshCount += 1
             return ServerHealthChecker.CheckSummary(checkedCount: 1, skippedCount: 0)
         }
-        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
 
         coordinator.setLastHealthRefreshForTesting(now.addingTimeInterval(-30))
         await coordinator.handleAppWillEnterForeground()
@@ -251,7 +247,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             healthRefreshCount += 1
             return ServerHealthChecker.CheckSummary(checkedCount: 1, skippedCount: 0)
         }
-        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
 
         coordinator.setLastHealthRefreshForTesting(now.addingTimeInterval(-120))
         await coordinator.handleAppWillEnterForeground()
@@ -272,7 +267,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             healthRefreshCount += 1
             return ServerHealthChecker.CheckSummary(checkedCount: 1, skippedCount: 0)
         }
-        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
 
         coordinator.setLastHealthRefreshForTesting(now.addingTimeInterval(-301))
         await coordinator.handleAppWillEnterForeground()
@@ -308,7 +302,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 80_000_000)
             return ServerHealthChecker.CheckSummary(checkedCount: keys.count, skippedCount: 0)
         }
-        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
 
         await coordinator.handleObservedNetworkStateForTesting(.offline)
         now = now.addingTimeInterval(31)
@@ -331,7 +324,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 80_000_000)
             return ServerHealthChecker.CheckSummary(checkedCount: keys.count, skippedCount: 0)
         }
-        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
 
         let startupTask = Task {
             await coordinator.performStartupHealthChecks()
@@ -355,7 +347,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 80_000_000)
             return ServerHealthChecker.CheckSummary(checkedCount: keys.count, skippedCount: 0)
         }
-        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
 
         await coordinator.handleAppWillEnterForeground()
         try? await Task.sleep(nanoseconds: 10_000_000)
@@ -610,29 +601,8 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
 
 @MainActor
 final class ServerHealthCheckerCachePolicyTests: XCTestCase {
-
-    private actor ProbeCounter {
-        private var count = 0
-
-        func value() -> Int { count }
-
-        func perform(_ request: URLRequest) throws -> (Data, URLResponse) {
-            count += 1
-            guard let url = request.url else {
-                throw URLError(.badURL)
-            }
-            let response = HTTPURLResponse(
-                url: url,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-            return (Data(), response)
-        }
-    }
-
-    private func makeAccountManager() -> AccountManager {
-        let accountManager = AccountManager(keychain: TestKeychain())
+    private func makeAccountManager(session: URLSession) -> AccountManager {
+        let accountManager = AccountManager(keychain: TestKeychain(), urlSession: session)
         accountManager.addPlexAccount(
             PlexAccountConfig(
                 id: "account-1",
@@ -662,47 +632,58 @@ final class ServerHealthCheckerCachePolicyTests: XCTestCase {
         return accountManager
     }
 
-    private func makeChecker() -> ServerHealthChecker {
-        let networkMonitor = NetworkMonitor()
-        return ServerHealthChecker(
-            accountManager: makeAccountManager(),
-            networkMonitor: networkMonitor
-        )
-    }
+    func testAvailableAndUnavailableChecksHonorTheirRefreshTTL() async {
+        for available in [false, true] {
+            let fixture = AccountConnectionFixture { request in
+                if !available { throw URLError(.cannotConnectToHost) }
+                return AccountConnectionFixture.sectionsResponse(request)
+            }
+            defer { fixture.close() }
+            var now = Date(timeIntervalSince1970: 1_000)
+            let checker = ServerHealthChecker(
+                accountManager: makeAccountManager(session: fixture.session),
+                cacheTTL: 120, unavailableCacheTTL: 10, nowProvider: { now }
+            )
+            let first = await checker.checkServer(accountId: "account-1", serverId: "server-1", forceRefresh: false)
+            XCTAssertEqual(first.isAvailable, available)
+            let firstProbeCount = fixture.requests.filter { $0.url?.path == "/identity" }.count
+            XCTAssertGreaterThan(firstProbeCount, 0)
 
-    func testUnavailableTTLIsShorterThanAvailableTTL() {
-        let checker = makeChecker()
-        let availableTTL = checker.cacheTTL(for: .connected(url: "https://example.com"))
-        let unavailableTTL = checker.cacheTTL(for: .offline)
-        XCTAssertGreaterThan(availableTTL, unavailableTTL)
-    }
+            now = now.addingTimeInterval(available ? 119 : 9)
+            _ = await checker.checkServer(accountId: "account-1", serverId: "server-1", forceRefresh: false)
+            XCTAssertEqual(fixture.requests.filter { $0.url?.path == "/identity" }.count, firstProbeCount)
 
-    func testWebSocketHealthySignalExtendsCachedHealthWithoutProbing() async {
-        let accountManager = makeAccountManager()
-        let counter = ProbeCounter()
-        var now = Date(timeIntervalSince1970: 1_000)
-        let failover = ConnectionFailoverManager(timeout: 0.1) { request in
-            try await counter.perform(request)
+            now = now.addingTimeInterval(2)
+            _ = await checker.checkServer(accountId: "account-1", serverId: "server-1", forceRefresh: false)
+            XCTAssertGreaterThan(fixture.requests.filter { $0.url?.path == "/identity" }.count, firstProbeCount)
         }
+    }
+
+    func testWebSocketHealthySignalExtendsCachedHealthWithoutProbing() async throws {
+        let fixture = AccountConnectionFixture()
+        defer { fixture.close() }
+        let accountManager = makeAccountManager(session: fixture.session)
+        var now = Date(timeIntervalSince1970: 1_000)
         let checker = ServerHealthChecker(
             accountManager: accountManager,
-            failoverManager: failover,
             cacheTTL: 120,
             unavailableCacheTTL: 10,
             nowProvider: { now }
         )
 
         _ = await checker.checkServer(accountId: "account-1", serverId: "server-1", forceRefresh: false)
-        let firstProbeCount = await counter.value()
-        XCTAssertEqual(firstProbeCount, 1)
+        let firstProbeCount = fixture.requests.filter { $0.url?.path == "/identity" }.count
+        XCTAssertGreaterThan(firstProbeCount, 0)
 
         now = now.addingTimeInterval(100)
-        checker.markServerHealthy(accountId: "account-1", serverId: "server-1")
+        let client = try XCTUnwrap(accountManager.makeAPIClient(accountId: "account-1", serverId: "server-1"))
+        let snapshot = await client.currentConnectionSnapshot()
+        await client.recordServerActivity(expectedRevision: snapshot.revision, expectedRoutingGeneration: snapshot.routingGeneration)
+        await checker.markServerHealthy(accountId: "account-1", serverId: "server-1")
 
         now = now.addingTimeInterval(100)
         _ = await checker.checkServer(accountId: "account-1", serverId: "server-1", forceRefresh: false)
 
-        let secondProbeCount = await counter.value()
-        XCTAssertEqual(secondProbeCount, 1)
+        XCTAssertEqual(fixture.requests.filter { $0.url?.path == "/identity" }.count, firstProbeCount)
     }
 }

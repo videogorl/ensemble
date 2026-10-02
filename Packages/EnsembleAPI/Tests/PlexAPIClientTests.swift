@@ -324,45 +324,7 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertEqual(components.queryItems?.first(where: { $0.name == "X-Plex-Token" })?.value, "token123")
     }
 
-    func testCurrentEndpointSyncUsesRegistrySelection() async {
-        let registry = ServerConnectionRegistry()
-        let serverKey = "account:server"
-        let client = PlexAPIClient(
-            connection: PlexServerConnection(
-                url: "https://stale.example.com",
-                alternativeURLs: ["https://fresh.example.com"],
-                token: "token123",
-                identifier: "server",
-                name: "Server"
-            ),
-            keychain: TestKeychain(),
-            connectionRegistry: registry,
-            serverKey: serverKey
-        )
-
-        for _ in 0..<20 {
-            if await registry.currentURL(for: serverKey) != nil {
-                break
-            }
-            await Task.yield()
-        }
-
-        await registry.updateEndpoint(
-            for: serverKey,
-            endpoint: PlexEndpointDescriptor(url: "https://fresh.example.com", local: false, relay: false),
-            source: .healthCheck
-        )
-
-        let didSync = await client.syncCurrentEndpointFromRegistryIfNeeded(reason: "test")
-        let currentURL = await client.getCurrentServerURL()
-        let didSyncAgain = await client.syncCurrentEndpointFromRegistryIfNeeded(reason: "test")
-
-        XCTAssertTrue(didSync)
-        XCTAssertEqual(currentURL, "https://fresh.example.com")
-        XCTAssertFalse(didSyncAgain)
-    }
-
-    func testTranscodeDecisionSyncsEndpointAndRetriesAfterConnectionFailure() async throws {
+    func testTranscodeDecisionRetriesAfterConnectionFailure() async throws {
         PlexAPIClientURLProtocol.install { request in
             let host = request.url?.host ?? ""
             if host == "failed.example.com" {
@@ -382,65 +344,6 @@ final class PlexAPIClientTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
 
-        let failoverManager = ConnectionFailoverManager(timeout: 0.1) { request in
-            let url = try XCTUnwrap(request.url)
-            let statusCode = url.host == "fallback.example.com" ? 200 : 500
-            let response = HTTPURLResponse(
-                url: url,
-                statusCode: statusCode,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-            return (Data(), response)
-        }
-        let registry = ServerConnectionRegistry()
-        let serverKey = "account:server"
-        let client = PlexAPIClient(
-            connection: PlexServerConnection(
-                url: "https://stale.example.com",
-                alternativeURLs: ["https://failed.example.com", "https://fallback.example.com"],
-                token: "token123",
-                identifier: "server",
-                name: "Server"
-            ),
-            keychain: TestKeychain(),
-            failoverManager: failoverManager,
-            connectionRegistry: registry,
-            serverKey: serverKey,
-            urlSession: session
-        )
-
-        for _ in 0..<20 {
-            if await registry.currentURL(for: serverKey) != nil {
-                break
-            }
-            await Task.yield()
-        }
-        await registry.updateEndpoint(
-            for: serverKey,
-            endpoint: PlexEndpointDescriptor(url: "https://failed.example.com", local: true, relay: false),
-            source: .healthCheck
-        )
-
-        let result = try await client.callTranscodeDecision(
-            queryItems: [URLQueryItem(name: "session", value: "session-1")]
-        )
-        let currentURL = await client.getCurrentServerURL()
-
-        XCTAssertEqual(result.decision, .transcode)
-        XCTAssertEqual(currentURL, "https://fallback.example.com")
-    }
-
-    func testImmediateFailoverExcludesTheRequestURLThatJustFailed() async throws {
-        let failoverManager = ConnectionFailoverManager(timeout: 0.1) { request in
-            let response = HTTPURLResponse(
-                url: try XCTUnwrap(request.url),
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-            return (Data(), response)
-        }
         let client = PlexAPIClient(
             connection: PlexServerConnection(
                 url: "https://failed.example.com",
@@ -450,7 +353,35 @@ final class PlexAPIClientTests: XCTestCase {
                 name: "Server"
             ),
             keychain: TestKeychain(),
-            failoverManager: failoverManager
+            probeURLSession: session,
+            urlSession: session
+        )
+
+        let result = try await client.callTranscodeDecision(
+            queryItems: [URLQueryItem(name: "session", value: "session-1")]
+        )
+        let currentURL = try await client.getCurrentServerURL()
+
+        XCTAssertEqual(result.decision, .transcode)
+        XCTAssertEqual(currentURL, "https://fallback.example.com")
+    }
+
+    func testImmediateFailoverExcludesTheRequestURLThatJustFailed() async throws {
+        PlexAPIClientURLProtocol.install { _ in (200, Data()) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://failed.example.com",
+                alternativeURLs: ["https://fallback.example.com"],
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            probeURLSession: session
         )
 
         let result = try await client.attemptFailover(excluding: "https://failed.example.com")

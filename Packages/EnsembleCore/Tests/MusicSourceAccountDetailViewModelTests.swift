@@ -724,7 +724,6 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
 
         let wsc = PlexWebSocketCoordinator(
             accountManager: accountManager,
-            connectionRegistry: ServerConnectionRegistry(),
             networkMonitor: networkMonitor,
             clientIdentifier: "test"
         )

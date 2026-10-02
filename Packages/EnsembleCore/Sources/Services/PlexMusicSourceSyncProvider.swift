@@ -1453,7 +1453,7 @@ public func getStreamURL(
     }
 
     /// Phase 2: Assemble a StreamResolution from a cached StreamDecision.
-    /// Reads the freshest endpoint from the registry before building the URL.
+    /// Uses the canonical client's current endpoint and credentials.
     public func assembleStreamResolution(from decision: StreamDecision) async throws -> StreamResolution {
         return try await apiClient.assembleStreamResolution(from: decision)
     }

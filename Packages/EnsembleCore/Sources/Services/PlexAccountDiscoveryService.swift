@@ -144,7 +144,7 @@ public final class PlexAccountDiscoveryService: Sendable {
                                 identifier: device.clientIdentifier,
                                 name: device.name
                             ),
-                            failoverManager: ConnectionFailoverManager(urlSession: self.urlSession),
+                            probeURLSession: self.urlSession,
                             urlSession: self.urlSession
                         )
                         // Selection must succeed before any metadata request, including when

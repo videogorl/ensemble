@@ -127,13 +127,11 @@ public final class SyncCoordinator: ObservableObject {
     public let accountManager: AccountManager
     public let networkMonitor: NetworkMonitor
     public let serverHealthChecker: ServerHealthChecker
-    public let connectionRegistry: ServerConnectionRegistry?
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCursorRepository: SyncCursorRepositoryProtocol?
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let refreshOrchestrator: RefreshOrchestrator
-    private let serverConnectionController: ServerConnectionController
     private let periodicSyncController: PeriodicSyncController
     private let playlistRefreshController: PlaylistRefreshController
     private let webSocketSyncController: WebSocketSyncController
@@ -169,9 +167,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Closure called when API client connections are refreshed (e.g., after network change).
     /// Used by ArtworkLoader to invalidate stale URL cache entries.
     public var onConnectionsRefreshed: (() async -> Void)? {
-        didSet {
-            serverConnectionController.onConnectionsRefreshed = onConnectionsRefreshed
-        }
+        didSet { serverHealthChecker.onConnectionsChanged = onConnectionsRefreshed }
     }
     /// Signal fired when a server-level playlist refresh completes.
     public var onPlaylistRefreshCompleted: ((String) -> Void)?
@@ -193,7 +189,6 @@ public final class SyncCoordinator: ObservableObject {
     /// Worker that owns source-specific cache and file cleanup outside the coordinator's UI-facing actor.
     public var sourceCacheCleanupService: SourceCacheCleaning?
     internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
-    internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
     internal var sourceLibraryAddHandlerForTesting: ((String) async throws -> MusicSourceLibraryAddOutcome)?
     internal var sourceLibraryAddDidCoalesceForTesting: (() -> Void)?
 
@@ -230,8 +225,7 @@ public final class SyncCoordinator: ObservableObject {
         syncCursorRepository: SyncCursorRepositoryProtocol? = nil,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         networkMonitor: NetworkMonitor,
-        serverHealthChecker: ServerHealthChecker,
-        connectionRegistry: ServerConnectionRegistry? = nil
+        serverHealthChecker: ServerHealthChecker
     ) {
         self.accountManager = accountManager
         self.libraryRepository = libraryRepository
@@ -240,18 +234,12 @@ public final class SyncCoordinator: ObservableObject {
         self.artworkDownloadManager = artworkDownloadManager
         self.networkMonitor = networkMonitor
         self.serverHealthChecker = serverHealthChecker
-        self.connectionRegistry = connectionRegistry
         self.refreshOrchestrator = RefreshOrchestrator()
         self.periodicSyncController = PeriodicSyncController()
         self.playlistRefreshController = PlaylistRefreshController()
         self.webSocketSyncController = WebSocketSyncController()
         self.playbackReportingController = SyncPlaybackReportingController()
         self.networkLifecycleController = NetworkLifecycleController(initialNetworkState: networkMonitor.networkState)
-        self.serverConnectionController = ServerConnectionController(
-            accountManager: accountManager,
-            serverHealthChecker: serverHealthChecker,
-            connectionRegistry: connectionRegistry
-        )
         self.lastPlaylistTargetsByServer = Self.loadLastPlaylistTargetsByServer()
         self.lastPlaylistTarget = Self.loadLastPlaylistTarget()
 
@@ -260,7 +248,6 @@ public final class SyncCoordinator: ObservableObject {
         enabledServerKeysSnapshot = enabledServerKeysForHealthChecks()
         setupSourceConfigurationMonitoring()
 
-        serverConnectionController.start()
     }
 
     /// Rebuild sync providers from current account configuration
@@ -1440,7 +1427,11 @@ public final class SyncCoordinator: ObservableObject {
                 cachePlaylistArtwork: { await self.cachePlaylistArtwork(sourceId: $0, provider: $1) },
                 notifyPlaylistRefreshCompleted: { self.notifyPlaylistRefreshCompleted(serverSourceKey: $0) },
                 connectionStateAfterSuccessfulSync: {
-                    await self.serverConnectionController.connectionStateAfterSuccessfulSync(for: $0, fallback: $1)
+                    guard $0.type == .plex,
+                          let client = self.accountManager.makeAPIClient(accountId: $0.accountId, serverId: $0.serverId),
+                          let url = try? await client.getCurrentServerURL() else { return $1 }
+                    if case .degraded = $1 { return .degraded(url: url) }
+                    return .connected(url: url)
                 },
                 markSourceSyncCompleted: { source in
                     guard source == .appleMusic else { return }
@@ -1486,20 +1477,47 @@ public final class SyncCoordinator: ObservableObject {
         guard let sourceKey = resolvedTrackSourceCompositeKey(for: track) else {
             throw PlexAPIError.noServerSelected
         }
-        try await serverConnectionController.ensureServerConnection(sourceKey: sourceKey)
+        guard let identity = MediaSourceIdentity.parse(sourceKey), identity.libraryId != nil else {
+            throw PlexAPIError.noServerSelected
+        }
+        guard identity.sourceType == .plex else { return }
+        let client = try accountManager.requireAPIClient(sourceKey: sourceKey)
+        _ = try await client.getCurrentServerURL()
+        if await client.currentConnectionSnapshot().availability == .available { return }
+        do {
+            _ = try await client.refreshConnection()
+        } catch {
+            if PlexErrorClassification.classify(error) == .cancelled || networkMonitor.networkState == .offline { throw error }
+            // Stream retrieval can still succeed on a path that missed the bounded probe budget.
+        }
     }
 
     public func serverFailureMessage(for track: Track) async -> String? {
         guard let sourceKey = resolvedTrackSourceCompositeKey(for: track) else {
             return nil
         }
-        return serverConnectionController.serverFailureMessage(sourceKey: sourceKey)
+        guard let identity = MediaSourceIdentity.parse(sourceKey), identity.sourceType == .plex else { return nil }
+        return serverHealthChecker.getServerFailureReason(accountId: identity.accountId, serverId: identity.serverId)?.userMessage
     }
 
     /// Proactively refreshes Plex server connections across configured accounts.
     /// Playback retry paths use this to recover from transient connection failures.
     public func refreshConnection() async throws {
-        try await serverConnectionController.refreshConnections()
+        var refreshed = false
+        var lastError: Error?
+        for account in accountManager.plexAccounts {
+            for server in account.servers {
+                guard let client = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else { continue }
+                do {
+                    _ = try await client.refreshConnection()
+                    refreshed = true
+                } catch {
+                    if PlexErrorClassification.classify(error) == .cancelled { throw error }
+                    lastError = error
+                }
+            }
+        }
+        if !refreshed { throw lastError ?? PlexAPIError.noServerSelected }
     }
 
     /// Get the stream URL for a track, routing to the correct provider
@@ -1552,8 +1570,8 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Phase 2: Assemble a `StreamResolution` from a cached `StreamDecision` using the
     /// current server endpoint. Call this at download start time for a fresh URL.
-    /// This is a lightweight operation (no network calls) — the endpoint is read from
-    /// `ServerConnectionRegistry` at assembly time.
+    /// This is a lightweight operation (no network calls) using the canonical client's
+    /// current endpoint and credentials.
     public func assembleStreamResolution(for track: Track, from decision: StreamDecision) async throws -> StreamResolution {
         let (provider, _) = try await resolveTrackCapability(
             for: track,
@@ -1613,7 +1631,7 @@ public final class SyncCoordinator: ObservableObject {
 
     private func apiClientForTrack(_ track: Track) async throws -> PlexAPIClient {
         let sourceKey = resolvedTrackSourceCompositeKey(for: track)
-        return try serverConnectionController.requireAPIClient(sourceKey: sourceKey)
+        return try accountManager.requireAPIClient(sourceKey: sourceKey)
     }
 
     /// Get artwork URL, routing to the correct provider
@@ -1861,9 +1879,6 @@ public final class SyncCoordinator: ObservableObject {
 
             // Remove from status tracking
             sourceStatuses.removeValue(forKey: sourceId)
-
-            // Clear API client cache for this source
-            accountManager.clearAPIClientCache(accountId: sourceId.accountId, serverId: sourceId.serverId)
 
             NotificationCenter.default.post(
                 name: Self.sourceCleanupDidComplete,
@@ -2593,15 +2608,6 @@ public final class SyncCoordinator: ObservableObject {
         )
     }
 
-    private func runAPIClientConnectionRefresh() async {
-        if let refreshAPIClientConnectionsRunnerForTesting {
-            await refreshAPIClientConnectionsRunnerForTesting()
-            return
-        }
-
-        await serverConnectionController.refreshAPIClientConnections()
-    }
-
     // MARK: - Targeted Server Health Checks
 
     /// Trigger a health check for a specific server identified by sourceCompositeKey.
@@ -2686,14 +2692,6 @@ public final class SyncCoordinator: ObservableObject {
         } else if sourceStatuses[source] == nil {
             sourceStatuses[source] = MusicSourceStatus()
         }
-    }
-
-    /// Update all API clients with the latest working connection URLs from health checks.
-    /// When a `ServerConnectionRegistry` is active, most updates flow reactively through
-    /// `ServerConnectionController`. This method remains as a fallback for tests and
-    /// the non-registry path.
-    public func refreshAPIClientConnections() async {
-        await serverConnectionController.refreshAPIClientConnections()
     }
 
     /// Run early health checks at startup and update source connection states.
@@ -3052,7 +3050,6 @@ public final class SyncCoordinator: ObservableObject {
         completionMessage: String
     ) async {
         updateSourceConnectionStates()
-        await runAPIClientConnectionRefresh()
 
         let postCheckStates = serverHealthChecker.serverStates
         let anyBecameAvailable = preCheckStates.contains { key, preState in

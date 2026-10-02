@@ -88,11 +88,6 @@ public final class DependencyContainer: @unchecked Sendable {
 
     // MARK: - Network Infrastructure
 
-    /// Single source of truth for per-server active endpoints.
-    /// Shared by PlexAPIClient (writes on failover), ServerHealthChecker (writes on probe),
-    /// and SyncCoordinator (subscribes to keep API clients in sync).
-    public let connectionRegistry: ServerConnectionRegistry
-
     /// Manages WebSocket connections to Plex servers for real-time notifications.
     /// Start on foreground, stop on background.
     public let webSocketCoordinator: PlexWebSocketCoordinator
@@ -137,7 +132,6 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     private struct NetworkBootstrap {
-        let connectionRegistry: ServerConnectionRegistry
         let accountManager: AccountManager
         let accountDiscoveryService: PlexAccountDiscoveryService
         let networkMonitor: NetworkMonitor
@@ -252,7 +246,6 @@ public final class DependencyContainer: @unchecked Sendable {
         syncSettingsManager = core.syncSettingsManager
         kvsSyncService = core.kvsSyncService
 
-        connectionRegistry = network.connectionRegistry
         accountManager = network.accountManager
         accountDiscoveryService = network.accountDiscoveryService
         networkMonitor = network.networkMonitor
@@ -429,25 +422,18 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     private static func buildNetworkBootstrap(core: CoreBootstrap) -> NetworkBootstrap {
-        let connectionRegistry = ServerConnectionRegistry()
         let networkMonitor = MainActor.assumeIsolated { NetworkMonitor() }
         let accountManager = MainActor.assumeIsolated {
             AccountManager(
                 keychain: core.keychain,
-                connectionRegistry: connectionRegistry,
-                isNetworkAvailable: {
-                    await MainActor.run {
-                        networkMonitor.networkState.isConnected
-                    }
-                }
+                networkMonitor: networkMonitor
             )
         }
         let accountDiscoveryService = PlexAccountDiscoveryService()
         let serverHealthChecker = MainActor.assumeIsolated {
             ServerHealthChecker(
                 accountManager: accountManager,
-                networkMonitor: networkMonitor,
-                connectionRegistry: connectionRegistry
+                networkMonitor: networkMonitor
             )
         }
 
@@ -455,7 +441,6 @@ public final class DependencyContainer: @unchecked Sendable {
         let webSocketCoordinator = MainActor.assumeIsolated {
             PlexWebSocketCoordinator(
                 accountManager: accountManager,
-                connectionRegistry: connectionRegistry,
                 networkMonitor: networkMonitor,
                 clientIdentifier: plexClientId
             )
@@ -469,7 +454,6 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         return NetworkBootstrap(
-            connectionRegistry: connectionRegistry,
             accountManager: accountManager,
             accountDiscoveryService: accountDiscoveryService,
             networkMonitor: networkMonitor,
@@ -491,8 +475,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 syncCursorRepository: core.syncCursorRepository,
                 artworkDownloadManager: core.artworkDownloadManager,
                 networkMonitor: network.networkMonitor,
-                serverHealthChecker: network.serverHealthChecker,
-                connectionRegistry: network.connectionRegistry
+                serverHealthChecker: network.serverHealthChecker
             )
         }
 
@@ -864,21 +847,14 @@ public final class DependencyContainer: @unchecked Sendable {
             guard parts.count == 2, let serverHealthChecker else { return }
             let accountId = String(parts[0])
             let serverId = String(parts[1])
-            _ = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId)
+            _ = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId, forceRefresh: true)
         }
         webSocketCoordinator.onServerHealthy = { [weak serverHealthChecker] serverKey in
             let parts = serverKey.split(separator: ":", maxSplits: 1)
             guard parts.count == 2, let serverHealthChecker else { return }
             let accountId = String(parts[0])
             let serverId = String(parts[1])
-            let currentState = await MainActor.run {
-                serverHealthChecker.getServerState(accountId: accountId, serverId: serverId)
-            }
-            if currentState.isAvailable {
-                serverHealthChecker.markServerHealthy(accountId: accountId, serverId: serverId)
-            } else {
-                _ = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId)
-            }
+            await serverHealthChecker.markServerHealthy(accountId: accountId, serverId: serverId)
         }
         webSocketCoordinator.onDownloadQueueCompleted = { [weak offlineDownloadService] in
             await offlineDownloadService?.handleDownloadQueueCompleted()
@@ -941,6 +917,9 @@ public final class DependencyContainer: @unchecked Sendable {
 
     @MainActor
     private func wireArtworkCallbacks() {
+        settingsManager.onConnectionPolicyChanged = { [weak accountManager] in
+            accountManager?.connectionPolicyDidChange()
+        }
         syncCoordinator.onConnectionsRefreshed = { [weak self] in
             await self?.artworkLoader.invalidateURLCache()
         }
