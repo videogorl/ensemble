@@ -452,7 +452,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         )
     }
 
-    func testDelayedSeededPlaylistIsClearedWhenItBecomesVisible() async throws {
+    func testSeedVisibilityRetriesTransientFetchFailureAndClearsDelayedPlaylist() async throws {
         let state = DelayedPlaylistVisibilityState(
             playlist: try JSONDecoder().decode(PlexPlaylist.self, from: Data(#"""
             {
@@ -467,7 +467,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
             title: "Delayed Empty Playlist",
             seededEmptyPlaylist: true,
             retryDelays: [0, 1, 1],
-            fetchPlaylists: { await state.fetchPlaylists() },
+            fetchPlaylists: { try await state.fetchPlaylists() },
             clearPlaylistItems: { await state.clearPlaylistItems($0) },
             sleep: { _ in }
         )
@@ -477,6 +477,29 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         XCTAssertEqual(playlist?.ratingKey, "playlist-1")
         XCTAssertEqual(fetchCount, 3)
         XCTAssertEqual(clearedPlaylistIDs, ["playlist-1"])
+    }
+
+    func testSeedVisibilityFetchCancellationStopsPollingAndPropagates() async {
+        let cancellations: [Error] = [
+            CancellationError(),
+            URLError(.cancelled),
+            PlexAPIError.networkError(URLError(.cancelled))
+        ]
+        for cancellation in cancellations {
+            do {
+                _ = try await PlexMusicSourceSyncProvider.pollForCreatedPlaylist(
+                    title: "Empty Playlist",
+                    seededEmptyPlaylist: true,
+                    retryDelays: [0, 1],
+                    fetchPlaylists: { throw cancellation },
+                    clearPlaylistItems: { _ in XCTFail("Cancelled visibility cannot authorize cleanup") },
+                    sleep: { _ in XCTFail("Cancelled visibility must stop further polling") }
+                )
+                XCTFail("Visibility fetch cancellation must propagate")
+            } catch {
+                XCTAssertEqual(PlexErrorClassification.classify(error), .cancelled)
+            }
+        }
     }
 
     func testSeededEmptyPlaylistCreationPropagatesClearFailureAndCancellation() async throws {
@@ -713,8 +736,9 @@ private actor DelayedPlaylistVisibilityState {
         self.playlist = playlist
     }
 
-    func fetchPlaylists() -> [PlexPlaylist] {
+    func fetchPlaylists() throws -> [PlexPlaylist] {
         fetchCount += 1
+        if fetchCount == 1 { throw URLError(.networkConnectionLost) }
         return fetchCount >= 3 ? [playlist] : []
     }
 

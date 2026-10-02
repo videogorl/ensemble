@@ -156,7 +156,14 @@ public final class PlexMusicSourceSyncProvider:
     ) async throws -> PlexPlaylist? {
         for delay in retryDelays {
             if delay > 0 { try await sleep(delay) }
-            guard let playlist = try? await fetchPlaylists().first(where: {
+            let playlists: [PlexPlaylist]
+            do {
+                playlists = try await fetchPlaylists()
+            } catch {
+                if PlexErrorClassification.classify(error) == .cancelled { throw error }
+                continue
+            }
+            guard let playlist = playlists.first(where: {
                 $0.title.caseInsensitiveCompare(title) == .orderedSame
             }) else { continue }
             if seededEmptyPlaylist {
