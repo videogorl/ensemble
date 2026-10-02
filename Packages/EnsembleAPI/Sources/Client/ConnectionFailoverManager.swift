@@ -16,7 +16,7 @@ public actor ConnectionFailoverManager {
     private var tlsFailureCooldowns: [String: Date] = [:]  // URL -> cooldown expiry
     private let tlsCooldownDuration: TimeInterval = 300     // 5 minutes
     
-    public init(timeout: TimeInterval = 5.0) {
+    public init(timeout: TimeInterval = 5.0, urlSession: URLSession? = nil) {
         self.timeout = timeout
 
         let config = URLSessionConfiguration.default
@@ -26,7 +26,7 @@ public actor ConnectionFailoverManager {
         // overriding it.
         config.timeoutIntervalForRequest = timeout
         config.timeoutIntervalForResource = timeout + 2
-        let session = URLSession(configuration: config)
+        let session = urlSession ?? URLSession(configuration: config)
         self.requestPerformer = { request in
             try await session.data(for: request)
         }

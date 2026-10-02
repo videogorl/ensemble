@@ -44,6 +44,52 @@ private final class PlexAPIClientURLProtocol: URLProtocol {
 
 final class PlexAPIClientTests: XCTestCase {
 
+    func testLibrarySectionsRequireCompleteInventoriesBeforeReplacingCachedLibraries() async throws {
+        let responses: [(String, [String]?)] = [
+            (#"{"MediaContainer":{"size":1,"totalSize":1,"offset":0,"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#, ["1"]),
+            (#"{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#, ["1"]),
+            (#"{"MediaContainer":{"size":2,"Directory":[{"key":"1","title":"Music","type":"artist"},{"key":"2","title":"Movies","type":"movie"}]}}"#, ["1", "2"]),
+            (#"{"MediaContainer":{"size":0}}"#, []),
+            (#"{"MediaContainer":{"Directory":[]}}"#, []),
+            (#"{"MediaContainer":{"size":0,"Metadata":[{"key":"1","title":"Music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{}}"#, nil),
+            (#"{"MediaContainer":{"size":1}}"#, nil),
+            (#"{"MediaContainer":{"size":0,"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":2,"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":0,"totalSize":1,"Directory":[]}}"#, nil),
+            (#"{"MediaContainer":{"size":1,"totalSize":2,"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":1,"offset":1,"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":2,"Directory":[{"key":"1","title":"Music","type":"artist"},{"key":"1","title":"Other music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":1,"Directory":[{"key":" ","title":"Music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":1,"Directory":[{"key":"1","title":" ","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":1,"Directory":[{"key":"1","title":"Music","type":" "}]}}"#, nil)
+        ]
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(url: "https://example.com", token: "test", identifier: "server", name: "Server"),
+            keychain: TestKeychain(), urlSession: session
+        )
+        for (json, expectedKeys) in responses {
+            PlexAPIClientURLProtocol.install { request in
+                XCTAssertEqual(request.url?.path, "/library/sections")
+                return (200, Data(json.utf8))
+            }
+            do {
+                let sections = try await client.getLibrarySections()
+                guard let expectedKeys else {
+                    XCTFail("Accepted incomplete library inventory: \(json)")
+                    continue
+                }
+                XCTAssertEqual(sections.map(\.key), expectedKeys, json)
+            } catch PlexAPIError.invalidResponse {
+                XCTAssertNil(expectedKeys, "Rejected complete library inventory: \(json)")
+            }
+        }
+    }
+
     func testMoodsRequireCompleteResponsesBeforeReplacingCachedSources() async throws {
         let responses: [(String, Bool)] = [
             (#"{"MediaContainer":{"size":1,"Directory":[{"key":"warm","title":"Warm"}]}}"#, true),

@@ -442,7 +442,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 }
             )
         }
-        let accountDiscoveryService = PlexAccountDiscoveryService(keychain: core.keychain)
+        let accountDiscoveryService = PlexAccountDiscoveryService()
         let serverHealthChecker = MainActor.assumeIsolated {
             ServerHealthChecker(
                 accountManager: accountManager,

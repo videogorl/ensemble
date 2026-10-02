@@ -46,133 +46,8 @@ public struct PlexAccountDiscoveryResult: Sendable, Equatable {
     }
 }
 
-public protocol PlexAccountDiscoveryClientProtocol: Sendable {
-    func getUserInfo(token: String) async throws -> PlexUser
-    func getResources(token: String) async throws -> [PlexDevice]
-    func getMusicLibrarySections(
-        for device: PlexDevice,
-        token: String,
-        allowInsecurePolicy: AllowInsecureConnectionsPolicy
-    ) async throws -> [PlexLibrarySection]
-    func getServerCapabilities(
-        for device: PlexDevice,
-        token: String,
-        allowInsecurePolicy: AllowInsecureConnectionsPolicy
-    ) async throws -> PlexServerCapabilities
-    func getTrackCount(
-        sectionKey: String,
-        for device: PlexDevice,
-        token: String,
-        allowInsecurePolicy: AllowInsecureConnectionsPolicy
-    ) async throws -> Int?
-}
-
 public protocol PlexAccountDiscoveryServiceProtocol: Sendable {
     func discoverAccount(authToken: String) async throws -> PlexAccountDiscoveryResult
-}
-
-public struct PlexAPIAccountDiscoveryClient: PlexAccountDiscoveryClientProtocol {
-    private let keychain: KeychainServiceProtocol
-
-    public init(keychain: KeychainServiceProtocol) {
-        self.keychain = keychain
-    }
-
-    public func getUserInfo(token: String) async throws -> PlexUser {
-        let connection = PlexServerConnection(
-            url: "https://plex.tv",
-            token: token,
-            identifier: "plex-tv",
-            name: "plex-tv"
-        )
-        let client = PlexAPIClient(connection: connection, keychain: keychain)
-        return try await client.getUserInfo(token: token)
-    }
-
-    public func getResources(token: String) async throws -> [PlexDevice] {
-        let connection = PlexServerConnection(
-            url: "https://plex.tv",
-            token: token,
-            identifier: "plex-tv",
-            name: "plex-tv"
-        )
-        let client = PlexAPIClient(connection: connection, keychain: keychain)
-        return try await client.getResources(token: token)
-    }
-
-    public func getMusicLibrarySections(
-        for device: PlexDevice,
-        token: String,
-        allowInsecurePolicy: AllowInsecureConnectionsPolicy
-    ) async throws -> [PlexLibrarySection] {
-        let client = try makeClient(for: device, token: token, allowInsecurePolicy: allowInsecurePolicy)
-        _ = try await client.refreshConnection()
-        return try await client.getMusicLibrarySections()
-    }
-
-    public func getServerCapabilities(
-        for device: PlexDevice,
-        token: String,
-        allowInsecurePolicy: AllowInsecureConnectionsPolicy
-    ) async throws -> PlexServerCapabilities {
-        let client = try makeClient(for: device, token: token, allowInsecurePolicy: allowInsecurePolicy)
-        _ = try await client.refreshConnection()
-        return try await client.getServerCapabilities()
-    }
-
-    public func getTrackCount(
-        sectionKey: String,
-        for device: PlexDevice,
-        token: String,
-        allowInsecurePolicy: AllowInsecureConnectionsPolicy
-    ) async throws -> Int? {
-        let client = try makeClient(for: device, token: token, allowInsecurePolicy: allowInsecurePolicy)
-        _ = try await client.refreshConnection()
-        return try await client.getTrackCount(sectionKey: sectionKey)
-    }
-
-    /// Creates a temporary `PlexAPIClient` for the given device during discovery.
-    private func makeClient(
-        for device: PlexDevice,
-        token: String,
-        allowInsecurePolicy: AllowInsecureConnectionsPolicy
-    ) throws -> PlexAPIClient {
-        let orderedConnections = device.orderedConnections(
-            selectionPolicy: .plexSpecBalanced,
-            allowInsecure: allowInsecurePolicy
-        )
-
-        let fallbackConnections = orderedConnections.isEmpty ? device.connections : orderedConnections
-        guard let primaryConnection = fallbackConnections.first else {
-            throw PlexAPIError.noServerSelected
-        }
-
-        let endpointDescriptors = fallbackConnections.map { connection in
-            PlexEndpointDescriptor(
-                url: connection.uri,
-                local: connection.local,
-                relay: connection.relay ?? false,
-                secure: connection.protocol == "https"
-            )
-        }
-
-        let alternativeURLs = endpointDescriptors
-            .map(\.url)
-            .filter { $0 != primaryConnection.uri }
-
-        let serverToken = device.accessToken ?? token
-        let connection = PlexServerConnection(
-            url: primaryConnection.uri,
-            alternativeURLs: alternativeURLs,
-            endpoints: endpointDescriptors,
-            selectionPolicy: .plexSpecBalanced,
-            allowInsecurePolicy: allowInsecurePolicy,
-            token: serverToken,
-            identifier: device.clientIdentifier,
-            name: device.name
-        )
-        return PlexAPIClient(connection: connection, keychain: keychain)
-    }
 }
 
 // Used internally to fan-out concurrent user+resources discovery without async let,
@@ -183,30 +58,18 @@ private enum DiscoveryInitialResult: Sendable {
 }
 
 /// Discovers account identity, servers, and music libraries for Plex account setup and management.
-public final class PlexAccountDiscoveryService: @unchecked Sendable {
-    private let client: any PlexAccountDiscoveryClientProtocol
+public final class PlexAccountDiscoveryService: Sendable {
+    private let urlSession: URLSession?
     private let allowInsecurePolicyProvider: @Sendable () -> AllowInsecureConnectionsPolicy
 
     public init(
-        client: any PlexAccountDiscoveryClientProtocol,
+        urlSession: URLSession? = nil,
         allowInsecurePolicyProvider: @escaping @Sendable () -> AllowInsecureConnectionsPolicy = {
             AllowInsecureConnectionsPolicy.storedPreference()
         }
     ) {
-        self.client = client
+        self.urlSession = urlSession
         self.allowInsecurePolicyProvider = allowInsecurePolicyProvider
-    }
-
-    public convenience init(
-        keychain: KeychainServiceProtocol,
-        allowInsecurePolicyProvider: @escaping @Sendable () -> AllowInsecureConnectionsPolicy = {
-            AllowInsecureConnectionsPolicy.storedPreference()
-        }
-    ) {
-        self.init(
-            client: PlexAPIAccountDiscoveryClient(keychain: keychain),
-            allowInsecurePolicyProvider: allowInsecurePolicyProvider
-        )
     }
 
     public func discoverAccount(authToken: String) async throws -> PlexAccountDiscoveryResult {
@@ -214,9 +77,13 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
         // instead of `async let` because `async let` in a protocol witness thunk can cause
         // a Swift runtime abort during async-let cleanup when one task throws or the parent
         // task is cancelled (repro: asyncLet_finish_after_task_completion crash on iOS 26 beta).
+        let accountClient = PlexAPIClient(
+            connection: PlexServerConnection(url: "https://plex.tv", token: authToken, identifier: "plex-tv", name: "plex-tv"),
+            urlSession: urlSession
+        )
         let (user, devices) = try await withThrowingTaskGroup(of: DiscoveryInitialResult.self) { group in
-            group.addTask { .user(try await self.client.getUserInfo(token: authToken)) }
-            group.addTask { .devices(try await self.client.getResources(token: authToken)) }
+            group.addTask { .user(try await accountClient.getUserInfo(token: authToken)) }
+            group.addTask { .devices(try await accountClient.getResources(token: authToken)) }
 
             var user: PlexUser?
             var devices: [PlexDevice]?
@@ -230,6 +97,7 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
             return (user, devices)
         }
 
+        try Task.checkCancellation()
         let allowInsecurePolicy = allowInsecurePolicyProvider()
 
         var discoveredServers: [PlexServerConfig] = []
@@ -239,6 +107,7 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
         try await withThrowingTaskGroup(of: (PlexServerConfig, libraryError: String?, capabilityError: String?).self) { group in
             for device in devices {
                 group.addTask {
+                    try Task.checkCancellation()
                     let orderedConnections = device.orderedConnections(
                         selectionPolicy: .plexSpecBalanced,
                         allowInsecure: allowInsecurePolicy
@@ -257,52 +126,58 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                         )
                     }
 
-                    let capabilities: PlexServerCapabilities?
-                    let capabilityError: String?
+                    var capabilities: PlexServerCapabilities?
+                    var capabilityError: String?
                     do {
-                        let fetchedCapabilities = try await self.client.getServerCapabilities(
-                            for: device,
-                            token: authToken,
-                            allowInsecurePolicy: allowInsecurePolicy
+                        guard let primaryConnection else { throw PlexAPIError.noServerSelected }
+                        let endpoints = fallbackConnections.map {
+                            PlexEndpointDescriptor(url: $0.uri, local: $0.local, relay: $0.relay ?? false, secure: $0.protocol == "https")
+                        }
+                        let client = PlexAPIClient(
+                            connection: PlexServerConnection(
+                                url: primaryConnection.uri,
+                                alternativeURLs: endpoints.map(\.url).filter { $0 != primaryConnection.uri },
+                                endpoints: endpoints,
+                                selectionPolicy: .plexSpecBalanced,
+                                allowInsecurePolicy: allowInsecurePolicy,
+                                token: device.accessToken ?? authToken,
+                                identifier: device.clientIdentifier,
+                                name: device.name
+                            ),
+                            failoverManager: ConnectionFailoverManager(urlSession: self.urlSession),
+                            urlSession: self.urlSession
                         )
-                        capabilities = fetchedCapabilities
-                        capabilityError = nil
-                        EnsembleLogger.debug(
-                            "[\(device.name)] capabilities: plexPass=\(fetchedCapabilities.plexPassSupport.rawValue), lyrics=\(fetchedCapabilities.lyricsSupport.rawValue), radio=\(fetchedCapabilities.radioSupport.rawValue), ownerFeatures=\(fetchedCapabilities.ownerFeatures ?? "nil")"
-                        )
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        capabilities = nil
-                        capabilityError = error.localizedDescription
-                        EnsembleLogger.debug("[\(device.name)] capabilities fetch failed: \(error.localizedDescription)")
-                    }
+                        // Selection must succeed before any metadata request, including when
+                        // the configured primary endpoint is disallowed by the user's policy.
+                        _ = try await client.refreshConnection()
+                        try Task.checkCancellation()
+                        do {
+                            capabilities = try await client.getServerCapabilities()
+                        } catch {
+                            try Task.checkCancellation()
+                            if PlexErrorClassification.classify(error) == .cancelled { throw CancellationError() }
+                            capabilityError = error.localizedDescription
+                            EnsembleLogger.debug("[\(device.name)] capabilities fetch failed: \(error.localizedDescription)")
+                        }
 
-                    do {
-                        let sections = try await self.client.getMusicLibrarySections(
-                            for: device,
-                            token: authToken,
-                            allowInsecurePolicy: allowInsecurePolicy
-                        )
+                        try Task.checkCancellation()
+                        let sections = try await client.getMusicLibrarySections()
+                        try Task.checkCancellation()
 
                         var trackCountsBySectionKey: [String: Int] = [:]
-                        for section in sections where section.isMusicLibrary {
+                        for section in sections {
                             do {
-                                trackCountsBySectionKey[section.key] = try await self.client.getTrackCount(
-                                    sectionKey: section.key,
-                                    for: device,
-                                    token: authToken,
-                                    allowInsecurePolicy: allowInsecurePolicy
-                                )
-                            } catch is CancellationError {
-                                throw CancellationError()
+                                try Task.checkCancellation()
+                                trackCountsBySectionKey[section.key] = try await client.getTrackCount(sectionKey: section.key)
                             } catch {
+                                try Task.checkCancellation()
+                                if PlexErrorClassification.classify(error) == .cancelled { throw CancellationError() }
                                 EnsembleLogger.debug("[\(device.name)] track count fetch failed for section \(section.key): \(error.localizedDescription)")
                             }
                         }
 
+                        try Task.checkCancellation()
                         let libraries = sections
-                            .filter(\.isMusicLibrary)
                             .map { section in
                                 PlexLibraryConfig(
                                     id: section.key,
@@ -318,7 +193,7 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                             PlexServerConfig(
                                 id: device.clientIdentifier,
                                 name: device.name,
-                                url: primaryConnection?.uri ?? "",
+                                url: primaryConnection.uri,
                                 connections: connectionConfigs,
                                 token: device.accessToken ?? authToken,
                                 owned: device.owned,
@@ -329,11 +204,9 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                             nil,
                             capabilityError
                         )
-                    } catch is CancellationError {
-                        // Navigation/task cancellation should abort discovery rather than surface
-                        // as a per-server error that appears in source management UI.
-                        throw CancellationError()
                     } catch {
+                        try Task.checkCancellation()
+                        if PlexErrorClassification.classify(error) == .cancelled { throw CancellationError() }
                         let message = error.localizedDescription
                         return (
                             PlexServerConfig(
@@ -365,6 +238,7 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
             }
         }
 
+        try Task.checkCancellation()
         discoveredServers.sort {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
