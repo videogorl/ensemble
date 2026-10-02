@@ -27,6 +27,8 @@
   panes. Only its detail host bridges the window title, toolbar, and search;
   picker controls reuse the leaf builders and view-model bindings. Forward app
   context explicitly between hosting roots, not SwiftUI's whole environment.
+  Derive picker behavior from the leaf's presentation mode. Shared browse
+  controls own their Filter/New Playlist sheets; avoid parent-to-picker sheet bindings.
   iPad retains its native SwiftUI split. Commit macOS sidebar coordinator changes
   after the native List's binding update, distinguishing input from routed paths.
 - StageFlow is iPhone-only and requires compact height plus landscape geometry.

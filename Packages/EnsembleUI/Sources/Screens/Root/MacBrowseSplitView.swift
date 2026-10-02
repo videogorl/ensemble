@@ -3,20 +3,11 @@ import AppKit
 import EnsembleCore
 import SwiftUI
 
-private struct MacBrowsePickerKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
 private struct MacBrowseSidebarToggleKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
 
 extension EnvironmentValues {
-    var isMacBrowsePicker: Bool {
-        get { self[MacBrowsePickerKey.self] }
-        set { self[MacBrowsePickerKey.self] = newValue }
-    }
-
     var toggleMacBrowseSidebar: () -> Void {
         get { self[MacBrowseSidebarToggleKey.self] }
         set { self[MacBrowseSidebarToggleKey.self] = newValue }
@@ -51,7 +42,7 @@ struct MacBrowseSplitView<Sidebar: View, Picker: View, Detail: View>: NSViewCont
         controller.sidebarFrameChanged = sidebarFrameChanged
         let environment = context.environment
         controller.sidebar.rootView = pane(sidebar, environment: environment)
-        controller.picker.rootView = pane(picker.environment(\.isMacBrowsePicker, true), environment: environment)
+        controller.picker.rootView = pane(picker, environment: environment)
         controller.detail.rootView = pane(detail.environment(\.toggleMacBrowseSidebar, { [weak controller] in
             controller?.toggleSidebar(nil)
         }), environment: environment)

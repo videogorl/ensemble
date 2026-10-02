@@ -26,10 +26,19 @@ private enum PlaylistMutationEvent {
 
 struct PlaylistBrowseControls: View {
     @ObservedObject var viewModel: PlaylistViewModel
-    let createPlaylist: () -> Void
+    let nowPlayingVM: NowPlayingViewModel
+    @Environment(\.dependencies) private var deps
+    @State private var showsCreatePlaylist = false
 
     var body: some View {
-        PlaylistsNewButton(action: createPlaylist)
+        PlaylistsNewButton { showsCreatePlaylist = true }
+            .sheet(isPresented: $showsCreatePlaylist) {
+                CreatePlaylistView(
+                    serverOptions: playlistServerOptionsForDisplay(),
+                    isMergeEnabled: viewModel.isMergeEnabled,
+                    onCreate: createPlaylistOnServers
+                )
+            }
         EnsembleBrowseSortMenu(
             model: viewModel,
             options: PlaylistSortOption.allCases,
@@ -40,6 +49,34 @@ struct PlaylistBrowseControls: View {
             viewModel.filterOptions.sortDirection = direction
         }
         .accessibilityLabel("Sort Playlists")
+    }
+
+    private func playlistServerOptionsForDisplay() -> [PlaylistServerOption] {
+        nowPlayingVM.playlistServerOptions().map { option in
+            PlaylistServerOption(
+                id: option.id,
+                name: DemoModeRedaction.serverName(option.name, isEnabled: deps.settingsManager.demoModeEnabled)
+            )
+        }
+    }
+
+    /// Creates a playlist on one or more sources with a single aggregate toast.
+    /// When merge is enabled, the callback may pass multiple source keys.
+    private func createPlaylistOnServers(named title: String, serverSourceKeys: [String]) {
+        let creatingToast = ToastPayload(
+            style: .info,
+            iconSystemName: EnsembleDesign.Icon.addCircleOutline,
+            title: "Creating \(title)...",
+            isPersistent: true,
+            dedupeKey: "playlist-create-pending-\(title.lowercased())",
+            showsActivityIndicator: true
+        )
+        deps.toastCenter.show(creatingToast)
+
+        Task {
+            defer { deps.toastCenter.dismiss(id: creatingToast.id) }
+            _ = await viewModel.createPlaylists(title: title, serverSourceKeys: serverSourceKeys)
+        }
     }
 }
 
@@ -53,13 +90,11 @@ public struct PlaylistsView: View {
     let nowPlayingVM: NowPlayingViewModel
     private let presentationMode: PresentationMode
     private let externalSelectedPlaylist: Binding<DisplayPlaylist?>?
-    private let externalCreatePlaylistPresentation: Binding<Bool>?
     @State private var localSelectedPlaylist: DisplayPlaylist?
     @State private var pendingDeletionPlaylistIdentities: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
     @State private var playlistForEditSheet: Playlist?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
-    @State private var showCreatePlaylistPush = false
     @State private var renamePushPlaylists: [Playlist] = []
     @State private var renamePushPlaylistTitle = ""
     // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
@@ -73,11 +108,13 @@ public struct PlaylistsView: View {
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @Environment(\.isStageFlowActive) private var rootStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    #if os(macOS)
-    @Environment(\.isMacBrowsePicker) private var isMacBrowsePicker
-    #else
-    private let isMacBrowsePicker = false
-    #endif
+    private var isMacBrowsePicker: Bool {
+        #if os(macOS)
+        presentationMode == .selectionColumn
+        #else
+        false
+        #endif
+    }
 
     private var isStageFlowActive: Bool {
         presentationMode == .compactRoot && rootStageFlowActive
@@ -90,10 +127,6 @@ public struct PlaylistsView: View {
         #else
         return true
         #endif
-    }
-
-    private var createPlaylistPresentation: Binding<Bool> {
-        externalCreatePlaylistPresentation ?? $showCreatePlaylistPush
     }
 
     private func filteredDisplayedPlaylists(_ displayPlaylists: [DisplayPlaylist]) -> [DisplayPlaylist] {
@@ -165,8 +198,7 @@ public struct PlaylistsView: View {
         nowPlayingVM: NowPlayingViewModel,
         viewModel: PlaylistViewModel? = nil,
         presentationMode: PresentationMode = .compactRoot,
-        selectedPlaylist: Binding<DisplayPlaylist?>? = nil,
-        createPlaylistPresentation: Binding<Bool>? = nil
+        selectedPlaylist: Binding<DisplayPlaylist?>? = nil
     ) {
         self._viewModel = StateObject(
             wrappedValue: viewModel ?? DependencyContainer.shared.makePlaylistViewModel()
@@ -174,7 +206,6 @@ public struct PlaylistsView: View {
         self.nowPlayingVM = nowPlayingVM
         self.presentationMode = presentationMode
         self.externalSelectedPlaylist = selectedPlaylist
-        self.externalCreatePlaylistPresentation = createPlaylistPresentation
     }
 
     public var body: some View {
@@ -270,20 +301,10 @@ public struct PlaylistsView: View {
             }
             .toolbar {
                 EnsembleBrowseToolbar(isVisible: !isStageFlowActive && !isMacBrowsePicker) {
-                    PlaylistBrowseControls(viewModel: viewModel) { createPlaylistPresentation.wrappedValue = true }
+                    PlaylistBrowseControls(viewModel: viewModel, nowPlayingVM: nowPlayingVM)
                 }
             }
             .ensembleBrowseToolbarMinimization()
-            // Keep modal presenters outside search/toolbar/chrome modifiers so
-            // field focus does not rebuild the sheet host.
-            .sheet(isPresented: createPlaylistPresentation) {
-                CreatePlaylistView(
-                    serverOptions: playlistServerOptionsForDisplay(),
-                    isMergeEnabled: viewModel.isMergeEnabled
-                ) { name, serverKeys in
-                    createPlaylistOnServers(named: name, serverSourceKeys: serverKeys)
-                }
-            }
             .alert("Rename Playlist", isPresented: Binding(
                 get: { !renamePushPlaylists.isEmpty },
                 set: { if !$0 { renamePushPlaylists = [] } }
@@ -597,15 +618,6 @@ public struct PlaylistsView: View {
         navigationCoordinator.route(to: destination)
     }
 
-    private func playlistServerOptionsForDisplay() -> [PlaylistServerOption] {
-        nowPlayingVM.playlistServerOptions().map { option in
-            PlaylistServerOption(
-                id: option.id,
-                name: DemoModeRedaction.serverName(option.name, isEnabled: settingsManager.demoModeEnabled)
-            )
-        }
-    }
-
     private func startOptimisticDelete(for playlist: Playlist) {
         let playlistIdentity = playlist.sourceScopedID
         guard !pendingDeletionPlaylistIdentities.contains(playlistIdentity) else { return }
@@ -638,26 +650,6 @@ public struct PlaylistsView: View {
             }
         }
     }
-
-    /// Creates a playlist on one or more sources with a single aggregate toast.
-    /// When merge is enabled, the callback may pass multiple source keys.
-    private func createPlaylistOnServers(named title: String, serverSourceKeys: [String]) {
-        let creatingToast = ToastPayload(
-            style: .info,
-            iconSystemName: EnsembleDesign.Icon.addCircleOutline,
-            title: "Creating \(title)...",
-            isPersistent: true,
-            dedupeKey: "playlist-create-pending-\(title.lowercased())",
-            showsActivityIndicator: true
-        )
-        deps.toastCenter.show(creatingToast)
-
-        Task {
-            defer { deps.toastCenter.dismiss(id: creatingToast.id) }
-            _ = await viewModel.createPlaylists(title: title, serverSourceKeys: serverSourceKeys)
-        }
-    }
-
 
     private func renamePlaylist(_ playlist: Playlist, to newTitle: String) {
         guard let start = deps.playlistMutationWorkflow.beginRename(playlist: playlist, to: newTitle) else {

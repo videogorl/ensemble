@@ -19,10 +19,6 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
     #if !os(macOS)
     @State private var compactColumn: NavigationSplitViewColumn = .content
     #endif
-    #if os(macOS)
-    @State private var showsArtistFilters = false
-    @State private var showsCreatePlaylist = false
-    #endif
 
     private struct BrowseSelection: Equatable {
         let tab: TabItem?
@@ -117,62 +113,27 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
         }
     }
 
-    private var artistFilterSheetPresentation: Binding<Bool>? {
-        #if os(macOS)
-        return $showsArtistFilters
-        #else
-        return nil
-        #endif
-    }
-
-    private var createPlaylistPresentation: Binding<Bool>? {
-        #if os(macOS)
-        return $showsCreatePlaylist
-        #else
-        return nil
-        #endif
-    }
-
     #if os(macOS)
-    private var isPickerSearchVisible: Bool {
+    private var pickerSearch: (text: Binding<String>, prompt: String, isVisible: Bool) {
         switch tab {
-        case .artists: return true
+        case .artists:
+            return (Binding(
+                get: { viewModels.library.artistsFilterOptions.searchText },
+                set: { viewModels.library.artistsFilterOptions.searchText = $0 }
+            ), "Filter artists", true)
         case .genres:
-            return genre == nil && detailPathCount == 0 &&
-                !navigationCoordinator.isRouteTransitionActive(for: .genres)
-        case .playlists: return playlist == nil
-        default: return false
+            return (Binding(
+                get: { viewModels.library.genresFilterOptions.searchText },
+                set: { viewModels.library.genresFilterOptions.searchText = $0 }
+            ), "Filter genres", genre == nil && detailPathCount == 0 &&
+                !navigationCoordinator.isRouteTransitionActive(for: .genres))
+        case .playlists:
+            return (Binding(
+                get: { viewModels.playlists.filterOptions.searchText },
+                set: { viewModels.playlists.filterOptions.searchText = $0 }
+            ), "Filter playlists", playlist == nil)
+        default: return (.constant(""), "Search", false)
         }
-    }
-
-    private var pickerSearchPrompt: String {
-        switch tab {
-        case .artists: return "Filter artists"
-        case .genres: return "Filter genres"
-        case .playlists: return "Filter playlists"
-        default: return "Search"
-        }
-    }
-
-    private var pickerSearchText: Binding<String> {
-        Binding(
-            get: {
-                switch tab {
-                case .artists: return viewModels.library.artistsFilterOptions.searchText
-                case .genres: return viewModels.library.genresFilterOptions.searchText
-                case .playlists: return viewModels.playlists.filterOptions.searchText
-                default: return ""
-                }
-            },
-            set: {
-                switch tab {
-                case .artists: viewModels.library.artistsFilterOptions.searchText = $0
-                case .genres: viewModels.library.genresFilterOptions.searchText = $0
-                case .playlists: viewModels.playlists.filterOptions.searchText = $0
-                default: break
-                }
-            }
-        )
     }
 
     private var isPickerToolbarVisible: Bool {
@@ -189,9 +150,9 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
     private var pickerToolbarControls: some View {
         switch tab {
         case .artists:
-            ArtistBrowseControls(libraryVM: viewModels.library) { showsArtistFilters = true }
+            ArtistBrowseControls(libraryVM: viewModels.library)
         case .playlists:
-            PlaylistBrowseControls(viewModel: viewModels.playlists) { showsCreatePlaylist = true }
+            PlaylistBrowseControls(viewModel: viewModels.playlists, nowPlayingVM: nowPlayingVM)
         default: EmptyView()
         }
     }
@@ -202,15 +163,13 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
         switch tab {
         case .artists:
             ArtistsView(libraryVM: viewModels.library, nowPlayingVM: nowPlayingVM,
-                        presentationMode: .selectionColumn, selectedArtist: $artist,
-                        filterSheetPresentation: artistFilterSheetPresentation)
+                        presentationMode: .selectionColumn, selectedArtist: $artist)
         case .genres:
             GenresView(libraryVM: viewModels.library, nowPlayingVM: nowPlayingVM,
                        presentationMode: .selectionColumn, selectedGenre: $genre)
         case .playlists:
             PlaylistsView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.playlists,
-                          presentationMode: .selectionColumn, selectedPlaylist: $playlist,
-                          createPlaylistPresentation: createPlaylistPresentation)
+                          presentationMode: .selectionColumn, selectedPlaylist: $playlist)
         default: EmptyView()
         }
     }
@@ -225,11 +184,14 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
     }
 
     private func detailStack(for tab: TabItem) -> some View {
-        NavigationStack(path: navigationCoordinator.pathBinding(for: tab, isActive: { rootSelection == .library(tab) && !navigationCoordinator.routesHiddenTabsThroughMore })) {
+        #if os(macOS)
+        let search = pickerSearch
+        #endif
+        return NavigationStack(path: navigationCoordinator.pathBinding(for: tab, isActive: { rootSelection == .library(tab) && !navigationCoordinator.routesHiddenTabsThroughMore })) {
             detailRoot(for: tab)
                 #if os(macOS)
-                .if(isPickerSearchVisible) { view in
-                    view.searchable(text: pickerSearchText, prompt: Text(pickerSearchPrompt))
+                .if(search.isVisible) { view in
+                    view.searchable(text: search.text, prompt: Text(search.prompt))
                 }
                 .navigationTitle(detailTitle(for: tab))
                 #endif
