@@ -701,26 +701,25 @@ public actor PlexAPIClient {
     // MARK: - Server requests
 
     func serverRequest(
+        method: String = "GET",
         path: String,
         query: [String: String] = [:],
-        accept: String = "application/json"
+        accept: String = "application/json",
+        retryAfterFailover: Bool = true
     ) async throws -> Data {
         let attempt = try await authorizedServerAttempt()
         do {
-            let data = try await performServerRequest(url: attempt.endpoint.url, token: attempt.token, path: path, query: query, accept: accept)
-            try await recordServerAttemptSuccess(attempt)
-            return data
+            return try await performServerRequest(attempt, method: method, path: path, query: query, accept: accept)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             try Task.checkCancellation()
-            guard await recordServerAttemptFailure(attempt, error: error),
+            let isCurrent = await recordServerAttemptFailure(attempt, error: error)
+            guard retryAfterFailover, isCurrent,
                   serverConnection.endpoints.count > 1, shouldAttemptFailover(after: error) else { throw error }
             _ = try await attemptFailover(excluding: attempt.endpoint.url)
             let retry = try await authorizedServerAttempt()
-            let data = try await performServerRequest(url: retry.endpoint.url, token: retry.token, path: path, query: query, accept: accept)
-            try await recordServerAttemptSuccess(retry)
-            return data
+            return try await performServerRequest(retry, method: method, path: path, query: query, accept: accept)
         }
     }
 
@@ -734,93 +733,28 @@ public actor PlexAPIClient {
         )
     }
 
-    func performServerRequest(
-        url: String,
-        token: String,
+    private func performServerRequest(
+        _ attempt: ServerAttempt,
+        method: String,
         path: String,
-        query: [String: String] = [:],
-        accept: String = "application/json"
+        query: [String: String],
+        accept: String
     ) async throws -> Data {
-        let request = try PlexRequestBuilder(
-            baseURL: url,
-            token: token,
-            headerContext: requestHeaderContext
-        ).makeRequest(method: "GET", path: path, query: query, accept: accept)
-
+        let request = try makeServerRequest(
+            url: attempt.endpoint.url, token: attempt.token,
+            method: method, path: path, query: query, accept: accept
+        )
         let (data, _) = try await performRequest(request)
+        try await recordServerAttemptSuccess(attempt)
         return data
     }
 
-    private func endpointLogDescription(for endpoint: PlexEndpointDescriptor) -> String {
-        "class=\(endpoint.endpointClass.rawValue) local=\(endpoint.local ? 1 : 0) relay=\(endpoint.relay ? 1 : 0) secure=\(endpoint.secure ? 1 : 0)"
-    }
-
-    private func requestFailureLogDescription(_ error: Error) -> String {
-        if let plexError = error as? PlexAPIError {
-            switch plexError {
-            case .notAuthenticated:
-                return "notAuthenticated"
-            case .noServerSelected:
-                return "noServerSelected"
-            case .invalidURL:
-                return "invalidURL"
-            case .invalidResponse:
-                return "invalidResponse"
-            case .httpError(let statusCode):
-                return "httpError(statusCode:\(statusCode))"
-            case .decodingError(let underlying):
-                return "decodingError(\(String(describing: type(of: underlying))))"
-            case .networkError(let underlying):
-                return "networkError(\(transportFailureLogDescription(underlying)))"
-            }
-        }
-
-        return transportFailureLogDescription(error)
-    }
-
-    private func transportFailureLogDescription(_ error: Error) -> String {
-        if let urlError = error as? URLError {
-            return "URLError(code:\(urlError.code.rawValue))"
-        }
-
-        let nsError = error as NSError
-        return "NSError(domain:\(nsError.domain), code:\(nsError.code))"
-    }
-    
     func serverRequestPUT(
         path: String,
         query: [String: String] = [:],
         retryAfterFailover: Bool = true
     ) async throws -> Data {
-        let attempt = try await authorizedServerAttempt()
-        do {
-            let data = try await performServerRequestPUT(url: attempt.endpoint.url, token: attempt.token, path: path, query: query)
-            try await recordServerAttemptSuccess(attempt)
-            return data
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            try Task.checkCancellation()
-            let isCurrent = await recordServerAttemptFailure(attempt, error: error)
-            guard retryAfterFailover, isCurrent, serverConnection.endpoints.count > 1,
-                  shouldAttemptFailover(after: error) else { throw error }
-            _ = try await attemptFailover(excluding: attempt.endpoint.url)
-            let retry = try await authorizedServerAttempt()
-            let data = try await performServerRequestPUT(url: retry.endpoint.url, token: retry.token, path: path, query: query)
-            try await recordServerAttemptSuccess(retry)
-            return data
-        }
-    }
-
-    func performServerRequestPUT(url: String, token: String, path: String, query: [String: String] = [:]) async throws -> Data {
-        let request = try PlexRequestBuilder(
-            baseURL: url,
-            token: token,
-            headerContext: requestHeaderContext
-        ).makeRequest(method: "PUT", path: path, query: query)
-
-        let (data, _) = try await performRequest(request)
-        return data
+        try await serverRequest(method: "PUT", path: path, query: query, retryAfterFailover: retryAfterFailover)
     }
 
     func serverRequestPOST(
@@ -828,35 +762,7 @@ public actor PlexAPIClient {
         query: [String: String] = [:],
         retryAfterFailover: Bool = true
     ) async throws -> Data {
-        let attempt = try await authorizedServerAttempt()
-        do {
-            let data = try await performServerRequestPOST(url: attempt.endpoint.url, token: attempt.token, path: path, query: query)
-            try await recordServerAttemptSuccess(attempt)
-            return data
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            try Task.checkCancellation()
-            let isCurrent = await recordServerAttemptFailure(attempt, error: error)
-            guard retryAfterFailover, isCurrent, serverConnection.endpoints.count > 1,
-                  shouldAttemptFailover(after: error) else { throw error }
-            _ = try await attemptFailover(excluding: attempt.endpoint.url)
-            let retry = try await authorizedServerAttempt()
-            let data = try await performServerRequestPOST(url: retry.endpoint.url, token: retry.token, path: path, query: query)
-            try await recordServerAttemptSuccess(retry)
-            return data
-        }
-    }
-
-    func performServerRequestPOST(url: String, token: String, path: String, query: [String: String] = [:]) async throws -> Data {
-        let request = try PlexRequestBuilder(
-            baseURL: url,
-            token: token,
-            headerContext: requestHeaderContext
-        ).makeRequest(method: "POST", path: path, query: query)
-
-        let (data, _) = try await performRequest(request)
-        return data
+        try await serverRequest(method: "POST", path: path, query: query, retryAfterFailover: retryAfterFailover)
     }
 
     func serverRequestDELETE(
@@ -864,30 +770,7 @@ public actor PlexAPIClient {
         query: [String: String] = [:],
         retryAfterFailover: Bool = true
     ) async throws -> Data {
-        let attempt = try await authorizedServerAttempt()
-        do {
-            let data = try await performServerRequestDELETE(url: attempt.endpoint.url, token: attempt.token, path: path, query: query)
-            try await recordServerAttemptSuccess(attempt)
-            return data
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            try Task.checkCancellation()
-            let isCurrent = await recordServerAttemptFailure(attempt, error: error)
-            guard retryAfterFailover, isCurrent, serverConnection.endpoints.count > 1,
-                  shouldAttemptFailover(after: error) else { throw error }
-            _ = try await attemptFailover(excluding: attempt.endpoint.url)
-            let retry = try await authorizedServerAttempt()
-            let data = try await performServerRequestDELETE(url: retry.endpoint.url, token: retry.token, path: path, query: query)
-            try await recordServerAttemptSuccess(retry)
-            return data
-        }
-    }
-
-    func performServerRequestDELETE(url: String, token: String, path: String, query: [String: String] = [:]) async throws -> Data {
-        let request = try makeServerRequest(url: url, token: token, method: "DELETE", path: path, query: query)
-        let (data, _) = try await performRequest(request)
-        return data
+        try await serverRequest(method: "DELETE", path: path, query: query, retryAfterFailover: retryAfterFailover)
     }
 
     /// Build a server request with Plex auth headers and tokenized query.

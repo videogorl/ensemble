@@ -2,6 +2,39 @@ import XCTest
 @testable import EnsembleAPI
 
 final class PlexPlaylistRetryTests: XCTestCase {
+    func testFailoverReturnsTheRetryFailureWithoutRepeatingCommandsAgain() async throws {
+        for method in ["GET", "PUT", "POST", "DELETE"] {
+            let lock = NSLock()
+            var attempts = 0
+            let (client, session) = makeClient { request in
+                if request.url?.path == "/identity" { return (200, Data()) }
+                lock.lock()
+                defer { lock.unlock() }
+                attempts += 1
+                XCTAssertEqual(request.httpMethod, method)
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), method == "GET" ? "text/plain" : "application/json")
+                if attempts == 1 { throw URLError(.networkConnectionLost) }
+                return (attempts == 2 ? 502 : 401, Data())
+            }
+            defer { session.invalidateAndCancel() }
+
+            do {
+                switch method {
+                case "GET": _ = try await client.getRawLyricsContent(streamKey: "/library/streams/lyrics")
+                case "PUT": try await client.renamePlaylist(playlistId: "playlist", newTitle: "New Title")
+                case "POST": _ = try await client.getTrackRadio(ratingKey: "42")
+                default: try await client.deletePlaylist(playlistId: "playlist")
+                }
+                XCTFail("The retry failure must reach the caller")
+            } catch PlexAPIError.httpError(let status) {
+                XCTAssertEqual(status, 502)
+            } catch {
+                XCTFail("Expected the retry's HTTP error, got \(error)")
+            }
+            XCTAssertEqual(attempts, 2, "Failover permits at most one replay")
+        }
+    }
+
     func testUnacknowledgedBulkClearDoesNotEraseAConcurrentExternalOccurrence() async throws {
         let lock = NSLock()
         var members = ["original"]
