@@ -927,7 +927,11 @@ public actor PlexAPIClient {
         return data
     }
 
-    func serverRequestDELETE(path: String, query: [String: String] = [:]) async throws -> Data {
+    func serverRequestDELETE(
+        path: String,
+        query: [String: String] = [:],
+        retryAfterFailover: Bool = true
+    ) async throws -> Data {
         try await ensureNetworkAvailableForServerRequest(path: path)
         await syncCurrentEndpointFromRegistryIfNeeded(reason: "DELETE request")
 
@@ -939,6 +943,7 @@ public actor PlexAPIClient {
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
                 let failedURL = currentServerURL
                 await recordCurrentEndpointFailure(error)
+                guard retryAfterFailover else { throw error }
                 EnsembleLogger.debug("⚠️ DELETE request failed with current endpoint, attempting failover...")
                 _ = try await attemptFailover(excluding: failedURL)
                 return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)

@@ -160,10 +160,11 @@ public final class PlexMusicSourceSyncProvider:
                 $0.title.caseInsensitiveCompare(title) == .orderedSame
             }) else { continue }
             if seededEmptyPlaylist {
-                try? await clearPlaylistItems(playlist.ratingKey)
+                try await clearPlaylistItems(playlist.ratingKey)
             }
             return playlist
         }
+        if seededEmptyPlaylist { throw PlexAPIError.invalidResponse }
         return nil
     }
 

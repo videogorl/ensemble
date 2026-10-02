@@ -2,6 +2,58 @@ import XCTest
 @testable import EnsembleAPI
 
 final class PlexPlaylistRetryTests: XCTestCase {
+    func testUnacknowledgedBulkClearDoesNotEraseAConcurrentExternalOccurrence() async throws {
+        let lock = NSLock()
+        var members = ["original"]
+        let (client, session) = makeClient { request in
+            if request.url?.path == "/identity" { return (200, Data()) }
+            lock.lock()
+            defer { lock.unlock() }
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            XCTAssertEqual(request.url?.path, "/playlists/playlist/items")
+            members.removeAll()
+            if request.url?.host == "failed.invalid" {
+                members.append("external-occurrence")
+                throw URLError(.networkConnectionLost)
+            }
+            return (204, Data())
+        }
+        defer { session.invalidateAndCancel() }
+
+        do {
+            try await client.clearPlaylistItems(playlistId: "playlist")
+            XCTFail("An unacknowledged clear must return its failure")
+        } catch {
+            XCTAssertEqual(PlexErrorClassification.classify(error), .connectionFailure)
+        }
+        XCTAssertEqual(members, ["external-occurrence"])
+    }
+
+    func testStablePlaylistAndMembershipDeletesStillRecoverThroughAnotherEndpoint() async throws {
+        for deletingPlaylist in [false, true] {
+            let lock = NSLock()
+            var targets = Set(["target", "unrelated"])
+            let path = deletingPlaylist ? "/playlists/target" : "/playlists/playlist/items/target"
+            let (client, session) = makeClient { request in
+                if request.url?.path == "/identity" { return (200, Data()) }
+                lock.lock()
+                defer { lock.unlock() }
+                XCTAssertEqual(request.httpMethod, "DELETE")
+                XCTAssertEqual(request.url?.path, path)
+                if request.url?.host == "failed.invalid" { throw URLError(.networkConnectionLost) }
+                targets.remove("target")
+                return (204, Data())
+            }
+            defer { session.invalidateAndCancel() }
+            if deletingPlaylist {
+                try await client.deletePlaylist(playlistId: "target")
+            } else {
+                try await client.removePlaylistItem(playlistId: "playlist", playlistItemId: "target")
+            }
+            XCTAssertEqual(targets, ["unrelated"])
+        }
+    }
+
     func testAcceptedPlaylistWritesAreNotRepeatedAfterLostAcknowledgment() async throws {
         for creating in [true, false] {
             let lock = NSLock()

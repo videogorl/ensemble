@@ -123,7 +123,8 @@ extension PlexAPIClient {
 
     /// Clear all items from a playlist
     public func clearPlaylistItems(playlistId: String) async throws {
-        _ = try await serverRequestDELETE(path: "/playlists/\(playlistId)/items")
+        // A repeated clear could remove items added after an unacknowledged first clear.
+        _ = try await serverRequestDELETE(path: "/playlists/\(playlistId)/items", retryAfterFailover: false)
     }
 
     /// Move a playlist item relative to another item
