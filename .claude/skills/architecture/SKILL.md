@@ -74,6 +74,7 @@ Dependency flow is one-way:
 
 - Root shells own platform navigation: tabs on compact iPhone, the shared split/sidebar shell on expanded iOS 27 iPhone and supported iPad/macOS.
 - Persistent list/detail surfaces should observe focused projections or local state snapshots, not broad high-frequency singleton objects.
+- `LibraryViewModel` owns four canonical section snapshot holders; browse screens observe their holder directly and retain only native presentation caches for transformed rows or StageFlow.
 - Keep native platform owners for behavior SwiftUI does not expose: UIKit/AppKit track tables, AirPlay picker, Metal aurora, global toast window, native share/menu hosts, iOS 15 tab/mini-player bridges.
 - Treat new safe-area compensation, delayed layout tasks, custom scroll detectors, leaf-level navigation-bar hiding, and root-chrome mutation as suspect until a current simulator/macOS repro proves native behavior is broken.
 - Now Playing panel additions must update the shared iPhone carousel and wide detail panel. External display stays a shell around the shared wide layout.

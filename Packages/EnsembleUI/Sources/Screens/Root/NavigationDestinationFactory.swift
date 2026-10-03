@@ -173,7 +173,7 @@ struct NavigationDestinationFactory {
 
     @MainActor
     private static func displayGenre(for id: String, libraryVM: LibraryViewModel) -> DisplayGenre? {
-        libraryVM.genreBrowseSnapshot.displayGenres.first { $0.id == id }
+        libraryVM.genreBrowse.snapshot.displayGenres.first { $0.id == id }
     }
 }
 

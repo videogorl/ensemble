@@ -13,7 +13,7 @@ public struct GenresView: View {
     private let presentationMode: PresentationMode
     private let externalSelectedGenre: Binding<DisplayGenre?>?
     @State private var localSelectedGenre: DisplayGenre?
-    @StateObject private var genreSnapshotCache = BrowseSnapshotCache(GenreBrowseSnapshot.empty)
+    @ObservedObject private var genreSnapshotCache: BrowseSnapshotCache<GenreBrowseSnapshot>
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private var isMacBrowsePicker: Bool {
         #if os(macOS)
@@ -31,9 +31,7 @@ public struct GenresView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        #if os(macOS)
-        self._genreSnapshotCache = StateObject(wrappedValue: BrowseSnapshotCache(libraryVM.genreBrowseSnapshot))
-        #endif
+        self._genreSnapshotCache = ObservedObject(wrappedValue: libraryVM.genreBrowse)
         self.presentationMode = presentationMode
         self.externalSelectedGenre = selectedGenre
     }
@@ -70,18 +68,10 @@ public struct GenresView: View {
         .refreshCommand {
             await libraryVM.refreshFromServer()
         }
-        .onReceive(libraryVM.$genreBrowseSnapshot) { snapshot in
-            genreSnapshotCache.snapshot = snapshot
-        }
-        .onAppear {
-            genreSnapshotCache.snapshot = libraryVM.genreBrowseSnapshot
-        }
     }
 
     private var genreSnapshot: GenreBrowseSnapshot {
-        genreSnapshotCache.snapshot.hasVisibleContent || genreSnapshotCache.snapshot.phase != .idle
-            ? genreSnapshotCache.snapshot
-            : libraryVM.genreBrowseSnapshot
+        genreSnapshotCache.snapshot
     }
 
     private var isGenreBrowseSearchVisible: Bool {

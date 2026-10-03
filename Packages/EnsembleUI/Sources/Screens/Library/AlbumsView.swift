@@ -11,7 +11,7 @@ public struct AlbumsView: View {
     @State private var showFilterSheet = false
     @State private var visibleAlbumID: String?
     @State private var selectedAlbum: DisplayAlbum?
-    @StateObject private var albumSnapshotCache = BrowseSnapshotCache(AlbumBrowseSnapshot.empty)
+    @ObservedObject private var albumSnapshotCache: BrowseSnapshotCache<AlbumBrowseSnapshot>
 
     public init(
         libraryVM: LibraryViewModel,
@@ -19,9 +19,7 @@ public struct AlbumsView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        #if os(macOS)
-        self._albumSnapshotCache = StateObject(wrappedValue: BrowseSnapshotCache(libraryVM.albumBrowseSnapshot))
-        #endif
+        self._albumSnapshotCache = ObservedObject(wrappedValue: libraryVM.albumBrowse)
     }
     
     // Get unique artist names for filter
@@ -31,9 +29,7 @@ public struct AlbumsView: View {
     }
 
     private var albumSnapshot: AlbumBrowseSnapshot {
-        albumSnapshotCache.snapshot.hasVisibleContent || albumSnapshotCache.snapshot.phase != .idle
-            ? albumSnapshotCache.snapshot
-            : libraryVM.albumBrowseSnapshot
+        albumSnapshotCache.snapshot
     }
 
     private var albumFilterOptions: Binding<FilterOptions> {
@@ -119,12 +115,6 @@ public struct AlbumsView: View {
                 showGenreFilter: true,
                 showHideSingles: true
             )
-        }
-        .onReceive(libraryVM.$albumBrowseSnapshot) { snapshot in
-            albumSnapshotCache.snapshot = snapshot
-        }
-        .onAppear {
-            albumSnapshotCache.snapshot = libraryVM.albumBrowseSnapshot
         }
     }
 

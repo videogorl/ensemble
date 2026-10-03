@@ -32,10 +32,16 @@ extension EnvironmentValues {
 
 struct ArtistBrowseControls: View {
     @ObservedObject var libraryVM: LibraryViewModel
+    @ObservedObject private var artistSnapshotCache: BrowseSnapshotCache<ArtistBrowseSnapshot>
     @State private var showsFilters = false
 
+    init(libraryVM: LibraryViewModel) {
+        self.libraryVM = libraryVM
+        self._artistSnapshotCache = ObservedObject(wrappedValue: libraryVM.artistBrowse)
+    }
+
     var body: some View {
-        if libraryVM.artistBrowseSnapshot.hasVisibleContent || !libraryVM.artists.isEmpty {
+        if artistSnapshotCache.snapshot.hasVisibleContent || !libraryVM.artists.isEmpty {
             EnsembleBrowseFilterButton(
                 title: "Filter Artists",
                 hasActiveFilters: libraryVM.artistsFilterOptions.hasActiveFilters,
@@ -44,7 +50,7 @@ struct ArtistBrowseControls: View {
             .sheet(isPresented: $showsFilters) {
                 FilterSheet(
                     filterOptions: $libraryVM.artistsFilterOptions,
-                    availableGenres: libraryVM.artistBrowseSnapshot.availableGenres,
+                    availableGenres: artistSnapshotCache.snapshot.availableGenres,
                     showGenreFilter: true
                 )
             }
@@ -74,7 +80,7 @@ public struct ArtistsView: View {
     private let externalSelectedArtist: Binding<DisplayArtist?>?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var localSelectedArtist: DisplayArtist?
-    @StateObject private var artistSnapshotCache = BrowseSnapshotCache(ArtistBrowseSnapshot.empty)
+    @ObservedObject private var artistSnapshotCache: BrowseSnapshotCache<ArtistBrowseSnapshot>
 
     private var artistFilterOptions: Binding<FilterOptions> {
         Binding(
@@ -91,9 +97,7 @@ public struct ArtistsView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        #if os(macOS)
-        self._artistSnapshotCache = StateObject(wrappedValue: BrowseSnapshotCache(libraryVM.artistBrowseSnapshot))
-        #endif
+        self._artistSnapshotCache = ObservedObject(wrappedValue: libraryVM.artistBrowse)
         self.presentationMode = presentationMode
         self.externalSelectedArtist = selectedArtist
     }
@@ -127,12 +131,6 @@ public struct ArtistsView: View {
         .if(selectedArtist == nil) { view in
             view.toolbarMaterialBackground()
         }
-        .onReceive(libraryVM.$artistBrowseSnapshot) { snapshot in
-            artistSnapshotCache.snapshot = snapshot
-        }
-        .onAppear {
-            artistSnapshotCache.snapshot = libraryVM.artistBrowseSnapshot
-        }
     }
 
     @ViewBuilder
@@ -154,9 +152,7 @@ public struct ArtistsView: View {
     }
 
     private var artistSnapshot: ArtistBrowseSnapshot {
-        artistSnapshotCache.snapshot.hasVisibleContent || artistSnapshotCache.snapshot.phase != .idle
-            ? artistSnapshotCache.snapshot
-            : libraryVM.artistBrowseSnapshot
+        artistSnapshotCache.snapshot
     }
 
     private var isBrowseToolbarVisible: Bool {

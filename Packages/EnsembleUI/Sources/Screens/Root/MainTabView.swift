@@ -1608,10 +1608,10 @@ public struct SidebarView: View {
               let destination = navigationCoordinator.pathSnapshot(for: tab).first else { return }
         switch (tab, destination) {
         case (.artists, .displayArtist(let id)):
-            guard let artist = libraryVM.displayArtists.first(where: { $0.id == id }) else { return }
+            guard let artist = libraryVM.artistBrowse.snapshot.displayArtists.first(where: { $0.id == id }) else { return }
             selectedArtist = artist
         case (.genres, .displayGenre(let id)):
-            guard let genre = libraryVM.genreBrowseSnapshot.displayGenres.first(where: { $0.id == id }) else { return }
+            guard let genre = libraryVM.genreBrowse.snapshot.displayGenres.first(where: { $0.id == id }) else { return }
             selectedGenre = genre
         case (.playlists, .playlistDetail(let playlist, false)):
             selectedPlaylist = .single(playlist)

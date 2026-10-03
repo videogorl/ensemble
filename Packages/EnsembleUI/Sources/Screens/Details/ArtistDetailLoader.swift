@@ -51,7 +51,7 @@ struct ArtistDetailLoader: View {
             let artist = try await deps.makeArtistDetailResolver(includesHidden: includesHidden).resolve(
                 request,
                 cachedArtists: libraryVM?.cachedArtistsForDetailResolution,
-                cachedDisplayArtists: libraryVM?.artistBrowseSnapshot.displayArtists ?? []
+                cachedDisplayArtists: libraryVM?.artistBrowse.snapshot.displayArtists ?? []
             )
             finishLoading(displayArtist: artist, error: nil)
         } catch {

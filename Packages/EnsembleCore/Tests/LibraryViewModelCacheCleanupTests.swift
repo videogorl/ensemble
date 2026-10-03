@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 import EnsembleAPI
 import EnsemblePersistence
 @testable import EnsembleCore
@@ -173,8 +174,8 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             expectedSourceKeys: [sourceKey],
             isShowingStaleSnapshot: false
         )
-        XCTAssertEqual(viewModel.trackBrowseSnapshot.tracks.compactMap(\.sourceCompositeKey), [sourceKey])
-        XCTAssertFalse(viewModel.trackBrowseSnapshot.isShowingStaleSnapshot)
+        XCTAssertEqual(viewModel.trackBrowse.snapshot.tracks.compactMap(\.sourceCompositeKey), [sourceKey])
+        XCTAssertFalse(viewModel.trackBrowse.snapshot.isShowingStaleSnapshot)
 
         XCTAssertTrue(harness.accountManager.setLibraryEnabled(
             accountId: "account-1",
@@ -191,8 +192,8 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             isShowingStaleSnapshot: true
         )
         XCTAssertTrue(viewModel.tracks.isEmpty)
-        XCTAssertEqual(viewModel.trackBrowseSnapshot.tracks.compactMap(\.sourceCompositeKey), [sourceKey])
-        XCTAssertTrue(viewModel.trackBrowseSnapshot.isShowingStaleSnapshot)
+        XCTAssertEqual(viewModel.trackBrowse.snapshot.tracks.compactMap(\.sourceCompositeKey), [sourceKey])
+        XCTAssertTrue(viewModel.trackBrowse.snapshot.isShowingStaleSnapshot)
 
         readiness.markBootstrapSettled()
         await viewModel.loadLibrary()
@@ -202,8 +203,8 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             isShowingStaleSnapshot: false
         )
 
-        XCTAssertTrue(viewModel.trackBrowseSnapshot.tracks.isEmpty)
-        XCTAssertFalse(viewModel.trackBrowseSnapshot.isShowingStaleSnapshot)
+        XCTAssertTrue(viewModel.trackBrowse.snapshot.tracks.isEmpty)
+        XCTAssertFalse(viewModel.trackBrowse.snapshot.isShowingStaleSnapshot)
     }
 
     func testLoadLibraryPreparesFirstBrowseSnapshotBeforeReturning() async throws {
@@ -214,17 +215,41 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         )
         try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
 
+        let filterKey = "Ensemble.FilterOptions.Songs"
+        let savedFilters = UserDefaults.standard.data(forKey: filterKey)
+        defer { UserDefaults.standard.set(savedFilters, forKey: filterKey) }
         let viewModel = makeViewModel(harness: harness)
+        viewModel.tracksFilterOptions = FilterOptions()
         await viewModel.loadLibrary()
 
-        XCTAssertEqual(viewModel.trackBrowseSnapshot.tracks.compactMap(\.sourceCompositeKey), [sourceKey])
-        XCTAssertEqual(viewModel.trackBrowseSnapshot.sections.map(\.letter), ["T"])
+        XCTAssertEqual(viewModel.trackBrowse.snapshot.tracks.compactMap(\.sourceCompositeKey), [sourceKey])
+        XCTAssertEqual(viewModel.trackBrowse.snapshot.sections.map(\.letter), ["T"])
 
         try await waitForTrackSnapshot(
             viewModel: viewModel,
             expectedSourceKeys: [sourceKey],
             isShowingStaleSnapshot: false
         )
+
+        // A newly mounted screen receives committed rows immediately, then only
+        // its own section changes; unchanged values do not reload large lists.
+        let filtered = expectation(description: "track-only filter published")
+        var trackValues: [TrackBrowseSnapshot] = []
+        var artistPublications = 0
+        let trackSubscription = viewModel.trackBrowse.$snapshot.sink { snapshot in
+            trackValues.append(snapshot)
+            if snapshot.tracks.isEmpty { filtered.fulfill() }
+        }
+        let artistSubscription = viewModel.artistBrowse.$snapshot.sink { _ in artistPublications += 1 }
+        XCTAssertEqual(trackValues.count, 1)
+        XCTAssertEqual(trackValues.first?.tracks.compactMap(\.sourceCompositeKey), [sourceKey])
+        viewModel.trackBrowse.update(viewModel.trackBrowse.snapshot)
+        XCTAssertEqual(trackValues.count, 1)
+        viewModel.tracksFilterOptions.searchText = "no matching track"
+        await fulfillment(of: [filtered], timeout: 2)
+        XCTAssertEqual(trackValues.count, 2)
+        XCTAssertEqual(artistPublications, 1)
+        withExtendedLifetime((trackSubscription, artistSubscription)) {}
     }
 
     func testLoadLibraryPublishesArtistMetadataChangesWithStableIdentity() async throws {
@@ -291,12 +316,12 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         FilterPersistence.save(options, for: "Artists")
         let viewModel = makeViewModel(harness: harness)
         await viewModel.loadLibrary()
-        XCTAssertTrue(viewModel.artistBrowseSnapshot.displayArtists.isEmpty,
+        XCTAssertTrue(viewModel.artistBrowse.snapshot.displayArtists.isEmpty,
                       "The first snapshot must honor the persisted download filter")
 
         func waitForSources(_ expected: Set<String>) async throws {
             let predicate = NSPredicate { _, _ in
-                Set(viewModel.artistBrowseSnapshot.displayArtists.flatMap(\.artists).compactMap(\.sourceCompositeKey)) == expected
+                Set(viewModel.artistBrowse.snapshot.displayArtists.flatMap(\.artists).compactMap(\.sourceCompositeKey)) == expected
             }
             let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
             await fulfillment(of: [expectation], timeout: 3)
@@ -445,7 +470,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         )
 
         try await waitForTrackCount(viewModel: viewModel, expectedCount: 0)
-        XCTAssertTrue(viewModel.trackBrowseSnapshot.tracks.isEmpty)
+        XCTAssertTrue(viewModel.trackBrowse.snapshot.tracks.isEmpty)
         let cachedTracks = try await harness.libraryRepository.fetchTracks()
         XCTAssertTrue(cachedTracks.isEmpty)
     }
@@ -1542,28 +1567,28 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
     ) async throws {
         let deadline = Date().addingTimeInterval(2)
         while Date() < deadline {
-            let sourceKeys = viewModel.trackBrowseSnapshot.tracks.compactMap(\.sourceCompositeKey)
+            let sourceKeys = viewModel.trackBrowse.snapshot.tracks.compactMap(\.sourceCompositeKey)
             if sourceKeys == expectedSourceKeys,
-               viewModel.trackBrowseSnapshot.isShowingStaleSnapshot == isShowingStaleSnapshot {
+               viewModel.trackBrowse.snapshot.isShowingStaleSnapshot == isShowingStaleSnapshot {
                 return
             }
             try await Task.sleep(nanoseconds: 25_000_000)
         }
 
-        XCTAssertEqual(viewModel.trackBrowseSnapshot.tracks.compactMap(\.sourceCompositeKey), expectedSourceKeys)
-        XCTAssertEqual(viewModel.trackBrowseSnapshot.isShowingStaleSnapshot, isShowingStaleSnapshot)
+        XCTAssertEqual(viewModel.trackBrowse.snapshot.tracks.compactMap(\.sourceCompositeKey), expectedSourceKeys)
+        XCTAssertEqual(viewModel.trackBrowse.snapshot.isShowingStaleSnapshot, isShowingStaleSnapshot)
     }
 
     private func waitForArtistName(viewModel: LibraryViewModel, expectedName: String) async throws {
         let deadline = Date().addingTimeInterval(2)
         while Date() < deadline {
-            if viewModel.artistBrowseSnapshot.displayArtists.first?.name == expectedName {
+            if viewModel.artistBrowse.snapshot.displayArtists.first?.name == expectedName {
                 return
             }
             try await Task.sleep(nanoseconds: 25_000_000)
         }
 
-        XCTAssertEqual(viewModel.artistBrowseSnapshot.displayArtists.first?.name, expectedName)
+        XCTAssertEqual(viewModel.artistBrowse.snapshot.displayArtists.first?.name, expectedName)
     }
 
     private func makeViewModel(

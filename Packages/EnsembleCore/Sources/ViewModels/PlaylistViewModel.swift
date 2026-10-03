@@ -49,7 +49,6 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     @Published public private(set) var playlists: [Playlist] = []
-    @Published public private(set) var visibleSnapshot: [Playlist] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
     @Published public private(set) var isShowingStaleSnapshot = false
@@ -59,10 +58,6 @@ public final class PlaylistViewModel: ObservableObject {
         }
     }
     @Published public var filterOptions: FilterOptions
-    /// Cached sorted + filtered playlists, updated via Combine pipeline instead of re-computed on every body access
-    @Published public private(set) var filteredPlaylists: [Playlist] = []
-    /// Sorted playlist list used by large-screen sidebar navigation.
-    @Published public private(set) var sortedPlaylists: [Playlist] = []
 
     // MARK: - Merge Support
 
@@ -134,10 +129,6 @@ public final class PlaylistViewModel: ObservableObject {
 
         // Save filter options when they change
         setupFilterPersistence()
-
-        // Cache sorted+filtered playlists so they aren't recomputed on every SwiftUI body access
-        setupFilteredPlaylistsPipeline()
-        setupSortedPlaylistsPipeline()
 
         // Merge-aware pipelines that group playlists into DisplayPlaylist entries
         setupDisplayPlaylistsPipeline()
@@ -423,47 +414,6 @@ public final class PlaylistViewModel: ObservableObject {
     /// Background queue for sort/filter computation so the main thread stays responsive
     private static let computeQueue = DispatchQueue(label: "com.ensemble.playlist-compute", qos: .userInitiated)
 
-    /// Combine pipeline that caches sorted+filtered playlists whenever inputs change.
-    /// Debounced on a background queue to avoid main-thread stutter (e.g. when .searchable reveals).
-    private func setupFilteredPlaylistsPipeline() {
-        Publishers.CombineLatest3($playlists, $playlistSortOption, $filterOptions)
-            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { playlists, sortOption, options -> [Playlist] in
-                let sorted = Self.sortPlaylists(playlists, by: sortOption, ascending: options.sortDirection == .ascending)
-                return Self.filterPlaylists(sorted, searchText: options.searchText)
-            }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] playlists in
-                if self?.filteredPlaylists != playlists {
-                    self?.filteredPlaylists = playlists
-                }
-            }
-            .store(in: &cancellables)
-    }
-
-    private func setupSortedPlaylistsPipeline() {
-        Publishers.CombineLatest3(
-            $playlists,
-            $playlistSortOption,
-            $filterOptions.map(\.sortDirection).removeDuplicates()
-        )
-        .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-        .map { playlists, sortOption, sortDirection -> [Playlist] in
-            Self.sortPlaylists(playlists, by: sortOption, ascending: sortDirection == .ascending)
-        }
-        .removeDuplicates()
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] playlists in
-            if self?.sortedPlaylists != playlists {
-                self?.sortedPlaylists = playlists
-            }
-        }
-        .store(in: &cancellables)
-    }
-
-    // MARK: - Merge Pipelines
-
     /// Filters raw playlists, then groups before sorting by aggregate display metadata.
     private func setupDisplayPlaylistsPipeline() {
         Publishers.CombineLatest4($playlists, $mergingPreferences, $playlistSortOption, $filterOptions)
@@ -624,9 +574,6 @@ public final class PlaylistViewModel: ObservableObject {
         optimisticRenamedPlaylistTitlesByIdentity = [:]
         optimisticDeletedPlaylistIdentities = []
         publishPlaylistsIfChanged([])
-        visibleSnapshot = []
-        filteredPlaylists = []
-        sortedPlaylists = []
         displayPlaylists = []
         sortedDisplayPlaylists = []
         nameCollisionTitles = []
@@ -657,7 +604,6 @@ public final class PlaylistViewModel: ObservableObject {
         }
         guard playlists != visiblePlaylists else { return }
         playlists = visiblePlaylists
-        visibleSnapshot = visiblePlaylists
         applyDerivedPlaylistSnapshots(visiblePlaylists)
     }
 
@@ -667,17 +613,7 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     private func applyDerivedPlaylistSnapshots(_ snapshot: [Playlist]) {
-        let nextSorted = Self.sortPlaylists(
-            snapshot,
-            by: playlistSortOption,
-            ascending: filterOptions.sortDirection == .ascending
-        )
         let matching = Self.filterPlaylists(snapshot, searchText: filterOptions.searchText)
-        let nextFiltered = Self.sortPlaylists(
-            matching,
-            by: playlistSortOption,
-            ascending: filterOptions.sortDirection == .ascending
-        )
         let nextDisplay = Self.sortDisplayPlaylists(
             DisplayPlaylist.group(
                 matching,
@@ -697,8 +633,6 @@ public final class PlaylistViewModel: ObservableObject {
             ascending: filterOptions.sortDirection == .ascending
         )
 
-        if filteredPlaylists != nextFiltered { filteredPlaylists = nextFiltered }
-        if sortedPlaylists != nextSorted { sortedPlaylists = nextSorted }
         if displayPlaylists != nextDisplay { displayPlaylists = nextDisplay }
         if sortedDisplayPlaylists != nextSortedDisplay { sortedDisplayPlaylists = nextSortedDisplay }
         nameCollisionTitles = DisplayPlaylist.detectNameCollisions(snapshot)
