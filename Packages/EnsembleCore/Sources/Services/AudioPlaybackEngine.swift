@@ -1121,6 +1121,7 @@ public final class AudioPlaybackEngine {
         fileDuration = metadata.duration ?? 0
         streamingStartTime = Self.clampedPlaybackPosition(metadata.startTime, duration: fileDuration)
         seekFrameOffset = AVAudioFramePosition(streamingStartTime * sampleRate)
+        updateDurablePlaybackPosition(streamingStartTime)
         currentContentFrameCount = AVAudioFrameCount(max(0, fileDuration * sampleRate))
         streamingCompletionNotified = false
         scheduleGeneration &+= 1
