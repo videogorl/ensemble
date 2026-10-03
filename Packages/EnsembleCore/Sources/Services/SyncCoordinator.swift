@@ -696,91 +696,6 @@ public final class SyncCoordinator: ObservableObject {
         return playlists.map { Playlist(from: $0) }
     }
 
-    private func playlistMutationController(
-        persistenceOperation: SourcePersistenceOperation,
-        baseProvider: MusicSourceSyncProvider
-    ) -> PlaylistMutationController {
-        PlaylistMutationController(
-            dependencies: .init(
-                fetchPlaylists: { [weak self] sourceKey in
-                    guard let self else { return [] }
-                    return try await self.fetchPlaylists(forServerSourceKey: sourceKey)
-                },
-                persistCreatedPlaylist: { [weak self] playlist, tracks in
-                    guard let self else { return }
-                    try await self.persistCreatedPlaylist(playlist, tracks: tracks)
-                },
-                persistOptimisticAdd: { [weak self] tracks, playlist in
-                    guard let self else { return playlist.trackCount + tracks.count }
-                    return try await self.persistOptimisticPlaylistAdd(tracks, playlist: playlist)
-                },
-                reconcileAcceptedAdd: { [weak self] mutator, playlist, tracks, minimumTrackCount in
-                    guard let self, let sourceKey = playlist.sourceCompositeKey else { return }
-                    guard let registration = persistenceOperation.work.first(where: {
-                        $0.registration.provider.sourceIdentifier == baseProvider.sourceIdentifier
-                    })?.registration else { return }
-
-                    if let reconciler = mutator as? MusicSourcePlaylistReconciling {
-                        Task { [weak self] in
-                            await self?.reconcileProviderPlaylist(
-                                reconciler,
-                                providerSourceKey: baseProvider.sourceIdentifier.compositeKey,
-                                sourceKey: sourceKey,
-                                playlistID: playlist.id,
-                                minimumTrackCount: minimumTrackCount,
-                                requiredTracks: tracks,
-                                expectedRevision: registration.revision
-                            )
-                        }
-                    } else {
-                        Task { [weak self] in
-                            await self?.refreshPlaylistsAfterMutation(
-                                sourceKey: sourceKey,
-                                requiredTracks: tracks
-                            )
-                        }
-                    }
-                },
-                persistLastPlaylistTarget: { [weak self] playlist in
-                    self?.persistLastPlaylistTarget(from: playlist)
-                },
-                clearLastPlaylistTargetIfNeeded: { [weak self] playlist in
-                    self?.clearLastPlaylistTargetIfNeeded(deletedPlaylist: playlist)
-                },
-                deletePlaylistArtwork: { [weak self] ratingKey, sourceCompositeKey in
-                    self?.artworkDownloadManager.deleteArtwork(
-                        ratingKey: ratingKey,
-                        type: .playlist,
-                        sourceCompositeKey: sourceCompositeKey
-                    )
-                },
-                refreshPlaylists: { [weak self] sourceKey in
-                    guard let self else { return }
-                    if let refreshServerPlaylistsHandlerForTesting {
-                        await refreshServerPlaylistsHandlerForTesting(sourceKey)
-                    } else {
-                        await self.refreshProviderPlaylists(
-                            baseProvider,
-                            sourceKey: sourceKey,
-                            persistenceOperation: persistenceOperation
-                        )
-                    }
-                },
-                refreshPlaylistsAfterMutation: { [weak self] sourceKey, requiredTracks in
-                    guard let self else { return }
-                    if let refreshServerPlaylistsHandlerForTesting {
-                        await refreshServerPlaylistsHandlerForTesting(sourceKey)
-                    } else {
-                        await self.refreshPlaylistsAfterMutation(
-                            sourceKey: sourceKey,
-                            requiredTracks: requiredTracks
-                        )
-                    }
-                }
-            )
-        )
-    }
-
     private func playlistMutationProvider(
         for sourceKey: String
     ) throws -> (provider: MusicSourceSyncProvider, capability: MusicSourcePlaylistMutating) {
@@ -839,19 +754,25 @@ public final class SyncCoordinator: ObservableObject {
         defer { finishSourcePersistenceOperation(persistenceOperation) }
 
         let provider = try playlistMutationProvider(for: serverSourceKey)
-        let result = try await playlistMutationController(
-            persistenceOperation: persistenceOperation,
-            baseProvider: provider.provider
-        ).createPlaylist(
-            title: title,
-            tracks: tracks,
-            sourceKey: serverSourceKey,
-            provider: provider.capability
-        )
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingPlaylists = try await fetchPlaylists(forServerSourceKey: serverSourceKey)
+        if existingPlaylists.contains(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            throw PlaylistMutationError.duplicateName
+        }
+        let compatible = PlaylistActionService().tracks(tracks, compatibleWithServerSourceKey: serverSourceKey)
+        guard tracks.isEmpty || !compatible.isEmpty else { throw PlaylistMutationError.emptySelection }
+
+        if let createdPlaylist = try await provider.capability.createPlaylist(title: trimmed, tracks: compatible) {
+            try await persistCreatedPlaylist(createdPlaylist, tracks: compatible)
+            persistLastPlaylistTarget(from: createdPlaylist)
+        }
+        Task { [weak self] in
+            await self?.refreshPlaylistsAfterMutation(sourceKey: serverSourceKey, requiredTracks: compatible)
+        }
         guard isSourcePersistenceOperationCurrent(persistenceOperation) else {
             throw PlaylistMutationError.invalidSource
         }
-        return result
+        return PlaylistMutationResult(addedCount: compatible.count, skippedCount: tracks.count - compatible.count)
     }
 
     /// Add tracks to an existing playlist and reconcile its provider-owned cache.
@@ -873,14 +794,39 @@ public final class SyncCoordinator: ObservableObject {
         defer { finishSourcePersistenceOperation(persistenceOperation) }
 
         let provider = try playlistMutationProvider(for: sourceKey)
-        let result = try await playlistMutationController(
-            persistenceOperation: persistenceOperation,
-            baseProvider: provider.provider
-        ).addTracksToPlaylist(tracks, playlist: playlist, provider: provider.capability)
+        guard !playlist.isSmart else { throw PlaylistMutationError.smartPlaylistReadOnly }
+        let compatible = PlaylistActionService().tracks(tracks, compatibleWithServerSourceKey: sourceKey)
+        guard !compatible.isEmpty else { throw PlaylistMutationError.emptySelection }
+
+        let added = try await provider.capability.addTracks(compatible, to: playlist.id)
+        persistLastPlaylistTarget(from: playlist)
+        let minimumTrackCount = (try? await persistOptimisticPlaylistAdd(compatible, playlist: playlist))
+            ?? playlist.trackCount + added
+        if let registration = persistenceOperation.work.first(where: {
+            $0.registration.provider.sourceIdentifier == provider.provider.sourceIdentifier
+        })?.registration {
+            if let reconciler = provider.capability as? MusicSourcePlaylistReconciling {
+                Task { [weak self] in
+                    await self?.reconcileProviderPlaylist(
+                        reconciler,
+                        providerSourceKey: provider.provider.sourceIdentifier.compositeKey,
+                        sourceKey: sourceKey,
+                        playlistID: playlist.id,
+                        minimumTrackCount: minimumTrackCount,
+                        requiredTracks: compatible,
+                        expectedRevision: registration.revision
+                    )
+                }
+            } else {
+                Task { [weak self] in
+                    await self?.refreshPlaylistsAfterMutation(sourceKey: sourceKey, requiredTracks: compatible)
+                }
+            }
+        }
         guard isSourcePersistenceOperationCurrent(persistenceOperation) else {
             throw PlaylistMutationError.invalidSource
         }
-        return result
+        return PlaylistMutationResult(addedCount: added, skippedCount: tracks.count - compatible.count)
     }
 
     /// Rename a playlist and refresh server playlists.
@@ -895,10 +841,16 @@ public final class SyncCoordinator: ObservableObject {
         defer { finishSourcePersistenceOperation(persistenceOperation) }
 
         let provider = try playlistMutationProvider(for: sourceKey)
-        try await playlistMutationController(
-            persistenceOperation: persistenceOperation,
-            baseProvider: provider.provider
-        ).renamePlaylist(playlist, to: newTitle, provider: provider.capability)
+        guard !playlist.isSmart else { throw PlaylistMutationError.smartPlaylistReadOnly }
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingPlaylists = try await fetchPlaylists(forServerSourceKey: sourceKey)
+        if existingPlaylists.contains(where: {
+            $0.id != playlist.id && $0.title.caseInsensitiveCompare(trimmed) == .orderedSame
+        }) {
+            throw PlaylistMutationError.duplicateName
+        }
+        try await provider.capability.renamePlaylist(playlist.id, title: trimmed)
+        await refreshProviderPlaylists(provider.provider, sourceKey: sourceKey, persistenceOperation: persistenceOperation)
         guard isSourcePersistenceOperationCurrent(persistenceOperation) else {
             throw PlaylistMutationError.invalidSource
         }
@@ -916,10 +868,11 @@ public final class SyncCoordinator: ObservableObject {
         defer { finishSourcePersistenceOperation(persistenceOperation) }
 
         let provider = try playlistMutationProvider(for: sourceKey)
-        try await playlistMutationController(
-            persistenceOperation: persistenceOperation,
-            baseProvider: provider.provider
-        ).deletePlaylist(playlist, provider: provider.capability)
+        guard !playlist.isSmart else { throw PlaylistMutationError.smartPlaylistReadOnly }
+        try await provider.capability.deletePlaylist(playlist.id)
+        clearLastPlaylistTargetIfNeeded(deletedPlaylist: playlist)
+        artworkDownloadManager.deleteArtwork(ratingKey: playlist.id, type: .playlist, sourceCompositeKey: sourceKey)
+        await refreshProviderPlaylists(provider.provider, sourceKey: sourceKey, persistenceOperation: persistenceOperation)
         guard isSourcePersistenceOperationCurrent(persistenceOperation) else {
             throw PlaylistMutationError.invalidSource
         }
@@ -1044,6 +997,10 @@ public final class SyncCoordinator: ObservableObject {
         sourceKey: String,
         persistenceOperation: SourcePersistenceOperation
     ) async {
+        if let refreshServerPlaylistsHandlerForTesting {
+            await refreshServerPlaylistsHandlerForTesting(sourceKey)
+            return
+        }
         guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
         let result: PlaylistSyncResult
         do {
@@ -1084,6 +1041,10 @@ public final class SyncCoordinator: ObservableObject {
         sourceKey: String,
         requiredTracks: [Track]
     ) async {
+        if let refreshServerPlaylistsHandlerForTesting {
+            await refreshServerPlaylistsHandlerForTesting(sourceKey)
+            return
+        }
         guard let inputPersistenceWork = beginPlaylistMutationPersistenceWork(
             sourceKey: sourceKey,
             tracks: requiredTracks
@@ -1112,12 +1073,12 @@ public final class SyncCoordinator: ObservableObject {
         requiredTracks: [Track],
         expectedRevision: SourceProviderRevision
     ) async {
-        guard let sourceKeys = playlistMutationSourceKeys(
+        guard isCurrentProviderRevision(expectedRevision, sourceKey: providerSourceKey),
+              let sourceKeys = playlistMutationSourceKeys(
             sourceKey: sourceKey,
             tracks: requiredTracks
         ),
-              let persistenceWork = beginCurrentSourcePersistenceWork(sourceKeys: sourceKeys),
-              isCurrentProviderRevision(expectedRevision, sourceKey: providerSourceKey) else {
+              let persistenceWork = beginCurrentSourcePersistenceWork(sourceKeys: sourceKeys) else {
             return
         }
         defer { finishSourcePersistenceWork(persistenceWork) }
@@ -1261,14 +1222,16 @@ public final class SyncCoordinator: ObservableObject {
         defer { finishSourcePersistenceOperation(persistenceOperation) }
 
         let provider = try playlistMutationProvider(for: sourceKey)
-        try await playlistMutationController(
-            persistenceOperation: persistenceOperation,
-            baseProvider: provider.provider
-        ).replacePlaylistContents(
-            playlist,
-            with: orderedTracks,
-            provider: provider.capability
-        )
+        guard !playlist.isSmart else { throw PlaylistMutationError.smartPlaylistReadOnly }
+        let playlistScopeKey = MediaSourceIdentity.playlistScopeKey(from: sourceKey)
+        let compatible = orderedTracks.filter {
+            MediaSourceIdentity.playlistScopeKey(from: $0.sourceCompositeKey) == playlistScopeKey
+        }
+        guard orderedTracks.isEmpty || !compatible.isEmpty else { throw PlaylistMutationError.emptySelection }
+        try await provider.capability.replacePlaylistContents(playlist.id, tracks: compatible)
+        Task { [weak self] in
+            await self?.refreshPlaylistsAfterMutation(sourceKey: sourceKey, requiredTracks: compatible)
+        }
         guard isSourcePersistenceOperationCurrent(persistenceOperation) else {
             throw PlaylistMutationError.invalidSource
         }
@@ -1292,15 +1255,11 @@ public final class SyncCoordinator: ObservableObject {
         defer { finishSourcePersistenceOperation(persistenceOperation) }
 
         let provider = try playlistMutationProvider(for: sourceKey)
-        try await playlistMutationController(
-            persistenceOperation: persistenceOperation,
-            baseProvider: provider.provider
-        ).editPlaylistItems(
-            playlist,
-            originalItems: originalItems,
-            editedItems: editedItems,
-            provider: provider.capability
-        )
+        guard !playlist.isSmart else { throw PlaylistMutationError.smartPlaylistReadOnly }
+        try await provider.capability.editPlaylistItems(playlist.id, originalItems: originalItems, editedItems: editedItems)
+        Task { [weak self] in
+            await self?.refreshPlaylistsAfterMutation(sourceKey: sourceKey, requiredTracks: [])
+        }
         guard isSourcePersistenceOperationCurrent(persistenceOperation) else {
             throw PlaylistMutationError.invalidSource
         }
