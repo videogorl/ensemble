@@ -132,11 +132,12 @@ public final class SyncCoordinator: ObservableObject {
     private let syncCursorRepository: SyncCursorRepositoryProtocol?
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let refreshOrchestrator: RefreshOrchestrator
-    private let periodicSyncController: PeriodicSyncController
     private let playlistRefreshController: PlaylistRefreshController
     private let webSocketSyncController: WebSocketSyncController
-    private let playbackReportingController: SyncPlaybackReportingController
-    private let networkLifecycleController: NetworkLifecycleController
+    internal private(set) var periodicSyncTimer: Timer?
+    internal private(set) var downloadedPlaylistSyncTimer: Timer?
+    private var lastObservedNetworkState: NetworkState
+    private var hasCompletedInitialNetworkTransition = false
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
     private var syncProviderRevisions: [String: SourceProviderRevision] = [:]
     private var providerRegistrationRevision: UInt64 = 0
@@ -235,11 +236,9 @@ public final class SyncCoordinator: ObservableObject {
         self.networkMonitor = networkMonitor
         self.serverHealthChecker = serverHealthChecker
         self.refreshOrchestrator = RefreshOrchestrator()
-        self.periodicSyncController = PeriodicSyncController()
         self.playlistRefreshController = PlaylistRefreshController()
         self.webSocketSyncController = WebSocketSyncController()
-        self.playbackReportingController = SyncPlaybackReportingController()
-        self.networkLifecycleController = NetworkLifecycleController(initialNetworkState: networkMonitor.networkState)
+        self.lastObservedNetworkState = networkMonitor.networkState
         self.lastPlaylistTargetsByServer = Self.loadLastPlaylistTargetsByServer()
         self.lastPlaylistTarget = Self.loadLastPlaylistTarget()
 
@@ -1604,11 +1603,14 @@ public final class SyncCoordinator: ObservableObject {
     /// Throwing variant of reportTimeline that propagates errors to the caller.
     /// Used by PlaybackService for failure-aware backoff during offline periods.
     public func reportTimelineThrowing(track: Track, state: String, time: TimeInterval) async throws {
-        try await playbackReportingController.reportTimeline(
-            track: track,
+        guard let provider = providerResolver.resolve(sourceKey: track.sourceCompositeKey, allowServerScope: false)?.provider
+            as? MusicSourcePlaybackReporting else { return }
+        try await provider.reportTimeline(
+            ratingKey: track.id,
+            key: "/library/metadata/\(track.id)",
             state: state,
-            time: time,
-            providers: syncProviders
+            time: Int(time * 1_000),
+            duration: Int(track.duration * 1_000)
         )
     }
 
@@ -1626,7 +1628,9 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Scrobble a track, throwing on failure so MutationCoordinator can queue retries.
     public func scrobbleTrackThrowing(_ track: Track) async throws {
-        try await playbackReportingController.scrobble(track: track, providers: syncProviders)
+        guard let provider = providerResolver.resolve(sourceKey: track.sourceCompositeKey, allowServerScope: false)?.provider
+            as? MusicSourcePlaybackReporting else { return }
+        try await provider.scrobble(ratingKey: track.id)
     }
 
     /// Get tracks for an album from the music source
@@ -2362,78 +2366,70 @@ public final class SyncCoordinator: ObservableObject {
             details: ["state": currentState.description]
         )
 
-        let decision = networkLifecycleController.foregroundDecision(for: currentState)
-        EnsembleLogger.debug(
-            "🌐 SyncCoordinator: Foreground decision \(decision.diagnosticSummary)"
-        )
-        applyOfflineDecision(decision.offlineValue)
-
-        if let request = decision.healthRefreshRequest {
-            EnsembleLogger.debug(
-                "🌐 SyncCoordinator: Scheduling foreground health refresh force=\(request.forceServerRefresh)"
-            )
-            scheduleHealthRefresh(reason: request.reason, forceServerRefresh: request.forceServerRefresh)
-        } else if decision.offlineValue == true {
+        applyNetworkState(currentState)
+        switch currentState {
+        case .online:
+            scheduleHealthRefresh(reason: .appForeground, forceServerRefresh: false)
+        case .offline, .limited:
             EnsembleLogger.debug("🌐 SyncCoordinator: Foreground health refresh skipped because app is offline")
             updateSourceConnectionStates()
+        case .unknown:
+            break
         }
     }
 
     private func handleObservedNetworkState(_ state: NetworkState) async {
-        let decision = networkLifecycleController.observeNetworkState(state)
-
-        EnsembleLogger.debug(
-            "🌐 SyncCoordinator: Network transition \(decision.diagnosticSummary)"
-        )
+        let previous = lastObservedNetworkState
+        lastObservedNetworkState = state
+        let reason: RefreshOrchestrator.HealthRefreshReason?
+        let transition: String
+        if !previous.isConnected, state.isConnected {
+            reason = .networkReconnect
+            transition = "reconnect"
+        } else if previous.isConnected, !state.isConnected {
+            reason = nil
+            transition = "disconnect"
+        } else if case .online(let from) = previous, case .online(let to) = state, from != to {
+            reason = .interfaceSwitch(from: from, to: to)
+            transition = "interfaceSwitch(\(from.description)->\(to.description))"
+            EnsembleLogger.debug("🌐 SyncCoordinator: Detected interface switch \(from.description) -> \(to.description)")
+        } else {
+            reason = nil
+            transition = "none"
+        }
         UserJourneyLogger.log(
             context: "network",
             event: "stateChanged",
             details: [
-                "from": decision.previousState?.description ?? "nil",
+                "from": previous.description,
                 "to": state.description,
-                "transition": decision.transition.logDescription
+                "transition": transition
             ]
         )
-        if case .interfaceSwitch(let from, let to) = decision.transition {
-            EnsembleLogger.debug("🌐 SyncCoordinator: Detected interface switch \(from.description) -> \(to.description)")
-        }
-
-        applyOfflineDecision(decision.offlineValue)
-        if decision.offlineValue == true {
+        applyNetworkState(state)
+        if state == .offline || state == .limited {
             updateSourceConnectionStates()
         }
-
-        if decision.skippedAsInitialTransition {
+        if !hasCompletedInitialNetworkTransition, previous == .unknown, state.isConnected {
+            hasCompletedInitialNetworkTransition = true
             return
         }
-
-        if decision.shouldInvalidateConnectionHealth {
-            // Invalidate connection health caches on reconnect.
-            // Stale endpoints from before the network went down may no longer work
-            // (e.g. if IP addresses changed or TLS state is corrupted).
+        if let reason {
             await serverHealthChecker.invalidateConnectionHealth()
-        }
-
-        if decision.shouldInvalidateArtworkConnections {
-            // Immediately invalidate artwork URL cache on reconnect.
-            // This prevents stale artwork requests that use old endpoint URLs while
-            // health checks are still running.
             EnsembleLogger.debug("🖼️ SyncCoordinator: Early artwork cache invalidation for network transition")
             await onConnectionsRefreshed?()
-        }
-
-        if let request = decision.healthRefreshRequest {
-            scheduleHealthRefresh(reason: request.reason, forceServerRefresh: request.forceServerRefresh)
+            scheduleHealthRefresh(reason: reason, forceServerRefresh: true)
         }
     }
 
-    private func applyOfflineDecision(_ offlineValue: Bool?) {
-        guard let offlineValue else { return }
-
-        if offlineValue {
+    private func applyNetworkState(_ state: NetworkState) {
+        switch state {
+        case .offline, .limited:
             if !isOffline { isOffline = true }
-        } else if isOffline {
-            isOffline = false
+        case .online:
+            if isOffline { isOffline = false }
+        case .unknown:
+            break
         }
     }
 
@@ -2679,20 +2675,31 @@ public final class SyncCoordinator: ObservableObject {
     /// Start periodic incremental sync while app is active (every 1 hour)
     public func startPeriodicSync() {
         EnsembleLogger.debug("⏰ Starting periodic sync timer (every 1 hour)")
-        periodicSyncController.start(
-            action: { [weak self] in
-                await self?.performPeriodicSync()
-            },
-            downloadedPlaylistAction: { [weak self] in
+        schedulePeriodicSync(interval: 60 * 60)
+        downloadedPlaylistSyncTimer?.invalidate()
+        downloadedPlaylistSyncTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
                 await self?.performDownloadedPlaylistSync()
             }
-        )
+        }
     }
     
     /// Stop periodic sync
     public func stopPeriodicSync() {
-        periodicSyncController.stop()
+        periodicSyncTimer?.invalidate()
+        periodicSyncTimer = nil
+        downloadedPlaylistSyncTimer?.invalidate()
+        downloadedPlaylistSyncTimer = nil
         EnsembleLogger.debug("🛑 Stopped periodic sync timer")
+    }
+
+    private func schedulePeriodicSync(interval: TimeInterval) {
+        periodicSyncTimer?.invalidate()
+        periodicSyncTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.performPeriodicSync()
+            }
+        }
     }
     
     /// Perform periodic incremental sync (called by timer)
@@ -2882,8 +2889,8 @@ public final class SyncCoordinator: ObservableObject {
     /// Adjust periodic sync intervals based on WebSocket availability.
     /// When WebSocket is active for servers, polling can be relaxed since updates arrive in real-time.
     public func adjustTimersForWebSocket(hasActiveWebSocket: Bool) {
-        periodicSyncController.adjustForWebSocket(hasActiveWebSocket: hasActiveWebSocket) { [weak self] in
-            await self?.performPeriodicSync()
+        if periodicSyncTimer != nil {
+            schedulePeriodicSync(interval: hasActiveWebSocket ? 4 * 60 * 60 : 60 * 60)
         }
         if hasActiveWebSocket {
             EnsembleLogger.debug("⏰ SyncCoordinator: WebSocket active — relaxed periodic sync to 4h")

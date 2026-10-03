@@ -37,6 +37,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         var libraryResult: Result<LibrarySyncResult, Error> = .success(LibrarySyncResult())
         var playlistResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
         var invocationProbe: SyncInvocationProbe?
+        var onIncrementalPlaylistSync: (@Sendable (Bool) async -> Void)?
 
         func syncLibrary(
             to repository: LibraryRepositoryProtocol,
@@ -69,6 +70,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             forceOrphanCheck: Bool,
             progressHandler: @Sendable (Double) -> Void
         ) async throws -> PlaylistSyncResult {
+            await onIncrementalPlaylistSync?(forceOrphanCheck)
             progressHandler(1.0)
             return try playlistResult.get()
         }
@@ -95,12 +97,15 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         case unimplemented
     }
 
-    private func makeCoordinator() -> (SyncCoordinator, NetworkMonitor) {
+    private func makeCoordinator(initialState: NetworkState? = nil) -> (SyncCoordinator, NetworkMonitor) {
         let networkMonitor = NetworkMonitor(
             debounceNanoseconds: 1_000,
             monitorQueue: DispatchQueue(label: "test.network.monitor"),
             monitorFactory: { SystemNetworkPathMonitor() }
         )
+        if let initialState {
+            networkMonitor.injectNetworkStateForTesting(initialState, debounced: false)
+        }
         let accountManager = AccountManager(keychain: TestKeychain(), networkMonitor: networkMonitor)
         accountManager.addPlexAccount(
             PlexAccountConfig(
@@ -131,6 +136,101 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             serverHealthChecker: serverHealthChecker
         )
         return (coordinator, networkMonitor)
+    }
+
+    func testInitialUnknownConnectionSkipsOnceButOfflineReconnectRefreshes() async {
+        for startsOffline in [false, true] {
+            let (coordinator, _) = makeCoordinator(initialState: .unknown)
+            var now = Date(timeIntervalSince1970: 9_000)
+            coordinator.nowProviderForTesting = { now }
+            var events: [String] = []
+            coordinator.onConnectionsRefreshed = { events.append("artwork") }
+            coordinator.healthCheckRunnerForTesting = { force, keys in
+                XCTAssertTrue(force)
+                XCTAssertEqual(keys, Set(["account-1:server-1"]))
+                events.append("health")
+                return ServerHealthChecker.CheckSummary(checkedCount: keys.count, skippedCount: 0)
+            }
+
+            if startsOffline {
+                await coordinator.handleObservedNetworkStateForTesting(.offline)
+                XCTAssertTrue(coordinator.isOffline)
+            }
+            await coordinator.handleObservedNetworkStateForTesting(.online(.wifi))
+            await coordinator.awaitHealthRefreshForTesting()
+            XCTAssertFalse(coordinator.isOffline)
+            XCTAssertEqual(events, startsOffline ? ["artwork", "health"] : [])
+
+            if !startsOffline {
+                now = now.addingTimeInterval(31)
+                await coordinator.handleObservedNetworkStateForTesting(.unknown)
+                await coordinator.handleObservedNetworkStateForTesting(.online(.wifi))
+                await coordinator.awaitHealthRefreshForTesting()
+                XCTAssertEqual(events, ["artwork", "health"])
+            }
+        }
+    }
+
+    func testWebSocketOnlyRelaxesLibraryTimerAndStoppedTimersStayStopped() throws {
+        let (coordinator, _) = makeCoordinator()
+        defer { coordinator.stopPeriodicSync() }
+        coordinator.startPeriodicSync()
+        let libraryTimer = try XCTUnwrap(coordinator.periodicSyncTimer)
+        let downloadedTimer = try XCTUnwrap(coordinator.downloadedPlaylistSyncTimer)
+        XCTAssertEqual(libraryTimer.timeInterval, 3_600)
+        XCTAssertEqual(downloadedTimer.timeInterval, 60)
+
+        coordinator.adjustTimersForWebSocket(hasActiveWebSocket: true)
+        XCTAssertFalse(libraryTimer.isValid)
+        XCTAssertEqual(coordinator.periodicSyncTimer?.timeInterval, 14_400)
+        XCTAssertTrue(coordinator.downloadedPlaylistSyncTimer === downloadedTimer)
+        XCTAssertTrue(downloadedTimer.isValid)
+
+        coordinator.adjustTimersForWebSocket(hasActiveWebSocket: false)
+        let replacementLibraryTimer = try XCTUnwrap(coordinator.periodicSyncTimer)
+        XCTAssertEqual(replacementLibraryTimer.timeInterval, 3_600)
+        coordinator.stopPeriodicSync()
+        XCTAssertFalse(replacementLibraryTimer.isValid)
+        XCTAssertFalse(downloadedTimer.isValid)
+        for hasActiveWebSocket in [true, false] {
+            coordinator.adjustTimersForWebSocket(hasActiveWebSocket: hasActiveWebSocket)
+            XCTAssertNil(coordinator.periodicSyncTimer)
+            XCTAssertNil(coordinator.downloadedPlaylistSyncTimer)
+        }
+        coordinator.startPeriodicSync()
+        XCTAssertEqual(coordinator.periodicSyncTimer?.timeInterval, 3_600)
+        XCTAssertEqual(coordinator.downloadedPlaylistSyncTimer?.timeInterval, 60)
+    }
+
+    func testDownloadedPlaylistTimerRefreshesOnlyItsRequestedAccountServer() async throws {
+        let (coordinator, _) = makeCoordinator(initialState: .online(.wifi))
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
+        let otherAccountSource = MusicSourceIdentifier(type: .plex, accountId: "account-2", serverId: "server-1", libraryId: "1")
+        let refreshed = expectation(description: "downloaded playlist refresh completed")
+        coordinator.setSyncProvidersForTesting([
+            source.compositeKey: MockSyncProvider(
+                sourceIdentifier: source,
+                playlistResult: .success(PlaylistSyncResult(changedPlaylists: 1)),
+                onIncrementalPlaylistSync: { forceOrphanCheck in
+                    XCTAssertTrue(forceOrphanCheck)
+                }
+            ),
+            otherAccountSource.compositeKey: MockSyncProvider(
+                sourceIdentifier: otherAccountSource,
+                onIncrementalPlaylistSync: { _ in XCTFail("Must not refresh the same server under a different account") }
+            )
+        ])
+        coordinator.downloadedPlaylistServerSourceKeys = { ["plex:account-1:server-1"] }
+        coordinator.onPlaylistRefreshCompleted = { serverKey in
+            XCTAssertEqual(serverKey, "plex:account-1:server-1")
+            refreshed.fulfill()
+        }
+        coordinator.startPeriodicSync()
+        defer { coordinator.stopPeriodicSync() }
+        coordinator.adjustTimersForWebSocket(hasActiveWebSocket: true)
+        let timer = try XCTUnwrap(coordinator.downloadedPlaylistSyncTimer)
+        timer.fire()
+        await fulfillment(of: [refreshed], timeout: 2)
     }
 
     func testReconnectAndInterfaceSwitchTriggerHealthRefresh() async {
