@@ -543,7 +543,7 @@ public struct AlbumDetailView: View {
         favoriteOverrides[album.sourceScopedID] = isFavorite
         Task {
             do {
-                try await deps.collectionFavoriteMutationWorkflow.setFavorite(isFavorite, for: album)
+                try await deps.mutationCoordinator.setFavorite(isFavorite, for: album)
             } catch {
                 favoriteOverrides[album.sourceScopedID] = previous
             }

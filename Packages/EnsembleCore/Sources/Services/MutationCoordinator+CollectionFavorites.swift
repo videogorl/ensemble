@@ -2,22 +2,7 @@ import CoreData
 import EnsemblePersistence
 import Foundation
 
-@MainActor
-public final class CollectionFavoriteMutationWorkflow {
-    private let mutationCoordinator: MutationCoordinator
-    private let coreDataStack: CoreDataStack
-    private let toastCenter: ToastCenter
-
-    public init(
-        mutationCoordinator: MutationCoordinator,
-        coreDataStack: CoreDataStack,
-        toastCenter: ToastCenter
-    ) {
-        self.mutationCoordinator = mutationCoordinator
-        self.coreDataStack = coreDataStack
-        self.toastCenter = toastCenter
-    }
-
+extension MutationCoordinator {
     @discardableResult
     public func setFavorite(_ isFavorite: Bool, for album: Album) async throws -> MutationOutcome {
         try await mutate(
@@ -29,7 +14,7 @@ public final class CollectionFavoriteMutationWorkflow {
             previousLastRatedAt: album.lastRatedAt,
             isFavorite: isFavorite
         ) {
-            try await self.mutationCoordinator.rateAlbum(album, rating: isFavorite ? 10 : nil)
+            try await self.rateAlbum(album, rating: isFavorite ? 10 : nil)
         }
     }
 
@@ -44,7 +29,7 @@ public final class CollectionFavoriteMutationWorkflow {
             previousLastRatedAt: playlist.lastRatedAt,
             isFavorite: isFavorite
         ) {
-            try await self.mutationCoordinator.ratePlaylist(playlist, rating: isFavorite ? 10 : nil)
+            try await self.ratePlaylist(playlist, rating: isFavorite ? 10 : nil)
         }
     }
 
@@ -64,7 +49,7 @@ public final class CollectionFavoriteMutationWorkflow {
         }
 
         do {
-            try await store(
+            try await storeCollectionRating(
                 kind: kind,
                 ratingKey: ratingKey,
                 sourceCompositeKey: sourceCompositeKey,
@@ -72,18 +57,18 @@ public final class CollectionFavoriteMutationWorkflow {
                 lastRatedAt: Date()
             )
             let outcome = try await remoteMutation()
-            notifyChange()
-            toastCenter.show(successToast(title: title, isFavorite: isFavorite, outcome: outcome))
+            notifyCollectionFavoriteChange()
+            toastCenter.show(collectionFavoriteSuccessToast(title: title, isFavorite: isFavorite, outcome: outcome))
             return outcome
         } catch {
-            try? await store(
+            try? await storeCollectionRating(
                 kind: kind,
                 ratingKey: ratingKey,
                 sourceCompositeKey: sourceCompositeKey,
                 rating: previousRating,
                 lastRatedAt: previousLastRatedAt
             )
-            notifyChange()
+            notifyCollectionFavoriteChange()
             toastCenter.show(ToastPayload(
                 style: .error,
                 iconSystemName: "xmark.octagon.fill",
@@ -95,7 +80,7 @@ public final class CollectionFavoriteMutationWorkflow {
         }
     }
 
-    private func store(
+    private func storeCollectionRating(
         kind: CollectionRatingKind,
         ratingKey: String,
         sourceCompositeKey: String,
@@ -133,11 +118,11 @@ public final class CollectionFavoriteMutationWorkflow {
         }
     }
 
-    private func notifyChange() {
+    private func notifyCollectionFavoriteChange() {
         NotificationCenter.default.post(name: MetadataMutationService.metadataDidChange, object: nil)
     }
 
-    private func successToast(
+    private func collectionFavoriteSuccessToast(
         title: String,
         isFavorite: Bool,
         outcome: MutationOutcome

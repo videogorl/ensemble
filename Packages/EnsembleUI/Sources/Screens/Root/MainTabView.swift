@@ -934,17 +934,17 @@ public struct SidebarView: View {
     }
 
     private func startPinnedPlaylistDelete(for playlist: Playlist) {
-        guard let start = deps.playlistMutationWorkflow.beginDelete(
+        guard let start = deps.mutationCoordinator.beginDelete(
             playlist: playlist,
             scope: .sidebarPlaylist
         ) else { return }
 
-        let deletingToast = start.pendingToast
+        let deletingToast = start
         deps.toastCenter.show(deletingToast)
 
         Task {
             do {
-                let result = try await deps.playlistMutationWorkflow.finishDelete(
+                let result = try await deps.mutationCoordinator.finishDelete(
                     playlist: playlist,
                     scope: .sidebarPlaylist
                 )
@@ -959,7 +959,7 @@ public struct SidebarView: View {
             } catch {
                 deps.toastCenter.dismiss(id: deletingToast.id)
                 deps.toastCenter.show(
-                    deps.playlistMutationWorkflow.deleteFailureToast(
+                    deps.mutationCoordinator.deleteFailureToast(
                         playlist: playlist,
                         error: error,
                         scope: .sidebarPlaylist
@@ -970,7 +970,7 @@ public struct SidebarView: View {
     }
 
     private func renamePinnedPlaylist(_ playlist: Playlist, to newTitle: String) {
-        guard let start = deps.playlistMutationWorkflow.beginRename(
+        guard let start = deps.mutationCoordinator.beginRename(
             playlist: playlist,
             to: newTitle,
             scope: .sidebarPlaylist
@@ -982,7 +982,7 @@ public struct SidebarView: View {
 
         Task {
             do {
-                let result = try await deps.playlistMutationWorkflow.finishRename(
+                let result = try await deps.mutationCoordinator.finishRename(
                     playlist: playlist,
                     trimmedTitle: start.trimmedTitle,
                     scope: .sidebarPlaylist
@@ -1006,7 +1006,7 @@ public struct SidebarView: View {
                 await playlistsVM.loadPlaylists()
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
-                    deps.playlistMutationWorkflow.renameFailureToast(
+                    deps.mutationCoordinator.renameFailureToast(
                         playlist: playlist,
                         error: error,
                         scope: .sidebarPlaylist

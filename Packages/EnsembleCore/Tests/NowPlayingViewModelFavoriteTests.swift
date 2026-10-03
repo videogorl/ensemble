@@ -712,6 +712,8 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         )
         let mutationCoordinator = MutationCoordinator(
             repository: MockPendingMutationRepository(),
+            coreDataStack: .inMemory(),
+            toastCenter: ToastCenter(),
             networkMonitor: networkMonitor,
             syncCoordinator: syncCoordinator
         )

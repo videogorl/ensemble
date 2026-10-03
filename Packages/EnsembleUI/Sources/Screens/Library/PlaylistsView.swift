@@ -621,11 +621,11 @@ public struct PlaylistsView: View {
     private func startOptimisticDelete(for playlist: Playlist) {
         let playlistIdentity = playlist.sourceScopedID
         guard !pendingDeletionPlaylistIdentities.contains(playlistIdentity) else { return }
-        guard let start = deps.playlistMutationWorkflow.beginDelete(playlist: playlist) else { return }
+        guard let start = deps.mutationCoordinator.beginDelete(playlist: playlist) else { return }
 
         viewModel.applyOptimisticDelete(for: playlist)
 
-        let deletingToast = start.pendingToast
+        let deletingToast = start
         deps.toastCenter.show(deletingToast)
 
         PlaylistMutationEvent.deletionStarted(playlistIdentity: playlistIdentity).post()
@@ -633,7 +633,7 @@ public struct PlaylistsView: View {
         Task {
             defer { deps.toastCenter.dismiss(id: deletingToast.id) }
             do {
-                let result = try await deps.playlistMutationWorkflow.finishDelete(playlist: playlist)
+                let result = try await deps.mutationCoordinator.finishDelete(playlist: playlist)
                 deps.pinManager.unpin(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
                 PlaylistMutationEvent.deletionSucceeded(playlistIdentity: playlistIdentity).post()
                 deps.toastCenter.show(result.successToast)
@@ -642,7 +642,7 @@ public struct PlaylistsView: View {
                 viewModel.clearOptimisticDelete(forPlaylistIdentity: playlistIdentity)
                 await viewModel.loadPlaylists()
                 deps.toastCenter.show(
-                    deps.playlistMutationWorkflow.deleteFailureToast(
+                    deps.mutationCoordinator.deleteFailureToast(
                         playlist: playlist,
                         error: error
                     )
@@ -652,7 +652,7 @@ public struct PlaylistsView: View {
     }
 
     private func renamePlaylist(_ playlist: Playlist, to newTitle: String) {
-        guard let start = deps.playlistMutationWorkflow.beginRename(playlist: playlist, to: newTitle) else {
+        guard let start = deps.mutationCoordinator.beginRename(playlist: playlist, to: newTitle) else {
             return
         }
 
@@ -663,7 +663,7 @@ public struct PlaylistsView: View {
         Task {
             defer { deps.toastCenter.dismiss(id: renamingToast.id) }
             do {
-                let result = try await deps.playlistMutationWorkflow.finishRename(
+                let result = try await deps.mutationCoordinator.finishRename(
                     playlist: playlist,
                     trimmedTitle: start.trimmedTitle
                 )
@@ -683,7 +683,7 @@ public struct PlaylistsView: View {
                 viewModel.clearOptimisticRename(forPlaylistIdentity: playlist.sourceScopedID)
                 await viewModel.loadPlaylists()
                 deps.toastCenter.show(
-                    deps.playlistMutationWorkflow.renameFailureToast(
+                    deps.mutationCoordinator.renameFailureToast(
                         playlist: playlist,
                         error: error
                     )
@@ -944,12 +944,12 @@ public struct PlaylistDetailView: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 guard !isDeletingPlaylist else { return }
-                guard let start = deps.playlistMutationWorkflow.beginDelete(
+                guard let start = deps.mutationCoordinator.beginDelete(
                     playlist: viewModel.playlist
                 ) else { return }
                 isDeletingPlaylist = true
                 let playlistIdentity = viewModel.playlist.sourceScopedID
-                let deletingToast = start.pendingToast
+                let deletingToast = start
                 deps.toastCenter.show(deletingToast)
                 PlaylistMutationEvent.deletionStarted(playlistIdentity: playlistIdentity).post()
                 dismiss()
@@ -959,7 +959,7 @@ public struct PlaylistDetailView: View {
                         deps.toastCenter.dismiss(id: deletingToast.id)
                     }
                     do {
-                        let deleteResult = try await deps.playlistMutationWorkflow.finishDelete(
+                        let deleteResult = try await deps.mutationCoordinator.finishDelete(
                             playlist: viewModel.playlist
                         )
                         PlaylistMutationEvent.deletionSucceeded(playlistIdentity: playlistIdentity).post()
@@ -967,7 +967,7 @@ public struct PlaylistDetailView: View {
                     } catch {
                         PlaylistMutationEvent.deletionFailed(playlistIdentity: playlistIdentity).post()
                         deps.toastCenter.show(
-                            deps.playlistMutationWorkflow.deleteFailureToast(
+                            deps.mutationCoordinator.deleteFailureToast(
                                 playlist: viewModel.playlist,
                                 error: error
                             )
@@ -1015,7 +1015,7 @@ public struct PlaylistDetailView: View {
         favoriteOverride = isFavorite
         Task {
             do {
-                try await deps.collectionFavoriteMutationWorkflow.setFavorite(isFavorite, for: playlist)
+                try await deps.mutationCoordinator.setFavorite(isFavorite, for: playlist)
             } catch {
                 favoriteOverride = previous
             }
@@ -1027,7 +1027,7 @@ public struct PlaylistDetailView: View {
         guard !newTitle.isEmpty else { return }
 
         let playlistIdentity = viewModel.playlist.sourceScopedID
-        guard let start = deps.playlistMutationWorkflow.beginRename(
+        guard let start = deps.mutationCoordinator.beginRename(
             playlist: viewModel.playlist,
             to: newTitle
         ) else { return }
@@ -1043,8 +1043,7 @@ public struct PlaylistDetailView: View {
             defer { deps.toastCenter.dismiss(id: renamingToast.id) }
             do {
                 let renameResult = try await viewModel.renamePlaylist(
-                    toTrimmedTitle: start.trimmedTitle,
-                    using: deps.playlistMutationWorkflow
+                    toTrimmedTitle: start.trimmedTitle
                 )
                 PlaylistMutationEvent.renameSucceeded(
                     playlistIdentity: playlistIdentity,
@@ -1054,7 +1053,7 @@ public struct PlaylistDetailView: View {
             } catch {
                 PlaylistMutationEvent.renameFailed(playlistIdentity: playlistIdentity).post()
                 deps.toastCenter.show(
-                    deps.playlistMutationWorkflow.renameFailureToast(
+                    deps.mutationCoordinator.renameFailureToast(
                         playlist: viewModel.playlist,
                         error: error
                     )

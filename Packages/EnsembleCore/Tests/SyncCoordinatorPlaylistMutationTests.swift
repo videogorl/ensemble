@@ -185,7 +185,7 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         let sync = makeCoordinator()
         let provider = RecordingPlaylistProvider()
         sync.setSyncProvidersForTesting([source: provider])
-        var replay: MutationCoordinator? = MutationCoordinator(repository: repository, networkMonitor: network, syncCoordinator: sync)
+        var replay: MutationCoordinator? = MutationCoordinator(repository: repository, coreDataStack: stack, toastCenter: ToastCenter(), networkMonitor: network, syncCoordinator: sync)
         for _ in 0..<12 { await replay?.drainQueue() }
         let offlineEvents = await provider.recordedEvents()
         XCTAssertEqual(offlineEvents, [])
@@ -202,7 +202,7 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         XCTAssertEqual(accepted, ["offline": 10])
         replay = nil
         await provider.restoreAcknowledgments()
-        replay = MutationCoordinator(repository: repository, networkMonitor: network, syncCoordinator: sync)
+        replay = MutationCoordinator(repository: repository, coreDataStack: stack, toastCenter: ToastCenter(), networkMonitor: network, syncCoordinator: sync)
         await replay?.drainQueue()
         let remaining = try await repository.fetchPendingMutationRecords()
         XCTAssertTrue(remaining.isEmpty)

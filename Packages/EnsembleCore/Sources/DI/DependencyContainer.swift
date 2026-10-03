@@ -63,9 +63,6 @@ public final class DependencyContainer: @unchecked Sendable {
     public let offlineDownloadService: OfflineDownloadService
     public let lyricsService: LyricsService
     public let mutationCoordinator: MutationCoordinator
-    public let playlistMutationWorkflow: PlaylistMutationWorkflow
-    public let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
-    public let collectionFavoriteMutationWorkflow: CollectionFavoriteMutationWorkflow
     public let metadataMutationService: MetadataMutationService
     public let songLinkService: SongLinkService
     public let shareService: ShareService
@@ -154,9 +151,6 @@ public final class DependencyContainer: @unchecked Sendable {
         let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinator
         let offlineDownloadService: OfflineDownloadService
         let mutationCoordinator: MutationCoordinator
-        let playlistMutationWorkflow: PlaylistMutationWorkflow
-        let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
-        let collectionFavoriteMutationWorkflow: CollectionFavoriteMutationWorkflow
         let metadataMutationService: MetadataMutationService
     }
 
@@ -319,9 +313,6 @@ public final class DependencyContainer: @unchecked Sendable {
             }
         }
         mutationCoordinator = mutation.mutationCoordinator
-        playlistMutationWorkflow = mutation.playlistMutationWorkflow
-        trackRatingMutationWorkflow = mutation.trackRatingMutationWorkflow
-        collectionFavoriteMutationWorkflow = mutation.collectionFavoriteMutationWorkflow
         metadataMutationService = mutation.metadataMutationService
 
         siriMediaIndexStore = siri.siriMediaIndexStore
@@ -562,22 +553,11 @@ public final class DependencyContainer: @unchecked Sendable {
         let mutationCoordinator = MainActor.assumeIsolated {
             MutationCoordinator(
                 repository: core.pendingMutationRepository,
+                coreDataStack: core.coreDataStack,
+                toastCenter: core.toastCenter,
                 networkMonitor: network.networkMonitor,
                 syncCoordinator: sync.syncCoordinator,
                 playlistRepository: core.playlistRepository
-            )
-        }
-        let playlistMutationWorkflow = MainActor.assumeIsolated {
-            PlaylistMutationWorkflow(mutator: mutationCoordinator)
-        }
-        let trackRatingMutationWorkflow = MainActor.assumeIsolated {
-            TrackRatingMutationWorkflow(mutator: mutationCoordinator)
-        }
-        let collectionFavoriteMutationWorkflow = MainActor.assumeIsolated {
-            CollectionFavoriteMutationWorkflow(
-                mutationCoordinator: mutationCoordinator,
-                coreDataStack: core.coreDataStack,
-                toastCenter: core.toastCenter
             )
         }
         let metadataMutationService = MainActor.assumeIsolated {
@@ -613,9 +593,6 @@ public final class DependencyContainer: @unchecked Sendable {
             offlineBackgroundExecutionCoordinator: offlineBackgroundExecutionCoordinator,
             offlineDownloadService: offlineDownloadService,
             mutationCoordinator: mutationCoordinator,
-            playlistMutationWorkflow: playlistMutationWorkflow,
-            trackRatingMutationWorkflow: trackRatingMutationWorkflow,
-            collectionFavoriteMutationWorkflow: collectionFavoriteMutationWorkflow,
             metadataMutationService: metadataMutationService
         )
     }

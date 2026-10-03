@@ -1,115 +1,11 @@
 import Foundation
 
-@MainActor
-public protocol PlaylistMutationWorkflowMutating: AnyObject {
-    func addTracksToPlaylist(
-        _ tracks: [Track],
-        playlist: Playlist
-    ) async throws -> (PlaylistMutationResult?, MutationOutcome)
-
-    @discardableResult
-    func enqueuePlaylistAddOptimistically(
-        _ tracks: [Track],
-        playlist: Playlist
-    ) async throws -> MutationOutcome
-
-    func createPlaylist(
-        title: String,
-        tracks: [Track],
-        serverSourceKey: String
-    ) async throws -> PlaylistMutationResult
-
-    @discardableResult
-    func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws -> MutationOutcome
-
-    @discardableResult
-    func deletePlaylist(_ playlist: Playlist) async throws -> MutationOutcome
+public enum PlaylistMutationToastScope: String, Sendable {
+    case playlist
+    case sidebarPlaylist = "sidebar-playlist"
 }
 
-extension MutationCoordinator: PlaylistMutationWorkflowMutating {}
-
-public struct PlaylistMutationToastScope: Equatable, Sendable {
-    public static let playlist = PlaylistMutationToastScope(dedupePrefix: "playlist")
-    public static let sidebarPlaylist = PlaylistMutationToastScope(dedupePrefix: "sidebar-playlist")
-
-    public let dedupePrefix: String
-
-    public init(dedupePrefix: String) {
-        self.dedupePrefix = dedupePrefix
-    }
-}
-
-public struct PlaylistRenameWorkflowStart {
-    public let trimmedTitle: String
-    public let pendingToast: ToastPayload
-
-    public init(trimmedTitle: String, pendingToast: ToastPayload) {
-        self.trimmedTitle = trimmedTitle
-        self.pendingToast = pendingToast
-    }
-}
-
-public struct PlaylistRenameWorkflowResult {
-    public let outcome: MutationOutcome
-    public let successToast: ToastPayload
-
-    public init(outcome: MutationOutcome, successToast: ToastPayload) {
-        self.outcome = outcome
-        self.successToast = successToast
-    }
-}
-
-public struct PlaylistAddWorkflowResult {
-    public let mutationResult: PlaylistMutationResult
-    public let outcome: MutationOutcome
-    public let toast: ToastPayload
-
-    public init(mutationResult: PlaylistMutationResult, outcome: MutationOutcome, toast: ToastPayload) {
-        self.mutationResult = mutationResult
-        self.outcome = outcome
-        self.toast = toast
-    }
-}
-
-public struct PlaylistOptimisticAddWorkflowResult {
-    public let outcome: MutationOutcome
-    public let toast: ToastPayload
-
-    public init(outcome: MutationOutcome, toast: ToastPayload) {
-        self.outcome = outcome
-        self.toast = toast
-    }
-}
-
-public struct PlaylistCreateWorkflowResult {
-    public let mutationResult: PlaylistMutationResult
-    public let toast: ToastPayload
-
-    public init(mutationResult: PlaylistMutationResult, toast: ToastPayload) {
-        self.mutationResult = mutationResult
-        self.toast = toast
-    }
-}
-
-public struct PlaylistDeleteWorkflowStart {
-    public let pendingToast: ToastPayload
-
-    public init(pendingToast: ToastPayload) {
-        self.pendingToast = pendingToast
-    }
-}
-
-public struct PlaylistDeleteWorkflowResult {
-    public let outcome: MutationOutcome
-    public let successToast: ToastPayload
-
-    public init(outcome: MutationOutcome, successToast: ToastPayload) {
-        self.outcome = outcome
-        self.successToast = successToast
-    }
-}
-
-public struct PlaylistBatchMutationWorkflowResult {
+public struct PlaylistBatchMutationResult {
     public let succeededCount: Int
     public let totalCount: Int
     public let failedSourceKeys: [String]
@@ -132,13 +28,8 @@ public struct PlaylistBatchMutationWorkflowResult {
     }
 }
 
-/// Shared playlist mutation presentation workflow for root/sidebar/detail UI surfaces.
-///
-/// The service owns normalization, the mutation call, and toast payload policy. Views still
-/// own local navigation, optimistic list state, pin updates, and confirmation presentation.
-@MainActor
-public final class PlaylistMutationWorkflow {
-    private enum Icon {
+extension MutationCoordinator {
+    private enum PlaylistIcon {
         static let delete = "trash"
         static let edit = "pencil"
         static let editSuccess = "pencil.circle.fill"
@@ -149,21 +40,15 @@ public final class PlaylistMutationWorkflow {
         static let warning = "exclamationmark.triangle.fill"
     }
 
-    private let mutator: PlaylistMutationWorkflowMutating
-
-    public init(mutator: PlaylistMutationWorkflowMutating) {
-        self.mutator = mutator
-    }
-
     public func addTracks(
         _ tracks: [Track],
         to playlist: Playlist,
         openPlaylist: (() -> Void)? = nil
-    ) async throws -> PlaylistAddWorkflowResult {
-        let (resultOrNil, outcome) = try await mutator.addTracksToPlaylist(tracks, playlist: playlist)
+    ) async throws -> (mutationResult: PlaylistMutationResult, outcome: MutationOutcome, toast: ToastPayload) {
+        let (resultOrNil, outcome) = try await addTracksToPlaylist(tracks, playlist: playlist)
 
         if outcome == .queued {
-            return PlaylistAddWorkflowResult(
+            return (
                 mutationResult: PlaylistMutationResult(addedCount: 0, skippedCount: 0),
                 outcome: outcome,
                 toast: queuedAddToast(playlist: playlist)
@@ -171,7 +56,7 @@ public final class PlaylistMutationWorkflow {
         }
 
         let result = resultOrNil ?? PlaylistMutationResult(addedCount: 0, skippedCount: 0)
-        return PlaylistAddWorkflowResult(
+        return (
             mutationResult: result,
             outcome: outcome,
             toast: addToast(playlist: playlist, result: result, openPlaylist: openPlaylist)
@@ -182,13 +67,13 @@ public final class PlaylistMutationWorkflow {
         _ tracks: [Track],
         to playlist: Playlist,
         openPlaylist: (() -> Void)? = nil
-    ) async throws -> PlaylistOptimisticAddWorkflowResult {
+    ) async throws -> (outcome: MutationOutcome, toast: ToastPayload) {
         guard !tracks.isEmpty else {
             throw PlaylistMutationError.emptySelection
         }
 
-        let outcome = try await mutator.enqueuePlaylistAddOptimistically(tracks, playlist: playlist)
-        return PlaylistOptimisticAddWorkflowResult(
+        let outcome = try await enqueuePlaylistAddOptimistically(tracks, playlist: playlist)
+        return (
             outcome: outcome,
             toast: optimisticAddToast(
                 playlist: playlist,
@@ -199,20 +84,20 @@ public final class PlaylistMutationWorkflow {
         )
     }
 
-    public func createPlaylist(
+    public func createPlaylistWithFeedback(
         title: String,
         tracks: [Track],
         serverSourceKey: String
-    ) async throws -> PlaylistCreateWorkflowResult {
-        let result = try await mutator.createPlaylist(
+    ) async throws -> (mutationResult: PlaylistMutationResult, toast: ToastPayload) {
+        let result = try await createPlaylist(
             title: title,
             tracks: tracks,
             serverSourceKey: serverSourceKey
         )
 
-        return PlaylistCreateWorkflowResult(
+        return (
             mutationResult: result,
-            toast: createToast(title: title, result: result)
+            toast: createToast(title: title, serverSourceKey: serverSourceKey, result: result)
         )
     }
 
@@ -222,7 +107,7 @@ public final class PlaylistMutationWorkflow {
         serverSourceKeys: [String],
         createPlaylist: ((String) async throws -> Void)? = nil,
         retryHandler: (([String]) -> Void)? = nil
-    ) async -> PlaylistBatchMutationWorkflowResult {
+    ) async -> PlaylistBatchMutationResult {
         var succeededCount = 0
         var failedSourceKeys: [String] = []
         for sourceKey in serverSourceKeys {
@@ -230,7 +115,7 @@ public final class PlaylistMutationWorkflow {
                 if let createPlaylist {
                     try await createPlaylist(sourceKey)
                 } else {
-                    _ = try await mutator.createPlaylist(
+                    _ = try await self.createPlaylist(
                         title: title,
                         tracks: tracks,
                         serverSourceKey: sourceKey
@@ -245,20 +130,20 @@ public final class PlaylistMutationWorkflow {
 
         let totalCount = serverSourceKeys.count
         let completedAll = succeededCount == totalCount
-        return PlaylistBatchMutationWorkflowResult(
+        return PlaylistBatchMutationResult(
             succeededCount: succeededCount,
             totalCount: totalCount,
             failedSourceKeys: failedSourceKeys,
             resultToast: ToastPayload(
                 style: completedAll ? .success : (succeededCount > 0 ? .warning : .error),
-                iconSystemName: completedAll ? Icon.playlistCreate : Icon.failure,
+                iconSystemName: completedAll ? PlaylistIcon.playlistCreate : PlaylistIcon.failure,
                 title: completedAll ? "Created \(title)" : "Created on \(succeededCount)/\(totalCount) sources",
                 message: completedAll ? nil : "Some sources could not create this playlist.",
                 action: failedSourceKeys.isEmpty || retryHandler == nil ? nil : ToastAction(title: "Retry") {
                     retryHandler?(failedSourceKeys)
                 },
                 isPersistent: !completedAll,
-                dedupeKey: "playlist-create-all-\(title.lowercased())"
+                dedupeKey: "playlist-create-all-\(serverSourceKeys.sorted().joined(separator: ","))-\(title.lowercased())"
             )
         )
     }
@@ -267,18 +152,18 @@ public final class PlaylistMutationWorkflow {
         playlist: Playlist,
         to proposedTitle: String,
         scope: PlaylistMutationToastScope = .playlist
-    ) -> PlaylistRenameWorkflowStart? {
+    ) -> (trimmedTitle: String, pendingToast: ToastPayload)? {
         let trimmedTitle = proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, playlist.supportsPlaylistEditing else { return nil }
 
-        return PlaylistRenameWorkflowStart(
+        return (
             trimmedTitle: trimmedTitle,
             pendingToast: ToastPayload(
                 style: .info,
-                iconSystemName: Icon.edit,
+                iconSystemName: PlaylistIcon.edit,
                 title: "Renaming \(playlist.title)...",
                 isPersistent: true,
-                dedupeKey: dedupeKey(scope: scope, action: "rename", state: "pending", playlistID: playlist.id),
+                dedupeKey: dedupeKey(scope: scope, action: "rename", state: "pending", playlistID: playlist.sourceScopedID),
                 showsActivityIndicator: true
             )
         )
@@ -288,16 +173,16 @@ public final class PlaylistMutationWorkflow {
         playlist: Playlist,
         trimmedTitle: String,
         scope: PlaylistMutationToastScope = .playlist
-    ) async throws -> PlaylistRenameWorkflowResult {
-        let outcome = try await mutator.renamePlaylist(playlist, to: trimmedTitle)
+    ) async throws -> (outcome: MutationOutcome, successToast: ToastPayload) {
+        let outcome = try await renamePlaylist(playlist, to: trimmedTitle)
 
-        return PlaylistRenameWorkflowResult(
+        return (
             outcome: outcome,
             successToast: ToastPayload(
                 style: outcome == .queued ? .info : .success,
-                iconSystemName: outcome == .queued ? Icon.queued : Icon.editSuccess,
+                iconSystemName: outcome == .queued ? PlaylistIcon.queued : PlaylistIcon.editSuccess,
                 title: outcome == .queued ? "Rename queued — will sync when online" : "Renamed playlist",
-                dedupeKey: dedupeKey(scope: scope, action: "rename", state: "success", playlistID: playlist.id)
+                dedupeKey: dedupeKey(scope: scope, action: "rename", state: "success", playlistID: playlist.sourceScopedID)
             )
         )
     }
@@ -317,44 +202,42 @@ public final class PlaylistMutationWorkflow {
     ) -> ToastPayload {
         ToastPayload(
             style: .error,
-            iconSystemName: Icon.failure,
+            iconSystemName: PlaylistIcon.failure,
             title: "Could not rename playlist",
             message: errorMessage ?? "Try again later.",
-            dedupeKey: dedupeKey(scope: scope, action: "rename", state: "error", playlistID: playlist.id)
+            dedupeKey: dedupeKey(scope: scope, action: "rename", state: "error", playlistID: playlist.sourceScopedID)
         )
     }
 
     public func beginDelete(
         playlist: Playlist,
         scope: PlaylistMutationToastScope = .playlist
-    ) -> PlaylistDeleteWorkflowStart? {
+    ) -> ToastPayload? {
         guard playlist.supportsPlaylistDeletion else { return nil }
 
-        return PlaylistDeleteWorkflowStart(
-            pendingToast: ToastPayload(
-                style: .info,
-                iconSystemName: Icon.delete,
-                title: "Deleting \(playlist.title)...",
-                isPersistent: true,
-                dedupeKey: dedupeKey(scope: scope, action: "delete", state: "pending", playlistID: playlist.id),
-                showsActivityIndicator: true
-            )
+        return ToastPayload(
+            style: .info,
+            iconSystemName: PlaylistIcon.delete,
+            title: "Deleting \(playlist.title)...",
+            isPersistent: true,
+            dedupeKey: dedupeKey(scope: scope, action: "delete", state: "pending", playlistID: playlist.sourceScopedID),
+            showsActivityIndicator: true
         )
     }
 
     public func finishDelete(
         playlist: Playlist,
         scope: PlaylistMutationToastScope = .playlist
-    ) async throws -> PlaylistDeleteWorkflowResult {
-        let outcome = try await mutator.deletePlaylist(playlist)
+    ) async throws -> (outcome: MutationOutcome, successToast: ToastPayload) {
+        let outcome = try await deletePlaylist(playlist)
 
-        return PlaylistDeleteWorkflowResult(
+        return (
             outcome: outcome,
             successToast: ToastPayload(
                 style: .success,
-                iconSystemName: Icon.success,
+                iconSystemName: PlaylistIcon.success,
                 title: "Deleted \(playlist.title)",
-                dedupeKey: dedupeKey(scope: scope, action: "delete", state: "success", playlistID: playlist.id)
+                dedupeKey: dedupeKey(scope: scope, action: "delete", state: "success", playlistID: playlist.sourceScopedID)
             )
         )
     }
@@ -366,10 +249,10 @@ public final class PlaylistMutationWorkflow {
     ) -> ToastPayload {
         ToastPayload(
             style: .error,
-            iconSystemName: Icon.failure,
+            iconSystemName: PlaylistIcon.failure,
             title: "Could not delete \(playlist.title)",
             message: errorMessage ?? "Try again later.",
-            dedupeKey: dedupeKey(scope: scope, action: "delete", state: "error", playlistID: playlist.id)
+            dedupeKey: dedupeKey(scope: scope, action: "delete", state: "error", playlistID: playlist.sourceScopedID)
         )
     }
 
@@ -384,16 +267,16 @@ public final class PlaylistMutationWorkflow {
     public func beginRenameAll(
         displayPlaylist: DisplayPlaylist,
         to proposedTitle: String
-    ) -> PlaylistRenameWorkflowStart? {
+    ) -> (trimmedTitle: String, pendingToast: ToastPayload)? {
         let trimmedTitle = proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !displayPlaylist.editablePlaylists.isEmpty else { return nil }
 
         let count = displayPlaylist.editablePlaylists.count
-        return PlaylistRenameWorkflowStart(
+        return (
             trimmedTitle: trimmedTitle,
             pendingToast: ToastPayload(
                 style: .info,
-                iconSystemName: Icon.edit,
+                iconSystemName: PlaylistIcon.edit,
                 title: "Renaming on \(count) source\(count == 1 ? "" : "s")...",
                 isPersistent: true,
                 dedupeKey: "merged-rename-\(displayPlaylist.id)",
@@ -405,14 +288,14 @@ public final class PlaylistMutationWorkflow {
     public func finishRenameAll(
         displayPlaylist: DisplayPlaylist,
         trimmedTitle: String
-    ) async -> PlaylistBatchMutationWorkflowResult {
+    ) async -> PlaylistBatchMutationResult {
         var succeededCount = 0
         for playlist in displayPlaylist.editablePlaylists {
             do {
-                _ = try await mutator.renamePlaylist(playlist, to: trimmedTitle)
+                _ = try await renamePlaylist(playlist, to: trimmedTitle)
                 succeededCount += 1
             } catch {
-                EnsembleLogger.debug("Merged playlist rename failed for \(playlist.id): \(error.localizedDescription)")
+                EnsembleLogger.debug("Merged playlist rename failed for \(playlist.sourceScopedID): \(error.localizedDescription)")
             }
         }
 
@@ -423,22 +306,22 @@ public final class PlaylistMutationWorkflow {
         let message: String?
         if succeededCount == totalCount {
             style = .success
-            icon = Icon.editSuccess
+            icon = PlaylistIcon.editSuccess
             title = "Renamed playlist"
             message = nil
         } else if succeededCount > 0 {
             style = .warning
-            icon = Icon.queued
+            icon = PlaylistIcon.queued
             title = "Renamed on \(succeededCount)/\(totalCount) sources"
             message = "Some copies could not be renamed."
         } else {
             style = .error
-            icon = Icon.failure
+            icon = PlaylistIcon.failure
             title = "Could not rename playlist"
             message = "No copies were renamed."
         }
 
-        return PlaylistBatchMutationWorkflowResult(
+        return PlaylistBatchMutationResult(
             succeededCount: succeededCount,
             totalCount: totalCount,
             resultToast: ToastPayload(
@@ -451,43 +334,41 @@ public final class PlaylistMutationWorkflow {
         )
     }
 
-    public func beginDeleteAll(displayPlaylist: DisplayPlaylist) -> PlaylistDeleteWorkflowStart? {
+    public func beginDeleteAll(displayPlaylist: DisplayPlaylist) -> ToastPayload? {
         guard !displayPlaylist.deletablePlaylists.isEmpty else { return nil }
 
         let count = displayPlaylist.deletablePlaylists.count
-        return PlaylistDeleteWorkflowStart(
-            pendingToast: ToastPayload(
-                style: .info,
-                iconSystemName: Icon.delete,
-                title: "Deleting from \(count) source\(count == 1 ? "" : "s")...",
-                isPersistent: true,
-                dedupeKey: "merged-delete-\(displayPlaylist.id)",
-                showsActivityIndicator: true
-            )
+        return ToastPayload(
+            style: .info,
+            iconSystemName: PlaylistIcon.delete,
+            title: "Deleting from \(count) source\(count == 1 ? "" : "s")...",
+            isPersistent: true,
+            dedupeKey: "merged-delete-\(displayPlaylist.id)",
+            showsActivityIndicator: true
         )
     }
 
     public func finishDeleteAll(
         displayPlaylist: DisplayPlaylist
-    ) async -> PlaylistBatchMutationWorkflowResult {
+    ) async -> PlaylistBatchMutationResult {
         var succeededCount = 0
         for playlist in displayPlaylist.deletablePlaylists {
             do {
-                _ = try await mutator.deletePlaylist(playlist)
+                _ = try await deletePlaylist(playlist)
                 succeededCount += 1
             } catch {
-                EnsembleLogger.debug("Merged playlist delete failed for \(playlist.id): \(error.localizedDescription)")
+                EnsembleLogger.debug("Merged playlist delete failed for \(playlist.sourceScopedID): \(error.localizedDescription)")
             }
         }
 
         let totalCount = displayPlaylist.deletablePlaylists.count
         let completedAll = succeededCount == totalCount
-        return PlaylistBatchMutationWorkflowResult(
+        return PlaylistBatchMutationResult(
             succeededCount: succeededCount,
             totalCount: totalCount,
             resultToast: ToastPayload(
                 style: completedAll ? .success : .error,
-                iconSystemName: completedAll ? Icon.success : Icon.failure,
+                iconSystemName: completedAll ? PlaylistIcon.success : PlaylistIcon.failure,
                 title: completedAll ? "Deleted \(displayPlaylist.title)" : "Could not delete all copies",
                 message: completedAll ? nil : "Deleted \(succeededCount)/\(totalCount) copies.",
                 dedupeKey: "merged-delete-result-\(displayPlaylist.id)"
@@ -501,16 +382,16 @@ public final class PlaylistMutationWorkflow {
         state: String,
         playlistID: String
     ) -> String {
-        "\(scope.dedupePrefix)-\(action)-\(state)-\(playlistID)"
+        "\(scope.rawValue)-\(action)-\(state)-\(playlistID)"
     }
 
     private func queuedAddToast(playlist: Playlist) -> ToastPayload {
         ToastPayload(
             style: .info,
-            iconSystemName: Icon.queued,
+            iconSystemName: PlaylistIcon.queued,
             title: "Queued for \(playlist.title)",
             message: "Will be added when back online.",
-            dedupeKey: "playlist-add-queued-\(playlist.id)"
+            dedupeKey: "playlist-add-queued-\(playlist.sourceScopedID)"
         )
     }
 
@@ -522,21 +403,21 @@ public final class PlaylistMutationWorkflow {
         if result.skippedCount > 0 {
             return ToastPayload(
                 style: .warning,
-                iconSystemName: Icon.warning,
+                iconSystemName: PlaylistIcon.warning,
                 title: "Added to \(playlist.title)",
                 message: "Added \(result.addedCount), skipped \(result.skippedCount) incompatible.",
                 action: openPlaylist.map { ToastAction(title: "View", handler: $0) },
-                dedupeKey: "playlist-add-\(playlist.id)"
+                dedupeKey: "playlist-add-\(playlist.sourceScopedID)"
             )
         }
 
         return ToastPayload(
             style: .success,
-            iconSystemName: Icon.success,
+            iconSystemName: PlaylistIcon.success,
             title: "Added to \(playlist.title)",
             message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
             action: openPlaylist.map { ToastAction(title: "View", handler: $0) },
-            dedupeKey: "playlist-add-\(playlist.id)"
+            dedupeKey: "playlist-add-\(playlist.sourceScopedID)"
         )
     }
 
@@ -552,31 +433,35 @@ public final class PlaylistMutationWorkflow {
 
         return ToastPayload(
             style: .success,
-            iconSystemName: Icon.success,
+            iconSystemName: PlaylistIcon.success,
             title: "Added to \(playlist.title)",
             message: addedCount == 1 ? "1 track queued for sync." : "\(addedCount) tracks queued for sync.",
             action: openPlaylist.map { ToastAction(title: "View", handler: $0) },
-            dedupeKey: "playlist-add-optimistic-\(playlist.id)"
+            dedupeKey: "playlist-add-optimistic-\(playlist.sourceScopedID)"
         )
     }
 
-    private func createToast(title: String, result: PlaylistMutationResult) -> ToastPayload {
+    private func createToast(
+        title: String,
+        serverSourceKey: String,
+        result: PlaylistMutationResult
+    ) -> ToastPayload {
         if result.skippedCount > 0 {
             return ToastPayload(
                 style: .warning,
-                iconSystemName: Icon.playlistCreate,
+                iconSystemName: PlaylistIcon.playlistCreate,
                 title: "Created \(title)",
                 message: "Added \(result.addedCount), skipped \(result.skippedCount).",
-                dedupeKey: "playlist-create-\(title.lowercased())"
+                dedupeKey: "playlist-create-\(serverSourceKey)-\(title.lowercased())"
             )
         }
 
         return ToastPayload(
             style: .success,
-            iconSystemName: Icon.playlistCreate,
+            iconSystemName: PlaylistIcon.playlistCreate,
             title: "Created \(title)",
             message: result.addedCount == 1 ? "1 track added." : "\(result.addedCount) tracks added.",
-            dedupeKey: "playlist-create-\(title.lowercased())"
+            dedupeKey: "playlist-create-\(serverSourceKey)-\(title.lowercased())"
         )
     }
 }

@@ -718,6 +718,8 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         let discoveryService = MockDiscoveryService()
         let mutationCoordinator = MutationCoordinator(
             repository: MockPendingMutationRepository(),
+            coreDataStack: .inMemory(),
+            toastCenter: ToastCenter(),
             networkMonitor: networkMonitor,
             syncCoordinator: syncCoordinator
         )

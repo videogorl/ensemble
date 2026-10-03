@@ -93,6 +93,8 @@ final class DownloadsViewModelTests: XCTestCase {
             playlistRepository: playlistRepository,
             mutationCoordinator: MutationCoordinator(
                 repository: PendingMutationRepository(coreDataStack: stack),
+                coreDataStack: .inMemory(),
+                toastCenter: ToastCenter(),
                 networkMonitor: networkMonitor,
                 syncCoordinator: syncCoordinator
             ),

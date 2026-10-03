@@ -87,7 +87,6 @@ public final class PlaylistViewModel: ObservableObject {
     private var coalescedReloadTask: Task<Void, Never>?
     private var hasLoadedPlaylists = false
     private var optimisticCreatingPlaylists: [Playlist] = []
-    private let playlistMutationWorkflow: PlaylistMutationWorkflow
     private var optimisticRenamedPlaylistTitlesByIdentity: [String: String] = [:]
     private var optimisticDeletedPlaylistIdentities: Set<String> = []
     private var lastObservedSourceConfiguration: SourceConfigurationSnapshot?
@@ -106,7 +105,6 @@ public final class PlaylistViewModel: ObservableObject {
         syncCoordinator: SyncCoordinator,
         mutationCoordinator: MutationCoordinator,
         toastCenter: ToastCenter,
-        playlistMutationWorkflow: PlaylistMutationWorkflow? = nil,
         accountManager: AccountManager? = nil,
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
@@ -116,7 +114,6 @@ public final class PlaylistViewModel: ObservableObject {
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
         self.toastCenter = toastCenter
-        self.playlistMutationWorkflow = playlistMutationWorkflow ?? PlaylistMutationWorkflow(mutator: mutationCoordinator)
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
@@ -331,8 +328,8 @@ public final class PlaylistViewModel: ObservableObject {
         }
     }
 
-    public func createPlaylists(title: String, serverSourceKeys: [String]) async -> PlaylistBatchMutationWorkflowResult {
-        let result = await playlistMutationWorkflow.createPlaylists(
+    public func createPlaylists(title: String, serverSourceKeys: [String]) async -> PlaylistBatchMutationResult {
+        let result = await mutationCoordinator.createPlaylists(
             title: title,
             tracks: [],
             serverSourceKeys: serverSourceKeys,
@@ -1155,15 +1152,14 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     @discardableResult
     public func renamePlaylist(
         toTrimmedTitle trimmed: String,
-        using workflow: PlaylistMutationWorkflow,
         scope: PlaylistMutationToastScope = .playlist
-    ) async throws -> PlaylistRenameWorkflowResult {
+    ) async throws -> (outcome: MutationOutcome, successToast: ToastPayload) {
         let previousPlaylist = playlist
         playlist = playlist.withTitle(trimmed, dateModified: Date())
         error = nil
 
         do {
-            let result = try await workflow.finishRename(
+            let result = try await mutationCoordinator.finishRename(
                 playlist: playlist,
                 trimmedTitle: trimmed,
                 scope: scope
