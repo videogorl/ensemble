@@ -1123,10 +1123,6 @@ public final class NowPlayingViewModel: ObservableObject {
         play(track: track, context: .userInitiated)
     }
 
-    public func playHidden(track: Track) {
-        requestPlayback(.track(track: trackWithDisplayRating(track), context: .userInitiated))
-    }
-
     public func play(track: Track, context: PlaybackStartContext) {
         guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
         let playableTrack = trackWithDisplayRating(track)
@@ -1507,16 +1503,6 @@ public final class NowPlayingViewModel: ObservableObject {
         )
         toastCenter.show(result.resultToast)
         return result
-    }
-
-    public func resolveLastPlaylistTarget() async -> Playlist? {
-        guard let lastPlaylistTarget else { return nil }
-        do {
-            let playlists = try await loadPlaylists(forServerSourceKey: lastPlaylistTarget.sourceCompositeKey)
-            return playlists.first { $0.id == lastPlaylistTarget.id }
-        } catch {
-            return nil
-        }
     }
 
     public func resolveLastPlaylistTarget(for tracks: [Track]) async -> Playlist? {

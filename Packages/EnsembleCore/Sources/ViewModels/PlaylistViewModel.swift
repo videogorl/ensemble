@@ -267,12 +267,9 @@ public final class PlaylistViewModel: ObservableObject {
 
         // Run sync in a detached task to avoid SwiftUI's .refreshable cancellation
         EnsembleLogger.debug("🔄 Starting playlist sync (detached)...")
-        await withCheckedContinuation { continuation in
-            Task.detached { [syncCoordinator] in
-                await syncCoordinator.syncPlaylistsOnly()
-                continuation.resume()
-            }
-        }
+        await Task.detached { [syncCoordinator] in
+            await syncCoordinator.syncPlaylistsOnly()
+        }.value
         EnsembleLogger.debug("✅ Playlist sync complete")
 
         // Reload from updated cache (now that sync is fully committed).
@@ -1026,12 +1023,9 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         error = nil
 
         // Run in a detached task so SwiftUI's .refreshable cancellation doesn't kill the sync
-        await withCheckedContinuation { continuation in
-            Task.detached { [syncCoordinator] in
-                await syncCoordinator.syncPlaylistsOnly()
-                continuation.resume()
-            }
-        }
+        await Task.detached { [syncCoordinator] in
+            await syncCoordinator.syncPlaylistsOnly()
+        }.value
 
         await loadTracks()
     }

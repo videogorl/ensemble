@@ -850,12 +850,9 @@ public final class LibraryViewModel: ObservableObject {
         // SwiftUI can cancel the refreshable task when the view updates, but we want
         // the sync to complete regardless
         EnsembleLogger.debug("🔄 Starting incremental sync (detached)...")
-        await withCheckedContinuation { continuation in
-            Task.detached { [syncCoordinator] in
-                await syncCoordinator.syncAllIncremental()
-                continuation.resume()
-            }
-        }
+        await Task.detached { [syncCoordinator] in
+            await syncCoordinator.syncAllIncremental()
+        }.value
         EnsembleLogger.debug("✅ Incremental sync complete")
 
         // Reload from updated cache
