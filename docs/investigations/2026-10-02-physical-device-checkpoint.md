@@ -1,0 +1,55 @@
+# Physical-device cleanup checkpoint
+
+The approved build was installed in place and exercised on Felicity's physical iPhone 16 Pro. Direct/transcoded Plex playback, background playback, a validated download and local playback, native browse rendering, and external playlist convergence have real device evidence. The final phone is paused and locked. Cellular recovery, network-isolated offline playback and interrupted system transfers remain unverified. Two playback presentation/seek issues were reproduced; no production fix or broader redesign was made during this pass.
+
+## Artifact and authorization
+
+- Code: clean `44e02456f064ed97c3e0ac425ede14b05a4d240e`; `b4d9e724` only added the earlier checkpoint report.
+- Installed app: Ensemble `0.4.0` / `202610021830.4402`, bundle `com.videogorl.ensemble`.
+- Device: iPhone 16 Pro / iPhone17,1, iOS 27.0 beta `24A437`; hardware UDID `00008140-00023030117B001C`, CoreDevice ID `FBEDD183-439E-58D7-BB94-56B9BAC9415A`.
+- Artifact: `/tmp/ensemble-cleanup-checkpoint-20261002/device-DD/Build/Products/Debug-iphoneos/Ensemble.app`. Main, Siri and embedded Watch versions match; their executable hashes still match the build provenance. Existing profiles include this phone and expire June/July 2027. Strict signing verification passed before installation.
+- Exactly one in-place installation succeeded, without uninstalling or clearing the container. Fresh installed metadata confirms the exact version/build; successive launch logs and PID 14500 correlate to `/private/var/containers/Bundle/Application/2BED2F72-5581-42AC-8C46-FB5FC1CEA97C/Ensemble.app/Ensemble`. The runtime header says source commit `unknown`; the commit association comes from clean build provenance, not the header.
+- Felicity approved installation and physical checks, then a temporary Wi-Fi toggle and one disposable external Plex playlist. The phone was already paired with Developer Mode enabled; no trust/security changes, additional runner installation, cellular-disable, airplane-mode, push, merge or deployment occurred.
+
+Evidence root: `/tmp/ensemble-cleanup-checkpoint-20261002/physical`. The earlier device-artifact-proof.json and device plan describe pre-install status; `apps-final.json`, `install-result.json`, `processes-final.json`, `phone-profile-eligibility.json` and this report supersede those historical status fields.
+
+## Observed behavior
+
+| Check | Real result and limits |
+| --- | --- |
+| Fresh startup | Cold launches completed sync and established Plex server/WebSocket connections. Initial startup took 158.42 seconds; a subsequent cold launch took 18.63 seconds. These are observations, not a performance guarantee. |
+| Native browse | Songs filtering, row actions and one-song album navigation worked. Fresh native phone screenshots show populated Songs, Artists, Albums and Genres. Artists retained the original `twe` query; Songs was restored to empty. Albums retained Hide Singles/title sorting. This proves the inspected warm flows and saved scopes, not every cold layout, landscape StageFlow or account-switching journey. |
+| Transcoded playback | Caramel / Sleep Token, scoped Minibar section 3 track 16303, used `transcodedHTTP`; response, parsed/decoded audio, stream graph and first render were recorded (578 ms). Native playback controls and playhead updated. |
+| Pause / seek / Next | One pause produced one pause transition. One seek to 154.97 seconds produced one transcode restart (first render 311 ms); it also unexpectedly resumed paused playback, described below. One explicit Next produced one skip/queue advance to See You Again; prefetch and timeline events were not counted as duplicate commands. |
+| Direct playback | Undownloaded Fly Free / 3 Letters Back, scoped track 7278, used `directHTTP` and reached first render in 363 ms. The original-quality override was process-only; saved streaming quality remained High and the subsequent normal launch removed the override. |
+| Background playback | Playback timelines continued while Settings was foregrounded. At the end of Fly Free, the queue automatically advanced to the next track. Playback was subsequently paused. Lock-screen remote commands were not exercised. |
+| Download / local playback | One new High download for album 7277 / track 7278 completed while Ensemble was backgrounded: HTTP 200, 10,768,865 bytes, `playbackCache=false`, one installation. Its copied MP3 fully decoded to 16,116,057 frames at 44,100 Hz stereo / 365.44347 seconds. Physical playback then selected `localFile`, attached the same frame count and rendered in 131 ms. Transport was immediate (`task=-1`); this does not prove interrupted or handed-off URLSession recovery, or use with all networking disabled. |
+| WebSocket freshness | One disposable playlist was created, renamed and deleted externally on the exact Minibar account/server. Scoped WebSocket sync/persistence completed in about 5.5 seconds; native UI subsequently showed convergence. A distinct-track membership append emitted no observed playlist WebSocket event and persisted through periodic refresh about 42 seconds later, subsequently corroborated in native UI. A duplicate append was deduplicated by PMS, so new duplicate-occurrence behavior was not exercised. |
+| Finish | Last playback transition is playing→paused at 19:43:02, with no later play action; final native browse controls show Play. Device Hub Controls→Lock was invoked; `lock-final.json` independently reports `passcodeRequired: true`, rechecked after screen sharing stopped. Keyboard capture is off. |
+
+First-render timings come from physical audio-pipeline logs, corroborated by native UI; no separate acoustic measurement was made. Independent read-only review checked the artifact correlation, playback chains, download decoding, playlist timing and final retention. Root alone owned GUI/device and external fixture actions.
+
+## Retention and user-facing changes
+
+Before launch, the retained preferences matched exactly and all original downloads matched their pre-install manifest. After removing the test download:
+
+- All 644 original download entries (322 audio files plus sidecars), totaling 6,171,821,656 bytes, retain the same paths and sizes; no added file remains. This is manifest proof, not a full content rehash of six GB.
+- Copied SQLite snapshots pass integrity checks, including a fresh post-lock copy. All selected persisted integrity/identity fields for 322 downloads, six saved targets, 404 memberships and five sources exactly match baseline.
+- All 207 existing playlist identities, titles and counts match. All 21,556 occurrence tuples retain playlist/track source identities, occurrence IDs and order. No original track identity disappeared; normal refresh added two Apple Music identities.
+- The new download target and disposable playlist are absent from the phone store. Plex again has the original 38 audio playlists, with all existing identities/titles/counts unchanged. Only the one test playlist was mutated.
+- All 57 existing protected filter/quality/visibility keys match semantically. Streaming/download quality are High; the original Artists query `twe` remains. The disposable playlist's default detail-filter preference remains as an unused scope. Normal Home refresh also changed derived hub order by dropping `music.top.period.3`; this report does not claim every preference or cache is byte-identical.
+
+The installed build and test playback queue/history remain. Playback ends paused on Fly Free / 3 Letters Back at approximately 47 seconds. The test download and remote playlist are removed. Wi-Fi remained on its original network throughout the verified screenshots; OFF was never established, so no restoration or cellular-recovery pass is claimed. Cellular settings were not changed. The test screenshots created on the Mac Desktop were moved into the evidence archive; unrelated files were preserved.
+
+Primary retention evidence: `download-retention-final.json`, `store-retention-final.json`, `preference-retention-final.json`, `final-Ensemble.sqlite`, and `playlist-fixture/delete-result.json`. Active stores were captured with their WAL/SHM companions before local SQLite inspection/checkpointing. Native phone PNGs were captured through Device Hub's Screenshot command rather than trusting its sometimes stale mirror.
+
+## Reproduced issues and remaining checklist
+
+1. **Seeking a paused Plex transcode resumes playback.** At 19:02, one seek led to the fallback stream reload and a playing transition without a resume tap. PlaybackService.swift is unchanged between `c82a349c` and `44e02456`; the fallback calls playCurrentQueueItem without preserving paused state. The older artifact was not run on this phone, so this is a reproduced current behavior plus source-history evidence, not a baseline runtime comparison. A focused fix needs separate approval.
+2. **Songs can retain the previous row's speaker indicator.** Native screenshots show Robot Zombie Attack's Fly Free row with the speaker while the miniplayer/logs identify 3 Letters Back's scoped 7278. An indicator on the paused current track is supported; this is the wrong row. Independent review found Songs' current-track observation omission already present in `c82a349c`, with native identity/update logic unchanged. A stale row is credible; the precise invalidation cause and baseline runtime behavior are not proven. No fix was attempted.
+3. **Real Wi-Fi/cellular recovery:** approved toggle attempts still produced native ON screenshots. Restarting the Mac Device Hub recovered some input, but Settings switch tap/drag still did not change the phone. Complete with reliable direct phone input while preserving original settings; no cellular success is inferred from ordinary foreground recovery.
+4. **Network-isolated offline use and interrupted/background handoff:** require an actual network-isolated state and a transfer interrupted across lifecycle transitions. Cellular-disable permission was requested but not received. Existing downloaded media was preserved.
+5. **Live identity and hardware checks:** simultaneous multiple Plex accounts/same server under different accounts, account/source switching, a genuine duplicate-occurrence fixture, locked remote commands, AirPlay, Apple Music/DRM and Watch runtime remain gaps. This phone had one Plex account with three servers and five sources; focused automated identity/concurrency tests are prior evidence, not replacements for these physical checks.
+6. **Presentation:** compact landscape StageFlow, animation timing, scroll restoration and multiwindow behavior remain outside this bounded physical result.
+
+No broader Now Playing redesign or additional safety framework was implemented. This pass changes production LOC **0** and test LOC **0**; only reports are added/updated. The already committed cleanup remains production **−1,533** and tests **−951**, excluding the pre-existing browse cleanup. The next work should be one approved focused correction or completion of a named physical gap, with fresh exact-artifact verification.

@@ -1,5 +1,7 @@
 # Cleanup checkpoint for physical-device testing
 
+This records the pre-install checkpoint. The later approved installation and real iPhone results are recorded in [the physical-device report](2026-10-02-physical-device-checkpoint.md); that report supersedes the installation/authorization status and physical verification gaps below.
+
 The discussed cleanup is committed in seven coherent code milestones, ending at `44e02456`. One editor owned each slice; independent read-only tracks reviewed ownership, concurrency, replay safety, native behavior and meaningful regressions. No push, merge, deployment, physical installation or substantive Now Playing redesign occurred.
 
 ## Scope and code reduction
