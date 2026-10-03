@@ -624,6 +624,9 @@ public struct SidebarView: View {
     @State private var playlistsPendingRename: [Playlist] = []
     @State private var playlistPendingRenameTitle = ""
     @State private var playlistPendingDelete: Playlist?
+    #if os(macOS)
+    @State private var pendingSidebarSelection: (from: SidebarSelection?, to: SidebarSelection?)?
+    #endif
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
@@ -931,17 +934,17 @@ public struct SidebarView: View {
     }
 
     private func startPinnedPlaylistDelete(for playlist: Playlist) {
-        guard let start = deps.playlistMutationWorkflow.beginDelete(
+        guard let start = deps.mutationCoordinator.beginDelete(
             playlist: playlist,
             scope: .sidebarPlaylist
         ) else { return }
 
-        let deletingToast = start.pendingToast
+        let deletingToast = start
         deps.toastCenter.show(deletingToast)
 
         Task {
             do {
-                let result = try await deps.playlistMutationWorkflow.finishDelete(
+                let result = try await deps.mutationCoordinator.finishDelete(
                     playlist: playlist,
                     scope: .sidebarPlaylist
                 )
@@ -950,13 +953,13 @@ public struct SidebarView: View {
                 }
 
                 handlePinnedSelectionRemoval(identities: [playlist.sourceScopedID], fallback: .library(.playlists))
-                deps.pinMutationWorkflow.unpin(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
+                deps.pinManager.unpin(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
                 deps.toastCenter.dismiss(id: deletingToast.id)
                 deps.toastCenter.show(result.successToast)
             } catch {
                 deps.toastCenter.dismiss(id: deletingToast.id)
                 deps.toastCenter.show(
-                    deps.playlistMutationWorkflow.deleteFailureToast(
+                    deps.mutationCoordinator.deleteFailureToast(
                         playlist: playlist,
                         error: error,
                         scope: .sidebarPlaylist
@@ -967,7 +970,7 @@ public struct SidebarView: View {
     }
 
     private func renamePinnedPlaylist(_ playlist: Playlist, to newTitle: String) {
-        guard let start = deps.playlistMutationWorkflow.beginRename(
+        guard let start = deps.mutationCoordinator.beginRename(
             playlist: playlist,
             to: newTitle,
             scope: .sidebarPlaylist
@@ -979,7 +982,7 @@ public struct SidebarView: View {
 
         Task {
             do {
-                let result = try await deps.playlistMutationWorkflow.finishRename(
+                let result = try await deps.mutationCoordinator.finishRename(
                     playlist: playlist,
                     trimmedTitle: start.trimmedTitle,
                     scope: .sidebarPlaylist
@@ -989,7 +992,7 @@ public struct SidebarView: View {
                         forPlaylistIdentity: playlist.sourceScopedID,
                         expectedTitle: start.trimmedTitle
                     )
-                    deps.pinMutationWorkflow.updateTitle(
+                    deps.pinManager.updateTitle(
                         id: playlist.id,
                         sourceKey: playlist.sourceCompositeKey ?? "",
                         title: start.trimmedTitle
@@ -1003,7 +1006,7 @@ public struct SidebarView: View {
                 await playlistsVM.loadPlaylists()
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
-                    deps.playlistMutationWorkflow.renameFailureToast(
+                    deps.mutationCoordinator.renameFailureToast(
                         playlist: playlist,
                         error: error,
                         scope: .sidebarPlaylist
@@ -1112,7 +1115,21 @@ public struct SidebarView: View {
     }
 
     private func selectSidebar(_ newSelection: SidebarSelection?) {
-        let previousSelection = selection
+        if usesMacNativeContainer {
+            // The native List calls this binding during its own update. Change
+            // local selection here; publish coordinator changes from onChange.
+            if selection != newSelection {
+                #if os(macOS)
+                pendingSidebarSelection = (selection, newSelection)
+                #endif
+                selection = newSelection
+            }
+            return
+        }
+        commitSidebarSelection(newSelection, from: selection)
+    }
+
+    private func commitSidebarSelection(_ newSelection: SidebarSelection?, from previousSelection: SidebarSelection?) {
         let didChangeSelection = previousSelection != newSelection
 
         if let tab = newSelection?.correspondingTab {
@@ -1177,6 +1194,28 @@ public struct SidebarView: View {
         case .library(.playlists): return .playlists
         default: return nil
         }
+    }
+
+    private var usesMacNativeContainer: Bool {
+        #if os(macOS)
+        return usesNativeBrowse
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder
+    private var sidebarToolbarControls: some View {
+        downloadsToolbarButton
+        ProfileToolbarButton()
+    }
+
+    private var downloadsToolbarButton: some View {
+        Button { navigationCoordinator.openDownloads() } label: {
+            Image(systemName: EnsembleDesign.Icon.download)
+        }
+        .accessibilityIdentifier(AutomationIdentifiers.Sidebar.downloadsToolbar)
+        .help("Downloads")
     }
 
     private func publishRootSidebarChromeRegistration(frame: CGRect? = nil, fallbackWidth: CGFloat? = nil) {
@@ -1266,21 +1305,19 @@ public struct SidebarView: View {
             max: RootSidebarColumnWidth.maximum
         )
         .toolbar {
-            ToolbarItemGroup(placement: .primaryActionIfAvailable) {
-                Button { navigationCoordinator.openDownloads() } label: {
-                    Image(systemName: EnsembleDesign.Icon.download)
+            if !usesMacNativeContainer {
+                ToolbarItemGroup(placement: .primaryActionIfAvailable) {
+                    downloadsToolbarButton
+                    #if !os(macOS)
+                    ProfileToolbarButton()
+                    #endif
                 }
-                .accessibilityIdentifier(AutomationIdentifiers.Sidebar.downloadsToolbar)
-                .help("Downloads")
-                #if !os(macOS)
-                ProfileToolbarButton()
+                #if os(macOS)
+                ToolbarItem {
+                    ProfileToolbarButton()
+                }
                 #endif
             }
-            #if os(macOS)
-            ToolbarItem {
-                ProfileToolbarButton()
-            }
-            #endif
         }
         // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
         // instead of computed properties ensures updates survive NavigationSplitView
@@ -1289,22 +1326,24 @@ public struct SidebarView: View {
             rebuildCachedSidebarPlaylists()
         }
         .background {
-            GeometryReader { proxy in
-                let width = proxy.size.width
-                let frame = usesNativeBrowse ? proxy.frame(in: .named(RootChromeCoordinateSpace.name)) : nil
-                RootSidebarChromeRegistrationView(isVisible: isSidebarChromeVisible)
-                    .onAppear {
-                        publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: width)
-                    }
-                    .onChange(of: width) { newWidth in
-                        publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: newWidth)
-                    }
-                    .onChange(of: frame) { newFrame in
-                        publishRootSidebarChromeRegistration(frame: newFrame, fallbackWidth: width)
-                    }
-                    .onChange(of: isSidebarChromeVisible) { _ in
-                        publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: width)
-                    }
+            if !usesMacNativeContainer {
+                GeometryReader { proxy in
+                    let width = proxy.size.width
+                    let frame = usesNativeBrowse ? proxy.frame(in: .named(RootChromeCoordinateSpace.name)) : nil
+                    RootSidebarChromeRegistrationView(isVisible: isSidebarChromeVisible)
+                        .onAppear {
+                            publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: width)
+                        }
+                        .onChange(of: width) { newWidth in
+                            publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: newWidth)
+                        }
+                        .onChange(of: frame) { newFrame in
+                            publishRootSidebarChromeRegistration(frame: newFrame, fallbackWidth: width)
+                        }
+                        .onChange(of: isSidebarChromeVisible) { _ in
+                            publishRootSidebarChromeRegistration(frame: frame, fallbackWidth: width)
+                        }
+                }
             }
         }
     }
@@ -1459,7 +1498,7 @@ public struct SidebarView: View {
             case .mergedAlbum(let displayAlbum, _):
                 AlbumDetailView(displayAlbum: displayAlbum, nowPlayingVM: nowPlayingVM)
             case .artist(let artist, _):
-                ArtistDetailLoader(artist: artist, nowPlayingVM: nowPlayingVM)
+                ArtistDetailLoader(request: .artist(artist), libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .mergedArtist(let displayArtist, _):
                 ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
             case .playlist(let playlist, _):
@@ -1472,7 +1511,7 @@ public struct SidebarView: View {
             case .album:
                 AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
             case .artist:
-                ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+                ArtistDetailLoader(request: .reference(id: id, name: nil, sourceKey: sourceKey), libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .playlist:
                 PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
             }
@@ -1569,10 +1608,10 @@ public struct SidebarView: View {
               let destination = navigationCoordinator.pathSnapshot(for: tab).first else { return }
         switch (tab, destination) {
         case (.artists, .displayArtist(let id)):
-            guard let artist = libraryVM.displayArtists.first(where: { $0.id == id }) else { return }
+            guard let artist = libraryVM.artistBrowse.snapshot.displayArtists.first(where: { $0.id == id }) else { return }
             selectedArtist = artist
         case (.genres, .displayGenre(let id)):
-            guard let genre = libraryVM.genreBrowseSnapshot.displayGenres.first(where: { $0.id == id }) else { return }
+            guard let genre = libraryVM.genreBrowse.snapshot.displayGenres.first(where: { $0.id == id }) else { return }
             selectedGenre = genre
         case (.playlists, .playlistDetail(let playlist, false)):
             selectedPlaylist = .single(playlist)
@@ -1626,18 +1665,39 @@ public struct SidebarView: View {
     @available(iOS 18.0, macOS 15.0, *)
     @ViewBuilder
     private var nativeExplorerColumns: some View {
+        #if os(macOS)
+        NativeBrowseSection(
+            tab: nativeBrowseTab, sidebar: sidebarColumn,
+            fallbackDetail: detailContainerView.macEditorToolbarRoleIfAvailable(),
+            sidebarControls: sidebarToolbarControls,
+            sidebarChromeChanged: rootSidebarChromeRegistrationHandler,
+            nowPlayingVM: nowPlayingVM, viewModels: viewModels,
+            rootSelection: $selection,
+            artist: $selectedArtist, genre: $selectedGenre, playlist: $selectedPlaylist,
+            columnVisibility: $columnVisibility
+        )
+        .onChange(of: selection) { _, current in
+            let pending = pendingSidebarSelection
+            pendingSidebarSelection = nil
+            // External routes already update the coordinator and must keep
+            // their pushed path; only commit an actual sidebar input here.
+            guard let pending, pending.to == current else { return }
+            commitSidebarSelection(current, from: pending.from)
+        }
+        #else
         if let tab = nativeBrowseTab {
             NativeBrowseSection(
                 tab: tab, sidebar: sidebarColumn,
+                fallbackDetail: EmptyView(), sidebarControls: EmptyView(),
                 nowPlayingVM: nowPlayingVM, viewModels: viewModels,
                 rootSelection: $selection,
                 artist: $selectedArtist, genre: $selectedGenre, playlist: $selectedPlaylist,
                 columnVisibility: $columnVisibility
             )
-            .id(tab)
         } else {
             splitNavigationViewWithCompactColumn
         }
+        #endif
     }
 
 
@@ -1885,9 +1945,9 @@ public struct SidebarView: View {
                 customPinAction: { isPinned in
                     if isPinned {
                         handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.artists))
-                        deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
+                        deps.pinManager.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
                     } else {
-                        deps.pinMutationWorkflow.pin(
+                        deps.pinManager.pin(
                             id: artist.id,
                             sourceKey: artist.sourceCompositeKey ?? "",
                             type: .artist,
@@ -1909,7 +1969,7 @@ public struct SidebarView: View {
                     guard isPinned else { return }
                     let identities = Set(pinnedItems.map(\.sourceScopedID))
                     handlePinnedSelectionRemoval(identities: identities, fallback: .library(.artists))
-                    deps.pinMutationWorkflow.unpinAll(identities: identities)
+                    deps.pinManager.unpinAll(identities: identities)
                 }
             )
 
@@ -1937,9 +1997,9 @@ public struct SidebarView: View {
                 customPinAction: { isPinned in
                     if isPinned {
                         handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.albums))
-                        deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
+                        deps.pinManager.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
                     } else {
-                        deps.pinMutationWorkflow.pin(
+                        deps.pinManager.pin(
                             id: album.id,
                             sourceKey: album.sourceCompositeKey ?? "",
                             type: .album,
@@ -1965,7 +2025,7 @@ public struct SidebarView: View {
                     guard isPinned else { return }
                     let identities = Set(pinnedItems.map(\.sourceScopedID))
                     handlePinnedSelectionRemoval(identities: identities, fallback: .library(.albums))
-                    deps.pinMutationWorkflow.unpinAll(identities: identities)
+                    deps.pinManager.unpinAll(identities: identities)
                 }
             )
 
@@ -1991,9 +2051,9 @@ public struct SidebarView: View {
                 customPinAction: { isPinned in
                     if isPinned {
                         handlePinnedSelectionRemoval(identities: [pinnedItem.sourceScopedID], fallback: .library(.playlists))
-                        deps.pinMutationWorkflow.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
+                        deps.pinManager.unpin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey)
                     } else {
-                        deps.pinMutationWorkflow.pin(
+                        deps.pinManager.pin(
                             id: playlist.id,
                             sourceKey: playlist.sourceCompositeKey ?? "",
                             type: .playlist,
@@ -2024,7 +2084,7 @@ public struct SidebarView: View {
                         identities: Set(pinnedItems.map(\.sourceScopedID)),
                         fallback: .library(.playlists)
                     )
-                    deps.pinMutationWorkflow.unpinAll(identities: Set(pinnedItems.map(\.sourceScopedID)))
+                    deps.pinManager.unpinAll(identities: Set(pinnedItems.map(\.sourceScopedID)))
                 }
             )
         }

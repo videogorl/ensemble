@@ -37,11 +37,11 @@ No unresolved critical issues are currently documented.
 - **Status:** macOS sidebar navigation can show an intermediate empty/chrome-only state and may coincide with CoreAudio overload while music plays. Current evidence points to top-level subtree replacement plus delayed display projections/view-local caches, not Aurora cadence.
 - **Rule:** Keep Aurora at 30fps unless Low Power Mode is active. Fix the pop-in by preserving or root-owning display-ready state, removing unused view-local models, and seeding display projections synchronously instead of pausing/reducing the root backdrop during navigation.
 
-### macOS 26 Feed Toolbar Liquid Glass Sampling
+### Older macOS Feed Toolbar Sampling
 
 - **Area:** `HomeView`, `CollapsingToolbar`, `ArtworkDetailBackground`
-- **Status:** The Feed toolbar no longer uses an opaque custom background, but native Liquid Glass scroll-edge color bleed can still be less vivid until navigation invalidates the detail hierarchy.
-- **Rule:** Keep the extension-backed `ArtworkDetailBackground` mounted from first render, keep macOS 26 toolbar background hidden, and avoid custom scroll padding/window-wide backgrounds. Look for root `NavigationSplitView`/detail-column ownership fixes instead of leaf toolbar shims.
+- **Status:** Home now requests native toolbar material; macOS 27.0.1 cold and warm scrolling protects the title over artwork. The earlier macOS 26 color-sampling limitation has not been rechecked on that runtime.
+- **Rule:** Use the shared native toolbar material on Home and keep its normal hosting safe area. Do not restore forced transparency or add custom scroll padding/window-wide backgrounds to repair sampling.
 
 ### watchOS Standalone V1 Scope
 

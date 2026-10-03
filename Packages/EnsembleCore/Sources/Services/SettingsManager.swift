@@ -356,12 +356,16 @@ public final class SettingsManager: ObservableObject {
         AppAccentColor(rawValue: accentColorName) ?? .blue
     }
 
+    var onConnectionPolicyChanged: (() -> Void)?
+
     public var allowInsecureConnectionsPolicy: AllowInsecureConnectionsPolicy {
         get {
             AllowInsecureConnectionsPolicy(rawValue: allowInsecureConnectionsPolicyRawValue) ?? .defaultForEnsemble
         }
         set {
+            guard newValue != allowInsecureConnectionsPolicy else { return }
             allowInsecureConnectionsPolicyRawValue = newValue.rawValue
+            onConnectionPolicyChanged?()
             objectWillChange.send()
         }
     }

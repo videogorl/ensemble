@@ -151,6 +151,31 @@ final class MediaFilterEngineTests: XCTestCase {
         }
     }
 
+    func testArtistDownloadsStayWithinTheirSourceAndComposeWithOtherFilters() {
+        let sources = ["plex:account:server-a:library", "plex:account:server-b:library"]
+        let artists = sources.map {
+            Artist(id: "shared", key: "shared", name: "Shared Artist", sourceCompositeKey: $0)
+        } + [Artist(id: "other", key: "other", name: "Other Artist", sourceCompositeKey: sources[0])]
+        let albums = [
+            makeAlbum(id: "jazz", artistKey: "shared", genres: ["Jazz"], rating: 10, sourceCompositeKey: sources[0]),
+            makeAlbum(id: "rock", artistKey: "shared", genres: ["Rock"], sourceCompositeKey: sources[1])
+        ]
+        var options = FilterOptions()
+        options.showDownloadedOnly = true
+        XCTAssertTrue(MediaFilterEngine.filterArtists(artists, with: options).isEmpty)
+        let downloaded = Set([artists[0].sourceScopedID, artists[2].sourceScopedID])
+        XCTAssertEqual(MediaFilterEngine.filterArtists(artists, with: options, downloadedArtistIDs: downloaded).map(\.sourceScopedID),
+                       [artists[0].sourceScopedID, artists[2].sourceScopedID])
+        options.searchText = "shared"
+        options.selectedGenres = ["Jazz"]
+        options.excludedGenres = ["Live"]
+        options.favoriteFilter = .favorites
+        XCTAssertEqual(MediaFilterEngine.filterArtists(artists, with: options, albums: albums, downloadedArtistIDs: downloaded).map(\.sourceScopedID),
+                       [artists[0].sourceScopedID])
+        options = FilterOptions()
+        XCTAssertEqual(MediaFilterEngine.filterArtists(artists, with: options, downloadedArtistIDs: downloaded), artists)
+    }
+
     func testTrackGenreChoicesUseTheSharedNonGenreResult() {
         var options = FilterOptions()
         options.searchText = "love"

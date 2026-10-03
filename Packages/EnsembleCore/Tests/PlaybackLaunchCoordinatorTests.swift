@@ -110,7 +110,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
                 enqueueVisualizerLoad: { track, _, _ in
                     visualizerTrackID.set(track.id)
                 },
-                loadAndPlay: { source, track, generation in
+                loadAndPlay: { source, track, generation, _ in
                     loadedURL.set(source.fileURL)
                     loadedTrackID.set(track.id)
                     loadedGeneration.set(generation)
@@ -166,7 +166,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
                 isVisualizerEnabled: { true },
                 isInstrumentalModeActive: { false },
                 enqueueVisualizerLoad: { _, _, _ in },
-                loadAndPlay: { _, track, _ in
+                loadAndPlay: { _, track, _, _ in
                     loadedTrackID.set(track.id)
                     return true
                 },
@@ -202,7 +202,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
                 isVisualizerEnabled: { false },
                 isInstrumentalModeActive: { false },
                 enqueueVisualizerLoad: { _, _, _ in },
-                loadAndPlay: { _, _, _ in false },
+                loadAndPlay: { _, _, _, _ in false },
                 seek: { time, _ in
                     soughtTime.set(time)
                     return true
@@ -225,6 +225,55 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
         XCTAssertEqual(prefetchCount.withValue { $0 }, 0)
     }
 
+    func testSeekReloadPreservesTransportIntentForStreamingAndCachedSources() async {
+        let track = Track(id: "seek", key: "/library/metadata/seek", title: "Seek", duration: 200)
+        let streamingSource = PlaybackSource.transcodedHTTP(
+            URLRequest(url: URL(string: "https://example.test/start.mp3")!),
+            metadata: PlaybackSourceMetadata(
+                trackId: track.playbackIdentity,
+                ratingKey: track.id,
+                estimatedContentLength: nil,
+                duration: track.duration,
+                startTime: 42,
+                isSeekable: false,
+                cacheFileExtension: "mp3"
+            )
+        )
+        let cachedSource = PlaybackSource.cachedFile(
+            URL(fileURLWithPath: "/tmp/seek.mp3"), origin: .streamCache
+        )
+        for source in [streamingSource, cachedSource] {
+            for shouldStartPlayback in [false, true] {
+                var loadedIntent: Bool?
+                var soughtTime: TimeInterval?
+                let coordinator = PlaybackLaunchCoordinator(dependencies: .init(
+                    processorCount: { 2 },
+                    isVisualizerEnabled: { false },
+                    isInstrumentalModeActive: { false },
+                    enqueueVisualizerLoad: { _, _, _ in },
+                    loadAndPlay: { _, _, _, intent in
+                        loadedIntent = intent
+                        return true
+                    },
+                    seek: { time, _ in
+                        soughtTime = time
+                        return true
+                    },
+                    prefetchNext: {}
+                ))
+                await coordinator.completeLaunch(
+                    for: track,
+                    source: source,
+                    recoverySeekTime: 42,
+                    generation: 7,
+                    shouldStartPlayback: shouldStartPlayback
+                )
+                XCTAssertEqual(loadedIntent, shouldStartPlayback)
+                XCTAssertEqual(soughtTime, source.fileURL == nil ? nil : 42)
+            }
+        }
+    }
+
     func testSupersededRecoverySeekDoesNotPrefetch() async {
         let seekGeneration = LockedBox<UInt64?>(nil)
         let prefetchCount = LockedBox(0)
@@ -234,7 +283,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
                 isVisualizerEnabled: { false },
                 isInstrumentalModeActive: { false },
                 enqueueVisualizerLoad: { _, _, _ in },
-                loadAndPlay: { _, _, _ in true },
+                loadAndPlay: { _, _, _, _ in true },
                 seek: { _, generation in
                     seekGeneration.set(generation)
                     return false

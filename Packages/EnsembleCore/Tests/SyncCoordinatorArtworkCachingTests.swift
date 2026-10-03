@@ -274,7 +274,6 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         coordinator.healthCheckRunnerForTesting = { _, _ in
             ServerHealthChecker.CheckSummary(checkedCount: 0, skippedCount: 0)
         }
-        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
         return coordinator
     }
 

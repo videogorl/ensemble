@@ -11,7 +11,7 @@ public struct AlbumsView: View {
     @State private var showFilterSheet = false
     @State private var visibleAlbumID: String?
     @State private var selectedAlbum: DisplayAlbum?
-    @StateObject private var albumSnapshotCache = BrowseSnapshotCache(AlbumBrowseSnapshot.empty)
+    @ObservedObject private var albumSnapshotCache: BrowseSnapshotCache<AlbumBrowseSnapshot>
 
     public init(
         libraryVM: LibraryViewModel,
@@ -19,6 +19,7 @@ public struct AlbumsView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        self._albumSnapshotCache = ObservedObject(wrappedValue: libraryVM.albumBrowse)
     }
     
     // Get unique artist names for filter
@@ -28,9 +29,7 @@ public struct AlbumsView: View {
     }
 
     private var albumSnapshot: AlbumBrowseSnapshot {
-        albumSnapshotCache.snapshot.hasVisibleContent || albumSnapshotCache.snapshot.phase != .idle
-            ? albumSnapshotCache.snapshot
-            : libraryVM.albumBrowseSnapshot
+        albumSnapshotCache.snapshot
     }
 
     private var albumFilterOptions: Binding<FilterOptions> {
@@ -50,28 +49,16 @@ public struct AlbumsView: View {
     }
 
     private var albumSortMenu: some View {
-        Menu {
-            ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                Button {
-                    if libraryVM.albumSortOption == option {
-                        libraryVM.albumsFilterOptions.sortDirection =
-                            libraryVM.albumsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                    } else {
-                        libraryVM.albumSortOption = option
-                        libraryVM.albumsFilterOptions.sortDirection = option.defaultDirection
-                    }
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if libraryVM.albumSortOption == option {
-                            Image(systemName: libraryVM.albumsFilterOptions.sortDirection == .ascending
-                                  ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
-                        }
-                    }
-                }
+        EnsembleBrowseSortMenu(
+            model: libraryVM,
+            options: AlbumSortOption.allCases,
+            selection: { $0.albumSortOption },
+            direction: { $0.albumsFilterOptions.sortDirection }
+        ) { option, direction in
+            if libraryVM.albumSortOption != option {
+                libraryVM.albumSortOption = option
             }
-        } label: {
-            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+            libraryVM.albumsFilterOptions.sortDirection = direction
         }
         .accessibilityLabel("Sort Albums")
     }
@@ -128,12 +115,6 @@ public struct AlbumsView: View {
                 showGenreFilter: true,
                 showHideSingles: true
             )
-        }
-        .onReceive(libraryVM.$albumBrowseSnapshot) { snapshot in
-            albumSnapshotCache.snapshot = snapshot
-        }
-        .onAppear {
-            albumSnapshotCache.snapshot = libraryVM.albumBrowseSnapshot
         }
     }
 
@@ -227,8 +208,12 @@ public struct AlbumsView: View {
                             $0.1.minY == $1.1.minY ? $0.1.minX < $1.1.minX : $0.1.minY < $1.1.minY
                         }?.0
                         Color.clear
+                            .onAppear {
+                                if !isStageFlowActive, let visibleID { visibleAlbumID = visibleID }
+                            }
                             .onChange(of: visibleID) { id in
-                                guard !isStageFlowActive else { return }
+                                // Rotation can briefly collapse the viewport before StageFlow activates.
+                                guard !isStageFlowActive, let id else { return }
                                 visibleAlbumID = id
                             }
                     }
@@ -372,7 +357,7 @@ public struct AlbumDetailView: View {
     }
 
     public var body: some View {
-        let downloadState = deps.downloadMutationWorkflow.batchState(for: displayAlbum.albums)
+        let downloadState = deps.offlineDownloadService.batchState(for: displayAlbum.albums)
         MediaDetailView(
             viewModel: viewModel,
             nowPlayingVM: nowPlayingVM,
@@ -425,7 +410,7 @@ public struct AlbumDetailView: View {
                 },
                 onToggleDownload: {
                     Task {
-                        await deps.downloadMutationWorkflow.toggleDownloads(for: displayAlbum.albums)
+                        await deps.offlineDownloadService.toggleDownloads(for: displayAlbum.albums)
                     }
                 },
                 onAddToPlaylist: { present in
@@ -484,11 +469,11 @@ public struct AlbumDetailView: View {
             },
             customPinAction: { isPinned in
                 if isPinned {
-                    deps.pinMutationWorkflow.unpinAll(
+                    deps.pinManager.unpinAll(
                         identities: Set(displayAlbum.albums.map(\.sourceScopedID))
                     )
                 } else {
-                    deps.pinMutationWorkflow.pinAll(items: displayAlbum.albums.map { album in
+                    deps.pinManager.pinAll(items: displayAlbum.albums.map { album in
                         (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
                     })
                 }
@@ -511,18 +496,18 @@ public struct AlbumDetailView: View {
                 albumPendingDeletion = nil
                 Task {
                     do {
-                        let result = try await deps.metadataMutationWorkflow.deleteAlbum(
+                        let toast = try await deps.metadataMutationService.deleteAlbum(
                             deletingAlbum,
                             scope: .albumDetail
                         )
                         await MainActor.run {
-                            deps.toastCenter.show(result.successToast)
+                            deps.toastCenter.show(toast)
                             dismiss()
                         }
                     } catch {
                         await MainActor.run {
                             deps.toastCenter.show(
-                                deps.metadataMutationWorkflow.deleteFailureToast(
+                                deps.metadataMutationService.deleteFailureToast(
                                     noun: "Album",
                                     itemID: deletingAlbum.sourceScopedID,
                                     error: error,
@@ -548,7 +533,7 @@ public struct AlbumDetailView: View {
         favoriteOverrides[album.sourceScopedID] = isFavorite
         Task {
             do {
-                try await deps.collectionFavoriteMutationWorkflow.setFavorite(isFavorite, for: album)
+                try await deps.mutationCoordinator.setFavorite(isFavorite, for: album)
             } catch {
                 favoriteOverrides[album.sourceScopedID] = previous
             }
@@ -561,18 +546,18 @@ public struct AlbumDetailView: View {
             currentTitle: selectedAlbum.title
         ) { newTitle in
             do {
-                let result = try await deps.metadataMutationWorkflow.editAlbum(
+                let toast = try await deps.metadataMutationService.editAlbum(
                     selectedAlbum,
                     title: newTitle,
                     scope: .albumDetail
                 )
                 await MainActor.run {
-                    deps.toastCenter.show(result.successToast)
+                    deps.toastCenter.show(toast)
                 }
             } catch {
                 await MainActor.run {
                     deps.toastCenter.show(
-                        deps.metadataMutationWorkflow.editFailureToast(
+                        deps.metadataMutationService.editFailureToast(
                             noun: "Album",
                             itemID: selectedAlbum.sourceScopedID,
                             error: error,

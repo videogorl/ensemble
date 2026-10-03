@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import Network
+import EnsembleAPI
 
 protocol NetworkPathMonitoring: AnyObject {
     var pathUpdateHandler: ((NWPath) -> Void)? { get set }
@@ -47,6 +48,15 @@ public final class NetworkMonitor: ObservableObject {
     private static let cachedConstrainedKey = "lastKnownNetworkWasConstrained"
 
     internal private(set) var monitorGeneration = 0
+    public private(set) var routingGeneration: UInt64 = 0
+    var onRoutingChanged: (() -> Void)?
+    var reachabilityContext: NetworkReachabilityContext {
+        switch networkState {
+        case .online(.wifi), .online(.wired): return .localNetwork
+        case .online(.cellular), .online(.other): return .remoteNetwork
+        case .offline, .limited, .unknown: return .unknown
+        }
+    }
     internal var isMonitoringForTesting: Bool { isMonitoring }
 
     public convenience init() {
@@ -131,6 +141,8 @@ public final class NetworkMonitor: ObservableObject {
         monitor = newMonitor
         isMonitoring = true
         monitorGeneration += 1
+        routingGeneration &+= 1
+        onRoutingChanged?()
 
         EnsembleLogger.debug("📡 NetworkMonitor: Started monitoring (generation \(monitorGeneration))")
         #if DEBUG
@@ -224,6 +236,8 @@ public final class NetworkMonitor: ObservableObject {
         isConnected = newIsConnected
         isConstrained = newIsConstrained
         persistState(newState, isConstrained: newIsConstrained)
+        routingGeneration &+= 1
+        onRoutingChanged?()
     }
 
     /// Convert NWPath to NetworkState

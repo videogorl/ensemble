@@ -53,10 +53,10 @@ public extension DependencyContainer {
             toastCenter: toastCenter,
             mutationCoordinator: mutationCoordinator,
             trackRatingLocalStore: TrackRatingLocalStore(coreDataStack: coreDataStack),
-            playlistMutationWorkflow: playlistMutationWorkflow,
-            trackRatingMutationWorkflow: trackRatingMutationWorkflow,
             trackAvailabilityResolver: trackAvailabilityResolver,
             lyricsService: lyricsService,
+            artworkLoader: artworkLoader,
+            foregroundWorkScheduler: foregroundWorkScheduler,
             hiddenMediaStore: hiddenMediaStore
         )
     }
@@ -80,6 +80,28 @@ public extension DependencyContainer {
             syncCoordinator: syncCoordinator,
             hiddenMediaStore: hiddenMediaStore,
             includesHidden: includesHidden
+        )
+    }
+
+    @MainActor
+    func makeArtistDetailResolver(includesHidden: Bool = false) -> ArtistDetailResolver {
+        ArtistDetailResolver(
+            libraryRepository: libraryRepository,
+            remoteArtist: { [syncCoordinator] id, name, sourceKey in
+                try await syncCoordinator.getArtist(artistId: id, name: name, sourceKey: sourceKey)
+            },
+            visibleArtists: { [accountManager, libraryVisibilityStore, hiddenMediaStore] artists in
+                let source = accountManager.sourceConfigurationSnapshot
+                return LibraryVisibilityFiltering.visibleArtists(
+                    artists,
+                    hiddenSourceCompositeKeys: libraryVisibilityStore.effectiveHiddenSourceCompositeKeys(
+                        enabledSourceCompositeKeys: source.enabledSourceKeys
+                    ),
+                    sourceConfiguration: source.hasAnySources || !source.isAuthoritative ? source : nil,
+                    hiddenMedia: includesHidden ? .empty : hiddenMediaStore.snapshot
+                )
+            },
+            mergingPreferences: { [settingsManager] in settingsManager.mergingPreferences }
         )
     }
 
@@ -190,7 +212,6 @@ public extension DependencyContainer {
     func makeDownloadsViewModel() -> DownloadsViewModel {
         DownloadsViewModel(
             offlineDownloadService: offlineDownloadService,
-            downloadMutationWorkflow: downloadMutationWorkflow,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             mutationCoordinator: mutationCoordinator,
@@ -216,7 +237,6 @@ public extension DependencyContainer {
     func makeDownloadManagerSettingsViewModel() -> DownloadManagerSettingsViewModel {
         DownloadManagerSettingsViewModel(
             offlineDownloadService: offlineDownloadService,
-            downloadMutationWorkflow: downloadMutationWorkflow,
             targetRepository: offlineDownloadTargetRepository,
             downloadManager: downloadManager
         )
@@ -272,7 +292,6 @@ public extension DependencyContainer {
     func makePinnedViewModel() -> PinnedViewModel {
         PinnedViewModel(
             pinManager: pinManager,
-            pinMutationWorkflow: pinMutationWorkflow,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             accountManager: accountManager,

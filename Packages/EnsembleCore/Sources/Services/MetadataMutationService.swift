@@ -118,7 +118,11 @@ public final class MetadataMutationService {
         self.removeDeletedTracksFromPlayback = removeDeletedTracksFromPlayback
     }
 
-    public func deleteTrack(_ track: Track) async throws {
+    @discardableResult
+    public func deleteTrack(
+        _ track: Track,
+        scope: MetadataMutationToastScope = .track
+    ) async throws -> ToastPayload {
         try ensureOnline(action: "Delete Track")
         let source = try sourceContext(for: track.sourceCompositeKey)
         logServerCapabilityIfUnknown(source: source)
@@ -135,9 +139,14 @@ public final class MetadataMutationService {
         try await libraryRepository.deleteTrack(ratingKey: track.id, sourceCompositeKey: track.sourceCompositeKey)
         removeDeletedTracksFromPlayback(Set([track.sourceScopedID]))
         postMetadataDidChange()
+        return deleteSuccessToast(noun: "Track", itemID: track.sourceScopedID, itemTitle: track.title, scope: scope)
     }
 
-    public func deleteAlbum(_ album: Album) async throws {
+    @discardableResult
+    public func deleteAlbum(
+        _ album: Album,
+        scope: MetadataMutationToastScope = .album
+    ) async throws -> ToastPayload {
         try ensureOnline(action: "Delete Album")
         let source = try sourceContext(for: album.sourceCompositeKey)
         logServerCapabilityIfUnknown(source: source)
@@ -169,6 +178,7 @@ public final class MetadataMutationService {
         try await libraryRepository.deleteAlbum(ratingKey: album.id, sourceCompositeKey: album.sourceCompositeKey)
         removeDeletedTracksFromPlayback(Set(trackModels.map(\.sourceScopedID)))
         postMetadataDidChange()
+        return deleteSuccessToast(noun: "Album", itemID: album.sourceScopedID, itemTitle: album.title, scope: scope)
     }
 
     public func editTrack(_ track: Track, request: MetadataEditRequest) async throws {

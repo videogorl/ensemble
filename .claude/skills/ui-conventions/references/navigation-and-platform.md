@@ -23,6 +23,14 @@
 - Keep persistent navigation and scroll roots structurally stable across runtime
   environment changes; pass changing values into modifiers instead of choosing
   conditional modifier branches.
+- On macOS 15+, `MacBrowseSplitView` owns the permanent sidebar/picker/detail
+  panes. Only its detail host bridges the window title, toolbar, and search;
+  picker controls reuse the leaf builders and view-model bindings. Forward app
+  context explicitly between hosting roots, not SwiftUI's whole environment.
+  Derive picker behavior from the leaf's presentation mode. Shared browse
+  controls own their Filter/New Playlist sheets; avoid parent-to-picker sheet bindings.
+  iPad retains its native SwiftUI split. Commit macOS sidebar coordinator changes
+  after the native List's binding update, distinguishing input from routed paths.
 - StageFlow is iPhone-only and requires compact height plus landscape geometry.
   `MainTabView` owns activation, orientation support, and root chrome suppression. Browse screens only consume
   `isStageFlowActive`; do not add local rotation detection or delay timers.

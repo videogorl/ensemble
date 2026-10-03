@@ -13,8 +13,15 @@ public struct GenresView: View {
     private let presentationMode: PresentationMode
     private let externalSelectedGenre: Binding<DisplayGenre?>?
     @State private var localSelectedGenre: DisplayGenre?
-    @StateObject private var genreSnapshotCache = BrowseSnapshotCache(GenreBrowseSnapshot.empty)
+    @ObservedObject private var genreSnapshotCache: BrowseSnapshotCache<GenreBrowseSnapshot>
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    private var isMacBrowsePicker: Bool {
+        #if os(macOS)
+        presentationMode == .selectionColumn
+        #else
+        false
+        #endif
+    }
 
     public init(
         libraryVM: LibraryViewModel,
@@ -24,6 +31,7 @@ public struct GenresView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        self._genreSnapshotCache = ObservedObject(wrappedValue: libraryVM.genreBrowse)
         self.presentationMode = presentationMode
         self.externalSelectedGenre = selectedGenre
     }
@@ -51,7 +59,7 @@ public struct GenresView: View {
         }
         .navigationTitle("Genres")
         .genreBrowseSearchable(
-            isVisible: isGenreBrowseSearchVisible,
+            isVisible: isGenreBrowseSearchVisible && !isMacBrowsePicker,
             text: genreFilterOptions.searchText
         )
         .refreshable {
@@ -60,18 +68,10 @@ public struct GenresView: View {
         .refreshCommand {
             await libraryVM.refreshFromServer()
         }
-        .onReceive(libraryVM.$genreBrowseSnapshot) { snapshot in
-            genreSnapshotCache.snapshot = snapshot
-        }
-        .onAppear {
-            genreSnapshotCache.snapshot = libraryVM.genreBrowseSnapshot
-        }
     }
 
     private var genreSnapshot: GenreBrowseSnapshot {
-        genreSnapshotCache.snapshot.hasVisibleContent || genreSnapshotCache.snapshot.phase != .idle
-            ? genreSnapshotCache.snapshot
-            : libraryVM.genreBrowseSnapshot
+        genreSnapshotCache.snapshot
     }
 
     private var isGenreBrowseSearchVisible: Bool {
@@ -405,28 +405,16 @@ struct GenreDetailContentView: View {
     }
 
     private var sortMenu: some View {
-        Menu {
-            ForEach(AlbumSortOption.allCases, id: \.self) { option in
-                Button {
-                    if libraryVM.genreDetailAlbumSortOption == option {
-                        libraryVM.genreDetailAlbumFilterOptions.sortDirection =
-                            libraryVM.genreDetailAlbumFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                    } else {
-                        libraryVM.genreDetailAlbumSortOption = option
-                        libraryVM.genreDetailAlbumFilterOptions.sortDirection = option.defaultDirection
-                    }
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if libraryVM.genreDetailAlbumSortOption == option {
-                            Image(systemName: libraryVM.genreDetailAlbumFilterOptions.sortDirection == .ascending
-                                ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
-                        }
-                    }
-                }
+        EnsembleBrowseSortMenu(
+            model: libraryVM,
+            options: AlbumSortOption.allCases,
+            selection: { $0.genreDetailAlbumSortOption },
+            direction: { $0.genreDetailAlbumFilterOptions.sortDirection }
+        ) { option, direction in
+            if libraryVM.genreDetailAlbumSortOption != option {
+                libraryVM.genreDetailAlbumSortOption = option
             }
-        } label: {
-            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+            libraryVM.genreDetailAlbumFilterOptions.sortDirection = direction
         }
         .accessibilityLabel("Sort Genre Albums")
     }

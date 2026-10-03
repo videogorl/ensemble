@@ -45,22 +45,34 @@ public final class MoodRepository: @unchecked Sendable {
         }
     }
 
-    public func saveMoods(_ moods: [Mood]) async throws {
+    /// Replace only sources with a successful response, including a successful empty response.
+    public func saveMoods(_ moods: [Mood], replacingSources sourceKeys: Set<String>) async throws {
+        guard !sourceKeys.isEmpty else { return }
         let cancellationGate = MoodSaveCancellationGate()
         try await withTaskCancellationHandler {
             try Task.checkCancellation()
             try await withCheckedThrowingContinuation { continuation in
                 coreDataStack.performBackgroundTask { context in
                     do {
-                        // Clear existing moods
-                        let deleteRequest = CDMood.fetchRequest()
-                        let deleteResults = try context.fetch(deleteRequest)
-                        for mood in deleteResults {
-                            context.delete(mood)
+                        var newMoods = Set(moods)
+                        let cachedMoods = try context.fetch(CDMood.fetchRequest())
+                        for mood in cachedMoods {
+                            // Older cache rows can contain references to several sources.
+                            let references = Mood.sourceReferences(from: mood.sourceCompositeKey)
+                            let retained = references.filter { !sourceKeys.contains($0.sourceCompositeKey) }
+                            guard retained.count != references.count else { continue }
+                            if newMoods.remove(Mood(from: mood)) != nil { continue }
+                            if retained.isEmpty {
+                                context.delete(mood)
+                            } else {
+                                mood.sourceCompositeKey = retained.map {
+                                    Mood.sourceReference(sourceCompositeKey: $0.sourceCompositeKey, moodKey: $0.moodKey)
+                                }.joined(separator: "|")
+                                mood.key = retained.first?.moodKey ?? mood.key
+                            }
                         }
 
-                        // Save new moods
-                        for mood in moods {
+                        for mood in newMoods {
                             let cdMood = CDMood(context: context)
                             cdMood.id = mood.id
                             cdMood.key = mood.key
@@ -69,7 +81,7 @@ public final class MoodRepository: @unchecked Sendable {
                         }
 
                         try cancellationGate.commit {
-                            try context.save()
+                            if context.hasChanges { try context.save() }
                         }
                         continuation.resume()
                     } catch {

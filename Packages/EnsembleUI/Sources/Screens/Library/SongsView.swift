@@ -15,13 +15,15 @@ public struct SongsView: View {
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
+    @State private var currentTrackId: String?
+    @State private var recentPlaylistTitle: String?
     @State private var showFilterSheet = false
     @State private var selectedAlbum: SongsStageFlowAlbum?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     @State private var cachedNativeTrackSections: [NativeTrackListSection] = []
-    @StateObject private var trackSnapshotCache = BrowseSnapshotCache(TrackBrowseSnapshot.empty)
+    @ObservedObject private var trackSnapshotCache: BrowseSnapshotCache<TrackBrowseSnapshot>
     @State private var trackContentRevision: UInt64 = 0
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
@@ -53,28 +55,16 @@ public struct SongsView: View {
 
     private var songsMoreMenu: some View {
         Menu {
-            Menu {
-                ForEach(TrackSortOption.allCases, id: \.self) { option in
-                    Button {
-                        if libraryVM.trackSortOption == option {
-                            libraryVM.tracksFilterOptions.sortDirection =
-                                libraryVM.tracksFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                        } else {
-                            libraryVM.trackSortOption = option
-                            libraryVM.tracksFilterOptions.sortDirection = option.defaultDirection
-                        }
-                    } label: {
-                        HStack {
-                            Text(option.rawValue)
-                            if libraryVM.trackSortOption == option {
-                                Image(systemName: libraryVM.tracksFilterOptions.sortDirection == .ascending
-                                    ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
-                            }
-                        }
-                    }
+            EnsembleBrowseSortMenu(
+                model: libraryVM,
+                options: TrackSortOption.allCases,
+                selection: { $0.trackSortOption },
+                direction: { $0.tracksFilterOptions.sortDirection }
+            ) { option, direction in
+                if libraryVM.trackSortOption != option {
+                    libraryVM.trackSortOption = option
                 }
-            } label: {
-                Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+                libraryVM.tracksFilterOptions.sortDirection = direction
             }
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
@@ -85,6 +75,14 @@ public struct SongsView: View {
     public init(libraryVM: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        self._currentTrackId = State(initialValue: nowPlayingVM.currentTrack?.playbackIdentity)
+        self._recentPlaylistTitle = State(initialValue: nowPlayingVM.lastPlaylistTarget?.title)
+        self._trackSnapshotCache = ObservedObject(wrappedValue: libraryVM.trackBrowse)
+        #if os(macOS)
+        // The first table already displays this snapshot; receiving it must not reload it.
+        let snapshot = libraryVM.trackBrowse.snapshot
+        self._cachedNativeTrackSections = State(initialValue: Self.nativeTrackSections(from: snapshot, sortOption: libraryVM.trackSortOption))
+        #endif
     }
 
     public var body: some View {
@@ -128,20 +126,25 @@ public struct SongsView: View {
             activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
             availabilityGeneration: $availabilityGeneration
         )
-        .onReceive(libraryVM.$trackBrowseSnapshot) { snapshot in
-            cacheTrackSnapshot(snapshot)
-            updateNativeTrackSections(from: snapshot.sections)
+        .nowPlayingTrackListObservation(
+            nowPlayingVM: nowPlayingVM,
+            currentTrackId: $currentTrackId,
+            recentPlaylistTitle: $recentPlaylistTitle
+        )
+        .onReceive(trackSnapshotCache.$snapshot) { snapshot in
+            updateNativeTrackSections(from: snapshot, sortOption: libraryVM.trackSortOption)
             guard isStageFlowActive else { return }
             rebuildCachedStageFlowAlbums(from: snapshot.tracks)
+        }
+        .onReceive(libraryVM.$trackSortOption) { sortOption in
+            updateNativeTrackSections(from: trackSnapshot, sortOption: sortOption)
         }
         .onChange(of: isStageFlowActive) { isActive in
             guard isActive else { return }
             rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
         }
         .onAppear {
-            let snapshot = libraryVM.trackBrowseSnapshot
-            cacheTrackSnapshot(snapshot)
-            updateNativeTrackSections(from: trackSnapshot.sections)
+            updateNativeTrackSections(from: trackSnapshot, sortOption: libraryVM.trackSortOption)
             guard isStageFlowActive else { return }
             rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
         }
@@ -161,32 +164,25 @@ public struct SongsView: View {
         }
     }
 
-    private func cacheTrackSnapshot(_ snapshot: TrackBrowseSnapshot) {
-        let previous = trackSnapshotCache.snapshot
-        if !arraysShareStorage(previous.tracks, snapshot.tracks) ||
-            !arraysShareStorage(previous.sections, snapshot.sections) {
-            trackContentRevision &+= 1
-        }
-        trackSnapshotCache.snapshot = snapshot
-    }
-
-    private func updateNativeTrackSections(from sections: [LibraryViewModel.TrackSection]) {
-        let nextSections = nativeTrackSections(from: sections)
+    private func updateNativeTrackSections(from snapshot: TrackBrowseSnapshot, sortOption: TrackSortOption) {
+        let nextSections = Self.nativeTrackSections(from: snapshot, sortOption: sortOption)
         if nextSections != cachedNativeTrackSections {
             cachedNativeTrackSections = nextSections
+            trackContentRevision &+= 1
         }
     }
 
-    private func nativeTrackSections(from sections: [LibraryViewModel.TrackSection]) -> [NativeTrackListSection] {
-        sections.map {
+    static func nativeTrackSections(from snapshot: TrackBrowseSnapshot, sortOption: TrackSortOption) -> [NativeTrackListSection] {
+        if sortOption != .title {
+            return snapshot.tracks.isEmpty ? [] : [NativeTrackListSection(id: "all", title: "", tracks: snapshot.tracks)]
+        }
+        return snapshot.sections.map {
             NativeTrackListSection(id: $0.letter, title: $0.letter, tracks: $0.tracks)
         }
     }
 
     private var trackSnapshot: TrackBrowseSnapshot {
-        trackSnapshotCache.snapshot.hasVisibleContent || trackSnapshotCache.snapshot.phase != .idle
-            ? trackSnapshotCache.snapshot
-            : libraryVM.trackBrowseSnapshot
+        trackSnapshotCache.snapshot
     }
 
     /// StageFlow carousel for landscape mode. MainTabView owns rotation and
@@ -233,7 +229,7 @@ public struct SongsView: View {
             if libraryVM.trackSortOption == .title {
                 SongsTrackListHost(
                     sections: largeScreenTrackSections,
-                    currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                    currentTrackId: currentTrackId,
                     contentRevision: trackContentRevision,
                     availabilityGeneration: availabilityGeneration,
                     activeDownloadTrackIdentities: activeDownloadTrackIdentities,
@@ -251,7 +247,7 @@ public struct SongsView: View {
             } else {
                 SongsTrackListHost(
                     tracks: trackSnapshot.tracks,
-                    currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                    currentTrackId: currentTrackId,
                     contentRevision: trackContentRevision,
                     availabilityGeneration: availabilityGeneration,
                     activeDownloadTrackIdentities: activeDownloadTrackIdentities,
@@ -346,7 +342,7 @@ public struct SongsView: View {
     private func largeScreenIndexedSongList(width: CGFloat, tableHeaderContent: AnyView? = nil) -> some View {
         SongsTrackListHost(
             sections: largeScreenTrackSections,
-            currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+            currentTrackId: currentTrackId,
             contentRevision: trackContentRevision,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
@@ -366,7 +362,7 @@ public struct SongsView: View {
     private func largeScreenFlatSongList(width: CGFloat, tableHeaderContent: AnyView? = nil) -> some View {
         SongsTrackListHost(
             tracks: trackSnapshot.tracks,
-            currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+            currentTrackId: currentTrackId,
             contentRevision: trackContentRevision,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
@@ -392,7 +388,7 @@ public struct SongsView: View {
 
     private var largeScreenTrackSections: [NativeTrackListSection] {
         cachedNativeTrackSections.isEmpty && !trackSnapshot.sections.isEmpty
-            ? nativeTrackSections(from: trackSnapshot.sections)
+            ? Self.nativeTrackSections(from: trackSnapshot, sortOption: libraryVM.trackSortOption)
             : cachedNativeTrackSections
     }
 
@@ -401,7 +397,7 @@ public struct SongsView: View {
             nowPlayingVM: nowPlayingVM,
             deps: deps,
             navigationCoordinator: navigationCoordinator,
-            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title,
+            recentPlaylistTitle: recentPlaylistTitle,
             mutationCandidates: libraryVM.mutationCandidates(for:),
             sourceActionPresenter: sourceActionPresenter
         ) { tracks in

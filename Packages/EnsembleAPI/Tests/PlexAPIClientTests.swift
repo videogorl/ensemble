@@ -44,6 +44,84 @@ private final class PlexAPIClientURLProtocol: URLProtocol {
 
 final class PlexAPIClientTests: XCTestCase {
 
+    func testLibrarySectionsRequireCompleteInventoriesBeforeReplacingCachedLibraries() async throws {
+        let responses: [(String, [String]?)] = [
+            (#"{"MediaContainer":{"size":1,"totalSize":1,"offset":0,"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#, ["1"]),
+            (#"{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#, ["1"]),
+            (#"{"MediaContainer":{"size":2,"Directory":[{"key":"1","title":"Music","type":"artist"},{"key":"2","title":"Movies","type":"movie"}]}}"#, ["1", "2"]),
+            (#"{"MediaContainer":{"size":0}}"#, []),
+            (#"{"MediaContainer":{"Directory":[]}}"#, []),
+            (#"{"MediaContainer":{"size":0,"Metadata":[{"key":"1","title":"Music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{}}"#, nil),
+            (#"{"MediaContainer":{"size":1}}"#, nil),
+            (#"{"MediaContainer":{"size":0,"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":2,"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":0,"totalSize":1,"Directory":[]}}"#, nil),
+            (#"{"MediaContainer":{"size":1,"totalSize":2,"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":1,"offset":1,"Directory":[{"key":"1","title":"Music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":2,"Directory":[{"key":"1","title":"Music","type":"artist"},{"key":"1","title":"Other music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":1,"Directory":[{"key":" ","title":"Music","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":1,"Directory":[{"key":"1","title":" ","type":"artist"}]}}"#, nil),
+            (#"{"MediaContainer":{"size":1,"Directory":[{"key":"1","title":"Music","type":" "}]}}"#, nil)
+        ]
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(url: "https://example.com", token: "test", identifier: "server", name: "Server"),
+            keychain: TestKeychain(), urlSession: session
+        )
+        for (json, expectedKeys) in responses {
+            PlexAPIClientURLProtocol.install { request in
+                XCTAssertEqual(request.url?.path, "/library/sections")
+                return (200, Data(json.utf8))
+            }
+            do {
+                let sections = try await client.getLibrarySections()
+                guard let expectedKeys else {
+                    XCTFail("Accepted incomplete library inventory: \(json)")
+                    continue
+                }
+                XCTAssertEqual(sections.map(\.key), expectedKeys, json)
+            } catch PlexAPIError.invalidResponse {
+                XCTAssertNil(expectedKeys, "Rejected complete library inventory: \(json)")
+            }
+        }
+    }
+
+    func testMoodsRequireCompleteResponsesBeforeReplacingCachedSources() async throws {
+        let responses: [(String, Bool)] = [
+            (#"{"MediaContainer":{"size":1,"Directory":[{"key":"warm","title":"Warm"}]}}"#, true),
+            (#"{"MediaContainer":{"Directory":[{"key":"warm","title":"Warm"}]}}"#, true),
+            (#"{"MediaContainer":{"size":0}}"#, true),
+            (#"{"MediaContainer":{"Directory":[]}}"#, true),
+            (#"{"MediaContainer":{}}"#, false),
+            (#"{"MediaContainer":{"size":1}}"#, false),
+            (#"{"MediaContainer":{"size":0,"totalSize":1,"Directory":[]}}"#, false),
+            (#"{"MediaContainer":{"size":1,"totalSize":2,"Directory":[{"key":"warm","title":"Warm"}]}}"#, false),
+            (#"{"MediaContainer":{"size":1,"offset":1,"Directory":[{"key":"warm","title":"Warm"}]}}"#, false),
+            (#"{"MediaContainer":{"size":1,"Directory":[{"key":"warm","title":" "}]}}"#, false)
+        ]
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(url: "https://example.com", token: "test", identifier: "server", name: "Server"),
+            keychain: TestKeychain(), urlSession: session
+        )
+        for (json, valid) in responses {
+            PlexAPIClientURLProtocol.install { _ in (200, Data(json.utf8)) }
+            do {
+                _ = try await client.getMoods(sectionKey: "1")
+                XCTAssertTrue(valid, "Accepted incomplete mood response: \(json)")
+            } catch PlexAPIError.invalidResponse {
+                XCTAssertFalse(valid, "Rejected complete mood response: \(json)")
+            }
+        }
+    }
+
     func testTrackRadioCreatesFreshStationAndOmitsSeed() async throws {
         PlexAPIClientURLProtocol.install { request in
             XCTAssertEqual(request.httpMethod, "POST")
@@ -246,45 +324,7 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertEqual(components.queryItems?.first(where: { $0.name == "X-Plex-Token" })?.value, "token123")
     }
 
-    func testCurrentEndpointSyncUsesRegistrySelection() async {
-        let registry = ServerConnectionRegistry()
-        let serverKey = "account:server"
-        let client = PlexAPIClient(
-            connection: PlexServerConnection(
-                url: "https://stale.example.com",
-                alternativeURLs: ["https://fresh.example.com"],
-                token: "token123",
-                identifier: "server",
-                name: "Server"
-            ),
-            keychain: TestKeychain(),
-            connectionRegistry: registry,
-            serverKey: serverKey
-        )
-
-        for _ in 0..<20 {
-            if await registry.currentURL(for: serverKey) != nil {
-                break
-            }
-            await Task.yield()
-        }
-
-        await registry.updateEndpoint(
-            for: serverKey,
-            endpoint: PlexEndpointDescriptor(url: "https://fresh.example.com", local: false, relay: false),
-            source: .healthCheck
-        )
-
-        let didSync = await client.syncCurrentEndpointFromRegistryIfNeeded(reason: "test")
-        let currentURL = await client.getCurrentServerURL()
-        let didSyncAgain = await client.syncCurrentEndpointFromRegistryIfNeeded(reason: "test")
-
-        XCTAssertTrue(didSync)
-        XCTAssertEqual(currentURL, "https://fresh.example.com")
-        XCTAssertFalse(didSyncAgain)
-    }
-
-    func testTranscodeDecisionSyncsEndpointAndRetriesAfterConnectionFailure() async throws {
+    func testTranscodeDecisionRetriesAfterConnectionFailure() async throws {
         PlexAPIClientURLProtocol.install { request in
             let host = request.url?.host ?? ""
             if host == "failed.example.com" {
@@ -304,65 +344,6 @@ final class PlexAPIClientTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
 
-        let failoverManager = ConnectionFailoverManager(timeout: 0.1) { request in
-            let url = try XCTUnwrap(request.url)
-            let statusCode = url.host == "fallback.example.com" ? 200 : 500
-            let response = HTTPURLResponse(
-                url: url,
-                statusCode: statusCode,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-            return (Data(), response)
-        }
-        let registry = ServerConnectionRegistry()
-        let serverKey = "account:server"
-        let client = PlexAPIClient(
-            connection: PlexServerConnection(
-                url: "https://stale.example.com",
-                alternativeURLs: ["https://failed.example.com", "https://fallback.example.com"],
-                token: "token123",
-                identifier: "server",
-                name: "Server"
-            ),
-            keychain: TestKeychain(),
-            failoverManager: failoverManager,
-            connectionRegistry: registry,
-            serverKey: serverKey,
-            urlSession: session
-        )
-
-        for _ in 0..<20 {
-            if await registry.currentURL(for: serverKey) != nil {
-                break
-            }
-            await Task.yield()
-        }
-        await registry.updateEndpoint(
-            for: serverKey,
-            endpoint: PlexEndpointDescriptor(url: "https://failed.example.com", local: true, relay: false),
-            source: .healthCheck
-        )
-
-        let result = try await client.callTranscodeDecision(
-            queryItems: [URLQueryItem(name: "session", value: "session-1")]
-        )
-        let currentURL = await client.getCurrentServerURL()
-
-        XCTAssertEqual(result.decision, .transcode)
-        XCTAssertEqual(currentURL, "https://fallback.example.com")
-    }
-
-    func testImmediateFailoverExcludesTheRequestURLThatJustFailed() async throws {
-        let failoverManager = ConnectionFailoverManager(timeout: 0.1) { request in
-            let response = HTTPURLResponse(
-                url: try XCTUnwrap(request.url),
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-            return (Data(), response)
-        }
         let client = PlexAPIClient(
             connection: PlexServerConnection(
                 url: "https://failed.example.com",
@@ -372,7 +353,35 @@ final class PlexAPIClientTests: XCTestCase {
                 name: "Server"
             ),
             keychain: TestKeychain(),
-            failoverManager: failoverManager
+            probeURLSession: session,
+            urlSession: session
+        )
+
+        let result = try await client.callTranscodeDecision(
+            queryItems: [URLQueryItem(name: "session", value: "session-1")]
+        )
+        let currentURL = try await client.getCurrentServerURL()
+
+        XCTAssertEqual(result.decision, .transcode)
+        XCTAssertEqual(currentURL, "https://fallback.example.com")
+    }
+
+    func testImmediateFailoverExcludesTheRequestURLThatJustFailed() async throws {
+        PlexAPIClientURLProtocol.install { _ in (200, Data()) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://failed.example.com",
+                alternativeURLs: ["https://fallback.example.com"],
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            probeURLSession: session
         )
 
         let result = try await client.attemptFailover(excluding: "https://failed.example.com")

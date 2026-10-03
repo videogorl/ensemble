@@ -1,4 +1,5 @@
 import Combine
+import EnsembleAPI
 import EnsembleDomain
 import EnsemblePersistence
 import Foundation
@@ -102,7 +103,6 @@ public final class PinnedViewModel: ObservableObject {
     @Published public var draggingPinId: String?
 
     private let pinManager: PinManager
-    private let pinMutationWorkflow: PinMutationWorkflow
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let accountManager: AccountManager
@@ -114,7 +114,6 @@ public final class PinnedViewModel: ObservableObject {
 
     public init(
         pinManager: PinManager,
-        pinMutationWorkflow: PinMutationWorkflow? = nil,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         accountManager: AccountManager,
@@ -122,7 +121,6 @@ public final class PinnedViewModel: ObservableObject {
         hiddenMediaStore: HiddenMediaStore? = nil
     ) {
         self.pinManager = pinManager
-        self.pinMutationWorkflow = pinMutationWorkflow ?? PinMutationWorkflow(pinManager: pinManager)
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.accountManager = accountManager
@@ -339,68 +337,33 @@ public final class PinnedViewModel: ObservableObject {
         }
     }
 
-    /// Groups resolved playlist pins with the same normalized title and semantic kind.
-    /// Non-playlist pins pass through unchanged. The first occurrence of each group key
-    /// determines the merged entry's position in the output.
     private func mergePlaylistPins(
         _ pins: [ResolvedPin],
         preferences: EnsembleMergingPreferences
     ) -> [ResolvedPin] {
-        struct GroupKey: Hashable {
-            let normalizedTitle: String
-            let isSmart: Bool
-        }
-
-        var output: [ResolvedPin] = []
-        // Track playlist groups: key -> index in output where the group lives
-        var groupIndex: [GroupKey: Int] = [:]
-        // Accumulate playlists and pin metadata per group
-        var groupPlaylists: [GroupKey: [Playlist]] = [:]
-        var groupPins: [GroupKey: [PinnedItem]] = [:]
-
-        for pin in pins {
-            switch pin {
-            case let .playlist(playlist, pinnedItem):
-                let key = GroupKey(
-                    normalizedTitle: DisplayPlaylist.normalizedTitle(playlist.title),
+        mergePins(
+            pins,
+            preferences: preferences,
+            value: { pin in
+                guard case let .playlist(playlist, pinnedItem) = pin else { return nil }
+                let identity = PlexPlaylistMergeRules.key(
+                    title: playlist.title,
                     isSmart: playlist.isSmartForPlaylistGrouping
                 )
-                if groupIndex[key] == nil {
-                    // First occurrence — reserve a slot in the output
-                    groupIndex[key] = output.count
-                    output.append(pin) // Placeholder, will be replaced if merged
-                    groupPlaylists[key] = [playlist]
-                    groupPins[key] = [pinnedItem]
-                } else {
-                    // Additional occurrence — accumulate into the group
-                    groupPlaylists[key, default: []].append(playlist)
-                    groupPins[key, default: []].append(pinnedItem)
-                }
-            default:
-                output.append(pin)
-            }
-        }
-
-        // Replace single-playlist placeholders with merged entries where applicable
-        for (key, index) in groupIndex {
-            let playlists = groupPlaylists[key] ?? []
-            let pinnedItems = groupPins[key] ?? []
-            if playlists.count > 1 {
-                let ordered = preferences.ordered(
-                    Array(zip(playlists, pinnedItems)),
-                    sourceKey: { $0.0.sourceCompositeKey }
+                return (identity, playlist, pinnedItem)
+            },
+            sourceKey: { $0.sourceCompositeKey },
+            merged: { values, pinnedItems in
+                .mergedPlaylist(
+                    DisplayPlaylist.merged(
+                        title: values[0].value.title,
+                        isSmart: values.contains { $0.value.isSmart },
+                        playlists: values.map(\.value)
+                    ),
+                    pinnedItems
                 )
-                let dp = DisplayPlaylist.merged(
-                    title: ordered[0].0.title,
-                    isSmart: playlists.contains(where: \.isSmart),
-                    playlists: ordered.map(\.0)
-                )
-                output[index] = .mergedPlaylist(dp, ordered.map(\.1))
             }
-            // If only 1 playlist, the original .playlist entry is already in place
-        }
-
-        return output
+        )
     }
 
     /// Move a resolved pin from one position to another
@@ -409,7 +372,7 @@ public final class PinnedViewModel: ObservableObject {
         resolvedPins.move(fromOffsets: source, toOffset: destination)
         // Persist the new order to PinManager
         let identities = resolvedPins.flatMap(\.reorderIdentities)
-        pinMutationWorkflow.reorder(identities: identities)
+        pinManager.reorder(identities: identities)
         isMoving = false
     }
 
@@ -444,22 +407,17 @@ public final class PinnedViewModel: ObservableObject {
     public func persistOrder() {
         isMoving = true
         let identities = resolvedPins.flatMap(\.reorderIdentities)
-        pinMutationWorkflow.reorder(identities: identities)
+        pinManager.reorder(identities: identities)
         isMoving = false
     }
 
     /// Unpin an item by its persisted rating key and source key.
     public func unpin(id: String, sourceKey: String) {
-        pinMutationWorkflow.unpin(id: id, sourceKey: sourceKey)
+        pinManager.unpin(id: id, sourceKey: sourceKey)
     }
 
     /// Unpin all items in a resolved pin (handles merged playlists with multiple identities)
     public func unpinAll(_ pin: ResolvedPin) {
-        let identities = pin.allPinnedIdentities
-        if identities.count > 1 {
-            pinMutationWorkflow.unpinAll(identities: identities)
-        } else if let identity = identities.first {
-            pinMutationWorkflow.unpinAll(identities: [identity])
-        }
+        pinManager.unpinAll(identities: pin.allPinnedIdentities)
     }
 }

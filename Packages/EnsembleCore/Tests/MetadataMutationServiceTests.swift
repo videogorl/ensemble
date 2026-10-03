@@ -49,7 +49,7 @@ final class MetadataMutationServiceTests: XCTestCase {
             ]
         )
 
-        try await harness.service.deleteTrack(harness.track)
+        let toast = try await harness.service.deleteTrack(harness.track)
 
         let deletedTrack = try await harness.libraryRepository.fetchTrack(
             ratingKey: harness.track.id,
@@ -70,6 +70,9 @@ final class MetadataMutationServiceTests: XCTestCase {
         XCTAssertTrue(remainingTargetKeys.isEmpty)
         XCTAssertEqual(harness.client.deletedIDs, [[harness.track.id]])
         XCTAssertEqual(harness.removedTrackIDs.ids, [harness.track.sourceScopedID])
+        XCTAssertEqual(toast.title, "Track deleted")
+        XCTAssertEqual(toast.message, "\"Track\" was removed from Plex.")
+        XCTAssertEqual(toast.dedupeKey, "track-delete-\(harness.track.sourceScopedID)")
     }
 
     func testEditTrackSendsFieldUpdatesAndRefreshesLocalTitle() async throws {
@@ -116,6 +119,14 @@ final class MetadataMutationServiceTests: XCTestCase {
         )
         XCTAssertNotNil(existing)
         XCTAssertTrue(harness.removedTrackIDs.ids.isEmpty)
+        let toast = harness.service.deleteFailureToast(
+            noun: "Track", itemID: harness.track.sourceScopedID,
+            error: MetadataMutationError.insufficientPermissions, scope: .track
+        )
+        XCTAssertEqual(toast.style, .error)
+        XCTAssertEqual(toast.title, "Couldn't delete track")
+        XCTAssertEqual(toast.message, MetadataMutationError.insufficientPermissions.localizedDescription)
+        XCTAssertEqual(toast.dedupeKey, "track-delete-failed-\(harness.track.sourceScopedID)")
     }
 
     func testDeleteTrackAttemptsServerDeleteWhenOwnershipHintIsMissing() async throws {
@@ -129,6 +140,57 @@ final class MetadataMutationServiceTests: XCTestCase {
         )
         XCTAssertNil(existing)
         XCTAssertEqual(harness.client.deletedIDs, [[harness.track.id]])
+    }
+
+    func testTitleCommandsKeepSourceScopedFeedbackAndPersistedNames() async throws {
+        for noun in ["Track", "Album", "Artist"] {
+            let harness = try await makeHarness()
+            let title = "New \(noun)"
+            let toast: ToastPayload
+            let id: String
+            let storedTitle: String?
+            switch noun {
+            case "Track":
+                id = harness.track.id
+                toast = try await harness.service.editTrack(harness.track, title: title)
+                storedTitle = try await harness.libraryRepository.fetchTrack(ratingKey: id, sourceCompositeKey: harness.sourceKey)?.title
+            case "Album":
+                id = "album-1"
+                let album = Album(id: id, key: "/library/metadata/\(id)", title: "Album", sourceCompositeKey: harness.sourceKey)
+                toast = try await harness.service.editAlbum(album, title: title, scope: .albumDetail)
+                storedTitle = try await harness.libraryRepository.fetchAlbum(ratingKey: id, sourceCompositeKey: harness.sourceKey)?.title
+            default:
+                id = "artist-1"
+                let artist = Artist(id: id, key: "/library/metadata/\(id)", name: "Artist", sourceCompositeKey: harness.sourceKey)
+                toast = try await harness.service.editArtist(artist, title: title)
+                storedTitle = try await harness.libraryRepository.fetchArtist(ratingKey: id, sourceCompositeKey: harness.sourceKey)?.name
+            }
+            XCTAssertEqual(storedTitle, title)
+            XCTAssertEqual(harness.client.updatedSectionID, "lib")
+            XCTAssertEqual(harness.client.updatedIDs, [id])
+            XCTAssertEqual(harness.client.updatedFields, [PlexMetadataFieldUpdate(fieldName: "title", value: title)])
+            XCTAssertEqual(toast.style, .success)
+            XCTAssertEqual(toast.iconSystemName, "checkmark.circle.fill")
+            XCTAssertEqual(toast.title, "\(noun) updated")
+            XCTAssertEqual(toast.message, "\"\(title)\" was saved to Plex.")
+            let scope = noun == "Album" ? "album-detail" : noun.lowercased()
+            XCTAssertEqual(toast.dedupeKey, "\(scope)-edit-\(harness.sourceKey)||\(id)")
+        }
+    }
+
+    func testAlbumDeletionRetainsDetailFeedbackScope() async throws {
+        let harness = try await makeHarness()
+        let album = Album(id: "album-1", key: "/library/metadata/album-1", title: "Album", sourceCompositeKey: harness.sourceKey)
+        let toast = try await harness.service.deleteAlbum(album, scope: .albumDetail)
+        let storedAlbum = try await harness.libraryRepository.fetchAlbum(ratingKey: album.id, sourceCompositeKey: harness.sourceKey)
+        XCTAssertNil(storedAlbum)
+        XCTAssertEqual(toast.title, "Album deleted")
+        XCTAssertEqual(toast.message, "\"Album\" was removed from Plex.")
+        XCTAssertEqual(toast.dedupeKey, "album-detail-delete-\(album.sourceScopedID)")
+        let failure = harness.service.editFailureToast(noun: "Album", itemID: album.sourceScopedID, error: MetadataMutationError.invalidSource, scope: .albumDetail)
+        XCTAssertEqual(failure.title, "Couldn't edit album")
+        XCTAssertEqual(failure.message, MetadataMutationError.invalidSource.localizedDescription)
+        XCTAssertEqual(failure.dedupeKey, "album-detail-edit-failed-\(album.sourceScopedID)")
     }
 
     // MARK: - Harness
@@ -287,14 +349,14 @@ final class MetadataMutationServiceTests: XCTestCase {
     }
 }
 
-private func XCTAssertThrowsErrorAsync(
-    _ expression: @autoclosure () async throws -> Void,
+private func XCTAssertThrowsErrorAsync<T>(
+    _ expression: @autoclosure () async throws -> T,
     _ errorHandler: (Error) -> Void = { _ in },
     file: StaticString = #filePath,
     line: UInt = #line
 ) async {
     do {
-        try await expression()
+        _ = try await expression()
         XCTFail("Expected error to be thrown", file: file, line: line)
     } catch {
         errorHandler(error)

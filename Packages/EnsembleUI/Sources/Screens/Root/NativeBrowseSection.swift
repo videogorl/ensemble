@@ -2,9 +2,12 @@ import EnsembleCore
 import SwiftUI
 
 @available(iOS 18.0, macOS 15.0, *)
-struct NativeBrowseSection<Sidebar: View>: View {
-    let tab: TabItem
+struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls: View>: View {
+    let tab: TabItem?
     let sidebar: Sidebar
+    let fallbackDetail: FallbackDetail
+    let sidebarControls: SidebarControls
+    var sidebarChromeChanged: ((RootSidebarChromeRegistration) -> Void)? = nil
     let nowPlayingVM: NowPlayingViewModel
     let viewModels: RootScreenModels
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -13,9 +16,78 @@ struct NativeBrowseSection<Sidebar: View>: View {
     @Binding var genre: DisplayGenre?
     @Binding var playlist: DisplayPlaylist?
     @Binding var columnVisibility: NavigationSplitViewVisibility
+    #if !os(macOS)
     @State private var compactColumn: NavigationSplitViewColumn = .content
+    #endif
+
+    private struct BrowseSelection: Equatable {
+        let tab: TabItem?
+        let id: String?
+    }
 
     var body: some View {
+        columns
+        .onChange(of: BrowseSelection(tab: tab, id: selectedID)) { previous, current in
+            guard let tab, rootSelection == .library(tab) else { return }
+            // A new item replaces this tab's detail; a tab switch restores its path.
+            if previous.tab == current.tab {
+                navigationCoordinator.setPath([], for: tab)
+            }
+            #if !os(macOS)
+            compactColumn = current.id == nil && navigationCoordinator.pathSnapshot(for: tab).isEmpty
+                ? .content : .detail
+            #endif
+        }
+        #if !os(macOS)
+        .onChange(of: detailPathCount) { _, count in
+            if let tab, rootSelection == .library(tab), count > 0 {
+                compactColumn = .detail
+            }
+        }
+        .onAppear {
+            if selectedID != nil || detailPathCount > 0 {
+                compactColumn = .detail
+            }
+        }
+        #endif
+    }
+
+    private var detailPathCount: Int {
+        tab.map { navigationCoordinator.pathSnapshot(for: $0).count } ?? 0
+    }
+
+    @ViewBuilder
+    private var columns: some View {
+        #if os(macOS)
+        GeometryReader { proxy in
+            let rootFrame = proxy.frame(in: .named(RootChromeCoordinateSpace.name))
+            MacBrowseSplitView(
+                sidebar: sidebar, picker: selectionColumn,
+                detail: detailColumn.toolbar {
+                    ToolbarItem(placement: .navigation) { MacBrowseSidebarToggle() }
+                    ToolbarItemGroup(placement: .primaryAction) { sidebarControls }
+                    if isPickerToolbarVisible {
+                        EnsembleBrowseToolbar {
+                            pickerToolbarControls
+                        }
+                    }
+                },
+                showsPicker: tab != nil,
+                sidebarFrameChanged: { frame in
+                    guard let frame else {
+                        sidebarChromeChanged?(.hidden)
+                        return
+                    }
+                    sidebarChromeChanged?(.visible(
+                        frame: CGRect(x: rootFrame.minX + frame.minX, y: rootFrame.minY,
+                                      width: frame.width, height: rootFrame.height),
+                        fallbackWidth: frame.width
+                    ))
+                }
+            )
+        }
+        .ignoresSafeArea(.container, edges: .top)
+        #else
         NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $compactColumn) {
             sidebar
         } content: {
@@ -25,25 +97,11 @@ struct NativeBrowseSection<Sidebar: View>: View {
                 .navigationBarTitleDisplayMode(.inline)
                 #endif
         } detail: {
-            detailStack
+            detailColumn
         }
         .navigationSplitViewStyle(.balanced)
         .toolbarMaterialBackground()
-        .onChange(of: selectedID) { _, newValue in
-            guard rootSelection == .library(tab) else { return }
-            navigationCoordinator.setPath([], for: tab)
-            compactColumn = newValue == nil ? .content : .detail
-        }
-        .onChange(of: navigationCoordinator.pathSnapshot(for: tab).count) { _, count in
-            if rootSelection == .library(tab), count > 0 {
-                compactColumn = .detail
-            }
-        }
-        .onAppear {
-            if selectedID != nil || !navigationCoordinator.pathSnapshot(for: tab).isEmpty {
-                compactColumn = .detail
-            }
-        }
+        #endif
     }
 
     private var selectedID: String? {
@@ -54,6 +112,51 @@ struct NativeBrowseSection<Sidebar: View>: View {
         default: return nil
         }
     }
+
+    #if os(macOS)
+    private var pickerSearch: (text: Binding<String>, prompt: String, isVisible: Bool) {
+        switch tab {
+        case .artists:
+            return (Binding(
+                get: { viewModels.library.artistsFilterOptions.searchText },
+                set: { viewModels.library.artistsFilterOptions.searchText = $0 }
+            ), "Filter artists", true)
+        case .genres:
+            return (Binding(
+                get: { viewModels.library.genresFilterOptions.searchText },
+                set: { viewModels.library.genresFilterOptions.searchText = $0 }
+            ), "Filter genres", genre == nil && detailPathCount == 0 &&
+                !navigationCoordinator.isRouteTransitionActive(for: .genres))
+        case .playlists:
+            return (Binding(
+                get: { viewModels.playlists.filterOptions.searchText },
+                set: { viewModels.playlists.filterOptions.searchText = $0 }
+            ), "Filter playlists", playlist == nil)
+        default: return (.constant(""), "Search", false)
+        }
+    }
+
+    private var isPickerToolbarVisible: Bool {
+        switch tab {
+        case .artists:
+            return navigationCoordinator.pathSnapshot(for: .artists).isEmpty &&
+                !navigationCoordinator.isRouteTransitionActive(for: .artists)
+        case .playlists: return true
+        default: return false
+        }
+    }
+
+    @ViewBuilder
+    private var pickerToolbarControls: some View {
+        switch tab {
+        case .artists:
+            ArtistBrowseControls(libraryVM: viewModels.library)
+        case .playlists:
+            PlaylistBrowseControls(viewModel: viewModels.playlists, nowPlayingVM: nowPlayingVM)
+        default: EmptyView()
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var selectionColumn: some View {
@@ -71,9 +174,27 @@ struct NativeBrowseSection<Sidebar: View>: View {
         }
     }
 
-    private var detailStack: some View {
-        NavigationStack(path: navigationCoordinator.pathBinding(for: tab, isActive: { rootSelection == .library(tab) && !navigationCoordinator.routesHiddenTabsThroughMore })) {
-            detailRoot
+    @ViewBuilder
+    private var detailColumn: some View {
+        if let tab {
+            detailStack(for: tab)
+        } else {
+            fallbackDetail
+        }
+    }
+
+    private func detailStack(for tab: TabItem) -> some View {
+        #if os(macOS)
+        let search = pickerSearch
+        #endif
+        return NavigationStack(path: navigationCoordinator.pathBinding(for: tab, isActive: { rootSelection == .library(tab) && !navigationCoordinator.routesHiddenTabsThroughMore })) {
+            detailRoot(for: tab)
+                #if os(macOS)
+                .if(search.isVisible) { view in
+                    view.searchable(text: search.text, prompt: Text(search.prompt))
+                }
+                .navigationTitle(detailTitle(for: tab))
+                #endif
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                     NavigationDestinationFactory.destinationContent(
                         for: destination, nowPlayingVM: nowPlayingVM, viewModels: viewModels
@@ -82,8 +203,17 @@ struct NativeBrowseSection<Sidebar: View>: View {
         }
     }
 
+    private func detailTitle(for tab: TabItem) -> String {
+        switch tab {
+        case .artists: return artist?.name ?? "Artists"
+        case .genres: return genre?.title ?? "Genres"
+        case .playlists: return playlist?.title ?? "Playlists"
+        default: return ""
+        }
+    }
+
     @ViewBuilder
-    private var detailRoot: some View {
+    private func detailRoot(for tab: TabItem) -> some View {
         switch tab {
         case .artists:
             if let artist {
@@ -120,7 +250,7 @@ private struct NativeBrowseScrollPositionKey: EnvironmentKey {
 }
 
 @available(iOS 18.0, macOS 15.0, *)
-private extension EnvironmentValues {
+extension EnvironmentValues {
     var nativeBrowseScrollPosition: Binding<String?> {
         get { self[NativeBrowseScrollPositionKey.self] }
         set { self[NativeBrowseScrollPositionKey.self] = newValue }

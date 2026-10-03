@@ -186,12 +186,13 @@ public final class NowPlayingViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let navigationCoordinator: NavigationCoordinator
     private let toastCenter: ToastCenter
+    private let mutationCoordinator: MutationCoordinator
     private let trackRatingLocalStore: TrackRatingLocalStoring
-    private let playlistMutationWorkflow: PlaylistMutationWorkflow
     private let playlistActionService = PlaylistActionService()
-    private let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
     private let trackAvailabilityResolver: TrackAvailabilityResolver
     private let lyricsService: LyricsService
+    private let artworkLoader: ArtworkLoaderProtocol
+    private let foregroundWorkScheduler: ForegroundWorkScheduling
     private let hiddenMediaStore: HiddenMediaStore
     private var cancellables = Set<AnyCancellable>()
     private var currentQueueIdentity: [String]?
@@ -225,10 +226,10 @@ public final class NowPlayingViewModel: ObservableObject {
         toastCenter: ToastCenter,
         mutationCoordinator: MutationCoordinator,
         trackRatingLocalStore: TrackRatingLocalStoring = TrackRatingLocalStore(coreDataStack: .shared),
-        playlistMutationWorkflow: PlaylistMutationWorkflow? = nil,
-        trackRatingMutationWorkflow: TrackRatingMutationWorkflow? = nil,
         trackAvailabilityResolver: TrackAvailabilityResolver,
         lyricsService: LyricsService,
+        artworkLoader: ArtworkLoaderProtocol,
+        foregroundWorkScheduler: ForegroundWorkScheduling,
         hiddenMediaStore: HiddenMediaStore? = nil
     ) {
         self.playbackService = playbackService
@@ -236,11 +237,12 @@ public final class NowPlayingViewModel: ObservableObject {
         self.libraryRepository = libraryRepository
         self.navigationCoordinator = navigationCoordinator
         self.toastCenter = toastCenter
+        self.mutationCoordinator = mutationCoordinator
         self.trackRatingLocalStore = trackRatingLocalStore
-        self.playlistMutationWorkflow = playlistMutationWorkflow ?? PlaylistMutationWorkflow(mutator: mutationCoordinator)
-        self.trackRatingMutationWorkflow = trackRatingMutationWorkflow ?? TrackRatingMutationWorkflow(mutator: mutationCoordinator)
         self.trackAvailabilityResolver = trackAvailabilityResolver
         self.lyricsService = lyricsService
+        self.artworkLoader = artworkLoader
+        self.foregroundWorkScheduler = foregroundWorkScheduler
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
         lyricsProjection = NowPlayingLyricsProjection(isInstrumentalModeSupported: InstrumentalModeCapability.isSupported)
         lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
@@ -956,7 +958,7 @@ public final class NowPlayingViewModel: ObservableObject {
             && artworkProjection.artworkImage != nil
         let cachedArtwork = hasResolvedArtwork
             ? nil
-            : DependencyContainer.shared.artworkLoader.synchronouslyCachedImage(for: request)
+            : artworkLoader.synchronouslyCachedImage(for: request)
 
         guard artworkProjection.beginLoading(
             track,
@@ -978,7 +980,7 @@ public final class NowPlayingViewModel: ObservableObject {
         artworkLoadTask = Task { @MainActor in
             guard !Task.isCancelled else { return }
 
-            switch await DependencyContainer.shared.artworkLoader.resolve(request) {
+            switch await artworkLoader.resolve(request) {
             case .resolved(let resolved):
                 guard !Task.isCancelled else { return }
 
@@ -1004,10 +1006,11 @@ public final class NowPlayingViewModel: ObservableObject {
     private func dispatchBlurGeneration(for resolved: ArtworkResolvedImage, trackIdentity: String) {
         blurGenerationTask?.cancel()
 
-        blurGenerationTask = Task { [weak self] in
-            let blurred = await DependencyContainer.shared.artworkLoader.blurredImage(
+        blurGenerationTask = Task { [weak self, artworkLoader, foregroundWorkScheduler] in
+            let blurred = await artworkLoader.blurredImage(
                 for: resolved.image,
-                cacheKey: resolved.blurCacheKey
+                cacheKey: resolved.blurCacheKey,
+                scheduler: foregroundWorkScheduler
             )
             guard !Task.isCancelled else { return }
             self?.applyGeneratedBlurredArtwork(
@@ -1118,10 +1121,6 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func play(track: Track) {
         play(track: track, context: .userInitiated)
-    }
-
-    public func playHidden(track: Track) {
-        requestPlayback(.track(track: trackWithDisplayRating(track), context: .userInitiated))
     }
 
     public func play(track: Track, context: PlaybackStartContext) {
@@ -1431,13 +1430,13 @@ public final class NowPlayingViewModel: ObservableObject {
         isPlaylistMutationInProgress = true
         defer { isPlaylistMutationInProgress = false }
 
-        let workflowResult = try await playlistMutationWorkflow.addTracks(
+        let commandResult = try await mutationCoordinator.addTracks(
             tracks,
             to: playlist,
             openPlaylist: playlistToastOpenHandler(for: playlist)
         )
-        toastCenter.show(workflowResult.toast)
-        return workflowResult.mutationResult
+        toastCenter.show(commandResult.toast)
+        return commandResult.mutationResult
     }
 
     /// Optimistic playlist-add path for interactive add-to-playlist UI surfaces.
@@ -1448,13 +1447,13 @@ public final class NowPlayingViewModel: ObservableObject {
             throw PlaylistMutationError.emptySelection
         }
 
-        let workflowResult = try await playlistMutationWorkflow.addTracksOptimistically(
+        let commandResult = try await mutationCoordinator.addTracksOptimistically(
             tracks,
             to: playlist,
             openPlaylist: playlistToastOpenHandler(for: playlist)
         )
-        toastCenter.show(workflowResult.toast)
-        return workflowResult.outcome
+        toastCenter.show(commandResult.toast)
+        return commandResult.outcome
     }
 
     public func createPlaylist(
@@ -1468,27 +1467,27 @@ public final class NowPlayingViewModel: ObservableObject {
         isPlaylistMutationInProgress = true
         defer { isPlaylistMutationInProgress = false }
 
-        let workflowResult = try await playlistMutationWorkflow.createPlaylist(
+        let commandResult = try await mutationCoordinator.createPlaylistWithFeedback(
             title: title,
             tracks: tracks,
             serverSourceKey: serverSourceKey
         )
-        toastCenter.show(workflowResult.toast)
-        return workflowResult.mutationResult
+        toastCenter.show(commandResult.toast)
+        return commandResult.mutationResult
     }
 
     public func createPlaylists(
         title: String,
         tracks: [Track],
         serverSourceKeys: [String]
-    ) async throws -> PlaylistBatchMutationWorkflowResult {
+    ) async throws -> PlaylistBatchMutationResult {
         guard !isPlaylistMutationInProgress else {
             throw PlaylistActionError.operationInProgress
         }
         isPlaylistMutationInProgress = true
         defer { isPlaylistMutationInProgress = false }
 
-        let result = await playlistMutationWorkflow.createPlaylists(
+        let result = await mutationCoordinator.createPlaylists(
             title: title,
             tracks: tracks,
             serverSourceKeys: serverSourceKeys,
@@ -1504,16 +1503,6 @@ public final class NowPlayingViewModel: ObservableObject {
         )
         toastCenter.show(result.resultToast)
         return result
-    }
-
-    public func resolveLastPlaylistTarget() async -> Playlist? {
-        guard let lastPlaylistTarget else { return nil }
-        do {
-            let playlists = try await loadPlaylists(forServerSourceKey: lastPlaylistTarget.sourceCompositeKey)
-            return playlists.first { $0.id == lastPlaylistTarget.id }
-        } catch {
-            return nil
-        }
     }
 
     public func resolveLastPlaylistTarget(for tracks: [Track]) async -> Playlist? {
@@ -1674,7 +1663,7 @@ public final class NowPlayingViewModel: ObservableObject {
         let optimisticRating = isFavorite ? 10 : 0
         let previousRating = trackDisplayRating(for: track)
         let previousFavorite = isTrackFavorited(track)
-        let loadingToast = trackRatingMutationWorkflow.beginFavoriteUpdate(track: track, isFavorite: isFavorite)
+        let loadingToast = mutationCoordinator.beginFavoriteUpdate(track: track, isFavorite: isFavorite)
         toastCenter.show(loadingToast)
         defer { toastCenter.dismiss(id: loadingToast.id) }
 
@@ -1687,15 +1676,13 @@ public final class NowPlayingViewModel: ObservableObject {
             try await storeTrackRating(track: track, rating: optimisticRating)
 
             let outcome = try await performTrackRatingMutation(track, rating: plexRating)
-            let workflowResult = trackRatingMutationWorkflow.finishFavoriteUpdate(
+            let resultToast = mutationCoordinator.finishFavoriteUpdate(
                 track: track,
                 isFavorite: isFavorite,
                 outcome: outcome
             )
-            if workflowResult.outcome == .queued {
-                if let toast = workflowResult.toast {
-                    toastCenter.show(toast)
-                }
+            if outcome == .queued {
+                toastCenter.show(resultToast)
                 return
             }
 
@@ -1714,9 +1701,7 @@ public final class NowPlayingViewModel: ObservableObject {
                 optimisticTrackRatingsByIdentity[trackIdentity] = optimisticRating
             }
 
-            if let toast = workflowResult.toast {
-                toastCenter.show(toast)
-            }
+            toastCenter.show(resultToast)
         } catch {
             // Roll back optimistic state if server mutation fails.
             optimisticTrackRatingsByIdentity[trackIdentity] = previousRating
@@ -1725,7 +1710,7 @@ public final class NowPlayingViewModel: ObservableObject {
             await playbackService.applyRatingLocally(track: track, rating: previousRating)
             try? await storeTrackRating(track: track, rating: previousRating)
 
-            toastCenter.show(trackRatingMutationWorkflow.favoriteFailureToast(track: track, error: error))
+            toastCenter.show(mutationCoordinator.favoriteFailureToast(track: track, error: error))
             EnsembleLogger.debug("Failed to set favorite state: \(error)")
         }
     }
@@ -1823,13 +1808,13 @@ public final class NowPlayingViewModel: ObservableObject {
             try await storeTrackRating(track: track, rating: nextDisplayRating)
 
             let outcome = try await performTrackRatingMutation(track, rating: nextPlexRating)
-            let workflowResult = trackRatingMutationWorkflow.finishRatingUpdate(
+            let resultToast = mutationCoordinator.finishRatingUpdate(
                 track: track,
                 outcome: outcome
             )
-            if workflowResult.outcome == .queued {
-                if let toast = workflowResult.toast {
-                    toastCenter.show(toast)
+            if outcome == .queued {
+                if let resultToast {
+                    toastCenter.show(resultToast)
                 }
                 isUpdatingRating = false
                 return
@@ -1857,7 +1842,7 @@ public final class NowPlayingViewModel: ObservableObject {
             applyCurrentTrackRatingIfNeeded(track: track, rating: previousRating)
             await playbackService.applyRatingLocally(track: track, rating: previousRating)
             try? await storeTrackRating(track: track, rating: previousRating)
-            toastCenter.show(trackRatingMutationWorkflow.ratingFailureToast(track: track, error: error))
+            toastCenter.show(mutationCoordinator.ratingFailureToast(track: track, error: error))
         }
     }
 
@@ -1922,7 +1907,7 @@ public final class NowPlayingViewModel: ObservableObject {
             return .completed
         }
 
-        return try await trackRatingMutationWorkflow.mutate(track, rating: rating)
+        return try await mutationCoordinator.rateTrack(track, rating: rating)
     }
 
 }

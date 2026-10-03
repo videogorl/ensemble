@@ -7,6 +7,34 @@ import XCTest
 @MainActor
 final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
+    private final class TestArtworkLoader: ArtworkLoaderProtocol {
+        var image: PlatformImage?
+        var usesCache = false
+        private(set) var resolvedRequests = 0
+
+        private func artwork(for request: ArtworkRequest) -> ArtworkResolvedImage? {
+            guard let image, let identity = request.candidateIdentityKeys.first else { return nil }
+            return ArtworkResolvedImage(
+                url: URL(fileURLWithPath: "/tmp/injected-artwork.jpg"),
+                image: image,
+                blurCacheKey: request.stableBlurCacheKey,
+                identityKey: identity
+            )
+        }
+
+        func synchronouslyCachedImage(for request: ArtworkRequest) -> ArtworkResolvedImage? {
+            usesCache ? artwork(for: request) : nil
+        }
+
+        func resolve(_ request: ArtworkRequest, policy: ArtworkResolutionPolicy) async -> ArtworkImageResolutionOutcome {
+            resolvedRequests += 1
+            return artwork(for: request).map(ArtworkImageResolutionOutcome.resolved) ?? .unavailable(.noArtworkURL)
+        }
+
+        func invalidateURLCache() async {}
+        func clearCaches() async throws {}
+    }
+
     private final class MockPlaybackService: PlaybackServiceProtocol {
         private let currentTrackSubject = CurrentValueSubject<Track?, Never>(nil)
         private let playbackStateSubject = CurrentValueSubject<PlaybackState, Never>(.stopped)
@@ -659,6 +687,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
     private func makeViewModel(
         initialTrack: Track? = nil,
+        artworkLoader: ArtworkLoaderProtocol = TestArtworkLoader(),
         configureLibraryRepository: ((MockLibraryRepository) -> Void)? = nil
     ) -> (
         viewModel: NowPlayingViewModel,
@@ -683,6 +712,8 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         )
         let mutationCoordinator = MutationCoordinator(
             repository: MockPendingMutationRepository(),
+            coreDataStack: .inMemory(),
+            toastCenter: ToastCenter(),
             networkMonitor: networkMonitor,
             syncCoordinator: syncCoordinator
         )
@@ -703,7 +734,9 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             toastCenter: ToastCenter(),
             mutationCoordinator: mutationCoordinator,
             trackAvailabilityResolver: trackAvailabilityResolver,
-            lyricsService: lyricsService
+            lyricsService: lyricsService,
+            artworkLoader: artworkLoader,
+            foregroundWorkScheduler: ForegroundWorkScheduler()
         )
         viewModel.isArtworkLoadingEnabledForTesting = false
 
@@ -731,6 +764,29 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             }
             await Task.yield()
             try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    func testArtworkUsesInjectedLoaderForCachedAndAsyncResolution() async {
+        for usesCache in [true, false] {
+            let loader = TestArtworkLoader()
+            loader.image = PlatformImage()
+            loader.usesCache = usesCache
+            let harness = makeViewModel(artworkLoader: loader)
+            harness.viewModel.isArtworkLoadingEnabledForTesting = true
+            let track = Track(
+                id: "injected-artwork",
+                key: "/library/metadata/injected-artwork",
+                title: "Injected Artwork",
+                thumbPath: "/library/metadata/injected-artwork/thumb",
+                sourceCompositeKey: "plex:account:server:1"
+            )
+
+            harness.playbackService.setCurrentTrack(track)
+            await waitForProjectionPropagation()
+
+            XCTAssertTrue(harness.viewModel.artworkProjection.artworkImage === loader.image)
+            XCTAssertEqual(loader.resolvedRequests, usesCache ? 0 : 1)
         }
     }
 

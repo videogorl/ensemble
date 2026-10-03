@@ -18,9 +18,11 @@ final class SyncProviderResolverTests: XCTestCase {
         var marker: String { get }
     }
 
-    private struct CapableProvider: MusicSourceSyncProvider, TestCapability, @unchecked Sendable {
+    private struct CapableProvider: MusicSourceSyncProvider, MusicSourceArtistResolving, TestCapability, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         let marker: String
+
+        func getArtist(artistKey: String?, name: String?) async throws -> Artist? { nil }
 
         func syncLibrary(to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
         func syncLibraryIncremental(since timestamp: TimeInterval, to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
@@ -146,6 +148,26 @@ final class SyncProviderResolverTests: XCTestCase {
                 .capabilityUnavailable(sourceKey: source.compositeKey, capability: "ratings")
             )
         }
+    }
+
+    func testArtistLookupDistinguishesUnsupportedSourceFromMissingArtist() async throws {
+        let plex = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "1")
+        let apple = MusicSourceIdentifier.appleMusic
+        let resolver = SyncProviderResolver(providers: [
+            plex.compositeKey: MockProvider(sourceIdentifier: plex),
+            apple.compositeKey: CapableProvider(sourceIdentifier: apple, marker: "apple")
+        ])
+        XCTAssertThrowsError(try resolver.requireCapability(
+            sourceKey: plex.compositeKey, name: "artist details", as: MusicSourceArtistResolving.self
+        )) { error in
+            XCTAssertEqual(error as? MusicSourceRoutingError,
+                           .capabilityUnavailable(sourceKey: plex.compositeKey, capability: "artist details"))
+        }
+        let capability = try resolver.requireCapability(
+            sourceKey: apple.compositeKey, name: "artist details", as: MusicSourceArtistResolving.self
+        )
+        let artist = try await capability.getArtist(artistKey: "missing", name: nil)
+        XCTAssertNil(artist)
     }
 
     func testScopedCapabilityUsesExactLibraryProvider() throws {

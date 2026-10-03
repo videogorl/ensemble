@@ -121,6 +121,8 @@ public final class MutationCoordinator: ObservableObject {
     private static let maxRetries: Int16 = 3
 
     private let repository: PendingMutationRepositoryProtocol
+    let coreDataStack: CoreDataStack
+    let toastCenter: ToastCenter
     private let playlistRepository: PlaylistRepositoryProtocol?
     private let networkMonitor: NetworkMonitor
     private let syncCoordinator: SyncCoordinator
@@ -143,11 +145,15 @@ public final class MutationCoordinator: ObservableObject {
 
     public init(
         repository: PendingMutationRepositoryProtocol,
+        coreDataStack: CoreDataStack,
+        toastCenter: ToastCenter,
         networkMonitor: NetworkMonitor,
         syncCoordinator: SyncCoordinator,
         playlistRepository: PlaylistRepositoryProtocol? = nil
     ) {
         self.repository = repository
+        self.coreDataStack = coreDataStack
+        self.toastCenter = toastCenter
         self.networkMonitor = networkMonitor
         self.syncCoordinator = syncCoordinator
         self.playlistRepository = playlistRepository
@@ -580,14 +586,6 @@ public final class MutationCoordinator: ObservableObject {
         } catch where isConnectionFailure(error) {
             throw MutationError.unavailableOffline("Edit playlist tracks")
         }
-    }
-
-    /// Save the current queue as a playlist snapshot. Delegates to addTracksToPlaylist.
-    public func saveQueueSnapshot(
-        _ tracks: [Track],
-        to playlist: Playlist
-    ) async throws -> (PlaylistMutationResult?, MutationOutcome) {
-        return try await addTracksToPlaylist(tracks, playlist: playlist)
     }
 
     private func requireSourceKey(for playlist: Playlist) throws -> String {

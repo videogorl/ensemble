@@ -284,6 +284,8 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
         )
 
         try await engine.load(source: source, trackId: trackId)
+        XCTAssertEqual(engine.currentTime(), 4, accuracy: 0.001)
+        XCTAssertEqual(engine.currentTimeSubject.value.time, 4, accuracy: 0.001)
         try engine.play()
 
         XCTAssertEqual(engine.currentTime(), 4, accuracy: 0.5)

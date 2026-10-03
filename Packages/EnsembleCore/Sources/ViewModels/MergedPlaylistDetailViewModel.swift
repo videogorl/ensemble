@@ -204,12 +204,9 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         }
 
         error = nil
-        await withCheckedContinuation { continuation in
-            Task.detached { [syncCoordinator] in
-                await syncCoordinator.syncPlaylistsOnly()
-                continuation.resume()
-            }
-        }
+        await Task.detached { [syncCoordinator] in
+            await syncCoordinator.syncPlaylistsOnly()
+        }.value
         await loadTracks()
     }
 

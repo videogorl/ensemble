@@ -131,6 +131,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
     private final class RecordingPendingMutationRepository: PendingMutationRepositoryProtocol, @unchecked Sendable {
         var pending: [CDPendingMutation]
+        var enqueueError: Error?
         private(set) var deletedIDs: [String] = []
         private(set) var enqueued: [(type: CDPendingMutation.MutationType, sourceCompositeKey: String?)] = []
 
@@ -147,6 +148,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             payload _: Data,
             sourceCompositeKey: String?
         ) async throws {
+            if let enqueueError { throw enqueueError }
             enqueued.append((type: type, sourceCompositeKey: sourceCompositeKey))
         }
 
@@ -179,6 +181,9 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         nonisolated let sourceIdentifier: MusicSourceIdentifier
         private var events: [Event] = []
+        private var mutationError: Error?
+
+        func setMutationError(_ error: Error?) { mutationError = error }
 
         init(accountID: String, serverID: String, libraryID: String) {
             sourceIdentifier = MusicSourceIdentifier(
@@ -224,6 +229,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
 
         func createPlaylist(title: String, tracks: [Track]) async throws -> Playlist? {
+            if let mutationError { throw mutationError }
             events.append(.create(title: title, trackIDs: tracks.map(\.id)))
             return nil
         }
@@ -234,10 +240,12 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         }
 
         func renamePlaylist(_ playlistID: String, title: String) async throws {
+            if let mutationError { throw mutationError }
             events.append(.rename(playlistID: playlistID, title: title))
         }
 
         func deletePlaylist(_ playlistID: String) async throws {
+            if let mutationError { throw mutationError }
             events.append(.delete(playlistID: playlistID))
         }
 
@@ -262,6 +270,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         }
 
         func rateCollection(ratingKey: String, rating: Int?) async throws {
+            if let mutationError { throw mutationError }
             events.append(.rateCollection(ratingKey: ratingKey, rating: rating))
         }
     }
@@ -410,6 +419,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let nm = NetworkMonitor()
         return MutationCoordinator(
             repository: MockPendingMutationRepository(),
+            coreDataStack: .inMemory(),
+            toastCenter: ToastCenter(),
             networkMonitor: nm,
             syncCoordinator: syncCoordinator
         )
@@ -671,6 +682,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         )
         let mutationCoordinator = MutationCoordinator(
             repository: repository,
+            coreDataStack: .inMemory(),
+            toastCenter: ToastCenter(),
             networkMonitor: syncCoordinator.networkMonitor,
             syncCoordinator: syncCoordinator
         )
@@ -971,6 +984,44 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertGreaterThan(viewModel.sourceCleanupReloadCountForTesting, reloadCountBeforeCleanup)
         XCTAssertTrue(viewModel.displayPlaylists.isEmpty)
         XCTAssertFalse(viewModel.isShowingStaleSnapshot)
+    }
+
+    func testBatchCreationKeepsSuccessfulPlaceholderAndRollsBackFailedSource() async {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let provider = makeRecordingPlaylistProvider()
+        let syncCoordinator = makeSyncCoordinator(providers: [provider])
+        syncCoordinator.refreshServerPlaylistsHandlerForTesting = { _ in }
+        let repository = MockPlaylistRepository()
+        let viewModel = PlaylistViewModel(
+            playlistRepository: repository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            observesExternalChanges: false
+        )
+        let successfulSource = "plex:account-1:server-1"
+        let failedSource = "plex:account-2:server-2"
+
+        let result = await viewModel.createPlaylists(
+            title: "Batch Audit",
+            serverSourceKeys: [successfulSource, failedSource]
+        )
+
+        XCTAssertEqual(result.succeededCount, 1)
+        XCTAssertEqual(result.failedSourceKeys, [failedSource])
+        XCTAssertEqual(result.resultToast.style, .warning)
+        XCTAssertNil(result.resultToast.action)
+        XCTAssertEqual(viewModel.playlists.map(\.sourceCompositeKey), [successfulSource])
+        XCTAssertTrue(viewModel.playlists.allSatisfy(viewModel.isPlaylistPendingCreation))
+
+        let materialized = makePlaylist(id: "created", title: "Batch Audit", sourceCompositeKey: successfulSource)
+        let stack = CoreDataStack.inMemory()
+        repository.playlists[repository.playlistKey(ratingKey: materialized.id, sourceCompositeKey: successfulSource)] =
+            makeCachedPlaylist(materialized, tracks: [], context: stack.viewContext)
+        await viewModel.loadPlaylists()
+
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["created"])
+        XCTAssertFalse(viewModel.playlists.contains(where: viewModel.isPlaylistPendingCreation))
     }
 
     func testPlaylistViewModelKeepsCompletedDeleteHiddenWhenCacheReloadIsStale() async {
@@ -1908,6 +1959,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         networkMonitor.simulateOffline(true)
         let mutationCoordinator = MutationCoordinator(
             repository: MockPendingMutationRepository(),
+            coreDataStack: .inMemory(),
+            toastCenter: ToastCenter(),
             networkMonitor: networkMonitor,
             syncCoordinator: syncCoordinator
         )
@@ -1938,6 +1991,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let repository = RecordingPendingMutationRepository(pending: [])
         let mutationCoordinator = MutationCoordinator(
             repository: repository,
+            coreDataStack: .inMemory(),
+            toastCenter: ToastCenter(),
             networkMonitor: syncCoordinator.networkMonitor,
             syncCoordinator: syncCoordinator
         )
@@ -2036,12 +2091,20 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let repository = RecordingPendingMutationRepository(pending: [])
         let mutationCoordinator = MutationCoordinator(
             repository: repository,
+            coreDataStack: .inMemory(),
+            toastCenter: ToastCenter(),
             networkMonitor: syncCoordinator.networkMonitor,
             syncCoordinator: syncCoordinator
         )
 
-        let plexOutcome = try await mutationCoordinator.rateTrack(makeTrack(id: "plex-track"), rating: 10)
+        let plexTrack = makeTrack(id: "plex-track")
+        let plexOutcome = try await mutationCoordinator.rateTrack(plexTrack, rating: 10)
         XCTAssertEqual(plexOutcome, .queued)
+        let favoriteToast = mutationCoordinator.finishFavoriteUpdate(track: plexTrack, isFavorite: true, outcome: plexOutcome)
+        XCTAssertEqual(favoriteToast.style, .info)
+        XCTAssertEqual(favoriteToast.title, "Saved — will sync when online")
+        XCTAssertEqual(mutationCoordinator.finishRatingUpdate(track: plexTrack, outcome: plexOutcome)?.style, .info)
+        XCTAssertNil(mutationCoordinator.finishRatingUpdate(track: plexTrack, outcome: .completed))
         let albumOutcome = try await mutationCoordinator.rateAlbum(
             Album(
                 id: "plex-album",
@@ -2153,4 +2216,221 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         }
     }
 
+}
+
+extension PlaylistDetailViewModelTests {
+    func testPlaylistFeedbackKeepsSameServerItemUnderDifferentAccountsIndependent() throws {
+        let coordinator = makeMutationCoordinator(syncCoordinator: makeSyncCoordinator())
+        let first = makePlaylist(id: "shared", title: "First", sourceCompositeKey: "plex:account-1:server-1")
+        let second = makePlaylist(id: "shared", title: "Second", sourceCompositeKey: "plex:account-2:server-1")
+        for operation in ["rename", "delete", "rename-error", "delete-error"] {
+            func feedback(_ playlist: Playlist) throws -> ToastPayload {
+                switch operation {
+                case "rename": return try XCTUnwrap(coordinator.beginRename(playlist: playlist, to: "Renamed")?.pendingToast)
+                case "delete": return try XCTUnwrap(coordinator.beginDelete(playlist: playlist))
+                case "rename-error": return coordinator.renameFailureToast(playlist: playlist, errorMessage: "Failed")
+                default: return coordinator.deleteFailureToast(playlist: playlist, errorMessage: "Failed")
+                }
+            }
+            let center = ToastCenter()
+            let firstToast = try feedback(first)
+            let secondToast = try feedback(second)
+            center.show(firstToast)
+            center.show(secondToast)
+            center.dismiss(id: firstToast.id)
+            XCTAssertEqual(center.currentToast?.id, secondToast.id, "Feedback for account B must not be suppressed by account A's matching PMS item")
+            center.dismissCurrent()
+        }
+    }
+
+    func testMergedPlaylistCommandsKeepEligibleCopiesAndTruthfulPartialOutcomes() async throws {
+        for deleting in [false, true] {
+            let firstProvider = makeRecordingPlaylistProvider(libraryID: "lib-1")
+            let secondProvider = makeRecordingPlaylistProvider(accountID: "account-2", serverID: "server-2", libraryID: "lib-2")
+            await secondProvider.setMutationError(PlaylistMutationError.invalidSource)
+            let sync = makeSyncCoordinator(providers: [firstProvider, secondProvider])
+            sync.networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+            let coordinator = makeMutationCoordinator(syncCoordinator: sync)
+            let first = makePlaylist(id: "shared", title: "Mix")
+            let second = makePlaylist(id: "shared", title: "Mix", sourceCompositeKey: "plex:account-2:server-2")
+            let smart = makePlaylist(id: "smart", isSmart: true)
+            let apple = makePlaylist(id: "apple", isSmart: true, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey)
+            let display = DisplayPlaylist.merged(title: "Mix", isSmart: false, playlists: [first, second, smart, apple])
+            let result: PlaylistBatchMutationResult
+            if deleting {
+                XCTAssertEqual(coordinator.beginDeleteAll(displayPlaylist: display)?.title, "Deleting from 2 sources...")
+                result = await coordinator.finishDeleteAll(displayPlaylist: display)
+            } else {
+                let start = try XCTUnwrap(coordinator.beginRenameAll(displayPlaylist: display, to: "  New Mix  "))
+                XCTAssertEqual(start.trimmedTitle, "New Mix")
+                result = await coordinator.finishRenameAll(displayPlaylist: display, trimmedTitle: start.trimmedTitle)
+            }
+            XCTAssertEqual(result.succeededCount, 1)
+            XCTAssertEqual(result.totalCount, 2)
+            XCTAssertFalse(result.completedAll)
+            XCTAssertEqual(result.resultToast.style, deleting ? .error : .warning)
+            XCTAssertEqual(result.resultToast.title, deleting ? "Could not delete all copies" : "Renamed on 1/2 sources")
+            let firstEvents = await firstProvider.eventsSnapshot()
+            let secondEvents = await secondProvider.eventsSnapshot()
+            XCTAssertEqual(firstEvents, deleting ? [.delete(playlistID: "shared")] : [.rename(playlistID: "shared", title: "New Mix")])
+            XCTAssertTrue(secondEvents.isEmpty)
+        }
+    }
+
+    func testPlaylistAddFeedbackPreservesActualCountsAndNavigation() async throws {
+        let provider = makeRecordingPlaylistProvider(libraryID: "lib-1")
+        let sync = makeSyncCoordinator(providers: [provider])
+        sync.networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        let coordinator = makeMutationCoordinator(syncCoordinator: sync)
+        let playlist = makePlaylist()
+        let track = makeTrack(id: "42")
+        let incompatible = makeTrack(id: "42", sourceCompositeKey: "plex:account-2:server-2:lib-2")
+        var opened = false
+        let result = try await coordinator.addTracks([track, makeTrack(id: "43"), incompatible], to: playlist, openPlaylist: { opened = true })
+        XCTAssertEqual(result.mutationResult.addedCount, 2)
+        XCTAssertEqual(result.mutationResult.skippedCount, 1)
+        XCTAssertEqual(result.outcome, .completed)
+        XCTAssertEqual(result.toast.style, .warning)
+        XCTAssertEqual(result.toast.message, "Added 2, skipped 1 incompatible.")
+        result.toast.action?.handler()
+        XCTAssertTrue(opened)
+        let events = await provider.eventsSnapshot()
+        XCTAssertEqual(events, [.add(playlistID: playlist.id, trackIDs: ["42", "43"])])
+    }
+
+    func testCreateAcrossSourcesRetainsFailuresAndRetriesOnlyThoseSources() async {
+        let coordinator = makeMutationCoordinator(syncCoordinator: makeSyncCoordinator())
+        var attempted: [String] = []
+        var retries: [String] = []
+        let result = await coordinator.createPlaylists(title: "Mix", tracks: [], serverSourceKeys: ["plex:a:s", "plex:b:s"], createPlaylist: { source in
+            attempted.append(source)
+            if source == "plex:b:s" { throw PlaylistMutationError.invalidSource }
+        }, retryHandler: { retries = $0 })
+        XCTAssertEqual(attempted, ["plex:a:s", "plex:b:s"])
+        XCTAssertEqual(result.succeededCount, 1)
+        XCTAssertEqual(result.totalCount, 2)
+        XCTAssertEqual(result.failedSourceKeys, ["plex:b:s"])
+        XCTAssertEqual(result.resultToast.style, .warning)
+        result.resultToast.action?.handler()
+        XCTAssertEqual(retries, ["plex:b:s"])
+    }
+
+    func testCreateFeedbackPreservesAccountIdentityAndEachBatchRetry() async throws {
+        let providers = [
+            makeRecordingPlaylistProvider(libraryID: "lib-1"),
+            makeRecordingPlaylistProvider(accountID: "account-2", serverID: "server-2", libraryID: "lib-2")
+        ]
+        let sync = makeSyncCoordinator(providers: providers)
+        sync.networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        let coordinator = makeMutationCoordinator(syncCoordinator: sync)
+
+        for isBatch in [false, true] {
+            let center = ToastCenter()
+            var retries: [[String]] = [[], []]
+            var toasts: [ToastPayload] = []
+            let sourceSets = isBatch
+                ? [["plex:account-1:server-1", "plex:account-2:server-2"],
+                   ["plex:account-1:server-1", "plex:account-2:server-3"]]
+                : [["plex:account-1:server-1"], ["plex:account-2:server-2"]]
+            for (index, sources) in sourceSets.enumerated() {
+                let toast: ToastPayload
+                if isBatch {
+                    let failedSource = try XCTUnwrap(sources.last)
+                    let result = await coordinator.createPlaylists(
+                        title: "Mix",
+                        tracks: [],
+                        serverSourceKeys: sources,
+                        createPlaylist: { source in
+                            if source == failedSource { throw PlaylistMutationError.invalidSource }
+                        },
+                        retryHandler: { retries[index] = $0 }
+                    )
+                    XCTAssertEqual(result.succeededCount, 1)
+                    toast = result.resultToast
+                } else {
+                    toast = try await coordinator.createPlaylistWithFeedback(
+                        title: "Mix",
+                        tracks: [],
+                        serverSourceKey: sources[0]
+                    ).toast
+                }
+                toasts.append(toast)
+                center.show(toast)
+            }
+
+            center.dismiss(id: toasts[0].id)
+            XCTAssertEqual(center.currentToast?.id, toasts[1].id)
+            if isBatch {
+                XCTAssertEqual(center.currentToast?.style, .warning)
+                center.currentToast?.action?.handler()
+                XCTAssertTrue(retries[0].isEmpty)
+                XCTAssertEqual(retries[1], ["plex:account-2:server-3"])
+                let reordered = await coordinator.createPlaylists(
+                    title: "Mix",
+                    tracks: [],
+                    serverSourceKeys: sourceSets[1].reversed(),
+                    createPlaylist: { _ in throw PlaylistMutationError.invalidSource }
+                )
+                center.show(reordered.resultToast)
+            }
+            center.dismissCurrent()
+            XCTAssertNil(center.currentToast, "Reordering the same target scope must not queue duplicate feedback")
+        }
+    }
+
+    func testCollectionFavoritesPreserveExactStoreRollbackAndQueueFailures() async throws {
+        for kind in [CollectionRatingKind.album, .playlist] {
+            for failure in ["none", "remote", "queue-store"] {
+                let stack = CoreDataStack.inMemory()
+                let source = kind == .album ? "plex:account-1:server-1:lib-1" : "plex:account-1:server-1"
+                let siblingSource = kind == .album ? "plex:account-2:server-1:lib-1" : "plex:account-2:server-1"
+                let previousDate = Date(timeIntervalSince1970: 1234)
+                for sourceKey in [source, siblingSource] {
+                    let item: NSManagedObject = kind == .album ? CDAlbum(context: stack.viewContext) : CDPlaylist(context: stack.viewContext)
+                    item.setValue("shared", forKey: "ratingKey")
+                    item.setValue("/library/metadata/shared", forKey: "key")
+                    item.setValue("Mix", forKey: "title")
+                    item.setValue(sourceKey, forKey: "sourceCompositeKey")
+                    item.setValue(Int16(4), forKey: "rating")
+                    item.setValue(previousDate, forKey: "lastRatedAt")
+                }
+                try stack.viewContext.save()
+                let provider = makeRecordingPlaylistProvider(libraryID: "lib-1")
+                if failure == "remote" { await provider.setMutationError(PlexAPIError.httpError(statusCode: 403)) }
+                let sync = makeSyncCoordinator(providers: [provider])
+                sync.networkMonitor.injectNetworkStateForTesting(failure == "remote" ? .online(.wifi) : .offline, debounced: false)
+                await sync.handleAppWillEnterForeground()
+                let repository = RecordingPendingMutationRepository(pending: [])
+                if failure == "queue-store" { repository.enqueueError = MockError.unimplemented }
+                let center = ToastCenter()
+                let coordinator = MutationCoordinator(repository: repository, coreDataStack: stack, toastCenter: center, networkMonitor: sync.networkMonitor, syncCoordinator: sync)
+                do {
+                    let outcome: MutationOutcome
+                    if kind == .album {
+                        outcome = try await coordinator.setFavorite(true, for: Album(id: "shared", key: "shared", title: "Mix", lastRatedAt: previousDate, rating: 4, sourceCompositeKey: source))
+                    } else {
+                        outcome = try await coordinator.setFavorite(true, for: Playlist(id: "shared", key: "shared", title: "Mix", lastRatedAt: previousDate, rating: 4, sourceCompositeKey: source))
+                    }
+                    XCTAssertEqual(failure, "none", "Failures cannot become accepted favorites")
+                    XCTAssertEqual(outcome, .queued)
+                    XCTAssertEqual(center.currentToast?.style, .info)
+                    XCTAssertEqual(repository.enqueued.map(\.sourceCompositeKey), [source])
+                } catch {
+                    XCTAssertNotEqual(failure, "none", "Ordinary offline queuing must succeed: \(error)")
+                    XCTAssertEqual(center.currentToast?.style, .error)
+                    XCTAssertTrue(repository.enqueued.isEmpty)
+                }
+                let values = try await stack.performBackgroundContext { context in
+                    let request = NSFetchRequest<NSManagedObject>(entityName: kind == .album ? "CDAlbum" : "CDPlaylist")
+                    return try context.fetch(request).map { (source: $0.value(forKey: "sourceCompositeKey") as? String, rating: $0.value(forKey: "rating") as? Int16, date: $0.value(forKey: "lastRatedAt") as? Date) }
+                }
+                let target = try XCTUnwrap(values.first { $0.source == source })
+                let sibling = try XCTUnwrap(values.first { $0.source == siblingSource })
+                XCTAssertEqual(target.rating, failure == "none" ? 10 : 4)
+                if failure != "none" { XCTAssertEqual(target.date, previousDate) }
+                XCTAssertEqual(sibling.rating, 4)
+                XCTAssertEqual(sibling.date, previousDate)
+            }
+        }
+    }
 }

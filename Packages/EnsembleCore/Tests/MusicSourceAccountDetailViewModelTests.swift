@@ -718,13 +718,14 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         let discoveryService = MockDiscoveryService()
         let mutationCoordinator = MutationCoordinator(
             repository: MockPendingMutationRepository(),
+            coreDataStack: .inMemory(),
+            toastCenter: ToastCenter(),
             networkMonitor: networkMonitor,
             syncCoordinator: syncCoordinator
         )
 
         let wsc = PlexWebSocketCoordinator(
             accountManager: accountManager,
-            connectionRegistry: ServerConnectionRegistry(),
             networkMonitor: networkMonitor,
             clientIdentifier: "test"
         )

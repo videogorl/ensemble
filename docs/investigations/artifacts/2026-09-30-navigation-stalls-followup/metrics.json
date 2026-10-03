@@ -1,0 +1,337 @@
+{
+  "date": "2026-09-30",
+  "method": {
+    "mac_uuid": "E3A3882D-C3B6-5B96-805E-B89E87E9E955",
+    "macos": "27.0.1 (26A434)",
+    "instruments": "27.0 (27A266a)",
+    "template": "Time Profiler + Activity Monitor",
+    "build": "signed Release",
+    "post_tab_change_window_s": 2.5,
+    "minimum_dwell_s": 3,
+    "cycles_per_trace": 2,
+    "warm_cycles": 1,
+    "query_during_capture": false,
+    "recording_order": ["search-click-1", "baseline-click-1", "final-click-1 (excluded Home experiment)", "baseline-click-2", "search-click-2"],
+    "caveats": ["Input tool overhead varied, particularly in search-click-1. Fixed analysis windows use app tab-change timestamps.", "First-pair session logs rotated out before archival; playback state was directly checked before and after. Second-pair timeline reports advanced on the same track throughout the recorded actions.", "Small sample on one Mac; sampled CPU work is not input latency or frame rate. Other transitions varied.", "Search retains four potential-hang flags out of four; mixed journey flags baseline 26/32, candidate 27/32."]
+  },
+  "variants": {
+    "baseline": {
+      "source_head": "e1867ed7095001eb8007ef22d6f92ce5e515cc72",
+      "changed_file": null,
+      "search_source_sha256": "64cebd808f206a4716ccc0920888a981b5a4706d762885a6fd139d58d73682f2",
+      "executable_sha256": "b43ac245bb7ebe2cec1a61223615ac81fb905282829569d77975ba2fc21d3bd0",
+      "build_version": "202609301347.8099"
+    },
+    "candidate": {
+      "source_head": "e1867ed7095001eb8007ef22d6f92ce5e515cc72",
+      "changed_file": "Packages/EnsembleUI/Sources/Screens/Discovery/SearchView.swift",
+      "search_source_sha256": "570f352f8f390c2ffaf2c6272d2bc7a2421ed58cf480637c10258522f25b76a2",
+      "executable_sha256": "9ce48417fa14b0d49d64b8bc642747199bb3a966d14fbe22be38006f2e1cee74",
+      "build_version": "202609301842.1867"
+    }
+  },
+  "summary": {
+    "Home": {
+      "baseline": {
+        "event_count": 4,
+        "mean_sampled_main_thread_ms": 692.25,
+        "mean_inclusive_accessibility_ms": 175.5,
+        "flagged_event_count": 4
+      },
+      "candidate": {
+        "event_count": 4,
+        "mean_sampled_main_thread_ms": 811.0,
+        "mean_inclusive_accessibility_ms": 221.25,
+        "flagged_event_count": 4
+      }
+    },
+    "Search": {
+      "baseline": {
+        "event_count": 4,
+        "mean_sampled_main_thread_ms": 1327.0,
+        "mean_inclusive_accessibility_ms": 645.75,
+        "flagged_event_count": 4
+      },
+      "candidate": {
+        "event_count": 4,
+        "mean_sampled_main_thread_ms": 795.0,
+        "mean_inclusive_accessibility_ms": 244.25,
+        "flagged_event_count": 4
+      }
+    },
+    "Albums": {
+      "baseline": {
+        "event_count": 4,
+        "mean_sampled_main_thread_ms": 970.75,
+        "mean_inclusive_accessibility_ms": 300.25,
+        "flagged_event_count": 4
+      },
+      "candidate": {
+        "event_count": 4,
+        "mean_sampled_main_thread_ms": 948.25,
+        "mean_inclusive_accessibility_ms": 277.5,
+        "flagged_event_count": 4
+      }
+    },
+    "Songs": {
+      "baseline": {
+        "event_count": 8,
+        "mean_sampled_main_thread_ms": 775.875,
+        "mean_inclusive_accessibility_ms": 58.875,
+        "flagged_event_count": 8
+      },
+      "candidate": {
+        "event_count": 8,
+        "mean_sampled_main_thread_ms": 730.0,
+        "mean_inclusive_accessibility_ms": 56.25,
+        "flagged_event_count": 8
+      }
+    },
+    "Artists": {
+      "baseline": {
+        "event_count": 4,
+        "mean_sampled_main_thread_ms": 777.75,
+        "mean_inclusive_accessibility_ms": 58.25,
+        "flagged_event_count": 4
+      },
+      "candidate": {
+        "event_count": 4,
+        "mean_sampled_main_thread_ms": 721.25,
+        "mean_inclusive_accessibility_ms": 58.75,
+        "flagged_event_count": 4
+      }
+    },
+    "Genres": {
+      "baseline": {
+        "event_count": 4,
+        "mean_sampled_main_thread_ms": 260.0,
+        "mean_inclusive_accessibility_ms": 7.25,
+        "flagged_event_count": 0
+      },
+      "candidate": {
+        "event_count": 4,
+        "mean_sampled_main_thread_ms": 242.25,
+        "mean_inclusive_accessibility_ms": 8.0,
+        "flagged_event_count": 0
+      }
+    },
+    "Playlists": {
+      "baseline": {
+        "event_count": 4,
+        "mean_sampled_main_thread_ms": 325.25,
+        "mean_inclusive_accessibility_ms": 22.5,
+        "flagged_event_count": 2
+      },
+      "candidate": {
+        "event_count": 4,
+        "mean_sampled_main_thread_ms": 314.75,
+        "mean_inclusive_accessibility_ms": 23.5,
+        "flagged_event_count": 3
+      }
+    },
+    "Other": {
+      "baseline": {
+        "event_count": 28,
+        "mean_sampled_main_thread_ms": 653.964,
+        "mean_inclusive_accessibility_ms": 97.357,
+        "flagged_event_count": 22
+      },
+      "candidate": {
+        "event_count": 28,
+        "mean_sampled_main_thread_ms": 642.5,
+        "mean_inclusive_accessibility_ms": 100.214,
+        "flagged_event_count": 23
+      }
+    }
+  },
+  "traces": [
+    {
+      "condition": "baseline",
+      "trace": "baseline-click-1",
+      "pid": 33437,
+      "start": "2026-09-30T19:09:18.645000-07:00",
+      "end": "2026-09-30T19:10:43.299000-07:00",
+      "window_pixels": [4968, 2780],
+      "geometry_proof": "fresh screenshot",
+      "all_16_actions_and_2_5s_windows_validated": true,
+      "playback_before_and_after": "same track, Pause control present",
+      "timeline_log_retained": false,
+      "timeline": [],
+      "actions": [
+        {"from": "Songs", "to": "Home", "start_s": 12.585, "sampled_main_thread_ms": 879.0, "sampled_accessibility_ms": 333.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 12.583144, "duration_ms": 859.8845}]},
+        {"from": "Home", "to": "Search", "start_s": 16.137, "sampled_main_thread_ms": 2089.0, "sampled_accessibility_ms": 1307.0, "sampled_sidebar_ms": 9.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 16.133182458, "duration_ms": 2016.206125}]},
+        {"from": "Search", "to": "Albums", "start_s": 19.721, "sampled_main_thread_ms": 1302.0, "sampled_accessibility_ms": 578.0, "sampled_sidebar_ms": 5.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 19.71895625, "duration_ms": 1288.748375}]},
+        {"from": "Albums", "to": "Songs", "start_s": 22.971, "sampled_main_thread_ms": 673.0, "sampled_accessibility_ms": 47.0, "sampled_sidebar_ms": 5.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 22.96662975, "duration_ms": 608.049166}]},
+        {"from": "Songs", "to": "Artists", "start_s": 26.203, "sampled_main_thread_ms": 1034.0, "sampled_accessibility_ms": 75.0, "sampled_sidebar_ms": 17.0, "sampled_native_browse_ms": 3.0, "hangs": [{"start_s": 26.19999075, "duration_ms": 949.268458}]},
+        {"from": "Artists", "to": "Genres", "start_s": 29.422, "sampled_main_thread_ms": 298.0, "sampled_accessibility_ms": 9.0, "sampled_sidebar_ms": 5.0, "sampled_native_browse_ms": 0, "hangs": []},
+        {"from": "Genres", "to": "Playlists", "start_s": 32.686, "sampled_main_thread_ms": 325.0, "sampled_accessibility_ms": 21.0, "sampled_sidebar_ms": 4.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 32.6833945, "duration_ms": 263.780708}]},
+        {"from": "Playlists", "to": "Songs", "start_s": 36.196, "sampled_main_thread_ms": 919.0, "sampled_accessibility_ms": 83.0, "sampled_sidebar_ms": 12.0, "sampled_native_browse_ms": 1.0, "hangs": [{"start_s": 36.192675416, "duration_ms": 873.507417}]},
+        {"from": "Songs", "to": "Home", "start_s": 45.852, "sampled_main_thread_ms": 580.0, "sampled_accessibility_ms": 30.0, "sampled_sidebar_ms": 4.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 45.850219291, "duration_ms": 519.925667}]},
+        {"from": "Home", "to": "Search", "start_s": 49.387, "sampled_main_thread_ms": 845.0, "sampled_accessibility_ms": 81.0, "sampled_sidebar_ms": 10.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 49.3835925, "duration_ms": 863.648541}]},
+        {"from": "Search", "to": "Albums", "start_s": 53.011, "sampled_main_thread_ms": 812.0, "sampled_accessibility_ms": 47.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 53.009032375, "duration_ms": 709.512208}]},
+        {"from": "Albums", "to": "Songs", "start_s": 56.228, "sampled_main_thread_ms": 731.0, "sampled_accessibility_ms": 53.0, "sampled_sidebar_ms": 7.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 56.224629375, "duration_ms": 675.589666}]},
+        {"from": "Songs", "to": "Artists", "start_s": 59.488, "sampled_main_thread_ms": 754.0, "sampled_accessibility_ms": 61.0, "sampled_sidebar_ms": 13.0, "sampled_native_browse_ms": 1.0, "hangs": [{"start_s": 59.483893291, "duration_ms": 703.652209}]},
+        {"from": "Artists", "to": "Genres", "start_s": 62.755, "sampled_main_thread_ms": 270.0, "sampled_accessibility_ms": 6.0, "sampled_sidebar_ms": 1.0, "sampled_native_browse_ms": 0, "hangs": []},
+        {"from": "Genres", "to": "Playlists", "start_s": 65.969, "sampled_main_thread_ms": 389.0, "sampled_accessibility_ms": 33.0, "sampled_sidebar_ms": 2.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 65.967122875, "duration_ms": 337.596375}]},
+        {"from": "Playlists", "to": "Songs", "start_s": 69.478, "sampled_main_thread_ms": 1052.0, "sampled_accessibility_ms": 83.0, "sampled_sidebar_ms": 14.0, "sampled_native_browse_ms": 1.0, "hangs": [{"start_s": 69.473687125, "duration_ms": 1018.354916}]}
+      ]
+    },
+    {
+      "condition": "baseline",
+      "trace": "baseline-click-2",
+      "pid": 54444,
+      "start": "2026-09-30T19:38:37.378000-07:00",
+      "end": "2026-09-30T19:40:01.704000-07:00",
+      "window_pixels": [4968, 2780],
+      "geometry_proof": "fresh screenshot",
+      "all_16_actions_and_2_5s_windows_validated": true,
+      "playback_before_and_after": "same track, Pause control present",
+      "timeline_log_retained": true,
+      "timeline": [
+        {"relative_s": 4.543, "state": "playing", "position_ms": 20001, "duration_ms": 231760},
+        {"relative_s": 14.577, "state": "playing", "position_ms": 30036, "duration_ms": 231760},
+        {"relative_s": 24.643, "state": "playing", "position_ms": 40100, "duration_ms": 231760},
+        {"relative_s": 34.736, "state": "playing", "position_ms": 50201, "duration_ms": 231760},
+        {"relative_s": 44.746, "state": "playing", "position_ms": 60203, "duration_ms": 231760},
+        {"relative_s": 54.84, "state": "playing", "position_ms": 70300, "duration_ms": 231760},
+        {"relative_s": 64.841, "state": "playing", "position_ms": 80300, "duration_ms": 231760},
+        {"relative_s": 74.938, "state": "playing", "position_ms": 90400, "duration_ms": 231760}
+      ],
+      "actions": [
+        {"from": "Songs", "to": "Home", "start_s": 12.753, "sampled_main_thread_ms": 804.0, "sampled_accessibility_ms": 311.0, "sampled_sidebar_ms": 4.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 12.748608791, "duration_ms": 787.335459}]},
+        {"from": "Home", "to": "Search", "start_s": 16.171, "sampled_main_thread_ms": 1676.0, "sampled_accessibility_ms": 1123.0, "sampled_sidebar_ms": 6.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 16.169063833, "duration_ms": 1677.363333}]},
+        {"from": "Search", "to": "Albums", "start_s": 19.74, "sampled_main_thread_ms": 1056.0, "sampled_accessibility_ms": 537.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 19.739147416, "duration_ms": 1047.451875}]},
+        {"from": "Albums", "to": "Songs", "start_s": 22.948, "sampled_main_thread_ms": 597.0, "sampled_accessibility_ms": 41.0, "sampled_sidebar_ms": 2.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 22.945101958, "duration_ms": 552.062792}]},
+        {"from": "Songs", "to": "Artists", "start_s": 26.197, "sampled_main_thread_ms": 638.0, "sampled_accessibility_ms": 44.0, "sampled_sidebar_ms": 12.0, "sampled_native_browse_ms": 1.0, "hangs": [{"start_s": 26.195134708, "duration_ms": 584.258875}]},
+        {"from": "Artists", "to": "Genres", "start_s": 29.478, "sampled_main_thread_ms": 218.0, "sampled_accessibility_ms": 7.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": []},
+        {"from": "Genres", "to": "Playlists", "start_s": 32.747, "sampled_main_thread_ms": 292.0, "sampled_accessibility_ms": 21.0, "sampled_sidebar_ms": 2.0, "sampled_native_browse_ms": 0, "hangs": []},
+        {"from": "Playlists", "to": "Songs", "start_s": 36.194, "sampled_main_thread_ms": 844.0, "sampled_accessibility_ms": 58.0, "sampled_sidebar_ms": 10.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 36.191548458, "duration_ms": 797.07925}]},
+        {"from": "Songs", "to": "Home", "start_s": 43.767, "sampled_main_thread_ms": 506.0, "sampled_accessibility_ms": 28.0, "sampled_sidebar_ms": 4.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 43.76624825, "duration_ms": 454.268}]},
+        {"from": "Home", "to": "Search", "start_s": 47.23, "sampled_main_thread_ms": 698.0, "sampled_accessibility_ms": 72.0, "sampled_sidebar_ms": 6.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 47.22870175, "duration_ms": 687.165375}]},
+        {"from": "Search", "to": "Albums", "start_s": 50.719, "sampled_main_thread_ms": 713.0, "sampled_accessibility_ms": 39.0, "sampled_sidebar_ms": 4.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 50.717685041, "duration_ms": 579.317334}]},
+        {"from": "Albums", "to": "Songs", "start_s": 53.963, "sampled_main_thread_ms": 535.0, "sampled_accessibility_ms": 29.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 53.962108708, "duration_ms": 489.129583}]},
+        {"from": "Songs", "to": "Artists", "start_s": 57.257, "sampled_main_thread_ms": 685.0, "sampled_accessibility_ms": 53.0, "sampled_sidebar_ms": 13.0, "sampled_native_browse_ms": 1.0, "hangs": [{"start_s": 57.2529695, "duration_ms": 619.232875}]},
+        {"from": "Artists", "to": "Genres", "start_s": 60.532, "sampled_main_thread_ms": 254.0, "sampled_accessibility_ms": 7.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": []},
+        {"from": "Genres", "to": "Playlists", "start_s": 63.781, "sampled_main_thread_ms": 295.0, "sampled_accessibility_ms": 15.0, "sampled_sidebar_ms": 4.0, "sampled_native_browse_ms": 1.0, "hangs": []},
+        {"from": "Playlists", "to": "Songs", "start_s": 67.232, "sampled_main_thread_ms": 856.0, "sampled_accessibility_ms": 77.0, "sampled_sidebar_ms": 14.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 67.228934208, "duration_ms": 824.928458}]}
+      ]
+    },
+    {
+      "condition": "candidate",
+      "trace": "search-click-1",
+      "pid": 28543,
+      "start": "2026-09-30T19:03:42.779000-07:00",
+      "end": "2026-09-30T19:05:43.872000-07:00",
+      "window_pixels": [4968, 2780],
+      "geometry_proof": "native window frame and scale",
+      "all_16_actions_and_2_5s_windows_validated": true,
+      "playback_before_and_after": "same track, Pause control present",
+      "timeline_log_retained": false,
+      "timeline": [],
+      "actions": [
+        {"from": "Songs", "to": "Home", "start_s": 15.372, "sampled_main_thread_ms": 825.0, "sampled_accessibility_ms": 314.0, "sampled_sidebar_ms": 4.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 15.364516, "duration_ms": 852.738541}]},
+        {"from": "Home", "to": "Search", "start_s": 22.786, "sampled_main_thread_ms": 956.0, "sampled_accessibility_ms": 442.0, "sampled_sidebar_ms": 5.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 22.780893208, "duration_ms": 943.682917}]},
+        {"from": "Search", "to": "Albums", "start_s": 30.271, "sampled_main_thread_ms": 1065.0, "sampled_accessibility_ms": 503.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 30.265086583, "duration_ms": 1051.591667}]},
+        {"from": "Albums", "to": "Songs", "start_s": 35.336, "sampled_main_thread_ms": 544.0, "sampled_accessibility_ms": 42.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 35.331824125, "duration_ms": 519.4475}]},
+        {"from": "Songs", "to": "Artists", "start_s": 40.053, "sampled_main_thread_ms": 763.0, "sampled_accessibility_ms": 65.0, "sampled_sidebar_ms": 14.0, "sampled_native_browse_ms": 2.0, "hangs": [{"start_s": 40.0492695, "duration_ms": 728.415708}]},
+        {"from": "Artists", "to": "Genres", "start_s": 44.621, "sampled_main_thread_ms": 242.0, "sampled_accessibility_ms": 7.0, "sampled_sidebar_ms": 2.0, "sampled_native_browse_ms": 0, "hangs": []},
+        {"from": "Genres", "to": "Playlists", "start_s": 48.037, "sampled_main_thread_ms": 305.0, "sampled_accessibility_ms": 22.0, "sampled_sidebar_ms": 2.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 48.034335083, "duration_ms": 251.352583}]},
+        {"from": "Playlists", "to": "Songs", "start_s": 52.221, "sampled_main_thread_ms": 846.0, "sampled_accessibility_ms": 59.0, "sampled_sidebar_ms": 11.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 52.216768083, "duration_ms": 811.578375}]},
+        {"from": "Songs", "to": "Home", "start_s": 74.102, "sampled_main_thread_ms": 638.0, "sampled_accessibility_ms": 29.0, "sampled_sidebar_ms": 6.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 74.098602916, "duration_ms": 564.970875}]},
+        {"from": "Home", "to": "Search", "start_s": 78.527, "sampled_main_thread_ms": 762.0, "sampled_accessibility_ms": 66.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 78.522813333, "duration_ms": 796.122708}]},
+        {"from": "Search", "to": "Albums", "start_s": 87.337, "sampled_main_thread_ms": 798.0, "sampled_accessibility_ms": 34.0, "sampled_sidebar_ms": 4.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 87.333151708, "duration_ms": 750.604042}]},
+        {"from": "Albums", "to": "Songs", "start_s": 93.269, "sampled_main_thread_ms": 638.0, "sampled_accessibility_ms": 35.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 93.265731291, "duration_ms": 611.075834}]},
+        {"from": "Songs", "to": "Artists", "start_s": 98.952, "sampled_main_thread_ms": 826.0, "sampled_accessibility_ms": 63.0, "sampled_sidebar_ms": 11.0, "sampled_native_browse_ms": 1.0, "hangs": [{"start_s": 98.949138708, "duration_ms": 804.075375}]},
+        {"from": "Artists", "to": "Genres", "start_s": 104.769, "sampled_main_thread_ms": 259.0, "sampled_accessibility_ms": 8.0, "sampled_sidebar_ms": 4.0, "sampled_native_browse_ms": 0, "hangs": []},
+        {"from": "Genres", "to": "Playlists", "start_s": 109.39, "sampled_main_thread_ms": 320.0, "sampled_accessibility_ms": 23.0, "sampled_sidebar_ms": 9.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 109.387305458, "duration_ms": 258.886042}]},
+        {"from": "Playlists", "to": "Songs", "start_s": 114.852, "sampled_main_thread_ms": 1021.0, "sampled_accessibility_ms": 93.0, "sampled_sidebar_ms": 11.0, "sampled_native_browse_ms": 1.0, "hangs": [{"start_s": 114.84907275, "duration_ms": 1016.861166}]}
+      ]
+    },
+    {
+      "condition": "candidate",
+      "trace": "search-click-2",
+      "pid": 57562,
+      "start": "2026-09-30T19:43:27.540000-07:00",
+      "end": "2026-09-30T19:44:51.475000-07:00",
+      "window_pixels": [4968, 2780],
+      "geometry_proof": "fresh screenshot",
+      "all_16_actions_and_2_5s_windows_validated": true,
+      "playback_before_and_after": "same track, Pause control present",
+      "timeline_log_retained": true,
+      "timeline": [
+        {"relative_s": 0.913, "state": "playing", "position_ms": 10000, "duration_ms": 231760},
+        {"relative_s": 9.991, "state": "playing", "position_ms": 20001, "duration_ms": 231760},
+        {"relative_s": 20.476, "state": "playing", "position_ms": 30396, "duration_ms": 231760},
+        {"relative_s": 30.387, "state": "playing", "position_ms": 40400, "duration_ms": 231760},
+        {"relative_s": 40.485, "state": "playing", "position_ms": 50500, "duration_ms": 231760},
+        {"relative_s": 50.699, "state": "playing", "position_ms": 60627, "duration_ms": 231760},
+        {"relative_s": 60.806, "state": "playing", "position_ms": 70728, "duration_ms": 231760},
+        {"relative_s": 70.996, "state": "playing", "position_ms": 80911, "duration_ms": 231760},
+        {"relative_s": 80.982, "state": "playing", "position_ms": 91000, "duration_ms": 231760}
+      ],
+      "actions": [
+        {"from": "Songs", "to": "Home", "start_s": 15.802, "sampled_main_thread_ms": 1316.0, "sampled_accessibility_ms": 509.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 15.796277791, "duration_ms": 784.302459}]},
+        {"from": "Home", "to": "Search", "start_s": 19.464, "sampled_main_thread_ms": 934.0, "sampled_accessibility_ms": 434.0, "sampled_sidebar_ms": 5.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 19.4597365, "duration_ms": 951.89875}]},
+        {"from": "Search", "to": "Albums", "start_s": 22.98, "sampled_main_thread_ms": 1162.0, "sampled_accessibility_ms": 533.0, "sampled_sidebar_ms": 5.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 22.976476875, "duration_ms": 1152.039375}]},
+        {"from": "Albums", "to": "Songs", "start_s": 26.247, "sampled_main_thread_ms": 535.0, "sampled_accessibility_ms": 42.0, "sampled_sidebar_ms": 2.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 26.244169833, "duration_ms": 496.618167}]},
+        {"from": "Songs", "to": "Artists", "start_s": 29.476, "sampled_main_thread_ms": 649.0, "sampled_accessibility_ms": 54.0, "sampled_sidebar_ms": 10.0, "sampled_native_browse_ms": 1.0, "hangs": [{"start_s": 29.474764375, "duration_ms": 598.524083}]},
+        {"from": "Artists", "to": "Genres", "start_s": 32.748, "sampled_main_thread_ms": 234.0, "sampled_accessibility_ms": 12.0, "sampled_sidebar_ms": 6.0, "sampled_native_browse_ms": 0, "hangs": []},
+        {"from": "Genres", "to": "Playlists", "start_s": 36.021, "sampled_main_thread_ms": 321.0, "sampled_accessibility_ms": 23.0, "sampled_sidebar_ms": 4.0, "sampled_native_browse_ms": 0, "hangs": []},
+        {"from": "Playlists", "to": "Songs", "start_s": 39.505, "sampled_main_thread_ms": 805.0, "sampled_accessibility_ms": 62.0, "sampled_sidebar_ms": 9.0, "sampled_native_browse_ms": 1.0, "hangs": [{"start_s": 39.50170125, "duration_ms": 765.385625}]},
+        {"from": "Songs", "to": "Home", "start_s": 46.619, "sampled_main_thread_ms": 465.0, "sampled_accessibility_ms": 33.0, "sampled_sidebar_ms": 5.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 46.616408583, "duration_ms": 412.479208}]},
+        {"from": "Home", "to": "Search", "start_s": 50.135, "sampled_main_thread_ms": 528.0, "sampled_accessibility_ms": 35.0, "sampled_sidebar_ms": 7.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 50.132541833, "duration_ms": 497.220333}]},
+        {"from": "Search", "to": "Albums", "start_s": 53.678, "sampled_main_thread_ms": 768.0, "sampled_accessibility_ms": 40.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 53.675867708, "duration_ms": 587.597458}]},
+        {"from": "Albums", "to": "Songs", "start_s": 56.906, "sampled_main_thread_ms": 542.0, "sampled_accessibility_ms": 36.0, "sampled_sidebar_ms": 2.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 56.90314675, "duration_ms": 520.251208}]},
+        {"from": "Songs", "to": "Artists", "start_s": 60.144, "sampled_main_thread_ms": 647.0, "sampled_accessibility_ms": 53.0, "sampled_sidebar_ms": 9.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 60.141766833, "duration_ms": 591.090583}]},
+        {"from": "Artists", "to": "Genres", "start_s": 63.395, "sampled_main_thread_ms": 234.0, "sampled_accessibility_ms": 5.0, "sampled_sidebar_ms": 4.0, "sampled_native_browse_ms": 0, "hangs": []},
+        {"from": "Genres", "to": "Playlists", "start_s": 66.638, "sampled_main_thread_ms": 313.0, "sampled_accessibility_ms": 26.0, "sampled_sidebar_ms": 3.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 66.634074541, "duration_ms": 260.278125}]},
+        {"from": "Playlists", "to": "Songs", "start_s": 70.083, "sampled_main_thread_ms": 909.0, "sampled_accessibility_ms": 81.0, "sampled_sidebar_ms": 11.0, "sampled_native_browse_ms": 0, "hangs": [{"start_s": 70.081780625, "duration_ms": 831.79975}]}
+      ]
+    }
+  ],
+  "excluded_experiments": {
+    "baseline-route-1": "deep links, smaller window, idle playback; not comparable to click captures",
+    "final-click-1": {
+      "change": "Search cleanup plus Home LazyVStack",
+      "home_mean_sampled_main_thread_ms": 648,
+      "home_baseline_trace_means_ms": [729.5, 655],
+      "conclusion": "No repeatable Home gain established; reverted Home before accepted build."
+    }
+  },
+  "accepted_build": {
+    "source_head": "e1867ed7",
+    "changed_source": "Packages/EnsembleUI/Sources/Screens/Discovery/SearchView.swift",
+    "source_sha256": "570f352f8f390c2ffaf2c6272d2bc7a2421ed58cf480637c10258522f25b76a2",
+    "exe_sha256": "f97c97cb0f22b95b33dec67d6b897f81356a60ee786bb88f666bdbea8d3d41a7",
+    "version": "202609301945.1867"
+  },
+  "accepted_runtime": {
+    "phone": {
+      "uuid": "C01A1C06-F40B-4B39-93A7-7D1D9C89D9A1",
+      "launch": "com.videogorl.ensemble: 61420",
+      "version": "202609301945.1867",
+      "hashes": {
+        "Ensemble": "0fc6ec5460d10d0aab9eb90ddf3ae1df389342e9686ff6cb25a50eba808ebd7f",
+        "Ensemble.debug.dylib": "53576bc6bde7e3cc1415d37b49f3a419dd9691e7eec920bda493b75cee5d0cb2"
+      }
+    },
+    "ipad": {
+      "uuid": "08CA3DD8-D174-40E9-A361-62B95671B969",
+      "launch": "com.videogorl.ensemble: 61469",
+      "version": "202609301945.1867",
+      "hashes": {
+        "Ensemble": "0fc6ec5460d10d0aab9eb90ddf3ae1df389342e9686ff6cb25a50eba808ebd7f",
+        "Ensemble.debug.dylib": "53576bc6bde7e3cc1415d37b49f3a419dd9691e7eec920bda493b75cee5d0cb2"
+      }
+    }
+  },
+  "accepted_mac_runtime": {
+    "condition": "Accepted",
+    "trace": "accepted-ui",
+    "pid": 63027,
+    "executable": "/private/tmp/ensemble-stalls.VrXQxf/Accepted/Ensemble.app/Contents/MacOS/Ensemble",
+    "sha256": "f97c97cb0f22b95b33dec67d6b897f81356a60ee786bb88f666bdbea8d3d41a7",
+    "version": "202609301945.1867",
+    "arguments": "/private/tmp/ensemble-stalls.VrXQxf/Accepted/Ensemble.app/Contents/MacOS/Ensemble -EnsembleAutomationMode YES -EnsembleAutomationStartSurface songs -ApplePersistenceIgnoreState YES"
+  }
+}

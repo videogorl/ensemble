@@ -315,14 +315,33 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         XCTAssertNil(ArtworkBlurRenderer.cachedBlurredImage(for: image))
     }
 
-    func testURLCacheInvalidationNotifiesOnceAfterCoalescedClear() async {
+    func testRapidCredentialChangesRefreshArtworkURLsAndNotifyVisibleArtwork() async throws {
+        let fixture = AccountConnectionFixture()
+        defer { fixture.close() }
+        let accountManager = AccountManager(keychain: TestKeychain(), urlSession: fixture.session)
+        func account(token: String) -> PlexAccountConfig {
+            PlexAccountConfig(
+                id: "account-1", displayTitle: "tester", authToken: "auth",
+                servers: [PlexServerConfig(
+                    id: "server-1", name: "Server", url: "https://example.com", token: token,
+                    libraries: [PlexLibraryConfig(id: "library-1", key: "1", title: "Music", isEnabled: true)]
+                )]
+            )
+        }
+        accountManager.addPlexAccount(account(token: "token-1"))
         let artworkManager = RecordingArtworkDownloadManager(strictPath: nil, stalePath: nil)
-        let syncCoordinator = await makeOfflineSyncCoordinator(artworkManager: artworkManager)
+        let syncCoordinator = await makeOfflineSyncCoordinator(
+            artworkManager: artworkManager, accountManager: accountManager
+        )
+        syncCoordinator.networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        await syncCoordinator.handleAppWillEnterForeground()
+        defer { syncCoordinator.networkMonitor.injectNetworkStateForTesting(.offline, debounced: false) }
         let artworkLoader = ArtworkLoader(
             syncCoordinator: syncCoordinator,
             artworkDownloadManager: artworkManager
         )
         let retryNotifications = expectation(description: "visible artwork retry")
+        retryNotifications.expectedFulfillmentCount = 2
         retryNotifications.assertForOverFulfill = true
         let observer = NotificationCenter.default.addObserver(
             forName: ArtworkLoader.serversBecameAvailable,
@@ -334,8 +353,25 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        await artworkLoader.invalidateURLCache()
-        await artworkLoader.invalidateURLCache()
+        var changeStartedAt: Date?
+        for token in ["token-1", "token-2", "token-3"] {
+            if token != "token-1" {
+                if changeStartedAt == nil { changeStartedAt = Date() }
+                accountManager.updatePlexAccount(account(token: token))
+            }
+            _ = await syncCoordinator.serverHealthChecker.checkServer(
+                accountId: "account-1", serverId: "server-1", forceRefresh: true
+            )
+            if token != "token-1" { await artworkLoader.invalidateURLCache() }
+            let resolvedURL = await artworkLoader.artworkURLAsync(
+                for: "/library/metadata/album-1/thumb", sourceKey: "plex:account-1:server-1:1",
+                ratingKey: "album-1", size: 300
+            )
+            let url = try XCTUnwrap(resolvedURL)
+            let queryItems = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+            XCTAssertEqual(queryItems.first { $0.name == "X-Plex-Token" }?.value, token)
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(try XCTUnwrap(changeStartedAt)), 5)
 
         await fulfillment(of: [retryNotifications], timeout: 1)
     }
@@ -761,27 +797,30 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
     }
 
     private func makeOfflineSyncCoordinator(
-        artworkManager: ArtworkDownloadManagerProtocol
+        artworkManager: ArtworkDownloadManagerProtocol,
+        accountManager providedAccountManager: AccountManager? = nil
     ) async -> SyncCoordinator {
-        let accountManager = AccountManager(keychain: TestKeychain())
-        accountManager.addPlexAccount(
-            PlexAccountConfig(
-                id: "account-1",
-                displayTitle: "tester",
-                authToken: "auth",
-                servers: [
-                    PlexServerConfig(
-                        id: "server-1",
-                        name: "Server",
-                        url: "https://example.com",
-                        token: "token",
-                        libraries: [
-                            PlexLibraryConfig(id: "library-1", key: "1", title: "Music", isEnabled: true)
-                        ]
-                    )
-                ]
+        let accountManager = providedAccountManager ?? AccountManager(keychain: TestKeychain())
+        if providedAccountManager == nil {
+            accountManager.addPlexAccount(
+                PlexAccountConfig(
+                    id: "account-1",
+                    displayTitle: "tester",
+                    authToken: "auth",
+                    servers: [
+                        PlexServerConfig(
+                            id: "server-1",
+                            name: "Server",
+                            url: "https://example.com",
+                            token: "token",
+                            libraries: [
+                                PlexLibraryConfig(id: "library-1", key: "1", title: "Music", isEnabled: true)
+                            ]
+                        )
+                    ]
+                )
             )
-        )
+        }
 
         let networkMonitor = NetworkMonitor(
             debounceNanoseconds: 1_000,

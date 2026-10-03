@@ -409,7 +409,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
                 return rejected(command, message: "That item is no longer available.")
             }
             do {
-                _ = try await deps?.trackRatingMutationWorkflow.mutate(
+                _ = try await deps?.mutationCoordinator.rateTrack(
                     track,
                     rating: shouldFavorite ? 10 : nil
                 )
@@ -438,7 +438,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
                 return rejected(command, message: "Those items are no longer available on iPhone.")
             }
             do {
-                _ = try await deps.playlistMutationWorkflow.addTracks(tracks, to: Playlist(from: cached))
+                _ = try await deps.mutationCoordinator.addTracks(tracks, to: Playlist(from: cached))
             } catch {
                 return rejected(command, message: error.localizedDescription)
             }
@@ -459,7 +459,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
                 return rejected(command, message: "Those items are no longer available on iPhone.")
             }
             do {
-                _ = try await deps.playlistMutationWorkflow.createPlaylist(
+                _ = try await deps.mutationCoordinator.createPlaylist(
                     title: title,
                     tracks: tracks,
                     serverSourceKey: serverSourceKey
@@ -475,7 +475,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
                 return rejected(command, message: "The current item changed.")
             }
             do {
-                _ = try await deps.metadataMutationWorkflow.deleteTrack(track)
+                _ = try await deps.metadataMutationService.deleteTrack(track)
             } catch {
                 return rejected(command, message: error.localizedDescription)
             }

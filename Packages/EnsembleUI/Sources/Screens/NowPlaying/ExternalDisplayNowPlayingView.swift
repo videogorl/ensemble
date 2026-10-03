@@ -1,7 +1,7 @@
 import EnsembleCore
 import SwiftUI
 
-/// Non-interactive Now Playing view shown on an external display via AirPlay screen mirroring.
+/// Noninteractive Now Playing view for a supplementary external display.
 ///
 /// This wraps the same wide Now Playing layout used by iPad, adapted for TV display:
 /// - Panel selection follows `viewModel.currentPage` from the device automatically
@@ -23,13 +23,14 @@ public struct ExternalDisplayNowPlayingView: View {
             NowPlayingBackdrop(
                 viewModel: viewModel,
                 consumer: .externalDisplay,
-                activeContentMaxWidth: EnsembleScaffold.NowPlaying.viewportContentMaxWidth,
+                activeContentMaxWidth: nil,
                 forceDarkPresentation: true
             )
 
             NowPlayingWidePanelLayout(
                 viewModel: viewModel,
                 currentPage: $viewModel.currentPage,
+                maxContentWidth: .infinity,
                 centersContentInAvailableSpace: true
             )
         }

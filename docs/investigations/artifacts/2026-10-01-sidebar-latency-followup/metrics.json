@@ -1,0 +1,959 @@
+{
+  "host": {
+    "mac_uuid": "E3A3882D-C3B6-5B96-805E-B89E87E9E955",
+    "os": "macOS 27.0.1 (26A434)",
+    "instruments": "27.0 (27A266a)",
+    "memory_gb": 24
+  },
+  "method": {
+    "template": "Time Profiler plus Activity Monitor",
+    "window_pixels": [
+      2200,
+      1224
+    ],
+    "playback": "paused",
+    "journey": [
+      "Artists",
+      "Songs",
+      "Artists",
+      "Albums",
+      "Songs"
+    ],
+    "measurement_window_seconds_after_tab_changed": 1.5,
+    "fixed_dwell_between_actions_ms": 2200,
+    "input": "native accessibility row actions for diagnostic runs; screenshot-relative mouse clicks for the final pair",
+    "notes": [
+      "AX snapshots locate next rows after the fixed dwell. Mouse captures additionally refresh the screenshot immediately before each click; neither observation occurs within the post-selection measurement window.",
+      "Full recordings contain additional pre-selection accessibility stalls. Only correlated post-selection windows are compared.",
+      "Inclusive symbol weights overlap and are not additive. Sizing includes header and footer hostingHeight/headerHeight/footerHeight frames.",
+      "This measures sampled main-thread work, not click-to-first-frame latency. Captures are sequential on one Mac, not randomized.",
+      "No compiler, package tests, or trace exports ran during accepted recordings.",
+      "Installed TestFlight is not proof of the exact App Store build the user called prod.",
+      "App-specific inclusive weights for the stripped TestFlight binary are unknown, represented as null.",
+      "Final mouse captures use warmed processes; baseline had run the same journey in baseline-3, and candidate received an unrecorded warmup journey before capture. Their warmup counts are not identical.",
+      "baseline-3 is a later accessibility control that demonstrates run-to-run variation. It is kept separate from the earlier two-run cohort."
+    ]
+  },
+  "provenance": {
+    "baseline": {
+      "version": "0.4.0",
+      "build": "202610010640.0761",
+      "executable_sha256": "d68bd3be134a22accf6bfa361df89cbe3747205b768bb89361c28fac6f261891",
+      "source_commit": "07a613772395bb18cf6e27a72ff6ff3e7d31a6a5"
+    },
+    "installed_testflight": {
+      "version": "0.4.0",
+      "build": "202603240723",
+      "executable_sha256": "620a2440053c4551e486e1397f06f5504d420104066ed0cb56c4b1c34ea98e4c",
+      "source_commit": "unknown",
+      "distribution": "TestFlight Beta Distribution, verified signature and MAS receipt"
+    },
+    "candidate": {
+      "version": "0.4.0",
+      "build": "202610010831.0761",
+      "executable_sha256": "67dbb80aa6c1af7bb3e1aa6abd4e9482b15178571498f23cfe2e571f05bf08bc",
+      "source_base_commit": "07a613772395bb18cf6e27a72ff6ff3e7d31a6a5",
+      "source_sha256": {
+        "Packages/EnsembleUI/Sources/Browse/GenreChipBar.swift": "a2c2b8bc00f6ff47148f6f784d5ce23eacd518d330a575087e0a1dc44f271f6d",
+        "Packages/EnsembleUI/Sources/Screens/Library/SongsView.swift": "b73eff42e426cb2a2164f61875454f0fad3e4617210c37f78c026422c531d8e7",
+        "Packages/EnsembleUI/Sources/Screens/Library/ArtistsView.swift": "35de131a601f3882f39ee17d44a3d8d8a274b7c5d2f5507d59fe33fee623cbd9",
+        "Packages/EnsembleUI/Sources/Screens/Library/AlbumsView.swift": "69405112bb2b376bbf3259098a28405a2034e875d26d3a9f82367a5092f48943",
+        "Packages/EnsembleUI/Sources/Screens/Library/GenresView.swift": "7365b97bff7134e97d1e2b25484f9e4d01d3331a647961b41650efbff113a9d7"
+      }
+    }
+  },
+  "summary": {
+    "final_mouse_pair": {
+      "baseline": {
+        "transition_count": 4,
+        "mean_main_thread_sample_weight_ms": 345.0,
+        "mean_songs_sizing_sample_weight_ms": 37.0,
+        "post_selection_flagged_transition_count": 3
+      },
+      "candidate": {
+        "transition_count": 4,
+        "mean_main_thread_sample_weight_ms": 306.25,
+        "mean_songs_sizing_sample_weight_ms": 6.5,
+        "post_selection_flagged_transition_count": 3
+      }
+    },
+    "earlier_accessibility_cohort": {
+      "baseline": {
+        "transition_count": 8,
+        "mean_main_thread_sample_weight_ms": 438.375,
+        "mean_songs_sizing_sample_weight_ms": 43.25,
+        "post_selection_flagged_transition_count": 8
+      },
+      "installed_testflight": {
+        "transition_count": 8,
+        "mean_main_thread_sample_weight_ms": 496.75,
+        "mean_songs_sizing_sample_weight_ms": null,
+        "post_selection_flagged_transition_count": 8
+      },
+      "candidate": {
+        "transition_count": 8,
+        "mean_main_thread_sample_weight_ms": 356.375,
+        "mean_songs_sizing_sample_weight_ms": 7.25,
+        "post_selection_flagged_transition_count": 7
+      }
+    },
+    "later_accessibility_baseline_control": {
+      "transition_count": 4,
+      "mean_main_thread_sample_weight_ms": 335.75,
+      "mean_songs_sizing_sample_weight_ms": 37.0,
+      "post_selection_flagged_transition_count": 4
+    }
+  },
+  "runs": [
+    {
+      "cohort": "baseline",
+      "label": "baseline-1",
+      "pid": 28490,
+      "start": "2026-10-01T07:17:28.868000-07:00",
+      "end": "2026-10-01T07:18:29.805000-07:00",
+      "thermal_state": "Nominal",
+      "full_capture_hang_count": 9,
+      "events": [
+        {
+          "time": "2026-10-01T07:17:51.786000-07:00",
+          "offset_s": 22.918,
+          "from": "Artists",
+          "to": "Songs",
+          "main_ms": 588.0,
+          "inclusive_ms": {
+            "layout": 470.0,
+            "sidebar": 11.0,
+            "sizing": 62.0,
+            "table": 93.0,
+            "artwork": 0,
+            "accessibility": 56.0
+          },
+          "hangs": [
+            {
+              "start_s": 22.915220625,
+              "duration_ms": 605.284625
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T07:17:55.903000-07:00",
+          "offset_s": 27.035,
+          "from": "Songs",
+          "to": "Artists",
+          "main_ms": 477.0,
+          "inclusive_ms": {
+            "layout": 342.0,
+            "sidebar": 6.0,
+            "sizing": 0,
+            "table": 3.0,
+            "artwork": 2.0,
+            "accessibility": 33.0
+          },
+          "hangs": [
+            {
+              "start_s": 27.031359916,
+              "duration_ms": 471.227042
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T07:17:59.395000-07:00",
+          "offset_s": 30.527,
+          "from": "Artists",
+          "to": "Albums",
+          "main_ms": 524.0,
+          "inclusive_ms": {
+            "layout": 390.0,
+            "sidebar": 8.0,
+            "sizing": 0,
+            "table": 0,
+            "artwork": 1.0,
+            "accessibility": 45.0
+          },
+          "hangs": [
+            {
+              "start_s": 30.522816041,
+              "duration_ms": 532.244209
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T07:18:02.819000-07:00",
+          "offset_s": 33.951,
+          "from": "Albums",
+          "to": "Songs",
+          "main_ms": 343.0,
+          "inclusive_ms": {
+            "layout": 274.0,
+            "sidebar": 3.0,
+            "sizing": 30.0,
+            "table": 47.0,
+            "artwork": 1.0,
+            "accessibility": 30.0
+          },
+          "hangs": [
+            {
+              "start_s": 33.948903666,
+              "duration_ms": 331.429667
+            }
+          ]
+        }
+      ],
+      "input": "native accessibility row action"
+    },
+    {
+      "cohort": "baseline",
+      "label": "baseline-2",
+      "pid": 64912,
+      "start": "2026-10-01T07:45:37.414000-07:00",
+      "end": "2026-10-01T07:46:38.220000-07:00",
+      "thermal_state": "Nominal",
+      "full_capture_hang_count": 6,
+      "events": [
+        {
+          "time": "2026-10-01T07:45:57.386000-07:00",
+          "offset_s": 19.972,
+          "from": "Artists",
+          "to": "Songs",
+          "main_ms": 433.0,
+          "inclusive_ms": {
+            "layout": 343.0,
+            "sidebar": 11.0,
+            "sizing": 54.0,
+            "table": 70.0,
+            "artwork": 0,
+            "accessibility": 40.0
+          },
+          "hangs": [
+            {
+              "start_s": 19.970756125,
+              "duration_ms": 432.523875
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T07:46:00.930000-07:00",
+          "offset_s": 23.516,
+          "from": "Songs",
+          "to": "Artists",
+          "main_ms": 331.0,
+          "inclusive_ms": {
+            "layout": 223.0,
+            "sidebar": 10.0,
+            "sizing": 0,
+            "table": 4.0,
+            "artwork": 2.0,
+            "accessibility": 28.0
+          },
+          "hangs": [
+            {
+              "start_s": 23.513673,
+              "duration_ms": 324.629708
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T07:46:04.370000-07:00",
+          "offset_s": 26.956,
+          "from": "Artists",
+          "to": "Albums",
+          "main_ms": 469.0,
+          "inclusive_ms": {
+            "layout": 341.0,
+            "sidebar": 10.0,
+            "sizing": 0,
+            "table": 0,
+            "artwork": 3.0,
+            "accessibility": 48.0
+          },
+          "hangs": [
+            {
+              "start_s": 26.954127833,
+              "duration_ms": 416.595542
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T07:46:07.453000-07:00",
+          "offset_s": 30.039,
+          "from": "Albums",
+          "to": "Songs",
+          "main_ms": 342.0,
+          "inclusive_ms": {
+            "layout": 267.0,
+            "sidebar": 4.0,
+            "sizing": 27.0,
+            "table": 43.0,
+            "artwork": 0,
+            "accessibility": 31.0
+          },
+          "hangs": [
+            {
+              "start_s": 30.037447583,
+              "duration_ms": 281.473542
+            }
+          ]
+        }
+      ],
+      "input": "native accessibility row action"
+    },
+    {
+      "cohort": "installed_testflight",
+      "label": "testflight-1",
+      "pid": 51049,
+      "start": "2026-10-01T07:22:09.588000-07:00",
+      "end": "2026-10-01T07:23:10.504000-07:00",
+      "thermal_state": "Nominal",
+      "full_capture_hang_count": 23,
+      "events": [
+        {
+          "time": "2026-10-01T07:22:28.241000-07:00",
+          "offset_s": 18.653,
+          "from": "Artists",
+          "to": "Songs",
+          "main_ms": 697.0,
+          "inclusive_ms": {
+            "layout": 560.0,
+            "sidebar": null,
+            "sizing": null,
+            "table": null,
+            "artwork": null,
+            "accessibility": 81.0
+          },
+          "hangs": [
+            {
+              "start_s": 18.647922416,
+              "duration_ms": 733.571917
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T07:22:39.748000-07:00",
+          "offset_s": 30.16,
+          "from": "Songs",
+          "to": "Artists",
+          "main_ms": 425.0,
+          "inclusive_ms": {
+            "layout": 296.0,
+            "sidebar": null,
+            "sizing": null,
+            "table": null,
+            "artwork": null,
+            "accessibility": 36.0
+          },
+          "hangs": [
+            {
+              "start_s": 30.154877375,
+              "duration_ms": 423.349708
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T07:22:43.005000-07:00",
+          "offset_s": 33.417,
+          "from": "Artists",
+          "to": "Albums",
+          "main_ms": 449.0,
+          "inclusive_ms": {
+            "layout": 334.0,
+            "sidebar": null,
+            "sizing": null,
+            "table": null,
+            "artwork": null,
+            "accessibility": 39.0
+          },
+          "hangs": [
+            {
+              "start_s": 33.413582875,
+              "duration_ms": 448.981208
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T07:22:46.293000-07:00",
+          "offset_s": 36.705,
+          "from": "Albums",
+          "to": "Songs",
+          "main_ms": 325.0,
+          "inclusive_ms": {
+            "layout": 259.0,
+            "sidebar": null,
+            "sizing": null,
+            "table": null,
+            "artwork": null,
+            "accessibility": 47.0
+          },
+          "hangs": [
+            {
+              "start_s": 36.701529916,
+              "duration_ms": 320.666125
+            }
+          ]
+        }
+      ],
+      "input": "native accessibility row action"
+    },
+    {
+      "cohort": "installed_testflight",
+      "label": "testflight-2",
+      "pid": 69127,
+      "start": "2026-10-01T07:51:17.436000-07:00",
+      "end": "2026-10-01T07:52:18.427000-07:00",
+      "thermal_state": "Nominal",
+      "full_capture_hang_count": 24,
+      "events": [
+        {
+          "time": "2026-10-01T07:51:35.971000-07:00",
+          "offset_s": 18.535,
+          "from": "Artists",
+          "to": "Songs",
+          "main_ms": 773.0,
+          "inclusive_ms": {
+            "layout": 618.0,
+            "sidebar": null,
+            "sizing": null,
+            "table": null,
+            "artwork": null,
+            "accessibility": 81.0
+          },
+          "hangs": [
+            {
+              "start_s": 18.532802166,
+              "duration_ms": 764.997834
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T07:51:47.071000-07:00",
+          "offset_s": 29.635,
+          "from": "Songs",
+          "to": "Artists",
+          "main_ms": 441.0,
+          "inclusive_ms": {
+            "layout": 325.0,
+            "sidebar": null,
+            "sizing": null,
+            "table": null,
+            "artwork": null,
+            "accessibility": 38.0
+          },
+          "hangs": [
+            {
+              "start_s": 29.633021833,
+              "duration_ms": 443.465208
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T07:51:50.208000-07:00",
+          "offset_s": 32.772,
+          "from": "Artists",
+          "to": "Albums",
+          "main_ms": 496.0,
+          "inclusive_ms": {
+            "layout": 373.0,
+            "sidebar": null,
+            "sizing": null,
+            "table": null,
+            "artwork": null,
+            "accessibility": 32.0
+          },
+          "hangs": [
+            {
+              "start_s": 32.768398458,
+              "duration_ms": 501.736458
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T07:51:53.382000-07:00",
+          "offset_s": 35.946,
+          "from": "Albums",
+          "to": "Songs",
+          "main_ms": 368.0,
+          "inclusive_ms": {
+            "layout": 299.0,
+            "sidebar": null,
+            "sizing": null,
+            "table": null,
+            "artwork": null,
+            "accessibility": 44.0
+          },
+          "hangs": [
+            {
+              "start_s": 35.943651208,
+              "duration_ms": 368.124167
+            }
+          ]
+        }
+      ],
+      "input": "native accessibility row action"
+    },
+    {
+      "cohort": "candidate",
+      "label": "accessible-1",
+      "pid": 11362,
+      "start": "2026-10-01T08:58:27.780000-07:00",
+      "end": "2026-10-01T08:59:28.719000-07:00",
+      "thermal_state": "Nominal",
+      "full_capture_hang_count": 8,
+      "events": [
+        {
+          "time": "2026-10-01T08:58:45.349000-07:00",
+          "offset_s": 17.569,
+          "from": "Artists",
+          "to": "Songs",
+          "main_ms": 456.0,
+          "inclusive_ms": {
+            "layout": 350.0,
+            "sidebar": 8.0,
+            "sizing": 13.0,
+            "table": 24.0,
+            "artwork": 2.0,
+            "accessibility": 60.0
+          },
+          "hangs": [
+            {
+              "start_s": 17.567876583,
+              "duration_ms": 444.780833
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T08:58:49.082000-07:00",
+          "offset_s": 21.302,
+          "from": "Songs",
+          "to": "Artists",
+          "main_ms": 389.0,
+          "inclusive_ms": {
+            "layout": 271.0,
+            "sidebar": 10.0,
+            "sizing": 1.0,
+            "table": 5.0,
+            "artwork": 2.0,
+            "accessibility": 52.0
+          },
+          "hangs": [
+            {
+              "start_s": 21.301237333,
+              "duration_ms": 382.238708
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T08:58:52.204000-07:00",
+          "offset_s": 24.424,
+          "from": "Artists",
+          "to": "Albums",
+          "main_ms": 435.0,
+          "inclusive_ms": {
+            "layout": 319.0,
+            "sidebar": 6.0,
+            "sizing": 0,
+            "table": 0,
+            "artwork": 3.0,
+            "accessibility": 61.0
+          },
+          "hangs": [
+            {
+              "start_s": 24.424108458,
+              "duration_ms": 425.296542
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T08:58:55.899000-07:00",
+          "offset_s": 28.119,
+          "from": "Albums",
+          "to": "Songs",
+          "main_ms": 270.0,
+          "inclusive_ms": {
+            "layout": 200.0,
+            "sidebar": 5.0,
+            "sizing": 3.0,
+            "table": 12.0,
+            "artwork": 0,
+            "accessibility": 37.0
+          },
+          "hangs": [
+            {
+              "start_s": 28.117940958,
+              "duration_ms": 269.871875
+            }
+          ]
+        }
+      ],
+      "input": "native accessibility row action"
+    },
+    {
+      "cohort": "candidate",
+      "label": "accessible-2",
+      "pid": 15479,
+      "start": "2026-10-01T09:04:39.145000-07:00",
+      "end": "2026-10-01T09:05:40.001000-07:00",
+      "thermal_state": "Nominal",
+      "full_capture_hang_count": 5,
+      "events": [
+        {
+          "time": "2026-10-01T09:04:56.948000-07:00",
+          "offset_s": 17.803,
+          "from": "Artists",
+          "to": "Songs",
+          "main_ms": 388.0,
+          "inclusive_ms": {
+            "layout": 294.0,
+            "sidebar": 9.0,
+            "sizing": 10.0,
+            "table": 25.0,
+            "artwork": 0,
+            "accessibility": 37.0
+          },
+          "hangs": [
+            {
+              "start_s": 17.802276,
+              "duration_ms": 386.557416
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T09:05:00.478000-07:00",
+          "offset_s": 21.333,
+          "from": "Songs",
+          "to": "Artists",
+          "main_ms": 317.0,
+          "inclusive_ms": {
+            "layout": 221.0,
+            "sidebar": 9.0,
+            "sizing": 0,
+            "table": 3.0,
+            "artwork": 3.0,
+            "accessibility": 34.0
+          },
+          "hangs": [
+            {
+              "start_s": 21.33188825,
+              "duration_ms": 315.47875
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T09:05:03.465000-07:00",
+          "offset_s": 24.32,
+          "from": "Artists",
+          "to": "Albums",
+          "main_ms": 362.0,
+          "inclusive_ms": {
+            "layout": 259.0,
+            "sidebar": 8.0,
+            "sizing": 0,
+            "table": 0,
+            "artwork": 0,
+            "accessibility": 37.0
+          },
+          "hangs": [
+            {
+              "start_s": 24.318910291,
+              "duration_ms": 361.824417
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T09:05:06.498000-07:00",
+          "offset_s": 27.353,
+          "from": "Albums",
+          "to": "Songs",
+          "main_ms": 234.0,
+          "inclusive_ms": {
+            "layout": 159.0,
+            "sidebar": 4.0,
+            "sizing": 3.0,
+            "table": 11.0,
+            "artwork": 0,
+            "accessibility": 32.0
+          },
+          "hangs": []
+        }
+      ],
+      "input": "native accessibility row action"
+    },
+    {
+      "cohort": "baseline",
+      "label": "baseline-3",
+      "pid": 26504,
+      "input": "native accessibility row action",
+      "start": "2026-10-01T09:26:56.461000-07:00",
+      "end": "2026-10-01T09:27:57.367000-07:00",
+      "thermal_state": "Nominal",
+      "full_capture_hang_count": 6,
+      "events": [
+        {
+          "time": "2026-10-01T09:27:14.797000-07:00",
+          "offset_s": 18.336,
+          "from": "Artists",
+          "to": "Songs",
+          "main_ms": 406.0,
+          "inclusive_ms": {
+            "layout": 324.0,
+            "sidebar": 4.0,
+            "sizing": 52.0,
+            "table": 70.0,
+            "artwork": 0,
+            "accessibility": 46.0
+          },
+          "hangs": [
+            {
+              "start_s": 18.334189625,
+              "duration_ms": 403.111625
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T09:27:18.288000-07:00",
+          "offset_s": 21.827,
+          "from": "Songs",
+          "to": "Artists",
+          "main_ms": 316.0,
+          "inclusive_ms": {
+            "layout": 217.0,
+            "sidebar": 6.0,
+            "sizing": 0,
+            "table": 3.0,
+            "artwork": 2.0,
+            "accessibility": 29.0
+          },
+          "hangs": [
+            {
+              "start_s": 21.825590625,
+              "duration_ms": 317.410041
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T09:27:21.261000-07:00",
+          "offset_s": 24.8,
+          "from": "Artists",
+          "to": "Albums",
+          "main_ms": 367.0,
+          "inclusive_ms": {
+            "layout": 278.0,
+            "sidebar": 8.0,
+            "sizing": 0,
+            "table": 0,
+            "artwork": 1.0,
+            "accessibility": 35.0
+          },
+          "hangs": [
+            {
+              "start_s": 24.797937333,
+              "duration_ms": 370.60375
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T09:27:24.277000-07:00",
+          "offset_s": 27.816,
+          "from": "Albums",
+          "to": "Songs",
+          "main_ms": 254.0,
+          "inclusive_ms": {
+            "layout": 194.0,
+            "sidebar": 7.0,
+            "sizing": 22.0,
+            "table": 35.0,
+            "artwork": 1.0,
+            "accessibility": 25.0
+          },
+          "hangs": [
+            {
+              "start_s": 27.814591916,
+              "duration_ms": 252.344459
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cohort": "baseline",
+      "label": "baseline-pointer",
+      "pid": 26504,
+      "input": "mouse click",
+      "start": "2026-10-01T09:46:03.526000-07:00",
+      "end": "2026-10-01T09:47:04.356000-07:00",
+      "thermal_state": "Nominal",
+      "full_capture_hang_count": 6,
+      "events": [
+        {
+          "time": "2026-10-01T09:46:19.529000-07:00",
+          "offset_s": 16.003,
+          "from": "Artists",
+          "to": "Songs",
+          "main_ms": 431.0,
+          "inclusive_ms": {
+            "layout": 345.0,
+            "sidebar": 9.0,
+            "sizing": 51.0,
+            "table": 73.0,
+            "artwork": 0,
+            "accessibility": 43.0
+          },
+          "hangs": [
+            {
+              "start_s": 16.001398416,
+              "duration_ms": 439.341292
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T09:46:24.028000-07:00",
+          "offset_s": 20.502,
+          "from": "Songs",
+          "to": "Artists",
+          "main_ms": 307.0,
+          "inclusive_ms": {
+            "layout": 211.0,
+            "sidebar": 7.0,
+            "sizing": 0,
+            "table": 3.0,
+            "artwork": 1.0,
+            "accessibility": 22.0
+          },
+          "hangs": [
+            {
+              "start_s": 20.501405583,
+              "duration_ms": 302.177958
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T09:46:27.378000-07:00",
+          "offset_s": 23.852,
+          "from": "Artists",
+          "to": "Albums",
+          "main_ms": 383.0,
+          "inclusive_ms": {
+            "layout": 290.0,
+            "sidebar": 8.0,
+            "sizing": 0,
+            "table": 0,
+            "artwork": 1.0,
+            "accessibility": 31.0
+          },
+          "hangs": [
+            {
+              "start_s": 23.851431,
+              "duration_ms": 386.061083
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T09:46:30.762000-07:00",
+          "offset_s": 27.236,
+          "from": "Albums",
+          "to": "Songs",
+          "main_ms": 259.0,
+          "inclusive_ms": {
+            "layout": 202.0,
+            "sidebar": 4.0,
+            "sizing": 23.0,
+            "table": 35.0,
+            "artwork": 1.0,
+            "accessibility": 28.0
+          },
+          "hangs": []
+        }
+      ]
+    },
+    {
+      "cohort": "candidate",
+      "label": "accessible-pointer",
+      "pid": 41619,
+      "input": "mouse click",
+      "start": "2026-10-01T09:48:25.817000-07:00",
+      "end": "2026-10-01T09:49:26.608000-07:00",
+      "thermal_state": "Nominal",
+      "full_capture_hang_count": 6,
+      "events": [
+        {
+          "time": "2026-10-01T09:48:42.595000-07:00",
+          "offset_s": 16.778,
+          "from": "Artists",
+          "to": "Songs",
+          "main_ms": 361.0,
+          "inclusive_ms": {
+            "layout": 272.0,
+            "sidebar": 8.0,
+            "sizing": 9.0,
+            "table": 21.0,
+            "artwork": 1.0,
+            "accessibility": 42.0
+          },
+          "hangs": [
+            {
+              "start_s": 16.776906458,
+              "duration_ms": 349.481625
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T09:48:46.895000-07:00",
+          "offset_s": 21.078,
+          "from": "Songs",
+          "to": "Artists",
+          "main_ms": 304.0,
+          "inclusive_ms": {
+            "layout": 207.0,
+            "sidebar": 5.0,
+            "sizing": 0,
+            "table": 2.0,
+            "artwork": 1.0,
+            "accessibility": 34.0
+          },
+          "hangs": [
+            {
+              "start_s": 21.076843583,
+              "duration_ms": 301.550708
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T09:48:50.228000-07:00",
+          "offset_s": 24.411,
+          "from": "Artists",
+          "to": "Albums",
+          "main_ms": 344.0,
+          "inclusive_ms": {
+            "layout": 250.0,
+            "sidebar": 12.0,
+            "sizing": 0,
+            "table": 0,
+            "artwork": 3.0,
+            "accessibility": 38.0
+          },
+          "hangs": [
+            {
+              "start_s": 24.410179166,
+              "duration_ms": 331.4735
+            }
+          ]
+        },
+        {
+          "time": "2026-10-01T09:48:53.628000-07:00",
+          "offset_s": 27.811,
+          "from": "Albums",
+          "to": "Songs",
+          "main_ms": 216.0,
+          "inclusive_ms": {
+            "layout": 156.0,
+            "sidebar": 3.0,
+            "sizing": 4.0,
+            "table": 8.0,
+            "artwork": 1.0,
+            "accessibility": 35.0
+          },
+          "hangs": []
+        }
+      ]
+    }
+  ],
+  "raw_artifacts_directory": "/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/ensemble-sidebar-fix.7775xxm_"
+}

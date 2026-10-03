@@ -196,6 +196,17 @@ final class EnsembleDomainTests: XCTestCase {
         )
     }
 
+    func testArtistIdentityMatchesDotSeparatorsWithoutRemovingOtherPunctuation() {
+        for name in ["half•alive", "half·alive", "HALF-ALIVE"] {
+            XCTAssertEqual(EnsembleMergeIdentity.normalizedArtist(name), "half-alive", name)
+        }
+        for name in ["!!!", "AC/DC", "A.B", "•Artist", "Artist·", "A • B"] {
+            XCTAssertEqual(EnsembleMergeIdentity.normalizedArtist(name), EnsembleMergeIdentity.normalized(name), name)
+        }
+        XCTAssertNil(EnsembleMergeIdentity.normalizedArtist(nil))
+        XCTAssertNotEqual(EnsembleMergeIdentity.normalized("half•alive"), EnsembleMergeIdentity.normalized("half-alive"))
+    }
+
     func testMediaActionCatalogUsesSharedWatchAndIOSOrder() {
         XCTAssertEqual(
             EnsembleMediaActionCatalog.ordered.map(\.action),

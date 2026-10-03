@@ -296,7 +296,7 @@ struct AlbumActionsContextMenu: View {
             candidates: hiddenCandidates,
             store: deps.hiddenMediaStore
         )
-        let downloadState = deps.downloadMutationWorkflow.batchState(for: backingAlbums)
+        let downloadState = deps.offlineDownloadService.batchState(for: backingAlbums)
         let isDownloaded = downloadState.isEnabled
         let downloadAvailability = MusicItemActionAvailability.combined(
             backingAlbums.map {
@@ -424,14 +424,14 @@ struct AlbumActionsContextMenu: View {
                 },
                 download: {
                     Task {
-                        await deps.downloadMutationWorkflow.toggleDownloads(for: backingAlbums)
+                        await deps.offlineDownloadService.toggleDownloads(for: backingAlbums)
                     }
                 },
                 pin: {
                     if let customPinAction {
                         customPinAction(isPinned)
                     } else {
-                        deps.pinMutationWorkflow.togglePin(
+                        deps.pinManager.togglePin(
                             id: album.id,
                             sourceKey: album.sourceCompositeKey ?? "",
                             type: .album,
@@ -573,7 +573,7 @@ struct ArtistActionsContextMenu: View {
             candidates: hiddenCandidates,
             store: deps.hiddenMediaStore
         )
-        let downloadState = deps.downloadMutationWorkflow.batchState(for: mutationArtists)
+        let downloadState = deps.offlineDownloadService.batchState(for: mutationArtists)
         let isDownloaded = downloadState.isEnabled
         let downloadAvailability = MusicItemActionAvailability.combined(
             mutationArtists.map {
@@ -656,14 +656,14 @@ struct ArtistActionsContextMenu: View {
                 },
                 download: {
                     Task {
-                        await deps.downloadMutationWorkflow.toggleDownloads(for: mutationArtists)
+                        await deps.offlineDownloadService.toggleDownloads(for: mutationArtists)
                     }
                 },
                 pin: {
                     if let customPinAction {
                         customPinAction(isPinned)
                     } else {
-                        deps.pinMutationWorkflow.togglePin(
+                        deps.pinManager.togglePin(
                             id: artist.id,
                             sourceKey: artist.sourceCompositeKey ?? "",
                             type: .artist,
@@ -909,7 +909,7 @@ struct PlaylistActionsContextMenu: View {
             candidates: hiddenCandidates,
             store: deps.hiddenMediaStore
         )
-        let downloadState = deps.downloadMutationWorkflow.batchState(for: mutationPlaylists)
+        let downloadState = deps.offlineDownloadService.batchState(for: mutationPlaylists)
         let isDownloaded = downloadState.isEnabled
         let downloadAvailability = MusicItemActionAvailability.combined(
             mutationPlaylists.map {
@@ -1020,14 +1020,14 @@ struct PlaylistActionsContextMenu: View {
                 },
                 download: {
                     Task {
-                        await deps.downloadMutationWorkflow.toggleDownloads(for: mutationPlaylists)
+                        await deps.offlineDownloadService.toggleDownloads(for: mutationPlaylists)
                     }
                 },
                 pin: {
                     if let customPinAction {
                         customPinAction(isPinned)
                     } else {
-                        deps.pinMutationWorkflow.togglePin(
+                        deps.pinManager.togglePin(
                             id: playlist.id,
                             sourceKey: playlist.sourceCompositeKey ?? "",
                             type: .playlist,
@@ -1124,7 +1124,7 @@ struct MergedPlaylistActionsContextMenu: View {
         let deleteAvailability = MusicItemActionAvailability.combined(
             displayPlaylist.playlists.map { $0.actionAvailability(for: .delete) }
         )
-        let isDownloaded = deps.downloadMutationWorkflow.batchState(
+        let isDownloaded = deps.offlineDownloadService.batchState(
             for: displayPlaylist.playlists
         ).isEnabled
         let isHidden = hiddenMediaIsHidden(
@@ -1133,7 +1133,7 @@ struct MergedPlaylistActionsContextMenu: View {
             store: deps.hiddenMediaStore
         )
         let isPinned = displayPlaylist.playlists.allSatisfy {
-            deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+            deps.pinManager.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
         }
 
         SwiftUIMediaMenuRenderer(
@@ -1208,7 +1208,7 @@ struct MergedPlaylistActionsContextMenu: View {
                 },
                 download: {
                     Task {
-                        await deps.downloadMutationWorkflow.toggleDownloads(
+                        await deps.offlineDownloadService.toggleDownloads(
                             for: displayPlaylist.playlists
                         )
                     }
@@ -1218,12 +1218,12 @@ struct MergedPlaylistActionsContextMenu: View {
                         if let onUnpinAll {
                             onUnpinAll()
                         } else {
-                            deps.pinMutationWorkflow.unpinAll(
+                            deps.pinManager.unpinAll(
                                 identities: Set(displayPlaylist.playlists.map(\.sourceScopedID))
                             )
                         }
                     } else {
-                        deps.pinMutationWorkflow.pinAll(items: displayPlaylist.playlists.map { playlist in
+                        deps.pinManager.pinAll(items: displayPlaylist.playlists.map { playlist in
                             (id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "", type: .playlist, title: displayPlaylist.title)
                         })
                     }

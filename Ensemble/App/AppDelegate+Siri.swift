@@ -397,10 +397,8 @@ func executeSiriPlaybackInBackground(
             AppLogger.info("SIRI_APP: [origin=\(origin)] Post-fallback serverStates: [\(postFallback)]")
         }
 
-        // Build sync providers (needed for stream URL resolution) and update
-        // API client connections from the registry endpoints.
+        // Build sync providers using the canonical account/server clients.
         sc.refreshProviders()
-        await sc.refreshAPIClientConnections()
         AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready")
 
         do {

@@ -256,13 +256,14 @@ public actor EnsemblePlexDiscoveryService {
                 )
 
                 let sections: [PlexLibrarySection]
+                let activeServerURL: String
                 do {
                     _ = try await client.refreshConnection()
                     sections = try await client.getLibrarySections()
+                    activeServerURL = try await client.getCurrentServerURL()
                 } catch {
                     continue
                 }
-                let activeServerURL = await client.getCurrentServerURL()
                 let musicSections = sections.filter(\.isMusicLibrary)
                 let libraries = Self.mergeLibraryHints(hintedLibraries, sections: musicSections)
 

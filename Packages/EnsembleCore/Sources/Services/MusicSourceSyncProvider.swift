@@ -169,6 +169,11 @@ public protocol MusicSourcePlaybackReporting: Sendable {
     func scrobble(ratingKey: String) async throws
 }
 
+/// Opt-in lookup for source-owned artists not present in the local library.
+public protocol MusicSourceArtistResolving: Sendable {
+    func getArtist(artistKey: String?, name: String?) async throws -> Artist?
+}
+
 /// Loads provider-owned collection relationships and Get Info metadata.
 public protocol MusicSourceDetailProviding: Sendable {
     func getAlbumTracks(albumKey: String) async throws -> [Track]

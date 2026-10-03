@@ -4,7 +4,7 @@ import EnsembleDomain
 import SwiftUI
 import XCTest
 @testable import EnsembleUI
-import EnsembleCore
+@testable import EnsembleCore
 import EnsemblePersistence
 import UniformTypeIdentifiers
 #if canImport(UIKit)
@@ -15,19 +15,6 @@ import AppKit
 #endif
 
 final class EnsembleUITests: XCTestCase {
-    func testBrowseSnapshotCacheDoesNotRepublishIdenticalSnapshot() {
-        let cache = BrowseSnapshotCache(1)
-        var publicationCount = 0
-        let cancellable = cache.objectWillChange.sink { publicationCount += 1 }
-
-        cache.snapshot = 1
-        cache.snapshot = 2
-
-        XCTAssertEqual(publicationCount, 1)
-        XCTAssertEqual(cache.snapshot, 2)
-        withExtendedLifetime(cancellable) {}
-    }
-
     func testMediaDetailSourceLabelsUseProviderOrLibraryAndServer() {
         let appleMusic = MusicSourcePresentation(
             capabilities: MusicSourceType.appleMusic.capabilities,
@@ -1077,6 +1064,27 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(resolved.bottomPadding, rootFallback.bottomPadding)
         XCTAssertEqual(resolved.horizontalOffset, 0)
         XCTAssertTrue(resolved.showsMiniPlayer)
+    }
+
+    @MainActor
+    func testSongsNativeRowsTrackFlatOrderAndIgnorePhaseAndGenreOnlyChanges() {
+        let first = Track(id: "a", key: "/a", title: "Alpha", sourceCompositeKey: "plex:account:server:library")
+        let second = Track(id: "b", key: "/b", title: "Beta", sourceCompositeKey: "plex:account:server:library")
+        let sections = [LibraryViewModel.TrackSection(letter: "A", tracks: [first]),
+                        LibraryViewModel.TrackSection(letter: "B", tracks: [second])]
+        let initial = TrackBrowseSnapshot(tracks: [first, second], sections: sections,
+                                          availableGenres: [], phase: .idle, isShowingStaleSnapshot: false)
+        let reordered = TrackBrowseSnapshot(tracks: [second, first], sections: sections,
+                                            availableGenres: [], phase: .idle, isShowingStaleSnapshot: false)
+        for sortOption in [TrackSortOption.title, .duration] {
+            let rows = SongsView.nativeTrackSections(from: initial, sortOption: sortOption)
+            let reorderedRows = SongsView.nativeTrackSections(from: reordered, sortOption: sortOption)
+            XCTAssertEqual(rows == reorderedRows, sortOption == .title)
+            XCTAssertEqual(SongsView.nativeTrackSections(
+                from: initial.updating(availableGenres: ["Rock"], phase: .refreshing), sortOption: sortOption
+            ), rows)
+        }
+        XCTAssertEqual(SongsView.nativeTrackSections(from: reordered, sortOption: .duration).flatMap(\.tracks).map(\.id), ["b", "a"])
     }
 
     func testNativeTrackListFlatteningPreservesTrackIndexesAcrossSupplementaryRows() {

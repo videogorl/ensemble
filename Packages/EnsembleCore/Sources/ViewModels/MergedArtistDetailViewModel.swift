@@ -120,12 +120,9 @@ public final class MergedArtistDetailViewModel: ObservableObject {
         }
 
         error = nil
-        await withCheckedContinuation { continuation in
-            Task.detached { [syncCoordinator] in
-                await syncCoordinator.syncAllIncremental()
-                continuation.resume()
-            }
-        }
+        await Task.detached { [syncCoordinator] in
+            await syncCoordinator.syncAllIncremental()
+        }.value
         await load()
     }
 

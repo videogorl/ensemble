@@ -316,8 +316,6 @@ struct MergingSettingsView: View {
 
 struct ConnectionPolicySettingsView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    private let accountManager = DependencyContainer.shared.accountManager
-    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
 
     var body: some View {
         EnsembleAdaptiveUtilityScaffold(title: "Connection Security") {
@@ -325,13 +323,13 @@ struct ConnectionPolicySettingsView: View {
                 Section {
                     policyPicker
                 } footer: {
-                    Text("Changing this setting rebuilds server connection candidates and refreshes provider routing.")
+                    Text("Ensemble applies this setting when connecting to your servers.")
                 }
             }
         } regularContent: {
             EnsembleUtilityCardSection(
                 nil,
-                footer: "Changing this setting rebuilds server connection candidates and refreshes provider routing."
+                footer: "Ensemble applies this setting when connecting to your servers."
             ) {
                 EnsembleUtilityCardRow {
                     policyPicker
@@ -360,8 +358,6 @@ struct ConnectionPolicySettingsView: View {
             get: { settingsManager.allowInsecureConnectionsPolicy },
             set: { newPolicy in
                 settingsManager.setAllowInsecureConnectionsPolicy(newPolicy)
-                accountManager.clearAPIClientCache()
-                syncCoordinator.refreshProviders()
             }
         )
     }

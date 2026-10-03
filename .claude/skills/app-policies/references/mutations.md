@@ -35,7 +35,8 @@
   preferred-source selection only resolves matching copies. Selecting a song
   retains its exact playback source within that queue.
 - Artist matching normalizes case, whitespace, diacritics, width, and typographic
-  quotes consistently across Library, Feed, and Watch.
+  quotes consistently across Library, Feed, and Watch. Inter-letter bullet and
+  middle-dot separators match hyphens; other punctuation remains significant.
 - A merged artist, album, or playlist is pinned only when every constituent is
   pinned. Pin and unpin update every exact-source constituent as one reversible
   batch while persistence remains source-scoped.

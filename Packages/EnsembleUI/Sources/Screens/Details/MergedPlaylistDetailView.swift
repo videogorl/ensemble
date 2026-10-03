@@ -32,7 +32,7 @@ public struct MergedPlaylistDetailView: View {
         let downloadAvailabilities = playlists.map { playlist in
             playlist.actionAvailability(for: .download)
         }
-        let downloadState = deps.downloadMutationWorkflow.batchState(for: playlists)
+        let downloadState = deps.offlineDownloadService.batchState(for: playlists)
         MediaDetailView(
             viewModel: viewModel,
             nowPlayingVM: nowPlayingVM,
@@ -83,7 +83,7 @@ public struct MergedPlaylistDetailView: View {
                 },
                 onToggleDownload: {
                     Task {
-                        await deps.downloadMutationWorkflow.toggleDownloads(for: playlists)
+                        await deps.offlineDownloadService.toggleDownloads(for: playlists)
                     }
                 },
                 onRename: {
@@ -138,9 +138,9 @@ public struct MergedPlaylistDetailView: View {
             customPinAction: { isPinned in
                 let dp = viewModel.displayPlaylist
                 if isPinned {
-                    deps.pinMutationWorkflow.unpinAll(identities: Set(dp.playlists.map(\.sourceScopedID)))
+                    deps.pinManager.unpinAll(identities: Set(dp.playlists.map(\.sourceScopedID)))
                 } else {
-                    deps.pinMutationWorkflow.pinAll(items: dp.playlists.map { playlist in
+                    deps.pinManager.pinAll(items: dp.playlists.map { playlist in
                         (id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "", type: .playlist, title: dp.title)
                     })
                 }
@@ -202,7 +202,7 @@ public struct MergedPlaylistDetailView: View {
         favoriteOverrides[playlist.sourceScopedID] = isFavorite
         Task {
             do {
-                try await deps.collectionFavoriteMutationWorkflow.setFavorite(isFavorite, for: playlist)
+                try await deps.mutationCoordinator.setFavorite(isFavorite, for: playlist)
             } catch {
                 favoriteOverrides[playlist.sourceScopedID] = previous
             }
@@ -226,7 +226,7 @@ public struct MergedPlaylistDetailView: View {
     }
 
     private func renamePlaylist(_ playlist: Playlist, to newTitle: String) {
-        guard let start = deps.playlistMutationWorkflow.beginRename(
+        guard let start = deps.mutationCoordinator.beginRename(
             playlist: playlist,
             to: newTitle
         ) else { return }
@@ -235,7 +235,7 @@ public struct MergedPlaylistDetailView: View {
         deps.toastCenter.show(renamingToast)
         Task {
             do {
-                let result = try await deps.playlistMutationWorkflow.finishRename(
+                let result = try await deps.mutationCoordinator.finishRename(
                     playlist: playlist,
                     trimmedTitle: start.trimmedTitle
                 )
@@ -245,7 +245,7 @@ public struct MergedPlaylistDetailView: View {
             } catch {
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
-                    deps.playlistMutationWorkflow.renameFailureToast(
+                    deps.mutationCoordinator.renameFailureToast(
                         playlist: playlist,
                         error: error
                     )
@@ -256,20 +256,20 @@ public struct MergedPlaylistDetailView: View {
 
     private func deleteSelectedPlaylist() {
         guard let playlist = deleteTarget,
-              let start = deps.playlistMutationWorkflow.beginDelete(playlist: playlist) else { return }
+              let start = deps.mutationCoordinator.beginDelete(playlist: playlist) else { return }
         deleteTarget = nil
-        let deletingToast = start.pendingToast
+        let deletingToast = start
         deps.toastCenter.show(deletingToast)
         Task {
             do {
-                let result = try await deps.playlistMutationWorkflow.finishDelete(playlist: playlist)
+                let result = try await deps.mutationCoordinator.finishDelete(playlist: playlist)
                 deps.toastCenter.dismiss(id: deletingToast.id)
                 deps.toastCenter.show(result.successToast)
                 await viewModel.refreshFromServer()
             } catch {
                 deps.toastCenter.dismiss(id: deletingToast.id)
                 deps.toastCenter.show(
-                    deps.playlistMutationWorkflow.deleteFailureToast(
+                    deps.mutationCoordinator.deleteFailureToast(
                         playlist: playlist,
                         errorMessage: error.localizedDescription
                     )

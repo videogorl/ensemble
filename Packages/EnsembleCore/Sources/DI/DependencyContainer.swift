@@ -1,4 +1,3 @@
-import CloudKit
 import EnsembleAPI
 import EnsembleDomain
 import EnsemblePersistence
@@ -52,7 +51,6 @@ public final class DependencyContainer: @unchecked Sendable {
     public let hubOrderManager: HubOrderManager
     public let pinManager: PinManager
     public let hiddenMediaStore: HiddenMediaStore
-    public let pinMutationWorkflow: PinMutationWorkflow
     public let toastCenter: ToastCenter
     public let libraryVisibilityStore: LibraryVisibilityStore
     public let siriMediaIndexStore: SiriMediaIndexStore
@@ -63,14 +61,9 @@ public final class DependencyContainer: @unchecked Sendable {
     public let systemMediaIntegrationService: SystemMediaIntegrationService
     public let offlineBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating
     public let offlineDownloadService: OfflineDownloadService
-    public let downloadMutationWorkflow: DownloadMutationWorkflow
     public let lyricsService: LyricsService
     public let mutationCoordinator: MutationCoordinator
-    public let playlistMutationWorkflow: PlaylistMutationWorkflow
-    public let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
-    public let collectionFavoriteMutationWorkflow: CollectionFavoriteMutationWorkflow
     public let metadataMutationService: MetadataMutationService
-    public let metadataMutationWorkflow: MetadataMutationWorkflow
     public let songLinkService: SongLinkService
     public let shareService: ShareService
     public let powerStateMonitor: PowerStateMonitor
@@ -84,25 +77,10 @@ public final class DependencyContainer: @unchecked Sendable {
     public let cloudSyncService: CloudSyncService
     public let syncSettingsManager: SyncSettingsManager
     public let kvsSyncService: KVSSyncService
-    private var kvsSyncCancellables = Set<AnyCancellable>()
-    private var lastSyncedAccentColor: String = AppAccentColor.blue.rawValue
-    private var lastSyncedSwipeLayout: TrackSwipeLayout = .default
-    private var lastSyncedMergingPreferences = EnsembleMergingPreferences.default
-    private var lastSyncedPinsData: Data?
-    private var syncBootstrapTask: Task<Void, Never>?
-    private var firstConnectRetryTask: Task<Void, Never>?
-    private var firstConnectRetryAttempt = 0
-    private var lastKnownICloudAccountStatus: CKAccountStatus = .couldNotDetermine
-    private var lastKnownProfileTransportState: CloudSyncService.ProfileTransportState = .unknown
+    private let cloudSyncCoordinator: CloudSyncCoordinator
     private var hasScheduledDeferredSyncStartup = false
-    private static let firstConnectRetryDelays: [TimeInterval] = [5, 15, 30, 60]
 
     // MARK: - Network Infrastructure
-
-    /// Single source of truth for per-server active endpoints.
-    /// Shared by PlexAPIClient (writes on failover), ServerHealthChecker (writes on probe),
-    /// and SyncCoordinator (subscribes to keep API clients in sync).
-    public let connectionRegistry: ServerConnectionRegistry
 
     /// Manages WebSocket connections to Plex servers for real-time notifications.
     /// Start on foreground, stop on background.
@@ -136,7 +114,6 @@ public final class DependencyContainer: @unchecked Sendable {
         let hubOrderManager: HubOrderManager
         let pinManager: PinManager
         let hiddenMediaStore: HiddenMediaStore
-        let pinMutationWorkflow: PinMutationWorkflow
         let toastCenter: ToastCenter
         let libraryVisibilityStore: LibraryVisibilityStore
         let powerStateMonitor: PowerStateMonitor
@@ -148,7 +125,6 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     private struct NetworkBootstrap {
-        let connectionRegistry: ServerConnectionRegistry
         let accountManager: AccountManager
         let accountDiscoveryService: PlexAccountDiscoveryService
         let networkMonitor: NetworkMonitor
@@ -174,13 +150,8 @@ public final class DependencyContainer: @unchecked Sendable {
     private struct MutationBootstrap {
         let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinator
         let offlineDownloadService: OfflineDownloadService
-        let downloadMutationWorkflow: DownloadMutationWorkflow
         let mutationCoordinator: MutationCoordinator
-        let playlistMutationWorkflow: PlaylistMutationWorkflow
-        let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
-        let collectionFavoriteMutationWorkflow: CollectionFavoriteMutationWorkflow
         let metadataMutationService: MetadataMutationService
-        let metadataMutationWorkflow: MetadataMutationWorkflow
     }
 
     private struct SiriBootstrap {
@@ -253,7 +224,6 @@ public final class DependencyContainer: @unchecked Sendable {
         hubOrderManager = core.hubOrderManager
         pinManager = core.pinManager
         hiddenMediaStore = core.hiddenMediaStore
-        pinMutationWorkflow = core.pinMutationWorkflow
         toastCenter = core.toastCenter
         libraryVisibilityStore = core.libraryVisibilityStore
         powerStateMonitor = core.powerStateMonitor
@@ -263,7 +233,6 @@ public final class DependencyContainer: @unchecked Sendable {
         syncSettingsManager = core.syncSettingsManager
         kvsSyncService = core.kvsSyncService
 
-        connectionRegistry = network.connectionRegistry
         accountManager = network.accountManager
         accountDiscoveryService = network.accountDiscoveryService
         networkMonitor = network.networkMonitor
@@ -343,13 +312,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 await service?.reconcileNativeTransfers()
             }
         }
-        downloadMutationWorkflow = mutation.downloadMutationWorkflow
         mutationCoordinator = mutation.mutationCoordinator
-        playlistMutationWorkflow = mutation.playlistMutationWorkflow
-        trackRatingMutationWorkflow = mutation.trackRatingMutationWorkflow
-        collectionFavoriteMutationWorkflow = mutation.collectionFavoriteMutationWorkflow
         metadataMutationService = mutation.metadataMutationService
-        metadataMutationWorkflow = mutation.metadataMutationWorkflow
 
         siriMediaIndexStore = siri.siriMediaIndexStore
         siriPlaybackCoordinator = siri.siriPlaybackCoordinator
@@ -372,14 +336,22 @@ public final class DependencyContainer: @unchecked Sendable {
             mutation: mutation
         )
 
-        wireCrossSubsystemCallbacks()
-
-        MainActor.assumeIsolated {
-            lastSyncedAccentColor = settingsManager.accentColorName
-            lastSyncedSwipeLayout = settingsManager.trackSwipeLayout
-            lastSyncedMergingPreferences = settingsManager.mergingPreferences
-            lastSyncedPinsData = pinManager.exportPinsData()
+        cloudSyncCoordinator = MainActor.assumeIsolated {
+            CloudSyncCoordinator(
+                userProfileStore: core.userProfileStore,
+                cloudSyncService: core.cloudSyncService,
+                syncSettingsManager: core.syncSettingsManager,
+                kvsSyncService: core.kvsSyncService,
+                settingsManager: core.settingsManager,
+                pinManager: core.pinManager,
+                hiddenMediaStore: core.hiddenMediaStore,
+                accountManager: network.accountManager,
+                accountDiscoveryService: network.accountDiscoveryService,
+                syncCoordinator: sync.syncCoordinator
+            )
         }
+
+        wireCrossSubsystemCallbacks()
 
         MainActor.assumeIsolated {
             scheduleDeferredSyncStartup()
@@ -419,7 +391,6 @@ public final class DependencyContainer: @unchecked Sendable {
             hubOrderManager: HubOrderManager(),
             pinManager: pinManager,
             hiddenMediaStore: MainActor.assumeIsolated { .shared },
-            pinMutationWorkflow: MainActor.assumeIsolated { PinMutationWorkflow(pinManager: pinManager) },
             toastCenter: MainActor.assumeIsolated { ToastCenter() },
             libraryVisibilityStore: MainActor.assumeIsolated { LibraryVisibilityStore() },
             powerStateMonitor: MainActor.assumeIsolated { PowerStateMonitor() },
@@ -432,25 +403,18 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     private static func buildNetworkBootstrap(core: CoreBootstrap) -> NetworkBootstrap {
-        let connectionRegistry = ServerConnectionRegistry()
         let networkMonitor = MainActor.assumeIsolated { NetworkMonitor() }
         let accountManager = MainActor.assumeIsolated {
             AccountManager(
                 keychain: core.keychain,
-                connectionRegistry: connectionRegistry,
-                isNetworkAvailable: {
-                    await MainActor.run {
-                        networkMonitor.networkState.isConnected
-                    }
-                }
+                networkMonitor: networkMonitor
             )
         }
-        let accountDiscoveryService = PlexAccountDiscoveryService(keychain: core.keychain)
+        let accountDiscoveryService = PlexAccountDiscoveryService()
         let serverHealthChecker = MainActor.assumeIsolated {
             ServerHealthChecker(
                 accountManager: accountManager,
-                networkMonitor: networkMonitor,
-                connectionRegistry: connectionRegistry
+                networkMonitor: networkMonitor
             )
         }
 
@@ -458,7 +422,6 @@ public final class DependencyContainer: @unchecked Sendable {
         let webSocketCoordinator = MainActor.assumeIsolated {
             PlexWebSocketCoordinator(
                 accountManager: accountManager,
-                connectionRegistry: connectionRegistry,
                 networkMonitor: networkMonitor,
                 clientIdentifier: plexClientId
             )
@@ -472,7 +435,6 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         return NetworkBootstrap(
-            connectionRegistry: connectionRegistry,
             accountManager: accountManager,
             accountDiscoveryService: accountDiscoveryService,
             networkMonitor: networkMonitor,
@@ -494,8 +456,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 syncCursorRepository: core.syncCursorRepository,
                 artworkDownloadManager: core.artworkDownloadManager,
                 networkMonitor: network.networkMonitor,
-                serverHealthChecker: network.serverHealthChecker,
-                connectionRegistry: network.connectionRegistry
+                serverHealthChecker: network.serverHealthChecker
             )
         }
 
@@ -592,25 +553,11 @@ public final class DependencyContainer: @unchecked Sendable {
         let mutationCoordinator = MainActor.assumeIsolated {
             MutationCoordinator(
                 repository: core.pendingMutationRepository,
+                coreDataStack: core.coreDataStack,
+                toastCenter: core.toastCenter,
                 networkMonitor: network.networkMonitor,
                 syncCoordinator: sync.syncCoordinator,
                 playlistRepository: core.playlistRepository
-            )
-        }
-        let downloadMutationWorkflow = MainActor.assumeIsolated {
-            DownloadMutationWorkflow(mutator: offlineDownloadService)
-        }
-        let playlistMutationWorkflow = MainActor.assumeIsolated {
-            PlaylistMutationWorkflow(mutator: mutationCoordinator)
-        }
-        let trackRatingMutationWorkflow = MainActor.assumeIsolated {
-            TrackRatingMutationWorkflow(mutator: mutationCoordinator)
-        }
-        let collectionFavoriteMutationWorkflow = MainActor.assumeIsolated {
-            CollectionFavoriteMutationWorkflow(
-                mutationCoordinator: mutationCoordinator,
-                coreDataStack: core.coreDataStack,
-                toastCenter: core.toastCenter
             )
         }
         let metadataMutationService = MainActor.assumeIsolated {
@@ -641,20 +588,12 @@ public final class DependencyContainer: @unchecked Sendable {
                 }
             )
         }
-        let metadataMutationWorkflow = MainActor.assumeIsolated {
-            MetadataMutationWorkflow(mutator: metadataMutationService)
-        }
 
         return MutationBootstrap(
             offlineBackgroundExecutionCoordinator: offlineBackgroundExecutionCoordinator,
             offlineDownloadService: offlineDownloadService,
-            downloadMutationWorkflow: downloadMutationWorkflow,
             mutationCoordinator: mutationCoordinator,
-            playlistMutationWorkflow: playlistMutationWorkflow,
-            trackRatingMutationWorkflow: trackRatingMutationWorkflow,
-            collectionFavoriteMutationWorkflow: collectionFavoriteMutationWorkflow,
-            metadataMutationService: metadataMutationService,
-            metadataMutationWorkflow: metadataMutationWorkflow
+            metadataMutationService: metadataMutationService
         )
     }
 
@@ -836,15 +775,14 @@ public final class DependencyContainer: @unchecked Sendable {
     private func scheduleDeferredSyncStartup() {
         guard !hasScheduledDeferredSyncStartup else { return }
         hasScheduledDeferredSyncStartup = true
-        wireProfileAndCloudCallbacks()
-        wireKVSSyncCallbacks()
+        cloudSyncCoordinator.wireCallbacks()
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard await self.foregroundWorkScheduler.waitUntilAllowed(.startupSync, policy: .idleOnly) else {
                 EnsembleLogger.info("Sync startup: deferred iCloud/KVS bootstrap skipped because foreground work is unavailable")
                 return
             }
-            await self.refreshSyncState(reason: "launch")
+            await self.cloudSyncCoordinator.refreshSyncState(reason: "launch")
         }
     }
 
@@ -868,21 +806,14 @@ public final class DependencyContainer: @unchecked Sendable {
             guard parts.count == 2, let serverHealthChecker else { return }
             let accountId = String(parts[0])
             let serverId = String(parts[1])
-            _ = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId)
+            _ = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId, forceRefresh: true)
         }
         webSocketCoordinator.onServerHealthy = { [weak serverHealthChecker] serverKey in
             let parts = serverKey.split(separator: ":", maxSplits: 1)
             guard parts.count == 2, let serverHealthChecker else { return }
             let accountId = String(parts[0])
             let serverId = String(parts[1])
-            let currentState = await MainActor.run {
-                serverHealthChecker.getServerState(accountId: accountId, serverId: serverId)
-            }
-            if currentState.isAvailable {
-                serverHealthChecker.markServerHealthy(accountId: accountId, serverId: serverId)
-            } else {
-                _ = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId)
-            }
+            await serverHealthChecker.markServerHealthy(accountId: accountId, serverId: serverId)
         }
         webSocketCoordinator.onDownloadQueueCompleted = { [weak offlineDownloadService] in
             await offlineDownloadService?.handleDownloadQueueCompleted()
@@ -945,6 +876,9 @@ public final class DependencyContainer: @unchecked Sendable {
 
     @MainActor
     private func wireArtworkCallbacks() {
+        settingsManager.onConnectionPolicyChanged = { [weak accountManager] in
+            accountManager?.connectionPolicyDidChange()
+        }
         syncCoordinator.onConnectionsRefreshed = { [weak self] in
             await self?.artworkLoader.invalidateURLCache()
         }
@@ -984,361 +918,13 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     @MainActor
-    private func wireProfileAndCloudCallbacks() {
-        userProfileStore.onProfileUpdated = { [weak userProfileStore, weak cloudSyncService, weak syncSettingsManager] profile in
-            let imageData = userProfileStore?.getProfileImageData()
-            Task {
-                await cloudSyncService?.pushProfile(profile, imageData: imageData)
-                let transportState = await cloudSyncService?.currentProfileTransportState() ?? .unknown
-                await MainActor.run {
-                    syncSettingsManager?.setProfileStatus(
-                        phase: .transport(transportState),
-                        direction: .pushedFromThisDevice,
-                        detail: "Pushed profile changes from this device."
-                    )
-                }
-            }
-        }
-
-        let profileStore = userProfileStore
-        let hiddenStore = hiddenMediaStore
-        let syncSettings = syncSettingsManager
-        Task { [weak cloudSyncService] in
-            await cloudSyncService?.setRemoteChangeHandler { [profileStore] profile, imageData in
-                await MainActor.run {
-                    profileStore.applyRemoteProfile(profile, imageData: imageData)
-                    syncSettings.setProfileStatus(
-                        phase: .transport(.available),
-                        direction: .pulledFromICloud,
-                        detail: "Pulled profile changes from iCloud."
-                    )
-                }
-            }
-            await cloudSyncService?.setHiddenMediaChangeHandler { [hiddenStore, syncSettings] mutations in
-                await MainActor.run {
-                    guard syncSettings.isFeatureEnabled(.hiddenItems) else { return }
-                    hiddenStore.applyRemote(mutations)
-                    syncSettings.recordFeatureActivity(
-                        for: .hiddenItems,
-                        state: .appliedRemote,
-                        direction: .pulledFromICloud,
-                        detail: "Pulled hidden items from iCloud."
-                    )
-                }
-            }
-            await cloudSyncService?.subscribeToChanges()
-        }
-
-        hiddenMediaStore.$snapshot
-            .dropFirst()
-            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            .sink { [weak hiddenMediaStore, weak cloudSyncService, weak syncSettingsManager] _ in
-                guard let hiddenMediaStore, let cloudSyncService, let syncSettingsManager else { return }
-                guard syncSettingsManager.isFeatureEnabled(.hiddenItems) else { return }
-                if let lastApply = hiddenMediaStore.lastRemoteApplyTime,
-                   Date().timeIntervalSince(lastApply) < 2 { return }
-                let mutations = hiddenMediaStore.exportMutations()
-                Task {
-                    guard let merged = await cloudSyncService.pushHiddenMedia(mutations) else { return }
-                    await MainActor.run {
-                        hiddenMediaStore.applyRemote(merged)
-                        syncSettingsManager.recordFeatureActivity(
-                            for: .hiddenItems,
-                            state: .seededLocal,
-                            direction: .pushedFromThisDevice,
-                            detail: "Pushed hidden items from this device."
-                        )
-                    }
-                }
-            }
-            .store(in: &kvsSyncCancellables)
-    }
-
-    @MainActor
-    private func wireKVSSyncCallbacks() {
-        let settings = settingsManager
-        let kvs = kvsSyncService
-        let syncToggles = syncSettingsManager
-        let pins = pinManager
-        let acctMgr = accountManager
-        let discovery = accountDiscoveryService
-
-        kvsSyncService.onRemoteAccentColorChanged = { [weak self] colorName in
-            guard let self else { return }
-            guard syncToggles.isFeatureEnabled(.accentColor) else { return }
-            self.lastSyncedAccentColor = colorName
-            syncToggles.recordFeatureActivity(
-                for: .accentColor,
-                state: .appliedRemote,
-                direction: .pulledFromICloud,
-                detail: "Pulled accent color from iCloud."
-            )
-            guard settings.accentColorName != colorName else { return }
-            settings.setAccentColor(AppAccentColor(rawValue: colorName) ?? .blue)
-        }
-
-        kvsSyncService.onRemoteSwipeLayoutChanged = { [weak self] data in
-            guard let self else { return }
-            guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
-            guard let layout = try? JSONDecoder().decode(TrackSwipeLayout.self, from: data) else { return }
-            self.lastSyncedSwipeLayout = layout
-            syncToggles.recordFeatureActivity(
-                for: .swipeActions,
-                state: .appliedRemote,
-                direction: .pulledFromICloud,
-                detail: "Pulled swipe actions from iCloud."
-            )
-            guard settings.trackSwipeLayout != layout else { return }
-            settings.trackSwipeLayout = layout
-        }
-
-        kvsSyncService.onRemoteMergingPreferencesChanged = { [weak self] data in
-            guard let self else { return }
-            guard syncToggles.isFeatureEnabled(.merging) else { return }
-            guard let preferences = try? JSONDecoder().decode(EnsembleMergingPreferences.self, from: data) else { return }
-            self.lastSyncedMergingPreferences = preferences
-            syncToggles.recordFeatureActivity(
-                for: .merging,
-                state: .appliedRemote,
-                direction: .pulledFromICloud,
-                detail: "Pulled merging preferences from iCloud."
-            )
-            settings.setMergingPreferences(preferences)
-        }
-
-        settings.objectWillChange
-            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            .sink { [weak self, weak settings, weak kvs, weak syncToggles] _ in
-                guard let self, let settings, let kvs, let syncToggles else { return }
-                if syncToggles.isFeatureEnabled(.accentColor),
-                   settings.accentColorName != self.lastSyncedAccentColor {
-                    self.lastSyncedAccentColor = settings.accentColorName
-                    syncToggles.recordFeatureActivity(
-                        for: .accentColor,
-                        state: .seededLocal,
-                        direction: .pushedFromThisDevice,
-                        detail: "Pushed accent color from this device."
-                    )
-                    kvs.pushString(settings.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
-                }
-
-                if syncToggles.isFeatureEnabled(.swipeActions) {
-                    let currentLayout = settings.trackSwipeLayout
-                    if currentLayout != self.lastSyncedSwipeLayout {
-                        self.lastSyncedSwipeLayout = currentLayout
-                        syncToggles.recordFeatureActivity(
-                            for: .swipeActions,
-                            state: .seededLocal,
-                            direction: .pushedFromThisDevice,
-                            detail: "Pushed swipe actions from this device."
-                        )
-                        if let data = try? JSONEncoder().encode(currentLayout) {
-                            kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
-                        }
-                    }
-                }
-
-                guard syncToggles.isFeatureEnabled(.merging) else { return }
-                let preferences = settings.mergingPreferences
-                guard preferences != self.lastSyncedMergingPreferences,
-                      let data = try? JSONEncoder().encode(preferences) else { return }
-                self.lastSyncedMergingPreferences = preferences
-                syncToggles.recordFeatureActivity(
-                    for: .merging,
-                    state: .seededLocal,
-                    direction: .pushedFromThisDevice,
-                    detail: "Pushed merging preferences from this device."
-                )
-                kvs.pushData(data, forKey: KVSSyncService.KVSKey.mergingPreferences)
-                }
-            .store(in: &kvsSyncCancellables)
-
-        kvsSyncService.onRemotePinsChanged = { [weak self, weak pins] data in
-            guard let self, let pins else { return }
-            guard syncToggles.isFeatureEnabled(.pins) else { return }
-            self.lastSyncedPinsData = data
-            syncToggles.recordFeatureActivity(
-                for: .pins,
-                state: .appliedRemote,
-                direction: .pulledFromICloud,
-                detail: "Pulled pins from iCloud."
-            )
-            if let remotePins = try? JSONDecoder().decode([PinnedItem].self, from: data) {
-                pins.applyRemotePins(remotePins)
-            }
-        }
-
-        pins.objectWillChange
-            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            .sink { [weak self, weak pins, weak kvs, weak syncToggles] _ in
-                guard let self, let pins, let kvs, let syncToggles else { return }
-                guard syncToggles.isFeatureEnabled(.pins) else { return }
-                if let lastApply = pins.lastRemoteApplyTime,
-                   Date().timeIntervalSince(lastApply) < 2.0 {
-                    return
-                }
-                guard let data = pins.exportPinsData(), data != self.lastSyncedPinsData else { return }
-                self.lastSyncedPinsData = data
-                syncToggles.recordFeatureActivity(
-                    for: .pins,
-                    state: .seededLocal,
-                    direction: .pushedFromThisDevice,
-                    detail: "Pushed pins from this device."
-                )
-                kvs.pushData(data, forKey: KVSSyncService.KVSKey.pins)
-            }
-            .store(in: &kvsSyncCancellables)
-
-        acctMgr.onNewAccountsFromSync = { [weak self, weak acctMgr, weak syncToggles] newCredentials in
-            guard let self, let acctMgr, let syncToggles else { return }
-            guard syncToggles.isFeatureEnabled(.sources) else { return }
-            syncToggles.recordFeatureActivity(
-                for: .sources,
-                state: .appliedRemote,
-                direction: .pulledFromICloud,
-                detail: "Pulled sources from iCloud."
-            )
-
-            for credential in newCredentials {
-                Task {
-                    do {
-                        let result = try await discovery.discoverAccount(authToken: credential.authToken)
-                        await MainActor.run {
-                            var config = PlexAccountConfig(
-                                id: credential.accountId,
-                                email: credential.email,
-                                plexUsername: credential.plexUsername,
-                                displayTitle: credential.displayTitle,
-                                authToken: credential.authToken,
-                                servers: result.servers
-                            )
-                            config = acctMgr.applyingCredentialLibrarySelection(to: config, credential: credential)
-                            if syncToggles.isFeatureEnabled(.libraries) {
-                                config = acctMgr.applyingSyncedLibraryFlags(to: config)
-                            }
-                            acctMgr.addPlexAccount(config)
-                            acctMgr.setAwaitingCloudSources(false)
-                            self.syncCoordinator.refreshProviders()
-                            EnsembleLogger.info("Sync: discovered account \(credential.accountId) with \(result.servers.count) servers")
-
-                            let enabledSources = config.servers.flatMap { server in
-                                server.libraries.compactMap { library -> MusicSourceIdentifier? in
-                                    guard library.isEnabled else { return nil }
-                                    return MusicSourceIdentifier(
-                                        type: .plex,
-                                        accountId: config.id,
-                                        serverId: server.id,
-                                        libraryId: library.key
-                                    )
-                                }
-                            }
-
-                            if !enabledSources.isEmpty {
-                                Task {
-                                    await self.syncCoordinator.sync(sources: enabledSources)
-                                }
-                            }
-                        }
-                    } catch {
-                        await MainActor.run {
-                            syncToggles.recordFeatureActivity(
-                                for: .sources,
-                                state: .error,
-                                direction: nil,
-                                detail: "Failed to pull sources from iCloud."
-                            )
-                        }
-                        EnsembleLogger.error("Sync: failed to discover account \(credential.accountId): \(error)")
-                    }
-                }
-            }
-        }
-
-        kvsSyncService.onRemoteLibraryFlagsChanged = { [weak self, weak acctMgr] data in
-            guard let self, let acctMgr else { return }
-            guard syncToggles.isFeatureEnabled(.libraries) else { return }
-            Task { @MainActor in
-                let result = acctMgr.applyLibraryFlags(data)
-                syncToggles.recordFeatureActivity(
-                    for: .libraries,
-                    state: .appliedRemote,
-                    direction: .pulledFromICloud,
-                    detail: "Pulled library selection from iCloud."
-                )
-
-                if !acctMgr.hasAnySources && !syncToggles.hasCompletedFirstConnect {
-                    self.scheduleSyncBootstrap(reason: "remote-library-flags", feature: .sources)
-                }
-
-                guard result.hasChanges else { return }
-
-                self.syncCoordinator.refreshProviders()
-
-                let disabledSourcesToCleanup = Array(Set(result.disabledSources))
-                if !disabledSourcesToCleanup.isEmpty {
-                    for source in disabledSourcesToCleanup {
-                        EnsembleLogger.info(
-                            "[SourceReconciliation] Cleanup requested source=\(source.compositeKey) reason=icloud-library-disabled"
-                        )
-                    }
-                    await self.syncCoordinator.cleanupRemovedSourcesIfPresent(disabledSourcesToCleanup)
-                }
-
-                for server in result.serversNeedingPlaylistCleanup {
-                    await self.syncCoordinator.cleanupServerPlaylists(
-                        accountId: server.accountId,
-                        serverId: server.serverId
-                    )
-                }
-
-                if !result.enabledSources.isEmpty {
-                    await self.syncCoordinator.sync(sources: result.enabledSources)
-                }
-            }
-        }
-
-        acctMgr.objectWillChange
-            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            .sink { [weak acctMgr, weak kvs, weak syncToggles] _ in
-                guard let acctMgr, let kvs, let syncToggles else { return }
-                guard syncToggles.isFeatureEnabled(.libraries) else { return }
-                if let data = acctMgr.exportLibraryFlags() {
-                    syncToggles.recordFeatureActivity(
-                        for: .libraries,
-                        state: .seededLocal,
-                        direction: .pushedFromThisDevice,
-                        detail: "Pushed library selection from this device."
-                    )
-                    kvs.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
-                }
-            }
-            .store(in: &kvsSyncCancellables)
-
-        kvsSyncService.onInitialSyncCompleted = { [weak self, weak syncToggles] in
-            guard let self, let syncToggles else { return }
-            guard syncToggles.isMasterSyncEnabled, !syncToggles.hasCompletedFirstConnect else { return }
-            self.scheduleSyncBootstrap(reason: "kvs-initial-sync")
-        }
-
-        syncSettingsManager.onMasterSyncEnabled = { [weak self] in
-            self?.scheduleSyncBootstrap(reason: "master-enabled")
-        }
-
-        syncSettingsManager.onFeatureReEnabled = { [weak self] feature in
-            self?.scheduleSyncBootstrap(reason: "feature-reenabled", feature: feature)
-        }
-    }
-
-    @MainActor
     public func reconcileSyncOnForeground() async {
-        await refreshSyncState(reason: "foreground")
+        await cloudSyncCoordinator.reconcileSyncOnForeground()
     }
 
     @MainActor
     public func runManualSync() async {
-        syncSettingsManager.beginManualSync()
-        defer { syncSettingsManager.finishManualSync() }
-        await refreshSyncState(reason: "manual")
+        await cloudSyncCoordinator.runManualSync()
     }
 
     @MainActor
@@ -1350,685 +936,5 @@ public final class DependencyContainer: @unchecked Sendable {
         )
     }
 
-    @MainActor
-    private func refreshSyncState(
-        reason: String,
-        feature: SyncSettingsManager.SyncFeature? = nil,
-        retryUnsettledOnly: Bool = false
-    ) async {
-        var shouldReconcileProfile = !retryUnsettledOnly
-        if syncSettingsManager.isMasterSyncEnabled {
-            lastKnownProfileTransportState = await cloudSyncService.currentProfileTransportState()
-            lastKnownICloudAccountStatus = await cloudSyncService.currentAccountStatus()
-            if retryUnsettledOnly {
-                shouldReconcileProfile = profileNeedsRetry
-            }
-            await performSyncBootstrap(
-                reason: reason,
-                features: retryUnsettledOnly
-                    ? syncSettingsManager.enabledFeaturesNeedingRetry
-                    : feature.map { [$0] }
-            )
-        }
-
-        if shouldReconcileProfile {
-            await reconcileProfileSync(reason: reason)
-        }
-        scheduleFirstConnectRetryIfNeeded(reason: reason)
-    }
-
-    @MainActor
-    private func reconcileProfileSync(reason: String) async {
-        if let remote = await cloudSyncService.pullProfile() {
-            userProfileStore.applyRemoteProfile(remote.profile, imageData: remote.imageData)
-            syncSettingsManager.setProfileStatus(
-                phase: .transport(.available),
-                direction: .pulledFromICloud,
-                detail: "Pulled profile from iCloud."
-            )
-            return
-        }
-
-        let transportState = await resolvedProfileTransportState()
-        guard transportState == .available else {
-            syncSettingsManager.setProfileStatus(
-                phase: .transport(transportState),
-                direction: nil,
-                detail: profileTransportDetail(for: transportState)
-            )
-            return
-        }
-
-        guard !userProfileStore.profile.isEmpty else {
-            let status = Self.missingProfileStatusForEmptyLocalProfile(
-                shouldKeepFirstConnectPending: shouldKeepFirstConnectPending
-            )
-            syncSettingsManager.setProfileStatus(
-                phase: status.phase,
-                direction: status.direction,
-                detail: status.detail
-            )
-            return
-        }
-
-        EnsembleLogger.info("Sync profile: seeding local profile after \(reason)")
-        await cloudSyncService.pushProfile(
-            userProfileStore.profile,
-            imageData: userProfileStore.getProfileImageData()
-        )
-
-        let updatedTransportState = await cloudSyncService.currentProfileTransportState()
-        syncSettingsManager.setProfileStatus(
-            phase: .transport(updatedTransportState),
-            direction: updatedTransportState == .available ? .pushedFromThisDevice : nil,
-            detail: updatedTransportState == .available
-                ? "Pushed local profile to iCloud."
-                : profileTransportDetail(for: updatedTransportState)
-        )
-    }
-
-    @MainActor
-    private func resolvedProfileTransportState() async -> CloudSyncService.ProfileTransportState {
-        let transportState = await cloudSyncService.currentProfileTransportState()
-        guard transportState == .notAuthenticated else {
-            return transportState
-        }
-
-        switch await cloudSyncService.currentAccountStatus() {
-        case .available:
-            return .available
-        case .noAccount, .restricted:
-            return .notAuthenticated
-        case .temporarilyUnavailable, .couldNotDetermine:
-            return .error
-        @unknown default:
-            return .error
-        }
-    }
-
-    @MainActor
-    private func profileTransportDetail(
-        for state: CloudSyncService.ProfileTransportState
-    ) -> String {
-        switch state {
-        case .unknown:
-            return "Profile sync has not run yet."
-        case .available:
-            return "CloudKit is available."
-        case .notAuthenticated:
-            return "Sign in to iCloud and enable iCloud Drive to sync the profile."
-        case .networkUnavailable:
-            return "Profile sync is waiting for a network connection."
-        case .quotaExceeded:
-            return "iCloud storage is full for profile sync."
-        case .rateLimited:
-            return "CloudKit rate-limited the profile sync. Try again shortly."
-        case .unavailable:
-            return "Profile sync is unavailable in this build."
-        case .error:
-            return "Profile sync could not confirm iCloud status right now."
-        }
-    }
-
-    @MainActor
-    private func scheduleSyncBootstrap(reason: String, feature: SyncSettingsManager.SyncFeature? = nil) {
-        syncBootstrapTask?.cancel()
-        syncBootstrapTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.refreshSyncState(reason: reason, feature: feature)
-        }
-    }
-
-    @MainActor
-    private var shouldKeepFirstConnectPending: Bool {
-        !syncSettingsManager.hasCompletedFirstConnect &&
-        firstConnectRetryAttempt < Self.firstConnectRetryDelays.count
-    }
-
-    @MainActor
-    private var needsFirstConnectRetry: Bool {
-        guard firstConnectRetryAttempt < Self.firstConnectRetryDelays.count else { return false }
-        if !syncSettingsManager.enabledFeaturesNeedingRetry.isEmpty {
-            return true
-        }
-
-        let waitingForSources =
-            Self.shouldRetryFirstConnectForSources(
-                sourcesFeatureEnabled: syncSettingsManager.isFeatureEnabled(.sources),
-                hasAnySources: accountManager.hasAnySources,
-                hasSyncedCloudCredentials: accountManager.hasSyncedCloudCredentials(),
-                accountStatus: lastKnownICloudAccountStatus,
-                profileTransportState: lastKnownProfileTransportState
-            )
-
-        return waitingForSources || profileNeedsRetry
-    }
-
-    @MainActor
-    private var profileNeedsRetry: Bool {
-        switch syncSettingsManager.profileStatus.phase {
-        case .transport(.networkUnavailable), .transport(.rateLimited), .transport(.error):
-            return true
-        case .unknown:
-            return !syncSettingsManager.hasCompletedFirstConnect &&
-                userProfileStore.profile.isEmpty &&
-                !Self.isBootstrapTransportUnavailable(
-                    accountStatus: lastKnownICloudAccountStatus,
-                    profileTransportState: lastKnownProfileTransportState
-                )
-        case .noRecord, .transport:
-            return false
-        }
-    }
-
-    @MainActor
-    private func scheduleFirstConnectRetryIfNeeded(reason: String) {
-        guard syncSettingsManager.isMasterSyncEnabled else {
-            firstConnectRetryTask?.cancel()
-            firstConnectRetryTask = nil
-            firstConnectRetryAttempt = 0
-            return
-        }
-
-        guard needsFirstConnectRetry else {
-            firstConnectRetryTask?.cancel()
-            firstConnectRetryTask = nil
-            firstConnectRetryAttempt = 0
-            return
-        }
-
-        guard firstConnectRetryTask == nil else { return }
-        let attemptNumber = firstConnectRetryAttempt + 1
-        let delay = Self.firstConnectRetryDelays[firstConnectRetryAttempt]
-        firstConnectRetryAttempt += 1
-
-        EnsembleLogger.info(
-            "Sync bootstrap: scheduling retry \(attemptNumber)/\(Self.firstConnectRetryDelays.count) in \(Int(delay))s after \(reason)"
-        )
-
-        firstConnectRetryTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-
-            self.firstConnectRetryTask = nil
-            await self.refreshSyncState(
-                reason: "sync-retry-\(attemptNumber)",
-                retryUnsettledOnly: true
-            )
-        }
-    }
-
-    @MainActor
-    private func performSyncBootstrap(
-        reason: String,
-        features: [SyncSettingsManager.SyncFeature]? = nil
-    ) async {
-        guard syncSettingsManager.isMasterSyncEnabled else { return }
-
-        let featuresToBootstrap = features ?? SyncSettingsManager.SyncFeature.allCases.filter {
-            syncSettingsManager.isFeatureEnabled($0)
-        }
-
-        for feature in featuresToBootstrap {
-            guard !Task.isCancelled else { return }
-            _ = await bootstrapFeature(feature, reason: reason)
-        }
-
-        guard !syncSettingsManager.hasCompletedFirstConnect else { return }
-        guard enabledFeaturesAreSettled else { return }
-
-        EnsembleLogger.info("Sync bootstrap: first-connect settled after \(reason)")
-        syncSettingsManager.markFirstConnectComplete()
-    }
-
-    @MainActor
-    private var enabledFeaturesAreSettled: Bool {
-        SyncSettingsManager.SyncFeature.allCases
-            .filter { syncSettingsManager.isFeatureEnabled($0) }
-            .allSatisfy { feature in
-                switch syncSettingsManager.featureState(for: feature) {
-                case .idle, .appliedRemote, .seededLocal, .transportUnavailable:
-                    return true
-                case .bootstrapping, .waitingForTransport, .error:
-                    return false
-                }
-            }
-    }
-
-    @MainActor
-    @discardableResult
-    private func bootstrapFeature(
-        _ feature: SyncSettingsManager.SyncFeature,
-        reason: String
-    ) async -> Bool {
-        switch feature {
-        case .accentColor:
-            return await bootstrapAccentColor(reason: reason)
-        case .swipeActions:
-            return await bootstrapSwipeActions(reason: reason)
-        case .merging:
-            return await bootstrapMergingPreferences(reason: reason)
-        case .pins:
-            return await bootstrapPins(reason: reason)
-        case .hiddenItems:
-            return await bootstrapHiddenMedia(reason: reason)
-        case .sources:
-            return bootstrapSources(reason: reason)
-        case .libraries:
-            return await bootstrapLibraryFlags(reason: reason)
-        }
-    }
-
-    @MainActor
-    private func bootstrapSources(reason: String) -> Bool {
-        guard syncSettingsManager.isFeatureEnabled(.sources) else {
-            syncSettingsManager.setFeatureState(.idle, for: .sources)
-            return true
-        }
-
-        syncSettingsManager.setFeatureState(.bootstrapping, for: .sources)
-
-        if accountManager.hasSyncedCloudCredentials() {
-            accountManager.setAwaitingCloudSources(false)
-            let newAccounts = accountManager.pullSyncCredentials()
-            syncSettingsManager.recordFeatureActivity(
-                for: .sources,
-                state: .appliedRemote,
-                direction: .pulledFromICloud,
-                detail: "Pulled sources from iCloud."
-            )
-            if !newAccounts.isEmpty {
-                accountManager.onNewAccountsFromSync?(newAccounts)
-            }
-            return true
-        }
-
-        guard accountManager.hasAnySources else {
-            if Self.isBootstrapTransportUnavailable(
-                accountStatus: lastKnownICloudAccountStatus,
-                profileTransportState: lastKnownProfileTransportState
-            ) {
-                accountManager.setAwaitingCloudSources(false)
-                syncSettingsManager.setFeatureState(.transportUnavailable, for: .sources)
-                return true
-            }
-
-            if shouldKeepFirstConnectPending {
-                accountManager.setAwaitingCloudSources(true)
-                EnsembleLogger.info("Sync bootstrap: waiting for iCloud sources after \(reason)")
-                syncSettingsManager.setFeatureState(.waitingForTransport, for: .sources)
-                return false
-            }
-
-            accountManager.setAwaitingCloudSources(false)
-            syncSettingsManager.setFeatureState(.idle, for: .sources)
-            return true
-        }
-
-        accountManager.setAwaitingCloudSources(false)
-        EnsembleLogger.info("Sync bootstrap: seeding local sources after \(reason)")
-        accountManager.seedCloudSyncCredentialsFromLocal()
-        syncSettingsManager.recordFeatureActivity(
-            for: .sources,
-            state: .seededLocal,
-            direction: .pushedFromThisDevice,
-            detail: "Pushed sources from this device."
-        )
-        return true
-    }
-
-    @MainActor
-    private func bootstrapAccentColor(reason: String) async -> Bool {
-        guard syncSettingsManager.isFeatureEnabled(.accentColor) else {
-            syncSettingsManager.setFeatureState(.idle, for: .accentColor)
-            return true
-        }
-
-        guard kvsSyncService.isAvailable else {
-            syncSettingsManager.setFeatureState(.transportUnavailable, for: .accentColor)
-            return true
-        }
-
-        syncSettingsManager.setFeatureState(.bootstrapping, for: .accentColor)
-        kvsSyncService.synchronize()
-
-        if let value = kvsSyncService.pullString(forKey: KVSSyncService.KVSKey.accentColor) {
-            kvsSyncService.onRemoteAccentColorChanged?(value)
-            return true
-        }
-
-        if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
-            syncSettingsManager.setFeatureState(.transportUnavailable, for: .accentColor)
-            return true
-        }
-
-        let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
-        if let value = kvsSyncService.pullString(forKey: KVSSyncService.KVSKey.accentColor) {
-            kvsSyncService.onRemoteAccentColorChanged?(value)
-            return true
-        }
-
-        guard didSettleInitialSync else {
-            EnsembleLogger.info("Sync bootstrap: waiting for KVS accent color after \(reason)")
-            syncSettingsManager.setFeatureState(.waitingForTransport, for: .accentColor)
-            return false
-        }
-
-        lastSyncedAccentColor = settingsManager.accentColorName
-        EnsembleLogger.info("Sync bootstrap: seeding local accent color after \(reason)")
-        syncSettingsManager.recordFeatureActivity(
-            for: .accentColor,
-            state: .seededLocal,
-            direction: .pushedFromThisDevice,
-            detail: "Pushed accent color from this device."
-        )
-        kvsSyncService.pushString(settingsManager.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
-        return true
-    }
-
-    @MainActor
-    private func bootstrapSwipeActions(reason: String) async -> Bool {
-        guard syncSettingsManager.isFeatureEnabled(.swipeActions) else {
-            syncSettingsManager.setFeatureState(.idle, for: .swipeActions)
-            return true
-        }
-
-        guard kvsSyncService.isAvailable else {
-            syncSettingsManager.setFeatureState(.transportUnavailable, for: .swipeActions)
-            return true
-        }
-
-        syncSettingsManager.setFeatureState(.bootstrapping, for: .swipeActions)
-        kvsSyncService.synchronize()
-
-        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.swipeLayout) {
-            kvsSyncService.onRemoteSwipeLayoutChanged?(data)
-            return true
-        }
-
-        if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
-            syncSettingsManager.setFeatureState(.transportUnavailable, for: .swipeActions)
-            return true
-        }
-
-        let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
-        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.swipeLayout) {
-            kvsSyncService.onRemoteSwipeLayoutChanged?(data)
-            return true
-        }
-
-        guard didSettleInitialSync else {
-            EnsembleLogger.info("Sync bootstrap: waiting for KVS swipe layout after \(reason)")
-            syncSettingsManager.setFeatureState(.waitingForTransport, for: .swipeActions)
-            return false
-        }
-
-        lastSyncedSwipeLayout = settingsManager.trackSwipeLayout
-        guard let data = try? JSONEncoder().encode(settingsManager.trackSwipeLayout) else {
-            syncSettingsManager.setFeatureState(.error, for: .swipeActions)
-            return false
-        }
-
-        EnsembleLogger.info("Sync bootstrap: seeding local swipe layout after \(reason)")
-        syncSettingsManager.recordFeatureActivity(
-            for: .swipeActions,
-            state: .seededLocal,
-            direction: .pushedFromThisDevice,
-            detail: "Pushed swipe actions from this device."
-        )
-        kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
-        return true
-    }
-
-    @MainActor
-    private func bootstrapMergingPreferences(reason: String) async -> Bool {
-        guard syncSettingsManager.isFeatureEnabled(.merging) else {
-            syncSettingsManager.setFeatureState(.idle, for: .merging)
-            return true
-        }
-        guard kvsSyncService.isAvailable else {
-            syncSettingsManager.setFeatureState(.transportUnavailable, for: .merging)
-            return true
-        }
-
-        syncSettingsManager.setFeatureState(.bootstrapping, for: .merging)
-        kvsSyncService.synchronize()
-        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.mergingPreferences) {
-            kvsSyncService.onRemoteMergingPreferencesChanged?(data)
-            return true
-        }
-        if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
-            syncSettingsManager.setFeatureState(.transportUnavailable, for: .merging)
-            return true
-        }
-
-        let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
-        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.mergingPreferences) {
-            kvsSyncService.onRemoteMergingPreferencesChanged?(data)
-            return true
-        }
-        guard didSettleInitialSync,
-              let data = try? JSONEncoder().encode(settingsManager.mergingPreferences) else {
-            syncSettingsManager.setFeatureState(.waitingForTransport, for: .merging)
-            return false
-        }
-
-        lastSyncedMergingPreferences = settingsManager.mergingPreferences
-        EnsembleLogger.info("Sync bootstrap: seeding local merging preferences after \(reason)")
-        syncSettingsManager.recordFeatureActivity(
-            for: .merging,
-            state: .seededLocal,
-            direction: .pushedFromThisDevice,
-            detail: "Pushed merging preferences from this device."
-        )
-        kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.mergingPreferences)
-        return true
-    }
-
-    @MainActor
-    private func bootstrapPins(reason: String) async -> Bool {
-        guard syncSettingsManager.isFeatureEnabled(.pins) else {
-            syncSettingsManager.setFeatureState(.idle, for: .pins)
-            return true
-        }
-
-        guard kvsSyncService.isAvailable else {
-            syncSettingsManager.setFeatureState(.transportUnavailable, for: .pins)
-            return true
-        }
-
-        syncSettingsManager.setFeatureState(.bootstrapping, for: .pins)
-        kvsSyncService.synchronize()
-
-        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.pins) {
-            kvsSyncService.onRemotePinsChanged?(data)
-            return true
-        }
-
-        if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
-            syncSettingsManager.setFeatureState(.transportUnavailable, for: .pins)
-            return true
-        }
-
-        let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
-        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.pins) {
-            kvsSyncService.onRemotePinsChanged?(data)
-            return true
-        }
-
-        guard didSettleInitialSync else {
-            EnsembleLogger.info("Sync bootstrap: waiting for KVS pins after \(reason)")
-            syncSettingsManager.setFeatureState(.waitingForTransport, for: .pins)
-            return false
-        }
-
-        guard !pinManager.pinnedItems.isEmpty, let data = pinManager.exportPinsData() else {
-            syncSettingsManager.setFeatureState(.idle, for: .pins)
-            return true
-        }
-
-        lastSyncedPinsData = data
-        EnsembleLogger.info("Sync bootstrap: seeding local pins after \(reason)")
-        syncSettingsManager.recordFeatureActivity(
-            for: .pins,
-            state: .seededLocal,
-            direction: .pushedFromThisDevice,
-            detail: "Pushed pins from this device."
-        )
-        kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.pins)
-        return true
-    }
-
-    @MainActor
-    private func bootstrapHiddenMedia(reason: String) async -> Bool {
-        guard syncSettingsManager.isFeatureEnabled(.hiddenItems) else {
-            syncSettingsManager.setFeatureState(.idle, for: .hiddenItems)
-            return true
-        }
-
-        syncSettingsManager.setFeatureState(.bootstrapping, for: .hiddenItems)
-        guard let remote = await cloudSyncService.pullHiddenMedia() else {
-            EnsembleLogger.info("Sync bootstrap: waiting for CloudKit hidden items after \(reason)")
-            syncSettingsManager.setFeatureState(.waitingForTransport, for: .hiddenItems)
-            return false
-        }
-
-        EnsembleLogger.info("Sync bootstrap: pulled \(remote.count) hidden-item mutations after \(reason)")
-        if !remote.isEmpty {
-            hiddenMediaStore.applyRemote(remote)
-            syncSettingsManager.recordFeatureActivity(
-                for: .hiddenItems,
-                state: .appliedRemote,
-                direction: .pulledFromICloud,
-                detail: "Pulled hidden items from iCloud."
-            )
-            if let merged = await cloudSyncService.pushHiddenMedia(hiddenMediaStore.exportMutations()) {
-                hiddenMediaStore.applyRemote(merged)
-            }
-            return true
-        }
-
-        guard !hiddenMediaStore.exportMutations().isEmpty else {
-            syncSettingsManager.setFeatureState(.idle, for: .hiddenItems)
-            return true
-        }
-        guard let merged = await cloudSyncService.pushHiddenMedia(hiddenMediaStore.exportMutations()) else {
-            syncSettingsManager.setFeatureState(.waitingForTransport, for: .hiddenItems)
-            return false
-        }
-        hiddenMediaStore.applyRemote(merged)
-        syncSettingsManager.recordFeatureActivity(
-            for: .hiddenItems,
-            state: .seededLocal,
-            direction: .pushedFromThisDevice,
-            detail: "Pushed hidden items from this device after \(reason)."
-        )
-        return true
-    }
-
-    @MainActor
-    private func bootstrapLibraryFlags(reason: String) async -> Bool {
-        guard syncSettingsManager.isFeatureEnabled(.libraries) else {
-            syncSettingsManager.setFeatureState(.idle, for: .libraries)
-            return true
-        }
-
-        guard kvsSyncService.isAvailable else {
-            syncSettingsManager.setFeatureState(.transportUnavailable, for: .libraries)
-            return true
-        }
-
-        syncSettingsManager.setFeatureState(.bootstrapping, for: .libraries)
-        kvsSyncService.synchronize()
-
-        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.libraryFlags) {
-            kvsSyncService.onRemoteLibraryFlagsChanged?(data)
-            return true
-        }
-
-        if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
-            syncSettingsManager.setFeatureState(.transportUnavailable, for: .libraries)
-            return true
-        }
-
-        let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
-        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.libraryFlags) {
-            kvsSyncService.onRemoteLibraryFlagsChanged?(data)
-            return true
-        }
-
-        guard didSettleInitialSync else {
-            EnsembleLogger.info("Sync bootstrap: waiting for KVS library flags after \(reason)")
-            syncSettingsManager.setFeatureState(.waitingForTransport, for: .libraries)
-            return false
-        }
-
-        guard accountManager.hasAnySources, let data = accountManager.exportLibraryFlags() else {
-            syncSettingsManager.setFeatureState(.idle, for: .libraries)
-            return true
-        }
-
-        EnsembleLogger.info("Sync bootstrap: seeding local library flags after \(reason)")
-        syncSettingsManager.recordFeatureActivity(
-            for: .libraries,
-            state: .seededLocal,
-            direction: .pushedFromThisDevice,
-            detail: "Pushed library selection from this device."
-        )
-        kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
-        return true
-    }
-
-    static func isBootstrapTransportUnavailable(
-        accountStatus: CKAccountStatus,
-        profileTransportState: CloudSyncService.ProfileTransportState = .unknown
-    ) -> Bool {
-        if profileTransportState == .unavailable {
-            return true
-        }
-
-        switch accountStatus {
-        case .noAccount, .restricted:
-            return true
-        default:
-            return false
-        }
-    }
-
-    static func missingProfileStatusForEmptyLocalProfile(
-        shouldKeepFirstConnectPending: Bool
-    ) -> SyncSettingsManager.ProfileSyncStatus {
-        if shouldKeepFirstConnectPending {
-            return SyncSettingsManager.ProfileSyncStatus(
-                phase: .unknown,
-                direction: nil,
-                detail: "Waiting for iCloud profile during first-device sync."
-            )
-        }
-
-        return SyncSettingsManager.ProfileSyncStatus(
-            phase: .unknown,
-            direction: nil,
-            detail: "No iCloud profile has been created yet."
-        )
-    }
-
-    static func shouldRetryFirstConnectForSources(
-        sourcesFeatureEnabled: Bool,
-        hasAnySources: Bool,
-        hasSyncedCloudCredentials: Bool,
-        accountStatus: CKAccountStatus,
-        profileTransportState: CloudSyncService.ProfileTransportState = .unknown
-    ) -> Bool {
-        sourcesFeatureEnabled &&
-        !hasAnySources &&
-        !hasSyncedCloudCredentials &&
-        !isBootstrapTransportUnavailable(
-            accountStatus: accountStatus,
-            profileTransportState: profileTransportState
-        )
-    }
 
 }

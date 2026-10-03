@@ -103,9 +103,12 @@ extension PlexAPIClient {
         unknownContentTypeContext: String,
         successLogPrefix: String
     ) async throws -> URL {
+        let attempt = try await authorizedServerAttempt()
+        let currentQueryItems = queryItems.filter { $0.name != "X-Plex-Token" }
+            + [URLQueryItem(name: "X-Plex-Token", value: attempt.token)]
         let url = try buildTranscodeURL(
             path: "/music/:/transcode/universal/start.mp3",
-            queryItems: queryItems
+            queryItems: currentQueryItems
         )
 
         EnsembleLogger.debug("🔗 Downloading universal stream for ratingKey \(ratingKey) [session: \(sessionId.prefix(8))]")
@@ -113,7 +116,7 @@ extension PlexAPIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        requestHeaderContext.apply(to: &request, token: serverConnection.token)
+        requestHeaderContext.apply(to: &request, token: attempt.token)
         request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
 
         let (tempURL, response) = try await session.download(for: request)
@@ -182,7 +185,8 @@ extension PlexAPIClient {
     public func getUniversalDownloadURL(
         ratingKey: String,
         quality: StreamingQuality = .original
-    ) throws -> URL {
+    ) async throws -> URL {
+        _ = try await authorizedServerAttempt()
         let sessionId = UUID().uuidString
         let queryItems = buildUniversalStreamQueryItems(
             ratingKey: ratingKey,
@@ -321,11 +325,10 @@ extension PlexAPIClient {
         backgroundDownloads: BackgroundDownload = .shared,
         progress: @escaping @Sendable (Int64, Int64) async -> Void = { _, _ in }
     ) async throws -> (fileURL: URL, suggestedFilename: String?, mimeType: String?) {
-        var request = try makeServerRequest(
-            url: currentServerURL,
-            method: "GET",
-            path: "/downloadQueue/\(queueId)/item/\(itemId)/media"
-        )
+        let attempt = try await authorizedServerAttempt()
+        var request = try PlexRequestBuilder(
+            baseURL: attempt.endpoint.url, token: attempt.token, headerContext: requestHeaderContext
+        ).makeRequest(method: "GET", path: "/downloadQueue/\(queueId)/item/\(itemId)/media")
         networkPolicy.apply(to: &request)
         // The persistent queue owns transient retries, so an unavailable item cannot
         // hold a worker here while other tracks are ready to download.

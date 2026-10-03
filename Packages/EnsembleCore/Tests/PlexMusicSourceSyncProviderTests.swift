@@ -18,20 +18,27 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
     }
 
     private final class LostAppendAcknowledgment: URLProtocol {
+        static let lock = NSLock()
         static var members: [String] = []
         static var appends = 0
+        static var appendHosts: [String] = []
         static var incomplete = false
         override class func canInit(with request: URLRequest) -> Bool { true }
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
         override func startLoading() {
+            Self.lock.lock()
             if request.httpMethod == "PUT" {
                 Self.members.append("track")
                 Self.appends += 1
+                Self.appendHosts.append(request.url?.host ?? "")
+                Self.lock.unlock()
                 client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
                 return
             }
             let metadata = Self.members.map { ["ratingKey": $0, "key": "/library/metadata/" + $0, "title": "Track", "type": "track"] }
-            let body = try! JSONSerialization.data(withJSONObject: ["MediaContainer": ["size": Self.incomplete ? metadata.count + 1 : metadata.count, "Metadata": metadata]])
+            let size = Self.incomplete ? metadata.count + 1 : metadata.count
+            Self.lock.unlock()
+            let body = try! JSONSerialization.data(withJSONObject: ["MediaContainer": ["size": size, "Metadata": metadata]])
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: body)
             client?.urlProtocolDidFinishLoading(self)
@@ -42,17 +49,26 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
     func testPlaylistReplayDoesNotRepeatAnAcceptedAppendAndRejectsIncompleteMembership() async throws {
         LostAppendAcknowledgment.members = []
         LostAppendAcknowledgment.appends = 0
+        LostAppendAcknowledgment.appendHosts = []
         LostAppendAcknowledgment.incomplete = false
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [LostAppendAcknowledgment.self]
         let session = URLSession(configuration: config)
         defer { session.invalidateAndCancel() }
-        let client = PlexAPIClient(connection: .init(url: "https://playlist.invalid", token: "test", identifier: "server", name: "Test"), keychain: TestKeychain(), urlSession: session)
-        let source = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "3")
+        let serverID = UUID().uuidString
+        let client = PlexAPIClient(
+            connection: .init(url: "https://playlist.invalid", alternativeURLs: ["https://alternate-playlist.invalid"], token: "test", identifier: serverID, name: "Test"),
+            keychain: TestKeychain(),
+            probeURLSession: session,
+            urlSession: session
+        )
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: serverID, libraryId: "3")
         let provider = PlexMusicSourceSyncProvider(sourceIdentifier: source, apiClient: client, sectionKey: "3")
         let track = Track(id: "track", key: "/library/metadata/track", title: "Track", sourceCompositeKey: source.compositeKey)
         do { _ = try await provider.addTracks([track], to: "playlist"); XCTFail("Acknowledgment should be lost") }
         catch { XCTAssertTrue(PlexErrorClassification.classify(error).isRetryable) }
+        XCTAssertEqual(LostAppendAcknowledgment.members, ["track"])
+        XCTAssertEqual(LostAppendAcknowledgment.appendHosts, ["playlist.invalid"])
         let repeated = try await provider.addTracks([track], to: "playlist")
         XCTAssertEqual(repeated, 0)
         XCTAssertEqual(LostAppendAcknowledgment.appends, 1)
@@ -60,6 +76,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         do { _ = try await provider.addTracks([track], to: "playlist"); XCTFail("Partial membership must not authorize another append") }
         catch { guard case PlexAPIError.invalidResponse = error else { return XCTFail("Expected incomplete response rejection") } }
         XCTAssertEqual(LostAppendAcknowledgment.appends, 1)
+        XCTAssertEqual(LostAppendAcknowledgment.members, ["track"])
     }
 
     private struct IncrementalItem: Equatable {
@@ -435,7 +452,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         )
     }
 
-    func testDelayedSeededPlaylistIsClearedWhenItBecomesVisible() async throws {
+    func testSeedVisibilityRetriesTransientFetchFailureAndClearsDelayedPlaylist() async throws {
         let state = DelayedPlaylistVisibilityState(
             playlist: try JSONDecoder().decode(PlexPlaylist.self, from: Data(#"""
             {
@@ -450,7 +467,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
             title: "Delayed Empty Playlist",
             seededEmptyPlaylist: true,
             retryDelays: [0, 1, 1],
-            fetchPlaylists: { await state.fetchPlaylists() },
+            fetchPlaylists: { try await state.fetchPlaylists() },
             clearPlaylistItems: { await state.clearPlaylistItems($0) },
             sleep: { _ in }
         )
@@ -460,6 +477,146 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         XCTAssertEqual(playlist?.ratingKey, "playlist-1")
         XCTAssertEqual(fetchCount, 3)
         XCTAssertEqual(clearedPlaylistIDs, ["playlist-1"])
+    }
+
+    func testSeedVisibilityFetchCancellationStopsPollingAndPropagates() async {
+        let cancellations: [Error] = [
+            CancellationError(),
+            URLError(.cancelled),
+            PlexAPIError.networkError(URLError(.cancelled))
+        ]
+        for cancellation in cancellations {
+            do {
+                _ = try await PlexMusicSourceSyncProvider.pollForCreatedPlaylist(
+                    title: "Empty Playlist",
+                    seededEmptyPlaylist: true,
+                    retryDelays: [0, 1],
+                    fetchPlaylists: { throw cancellation },
+                    clearPlaylistItems: { _ in XCTFail("Cancelled visibility cannot authorize cleanup") },
+                    sleep: { _ in XCTFail("Cancelled visibility must stop further polling") }
+                )
+                XCTFail("Visibility fetch cancellation must propagate")
+            } catch {
+                XCTAssertEqual(PlexErrorClassification.classify(error), .cancelled)
+            }
+        }
+    }
+
+    func testSeededEmptyPlaylistCreationPropagatesClearFailureAndCancellation() async throws {
+        for failure in [URLError.Code.networkConnectionLost, .cancelled, nil] {
+            let (provider, session) = playlistClearProvider(failure: failure)
+            defer { session.invalidateAndCancel() }
+            do {
+                let playlist = try await provider.createPlaylist(title: "Empty Playlist", tracks: [])
+                XCTAssertNil(failure, "Unacknowledged seed cleanup must not report empty-playlist success")
+                XCTAssertEqual(playlist?.trackCount, 0)
+            } catch {
+                XCTAssertNotNil(failure)
+                XCTAssertEqual(PlexErrorClassification.classify(error), failure == .cancelled ? .cancelled : .connectionFailure)
+            }
+            let expected = failure == .networkConnectionLost ? ["external"] : (failure == nil ? [] : ["seed"])
+            XCTAssertEqual(PlaylistClearFixture.members, expected)
+        }
+        for seeded in [true, false] {
+            do {
+                let playlist = try await PlexMusicSourceSyncProvider.pollForCreatedPlaylist(
+                    title: "Invisible Playlist", seededEmptyPlaylist: seeded, retryDelays: [0],
+                    fetchPlaylists: { [] },
+                    clearPlaylistItems: { _ in XCTFail("Invisible playlist cannot have acknowledged cleanup") }
+                )
+                XCTAssertFalse(seeded, "Exhausted seeded cleanup must report failure")
+                XCTAssertNil(playlist)
+            } catch PlexAPIError.invalidResponse {
+                XCTAssertTrue(seeded, "Non-seeded visibility exhaustion retains its nil outcome")
+            }
+        }
+    }
+
+    func testLegacyPlaylistReplacementStopsAfterUnacknowledgedClearAndPreservesRequestedOccurrences() async throws {
+        for failure in [URLError.Code.networkConnectionLost, .cancelled, nil] {
+            let (provider, session) = playlistClearProvider(failure: failure)
+            defer { session.invalidateAndCancel() }
+            let tracks = ["next", "next", "last"].map {
+                Track(id: $0, key: "/library/metadata/\($0)", title: $0, sourceCompositeKey: provider.sourceIdentifier.compositeKey)
+            }
+            do {
+                try await provider.replacePlaylistContents("playlist", tracks: tracks)
+                XCTAssertNil(failure, "Unacknowledged clear must stop replacement before append")
+            } catch {
+                XCTAssertNotNil(failure)
+                XCTAssertEqual(PlexErrorClassification.classify(error), failure == .cancelled ? .cancelled : .connectionFailure)
+            }
+            let expected = failure == .networkConnectionLost ? ["external"] : (failure == nil ? ["next", "next", "last"] : ["seed"])
+            XCTAssertEqual(PlaylistClearFixture.members, expected)
+        }
+    }
+
+    private func playlistClearProvider(failure: URLError.Code?) -> (PlexMusicSourceSyncProvider, URLSession) {
+        PlaylistClearFixture.members = ["seed"]
+        PlaylistClearFixture.clearFailure = failure
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [PlaylistClearFixture.self]
+        let session = URLSession(configuration: config)
+        let serverID = UUID().uuidString
+        let client = PlexAPIClient(
+            connection: .init(url: "https://playlist-clear.invalid", alternativeURLs: ["https://alternate-clear.invalid"], token: "test", identifier: serverID, name: "Test"),
+            keychain: TestKeychain(),
+            probeURLSession: session,
+            urlSession: session
+        )
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: serverID, libraryId: "3")
+        return (PlexMusicSourceSyncProvider(sourceIdentifier: source, apiClient: client, sectionKey: "3"), session)
+    }
+
+    private final class PlaylistClearFixture: URLProtocol {
+        static let lock = NSLock()
+        static var members: [String] = []
+        static var clearFailure: URLError.Code?
+        override class func canInit(with request: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+        override func startLoading() {
+            Self.lock.lock()
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let uri = query.first { $0.name == "uri" }?.value
+            let ids = uri?.split(separator: "/").last?.split(separator: ",").map(String.init) ?? []
+            var status = 200
+            var body: [String: Any] = [:]
+            switch (request.httpMethod ?? "GET", request.url?.path) {
+            case ("POST", "/playlists"):
+                if ids.isEmpty { status = 400 }
+                else { Self.members = ids }
+            case ("GET", "/library/sections/3/all"):
+                body = ["MediaContainer": ["size": 1, "totalSize": 1, "Metadata": [["ratingKey": "seed"]]]]
+            case ("GET", "/playlists"):
+                body = ["MediaContainer": ["size": 1, "Metadata": [["ratingKey": "playlist", "key": "/playlists/playlist", "title": "Empty Playlist", "leafCount": Self.members.count]]]]
+            case ("DELETE", "/playlists/playlist/items"):
+                if let failure = Self.clearFailure {
+                    if failure == .networkConnectionLost {
+                        // The clear succeeded; another client added an occurrence before its reply was lost.
+                        Self.members = ["external"]
+                    }
+                    Self.lock.unlock()
+                    client?.urlProtocol(self, didFailWithError: URLError(failure))
+                    return
+                }
+                Self.members.removeAll()
+                status = 204
+            case ("PUT", "/playlists/playlist/items"):
+                Self.members.append(contentsOf: ids)
+                status = 204
+            case ("GET", "/playlists/playlist/items"):
+                let items = Self.members.map { ["ratingKey": $0, "key": "/library/metadata/" + $0, "title": $0] }
+                body = ["MediaContainer": ["size": items.count, "Metadata": items]]
+            case ("GET", "/identity"): break
+            default: XCTFail("Unexpected playlist fixture request: \(request.httpMethod ?? "GET") \(request.url?.path ?? "")")
+            }
+            Self.lock.unlock()
+            let data = try! JSONSerialization.data(withJSONObject: body)
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+        override func stopLoading() {}
     }
 
     func testPlaylistDeleteTreatsOnlyNotFoundAsConverged() {
@@ -579,8 +736,9 @@ private actor DelayedPlaylistVisibilityState {
         self.playlist = playlist
     }
 
-    func fetchPlaylists() -> [PlexPlaylist] {
+    func fetchPlaylists() throws -> [PlexPlaylist] {
         fetchCount += 1
+        if fetchCount == 1 { throw URLError(.networkConnectionLost) }
         return fetchCount >= 3 ? [playlist] : []
     }
 

@@ -72,7 +72,7 @@ struct WebSocketSyncControllerTests {
     }
 
     @Test
-    func resolveSectionsReturnsEveryAccountForPhysicalServer() {
+    func resolveSectionsKeepsAccountsIsolatedOnSharedPhysicalServer() {
         let controller = WebSocketSyncController()
         let firstSource = MusicSourceIdentifier(type: .plex, accountId: "first", serverId: "server", libraryId: "5")
         let secondSource = MusicSourceIdentifier(type: .plex, accountId: "second", serverId: "server", libraryId: "5")
@@ -89,7 +89,7 @@ struct WebSocketSyncControllerTests {
             knownSources: [firstSource, secondSource, otherServer]
         )
 
-        #expect(resolutions.map(\.sourceId) == [firstSource, secondSource])
+        #expect(resolutions.map(\.sourceId) == [firstSource])
     }
 
     @Test

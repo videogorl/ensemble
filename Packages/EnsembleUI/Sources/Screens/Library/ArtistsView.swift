@@ -30,6 +30,44 @@ extension EnvironmentValues {
     }
 }
 
+struct ArtistBrowseControls: View {
+    @ObservedObject var libraryVM: LibraryViewModel
+    @ObservedObject private var artistSnapshotCache: BrowseSnapshotCache<ArtistBrowseSnapshot>
+    @State private var showsFilters = false
+
+    init(libraryVM: LibraryViewModel) {
+        self.libraryVM = libraryVM
+        self._artistSnapshotCache = ObservedObject(wrappedValue: libraryVM.artistBrowse)
+    }
+
+    var body: some View {
+        if artistSnapshotCache.snapshot.hasVisibleContent || !libraryVM.artists.isEmpty {
+            EnsembleBrowseFilterButton(
+                title: "Filter Artists",
+                hasActiveFilters: libraryVM.artistsFilterOptions.hasActiveFilters,
+                action: { showsFilters = true }
+            )
+            .sheet(isPresented: $showsFilters) {
+                FilterSheet(
+                    filterOptions: $libraryVM.artistsFilterOptions,
+                    availableGenres: artistSnapshotCache.snapshot.availableGenres,
+                    showGenreFilter: true
+                )
+            }
+            EnsembleBrowseSortMenu(
+                model: libraryVM,
+                options: ArtistSortOption.allCases,
+                selection: { $0.artistSortOption },
+                direction: { $0.artistsFilterOptions.sortDirection }
+            ) { option, direction in
+                if libraryVM.artistSortOption != option { libraryVM.artistSortOption = option }
+                libraryVM.artistsFilterOptions.sortDirection = direction
+            }
+            .accessibilityLabel("Sort Artists")
+        }
+    }
+}
+
 public struct ArtistsView: View {
     public enum PresentationMode {
         case compactRoot
@@ -41,9 +79,8 @@ public struct ArtistsView: View {
     private let presentationMode: PresentationMode
     private let externalSelectedArtist: Binding<DisplayArtist?>?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @State private var showFilterSheet = false
     @State private var localSelectedArtist: DisplayArtist?
-    @StateObject private var artistSnapshotCache = BrowseSnapshotCache(ArtistBrowseSnapshot.empty)
+    @ObservedObject private var artistSnapshotCache: BrowseSnapshotCache<ArtistBrowseSnapshot>
 
     private var artistFilterOptions: Binding<FilterOptions> {
         Binding(
@@ -60,6 +97,7 @@ public struct ArtistsView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
+        self._artistSnapshotCache = ObservedObject(wrappedValue: libraryVM.artistBrowse)
         self.presentationMode = presentationMode
         self.externalSelectedArtist = selectedArtist
     }
@@ -75,7 +113,9 @@ public struct ArtistsView: View {
             }
         }
         .navigationTitle("Artists")
-        .searchable(text: artistFilterOptions.searchText, prompt: "Filter artists")
+        .if(!isMacBrowsePicker) { view in
+            view.searchable(text: artistFilterOptions.searchText, prompt: "Filter artists")
+        }
         .refreshable {
             await libraryVM.refreshFromServer()
         }
@@ -83,27 +123,13 @@ public struct ArtistsView: View {
             await libraryVM.refreshFromServer()
         }
         .toolbar {
-            EnsembleBrowseToolbar(isVisible: isBrowseToolbarVisible) {
-                artistFilterButton
-                artistSortMenu
+            EnsembleBrowseToolbar(isVisible: isBrowseToolbarVisible && !isMacBrowsePicker) {
+                ArtistBrowseControls(libraryVM: libraryVM)
             }
         }
         .ensembleBrowseToolbarMinimization()
         .if(selectedArtist == nil) { view in
             view.toolbarMaterialBackground()
-        }
-        .sheet(isPresented: $showFilterSheet) {
-            FilterSheet(
-                filterOptions: artistFilterOptions,
-                availableGenres: artistSnapshot.availableGenres,
-                showGenreFilter: true
-            )
-        }
-        .onReceive(libraryVM.$artistBrowseSnapshot) { snapshot in
-            artistSnapshotCache.snapshot = snapshot
-        }
-        .onAppear {
-            artistSnapshotCache.snapshot = libraryVM.artistBrowseSnapshot
         }
     }
 
@@ -126,9 +152,7 @@ public struct ArtistsView: View {
     }
 
     private var artistSnapshot: ArtistBrowseSnapshot {
-        artistSnapshotCache.snapshot.hasVisibleContent || artistSnapshotCache.snapshot.phase != .idle
-            ? artistSnapshotCache.snapshot
-            : libraryVM.artistBrowseSnapshot
+        artistSnapshotCache.snapshot
     }
 
     private var isBrowseToolbarVisible: Bool {
@@ -172,40 +196,12 @@ public struct ArtistsView: View {
         )
     }
 
-    private var artistFilterButton: some View {
-        EnsembleBrowseFilterButton(
-            title: "Filter Artists",
-            hasActiveFilters: libraryVM.artistsFilterOptions.hasActiveFilters
-        ) {
-            showFilterSheet = true
-        }
-    }
-
-    private var artistSortMenu: some View {
-        Menu {
-            ForEach(ArtistSortOption.allCases, id: \.self) { option in
-                Button {
-                    if libraryVM.artistSortOption == option {
-                        libraryVM.artistsFilterOptions.sortDirection =
-                            libraryVM.artistsFilterOptions.sortDirection == .ascending ? .descending : .ascending
-                    } else {
-                        libraryVM.artistSortOption = option
-                        libraryVM.artistsFilterOptions.sortDirection = option.defaultDirection
-                    }
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if libraryVM.artistSortOption == option {
-                            Image(systemName: libraryVM.artistsFilterOptions.sortDirection == .ascending
-                                  ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
-                        }
-                    }
-                }
-            }
-        } label: {
-            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
-        }
-        .accessibilityLabel("Sort Artists")
+    private var isMacBrowsePicker: Bool {
+        #if os(macOS)
+        presentationMode == .selectionColumn
+        #else
+        false
+        #endif
     }
 
     @available(iOS 18.0, macOS 15.0, *)
@@ -513,14 +509,14 @@ private struct DisplayArtistGrid: View {
             currentTitle: artist.name
         ) { newTitle in
             do {
-                let result = try await deps.metadataMutationWorkflow.editArtist(artist, title: newTitle)
+                let toast = try await deps.metadataMutationService.editArtist(artist, title: newTitle)
                 await MainActor.run {
-                    deps.toastCenter.show(result.successToast)
+                    deps.toastCenter.show(toast)
                 }
             } catch {
                 await MainActor.run {
                     deps.toastCenter.show(
-                        deps.metadataMutationWorkflow.editFailureToast(
+                        deps.metadataMutationService.editFailureToast(
                             noun: "Artist",
                             itemID: artist.sourceScopedID,
                             error: error,
@@ -813,18 +809,18 @@ public struct ArtistDetailView: View {
     /// Toolbar menu with Pin/Unpin action for the artist
     private var artistPinMenuButton: some View {
         let isPinned = isArtistPinned
-        let downloadState = dependencies.downloadMutationWorkflow.batchState(for: displayArtist.artists)
+        let downloadState = dependencies.offlineDownloadService.batchState(for: displayArtist.artists)
         let isDownloaded = downloadState.isEnabled
         let canDownload = viewModel.artist.actionAvailability(for: .download).isAvailable
         let downloadableMergedArtists = mergedDownloadableArtists
         return Menu {
             Button {
                 if isPinned {
-                    dependencies.pinMutationWorkflow.unpinAll(
+                    dependencies.pinManager.unpinAll(
                         identities: Set(displayArtist.artists.map(\.sourceScopedID))
                     )
                 } else {
-                    dependencies.pinMutationWorkflow.pinAll(items: displayArtist.artists.map { artist in
+                    dependencies.pinManager.pinAll(items: displayArtist.artists.map { artist in
                         (id: artist.id, sourceKey: artist.sourceCompositeKey ?? "", type: .artist, title: displayArtist.name)
                     })
                 }
@@ -835,7 +831,7 @@ public struct ArtistDetailView: View {
             if displayArtist.isMerged, !downloadableMergedArtists.isEmpty {
                 Button {
                     Task {
-                        await dependencies.downloadMutationWorkflow.toggleDownloads(
+                        await dependencies.offlineDownloadService.toggleDownloads(
                             for: displayArtist.artists
                         )
                     }
@@ -845,7 +841,7 @@ public struct ArtistDetailView: View {
             } else if canDownload {
                 Button {
                     Task {
-                        await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
+                        await dependencies.offlineDownloadService.setArtistDownloadEnabled(
                             viewModel.artist,
                             isEnabled: !isDownloaded
                         )
@@ -865,24 +861,13 @@ public struct ArtistDetailView: View {
     }
 
     private var artistAlbumSortMenu: some View {
-        Menu {
-            ForEach(AlbumSortOption.allCases.filter { $0 != .albumArtist }, id: \.self) { option in
-                Button {
-                    selectAlbumSortOption(option)
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if albumSortOption == option {
-                            Image(systemName: albumSortDirection == .ascending
-                                ? EnsembleDesign.Icon.chevronUp
-                                : EnsembleDesign.Icon.chevronDown)
-                        }
-                    }
-                }
-            }
-        } label: {
-            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
-        }
+        EnsembleBrowseSortMenu(
+            model: viewModel,
+            options: AlbumSortOption.allCases.filter { $0 != .albumArtist },
+            selection: { _ in albumSortOption },
+            direction: { _ in albumSortDirection },
+            select: selectAlbumSortOption
+        )
         .accessibilityLabel("Sort Artist Albums")
     }
 
@@ -898,13 +883,9 @@ public struct ArtistDetailView: View {
         detailFilterOptions.sortBy == "default" ? .descending : detailFilterOptions.sortDirection
     }
 
-    private func selectAlbumSortOption(_ option: AlbumSortOption) {
+    private func selectAlbumSortOption(_ option: AlbumSortOption, direction: SortDirection) {
         var filterOptions = detailFilterOptions
-        if albumSortOption == option {
-            filterOptions.sortDirection = albumSortDirection == .ascending ? .descending : .ascending
-        } else {
-            filterOptions.sortDirection = option.defaultDirection
-        }
+        filterOptions.sortDirection = direction
         filterOptions.sortBy = option.rawValue
 
         if displayArtist.isMerged {

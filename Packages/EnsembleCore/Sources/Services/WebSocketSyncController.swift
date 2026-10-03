@@ -9,13 +9,6 @@ final class WebSocketSyncController {
         let compositeKey: String
     }
 
-    struct PlaylistResolution {
-        let sourceId: MusicSourceIdentifier
-        let serverSourceKey: String
-        let provider: MusicSourceSyncProvider
-        let playlistResult: PlaylistSyncResult
-    }
-
     func resolveSections(
         sectionKey: String,
         serverKey: String,
@@ -24,11 +17,13 @@ final class WebSocketSyncController {
     ) -> [SectionResolution] {
         let parts = serverKey.split(separator: ":", maxSplits: 1)
         guard parts.count == 2 else { return [] }
+        let accountId = String(parts[0])
         let serverId = String(parts[1])
 
         return providers.compactMap { compositeKey, provider in
             let sourceId = provider.sourceIdentifier
             guard sourceId.type == .plex,
+                  sourceId.accountId == accountId,
                   sourceId.serverId == serverId,
                   sourceId.libraryId == sectionKey,
                   knownSources.contains(sourceId) else { return nil }
@@ -42,22 +37,13 @@ final class WebSocketSyncController {
         providers: [String: MusicSourceSyncProvider],
         playlistRepository: PlaylistRepositoryProtocol,
         playlistRefreshController: PlaylistRefreshController
-    ) async throws -> PlaylistResolution? {
-        guard let result = try await playlistRefreshController.refreshServer(
+    ) async throws -> PlaylistRefreshController.RefreshResult? {
+        try await playlistRefreshController.refreshServer(
             serverSourceKey: "plex:\(serverKey)",
             providers: providers,
             playlistRepository: playlistRepository,
             trigger: .webSocket,
             allowFullFallback: false
-        ) else {
-            return nil
-        }
-
-        return PlaylistResolution(
-            sourceId: result.sourceId,
-            serverSourceKey: result.serverSourceKey,
-            provider: result.provider,
-            playlistResult: result.playlistResult
         )
     }
 }

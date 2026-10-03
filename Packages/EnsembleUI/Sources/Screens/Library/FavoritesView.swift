@@ -109,7 +109,7 @@ public struct FavoritesView: View {
             Button {
                 Task {
                     let isEnabled = deps.offlineDownloadService.isFavoritesDownloadEnabled()
-                    await deps.downloadMutationWorkflow.setFavoritesDownloadEnabled(isEnabled: !isEnabled)
+                    await deps.offlineDownloadService.setFavoritesDownloadEnabled(isEnabled: !isEnabled)
                 }
             } label: {
                 MediaActionLabel(kind: .download(isDownloaded: deps.offlineDownloadService.isFavoritesDownloadEnabled()))
@@ -129,30 +129,16 @@ public struct FavoritesView: View {
     }
 
     private var sortMenu: some View {
-        Menu {
-            ForEach(FavoritesSortOption.allCases, id: \.self) { option in
-                Button {
-                    if viewModel.favoritesSortOption == option {
-                        // Toggle direction when tapping the active option
-                        viewModel.filterOptions.sortDirection =
-                            viewModel.filterOptions.sortDirection == .ascending ? .descending : .ascending
-                    } else {
-                        // Switch to new option with its default direction
-                        viewModel.favoritesSortOption = option
-                        viewModel.filterOptions.sortDirection = option.defaultDirection
-                    }
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
-                        if viewModel.favoritesSortOption == option {
-                            Image(systemName: viewModel.filterOptions.sortDirection == .ascending
-                                ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
-                        }
-                    }
-                }
+        EnsembleBrowseSortMenu(
+            model: viewModel,
+            options: FavoritesSortOption.allCases,
+            selection: { $0.favoritesSortOption },
+            direction: { $0.filterOptions.sortDirection }
+        ) { option, direction in
+            if viewModel.favoritesSortOption != option {
+                viewModel.favoritesSortOption = option
             }
-        } label: {
-            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+            viewModel.filterOptions.sortDirection = direction
         }
     }
 

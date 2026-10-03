@@ -5,13 +5,12 @@ import EnsembleAPI
 @MainActor
 final class PlexWebSocketCoordinatorTests: XCTestCase {
 
-    private func makeCoordinator() -> (PlexWebSocketCoordinator, NetworkMonitor) {
-        let accountManager = AccountManager(keychain: TestKeychain())
-        let registry = ServerConnectionRegistry()
+    private func makeCoordinator(
+        accountManager: AccountManager? = nil
+    ) -> (PlexWebSocketCoordinator, NetworkMonitor) {
         let monitor = NetworkMonitor()
         let coordinator = PlexWebSocketCoordinator(
-            accountManager: accountManager,
-            connectionRegistry: registry,
+            accountManager: accountManager ?? AccountManager(keychain: TestKeychain()),
             networkMonitor: monitor,
             clientIdentifier: "test-client"
         )
@@ -102,5 +101,75 @@ final class PlexWebSocketCoordinatorTests: XCTestCase {
             PlexLibraryChange(ratingKey: "10", kind: .track, state: 9),
             PlexLibraryChange(ratingKey: "20", kind: .album, state: 5)
         ])
+    }
+
+    func testCompletedScanRefreshesOnlyEnabledLibrariesForExactAccountAndServer() async throws {
+        let accountManager = AccountManager(keychain: TestKeychain())
+        for (accountId, sectionKey) in [("first", "1"), ("second", "2")] {
+            accountManager.addPlexAccount(PlexAccountConfig(
+                id: accountId,
+                displayTitle: accountId,
+                authToken: "token",
+                servers: [PlexServerConfig(
+                    id: "same-pms",
+                    name: "Server",
+                    url: "https://same.example.com",
+                    token: "\(accountId)-token",
+                    libraries: [
+                        PlexLibraryConfig(id: sectionKey, key: sectionKey, title: accountId, isEnabled: true),
+                        PlexLibraryConfig(id: "shared", key: "10", title: "Shared", isEnabled: true),
+                        PlexLibraryConfig(id: "disabled", key: "99", title: "Disabled", isEnabled: false)
+                    ]
+                )]
+            ))
+        }
+        let (coordinator, _) = makeCoordinator(accountManager: accountManager)
+        var refreshedSources: Set<String> = []
+        let refreshed = expectation(description: "Each account refreshes its own enabled sections")
+        refreshed.expectedFulfillmentCount = 4
+        coordinator.onLibraryUpdate = { sectionKey, serverKey, _ in
+            refreshedSources.insert("\(serverKey):\(sectionKey)")
+            refreshed.fulfill()
+        }
+
+        for accountId in ["first", "second"] {
+            await coordinator.handleEventForTesting(
+                .activityUpdate(event: "ended", type: "library.refresh", progress: 100),
+                from: "\(accountId):same-pms"
+            )
+        }
+        await fulfillment(of: [refreshed], timeout: 4)
+        XCTAssertEqual(refreshedSources, [
+            "first:same-pms:1", "first:same-pms:10",
+            "second:same-pms:2", "second:same-pms:10"
+        ])
+    }
+
+    func testStopBeforeAsyncSetupFinishesDoesNotRestoreConnectionAvailability() async {
+        let accountManager = AccountManager(keychain: TestKeychain())
+        accountManager.addPlexAccount(PlexAccountConfig(
+            id: "account",
+            displayTitle: "Account",
+            authToken: "token",
+            servers: [PlexServerConfig(
+                id: "server",
+                name: "Server",
+                url: "https://127.0.0.1:9",
+                token: "server-token",
+                libraries: [PlexLibraryConfig(id: "library", key: "1", title: "Music", isEnabled: true)]
+            )]
+        ))
+        let (coordinator, monitor) = makeCoordinator(accountManager: accountManager)
+        monitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        let reconnected = expectation(description: "Stopped setup must not reconnect")
+        reconnected.isInverted = true
+        coordinator.onConnectionAvailabilityChanged = { connected in
+            if connected { reconnected.fulfill() }
+        }
+
+        coordinator.start()
+        coordinator.stop()
+        await fulfillment(of: [reconnected], timeout: 0.2)
+        XCTAssertTrue(coordinator.connectedServerKeys.isEmpty)
     }
 }
