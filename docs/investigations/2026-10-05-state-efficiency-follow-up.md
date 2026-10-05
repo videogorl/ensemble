@@ -370,7 +370,7 @@ iOS 27.0. Its app process/version matched the installed Release build. This prov
 that the narrower capture works; the short canary does not establish battery
 savings, and it is not a matched before/after comparison.
 
-### Remaining runtime gaps and tool blockers
+### Tool blockers and completed follow-up checks
 
 Xcode workspace approval was granted and its RunProject request launched a fresh
 combined Debug build on the physical phone despite the tool timeout. Installed
@@ -381,9 +381,33 @@ that lookup. The catalog-search expression then failed to link the MusicKit
 `MusicItemCollection` nominal type descriptor; its task was not initialized.
 The phone disconnected during background-probe setup: Device Hub could no longer
 display it, devicectl could not acquire device connectivity, and LLDB could not
-write the probe dictionary into the target. Neither remaining phone probe ran.
-Xcode stopped its debug session, and the delayed fixture was stopped with no
-requests. No cache was deleted or production diagnostic hook added.
+write the probe dictionary into the target. Neither remaining phone probe ran
+during that attempt. Xcode stopped its debug session, and the delayed fixture
+was stopped with no requests. No cache was deleted or production diagnostic hook
+added. The phone was subsequently reconnected and both checks completed below.
+
+On the reconnected physical phone, Xcode launched the combined Debug build with
+verified installation, executable path, PID, and build source path. Bypassing the
+debugger-only MusicKit search expression, a known public catalog playlist was
+passed directly to the production `PlaylistDetailViewModel` with an isolated
+in-memory repository and the real configured sync/provider owners. It loaded
+50 tracks, 50 catalog-identity items, and 50 filtered tracks, with nonzero duration,
+matching source identities, completed loading, and no error. The isolated cache
+was absent before and after. This proves the model/provider uncached fallback;
+it is not a rendered catalog-detail UI check or a pagination-completeness claim.
+
+A production coordinator/API/provider with isolated in-memory repositories then
+started periodic sync against a delayed synthetic inventory endpoint. Host
+counters confirmed one request in flight before Device Hub's native Home action.
+The actual iOS background notification invoked the coordinator's stop path:
+cancellation completed while the application was backgrounded, the timer stopped,
+the task cleared, the full seeded cursor record remained equal, and zero scoped
+playlist refresh notifications were emitted. Cursor seed/read checks succeeded.
+The host later confirmed the connection closed before its delayed response.
+The shared app also logged the native scene-background transition and stopped
+network monitoring. The coordinator probe uses a synthetic source, not a request
+against the user's configured server. Temporary observers/preferences were
+restored; the debugger and fixture server were stopped.
 
 The macOS native drag gap is closed. On the explicitly launched combined build,
 native Play Next / Play Last added two temporary future queue items and displayed
@@ -399,9 +423,13 @@ narrower scope.
 Current develop was merged into this branch without conflicts. Both combined
 workspace builds passed: macOS Debug and physical iPhone Release. The explicit
 macOS executable path and debug binary UUID identified the combined running build.
-The physical combined Release build still needs its final installation/runtime
-check after reconnection. The last installed phone build was the combined Debug
-build; current pause/lock state cannot be independently verified while disconnected.
+After the phone probes, the exact combined Release artifact was installed and
+launched: version `0.4.0 / 202610051437.6973`. The installed version and running
+executable's new container matched. Playlists rendered with paused playback.
+Its session log recorded one library map of 21,218 tracks in 1,246 ms and completed
+startup sync. This is an additional combined-build smoke check, not a new matched
+benchmark. Device Hub locked the phone and stopped only its screen sharing;
+devicectl independently confirmed `passcodeRequired: true` afterward.
 
 Pending user decisions remain the Plex successful-body checkpoint/freshness and
 displayed-count policy, plus publication/integration. The branch contains local
