@@ -36,8 +36,8 @@ struct RootMiniPlayerOverlay: View {
             .background {
                 GeometryReader { geometry in
                     Color.clear.preference(
-                        key: ToastBottomLimitPreference.self,
-                        value: geometry.frame(in: .global).minY
+                        key: ToastLayoutPreference.self,
+                        value: ToastLayout(bottomLimit: geometry.frame(in: .global).minY)
                     )
                 }
             }

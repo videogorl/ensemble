@@ -7,12 +7,23 @@ import UIKit
 import AppKit
 #endif
 
-/// Lowest unobstructed point in this scene, measured by the root chrome and mini-player.
-struct ToastBottomLimitPreference: PreferenceKey {
-    static let defaultValue: CGFloat? = nil
-    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
-        guard let next = nextValue() else { return }
-        value = value.map { min($0, next) } ?? next
+struct ToastLayout {
+    var bottomLimit: CGFloat?
+    var miniPlayerFrame: CGRect?
+}
+
+/// Unobstructed bottom edge and visible mini-player bounds in this scene.
+struct ToastLayoutPreference: PreferenceKey {
+    static let defaultValue = ToastLayout()
+
+    static func reduce(value: inout ToastLayout, nextValue: () -> ToastLayout) {
+        let next = nextValue()
+        if let bottomLimit = next.bottomLimit {
+            value.bottomLimit = value.bottomLimit.map { min($0, bottomLimit) } ?? bottomLimit
+        }
+        if let frame = next.miniPlayerFrame, !frame.isEmpty {
+            value.miniPlayerFrame = frame
+        }
     }
 }
 
@@ -51,17 +62,19 @@ public extension View {
     @ViewBuilder
     func installGlobalToastWindow(toastCenter: ToastCenter) -> some View {
         #if os(iOS)
-        overlayPreferenceValue(ToastBottomLimitPreference.self) { bottomLimit in
-            GlobalToastWindowHost(toastCenter: toastCenter, bottomLimit: bottomLimit)
+        overlayPreferenceValue(ToastLayoutPreference.self) { layout in
+            GlobalToastWindowHost(toastCenter: toastCenter, bottomLimit: layout.bottomLimit)
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
         }
         #elseif os(macOS)
-        overlayPreferenceValue(ToastBottomLimitPreference.self) { bottomLimit in
+        overlayPreferenceValue(ToastLayoutPreference.self) { layout in
             GeometryReader { geometry in
+                let rootFrame = geometry.frame(in: .global)
                 GlobalToastWindowHost(
                     toastCenter: toastCenter,
-                    bottomInset: bottomLimit.map { max(0, geometry.frame(in: .global).maxY - $0) } ?? 0
+                    bottomInset: layout.bottomLimit.map { max(0, rootFrame.maxY - $0) } ?? 0,
+                    miniPlayerFrame: layout.miniPlayerFrame?.offsetBy(dx: -rootFrame.minX, dy: -rootFrame.minY)
                 )
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
@@ -237,10 +250,12 @@ private struct GlobalToastOverlayRootView: View {
 public struct GlobalToastWindowHost: NSViewRepresentable {
     @ObservedObject private var toastCenter: ToastCenter
     private let bottomInset: CGFloat
+    private let miniPlayerFrame: CGRect?
 
-    public init(toastCenter: ToastCenter, bottomInset: CGFloat = 0) {
+    public init(toastCenter: ToastCenter, bottomInset: CGFloat = 0, miniPlayerFrame: CGRect? = nil) {
         self._toastCenter = ObservedObject(wrappedValue: toastCenter)
         self.bottomInset = bottomInset
+        self.miniPlayerFrame = miniPlayerFrame
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -252,6 +267,7 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
     }
 
     public func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.miniPlayerFrame = miniPlayerFrame
         context.coordinator.update(toastCenter: toastCenter, bottomInset: bottomInset)
         context.coordinator.attach(to: nsView.window)
         (nsView as? SceneProbeView)?.onWindowChange = { [weak coordinator = context.coordinator] window in
@@ -276,6 +292,7 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
     public final class Coordinator {
         fileprivate var toastCenter: ToastCenter
         fileprivate var bottomInset: CGFloat = 0
+        fileprivate var miniPlayerFrame: CGRect?
         private weak var contentWindow: NSWindow?
         private weak var targetWindow: NSWindow?
         private var hostingView: NSHostingView<MacToastOverlayRootView>?
@@ -350,7 +367,7 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
                 return
             }
 
-            let width = max(0, contentView.bounds.width - 2 * EnsembleScaffold.Toast.globalHorizontalPadding)
+            let width = toastWidth(in: contentView, window: target)
             if targetWindow !== target {
                 hostingView?.removeFromSuperview()
                 targetWindow = target
@@ -373,6 +390,14 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
             MacToastOverlayRootView(toastCenter: toastCenter, width: width)
         }
 
+        private func toastWidth(in contentView: NSView, window: NSWindow) -> CGFloat {
+            let availableWidth = max(0, contentView.bounds.width - 2 * EnsembleScaffold.Toast.globalHorizontalPadding)
+            if window === contentWindow, let miniPlayerFrame {
+                return min(miniPlayerFrame.width, contentView.bounds.width)
+            }
+            return availableWidth
+        }
+
         private func layoutOverlay() {
             guard let contentWindow,
                   let target = targetWindow,
@@ -382,7 +407,7 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
                 return
             }
 
-            let width = max(0, contentView.bounds.width - 2 * EnsembleScaffold.Toast.globalHorizontalPadding)
+            let width = toastWidth(in: contentView, window: target)
             guard width > 0, toastCenter.currentToast != nil else {
                 hostingView.isHidden = true
                 return
@@ -406,7 +431,7 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
                 ? contentView.bounds.maxY - bottomOffset - size.height
                 : contentView.bounds.minY + bottomOffset
             let bannerRect = NSRect(
-                x: contentView.bounds.midX - size.width / 2,
+                x: (isShowingSheet ? contentView.bounds.midX : miniPlayerFrame?.midX ?? contentView.bounds.midX) - size.width / 2,
                 y: originY,
                 width: size.width,
                 height: size.height

@@ -98,10 +98,10 @@ struct RootSceneLayerHost<Content: View>: View {
                     }
 
                     Color.clear.preference(
-                        key: ToastBottomLimitPreference.self,
-                        value: layout.hasRenderableFrame
+                        key: ToastLayoutPreference.self,
+                        value: ToastLayout(bottomLimit: layout.hasRenderableFrame
                             ? proxy.frame(in: .global).minY + layout.frame.maxY - layout.bottomPadding
-                            : nil
+                            : nil)
                     )
                     rootMiniPlayerLayer(layout: layout)
                 }
