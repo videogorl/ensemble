@@ -11,6 +11,8 @@ public final class EnsemblePermalinkResolver {
     private let enabledSourceKeys: () -> Set<String>
     private let mergingPreferences: () -> EnsembleMergingPreferences
     private let appleMusicCatalogSearch: AppleMusicCatalogSearchClient
+    private let accountManager: AccountManager?
+    private let visibilityStore: LibraryVisibilityStore?
 
     public init(
         accountManager: AccountManager,
@@ -21,6 +23,8 @@ public final class EnsemblePermalinkResolver {
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
+        self.accountManager = accountManager
+        self.visibilityStore = visibilityStore
         self.enabledSourceKeys = {
             let enabledSourceKeys = Set(accountManager.enabledSources().map(\.compositeKey))
             return enabledSourceKeys.subtracting(
@@ -42,15 +46,23 @@ public final class EnsemblePermalinkResolver {
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
+        self.accountManager = nil
+        self.visibilityStore = nil
         self.enabledSourceKeys = enabledSourceKeys
         self.mergingPreferences = mergingPreferences
         self.appleMusicCatalogSearch = appleMusicCatalogSearch
     }
 
     /// Returns a typed scene-local navigation destination without starting playback.
-    public func resolve(_ permalink: EnsemblePermalink) async throws -> NavigationCoordinator.Destination? {
+    public func resolve(
+        _ permalink: EnsemblePermalink,
+        onLibraryEnabled: ((String) -> Void)? = nil
+    ) async throws -> NavigationCoordinator.Destination? {
+        if let accountManager, accountManager.credentialLoadState == .loading {
+            await accountManager.loadAccountsAsync()
+        }
+        try Task.checkCancellation()
         let sourceKeys = enabledSourceKeys()
-        guard !sourceKeys.isEmpty else { return nil }
 
         let localDestination = switch permalink.kind {
         case .artist:
@@ -63,6 +75,26 @@ public final class EnsemblePermalinkResolver {
             try await resolvePlaylist(permalink, sourceKeys: playlistSourceKeys(from: sourceKeys))
         }
         if let localDestination { return localDestination }
+
+        if permalink.kind == .album {
+            if let destination = try await resolveRemoteAlbum(permalink, sourceKeys: sourceKeys) {
+                return destination
+            }
+            if let accountManager, let visibilityStore {
+                let disabledKeys = Set(accountManager.disabledSources().map(\.compositeKey))
+                let visibleDisabledKeys = disabledKeys.subtracting(
+                    visibilityStore.effectiveHiddenSourceCompositeKeys(enabledSourceCompositeKeys: disabledKeys)
+                )
+                if let destination = try await resolveRemoteAlbum(
+                    permalink,
+                    sourceKeys: visibleDisabledKeys,
+                    enableLibrary: true,
+                    onLibraryEnabled: onLibraryEnabled
+                ) {
+                    return destination
+                }
+            }
+        }
 
         guard sourceKeys.contains(MusicSourceIdentifier.appleMusic.compositeKey) else { return nil }
         let query = [permalink.artistName, permalink.title, permalink.albumTitle]
@@ -130,6 +162,14 @@ public final class EnsemblePermalinkResolver {
                 && hasCompatibleArtist(permalink.artistName, $0.artistName ?? $0.albumArtist)
         }
 
+        return albumDestination(permalink, albums: albums)
+    }
+
+    private func albumDestination(
+        _ permalink: EnsemblePermalink,
+        albums: [Album]
+    ) -> NavigationCoordinator.Destination? {
+
         guard let album = best(albums, sourceKey: \.sourceCompositeKey, score: { album in
             var score = 0
             if matches(permalink.artistName, album.artistName ?? album.albumArtist) { score += 8 }
@@ -142,6 +182,65 @@ public final class EnsemblePermalinkResolver {
             .first { $0.albums.contains(where: { $0.sourceScopedID == album.sourceScopedID }) }
             ?? .single(album)
         return .albumDetail(displayAlbum)
+    }
+
+    private func resolveRemoteAlbum(
+        _ permalink: EnsemblePermalink,
+        sourceKeys: Set<String>,
+        enableLibrary: Bool = false,
+        onLibraryEnabled: ((String) -> Void)? = nil
+    ) async throws -> NavigationCoordinator.Destination? {
+        guard let accountManager, let visibilityStore else { return nil }
+        let orderedKeys = sourceKeys.sorted {
+            let lhsRank = mergingPreferences().rank(for: $0)
+            let rhsRank = mergingPreferences().rank(for: $1)
+            return lhsRank == rhsRank ? $0 < $1 : lhsRank < rhsRank
+        }
+        for sourceKey in orderedKeys {
+            try Task.checkCancellation()
+            guard let identity = MediaSourceIdentity.parse(sourceKey), identity.sourceType == .plex,
+                  let libraryId = identity.libraryId,
+                  let client = accountManager.makeAPIClient(accountId: identity.accountId, serverId: identity.serverId)
+            else { continue }
+            let revision = accountManager.sourceConfigurationRevision(forSourceKey: sourceKey)
+            let albums: [Album]
+            do {
+                albums = try await client.searchAlbums(query: permalink.title, sectionKey: libraryId)
+                    .map { Album(from: $0, sourceKey: sourceKey) }
+                    .filter {
+                        normalized($0.title) == normalized(permalink.title)
+                            && hasCompatibleArtist(permalink.artistName, $0.artistName ?? $0.albumArtist)
+                    }
+            } catch {
+                try Task.checkCancellation()
+                EnsembleLogger.error("PERMALINK: Plex album lookup failed: \(error.localizedDescription)")
+                continue
+            }
+            try Task.checkCancellation()
+            guard accountManager.sourceConfigurationRevision(forSourceKey: sourceKey) == revision,
+                  !visibilityStore.effectiveHiddenSourceCompositeKeys(enabledSourceCompositeKeys: [sourceKey]).contains(sourceKey),
+                  let destination = albumDestination(permalink, albums: albums)
+            else { continue }
+
+            if enableLibrary {
+                guard let library = accountManager.plexAccounts.first(where: { $0.id == identity.accountId })?
+                    .servers.first(where: { $0.id == identity.serverId })?
+                    .libraries.first(where: { $0.key == libraryId }),
+                      accountManager.setLibraryEnabled(
+                        accountId: identity.accountId,
+                        serverId: identity.serverId,
+                        libraryKey: libraryId,
+                        isEnabled: true
+                      )
+                else { continue }
+                onLibraryEnabled?(library.title)
+            } else if !enabledSourceKeys().contains(sourceKey) {
+                continue
+            }
+            EnsembleLogger.info("PERMALINK: resolved album directly from Plex enabledLibrary=\(enableLibrary)")
+            return destination
+        }
+        return nil
     }
 
     private func resolveTrack(

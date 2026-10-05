@@ -3,6 +3,8 @@ import EnsembleCore
 import SwiftUI
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 /// Lowest unobstructed point in this scene, measured by the root chrome and mini-player.
@@ -53,6 +55,17 @@ public extension View {
             GlobalToastWindowHost(toastCenter: toastCenter, bottomLimit: bottomLimit)
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
+        }
+        #elseif os(macOS)
+        overlayPreferenceValue(ToastBottomLimitPreference.self) { bottomLimit in
+            GeometryReader { geometry in
+                GlobalToastWindowHost(
+                    toastCenter: toastCenter,
+                    bottomInset: bottomLimit.map { max(0, geometry.frame(in: .global).maxY - $0) } ?? 0
+                )
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+            }
         }
         #else
         self
@@ -219,6 +232,250 @@ private struct GlobalToastOverlayRootView: View {
 }
 #endif
 
+#if os(macOS)
+/// Installs a banner-sized overlay in the scene window, or its active sheet.
+public struct GlobalToastWindowHost: NSViewRepresentable {
+    private let toastCenter: ToastCenter
+    private let bottomInset: CGFloat
+
+    public init(toastCenter: ToastCenter, bottomInset: CGFloat = 0) {
+        self.toastCenter = toastCenter
+        self.bottomInset = bottomInset
+    }
+
+    public func makeCoordinator() -> Coordinator {
+        Coordinator(toastCenter: toastCenter)
+    }
+
+    public func makeNSView(context: Context) -> NSView {
+        SceneProbeView()
+    }
+
+    public func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.update(toastCenter: toastCenter, bottomInset: bottomInset)
+        context.coordinator.attach(to: nsView.window)
+        (nsView as? SceneProbeView)?.onWindowChange = { [weak coordinator = context.coordinator] window in
+            coordinator?.attach(to: window)
+        }
+    }
+
+    public static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    private final class SceneProbeView: NSView {
+        var onWindowChange: ((NSWindow?) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            onWindowChange?(window)
+        }
+    }
+
+    @MainActor
+    public final class Coordinator {
+        fileprivate var toastCenter: ToastCenter
+        fileprivate var bottomInset: CGFloat = 0
+        private weak var contentWindow: NSWindow?
+        private weak var targetWindow: NSWindow?
+        private var hostingView: NSHostingView<MacToastOverlayRootView>?
+        private var measuredSize = CGSize.zero
+        private var observerTokens: [NSObjectProtocol] = []
+
+        fileprivate init(toastCenter: ToastCenter) {
+            self.toastCenter = toastCenter
+        }
+
+        fileprivate func update(toastCenter: ToastCenter, bottomInset: CGFloat) {
+            self.toastCenter = toastCenter
+            self.bottomInset = bottomInset
+            refreshOverlay()
+        }
+
+        fileprivate func attach(to window: NSWindow?) {
+            guard contentWindow !== window else {
+                refreshOverlay()
+                return
+            }
+
+            removeObservers()
+            detachOverlay()
+            contentWindow = window
+
+            guard let window else { return }
+            let center = NotificationCenter.default
+            observerTokens = [
+                center.addObserver(forName: NSWindow.willBeginSheetNotification, object: window, queue: .main) { [weak self] _ in
+                    DispatchQueue.main.async { [weak self] in self?.refreshOverlay() }
+                },
+                center.addObserver(forName: NSWindow.didEndSheetNotification, object: window, queue: .main) { [weak self] _ in
+                    DispatchQueue.main.async { [weak self] in self?.refreshOverlay() }
+                },
+                center.addObserver(forName: NSWindow.didResizeNotification, object: nil, queue: .main) { [weak self] notification in
+                    guard let self,
+                          let resizedWindow = notification.object as? NSWindow,
+                          resizedWindow === self.contentWindow || resizedWindow === self.targetWindow else { return }
+                    self.refreshOverlay()
+                }
+            ]
+            let activityNotifications: [Notification.Name] = [
+                NSWindow.didBecomeKeyNotification,
+                NSWindow.didResignKeyNotification,
+                NSWindow.didBecomeMainNotification,
+                NSWindow.didResignMainNotification,
+                NSApplication.didBecomeActiveNotification,
+                NSApplication.didResignActiveNotification
+            ]
+            observerTokens += activityNotifications.map { name in
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    DispatchQueue.main.async { [weak self] in self?.layoutOverlay() }
+                }
+            }
+            refreshOverlay()
+        }
+
+        fileprivate func detach() {
+            removeObservers()
+            detachOverlay()
+            contentWindow = nil
+        }
+
+        private func refreshOverlay() {
+            guard let contentWindow else {
+                detachOverlay()
+                return
+            }
+            let target = activeWindow(from: contentWindow)
+            guard let contentView = target.contentView else {
+                detachOverlay()
+                return
+            }
+
+            let width = max(0, contentView.bounds.width - 2 * EnsembleScaffold.Toast.globalHorizontalPadding)
+            if targetWindow !== target {
+                hostingView?.removeFromSuperview()
+                targetWindow = target
+            }
+
+            let hostingView = hostingView ?? NSHostingView(rootView: toastRootView(width: width))
+            hostingView.rootView = toastRootView(width: width)
+            hostingView.wantsLayer = true
+            hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+            if hostingView.superview !== contentView {
+                hostingView.removeFromSuperview()
+                contentView.addSubview(hostingView, positioned: .above, relativeTo: nil)
+            }
+            if measuredSize.height == 0, toastCenter.currentToast != nil {
+                hostingView.layoutSubtreeIfNeeded()
+                let fittingHeight = hostingView.fittingSize.height
+                if fittingHeight > 0 {
+                    measuredSize = CGSize(width: width, height: fittingHeight)
+                    hostingView.setFrameSize(NSSize(width: width, height: fittingHeight))
+                }
+            }
+            self.hostingView = hostingView
+
+            layoutOverlay()
+        }
+
+        private func toastRootView(width: CGFloat) -> MacToastOverlayRootView {
+            MacToastOverlayRootView(toastCenter: toastCenter, width: width) { [weak self] size in
+                self?.measuredSize = size
+                self?.layoutOverlay()
+            }
+        }
+
+        private func layoutOverlay() {
+            guard let contentWindow,
+                  let target = targetWindow,
+                  let contentView = target.contentView,
+                  let hostingView else {
+                hostingView?.isHidden = true
+                return
+            }
+
+            guard toastCenter.currentToast != nil, measuredSize.height > 0 else {
+                hostingView.isHidden = true
+                return
+            }
+
+            let width = max(0, contentView.bounds.width - 2 * EnsembleScaffold.Toast.globalHorizontalPadding)
+            guard width > 0 else {
+                hostingView.isHidden = true
+                return
+            }
+
+            let size = CGSize(width: width, height: measuredSize.height)
+            let isShowingSheet = target !== contentWindow
+            let chromeInset = isShowingSheet ? 0 : bottomInset
+            let bottomOffset = min(
+                max(0, chromeInset),
+                max(0, contentView.bounds.height - size.height)
+            ) + EnsembleScaffold.Toast.hostBottomPadding
+            hostingView.frame = NSRect(
+                x: contentView.bounds.midX - size.width / 2,
+                y: contentView.bounds.minY + bottomOffset,
+                width: size.width,
+                height: size.height
+            )
+            hostingView.isHidden = !(target.isVisible && isActiveWindow(target))
+        }
+
+        private func activeWindow(from window: NSWindow) -> NSWindow {
+            var activeWindow = window
+            while let sheet = activeWindow.attachedSheet {
+                activeWindow = sheet
+            }
+            return activeWindow
+        }
+
+        private func isActiveWindow(_ window: NSWindow) -> Bool {
+            guard NSApp.isActive else { return false }
+            return window === NSApp.keyWindow ||
+                (window === NSApp.mainWindow && window.attachedSheet == nil)
+        }
+
+        private func detachOverlay() {
+            hostingView?.removeFromSuperview()
+            hostingView = nil
+            targetWindow = nil
+            measuredSize = .zero
+        }
+
+        private func removeObservers() {
+            observerTokens.forEach { NotificationCenter.default.removeObserver($0) }
+            observerTokens.removeAll()
+        }
+    }
+}
+
+private struct MacToastOverlayRootView: View {
+    @ObservedObject var toastCenter: ToastCenter
+    let width: CGFloat
+    let onSizeChange: (CGSize) -> Void
+
+    var body: some View {
+        ToastHostView(toastCenter: toastCenter, horizontalPadding: 0, bottomPadding: 0)
+            .frame(width: width)
+            .fixedSize(horizontal: false, vertical: true)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: MacToastSizePreference.self, value: geometry.size)
+                }
+            }
+            .onPreferenceChange(MacToastSizePreference.self, perform: onSizeChange)
+    }
+}
+
+private struct MacToastSizePreference: PreferenceKey {
+    static let defaultValue = CGSize.zero
+
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
+    }
+}
+#endif
+
 public struct ToastBannerView: View {
     let toast: ToastPayload
     let toastCenter: ToastCenter
@@ -258,6 +515,7 @@ public struct ToastBannerView: View {
                 }
                 .font(EnsembleDesign.Typography.toastAction)
                 .foregroundColor(accentColor)
+                .accessibilityIdentifier("toast.action")
             }
         }
         .padding(.horizontal, EnsembleScaffold.Toast.horizontalPadding)

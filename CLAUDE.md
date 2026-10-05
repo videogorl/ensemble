@@ -37,7 +37,7 @@ user-facing bullet to the page content describing the fix or feature, with
 `GitHub ↗` linked to the corresponding commit on GitHub. Example:
 “Now Playing view supports the Metal ‘aurora’ visual properly sized. GitHub ↗”
 
-Use a `Bug fixes` or `Features` heading when appropriate, reusing an existing
+Use a `Bug fixes`, `Changes`, or `New Features` heading when appropriate, reusing an existing
 heading or adding one as needed. As the task continues, update its existing
 bullet and commit link to reflect the delivered behavior; add separate bullets
 for distinct changes. Read back the page to verify the update. If the page or
