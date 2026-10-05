@@ -36,6 +36,11 @@ public final class LibraryViewModel: ObservableObject {
         let genres: [DisplayGenre]
     }
 
+    private struct DownloadedBrowseMembership: Equatable, Sendable {
+        var artistIDs: Set<String> = []
+        var albumIDs: Set<String> = []
+    }
+
     private typealias LibraryContents = (artists: [Artist], albums: [Album], tracks: [Track], genres: [Genre])
 
     private struct InitialBrowseConfiguration: Equatable, Sendable {
@@ -351,18 +356,31 @@ public final class LibraryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Artists — album genres and track downloads both affect source-scoped filtering.
+        // Track metadata only affects these collections through downloaded membership.
+        let downloadedMembership = Publishers.CombineLatest3(
+            $tracks,
+            $artistsFilterOptions.map(\.showDownloadedOnly).removeDuplicates(),
+            $albumsFilterOptions.map(\.showDownloadedOnly).removeDuplicates()
+        )
+            .receive(on: Self.computeQueue)
+            .map { Self.downloadedBrowseMembership(tracks: $0, includeArtists: $1, includeAlbums: $2) }
+            .removeDuplicates()
+            .multicast(subject: PassthroughSubject<DownloadedBrowseMembership, Never>())
+        let downloadedArtistIDs = downloadedMembership.map(\.artistIDs).removeDuplicates()
+        let downloadedAlbumIDs = downloadedMembership.map(\.albumIDs).removeDuplicates()
+
+        // Artists still depend on albums for genres and favorites.
         Publishers.CombineLatest4(
             Publishers.CombineLatest($artists, settingsManager.$mergingPreferences),
             $artistSortOption,
             $artistsFilterOptions,
-            Publishers.CombineLatest($albums, $tracks)
+            Publishers.CombineLatest($albums, downloadedArtistIDs)
         )
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { artistsAndPreferences, sortOption, filterOptions, albumsAndTracks -> ArtistComputation in
+            .map { artistsAndPreferences, sortOption, filterOptions, albumsAndDownloads -> ArtistComputation in
                 let (artists, preferences) = artistsAndPreferences
-                let (albums, tracks) = albumsAndTracks
-                return Self.computeArtists(artists, albums: albums, tracks: tracks, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
+                let (albums, downloadedIDs) = albumsAndDownloads
+                return Self.computeArtists(artists, albums: albums, downloadedArtistIDs: downloadedIDs, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
@@ -384,12 +402,12 @@ public final class LibraryViewModel: ObservableObject {
             Publishers.CombineLatest($albums, settingsManager.$mergingPreferences),
             $albumSortOption,
             $albumsFilterOptions,
-            $tracks
+            downloadedAlbumIDs
         )
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { albumsAndPreferences, sortOption, filterOptions, tracks -> AlbumComputation in
+            .map { albumsAndPreferences, sortOption, filterOptions, downloadedIDs -> AlbumComputation in
                 let (albums, preferences) = albumsAndPreferences
-                return Self.computeAlbums(albums, tracks: tracks, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
+                return Self.computeAlbums(albums, downloadedAlbumIDs: downloadedIDs, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
@@ -421,13 +439,13 @@ public final class LibraryViewModel: ObservableObject {
         // Derived from items that pass all NON-genre filters, so only genres
         // that will produce results are shown (e.g. singles excluded by hideSingles
         // won't contribute their genres to the chip bar).
-        Publishers.CombineLatest3($albums, $albumsFilterOptions, $tracks)
+        Publishers.CombineLatest3($albums, $albumsFilterOptions, downloadedAlbumIDs)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { albums, filterOptions, tracks -> [String] in
+            .map { albums, filterOptions, downloadedIDs -> [String] in
                 var nonGenreOptions = filterOptions
                 nonGenreOptions.selectedGenres.removeAll()
                 nonGenreOptions.excludedGenres.removeAll()
-                let preFiltered = Self.filterAlbums(albums, with: nonGenreOptions, tracks: tracks)
+                let preFiltered = Self.filterAlbums(albums, with: nonGenreOptions, downloadedAlbumIDs: downloadedIDs)
                 return Self.extractUniqueGenres(from: preFiltered.flatMap(\.genres))
             }
             .removeDuplicates()
@@ -437,6 +455,8 @@ public final class LibraryViewModel: ObservableObject {
                 self.albumBrowse.update(self.albumBrowse.snapshot.updating(availableGenres: genres))
             }
             .store(in: &cancellables)
+
+        downloadedMembership.connect().store(in: &cancellables)
 
         // Artist genres: derived from albums that pass non-genre filters
         $albums
@@ -583,9 +603,13 @@ public final class LibraryViewModel: ObservableObject {
             // Fetch and map on a background context to keep the main thread free.
             // Domain model structs (Artist, Album, Track, Genre) are value types
             // and safe to pass across threads.
+            let mappingStartedAt = ProcessInfo.processInfo.systemUptime
             let result = try await Self.fetchAndMapInBackground(
                 coreDataStack: Self.coreDataStack(for: libraryRepository),
                 sourceCompositeKeys: browseSourceKeys
+            )
+            EnsembleLogger.debug(
+                "[Performance] libraryMap generation=\(generation) artists=\(result.artists.count) albums=\(result.albums.count) tracks=\(result.tracks.count) genres=\(result.genres.count) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - mappingStartedAt) * 1_000))"
             )
             guard generation == loadGeneration else { return }
 
@@ -634,10 +658,15 @@ public final class LibraryViewModel: ObservableObject {
                     contents.genres, hiddenSourceCompositeKeys: configuration.hiddenSourceKeys,
                     sourceConfiguration: configuration.sourceConfiguration
                 )
+                let downloadedMembership = Self.downloadedBrowseMembership(
+                    tracks: tracks,
+                    includeArtists: configuration.artistFilter.showDownloadedOnly,
+                    includeAlbums: configuration.albumFilter.showDownloadedOnly
+                )
                 return (
                     tracks: Self.computeTracks(tracks, sortOption: configuration.trackSort, filterOptions: configuration.trackFilter, preferences: configuration.preferences),
-                    artists: Self.computeArtists(artists, albums: albums, tracks: tracks, sortOption: configuration.artistSort, filterOptions: configuration.artistFilter, preferences: configuration.preferences),
-                    albums: Self.computeAlbums(albums, tracks: tracks, sortOption: configuration.albumSort, filterOptions: configuration.albumFilter, preferences: configuration.preferences),
+                    artists: Self.computeArtists(artists, albums: albums, downloadedArtistIDs: downloadedMembership.artistIDs, sortOption: configuration.artistSort, filterOptions: configuration.artistFilter, preferences: configuration.preferences),
+                    albums: Self.computeAlbums(albums, downloadedAlbumIDs: downloadedMembership.albumIDs, sortOption: configuration.albumSort, filterOptions: configuration.albumFilter, preferences: configuration.preferences),
                     genres: Self.displayGenres(from: genres, albums: albums, with: configuration.genreFilter),
                     rawGenreCount: genres.count
                 )
@@ -1038,8 +1067,8 @@ public final class LibraryViewModel: ObservableObject {
         return TrackComputation(rawCount: tracks.count, tracks: projected, sections: sections, availableGenres: availableGenres)
     }
 
-    private nonisolated static func computeArtists(_ artists: [Artist], albums: [Album], tracks: [Track], sortOption: ArtistSortOption, filterOptions: FilterOptions, preferences: EnsembleMergingPreferences) -> ArtistComputation {
-        let filtered = LibraryViewModel.filterArtists(artists, with: filterOptions, albums: albums, tracks: tracks)
+    private nonisolated static func computeArtists(_ artists: [Artist], albums: [Album], downloadedArtistIDs: Set<String>, sortOption: ArtistSortOption, filterOptions: FilterOptions, preferences: EnsembleMergingPreferences) -> ArtistComputation {
+        let filtered = MediaFilterEngine.filterArtists(artists, with: filterOptions, albums: albums, downloadedArtistIDs: downloadedArtistIDs)
         let sorted = LibraryViewModel.sortArtists(filtered, by: sortOption, direction: filterOptions.sortDirection)
         let display = LibraryViewModel.sortDisplayArtists(
             DisplayArtist.group(filtered, preferences: preferences),
@@ -1050,8 +1079,8 @@ public final class LibraryViewModel: ObservableObject {
         return ArtistComputation(rawCount: artists.count, artists: sorted, displayArtists: display, sections: sections)
     }
 
-    private nonisolated static func computeAlbums(_ albums: [Album], tracks: [Track], sortOption: AlbumSortOption, filterOptions: FilterOptions, preferences: EnsembleMergingPreferences) -> AlbumComputation {
-        let filtered = LibraryViewModel.filterAlbums(albums, with: filterOptions, tracks: tracks)
+    private nonisolated static func computeAlbums(_ albums: [Album], downloadedAlbumIDs: Set<String>, sortOption: AlbumSortOption, filterOptions: FilterOptions, preferences: EnsembleMergingPreferences) -> AlbumComputation {
+        let filtered = LibraryViewModel.filterAlbums(albums, with: filterOptions, downloadedAlbumIDs: downloadedAlbumIDs)
         let sorted = LibraryViewModel.sortAlbums(filtered, by: sortOption, direction: filterOptions.sortDirection)
         let projected = MergingProjection.albums(sorted, preferences: preferences)
         let sections = LibraryViewModel.computeAlbumSections(from: projected, sortOption: sortOption)
@@ -1161,30 +1190,23 @@ public final class LibraryViewModel: ObservableObject {
         return Array(Set(filtered)).sorted()
     }
 
-    private nonisolated static func filterArtists(_ artists: [Artist], with options: FilterOptions, albums: [Album], tracks: [Track]) -> [Artist] {
-        let downloadedArtistIDs: Set<String>
-        if options.showDownloadedOnly {
-            downloadedArtistIDs = Set(tracks.compactMap { track in
-                guard track.isDownloaded, let artistID = track.artistRatingKey else { return nil }
-                return sourceScopedIdentity(ratingKey: artistID, sourceCompositeKey: track.sourceCompositeKey)
-            })
-        } else {
-            downloadedArtistIDs = []
+    private nonisolated static func downloadedBrowseMembership(
+        tracks: [Track], includeArtists: Bool, includeAlbums: Bool
+    ) -> DownloadedBrowseMembership {
+        var membership = DownloadedBrowseMembership()
+        guard includeArtists || includeAlbums else { return membership }
+        for track in tracks where track.isDownloaded {
+            if includeArtists, let artistID = track.artistRatingKey {
+                membership.artistIDs.insert(sourceScopedIdentity(ratingKey: artistID, sourceCompositeKey: track.sourceCompositeKey))
+            }
+            if includeAlbums, let albumID = track.albumRatingKey {
+                membership.albumIDs.insert(sourceScopedIdentity(ratingKey: albumID, sourceCompositeKey: track.sourceCompositeKey))
+            }
         }
-        return MediaFilterEngine.filterArtists(artists, with: options, albums: albums, downloadedArtistIDs: downloadedArtistIDs)
+        return membership
     }
 
-    private nonisolated static func filterAlbums(_ albums: [Album], with options: FilterOptions, tracks: [Track]) -> [Album] {
-        let downloadedAlbumIDs: Set<String>?
-        if options.showDownloadedOnly {
-            downloadedAlbumIDs = Set(tracks.compactMap { track in
-                guard track.isDownloaded, let albumID = track.albumRatingKey else { return nil }
-                return sourceScopedIdentity(ratingKey: albumID, sourceCompositeKey: track.sourceCompositeKey)
-            })
-        } else {
-            downloadedAlbumIDs = nil
-        }
-
+    private nonisolated static func filterAlbums(_ albums: [Album], with options: FilterOptions, downloadedAlbumIDs: Set<String>) -> [Album] {
         return MediaFilterEngine.filterAlbums(
             albums,
             with: options,

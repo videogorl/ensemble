@@ -1382,6 +1382,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func reconcileCompletedDownloadArtifacts() async {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         do {
             let completed = try await downloadManager.fetchCompletedDownloads()
             let candidates = completed.compactMap { download -> (DownloadTransferContext, URL)? in
@@ -1412,11 +1413,9 @@ public final class OfflineDownloadService: ObservableObject {
             for (ctx, fileURL) in candidates {
                 await enqueueArtifactReconciliation(ctx: ctx, fileURL: fileURL)
             }
-            if !candidates.isEmpty {
-                EnsembleLogger.debug(
-                    "📦 Queued derived-artifact reconciliation for \(candidates.count) completed download(s)"
-                )
-            }
+            EnsembleLogger.debug(
+                "[Performance] downloadArtifactEnqueue completed=\(completed.count) candidates=\(candidates.count) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+            )
         } catch {
             EnsembleLogger.debug(
                 "⚠️ Failed queuing derived download artifact reconciliation: \(error.localizedDescription)"
@@ -1429,9 +1428,15 @@ public final class OfflineDownloadService: ObservableObject {
     /// that passed the basic HTML/empty payload checks but have significantly shorter audio
     /// duration than expected (e.g. interrupted network transfer that closed cleanly).
     private func scanForTruncatedDownloads() async {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         do {
             let completed = try await downloadManager.fetchCompletedDownloads()
-            guard !completed.isEmpty else { return }
+            guard !completed.isEmpty else {
+                EnsembleLogger.debug(
+                    "[Performance] downloadTruncationScan completed=0 candidates=0 truncated=0 elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+                )
+                return
+            }
 
             let candidates = completed.compactMap { download -> TruncationScanCandidate? in
                 guard let filename = download.filePath, !filename.isEmpty,
@@ -1451,6 +1456,9 @@ public final class OfflineDownloadService: ObservableObject {
             }
 
             let truncatedDownloads = await Self.findTruncatedDownloads(candidates)
+            EnsembleLogger.debug(
+                "[Performance] downloadTruncationScan completed=\(completed.count) candidates=\(candidates.count) truncated=\(truncatedDownloads.count) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+            )
 
             for result in truncatedDownloads {
                 EnsembleLogger.debug(
@@ -1773,10 +1781,13 @@ public final class OfflineDownloadService: ObservableObject {
         }
 
         let runStartedAt = Date()
+        let startedAt = ProcessInfo.processInfo.systemUptime
         // Verify files on disk, mark missing/invalid downloads as failed.
         try? await downloadManager.repairDownloads()
+        let repairFinishedAt = ProcessInfo.processInfo.systemUptime
         // Catch truncated audio files (interrupted downloads that passed basic checks).
         await scanForTruncatedDownloads()
+        let scanFinishedAt = ProcessInfo.processInfo.systemUptime
 
         do {
             let removedCount = try await cleanupCoordinator.removeOrphanedCompletedDownloads()
@@ -1797,7 +1808,12 @@ public final class OfflineDownloadService: ObservableObject {
             EnsembleLogger.debug("❌ Failed removing orphaned completed downloads: \(error.localizedDescription)")
         }
 
+        let cleanupFinishedAt = ProcessInfo.processInfo.systemUptime
         await reconcileCompletedDownloadArtifacts()
+        let finishedAt = ProcessInfo.processInfo.systemUptime
+        EnsembleLogger.debug(
+            "[Performance] downloadHealing repairMs=\(Int((repairFinishedAt - startedAt) * 1_000)) scanMs=\(Int((scanFinishedAt - repairFinishedAt) * 1_000)) cleanupMs=\(Int((cleanupFinishedAt - scanFinishedAt) * 1_000)) enqueueMs=\(Int((finishedAt - cleanupFinishedAt) * 1_000)) elapsedMs=\(Int((finishedAt - startedAt) * 1_000))"
+        )
     }
 
     /// Reconciles interrupted work after launch, foreground, background URLSession wakes,
@@ -2309,12 +2325,18 @@ actor DownloadArtifactQueue {
     }
 
     private func drain() async {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        var processedCount = 0
         while !isSuspended, !pending.isEmpty {
             let item = pending.removeFirst()
             activeKey = item.key
             await item.work()
+            processedCount += 1
             activeKey = nil
         }
+        EnsembleLogger.debug(
+            "[Performance] downloadArtifactBatch processed=\(processedCount) pending=\(pending.count) suspended=\(isSuspended) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+        )
         workerTask = nil
         startWorkerIfNeeded()
     }

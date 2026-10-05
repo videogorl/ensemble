@@ -5,7 +5,6 @@ import Foundation
 
 struct PlaylistDetailTrackDerivation: Equatable {
     let filteredTracks: [Track]
-    let availableGenres: [String]
     let totalDuration: String
 
     @MainActor
@@ -13,9 +12,12 @@ struct PlaylistDetailTrackDerivation: Equatable {
         let filteredTracks = filter(tracks, with: filterOptions)
         return PlaylistDetailTrackDerivation(
             filteredTracks: filteredTracks,
-            availableGenres: LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres)),
             totalDuration: MediaFormatters.trackCollectionDuration(filteredTracks)
         )
+    }
+
+    static func genres(in tracks: [Track]) -> [String] {
+        LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres))
     }
 
     static func filter(_ tracks: [Track], with options: FilterOptions) -> [Track] {
@@ -24,14 +26,10 @@ struct PlaylistDetailTrackDerivation: Equatable {
 
     func publishChanges(
         filteredTracks currentFilteredTracks: inout [Track],
-        availableGenres currentAvailableGenres: inout [String],
         totalDuration currentTotalDuration: inout String
     ) {
         if currentFilteredTracks != filteredTracks {
             currentFilteredTracks = filteredTracks
-        }
-        if currentAvailableGenres != availableGenres {
-            currentAvailableGenres = availableGenres
         }
         if currentTotalDuration != totalDuration {
             currentTotalDuration = totalDuration
@@ -877,7 +875,7 @@ public final class PlaylistViewModel: ObservableObject {
 public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewModelProtocol {
     @Published public private(set) var playlist: Playlist
     @Published public private(set) var tracks: [Track] = [] {
-        didSet { updateDerivedTrackState() }
+        didSet { updateDerivedTrackState(refreshGenres: true) }
     }
     @Published public private(set) var playlistItems: [PlaylistItem] = []
     @Published public private(set) var availableGenres: [String] = []
@@ -932,9 +930,10 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         self.hiddenMediaStore = hiddenMediaStore
         self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "PlaylistDetail-\(playlist.id)")
-        updateDerivedTrackState()
+        updateDerivedTrackState(refreshGenres: true)
         hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
-            self?.updateDerivedTrackState()
+            guard let self, !self.includesHidden else { return }
+            self.updateDerivedTrackState(refreshGenres: true)
         }.store(in: &cancellables)
 
         // Save filter options when they change
@@ -1091,12 +1090,15 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
     // MARK: - Filtered Collections
 
-    private func updateDerivedTrackState() {
+    private func updateDerivedTrackState(refreshGenres: Bool = false) {
         let visibleTracks = includesHidden ? tracks : hiddenMediaStore.snapshot.visibleTracks(tracks)
+        if refreshGenres {
+            let genres = PlaylistDetailTrackDerivation.genres(in: visibleTracks)
+            if availableGenres != genres { availableGenres = genres }
+        }
         PlaylistDetailTrackDerivation.make(tracks: visibleTracks, filterOptions: filterOptions)
             .publishChanges(
                 filteredTracks: &filteredTracks,
-                availableGenres: &availableGenres,
                 totalDuration: &totalDuration
             )
     }

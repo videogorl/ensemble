@@ -16,7 +16,7 @@ private struct MergedPlaylistTrackSnapshot {
 public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailViewModelProtocol {
     @Published public private(set) var displayPlaylist: DisplayPlaylist
     @Published public private(set) var tracks: [Track] = [] {
-        didSet { updateDerivedTrackState() }
+        didSet { updateDerivedTrackState(refreshGenres: true) }
     }
     @Published public private(set) var availableGenres: [String] = []
     @Published public private(set) var filteredTracks: [Track] = []
@@ -52,7 +52,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
         self.filterOptions = FilterPersistence.load(for: "MergedPlaylistDetail-\(displayPlaylist.title)")
-        updateDerivedTrackState()
+        updateDerivedTrackState(refreshGenres: true)
 
         setupFilterPersistence()
         observeReloadTriggers()
@@ -335,11 +335,14 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         }
     }
 
-    private func updateDerivedTrackState() {
+    private func updateDerivedTrackState(refreshGenres: Bool = false) {
+        if refreshGenres {
+            let genres = PlaylistDetailTrackDerivation.genres(in: tracks)
+            if availableGenres != genres { availableGenres = genres }
+        }
         PlaylistDetailTrackDerivation.make(tracks: tracks, filterOptions: filterOptions)
             .publishChanges(
                 filteredTracks: &filteredTracks,
-                availableGenres: &availableGenres,
                 totalDuration: &totalDuration
             )
     }

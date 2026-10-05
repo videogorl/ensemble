@@ -93,6 +93,7 @@ public final class SiriMediaIndexStore {
     /// Rebuilds and writes a compact searchable index.
     @discardableResult
     public func rebuildIndex(previousIndex: SiriMediaIndex? = nil) async -> SiriMediaIndex? {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         do {
             let existingIndex: SiriMediaIndex?
             if let providedIndex = previousIndex {
@@ -212,10 +213,15 @@ public final class SiriMediaIndexStore {
 
             let index = SiriMediaIndex(items: items)
             guard Self.hasMaterialChanges(from: existingIndex, to: index) else {
-                EnsembleLogger.debug("Siri media index unchanged; skipped shared-container write")
+                EnsembleLogger.debug(
+                    "[Performance] siriIndexRebuild artists=\(artists.count) albums=\(albums.count) tracks=\(tracks.count) playlists=\(playlists.count) changed=false saved=false elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+                )
                 return existingIndex
             }
             try await save(index)
+            EnsembleLogger.debug(
+                "[Performance] siriIndexRebuild artists=\(artists.count) albums=\(albums.count) tracks=\(tracks.count) playlists=\(playlists.count) changed=true saved=true elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+            )
             return index
         } catch {
             EnsembleLogger.debug("Failed to rebuild Siri media index: \(error)")

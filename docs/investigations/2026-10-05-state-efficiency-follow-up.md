@@ -1,9 +1,11 @@
 # State efficiency follow-up
 
-Read-only production-code investigation of the remaining candidates after
-`e9eeb8cc`, compared with baseline `73e87f94`. No production changes or unit/integration
-suites were added or run. Raw device/library data, traces, logs, endpoint responses,
-and debugger scripts remain private under `/tmp/ensemble-state-followup.S7UEvm`.
+The initial read-only investigation below compares `e9eeb8cc` with baseline
+`73e87f94`. The approved implementation and runtime evidence are recorded at the
+end of this report. No unit/integration suites were added or run. Raw device/library
+data, traces, logs, endpoint responses, and debugger scripts remain private under
+`/tmp/ensemble-state-followup.S7UEvm` and
+`/tmp/ensemble-efficiency-implementation.Mpq0cH`.
 
 ## Findings and next changes
 
@@ -171,3 +173,114 @@ reconstructed. No raw device/library artifacts are committed.
 4. Repeat energy profiling with a working capture and stable scenarios; finish
    uncached Apple Music fallback, physical slow-request/background timing, and
    macOS drag verification. No battery benefit is claimed yet.
+
+
+## Approved follow-up implementation
+
+Artist and album browse computations now consume deduplicated source-scoped
+Downloaded Only membership instead of the whole track array. A single shared
+Combine projection scans downloaded tracks only for enabled filters; with both
+filters off it returns empty memberships without scanning. The two membership
+sets are deduplicated independently. Existing artist album dependencies, merging,
+visibility, initial snapshot preparation, and the browse debounce are retained.
+The native multicast connection is retained with the existing subscriptions.
+
+Single and merged playlist details rebuild their available genres on track-input
+changes. Single details also rebuild on hidden-media visibility changes when
+hidden items are excluded. Filter-only edits reuse the published catalogue and
+continue deriving filtered tracks and duration. No new cache service, stored copy
+of visible tracks, or view-level derivation was introduced.
+
+Aggregate monotonic elapsed-time logs were added to library fetch/map, download
+healing stages, truncation scan, artifact enqueue/drain, and Siri index rebuild.
+They contain counts and durations, with no media identities. They use the existing
+logger/session sink and local variables, with no global diagnostic service,
+persistent counters, polling, or per-item log calls. Artwork/lyrics hit and provider
+counters and sync material-change attribution remain future measurement work.
+The logs do not change recovery, indexing, persistence, or sync policy.
+
+### Verification
+
+Workspace builds passed for macOS Debug, iOS 26.5 Simulator Debug, and physical
+iPhone Release. All used version `0.4.0 / 202610051303.1714`. The installed simulator
+executable and debug dylib matched the built files; the macOS PID executable path
+and physical installed-version/launch-process evidence matched the exact artifacts.
+
+Debugger probes ran the actual macOS model pipelines using isolated view models:
+
+- A rating change and restoration in a cached 17,008-track library caused zero
+  `computeArtists` and zero `computeAlbums` calls, with equal browse snapshots.
+- A fixture with colliding artist/album keys across two sources selected only the
+  downloaded source. An artist-membership-only change computed artists once and
+  albums zero times; an album-membership-only change computed albums once and
+  artists zero times. Unaffected snapshots remained equal.
+- Twelve single/merged search, genre, and reset edits invoked filtered-track and
+  duration derivation twelve times and genre derivation zero times. Duplicate
+  occurrences, expected counts, and filtered duration were retained.
+- Hidden/unhidden and track-input changes rebuilt genres. A settled repeat checked
+  hidden catalogue contents, duplicate rows, duration, and full restoration.
+  Short initial debugger waits were insufficient while the shared compute queue
+  was busy; positive controls and queue-drain waits replaced those observations.
+
+A debugger-only report export used `try!` and stopped the first process when the
+app sandbox denied writing to `/tmp`. The exact app was relaunched, the final
+visibility check passed, and the debugger detached/resumed. Temporary model
+fixtures and preferences were restored; no media mutations were persisted.
+
+On the owned iOS simulator, an actual 3,460-track detail was opened. Downloaded
+Only hid all rows and displayed zero filtered duration; disabling it restored rows
+and the original 221 hr 44 min duration. Playback remained paused. XCTest
+accessibility capture timed out on this large screen; Device Hub native controls
+and screenshots supplied the direct behavior evidence. This is not a frame-time
+measurement. Separate single/merged filtering semantics were checked in the
+macOS model probes above.
+
+### Physical repeated-launch stage measurements
+
+Two foreground Release launches opened Playlists on the physical iPhone 16 Pro,
+actual iOS 27.0, with playback paused and no intentional library edits between
+launches. The first 60 seconds of each persistent session log were inspected.
+Background sync was active, so these are repeated-launch observations rather than
+proof that every persisted input was unchanged.
+
+| Stage | Launch 1 | Launch 2 |
+| --- | --- | --- |
+| Full library fetch/map count | 4 | 2 |
+| Mapped tracks per call | 21,218 | 21,218 |
+| Fetch/map elapsed per call | 1,294 / 1,007 / 1,085 / 1,080 ms | 1,134 / 1,013 ms |
+| Download healing elapsed | 1,157 ms | 934 ms |
+| Repair / truncation / cleanup / enqueue | 199 / 865 / 9 / 82 ms | 77 / 789 / 7 / 59 ms |
+| Completed downloads / truncation candidates / truncated | 322 / 322 / 0 | 322 / 322 / 0 |
+| Artifact batch processed / pending | 322 / 0 | 322 / 0 |
+| Artifact batch elapsed | 771 ms | 8,748 ms |
+| Siri rebuild elapsed / saved | 140 ms / yes; 157 ms / yes | 118 ms / no; 121 ms / yes |
+
+Siri inputs per rebuild were 1,500 artists, 1,500 albums, 1,000 tracks, and 198
+playlists. Launch 1's artist count changed between maps; Launch 2's aggregate
+library counts stayed equal while the second Siri index still detected a material
+change. Equal counts cannot establish equal metadata or an unnecessary rebuild.
+
+These elapsed intervals include scheduling, repository, and async/network waits;
+they are not CPU time and overlapping stages must not be added. The artifact batch
+variation cannot yet be attributed to cache misses or provider requests. The next
+work in [issue #99](https://github.com/videogorl/ensemble/issues/99) is to attribute
+library reload triggers/material changes and artwork/lyrics cache/provider work,
+then propose a focused correction in those existing owners. No startup redesign
+or energy/battery improvement is established by these two runs.
+
+The physical phone ended paused, screen sharing stopped, and `devicectl` reported
+`passcodeRequired: true`. No global Device Hub restart was used in this follow-up.
+The Plex body checkpoint/count policy in #98 and the earlier remaining runtime and
+energy checks are still outside this implementation.
+
+### Pending changelog publication
+
+The exact `{{future}}` Notion changelog page was found and read. These delivered
+entries are prepared for its Changes heading:
+
+- Artist and album browsing avoids unnecessary recalculation when track metadata changes.
+- Playlist filtering reuses genre information while keeping filtered tracks and duration current.
+
+Their required GitHub commit links are pending publication of the local commit.
+Push/merge authorization is separate; no unpublished commit link was added to the
+user-facing changelog.
