@@ -61,7 +61,7 @@ struct MediaActionLabel: View {
         case .startTrackRadio:
             return "Start Track Radio"
         case .shuffleFromTrack:
-            return "Shuffle from This Track"
+            return "Shuffle from Here"
         case .radio:
             return "Radio"
         case .playNext:

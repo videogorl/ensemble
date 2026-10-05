@@ -602,7 +602,7 @@ extension MediaMenuActionDescriptor {
         case .startTrackRadio:
             return MediaMenuLabel(title: "Start Track Radio", systemImage: EnsembleDesign.Icon.radio)
         case .shuffleFromTrack:
-            return MediaMenuLabel(title: "Shuffle from This Track", systemImage: EnsembleDesign.Icon.shuffle)
+            return MediaMenuLabel(title: "Shuffle from Here", systemImage: EnsembleDesign.Icon.shuffle)
         case .toggleShuffle:
             return MediaMenuLabel(
                 title: state.isShuffleEnabled ? "Turn Shuffle Off" : "Turn Shuffle On",
