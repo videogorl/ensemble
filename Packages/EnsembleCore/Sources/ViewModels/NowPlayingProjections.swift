@@ -142,10 +142,28 @@ public final class NowPlayingQueueProjection: ObservableObject {
     @Published public private(set) var isAutoplayEnabled = false
     @Published public private(set) var isSmartMixEnabled = false
     @Published public private(set) var recommendationsExhausted = false
+    private var cancellables = Set<AnyCancellable>()
 
     public var currentQueueItem: QueueItem? {
         guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return nil }
         return queue[currentQueueIndex]
+    }
+
+    func bind(to playbackService: PlaybackServiceProtocol) {
+        playbackService.queuePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] queue in self?.updateQueue(queue) }
+            .store(in: &cancellables)
+
+        playbackService.currentQueueIndexPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] index in self?.updateCurrentQueueIndex(index) }
+            .store(in: &cancellables)
+
+        playbackService.historyPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] history in self?.updatePlaybackHistory(history) }
+            .store(in: &cancellables)
     }
 
     func updateQueue(_ newQueue: [QueueItem]) {

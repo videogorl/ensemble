@@ -171,37 +171,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         }
     }
 
-    func testWebSocketOnlyRelaxesLibraryTimerAndStoppedTimersStayStopped() throws {
-        let (coordinator, _) = makeCoordinator()
-        defer { coordinator.stopPeriodicSync() }
-        coordinator.startPeriodicSync()
-        let libraryTimer = try XCTUnwrap(coordinator.periodicSyncTimer)
-        let downloadedTimer = try XCTUnwrap(coordinator.downloadedPlaylistSyncTimer)
-        XCTAssertEqual(libraryTimer.timeInterval, 3_600)
-        XCTAssertEqual(downloadedTimer.timeInterval, 60)
-
-        coordinator.adjustTimersForWebSocket(hasActiveWebSocket: true)
-        XCTAssertFalse(libraryTimer.isValid)
-        XCTAssertEqual(coordinator.periodicSyncTimer?.timeInterval, 14_400)
-        XCTAssertTrue(coordinator.downloadedPlaylistSyncTimer === downloadedTimer)
-        XCTAssertTrue(downloadedTimer.isValid)
-
-        coordinator.adjustTimersForWebSocket(hasActiveWebSocket: false)
-        let replacementLibraryTimer = try XCTUnwrap(coordinator.periodicSyncTimer)
-        XCTAssertEqual(replacementLibraryTimer.timeInterval, 3_600)
-        coordinator.stopPeriodicSync()
-        XCTAssertFalse(replacementLibraryTimer.isValid)
-        XCTAssertFalse(downloadedTimer.isValid)
-        for hasActiveWebSocket in [true, false] {
-            coordinator.adjustTimersForWebSocket(hasActiveWebSocket: hasActiveWebSocket)
-            XCTAssertNil(coordinator.periodicSyncTimer)
-            XCTAssertNil(coordinator.downloadedPlaylistSyncTimer)
-        }
-        coordinator.startPeriodicSync()
-        XCTAssertEqual(coordinator.periodicSyncTimer?.timeInterval, 3_600)
-        XCTAssertEqual(coordinator.downloadedPlaylistSyncTimer?.timeInterval, 60)
-    }
-
     func testDownloadedPlaylistTimerRefreshesOnlyItsRequestedAccountServer() async throws {
         let (coordinator, _) = makeCoordinator(initialState: .online(.wifi))
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
@@ -228,7 +197,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         coordinator.startPeriodicSync()
         defer { coordinator.stopPeriodicSync() }
         coordinator.adjustTimersForWebSocket(hasActiveWebSocket: true)
-        let timer = try XCTUnwrap(coordinator.downloadedPlaylistSyncTimer)
+        let timer = try XCTUnwrap(coordinator.periodicSyncTimer)
         timer.fire()
         await fulfillment(of: [refreshed], timeout: 2)
     }

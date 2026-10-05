@@ -2,6 +2,14 @@ import Combine
 import EnsemblePersistence
 import Foundation
 
+private struct MergedPlaylistTrackSnapshot {
+    let trackSets: [[Track]]
+    let uneditablePlaylistIDs: Set<String>
+    let loadedTrackCountsByPlaylistID: [String: Int]
+    let loadedItemsByPlaylistID: [String: [PlaylistItem]]
+    let hasUnavailableTracks: Bool
+}
+
 /// ViewModel for displaying a merged playlist — multiple same-named playlists from
 /// different sources shown as a single unified view with round-robin interleaved tracks.
 @MainActor
@@ -26,6 +34,9 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
     private var shouldSkipNextLoadAfterLocalEdit = false
+    private var hasPendingTrackLoad = false
+    private var trackLoadTask: Task<Void, Never>?
+    private var trackSnapshotRevision: UInt64 = 0
     private var uneditablePlaylistIDs = Set<String>()
     private var loadedTrackCountsByPlaylistID: [String: Int] = [:]
     private var loadedItemsByPlaylistID: [String: [PlaylistItem]] = [:]
@@ -56,7 +67,14 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     }
 
     private func observePlaylistRefresh() {
-        ViewModelNotificationObserver.observePlaylistRefresh(storingIn: &cancellables) { [weak self] in
+        ViewModelNotificationObserver.observePlaylistRefresh(
+            storingIn: &cancellables,
+            matchingSourceKeys: { [weak self] in
+                Set(self?.displayPlaylist.playlists.compactMap {
+                    MediaSourceIdentity.serverSourceKey(from: $0.sourceCompositeKey)
+                } ?? [])
+            }
+        ) { [weak self] _ in
             await self?.loadTracks()
         }
     }
@@ -76,32 +94,69 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
             return
         }
 
-        let playlists = displayPlaylist.playlists
-        isLoading = true
-        error = nil
-
-        do {
-            let loadedTracks = DisplayPlaylist.interleave(try await loadConstituentTrackSets())
-            if tracks != loadedTracks {
-                tracks = loadedTracks
-            }
-        } catch {
-            guard playlists == displayPlaylist.playlists else { return }
-            self.error = error.localizedDescription
+        if let trackLoadTask {
+            hasPendingTrackLoad = true
+            await trackLoadTask.value
+            return
         }
 
-        hasLoadedTracks = true
-        isLoading = false
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.isLoading = true
+            self.error = nil
+            repeat {
+                self.hasPendingTrackLoad = false
+                await self.performTrackLoad()
+            } while self.hasPendingTrackLoad
+            self.hasLoadedTracks = true
+            self.isLoading = false
+            self.trackLoadTask = nil
+        }
+        trackLoadTask = task
+        await task.value
     }
 
-    private func loadConstituentTrackSets() async throws -> [[Track]] {
+    private func performTrackLoad() async {
+        if shouldSkipNextLoadAfterLocalEdit {
+            shouldSkipNextLoadAfterLocalEdit = false
+            return
+        }
         let playlists = displayPlaylist.playlists
+        let revision = trackSnapshotRevision
+        do {
+            let snapshot = try await loadConstituentTrackSets(for: playlists)
+            guard revision == trackSnapshotRevision,
+                  playlists == displayPlaylist.playlists else { return }
+            let loadedTracks = DisplayPlaylist.interleave(snapshot.trackSets)
+            if uneditablePlaylistIDs != snapshot.uneditablePlaylistIDs {
+                uneditablePlaylistIDs = snapshot.uneditablePlaylistIDs
+            }
+            if loadedTrackCountsByPlaylistID != snapshot.loadedTrackCountsByPlaylistID {
+                loadedTrackCountsByPlaylistID = snapshot.loadedTrackCountsByPlaylistID
+            }
+            if loadedItemsByPlaylistID != snapshot.loadedItemsByPlaylistID {
+                loadedItemsByPlaylistID = snapshot.loadedItemsByPlaylistID
+            }
+            if hasUnavailableTracks != snapshot.hasUnavailableTracks {
+                hasUnavailableTracks = snapshot.hasUnavailableTracks
+            }
+            if tracks != loadedTracks { tracks = loadedTracks }
+        } catch is CancellationError {
+            // A changed constituent list is handled by the coalesced trailing load.
+        } catch {
+            guard revision == trackSnapshotRevision,
+                  playlists == displayPlaylist.playlists else { return }
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func loadConstituentTrackSets(for playlists: [Playlist]) async throws -> MergedPlaylistTrackSnapshot {
         let references = playlists.compactMap { playlist -> SourceScopedArtworkReference? in
             guard let sourceCompositeKey = playlist.sourceCompositeKey else { return nil }
             return SourceScopedArtworkReference(ratingKey: playlist.id, sourceCompositeKey: sourceCompositeKey)
         }
 
-        guard references.count == displayPlaylist.playlists.count else {
+        guard references.count == playlists.count else {
             return try await loadConstituentTrackSetsOneByOne(playlists)
         }
 
@@ -135,20 +190,22 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
             }
             return items.map(\.track)
         }
-        self.uneditablePlaylistIDs = uneditablePlaylistIDs
-        self.loadedTrackCountsByPlaylistID = loadedTrackCountsByPlaylistID
-        self.loadedItemsByPlaylistID = loadedItemsByPlaylistID
-        self.hasUnavailableTracks = hasUnavailableTracks
-        return trackSets
+        return MergedPlaylistTrackSnapshot(
+            trackSets: trackSets,
+            uneditablePlaylistIDs: uneditablePlaylistIDs,
+            loadedTrackCountsByPlaylistID: loadedTrackCountsByPlaylistID,
+            loadedItemsByPlaylistID: loadedItemsByPlaylistID,
+            hasUnavailableTracks: hasUnavailableTracks
+        )
     }
 
-    private func loadConstituentTrackSetsOneByOne(_ playlists: [Playlist]) async throws -> [[Track]] {
+    private func loadConstituentTrackSetsOneByOne(_ playlists: [Playlist]) async throws -> MergedPlaylistTrackSnapshot {
         var trackSets: [[Track]] = []
         var uneditablePlaylistIDs = Set<String>()
         var loadedTrackCountsByPlaylistID: [String: Int] = [:]
         var loadedItemsByPlaylistID: [String: [PlaylistItem]] = [:]
         var hasUnavailableTracks = false
-        trackSets.reserveCapacity(displayPlaylist.playlists.count)
+        trackSets.reserveCapacity(playlists.count)
         for playlist in playlists {
             if let cached = try await playlistRepository.fetchPlaylist(
                 ratingKey: playlist.id,
@@ -172,11 +229,13 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
             }
         }
         guard playlists == displayPlaylist.playlists else { throw CancellationError() }
-        self.uneditablePlaylistIDs = uneditablePlaylistIDs
-        self.loadedTrackCountsByPlaylistID = loadedTrackCountsByPlaylistID
-        self.loadedItemsByPlaylistID = loadedItemsByPlaylistID
-        self.hasUnavailableTracks = hasUnavailableTracks
-        return trackSets
+        return MergedPlaylistTrackSnapshot(
+            trackSets: trackSets,
+            uneditablePlaylistIDs: uneditablePlaylistIDs,
+            loadedTrackCountsByPlaylistID: loadedTrackCountsByPlaylistID,
+            loadedItemsByPlaylistID: loadedItemsByPlaylistID,
+            hasUnavailableTracks: hasUnavailableTracks
+        )
     }
 
     public func editAvailability(for playlist: Playlist) -> MusicItemActionAvailability {
@@ -248,6 +307,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         var editedItems = originalItems
         editedItems.remove(at: removalIndex)
 
+        trackSnapshotRevision &+= 1
         shouldSkipNextLoadAfterLocalEdit = true
         loadedItemsByPlaylistID[targetPlaylist.sourceScopedID] = editedItems
         tracks.remove(at: mergedIndex)
@@ -266,6 +326,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
             }
             return true
         } catch {
+            trackSnapshotRevision &+= 1
             tracks = previousTracks
             loadedItemsByPlaylistID[targetPlaylist.sourceScopedID] = originalItems
             shouldSkipNextLoadAfterLocalEdit = false
@@ -354,6 +415,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     /// Updates the display playlist (e.g., when merge state changes and constituents are refreshed)
     public func updateDisplayPlaylist(_ dp: DisplayPlaylist) async {
         guard displayPlaylist != dp else { return }
+        trackSnapshotRevision &+= 1
         displayPlaylist = dp
         shouldSkipNextLoadAfterLocalEdit = false
         await loadTracks()

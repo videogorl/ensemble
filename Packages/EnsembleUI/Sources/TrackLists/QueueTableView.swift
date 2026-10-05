@@ -300,12 +300,17 @@ public struct QueueTableView: UIViewRepresentable {
     
     public func updateUIView(_ tableView: UITableView, context: Context) {
         // Update coordinator state
-        let dataChanged = context.coordinator.queueItems.count != queueItems.count ||
-            !zip(context.coordinator.queueItems, queueItems).allSatisfy { $0.id == $1.id } ||
-            context.coordinator.hiddenQueueItemCount != hiddenQueueItemCount ||
-            context.coordinator.history.count != history.count ||
-            !zip(context.coordinator.history, history).allSatisfy { $0.id == $1.id } ||
-            context.coordinator.showHistory != showHistory
+        let dataChanged: Bool
+        if context.coordinator.showHistory != showHistory {
+            dataChanged = true
+        } else if showHistory {
+            dataChanged = !arraysShareStorage(context.coordinator.history, history) &&
+                context.coordinator.history != history
+        } else {
+            dataChanged = (!arraysShareStorage(context.coordinator.queueItems, queueItems) &&
+                context.coordinator.queueItems != queueItems) ||
+                context.coordinator.hiddenQueueItemCount != hiddenQueueItemCount
+        }
         
         let currentIndexChanged = context.coordinator.currentQueueIndex != currentQueueIndex
         
@@ -324,12 +329,10 @@ public struct QueueTableView: UIViewRepresentable {
             tableView.setEditing(!showHistory, animated: false)
         }
         
-        // Rebuild sections
-        context.coordinator.rebuildSections()
-        
         if dataChanged {
+            context.coordinator.rebuildSections()
             tableView.reloadData()
-        } else if currentIndexChanged {
+        } else if currentIndexChanged && !showHistory {
             // Only update visible cells
             tableView.visibleCells.forEach { cell in
                 if let queueCell = cell as? QueueItemCell,

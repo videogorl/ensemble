@@ -681,14 +681,11 @@ public struct SidebarView: View {
 
     private var sidebarPlaylistCacheInvalidations: AnyPublisher<Void, Never> {
         Publishers.MergeMany([
-            playlistsVM.$playlists.map { _ in () }.eraseToAnyPublisher(),
             playlistsVM.$sortedDisplayPlaylists.map { _ in () }.eraseToAnyPublisher(),
-            playlistsVM.$playlistSortOption.map { _ in () }.eraseToAnyPublisher(),
-            playlistsVM.$filterOptions.map { _ in () }.eraseToAnyPublisher(),
-            playlistsVM.$isMergeEnabled.map { _ in () }.eraseToAnyPublisher(),
             libraryVM.$hasEnabledLibraries.map { _ in () }.eraseToAnyPublisher(),
             libraryVM.$isRestoringCloudSources.map { _ in () }.eraseToAnyPublisher()
         ])
+        .receive(on: DispatchQueue.main)
         .eraseToAnyPublisher()
     }
 
@@ -751,77 +748,21 @@ public struct SidebarView: View {
         }
     }
 
-    /// Build sidebar playlist items from the VM's current playlists.
-    /// When merge is enabled, uses `sortedDisplayPlaylists` to group same-named playlists.
-    /// Called from rebuildCachedSidebarPlaylists to update @State caches.
+    /// Both merge modes consume Core's prepared, sorted playlist projection.
     private func buildSidebarPlaylistItems() -> [SidebarPlaylistItem] {
-        if playlistsVM.isMergeEnabled {
-            return buildMergedSidebarPlaylistItems()
-        }
-        return buildIndividualSidebarPlaylistItems()
-    }
-
-    /// Build sidebar items from DisplayPlaylists (merge-aware grouping)
-    private func buildMergedSidebarPlaylistItems() -> [SidebarPlaylistItem] {
         var seenIDs = Set<String>()
-        let displayPlaylists = playlistsVM.sortedDisplayPlaylists.isEmpty
-            ? DisplayPlaylist.group(
-                sortedSidebarSourcePlaylists(),
-                merge: true,
-                preferences: SettingsManager.storedMergingPreferences()
-            )
-            : playlistsVM.sortedDisplayPlaylists
-
-        return displayPlaylists.compactMap { dp in
-            let stableID = dp.id
-            guard seenIDs.insert(stableID).inserted else { return nil }
+        return playlistsVM.sortedDisplayPlaylists.compactMap { displayPlaylist in
+            guard seenIDs.insert(displayPlaylist.id).inserted else { return nil }
+            let playlist = displayPlaylist.primaryPlaylist
             return SidebarPlaylistItem(
-                id: stableID,
-                playlistID: dp.primaryPlaylist.id,
-                sourceKey: dp.primaryPlaylist.sourceCompositeKey,
-                title: dp.title,
-                isSmart: dp.isSmart,
-                isMerged: dp.isMerged,
-                compositePath: dp.primaryPlaylist.compositePath,
-                dropTargets: sidebarDropTargets(for: dp.playlists)
-            )
-        }
-    }
-
-    /// Build sidebar items from individual playlists (merge off)
-    private func buildIndividualSidebarPlaylistItems() -> [SidebarPlaylistItem] {
-        var seenIDs = Set<String>()
-        let sortedPlaylists = sortedSidebarSourcePlaylists()
-
-        return sortedPlaylists.compactMap { playlist in
-            let resolvedTitle = resolvedSidebarPlaylistTitle(for: playlist)
-            let playlistIdentity = playlist.id.trimmingCharacters(in: .whitespacesAndNewlines)
-            let keyIdentity = playlist.key.trimmingCharacters(in: .whitespacesAndNewlines)
-            let stableID = [
-                playlistIdentity.isEmpty ? keyIdentity : playlistIdentity,
-                playlist.sourceCompositeKey ?? "",
-                keyIdentity,
-                resolvedTitle
-            ].joined(separator: "|")
-
-            guard !stableID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                EnsembleLogger.debug("⚠️ SidebarView: skipping playlist row with no stable identity")
-                return nil
-            }
-
-            guard seenIDs.insert(stableID).inserted else {
-                return nil
-            }
-
-            return SidebarPlaylistItem(
-                id: stableID,
+                id: displayPlaylist.id,
                 playlistID: playlist.id,
                 sourceKey: playlist.sourceCompositeKey,
-                title: resolvedTitle,
-                isSmart: playlist.isSmart,
-                isMerged: false,
+                title: displayPlaylist.isMerged ? displayPlaylist.title : resolvedSidebarPlaylistTitle(for: playlist),
+                isSmart: displayPlaylist.isSmart,
+                isMerged: displayPlaylist.isMerged,
                 compositePath: playlist.compositePath,
-                dropTargets: sidebarDropTargets(for: [playlist])
+                dropTargets: sidebarDropTargets(for: displayPlaylist.playlists)
             )
         }
     }
@@ -836,65 +777,6 @@ public struct SidebarView: View {
                 isMerged: false
             )
         }
-    }
-
-    private func sortedSidebarSourcePlaylists() -> [Playlist] {
-        let ascending = playlistsVM.filterOptions.sortDirection == .ascending
-
-        switch playlistsVM.playlistSortOption {
-        case .title:
-            let keyed = playlistsVM.playlists.map { ($0, resolvedSidebarPlaylistTitle(for: $0).sortingKey) }
-            return keyed.sorted {
-                let result = $0.1.localizedStandardCompare($1.1)
-                if result == .orderedSame {
-                    return sidebarPlaylistTieBreakKey(for: $0.0) < sidebarPlaylistTieBreakKey(for: $1.0)
-                }
-                return ascending ? result == .orderedAscending : result == .orderedDescending
-            }
-            .map(\.0)
-        case .trackCount:
-            return playlistsVM.playlists.sorted {
-                compareSidebarPlaylists($0.trackCount, $1.trackCount, ascending: ascending, lhs: $0, rhs: $1)
-            }
-        case .duration:
-            return playlistsVM.playlists.sorted {
-                compareSidebarPlaylists($0.duration, $1.duration, ascending: ascending, lhs: $0, rhs: $1)
-            }
-        case .dateAdded:
-            return playlistsVM.playlists.sorted {
-                compareSidebarPlaylists($0.dateAdded ?? .distantPast, $1.dateAdded ?? .distantPast, ascending: ascending, lhs: $0, rhs: $1)
-            }
-        case .dateModified:
-            return playlistsVM.playlists.sorted {
-                compareSidebarPlaylists($0.dateModified ?? .distantPast, $1.dateModified ?? .distantPast, ascending: ascending, lhs: $0, rhs: $1)
-            }
-        case .lastPlayed:
-            return playlistsVM.playlists.sorted {
-                compareSidebarPlaylists($0.lastPlayed ?? .distantPast, $1.lastPlayed ?? .distantPast, ascending: ascending, lhs: $0, rhs: $1)
-            }
-        }
-    }
-
-    private func compareSidebarPlaylists<T: Comparable>(
-        _ lhsValue: T,
-        _ rhsValue: T,
-        ascending: Bool,
-        lhs: Playlist,
-        rhs: Playlist
-    ) -> Bool {
-        if lhsValue == rhsValue {
-            return sidebarPlaylistTieBreakKey(for: lhs) < sidebarPlaylistTieBreakKey(for: rhs)
-        }
-        return ascending ? lhsValue < rhsValue : lhsValue > rhsValue
-    }
-
-    private func sidebarPlaylistTieBreakKey(for playlist: Playlist) -> String {
-        [
-            playlist.id.trimmingCharacters(in: .whitespacesAndNewlines),
-            playlist.sourceCompositeKey ?? "",
-            playlist.key.trimmingCharacters(in: .whitespacesAndNewlines),
-            resolvedSidebarPlaylistTitle(for: playlist)
-        ].joined(separator: "|")
     }
 
     private func resolvedSidebarPlaylistTitle(for playlist: Playlist) -> String {

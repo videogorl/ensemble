@@ -66,16 +66,6 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var currentTrack: Track?
     @Published public private(set) var playbackState: PlaybackState = .stopped
     @Published public private(set) var duration: TimeInterval = 0
-    @Published public private(set) var queue: [QueueItem] = []
-    @Published public private(set) var currentQueueIndex: Int = -1
-
-    /// The QueueItem currently playing (includes queued streaming quality)
-    public var currentQueueItem: QueueItem? {
-        guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return nil }
-        return queue[currentQueueIndex]
-    }
-
-    @Published public private(set) var playbackHistory: [QueueItem] = []
     @Published public private(set) var isShuffleEnabled = false
     @Published public private(set) var repeatMode: RepeatMode = .off
     // waveformHeights uses CurrentValueSubject to avoid firing objectWillChange
@@ -250,6 +240,8 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     private func setupBindings() {
+        queueProjection.bind(to: playbackService)
+
         // Keep this before the playback-service subscriptions so an already-restored
         // current track is projected and repaired when the view model is created.
         $currentTrack
@@ -287,25 +279,12 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Queue changes also reset chord presentation after the active queue is replaced.
+        // The queue projection independently owns the UI-facing values.
         playbackService.queuePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] queue in
-                guard let self else { return }
-                self.setIfChanged(\.queue, queue)
-            }
-            .store(in: &cancellables)
-
-        playbackService.currentQueueIndexPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] index in
-                self?.setIfChanged(\.currentQueueIndex, index)
-            }
-            .store(in: &cancellables)
-
-        playbackService.historyPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] history in
-                self?.setIfChanged(\.playbackHistory, history)
+                self?.resetChordModeIfQueueRebuilt(queue)
             }
             .store(in: &cancellables)
 
@@ -415,30 +394,6 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 self?.playbackProjection.updatePlaybackState(state)
-            }
-            .store(in: &cancellables)
-
-        $queue
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] queue in
-                guard let self else { return }
-                self.resetChordModeIfQueueRebuilt(queue)
-                self.queueProjection.updateQueue(queue)
-            }
-            .store(in: &cancellables)
-
-        $currentQueueIndex
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] index in
-                guard let self else { return }
-                self.queueProjection.updateCurrentQueueIndex(index)
-            }
-            .store(in: &cancellables)
-
-        $playbackHistory
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] history in
-                self?.queueProjection.updatePlaybackHistory(history)
             }
             .store(in: &cancellables)
 
@@ -1566,14 +1521,14 @@ public final class NowPlayingViewModel: ObservableObject {
     /// Queue snapshot used by "Save current queue":
     /// history + current + upcoming, excluding autoplay tracks and deduping by source-scoped track identity.
     public func queueSnapshotForPlaylistSave() -> [Track] {
-        var combined: [Track] = playbackHistory.map(\.track)
+        var combined: [Track] = queueProjection.playbackHistory.map(\.track)
         if let currentTrack {
             combined.append(currentTrack)
         }
 
-        let upcomingStart = max(0, currentQueueIndex + 1)
-        if upcomingStart < queue.count {
-            combined.append(contentsOf: queue[upcomingStart...].map(\.track))
+        let upcomingStart = max(0, queueProjection.currentQueueIndex + 1)
+        if upcomingStart < queueProjection.queue.count {
+            combined.append(contentsOf: queueProjection.queue[upcomingStart...].map(\.track))
         }
 
         var seen = Set<String>()
@@ -1589,7 +1544,7 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func playFromQueue(at index: Int) {
-        guard index >= 0, index < queue.count else { return }
+        guard index >= 0, index < queueProjection.queue.count else { return }
         Task {
             await playbackService.playQueueIndex(index)
         }

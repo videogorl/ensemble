@@ -135,7 +135,10 @@ public final class SyncCoordinator: ObservableObject {
     private let playlistRefreshController: PlaylistRefreshController
     private let webSocketSyncController: WebSocketSyncController
     internal private(set) var periodicSyncTimer: Timer?
-    internal private(set) var downloadedPlaylistSyncTimer: Timer?
+    private var periodicSyncTask: Task<Void, Never>?
+    private var periodicLibrarySyncInterval: TimeInterval = 60 * 60
+    private var lastPeriodicLibrarySyncAt: Date?
+    private static let downloadedPlaylistRefreshInterval: TimeInterval = 5 * 60
     private var lastObservedNetworkState: NetworkState
     private var hasCompletedInitialNetworkTransition = false
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
@@ -150,7 +153,6 @@ public final class SyncCoordinator: ObservableObject {
     }
     private var cancellables = Set<AnyCancellable>()
     private var isCheckingHealth = false
-    private var isDownloadedPlaylistSyncing = false
     private var enabledServerKeysSnapshot = Set<String>()
     /// Timestamp of last sourceStatuses progress update per source — used to throttle
     /// @Published updates during sync so SwiftUI doesn't re-render on every item.
@@ -2165,13 +2167,13 @@ public final class SyncCoordinator: ObservableObject {
                 return
             }
 
-            guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
+            guard !Task.isCancelled, isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
             if case .downloadedPlaylist = trigger,
                !result.playlistResult.hasMaterialChanges {
                 return
             }
             await cachePlaylistArtwork(sourceId: result.sourceId, provider: result.provider)
-            guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
+            guard !Task.isCancelled, isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
             publishContentChangeIfNeeded(
                 for: result.sourceId,
                 playlistResult: result.playlistResult,
@@ -2672,83 +2674,79 @@ public final class SyncCoordinator: ObservableObject {
     
     // MARK: - Periodic Sync During Active Use
     
-    /// Start periodic incremental sync while app is active (every 1 hour)
+    /// One foreground timer drives library sync and downloaded-playlist fallback checks.
     public func startPeriodicSync() {
-        EnsembleLogger.debug("⏰ Starting periodic sync timer (every 1 hour)")
-        schedulePeriodicSync(interval: 60 * 60)
-        downloadedPlaylistSyncTimer?.invalidate()
-        downloadedPlaylistSyncTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        guard periodicSyncTimer == nil else { return }
+        if lastPeriodicLibrarySyncAt == nil {
+            lastPeriodicLibrarySyncAt = nowProviderForTesting()
+        }
+        let timer = Timer.scheduledTimer(
+            withTimeInterval: Self.downloadedPlaylistRefreshInterval,
+            repeats: true
+        ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.performDownloadedPlaylistSync()
+                guard let self, self.periodicSyncTimer != nil, self.periodicSyncTask == nil else { return }
+                self.periodicSyncTask = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    defer { self.periodicSyncTask = nil }
+                    await self.performPeriodicSync()
+                }
             }
         }
+        timer.tolerance = 60
+        periodicSyncTimer = timer
+        EnsembleLogger.debug("Started foreground sync timer with a five-minute fallback check")
     }
-    
-    /// Stop periodic sync
+
     public func stopPeriodicSync() {
         periodicSyncTimer?.invalidate()
         periodicSyncTimer = nil
-        downloadedPlaylistSyncTimer?.invalidate()
-        downloadedPlaylistSyncTimer = nil
-        EnsembleLogger.debug("🛑 Stopped periodic sync timer")
+        periodicSyncTask?.cancel()
+        EnsembleLogger.debug("Stopped foreground sync timer")
     }
 
-    private func schedulePeriodicSync(interval: TimeInterval) {
-        periodicSyncTimer?.invalidate()
-        periodicSyncTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                await self?.performPeriodicSync()
-            }
-        }
-    }
-    
-    /// Perform periodic incremental sync (called by timer)
     private func performPeriodicSync() async {
-        EnsembleLogger.debug("⏰ Periodic sync triggered")
-        
-        // Don't sync if offline
-        guard !isOffline else {
-            EnsembleLogger.debug("📴 Offline - skipping periodic sync")
-            return
+        guard !Task.isCancelled, !isOffline, !isSyncing, networkMonitor.isConnected else { return }
+
+        let now = nowProviderForTesting()
+        let libraryAge = now.timeIntervalSince(lastPeriodicLibrarySyncAt ?? .distantPast)
+        if libraryAge < 0 || libraryAge >= periodicLibrarySyncInterval {
+            lastPeriodicLibrarySyncAt = now
+            EnsembleLogger.debug("Performing periodic incremental library sync")
+            await syncAllIncremental()
         }
-        
-        // Don't sync if already syncing
-        guard !isSyncing else {
-            EnsembleLogger.debug("⏳ Sync already in progress - skipping periodic sync")
-            return
-        }
-        
-        // Check network connectivity - only sync when connected
-        #if os(iOS)
-        if !networkMonitor.isConnected {
-            EnsembleLogger.debug("📡 Not connected - skipping periodic sync")
-            return
-        }
-        #endif
-        
-        EnsembleLogger.debug("🔄 Performing periodic incremental sync...")
-        await syncAllIncremental()
-        EnsembleLogger.debug("✅ Periodic sync complete")
+        guard !Task.isCancelled else { return }
+        await performDownloadedPlaylistSync()
     }
 
     private func performDownloadedPlaylistSync() async {
-        guard !isOffline, !isSyncing, !isDownloadedPlaylistSyncing else { return }
-        #if os(iOS)
-        guard networkMonitor.isConnected else { return }
-        #endif
-        guard let serverSourceKeys = downloadedPlaylistServerSourceKeys?(),
+        guard !Task.isCancelled, !isOffline, !isSyncing, networkMonitor.isConnected,
+              let serverSourceKeys = downloadedPlaylistServerSourceKeys?(),
               !serverSourceKeys.isEmpty else { return }
 
-        isDownloadedPlaylistSyncing = true
-        defer { isDownloadedPlaylistSyncing = false }
-
-        EnsembleLogger.debug("⏰ Refreshing downloaded playlists on \(serverSourceKeys.count) server(s)")
         for serverSourceKey in serverSourceKeys.sorted() {
-            await refreshServerPlaylists(
-                serverSourceKey: serverSourceKey,
-                trigger: .downloadedPlaylist,
-                allowFullFallback: false
-            )
+            guard !Task.isCancelled else { return }
+            do {
+                let cursor = try await syncCursorRepository?.fetchCursor(
+                    scopeKey: serverSourceKey,
+                    scopeType: .serverPlaylists
+                )
+                // An incremental query can miss deletions. Only a successful complete
+                // inventory satisfies this fallback, including manual/WebSocket refreshes.
+                if let lastInventory = [cursor?.lastInventorySyncAt, cursor?.lastFullSyncAt].compactMap({ $0 }).max() {
+                    let age = nowProviderForTesting().timeIntervalSince(lastInventory)
+                    if age >= 0, age < Self.downloadedPlaylistRefreshInterval { continue }
+                }
+                guard !Task.isCancelled,
+                      downloadedPlaylistServerSourceKeys?().contains(serverSourceKey) == true else { continue }
+                await refreshServerPlaylists(
+                    serverSourceKey: serverSourceKey,
+                    trigger: .downloadedPlaylist,
+                    allowFullFallback: false
+                )
+            } catch {
+                EnsembleLogger.debug("Downloaded-playlist freshness read failed: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -2886,17 +2884,9 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
-    /// Adjust periodic sync intervals based on WebSocket availability.
-    /// When WebSocket is active for servers, polling can be relaxed since updates arrive in real-time.
+    /// WebSocket acceleration changes library freshness, not the missed-event fallback.
     public func adjustTimersForWebSocket(hasActiveWebSocket: Bool) {
-        if periodicSyncTimer != nil {
-            schedulePeriodicSync(interval: hasActiveWebSocket ? 4 * 60 * 60 : 60 * 60)
-        }
-        if hasActiveWebSocket {
-            EnsembleLogger.debug("⏰ SyncCoordinator: WebSocket active — relaxed periodic sync to 4h")
-        } else {
-            EnsembleLogger.debug("⏰ SyncCoordinator: No WebSocket — using default 1h periodic sync")
-        }
+        periodicLibrarySyncInterval = hasActiveWebSocket ? 4 * 60 * 60 : 60 * 60
     }
 
     private func notifyPlaylistRefreshCompleted(serverSourceKey: String) {

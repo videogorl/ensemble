@@ -37,14 +37,24 @@ enum ViewModelNotificationObserver {
 
     static func observePlaylistRefresh(
         storingIn cancellables: inout Set<AnyCancellable>,
-        action: @escaping @MainActor () async -> Void
+        matchingSourceKeys: @escaping () -> Set<String>,
+        action: @escaping @MainActor (String?) async -> Void
     ) {
-        observe(
-            SyncCoordinator.playlistsDidRefresh,
-            debounce: .milliseconds(500),
-            storingIn: &cancellables,
-            action: action
-        )
+        NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
+            .map { $0.userInfo?["serverSourceKey"] as? String }
+            .receive(on: DispatchQueue.main)
+            .filter { serverSourceKey in
+                guard let serverSourceKey else { return true }
+                let sourceKeys = matchingSourceKeys()
+                return sourceKeys.isEmpty || sourceKeys.contains(serverSourceKey)
+            }
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+            .sink { serverSourceKey in
+                Task { @MainActor in
+                    await action(serverSourceKey)
+                }
+            }
+            .store(in: &cancellables)
     }
 
     static func observeLibraryDataCleared(

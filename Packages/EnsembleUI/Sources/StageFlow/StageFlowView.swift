@@ -162,7 +162,10 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         }
         .onAppear {
             syncSelectionWithItems(closePanel: true)
-            updatePlaybackContext(currentTrack: nowPlayingVM.currentTrack, queueCount: nowPlayingVM.queue.count)
+            updatePlaybackContext(
+                currentTrack: nowPlayingVM.currentTrack,
+                queueCount: nowPlayingVM.queueProjection.queue.count
+            )
             updateTransportState(
                 currentTrack: nowPlayingVM.currentTrack,
                 playbackState: nowPlayingVM.playbackState
@@ -181,13 +184,16 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             )
         }
         .onReceive(nowPlayingVM.$currentTrack) { track in
-            updatePlaybackContext(currentTrack: track, queueCount: nowPlayingVM.queue.count)
+            updatePlaybackContext(
+                currentTrack: track,
+                queueCount: nowPlayingVM.queueProjection.queue.count
+            )
             updateTransportState(
                 currentTrack: track,
                 playbackState: nowPlayingVM.playbackState
             )
         }
-        .onReceive(nowPlayingVM.$queue) { queue in
+        .onReceive(nowPlayingVM.queueProjection.$queue) { queue in
             updatePlaybackContext(currentTrack: nowPlayingVM.currentTrack, queueCount: queue.count)
         }
         .ignoresSafeArea()
