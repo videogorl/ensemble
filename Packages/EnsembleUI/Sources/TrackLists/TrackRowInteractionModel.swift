@@ -4,6 +4,8 @@ import EnsembleCore
 /// menu availability, favorite state, and recent-playlist gating logic.
 public struct TrackRowInteractionModel {
     public struct ResolvedActions {
+        public let onStartTrackRadio: (() -> Void)?
+        public let onShuffleFromTrack: (() -> Void)?
         public let onPlayNext: (() -> Void)?
         public let onPlayLast: (() -> Void)?
         public let onAddToLibrary: (() -> Void)?
@@ -28,6 +30,8 @@ public struct TrackRowInteractionModel {
         public let deleteAvailability: MusicItemActionAvailability
 
         public var hasContextMenu: Bool {
+            onStartTrackRadio != nil ||
+            onShuffleFromTrack != nil ||
             onPlayNext != nil ||
             onPlayLast != nil ||
             onAddToLibrary != nil ||
@@ -46,6 +50,8 @@ public struct TrackRowInteractionModel {
         }
     }
 
+    public let onStartTrackRadio: ((Track) -> Void)?
+    public let onShuffleFromTrack: ((Track, [Track]) -> Void)?
     public let onPlayNext: ((Track) -> Void)?
     public let onPlayLast: ((Track) -> Void)?
     public let onAddToLibrary: ((Track) -> Void)?
@@ -73,6 +79,8 @@ public struct TrackRowInteractionModel {
     public let onSelectMutationSource: ((String, [Track], (([Track]) -> Void)?, @escaping (Track) -> Void) -> Void)?
 
     public init(
+        onStartTrackRadio: ((Track) -> Void)? = nil,
+        onShuffleFromTrack: ((Track, [Track]) -> Void)? = nil,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToLibrary: ((Track) -> Void)? = nil,
@@ -99,6 +107,8 @@ public struct TrackRowInteractionModel {
         mutationCandidates: ((Track) -> [Track])? = nil,
         onSelectMutationSource: ((String, [Track], (([Track]) -> Void)?, @escaping (Track) -> Void) -> Void)? = nil
     ) {
+        self.onStartTrackRadio = onStartTrackRadio
+        self.onShuffleFromTrack = onShuffleFromTrack
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToLibrary = onAddToLibrary
@@ -142,7 +152,9 @@ public struct TrackRowInteractionModel {
         guard track.isLibraryAvailable else { return false }
         let allowRecentPlaylist = onAddToRecentPlaylist != nil && (canAddToRecentPlaylist?(track) ?? true)
 
-        return onPlayNext != nil ||
+        return onStartTrackRadio != nil ||
+            onShuffleFromTrack != nil ||
+            onPlayNext != nil ||
             onPlayLast != nil ||
             (canAddTrackToLibrary(track) && onAddToLibrary != nil) ||
             onAddToPlaylist != nil ||
@@ -172,9 +184,11 @@ public struct TrackRowInteractionModel {
         }
     }
 
-    public func resolve(for track: Track) -> ResolvedActions {
+    public func resolve(for track: Track, in tracks: [Track] = []) -> ResolvedActions {
         guard track.isLibraryAvailable else {
             return ResolvedActions(
+                onStartTrackRadio: nil,
+                onShuffleFromTrack: nil,
                 onPlayNext: nil,
                 onPlayLast: nil,
                 onAddToLibrary: nil,
@@ -215,6 +229,8 @@ public struct TrackRowInteractionModel {
         let hiddenCandidates = candidates.filter { canToggleHidden?($0) ?? true }
 
         return ResolvedActions(
+            onStartTrackRadio: onStartTrackRadio.map { callback in { callback(track) } },
+            onShuffleFromTrack: tracks.isEmpty ? nil : onShuffleFromTrack.map { callback in { callback(track, tracks) } },
             onPlayNext: onPlayNext.map { callback in { callback(track) } },
             onPlayLast: onPlayLast.map { callback in { callback(track) } },
             onAddToLibrary: mutationAction(
@@ -332,6 +348,8 @@ extension TrackRowInteractionModel {
         }
 
         return TrackRowInteractionModel(
+            onStartTrackRadio: { nowPlayingVM.startTrackRadio($0) },
+            onShuffleFromTrack: { nowPlayingVM.shuffleFromTrack($0, in: $1) },
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },

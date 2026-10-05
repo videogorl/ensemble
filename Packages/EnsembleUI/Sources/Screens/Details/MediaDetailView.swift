@@ -1453,6 +1453,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// Keeps track-row actions aligned between UIKit and SwiftUI list paths.
     private var trackInteractionModel: TrackRowInteractionModel {
         TrackRowInteractionModel(
+            onStartTrackRadio: { nowPlayingVM.startTrackRadio($0) },
+            onShuffleFromTrack: { nowPlayingVM.shuffleFromTrack($0, in: $1) },
             onPlayNext: { track in
                 nowPlayingVM.playNext(track)
             },

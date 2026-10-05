@@ -57,6 +57,8 @@ enum MediaMenuItemKind: Equatable {
 enum MediaMenuActionID: String, Equatable, Hashable {
     case play
     case shuffle
+    case startTrackRadio
+    case shuffleFromTrack
     case toggleShuffle
     case repeatAll
     case repeatOne
@@ -133,6 +135,8 @@ struct MediaMenuLabel: Equatable {
 struct MediaMenuHandlers {
     var play: (() -> Void)?
     var shuffle: (() -> Void)?
+    var startTrackRadio: (() -> Void)?
+    var shuffleFromTrack: (() -> Void)?
     var toggleShuffle: (() -> Void)?
     var repeatAll: (() -> Void)?
     var repeatOne: (() -> Void)?
@@ -166,6 +170,8 @@ struct MediaMenuHandlers {
         switch actionID {
         case .play: return play
         case .shuffle: return shuffle
+        case .startTrackRadio: return startTrackRadio
+        case .shuffleFromTrack: return shuffleFromTrack
         case .toggleShuffle: return toggleShuffle
         case .repeatAll: return repeatAll
         case .repeatOne: return repeatOne
@@ -307,7 +313,7 @@ enum MediaMenuCatalog {
         availability: MediaMenuAvailability
     ) -> [MediaMenuSection] {
         var sections: [MediaMenuSection] = [
-            section(.playback, [.playNext, .playLast])
+            section(.playback, context.allowsTrackEditing ? [.startTrackRadio, .shuffleFromTrack, .playNext, .playLast] : [.playNext, .playLast])
         ]
 
         var playlistActions: [MediaMenuActionID] = []
@@ -593,6 +599,10 @@ extension MediaMenuActionDescriptor {
             return MediaMenuLabel(title: "Play", systemImage: EnsembleDesign.Icon.play)
         case .shuffle:
             return MediaMenuLabel(title: "Shuffle", systemImage: EnsembleDesign.Icon.shuffle)
+        case .startTrackRadio:
+            return MediaMenuLabel(title: "Start Track Radio", systemImage: EnsembleDesign.Icon.radio)
+        case .shuffleFromTrack:
+            return MediaMenuLabel(title: "Shuffle from This Track", systemImage: EnsembleDesign.Icon.shuffle)
         case .toggleShuffle:
             return MediaMenuLabel(
                 title: state.isShuffleEnabled ? "Turn Shuffle Off" : "Turn Shuffle On",
@@ -683,6 +693,8 @@ extension MediaMenuActionDescriptor {
         switch id {
         case .play: return .play
         case .shuffle: return .shuffle
+        case .startTrackRadio: return .startTrackRadio
+        case .shuffleFromTrack: return .shuffleFromTrack
         case .toggleShuffle: return .toggleShuffle(isEnabled: state.isShuffleEnabled)
         case .repeatAll: return .repeatAll(isEnabled: state.repeatMode == .all)
         case .repeatOne: return .repeatOne(isEnabled: state.repeatMode == .one)

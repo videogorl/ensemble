@@ -1548,7 +1548,7 @@ public struct MediaTrackList: UIViewRepresentable {
 
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
             guard let track = track(at: indexPath) else { return nil }
-            let resolvedActions = interactionModel.resolve(for: track)
+            let resolvedActions = interactionModel.resolve(for: track, in: tracks)
             guard let menu = makeContextMenu(for: track, at: indexPath, resolvedActions: resolvedActions) else { return nil }
 
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
@@ -1585,7 +1585,7 @@ public struct MediaTrackList: UIViewRepresentable {
                         return
                     }
 
-                    let resolvedActions = self.interactionModel.resolve(for: track)
+                    let resolvedActions = self.interactionModel.resolve(for: track, in: self.tracks)
                     let menu = self.makeContextMenu(for: track, at: indexPath, resolvedActions: resolvedActions)
                     completion(menu?.children ?? [])
                 }

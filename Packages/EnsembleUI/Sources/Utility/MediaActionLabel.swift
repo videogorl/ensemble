@@ -12,6 +12,8 @@ struct MediaActionLabel: View {
         case repeatAll(isEnabled: Bool)
         case repeatOne(isEnabled: Bool)
         case radio
+        case startTrackRadio
+        case shuffleFromTrack
         case playNext
         case playLast
         case addToLibrary
@@ -56,6 +58,10 @@ struct MediaActionLabel: View {
             return isEnabled ? "Repeat On" : "Repeat"
         case .repeatOne(let isEnabled):
             return isEnabled ? "Repeat One On" : "Repeat One"
+        case .startTrackRadio:
+            return "Start Track Radio"
+        case .shuffleFromTrack:
+            return "Shuffle from This Track"
         case .radio:
             return "Radio"
         case .playNext:
@@ -119,6 +125,10 @@ struct MediaActionLabel: View {
             return RepeatMode.all.icon
         case .repeatOne:
             return RepeatMode.one.icon
+        case .startTrackRadio:
+            return EnsembleDesign.Icon.radio
+        case .shuffleFromTrack:
+            return EnsembleDesign.Icon.shuffle
         case .radio:
             return EnsembleDesign.Icon.radio
         case .playNext:

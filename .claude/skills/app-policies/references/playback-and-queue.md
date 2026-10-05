@@ -22,6 +22,8 @@
 - Regular Play starts at the requested item with shuffle off. Shuffle preserves
   original order, keeps the current item when toggled, excludes autoplay and
   already-played candidates, and restores original order when disabled.
+- Track Radio starts only the selected track and enables autoplay. Shuffle from
+  a track starts that item and shuffles every other item in its displayed list.
 - Up Next, Continue Playing, Autoplay, and History remain distinct. Manual queue
   mutations protect the queue from direct app-UI replacement only while media
   is playing, until confirmed. Otherwise replacement needs no confirmation;

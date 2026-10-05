@@ -1157,6 +1157,17 @@ public final class NowPlayingViewModel: ObservableObject {
         requestPlayback(.shuffle(tracks: playableTracks, context: context))
     }
 
+    public func startTrackRadio(_ track: Track) {
+        guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
+        requestPlayback(.trackRadio(track: trackWithDisplayRating(track)))
+    }
+
+    public func shuffleFromTrack(_ track: Track, in tracks: [Track]) {
+        let playableTracks = tracksWithDisplayRatings(tracksForNewQueue(tracks))
+        guard let index = playableTracks.firstIndex(where: { $0.sourceScopedID == track.sourceScopedID }) else { return }
+        requestPlayback(.shuffleFrom(tracks: playableTracks, startingAt: index))
+    }
+
     /// Starts the queued action after the user accepts replacing manual queue edits.
     public func confirmQueueReplacement() {
         guard let pendingQueueReplacement else {
@@ -1184,6 +1195,8 @@ public final class NowPlayingViewModel: ObservableObject {
         case play(tracks: [Track], startingAt: Int, context: PlaybackStartContext)
         case shuffle(tracks: [Track], context: PlaybackStartContext)
         case radio(tracks: [Track])
+        case trackRadio(track: Track)
+        case shuffleFrom(tracks: [Track], startingAt: Int)
 
         var journeyName: String {
             switch self {
@@ -1191,6 +1204,8 @@ public final class NowPlayingViewModel: ObservableObject {
             case .play: "play"
             case .shuffle: "shuffle"
             case .radio: "radio"
+            case .trackRadio: "trackRadio"
+            case .shuffleFrom: "shuffleFrom"
             }
         }
 
@@ -1198,7 +1213,7 @@ public final class NowPlayingViewModel: ObservableObject {
             switch self {
             case let .track(_, context), let .play(_, _, context), let .shuffle(_, context):
                 context.origin
-            case .radio:
+            case .radio, .trackRadio, .shuffleFrom:
                 .appUI
             }
         }
@@ -1236,7 +1251,7 @@ public final class NowPlayingViewModel: ObservableObject {
         switch action {
         case let .track(_, context), let .play(_, _, context), let .shuffle(_, context):
             return context.origin == .appUI && queueProtected
-        case .radio:
+        case .radio, .trackRadio, .shuffleFrom:
             return queueProtected
         }
     }
@@ -1268,6 +1283,18 @@ public final class NowPlayingViewModel: ObservableObject {
                 await playbackService.shufflePlay(tracks: tracks, context: context)
             case let .radio(tracks):
                 await playbackService.enableRadio(tracks: tracks)
+            case let .trackRadio(track):
+                await playbackService.play(track: track, context: .userInitiated)
+                guard playbackService.currentTrack?.sourceScopedID == track.sourceScopedID else { return }
+                if !playbackService.isAutoplayEnabled {
+                    playbackService.toggleAutoplay()
+                }
+            case let .shuffleFrom(tracks, startingAt):
+                await playbackService.play(tracks: tracks, startingAt: startingAt, context: .userInitiated)
+                guard playbackService.currentTrack?.sourceScopedID == tracks[startingAt].sourceScopedID else { return }
+                if !playbackService.isShuffleEnabled {
+                    playbackService.toggleShuffle()
+                }
             }
         }
     }

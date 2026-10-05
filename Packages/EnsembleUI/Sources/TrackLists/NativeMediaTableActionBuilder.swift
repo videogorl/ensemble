@@ -185,6 +185,8 @@ private func nativeMediaTableMenuHandlers(
     onRemoveFromQueue: (() -> Void)?
 ) -> MediaMenuHandlers {
     MediaMenuHandlers(
+        startTrackRadio: resolvedActions.onStartTrackRadio,
+        shuffleFromTrack: resolvedActions.onShuffleFromTrack,
         playNext: resolvedActions.onPlayNext,
         playLast: resolvedActions.onPlayLast,
         addToLibrary: resolvedActions.onAddToLibrary,

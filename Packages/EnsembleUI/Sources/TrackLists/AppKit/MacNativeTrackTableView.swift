@@ -484,7 +484,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                     return self.makeMenu(
                         for: track,
                         globalIndex: globalIndex,
-                        resolvedActions: self.interactionModel.resolve(for: track)
+                        resolvedActions: self.interactionModel.resolve(for: track, in: self.sections.flatMap(\.tracks))
                     )
                 }
             )
@@ -586,7 +586,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             return makeMenu(
                 for: track,
                 globalIndex: globalIndex,
-                resolvedActions: interactionModel.resolve(for: track)
+                resolvedActions: interactionModel.resolve(for: track, in: sections.flatMap(\.tracks))
             )
         }
 
