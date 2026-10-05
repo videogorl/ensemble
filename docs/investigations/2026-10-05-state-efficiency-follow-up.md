@@ -48,6 +48,11 @@ This can stay in the existing Core detail models with no new cache service.
 
 ### Plex playlist count discrepancy: upstream cause confirmed
 
+The later [count-freshness investigation](2026-10-05-plex-smart-playlist-counts.md)
+isolated stale list-level statistics: individual metadata/filter/body agreed,
+and subsequent inventory counts refreshed to match. The findings below record
+the earlier stale response and its then-observed repair consequence.
+
 [Issue #98](https://github.com/videogorl/ensemble/issues/98) describes a smart
 playlist with metadata count 1,595 and cached body count 3,460. Authenticated live
 requests to the same source returned a complete 38-playlist inventory whose
