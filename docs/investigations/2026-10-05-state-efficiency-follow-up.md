@@ -373,24 +373,35 @@ savings, and it is not a matched before/after comparison.
 ### Remaining runtime gaps and tool blockers
 
 Xcode workspace approval was granted and its RunProject request launched a fresh
-Debug build on the physical phone despite the tool timeout. Installed version,
-container, and debugger PID matched. LLDB could inspect process and Foundation
-state, but repeatedly failed to resolve `EnsembleCore.DependencyContainer`, even
-after explicit module search paths/imports; another expression failed in the Swift
-debugger compiler. The uncached catalog and combined delayed-request/background
-probes therefore did not run. Xcode's device-interaction session rejected the
-physical UDID and offered only simulators. Device Hub native controls work, but
-remote touch actions still did not change the phone UI. No cache was deleted and
-no diagnostic hook was added to work around these failures.
+combined Debug build on the physical phone despite the tool timeout. Installed
+version `0.4.0 / 202610051443.6973`, container, debugger PID, and build source path
+matched. The initial Core module lookup failure used a stale default DerivedData
+directory. Correcting it to the directory from Xcode's actual build log resolved
+that lookup. The catalog-search expression then failed to link the MusicKit
+`MusicItemCollection` nominal type descriptor; its task was not initialized.
+The phone disconnected during background-probe setup: Device Hub could no longer
+display it, devicectl could not acquire device connectivity, and LLDB could not
+write the probe dictionary into the target. Neither remaining phone probe ran.
+Xcode stopped its debug session, and the delayed fixture was stopped with no
+requests. No cache was deleted or production diagnostic hook added.
 
-The macOS native drag gap also remains: the existing drag provider was reached,
-but the automated drag did not reach its drop delegate or reorder rows. An earlier
-uninstrumented attempt likewise left the order unchanged. The relevant macOS
-queue drag/card/controller code is unchanged from the branch base and develop;
-these observations do not establish a product defect or a branch regression.
-Native drag needs a delivered drop with verified reorder/restoration. The existing
-iOS simulator drag, same-ID metadata, queue projection, and macOS cancellation
-evidence above retains its narrower scope.
+The macOS native drag gap is closed. On the explicitly launched combined build,
+native Play Next / Play Last added two temporary future queue items and displayed
+confirmation toasts. Dragging the native handles swapped their displayed order;
+the owned app's session log recorded the matching queue move. A reverse drag
+restored it. Subsequent cleanup input caused an additional move, so removal used
+the native row context menus and final owner state was checked independently.
+Both temporary items were removed; the original 13 items, current index 12,
+paused playback, and original edit-protection flag were restored and saved.
+The existing iOS simulator and macOS cancellation evidence above retains its
+narrower scope.
+
+Current develop was merged into this branch without conflicts. Both combined
+workspace builds passed: macOS Debug and physical iPhone Release. The explicit
+macOS executable path and debug binary UUID identified the combined running build.
+The physical combined Release build still needs its final installation/runtime
+check after reconnection. The last installed phone build was the combined Debug
+build; current pause/lock state cannot be independently verified while disconnected.
 
 Pending user decisions remain the Plex successful-body checkpoint/freshness and
 displayed-count policy, plus publication/integration. The branch contains local
@@ -433,6 +444,15 @@ checks hit cache and the same two lyrics state misses caused provider work; the
 largest elapsed difference was lyrics resolution, not scheduler admission. These
 are elapsed async stages, not CPU time; overlapping stages must not be added.
 They do not retrospectively prove the cause of the earlier 8,748 ms batch.
+
+The recurring lyrics misses received successful metadata responses and nonempty
+content responses in both launches. There was no observed 404, nil metadata,
+transient failure, deferred retry, or chord-parse failure. These logs do not prove
+why the durable artifact marker was absent: an unreported normal-lyrics parse
+failure, revision mismatch, or persistence issue remains possible. Do not change
+recovery/cache policy on this evidence. The next focused measurement would count
+durable-marker outcomes and revision mismatch at the existing owner, without
+per-item identities.
 
 The final minimal Power Profiler recording ran for 45 seconds (48.8 seconds total
 trace duration), saved, and exported actual per-process power-impact rows for the
