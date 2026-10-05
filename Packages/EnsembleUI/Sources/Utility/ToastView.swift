@@ -235,11 +235,11 @@ private struct GlobalToastOverlayRootView: View {
 #if os(macOS)
 /// Installs a banner-sized overlay in the scene window, or its active sheet.
 public struct GlobalToastWindowHost: NSViewRepresentable {
-    private let toastCenter: ToastCenter
+    @ObservedObject private var toastCenter: ToastCenter
     private let bottomInset: CGFloat
 
     public init(toastCenter: ToastCenter, bottomInset: CGFloat = 0) {
-        self.toastCenter = toastCenter
+        self._toastCenter = ObservedObject(wrappedValue: toastCenter)
         self.bottomInset = bottomInset
     }
 
@@ -279,7 +279,6 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
         private weak var contentWindow: NSWindow?
         private weak var targetWindow: NSWindow?
         private var hostingView: NSHostingView<MacToastOverlayRootView>?
-        private var measuredSize = CGSize.zero
         private var observerTokens: [NSObjectProtocol] = []
 
         fileprivate init(toastCenter: ToastCenter) {
@@ -358,20 +357,12 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
             }
 
             let hostingView = hostingView ?? NSHostingView(rootView: toastRootView(width: width))
-            hostingView.rootView = toastRootView(width: width)
             hostingView.wantsLayer = true
             hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-            if hostingView.superview !== contentView {
+            let overlaySuperview = contentView.superview ?? contentView
+            if hostingView.superview !== overlaySuperview {
                 hostingView.removeFromSuperview()
-                contentView.addSubview(hostingView, positioned: .above, relativeTo: nil)
-            }
-            if measuredSize.height == 0, toastCenter.currentToast != nil {
-                hostingView.layoutSubtreeIfNeeded()
-                let fittingHeight = hostingView.fittingSize.height
-                if fittingHeight > 0 {
-                    measuredSize = CGSize(width: width, height: fittingHeight)
-                    hostingView.setFrameSize(NSSize(width: width, height: fittingHeight))
-                }
+                overlaySuperview.addSubview(hostingView, positioned: .above, relativeTo: nil)
             }
             self.hostingView = hostingView
 
@@ -379,10 +370,7 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
         }
 
         private func toastRootView(width: CGFloat) -> MacToastOverlayRootView {
-            MacToastOverlayRootView(toastCenter: toastCenter, width: width) { [weak self] size in
-                self?.measuredSize = size
-                self?.layoutOverlay()
-            }
+            MacToastOverlayRootView(toastCenter: toastCenter, width: width)
         }
 
         private func layoutOverlay() {
@@ -394,30 +382,37 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
                 return
             }
 
-            guard toastCenter.currentToast != nil, measuredSize.height > 0 else {
-                hostingView.isHidden = true
-                return
-            }
-
             let width = max(0, contentView.bounds.width - 2 * EnsembleScaffold.Toast.globalHorizontalPadding)
-            guard width > 0 else {
+            guard width > 0, toastCenter.currentToast != nil else {
                 hostingView.isHidden = true
                 return
             }
 
-            let size = CGSize(width: width, height: measuredSize.height)
+            hostingView.rootView = toastRootView(width: width)
+            hostingView.layoutSubtreeIfNeeded()
+            let size = hostingView.fittingSize
+            guard size.height > 0 else {
+                hostingView.isHidden = true
+                return
+            }
+
             let isShowingSheet = target !== contentWindow
             let chromeInset = isShowingSheet ? 0 : bottomInset
             let bottomOffset = min(
                 max(0, chromeInset),
                 max(0, contentView.bounds.height - size.height)
             ) + EnsembleScaffold.Toast.hostBottomPadding
-            hostingView.frame = NSRect(
+            let originY = contentView.isFlipped
+                ? contentView.bounds.maxY - bottomOffset - size.height
+                : contentView.bounds.minY + bottomOffset
+            let bannerRect = NSRect(
                 x: contentView.bounds.midX - size.width / 2,
-                y: contentView.bounds.minY + bottomOffset,
+                y: originY,
                 width: size.width,
                 height: size.height
             )
+            let overlaySuperview = contentView.superview ?? contentView
+            hostingView.frame = contentView.convert(bannerRect, to: overlaySuperview)
             hostingView.isHidden = !(target.isVisible && isActiveWindow(target))
         }
 
@@ -439,7 +434,6 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
             hostingView?.removeFromSuperview()
             hostingView = nil
             targetWindow = nil
-            measuredSize = .zero
         }
 
         private func removeObservers() {
@@ -452,26 +446,11 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
 private struct MacToastOverlayRootView: View {
     @ObservedObject var toastCenter: ToastCenter
     let width: CGFloat
-    let onSizeChange: (CGSize) -> Void
 
     var body: some View {
         ToastHostView(toastCenter: toastCenter, horizontalPadding: 0, bottomPadding: 0)
             .frame(width: width)
             .fixedSize(horizontal: false, vertical: true)
-            .background {
-                GeometryReader { geometry in
-                    Color.clear.preference(key: MacToastSizePreference.self, value: geometry.size)
-                }
-            }
-            .onPreferenceChange(MacToastSizePreference.self, perform: onSizeChange)
-    }
-}
-
-private struct MacToastSizePreference: PreferenceKey {
-    static let defaultValue = CGSize.zero
-
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
     }
 }
 #endif
