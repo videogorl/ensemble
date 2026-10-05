@@ -29,6 +29,20 @@ Air 2.
   logs, database/network evidence, or runtime path that distinguishes the cause.
 - Commit the completed logical change before handoff.
 
+## Changelog Updates
+
+Before finishing each turn, search the [Ensemble changelog database](https://app.notion.com/p/videogorl/3351906996c0807780f8cbb9db0709f2?v=3ea1906996c080558d1f000c28aab9d0&source=copy_link)
+for the page titled exactly `{{future}}`. For completed changes, append a concise,
+user-facing bullet to the page content describing the fix or feature, with
+`GitHub ↗` linked to the corresponding commit on GitHub. Example:
+“Now Playing view supports the Metal ‘aurora’ visual properly sized. GitHub ↗”
+
+Use a `Bug fixes`, `Changes`, or `New Features` heading when appropriate, reusing an existing
+heading or adding one as needed. As the task continues, update its existing
+bullet and commit link to reflect the delivered behavior; add separate bullets
+for distinct changes. Read back the page to verify the update. If the page or
+Notion access is unavailable, report the blocker and the pending entry.
+
 ## Load Only What The Task Needs
 
 Skills are opt-in context, not a checklist:

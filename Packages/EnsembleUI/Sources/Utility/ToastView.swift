@@ -3,14 +3,27 @@ import EnsembleCore
 import SwiftUI
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
-/// Lowest unobstructed point in this scene, measured by the root chrome and mini-player.
-struct ToastBottomLimitPreference: PreferenceKey {
-    static let defaultValue: CGFloat? = nil
-    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
-        guard let next = nextValue() else { return }
-        value = value.map { min($0, next) } ?? next
+struct ToastLayout {
+    var bottomLimit: CGFloat?
+    var miniPlayerFrame: CGRect?
+}
+
+/// Unobstructed bottom edge and visible mini-player bounds in this scene.
+struct ToastLayoutPreference: PreferenceKey {
+    static let defaultValue = ToastLayout()
+
+    static func reduce(value: inout ToastLayout, nextValue: () -> ToastLayout) {
+        let next = nextValue()
+        if let bottomLimit = next.bottomLimit {
+            value.bottomLimit = value.bottomLimit.map { min($0, bottomLimit) } ?? bottomLimit
+        }
+        if let frame = next.miniPlayerFrame, !frame.isEmpty {
+            value.miniPlayerFrame = frame
+        }
     }
 }
 
@@ -49,10 +62,23 @@ public extension View {
     @ViewBuilder
     func installGlobalToastWindow(toastCenter: ToastCenter) -> some View {
         #if os(iOS)
-        overlayPreferenceValue(ToastBottomLimitPreference.self) { bottomLimit in
-            GlobalToastWindowHost(toastCenter: toastCenter, bottomLimit: bottomLimit)
+        overlayPreferenceValue(ToastLayoutPreference.self) { layout in
+            GlobalToastWindowHost(toastCenter: toastCenter, bottomLimit: layout.bottomLimit)
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
+        }
+        #elseif os(macOS)
+        overlayPreferenceValue(ToastLayoutPreference.self) { layout in
+            GeometryReader { geometry in
+                let rootFrame = geometry.frame(in: .global)
+                GlobalToastWindowHost(
+                    toastCenter: toastCenter,
+                    bottomInset: layout.bottomLimit.map { max(0, rootFrame.maxY - $0) } ?? 0,
+                    miniPlayerFrame: layout.miniPlayerFrame?.offsetBy(dx: -rootFrame.minX, dy: -rootFrame.minY)
+                )
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+            }
         }
         #else
         self
@@ -219,6 +245,241 @@ private struct GlobalToastOverlayRootView: View {
 }
 #endif
 
+#if os(macOS)
+/// Installs a banner-sized overlay in the scene window, or its active sheet.
+public struct GlobalToastWindowHost: NSViewRepresentable {
+    @ObservedObject private var toastCenter: ToastCenter
+    private let bottomInset: CGFloat
+    private let miniPlayerFrame: CGRect?
+
+    public init(toastCenter: ToastCenter, bottomInset: CGFloat = 0, miniPlayerFrame: CGRect? = nil) {
+        self._toastCenter = ObservedObject(wrappedValue: toastCenter)
+        self.bottomInset = bottomInset
+        self.miniPlayerFrame = miniPlayerFrame
+    }
+
+    public func makeCoordinator() -> Coordinator {
+        Coordinator(toastCenter: toastCenter)
+    }
+
+    public func makeNSView(context: Context) -> NSView {
+        SceneProbeView()
+    }
+
+    public func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.miniPlayerFrame = miniPlayerFrame
+        context.coordinator.update(toastCenter: toastCenter, bottomInset: bottomInset)
+        context.coordinator.attach(to: nsView.window)
+        (nsView as? SceneProbeView)?.onWindowChange = { [weak coordinator = context.coordinator] window in
+            coordinator?.attach(to: window)
+        }
+    }
+
+    public static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    private final class SceneProbeView: NSView {
+        var onWindowChange: ((NSWindow?) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            onWindowChange?(window)
+        }
+    }
+
+    @MainActor
+    public final class Coordinator {
+        fileprivate var toastCenter: ToastCenter
+        fileprivate var bottomInset: CGFloat = 0
+        fileprivate var miniPlayerFrame: CGRect?
+        private weak var contentWindow: NSWindow?
+        private weak var targetWindow: NSWindow?
+        private var hostingView: NSHostingView<MacToastOverlayRootView>?
+        private var observerTokens: [NSObjectProtocol] = []
+
+        fileprivate init(toastCenter: ToastCenter) {
+            self.toastCenter = toastCenter
+        }
+
+        fileprivate func update(toastCenter: ToastCenter, bottomInset: CGFloat) {
+            self.toastCenter = toastCenter
+            self.bottomInset = bottomInset
+            refreshOverlay()
+        }
+
+        fileprivate func attach(to window: NSWindow?) {
+            guard contentWindow !== window else {
+                refreshOverlay()
+                return
+            }
+
+            removeObservers()
+            detachOverlay()
+            contentWindow = window
+
+            guard let window else { return }
+            let center = NotificationCenter.default
+            observerTokens = [
+                center.addObserver(forName: NSWindow.willBeginSheetNotification, object: window, queue: .main) { [weak self] _ in
+                    DispatchQueue.main.async { [weak self] in self?.refreshOverlay() }
+                },
+                center.addObserver(forName: NSWindow.didEndSheetNotification, object: window, queue: .main) { [weak self] _ in
+                    DispatchQueue.main.async { [weak self] in self?.refreshOverlay() }
+                },
+                center.addObserver(forName: NSWindow.didResizeNotification, object: nil, queue: .main) { [weak self] notification in
+                    guard let self,
+                          let resizedWindow = notification.object as? NSWindow,
+                          resizedWindow === self.contentWindow || resizedWindow === self.targetWindow else { return }
+                    self.refreshOverlay()
+                }
+            ]
+            let activityNotifications: [Notification.Name] = [
+                NSWindow.didBecomeKeyNotification,
+                NSWindow.didResignKeyNotification,
+                NSWindow.didBecomeMainNotification,
+                NSWindow.didResignMainNotification,
+                NSApplication.didBecomeActiveNotification,
+                NSApplication.didResignActiveNotification
+            ]
+            observerTokens += activityNotifications.map { name in
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    DispatchQueue.main.async { [weak self] in self?.layoutOverlay() }
+                }
+            }
+            refreshOverlay()
+        }
+
+        fileprivate func detach() {
+            removeObservers()
+            detachOverlay()
+            contentWindow = nil
+        }
+
+        private func refreshOverlay() {
+            guard let contentWindow else {
+                detachOverlay()
+                return
+            }
+            let target = activeWindow(from: contentWindow)
+            guard let contentView = target.contentView else {
+                detachOverlay()
+                return
+            }
+
+            let width = toastWidth(in: contentView, window: target)
+            if targetWindow !== target {
+                hostingView?.removeFromSuperview()
+                targetWindow = target
+            }
+
+            let hostingView = hostingView ?? NSHostingView(rootView: toastRootView(width: width))
+            hostingView.wantsLayer = true
+            hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+            let overlaySuperview = contentView.superview ?? contentView
+            if hostingView.superview !== overlaySuperview {
+                hostingView.removeFromSuperview()
+                overlaySuperview.addSubview(hostingView, positioned: .above, relativeTo: nil)
+            }
+            self.hostingView = hostingView
+
+            layoutOverlay()
+        }
+
+        private func toastRootView(width: CGFloat) -> MacToastOverlayRootView {
+            MacToastOverlayRootView(toastCenter: toastCenter, width: width)
+        }
+
+        private func toastWidth(in contentView: NSView, window: NSWindow) -> CGFloat {
+            let availableWidth = max(0, contentView.bounds.width - 2 * EnsembleScaffold.Toast.globalHorizontalPadding)
+            if window === contentWindow, let miniPlayerFrame {
+                return min(miniPlayerFrame.width, contentView.bounds.width)
+            }
+            return availableWidth
+        }
+
+        private func layoutOverlay() {
+            guard let contentWindow,
+                  let target = targetWindow,
+                  let contentView = target.contentView,
+                  let hostingView else {
+                hostingView?.isHidden = true
+                return
+            }
+
+            let width = toastWidth(in: contentView, window: target)
+            guard width > 0, toastCenter.currentToast != nil else {
+                hostingView.isHidden = true
+                return
+            }
+
+            hostingView.rootView = toastRootView(width: width)
+            hostingView.layoutSubtreeIfNeeded()
+            let size = hostingView.fittingSize
+            guard size.height > 0 else {
+                hostingView.isHidden = true
+                return
+            }
+
+            let isShowingSheet = target !== contentWindow
+            let chromeInset = isShowingSheet ? 0 : bottomInset
+            let bottomOffset = min(
+                max(0, chromeInset),
+                max(0, contentView.bounds.height - size.height)
+            ) + EnsembleScaffold.Toast.hostBottomPadding
+            let originY = contentView.isFlipped
+                ? contentView.bounds.maxY - bottomOffset - size.height
+                : contentView.bounds.minY + bottomOffset
+            let bannerRect = NSRect(
+                x: (isShowingSheet ? contentView.bounds.midX : miniPlayerFrame?.midX ?? contentView.bounds.midX) - size.width / 2,
+                y: originY,
+                width: size.width,
+                height: size.height
+            )
+            let overlaySuperview = contentView.superview ?? contentView
+            hostingView.frame = contentView.convert(bannerRect, to: overlaySuperview)
+            hostingView.isHidden = !(target.isVisible && isActiveWindow(target))
+        }
+
+        private func activeWindow(from window: NSWindow) -> NSWindow {
+            var activeWindow = window
+            while let sheet = activeWindow.attachedSheet {
+                activeWindow = sheet
+            }
+            return activeWindow
+        }
+
+        private func isActiveWindow(_ window: NSWindow) -> Bool {
+            guard NSApp.isActive else { return false }
+            return window === NSApp.keyWindow ||
+                (window === NSApp.mainWindow && window.attachedSheet == nil)
+        }
+
+        private func detachOverlay() {
+            hostingView?.removeFromSuperview()
+            hostingView = nil
+            targetWindow = nil
+        }
+
+        private func removeObservers() {
+            observerTokens.forEach { NotificationCenter.default.removeObserver($0) }
+            observerTokens.removeAll()
+        }
+    }
+}
+
+private struct MacToastOverlayRootView: View {
+    @ObservedObject var toastCenter: ToastCenter
+    let width: CGFloat
+
+    var body: some View {
+        ToastHostView(toastCenter: toastCenter, horizontalPadding: 0, bottomPadding: 0)
+            .frame(width: width)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+#endif
+
 public struct ToastBannerView: View {
     let toast: ToastPayload
     let toastCenter: ToastCenter
@@ -258,6 +519,7 @@ public struct ToastBannerView: View {
                 }
                 .font(EnsembleDesign.Typography.toastAction)
                 .foregroundColor(accentColor)
+                .accessibilityIdentifier("toast.action")
             }
         }
         .padding(.horizontal, EnsembleScaffold.Toast.horizontalPadding)

@@ -439,6 +439,14 @@ extension PlexAPIClient {
         )
     }
 
+    /// Look up albums in one library without waiting for its local sync.
+    public func searchAlbums(query: String, sectionKey: String) async throws -> [PlexAlbum] {
+        try await mediaContainerItems(
+            path: "/library/sections/\(sectionKey)/search",
+            query: ["type": "9", "query": query]
+        )
+    }
+
     /// Rate a metadata item (0 = no rating, 2 = 1 star, 4 = 2 stars, ..., 10 = 5 stars)
     /// Pass nil or 0 to remove rating
     public func rateItem(ratingKey: String, rating: Int?) async throws {

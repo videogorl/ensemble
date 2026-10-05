@@ -27,6 +27,8 @@ struct EnsembleApp: App {
     @State private var hasPerformedStartupSync = false
     @State private var hasStartedLogSession = false
     @State private var hasHandledInitialIOSActivePhase = false
+    @State private var permalinkTask: Task<Void, Never>?
+    @State private var permalinkFeedbackToastID: UUID?
     #if os(macOS)
     @State private var hasStartedPlaybackRestore = false
     @State private var hasCompletedPlaybackRestore = false
@@ -37,7 +39,7 @@ struct EnsembleApp: App {
 
     @ViewBuilder
     private var rootContent: some View {
-        #if DEBUG && os(iOS)
+        #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-EnsembleAutomationToast") {
             ToastInteractionFixture()
         } else {
@@ -209,14 +211,70 @@ struct EnsembleApp: App {
             return
         }
 
-        Task { @MainActor in
+        openPermalink(permalink)
+    }
+
+    @MainActor
+    private func openPermalink(_ permalink: EnsemblePermalink, refresh: Bool = false) {
+        permalinkTask?.cancel()
+        let dependencies = DependencyContainer.shared
+        if let permalinkFeedbackToastID {
+            dependencies.toastCenter.dismiss(id: permalinkFeedbackToastID)
+            self.permalinkFeedbackToastID = nil
+        }
+        let progressID = UUID()
+        permalinkTask = Task { @MainActor in
+            defer {
+                dependencies.toastCenter.dismiss(id: progressID)
+                if permalinkFeedbackToastID == progressID { permalinkFeedbackToastID = nil }
+            }
             do {
-                if let destination = try await DependencyContainer.shared.ensemblePermalinkResolver.resolve(permalink) {
+                if refresh {
+                    permalinkFeedbackToastID = progressID
+                    dependencies.toastCenter.show(ToastPayload(
+                        id: progressID,
+                        style: .info,
+                        iconSystemName: "arrow.clockwise",
+                        title: "Refreshing your library…",
+                        isPersistent: true,
+                        showsActivityIndicator: true
+                    ))
+                    if dependencies.accountManager.credentialLoadState != .loaded {
+                        await dependencies.accountManager.loadAccountsAsync()
+                    }
+                    try Task.checkCancellation()
+                    dependencies.syncCoordinator.refreshProviders()
+                    let enabledKeys = Set(dependencies.accountManager.enabledSources().map(\.compositeKey))
+                    let hiddenKeys = dependencies.libraryVisibilityStore.effectiveHiddenSourceCompositeKeys(
+                        enabledSourceCompositeKeys: enabledKeys
+                    )
+                    let sources = dependencies.accountManager.enabledSources().filter {
+                        !hiddenKeys.contains($0.compositeKey)
+                    }
+                    await dependencies.syncCoordinator.sync(sources: sources)
+                    try Task.checkCancellation()
+                    dependencies.toastCenter.dismiss(id: progressID)
+                }
+                let destination = try await dependencies.ensemblePermalinkResolver.resolve(permalink) { libraryName in
+                    dependencies.syncCoordinator.refreshProviders()
+                    dependencies.toastCenter.show(ToastPayload(
+                        style: .info,
+                        iconSystemName: "checkmark.circle",
+                        title: "Enabled library \(libraryName)",
+                        message: "To open this shared album.",
+                        duration: 5
+                    ))
+                }
+                try Task.checkCancellation()
+                if let destination {
                     _ = NavigationCoordinator.routeExternalSearchInActiveScene(to: destination)
                 } else {
                     showPermalinkNotFound(permalink)
                 }
+            } catch is CancellationError {
+                return
             } catch {
+                guard !Task.isCancelled else { return }
                 AppLogger.error("PERMALINK: resolution failed kind=\(permalink.kind.rawValue): \(error.localizedDescription)")
                 showPermalinkNotFound(permalink)
             }
@@ -225,16 +283,23 @@ struct EnsembleApp: App {
 
     @MainActor
     private func showPermalinkNotFound(_ permalink: EnsemblePermalink) {
+        let toastID = UUID()
+        permalinkFeedbackToastID = toastID
         DependencyContainer.shared.toastCenter.show(
             ToastPayload(
+                id: toastID,
                 style: .warning,
                 iconSystemName: "magnifyingglass",
                 title: "Couldn't find \(permalink.title)",
-                message: "Search your library for another version.",
-                dedupeKey: "permalink-not-found-\(permalink.kind.rawValue)-\(permalink.title)"
+                message: DependencyContainer.shared.syncCoordinator.isSyncing
+                    ? "Your library is syncing. Try again after refreshing."
+                    : "Refresh your library and try again.",
+                action: ToastAction(title: "Try Again") {
+                    openPermalink(permalink, refresh: true)
+                },
+                isPersistent: true
             )
         )
-        _ = NavigationCoordinator.routeExternalSearchInActiveScene(to: .view(.search))
     }
 
     private func startPersistentLogSessionIfNeeded() {
@@ -1076,7 +1141,7 @@ private func performBackgroundRefresh() async {
 }
 #endif
 
-#if DEBUG && os(iOS)
+#if DEBUG
 /// Exercises the production overlay without library or provider mutations.
 private struct ToastInteractionFixture: View {
     @State private var result = "No action"
@@ -1098,7 +1163,10 @@ private struct ToastInteractionFixture: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Behind toast")
         }
-        .sheet(isPresented: $showingSheet) { controls(context: "sheet") }
+        .sheet(isPresented: $showingSheet) {
+            controls(context: "sheet")
+                .frame(minWidth: 320, minHeight: 320)
+        }
     }
 
     private func controls(context: String) -> some View {

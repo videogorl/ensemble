@@ -82,6 +82,14 @@ public struct MiniPlayer: View {
                 onOpen: onTap
             )
         )
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(
+                    key: ToastLayoutPreference.self,
+                    value: ToastLayout(miniPlayerFrame: isFloating ? geometry.frame(in: .global) : nil)
+                )
+            }
+        }
         .padding(.horizontal, horizontalPadding)
         .padding(.bottom, isFloating ? 0 : EnsembleScaffold.MiniPlayer.inlineBottomPadding)
         .offset(y: verticalOffset)

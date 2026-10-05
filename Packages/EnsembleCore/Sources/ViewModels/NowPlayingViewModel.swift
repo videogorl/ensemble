@@ -1320,19 +1320,36 @@ public final class NowPlayingViewModel: ObservableObject {
     public func playNext(_ track: Track) {
         guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
         playbackService.playNext(track)
+        showQueueConfirmation([track], playNext: true)
     }
 
     public func playNext(_ tracks: [Track]) {
-        playbackService.playNext(tracksForNewQueue(tracks))
+        let tracks = tracksForNewQueue(tracks)
+        playbackService.playNext(tracks)
+        showQueueConfirmation(tracks, playNext: true)
     }
 
     public func playLast(_ track: Track) {
         guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
         playbackService.playLast(track)
+        showQueueConfirmation([track], playNext: false)
     }
 
     public func playLast(_ tracks: [Track]) {
-        playbackService.playLast(tracksForNewQueue(tracks))
+        let tracks = tracksForNewQueue(tracks)
+        playbackService.playLast(tracks)
+        showQueueConfirmation(tracks, playNext: false)
+    }
+
+    private func showQueueConfirmation(_ tracks: [Track], playNext: Bool) {
+        guard let firstTrack = tracks.first else { return }
+        let item = tracks.count == 1 ? firstTrack.title : "\(tracks.count) tracks"
+        toastCenter.show(ToastPayload(
+            style: .success,
+            iconSystemName: playNext ? "text.insert" : "text.append",
+            title: playNext ? "Play Next" : "Play Last",
+            message: playNext ? "Added \(item)." : "Queued \(item) for later."
+        ))
     }
 
     public func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int, destinationSource: QueueItemSource? = nil) {

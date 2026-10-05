@@ -98,31 +98,16 @@ enum TrackActionPresentation {
         track: Track,
         dedupeNamespace: String
     ) -> ToastPayload? {
-        let trackIdentity = track.sourceScopedID
         switch action {
-        case .playNext:
-            return ToastPayload(
-                style: .success,
-                iconSystemName: EnsembleDesign.Icon.playNext,
-                title: "Play Next",
-                message: "Added \(track.title).",
-                dedupeKey: "\(dedupeNamespace)-swipe-play-next-\(trackIdentity)"
-            )
-        case .playLast:
-            return ToastPayload(
-                style: .success,
-                iconSystemName: EnsembleDesign.Icon.playLast,
-                title: "Play Last",
-                message: "Queued \(track.title) for later.",
-                dedupeKey: "\(dedupeNamespace)-swipe-play-last-\(trackIdentity)"
-            )
+        case .playNext, .playLast:
+            return nil
         case .addToPlaylist:
             return ToastPayload(
                 style: .info,
                 iconSystemName: EnsembleDesign.Icon.addToPlaylist,
                 title: "Add to Playlist…",
                 message: "Choose a playlist to continue.",
-                dedupeKey: "\(dedupeNamespace)-swipe-add-to-playlist-\(trackIdentity)"
+                dedupeKey: "\(dedupeNamespace)-swipe-add-to-playlist-\(track.sourceScopedID)"
             )
         case .favoriteToggle:
             return nil
