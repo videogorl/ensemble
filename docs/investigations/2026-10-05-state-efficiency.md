@@ -70,6 +70,11 @@ remain local under `/tmp/ensemble-state-efficiency.beoyiwb4`; they are not commi
 
 ## Limits and follow-up
 
+The [follow-up investigation](2026-10-05-state-efficiency-follow-up.md) records
+physical profiling, the upstream count-discrepancy cause, additional runtime
+checks, and the remaining confidence gaps. The paragraph below is the first-pass
+checkpoint, before that follow-up.
+
 This establishes behavior and several avoided-work paths, not an energy or frame
 time benchmark. Physical-device energy profiling, downloaded-playlist background
 cancellation under a slow connection, and Apple Music detail loading remain
