@@ -1082,13 +1082,19 @@ public final class PlexMusicSourceSyncProvider:
                 localMembershipCount: localTrackStates[playlist.ratingKey]?.membershipCount
             )
 
-            try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
-
             guard shouldFetchTracks else {
+                try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
                 skippedTrackLists += 1
                 continue
             }
 
+            // Keep the previous modification date until its replacement body is saved.
+            try await Self.upsertPlaylist(
+                playlist,
+                to: repository,
+                sourceCompositeKey: serverSourceKey,
+                dateModified: existingTimestamps[playlist.ratingKey]
+            )
             let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: playlist.ratingKey)
             let trackKeys = playlistTracks.map { $0.ratingKey }
             EnsembleLogger.debug("📋 Syncing playlist '\(playlist.title)': \(trackKeys.count) tracks")
@@ -1100,6 +1106,7 @@ public final class PlexMusicSourceSyncProvider:
                 forPlaylist: playlist.ratingKey,
                 sourceCompositeKey: serverSourceKey
             )
+            try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
             fetchedTrackLists += 1
         }
 
@@ -1216,8 +1223,13 @@ public final class PlexMusicSourceSyncProvider:
             let playlistProgress = 0.1 + (0.5 * Double(index) / Double(max(changedPlaylists.count, 1)))
             progressHandler(playlistProgress)
 
-            try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
-
+            // Keep the previous modification date until the complete body is committed.
+            try await Self.upsertPlaylist(
+                playlist,
+                to: repository,
+                sourceCompositeKey: serverSourceKey,
+                dateModified: existingTimestamps[playlist.ratingKey]
+            )
             let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: playlist.ratingKey)
             let trackKeys = playlistTracks.map { $0.ratingKey }
             EnsembleLogger.debug("📋 Incremental sync playlist '\(playlist.title)': \(trackKeys.count) tracks")
@@ -1226,6 +1238,7 @@ public final class PlexMusicSourceSyncProvider:
                 forPlaylist: playlist.ratingKey,
                 sourceCompositeKey: serverSourceKey
             )
+            try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
         }
 
         EnsembleLogger.debug("⏱️ Incremental playlist upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
@@ -1341,6 +1354,23 @@ public final class PlexMusicSourceSyncProvider:
         sourceCompositeKey: String,
         trackCount: Int? = nil
     ) async throws -> CDPlaylist {
+        try await upsertPlaylist(
+            playlist,
+            to: repository,
+            sourceCompositeKey: sourceCompositeKey,
+            trackCount: trackCount,
+            dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        )
+    }
+
+    @discardableResult
+    static func upsertPlaylist(
+        _ playlist: PlexPlaylist,
+        to repository: PlaylistRepositoryProtocol,
+        sourceCompositeKey: String,
+        trackCount: Int? = nil,
+        dateModified: Date?
+    ) async throws -> CDPlaylist {
         let isSmart = playlist.smart ?? false
         return try await repository.upsertPlaylist(
             PlaylistUpsertInput(
@@ -1353,7 +1383,7 @@ public final class PlexMusicSourceSyncProvider:
                 duration: playlist.duration,
                 trackCount: trackCount ?? playlist.leafCount,
                 dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: dateModified,
                 lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 lastRatedAt: playlist.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 rating: Int(playlist.userRating ?? 0),
