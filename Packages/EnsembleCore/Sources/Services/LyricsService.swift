@@ -458,6 +458,21 @@ public final class LyricsService: ObservableObject {
         }
     }
 
+    struct ArtifactPrefetchMetrics: Sendable {
+        var stateChecks = 0
+        var stateHits = 0
+        var metadataCalls = 0
+        var contentCalls = 0
+        var stateCheckDuration: TimeInterval = 0
+        var resolutionDuration: TimeInterval = 0
+    }
+
+    @MainActor
+    private final class ProviderCallCounts {
+        var metadata = 0
+        var content = 0
+    }
+
     // Persistent lyrics cache directory
     private nonisolated static let lyricsCacheDir: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -628,13 +643,15 @@ public final class LyricsService: ObservableObject {
 
     private func resolveLyrics(
         track: Track,
-        provider: MusicSourceLyricsProviding
+        provider: MusicSourceLyricsProviding,
+        providerCalls: ProviderCallCounts? = nil
     ) async throws -> LyricsBundle {
         if await hasDurableNoAssetsOutcome(for: track) {
             await saveResolvedArtifactState(for: track)
             return Self.noLyricsBundle
         }
 
+        providerCalls?.metadata += 1
         guard let metadata = try await provider.getLyricsMetadata(trackID: track.id) else {
             EnsembleLogger.debug("Lyrics: metadata fetch returned nil for \(track.id)")
             return LyricsBundle(
@@ -675,12 +692,14 @@ public final class LyricsService: ObservableObject {
         let normal = await fetchNormalLyrics(
             track: signatureTrack,
             assets: metadata.normalAssets,
-            provider: provider
+            provider: provider,
+            providerCalls: providerCalls
         )
         let chords = await fetchChordLyrics(
             track: signatureTrack,
             assets: metadata.chordCandidateAssets,
-            provider: provider
+            provider: provider,
+            providerCalls: providerCalls
         )
         if normal.isDurable, chords.isDurable {
             await saveResolvedArtifactState(for: track)
@@ -734,7 +753,8 @@ public final class LyricsService: ObservableObject {
     private func fetchNormalLyrics(
         track: Track,
         assets: [MusicSourceLyricsAsset],
-        provider: MusicSourceLyricsProviding
+        provider: MusicSourceLyricsProviding,
+        providerCalls: ProviderCallCounts? = nil
     ) async -> LyricsModeResolution {
         guard !assets.isEmpty else {
             return LyricsModeResolution(state: .notAvailable, source: .noLyricsStream, isDurable: true)
@@ -775,6 +795,7 @@ public final class LyricsService: ObservableObject {
             }
 
             do {
+                providerCalls?.content += 1
                 let content = try await provider.getLyricsContent(asset: asset, raw: asset.isLocalMedia)
                 guard let content else {
                     await savePersistentOutcome(.unavailable, key: key, signature: signature)
@@ -820,7 +841,8 @@ public final class LyricsService: ObservableObject {
     private func fetchChordLyrics(
         track: Track,
         assets: [MusicSourceLyricsAsset],
-        provider: MusicSourceLyricsProviding
+        provider: MusicSourceLyricsProviding,
+        providerCalls: ProviderCallCounts? = nil
     ) async -> LyricsModeResolution {
         guard !assets.isEmpty else {
             return LyricsModeResolution(state: .notAvailable, source: .noLyricsStream, isDurable: true)
@@ -841,6 +863,7 @@ public final class LyricsService: ObservableObject {
             }
 
             do {
+                providerCalls?.content += 1
                 guard let content = try await provider.getLyricsContent(asset: asset, raw: true) else {
                     if let cached = await cachedChordState(
                         forKey: key,
@@ -924,21 +947,38 @@ public final class LyricsService: ObservableObject {
     /// Called fire-and-forget after audio download completion so lyrics
     /// are available immediately when the user plays the track offline.
     public func fetchAndCacheLyrics(for track: Track) async {
-        guard await hasResolvedArtifactState(for: track) == false else { return }
+        _ = await fetchAndCacheLyricsWithMetrics(for: track)
+    }
+
+    func fetchAndCacheLyricsWithMetrics(for track: Track) async -> ArtifactPrefetchMetrics {
+        var metrics = ArtifactPrefetchMetrics()
+        let stateCheckStartedAt = ProcessInfo.processInfo.systemUptime
+        let hasResolvedState = await hasResolvedArtifactState(for: track)
+        metrics.stateChecks = 1
+        metrics.stateHits = hasResolvedState ? 1 : 0
+        metrics.stateCheckDuration = ProcessInfo.processInfo.systemUptime - stateCheckStartedAt
+        guard !hasResolvedState else { return metrics }
+
         guard let sourceCompositeKey = track.sourceCompositeKey,
               let persistenceWork = syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: sourceCompositeKey) else {
-            return
+            return metrics
         }
         defer { syncCoordinator.finishSourcePersistenceWork(persistenceWork) }
-        guard let provider = syncCoordinator.lyricsProvider(for: sourceCompositeKey) else { return }
+        guard let provider = syncCoordinator.lyricsProvider(for: sourceCompositeKey) else { return metrics }
 
+        let providerCalls = ProviderCallCounts()
+        let resolutionStartedAt = ProcessInfo.processInfo.systemUptime
         do {
-            _ = try await resolveLyrics(track: track, provider: provider)
+            _ = try await resolveLyrics(track: track, provider: provider, providerCalls: providerCalls)
         } catch {
             EnsembleLogger.debug(
                 "Lyrics: download pre-cache deferred after transient failure for \(track.id): \(error.localizedDescription)"
             )
         }
+        metrics.metadataCalls = providerCalls.metadata
+        metrics.contentCalls = providerCalls.content
+        metrics.resolutionDuration = ProcessInfo.processInfo.systemUptime - resolutionStartedAt
+        return metrics
     }
 
     private func hasResolvedArtifactState(for track: Track) async -> Bool {

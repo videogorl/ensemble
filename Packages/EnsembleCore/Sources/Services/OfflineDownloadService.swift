@@ -1302,12 +1302,36 @@ public final class OfflineDownloadService: ObservableObject {
             sourceURL: fileURL,
             sidecarURL: fileURL.appendingPathExtension("freq")
         )
-        await artifactQueue.enqueue(
+        await artifactQueue.enqueueMeasured(
             key: "\(ctx.sourceCompositeKey)|\(ctx.trackRatingKey)"
         ) { @MainActor [weak self] in
-            guard let self, await self.waitUntilArtifactWorkIsAllowed() else { return }
-            await self.cacheArtworkForDownloadedTrack(ctx: ctx)
-            await self.lyricsService.fetchAndCacheLyrics(for: ctx.domainTrack)
+            var metrics = DownloadArtifactWorkMetrics()
+            guard let self else { return metrics }
+
+            let schedulerStartedAt = ProcessInfo.processInfo.systemUptime
+            let isAllowed = await self.waitUntilArtifactWorkIsAllowed()
+            metrics.schedulerWait = ProcessInfo.processInfo.systemUptime - schedulerStartedAt
+            guard isAllowed else {
+                metrics.schedulerDeferrals = 1
+                return metrics
+            }
+
+            let artworkStartedAt = ProcessInfo.processInfo.systemUptime
+            let artworkMetrics = await self.cacheArtworkForDownloadedTrack(ctx: ctx)
+            metrics.artworkElapsed = ProcessInfo.processInfo.systemUptime - artworkStartedAt
+            metrics.artworkChecks = artworkMetrics.checks
+            metrics.artworkHits = artworkMetrics.hits
+            metrics.artworkRecoveryAttempts = artworkMetrics.attempts
+            metrics.artworkDeferred = artworkMetrics.deferred
+
+            let lyricsMetrics = await self.lyricsService.fetchAndCacheLyricsWithMetrics(for: ctx.domainTrack)
+            metrics.lyricStateChecks = lyricsMetrics.stateChecks
+            metrics.lyricStateHits = lyricsMetrics.stateHits
+            metrics.lyricMetadataCalls = lyricsMetrics.metadataCalls
+            metrics.lyricContentCalls = lyricsMetrics.contentCalls
+            metrics.lyricStateCheckElapsed = lyricsMetrics.stateCheckDuration
+            metrics.lyricResolutionElapsed = lyricsMetrics.resolutionDuration
+            return metrics
         }
     }
 
@@ -1317,11 +1341,12 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     /// Best-effort artwork repair for completed downloads so offline surfaces retain artwork.
-    private func cacheArtworkForDownloadedTrack(ctx: DownloadTransferContext) async {
+    private func cacheArtworkForDownloadedTrack(ctx: DownloadTransferContext) async -> DownloadArtworkReconciliationMetrics {
+        var metrics = DownloadArtworkReconciliationMetrics()
         guard let persistenceWork = syncCoordinator.beginCurrentSourcePersistenceWork(
             sourceKey: ctx.sourceCompositeKey
         ) else {
-            return
+            return metrics
         }
         defer { syncCoordinator.finishSourcePersistenceWork(persistenceWork) }
 
@@ -1339,6 +1364,7 @@ public final class OfflineDownloadService: ObservableObject {
 
         var seen = Set<String>()
         for candidate in candidates where seen.insert("\(candidate.ratingKey)|\(candidate.path)").inserted {
+            metrics.checks += 1
             let exists = await artworkDownloadManager.localArtworkExists(
                 ratingKey: candidate.ratingKey,
                 type: .album,
@@ -1347,8 +1373,11 @@ public final class OfflineDownloadService: ObservableObject {
                 dateModifiedSeconds: nil,
                 minimumPixelDimension: ArtworkSize.detail.rawValue
             )
-            guard !exists else { continue }
-
+            if exists {
+                metrics.hits += 1
+                continue
+            }
+            metrics.attempts += 1
             do {
                 guard let artworkURL = try await syncCoordinator.getArtworkURL(
                     path: candidate.path,
@@ -1372,6 +1401,7 @@ public final class OfflineDownloadService: ObservableObject {
                     "🖼️ Reconciled download artwork: track=\(ctx.trackRatingKey) artworkKey=\(candidate.ratingKey)"
                 )
             } catch let error as ArtworkDownloadError where error.isRequestDeferred {
+                metrics.deferred += 1
                 continue
             } catch {
                 EnsembleLogger.debug(
@@ -1379,6 +1409,7 @@ public final class OfflineDownloadService: ObservableObject {
                 )
             }
         }
+        return metrics
     }
 
     private func reconcileCompletedDownloadArtifacts() async {
@@ -2296,15 +2327,62 @@ public final class OfflineDownloadService: ObservableObject {
 
 // MARK: - Derived Download Artifact Queue
 
+private struct DownloadArtworkReconciliationMetrics {
+    var checks = 0
+    var hits = 0
+    var attempts = 0
+    var deferred = 0
+}
+
+struct DownloadArtifactWorkMetrics: Sendable {
+    var schedulerWait: TimeInterval = 0
+    var schedulerDeferrals = 0
+    var artworkChecks = 0
+    var artworkHits = 0
+    var artworkRecoveryAttempts = 0
+    var artworkDeferred = 0
+    var artworkElapsed: TimeInterval = 0
+    var lyricStateChecks = 0
+    var lyricStateHits = 0
+    var lyricMetadataCalls = 0
+    var lyricContentCalls = 0
+    var lyricStateCheckElapsed: TimeInterval = 0
+    var lyricResolutionElapsed: TimeInterval = 0
+
+    mutating func accumulate(_ other: Self) {
+        schedulerWait += other.schedulerWait
+        schedulerDeferrals += other.schedulerDeferrals
+        artworkChecks += other.artworkChecks
+        artworkHits += other.artworkHits
+        artworkRecoveryAttempts += other.artworkRecoveryAttempts
+        artworkDeferred += other.artworkDeferred
+        artworkElapsed += other.artworkElapsed
+        lyricStateChecks += other.lyricStateChecks
+        lyricStateHits += other.lyricStateHits
+        lyricMetadataCalls += other.lyricMetadataCalls
+        lyricContentCalls += other.lyricContentCalls
+        lyricStateCheckElapsed += other.lyricStateCheckElapsed
+        lyricResolutionElapsed += other.lyricResolutionElapsed
+    }
+}
+
 actor DownloadArtifactQueue {
     typealias Work = @MainActor @Sendable () async -> Void
+    typealias MeasuredWork = @MainActor @Sendable () async -> DownloadArtifactWorkMetrics
 
-    private var pending: [(key: String, work: Work)] = []
+    private var pending: [(key: String, work: MeasuredWork)] = []
     private var activeKey: String?
     private var workerTask: Task<Void, Never>?
     private var isSuspended = false
 
     func enqueue(key: String, work: @escaping Work) {
+        enqueueMeasured(key: key) {
+            await work()
+            return DownloadArtifactWorkMetrics()
+        }
+    }
+
+    func enqueueMeasured(key: String, work: @escaping MeasuredWork) {
         guard activeKey != key, !pending.contains(where: { $0.key == key }) else { return }
         pending.append((key, work))
         startWorkerIfNeeded()
@@ -2327,15 +2405,16 @@ actor DownloadArtifactQueue {
     private func drain() async {
         let startedAt = ProcessInfo.processInfo.systemUptime
         var processedCount = 0
+        var metrics = DownloadArtifactWorkMetrics()
         while !isSuspended, !pending.isEmpty {
             let item = pending.removeFirst()
             activeKey = item.key
-            await item.work()
+            metrics.accumulate(await item.work())
             processedCount += 1
             activeKey = nil
         }
         EnsembleLogger.debug(
-            "[Performance] downloadArtifactBatch processed=\(processedCount) pending=\(pending.count) suspended=\(isSuspended) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+            "[Performance] downloadArtifactBatch processed=\(processedCount) pending=\(pending.count) suspended=\(isSuspended) schedulerWaitMs=\(Int(metrics.schedulerWait * 1_000)) schedulerDeferred=\(metrics.schedulerDeferrals) artworkChecks=\(metrics.artworkChecks) artworkHits=\(metrics.artworkHits) artworkMisses=\(metrics.artworkChecks - metrics.artworkHits) artworkRecoveryAttempts=\(metrics.artworkRecoveryAttempts) artworkDeferred=\(metrics.artworkDeferred) artworkMs=\(Int(metrics.artworkElapsed * 1_000)) lyricStateChecks=\(metrics.lyricStateChecks) lyricStateHits=\(metrics.lyricStateHits) lyricMetadataCalls=\(metrics.lyricMetadataCalls) lyricContentCalls=\(metrics.lyricContentCalls) lyricStateMs=\(Int(metrics.lyricStateCheckElapsed * 1_000)) lyricResolutionMs=\(Int(metrics.lyricResolutionElapsed * 1_000)) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
         )
         workerTask = nil
         startWorkerIfNeeded()
