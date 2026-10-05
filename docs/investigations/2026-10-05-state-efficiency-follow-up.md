@@ -284,3 +284,162 @@ entries are prepared for its Changes heading:
 Their required GitHub commit links are pending publication of the local commit.
 Push/merge authorization is separate; no unpublished commit link was added to the
 user-facing changelog.
+
+## Final state-efficiency continuation
+
+Private evidence for this continuation is under
+`/tmp/ensemble-state-final.NV63M2`. No unit/integration suite was added or run.
+
+### Remove an unconditional startup library reload
+
+`LibraryViewModel` no longer subscribes to startup-sync completion. That signal
+was delivered after both material and no-op syncs and unconditionally fetched and
+mapped the complete library again. The existing retained `lastContentChange`
+publisher already delivers material library changes, including repaired genre
+metadata, to current and late subscribers. Initial loading, cloud/source readiness,
+user refreshes, download changes, and material sync changes retain their paths.
+`lastStartupSyncCompletion` itself remains available for readiness/diagnostics.
+
+In an isolated model on the exact macOS Debug process, publishing a completion
+left its load generation at 2. Publishing a material genre change advanced it to
+3; a model created after that change loaded once from the retained publication.
+Temporary coordinator publications were restored. These controls establish
+notification behavior; physical repeated-launch measurements are separate.
+
+### Preserve failed playlist-body retries
+
+Full and incremental Plex playlist sync now retain the previous modification date
+while updating other header fields before a required body request. Only after a
+complete body snapshot saves do they commit the new remote modification date.
+A new header retains a nil date until that body succeeds. Metadata-only updates
+that skip the body still update their normal header fields. No schema, displayed
+count, deletion policy, or full-sync repair predicate changed.
+
+Previously the new metadata date could save before an unsuccessful body request.
+The next incremental pass could consider that playlist current, skip its body,
+and advance the server cursor, losing the retry. This is a correctness correction
+at the existing provider owner; it does not introduce a successful-body fingerprint
+or settle the separate count discrepancy in issue #98.
+
+A private localhost GET fixture exercised the production API client, sync provider,
+and in-memory playlist/cursor repositories in four attempts. An incomplete full
+body and an incremental HTTP 503 both preserved the old body/date and held the
+cursor and orphan cleanup. A full retry committed the complete existing body but
+left a new header's date nil after its HTTP failure. An incremental retry then
+committed the new body's duplicate ordered memberships, advanced the cursor, and
+removed the synthetic orphan. An unchanged-date title update made zero body
+requests. All state assertions passed; host counters recorded the expected 12 GETs,
+three existing-body requests, two new-body requests, one incomplete response,
+two HTTP failures, two complete bodies, and zero unknown/non-GET requests.
+Temporary fixture preferences were restored.
+
+### Attribute downloaded-artifact work
+
+The existing aggregate artifact-batch log now reports scheduler admission wait,
+artwork checks/hits/misses/recovery attempts/deferrals and elapsed time, and lyrics
+artifact-state checks/hits plus actual metadata/content provider calls and elapsed
+time. Counters exist only for each prefetch and drain; no persistent state, polling,
+per-item logs, or additional provider requests were introduced. Queue gating,
+suspension, deduplication, durable missing-assets outcomes, and recovery behavior
+retain their existing paths. Artwork recovery attempts include URL resolution;
+they are not confirmed HTTP download counts.
+
+### Repeated full-body cost and the remaining design boundary
+
+Two read-only passes through the configured macOS API client fetched the same
+complete conflicting Plex playlist. The inventory contained 38 playlists and took
+561 ms / 17 ms. The body contained 3,460 distinct tracks, was 5,553,911 bytes each
+pass, and took 1,664 ms / 1,113 ms to fetch and decode. These elapsed measurements
+include network/decode work and are not CPU time or an energy benchmark.
+
+Avoiding the repeated healthy body on full sync still needs a successful-body
+checkpoint plus an explicit freshness/refresh policy for dynamic contents whose
+metadata does not change. The focused retry correction makes existing retries
+reliable but deliberately leaves that larger design and the displayed-count
+policy for a decision. Never truncate the complete body to the conflicting
+metadata count. The normal downloaded-playlist incremental route already skips
+unchanged bodies when its cursor exists.
+
+### Working physical power capture
+
+The bundled Power Profiler template failed with all-process targeting and crashed
+in its network statistics model while saving an app launch. A minimal Blank
+template containing only the Power Profiler instrument successfully recorded,
+saved, and exported a ten-second launch on the physical iPhone 16 Pro, actual
+iOS 27.0. Its app process/version matched the installed Release build. This proves
+that the narrower capture works; the short canary does not establish battery
+savings, and it is not a matched before/after comparison.
+
+### Remaining runtime gaps and tool blockers
+
+Xcode workspace approval was granted and its RunProject request launched a fresh
+Debug build on the physical phone despite the tool timeout. Installed version,
+container, and debugger PID matched. LLDB could inspect process and Foundation
+state, but repeatedly failed to resolve `EnsembleCore.DependencyContainer`, even
+after explicit module search paths/imports; another expression failed in the Swift
+debugger compiler. The uncached catalog and combined delayed-request/background
+probes therefore did not run. Xcode's device-interaction session rejected the
+physical UDID and offered only simulators. Device Hub native controls work, but
+remote touch actions still did not change the phone UI. No cache was deleted and
+no diagnostic hook was added to work around these failures.
+
+The macOS native drag gap also remains: the existing drag provider was reached,
+but the automated drag did not reach its drop delegate or reorder rows. An earlier
+uninstrumented attempt likewise left the order unchanged. The relevant macOS
+queue drag/card/controller code is unchanged from the branch base and develop;
+these observations do not establish a product defect or a branch regression.
+Native drag needs a delivered drop with verified reorder/restoration. The existing
+iOS simulator drag, same-ID metadata, queue projection, and macOS cancellation
+evidence above retains its narrower scope.
+
+Pending user decisions remain the Plex successful-body checkpoint/freshness and
+displayed-count policy, plus publication/integration. The branch contains local
+commits only; no push or merge into develop is authorized by this continuation.
+
+### Final physical Release launch measurements
+
+The final source was built for macOS Debug and physical iPhone Release. The phone
+install used the exact Release `.app`; installed version was
+`0.4.0 / 202610051405.4899`, and the launched process and trace used its new
+installation container. The emitted `artworkRecoveryAttempts` field additionally
+identifies the final diagnostic binary. Playback was paused in the observed UI.
+No debugger was attached during these measurements.
+
+Two repeated launches opened Playlists without intentional library edits. Startup
+sync remained enabled, so unchanged counts do not prove identical persisted
+metadata. Both completed startup sync without a material library reload:
+
+| Stage | Launch 1 | Launch 2 |
+| --- | ---: | ---: |
+| Full library fetch/map count | 1 | 1 |
+| Mapped tracks | 21,218 | 21,218 |
+| Library fetch/map elapsed | 1,315 ms | 1,172 ms |
+| Download healing elapsed | 1,007 ms | 1,037 ms |
+| Truncation candidates / truncated | 322 / 0 | 322 / 0 |
+| Artifact batch processed / pending | 322 / 0 | 322 / 0 |
+| Scheduler admission wait / deferrals | 0 ms / 0 | 0 ms / 0 |
+| Artwork checks / hits / recovery attempts | 321 / 321 / 0 | 321 / 321 / 0 |
+| Artwork checks elapsed | 214 ms | 192 ms |
+| Lyrics state checks / hits | 322 / 320 | 322 / 320 |
+| Lyrics metadata / content provider calls | 2 / 4 | 2 / 4 |
+| Lyrics state checks elapsed | 212 ms | 241 ms |
+| Lyrics resolution elapsed | 1,998 ms | 232 ms |
+| Artifact batch elapsed | 2,430 ms | 670 ms |
+
+The earlier comparable no-material-change launch mapped the library twice. The
+owner probe and these two final runs support elimination of that extra map. They
+do not establish a whole-app energy improvement. In this final pair, all artwork
+checks hit cache and the same two lyrics state misses caused provider work; the
+largest elapsed difference was lyrics resolution, not scheduler admission. These
+are elapsed async stages, not CPU time; overlapping stages must not be added.
+They do not retrospectively prove the cause of the earlier 8,748 ms batch.
+
+The final minimal Power Profiler recording ran for 45 seconds (48.8 seconds total
+trace duration), saved, and exported actual per-process power-impact rows for the
+same verified Release process. The phone was charging over USB. This is a working
+measurement artifact, not a matched battery-savings comparison.
+
+Additional prepared changelog entries, pending published GitHub commit links:
+
+- Library startup avoids a redundant reload when sync leaves the library unchanged.
+- Playlist sync retains retries after incomplete or failed track responses.
