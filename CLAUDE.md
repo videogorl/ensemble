@@ -102,6 +102,11 @@ and verify the resulting UI or logs because an input command can succeed without
 being delivered. See `simulator-test` and
 `docs/reference/agent-runtime-testing.md`.
 
+Track every simulator UUID used. When finished using them, shut down each of
+those simulators and verify its state is `Shutdown` before handoff. Coordinate
+with any other active runner using the same simulator; never use
+`xcrun simctl shutdown all`.
+
 Device Hub, Simulator.app Computer Use, and iPhone Mirroring compete for global
 Mac focus, and each app's windows share one process. Only one agent may drive
 them at a time. A stale device view does not authorize restarting Device Hub
