@@ -53,6 +53,7 @@ enum SystemMediaSourceScope {
 public final class SiriMediaIndexStore {
     nonisolated private static let appGroupIdentifier = SiriSharedConstants.appGroupIdentifier
     nonisolated private static let filename = SiriSharedConstants.indexFilename
+    nonisolated private static let spotlightAppliedFilename = "ensemble.spotlight.applied-index.json"
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
@@ -81,12 +82,33 @@ public final class SiriMediaIndexStore {
     /// Loads the latest Siri index from disk without staleness checks.
     public func loadIndexUnbounded() async -> SiriMediaIndex? {
         await Task.detached(priority: .utility) {
-            Self.loadIndexUnboundedFromDisk()
+            Self.loadIndexFromDisk(filename: Self.filename)
         }.value
     }
 
-    nonisolated private static func loadIndexUnboundedFromDisk() -> SiriMediaIndex? {
-        guard let url = indexURL(), let data = try? Data(contentsOf: url) else { return nil }
+    func loadSpotlightAppliedIndex() async -> SiriMediaIndex? {
+        await Task.detached(priority: .utility) {
+            Self.loadIndexFromDisk(filename: Self.spotlightAppliedFilename)
+        }.value
+    }
+
+    /// Captures the last shared catalog as Spotlight's initial baseline before a
+    /// catalog refresh can replace it. An empty baseline also records the first
+    /// catalog publication when no prior Siri index exists.
+    func seedSpotlightAppliedIndexIfNeeded(from index: SiriMediaIndex?) async throws -> Bool {
+        try RefreshExecution.checkCancellation()
+        guard await loadSpotlightAppliedIndex() == nil else { return false }
+        try RefreshExecution.checkCancellation()
+        try await save(index ?? SiriMediaIndex(items: []), filename: Self.spotlightAppliedFilename)
+        return true
+    }
+
+    func saveSpotlightAppliedIndex(_ index: SiriMediaIndex) async throws {
+        try await save(index, filename: Self.spotlightAppliedFilename)
+    }
+
+    nonisolated private static func loadIndexFromDisk(filename: String) -> SiriMediaIndex? {
+        guard let url = indexURL(filename: filename), let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode(SiriMediaIndex.self, from: data)
     }
 
@@ -95,12 +117,14 @@ public final class SiriMediaIndexStore {
     public func rebuildIndex(previousIndex: SiriMediaIndex? = nil) async -> SiriMediaIndex? {
         let startedAt = ProcessInfo.processInfo.systemUptime
         do {
+            try RefreshExecution.checkCancellation()
             let existingIndex: SiriMediaIndex?
             if let providedIndex = previousIndex {
                 existingIndex = providedIndex
             } else {
                 existingIndex = await loadIndexUnbounded()
             }
+            try await seedSpotlightAppliedIndexIfNeeded(from: existingIndex)
             let enabledLibrarySourceKeys = enabledSourceKeysProvider?()
             let playlistSourceKeys = enabledLibrarySourceKeys.map {
                 SystemMediaSourceScope.playlistSourceKeys(forEnabledLibraryKeys: $0)
@@ -109,18 +133,22 @@ public final class SiriMediaIndexStore {
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
                 .filter { !hiddenMediaStore.snapshot.isHidden(Artist(from: $0)) }
                 .prefix(1500))
+            try RefreshExecution.checkCancellation()
             let albums = Array(try await libraryRepository.fetchAlbums()
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
                 .filter { !hiddenMediaStore.snapshot.isHidden(Album(from: $0)) }
                 .prefix(1500))
+            try RefreshExecution.checkCancellation()
             let tracks = Array(try await libraryRepository.fetchSiriEligibleTracks()
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
                 .filter { !hiddenMediaStore.snapshot.isHidden(Track(from: $0)) }
                 .prefix(1000))
+            try RefreshExecution.checkCancellation()
             let playlists = Array(try await playlistRepository.fetchPlaylists()
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: playlistSourceKeys) }
                 .filter { !hiddenMediaStore.snapshot.isHidden(Playlist(from: $0)) }
                 .prefix(500))
+            try RefreshExecution.checkCancellation()
 
             var items: [SiriMediaIndexItem] = []
             items.reserveCapacity(artists.count + albums.count + tracks.count + playlists.count)
@@ -211,14 +239,17 @@ public final class SiriMediaIndexStore {
                 )
             }
 
+            try RefreshExecution.checkCancellation()
             let index = SiriMediaIndex(items: items)
             guard Self.hasMaterialChanges(from: existingIndex, to: index) else {
+                try RefreshExecution.checkCancellation()
                 EnsembleLogger.debug(
                     "[Performance] siriIndexRebuild artists=\(artists.count) albums=\(albums.count) tracks=\(tracks.count) playlists=\(playlists.count) changed=false saved=false elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
                 )
                 return existingIndex
             }
-            try await save(index)
+            try RefreshExecution.checkCancellation()
+            try await save(index, filename: Self.filename)
             EnsembleLogger.debug(
                 "[Performance] siriIndexRebuild artists=\(artists.count) albums=\(albums.count) tracks=\(tracks.count) playlists=\(playlists.count) changed=true saved=true elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
             )
@@ -229,14 +260,15 @@ public final class SiriMediaIndexStore {
         }
     }
 
-    private func save(_ index: SiriMediaIndex) async throws {
+    private func save(_ index: SiriMediaIndex, filename: String) async throws {
+        try RefreshExecution.checkCancellation()
         try await Task.detached(priority: .utility) {
-            try Self.saveToDisk(index)
+            try Self.saveToDisk(index, filename: filename)
         }.value
     }
 
-    nonisolated private static func saveToDisk(_ index: SiriMediaIndex) throws {
-        guard let indexURL = indexURL() else {
+    nonisolated private static func saveToDisk(_ index: SiriMediaIndex, filename: String) throws {
+        guard let indexURL = indexURL(filename: filename) else {
             throw NSError(
                 domain: "SiriMediaIndexStore",
                 code: 1,
@@ -258,16 +290,16 @@ public final class SiriMediaIndexStore {
             || previousIndex?.items != currentIndex.items
     }
 
-    nonisolated private static func indexURL() -> URL? {
+    nonisolated private static func indexURL(filename: String) -> URL? {
         if let groupURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
         ) {
-            return groupURL.appendingPathComponent(Self.filename)
+            return groupURL.appendingPathComponent(filename)
         }
 
         EnsembleLogger.debug("App Group unavailable for Siri index; using caches fallback")
         return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
-            .appendingPathComponent(Self.filename)
+            .appendingPathComponent(filename)
     }
 
     private struct ArtworkDescriptor {

@@ -294,6 +294,7 @@ public final class SystemMediaIntegrationService {
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var rebuildObserverToken: NSObjectProtocol?
     private var spotlightRefreshTask: Task<Void, Never>?
+    private var siriCatalogRefreshTask: Task<Bool, Never>?
     private var registeredSiriVocabulary: ([String], [String])?
 
     #if !os(macOS)
@@ -431,8 +432,56 @@ public final class SystemMediaIntegrationService {
             await self.performSpotlightIndexRefresh()
         }
         spotlightRefreshTask = task
-        await task.value
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
         spotlightRefreshTask = nil
+    }
+
+    /// Refreshes the shared local catalog used by Siri and App Shortcuts.
+    /// This does not invoke Core Spotlight and is safe in a background refresh.
+    @discardableResult
+    public func refreshSiriCatalog() async -> Bool {
+        if let siriCatalogRefreshTask {
+            EnsembleLogger.debug("[SystemMedia] Siri catalog refresh coalesced with active refresh")
+            return await siriCatalogRefreshTask.value
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            return await self.performSiriCatalogRefresh()
+        }
+        siriCatalogRefreshTask = task
+        let refreshed = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        siriCatalogRefreshTask = nil
+        return refreshed
+    }
+
+    private func performSiriCatalogRefresh() async -> Bool {
+        do {
+            try RefreshExecution.checkCancellation()
+            let hadSpotlightBaseline = await siriMediaIndexStore.loadSpotlightAppliedIndex() != nil
+            if !hadSpotlightBaseline {
+                UserDefaults.standard.removeObject(forKey: Self.spotlightLastFullRefreshKey)
+            }
+
+            let previousIndex = await siriMediaIndexStore.loadIndexUnbounded()
+            try RefreshExecution.checkCancellation()
+            guard let refreshedIndex = await siriMediaIndexStore.rebuildIndex(previousIndex: previousIndex) else {
+                return false
+            }
+            try RefreshExecution.checkCancellation()
+            refreshSiriVocabulary(from: refreshedIndex)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func performSpotlightIndexRefresh() async {
@@ -443,16 +492,22 @@ public final class SystemMediaIntegrationService {
             }
         }
 
-        let previousIndex = await siriMediaIndexStore.loadIndexUnbounded()
-        let rebuiltIndex = await siriMediaIndexStore.rebuildIndex(previousIndex: previousIndex)
-        let index = rebuiltIndex ?? previousIndex
+        let hadSpotlightBaseline = await siriMediaIndexStore.loadSpotlightAppliedIndex() != nil
+        _ = await refreshSiriCatalog()
+        let index = await siriMediaIndexStore.loadIndexUnbounded()
         guard let index else {
             EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; no media index")
             return
         }
 
-        let staleReferences = Self.staleSystemMediaReferences(previous: previousIndex, current: index)
-        await deleteUnavailableSystemMedia(staleReferences)
+        let appliedIndex = await siriMediaIndexStore.loadSpotlightAppliedIndex()
+        let staleReferences = Self.staleSystemMediaReferences(previous: appliedIndex, current: index)
+        do {
+            try RefreshExecution.checkCancellation()
+        } catch {
+            return
+        }
+        let deletionsSucceeded = await deleteUnavailableSystemMediaAndReport(staleReferences)
 
         refreshSiriVocabulary(from: index)
 
@@ -462,15 +517,15 @@ public final class SystemMediaIntegrationService {
         }
 
         let lastFullRefresh = UserDefaults.standard.object(forKey: Self.spotlightLastFullRefreshKey) as? Date
-        let requiresFullRefresh = lastFullRefresh.map {
+        let requiresFullRefresh = !hadSpotlightBaseline || (lastFullRefresh.map {
             Date().timeIntervalSince($0) >= Self.spotlightFullRefreshInterval
-        } ?? true
+        } ?? true)
         let indexItems = Self.spotlightItemsToIndex(
-            previous: previousIndex,
+            previous: appliedIndex,
             current: index,
             requiresFullRefresh: requiresFullRefresh
         )
-        guard !indexItems.isEmpty else {
+        guard !indexItems.isEmpty || !staleReferences.isEmpty || requiresFullRefresh else {
             EnsembleLogger.debug("[SystemMedia] Spotlight index unchanged; skipped update")
             return
         }
@@ -479,6 +534,7 @@ public final class SystemMediaIntegrationService {
         var indexedCount = 0
         do {
             for chunk in indexItems.chunked(into: Self.spotlightChunkSize) {
+                try RefreshExecution.checkCancellation()
                 if let foregroundWorkScheduler,
                    !foregroundWorkScheduler.isIdleForNonessentialWork {
                     EnsembleLogger.debug("[SystemMedia] Spotlight refresh paused after \(indexedCount)/\(indexItems.count) media items; foreground work became active")
@@ -493,26 +549,42 @@ public final class SystemMediaIntegrationService {
                 indexedCount += items.count
                 await Task.yield()
             }
+            try RefreshExecution.checkCancellation()
+            guard deletionsSucceeded else {
+                EnsembleLogger.debug("[SystemMedia] Spotlight refresh left unacknowledged because deletions did not complete")
+                return
+            }
+            try await siriMediaIndexStore.saveSpotlightAppliedIndex(index)
             if requiresFullRefresh {
                 UserDefaults.standard.set(Date(), forKey: Self.spotlightLastFullRefreshKey)
             }
             EnsembleLogger.debug("[SystemMedia] Spotlight indexed \(indexedCount) \(requiresFullRefresh ? "full" : "changed") media items")
+        } catch is CancellationError {
+            EnsembleLogger.debug("[SystemMedia] Spotlight refresh cancelled before acknowledgment")
         } catch {
             EnsembleLogger.debug("[SystemMedia] Spotlight indexing failed: \(error.localizedDescription)")
         }
     }
 
     public func deleteUnavailableSystemMedia(_ references: [SystemMediaReference]) async {
-        guard !references.isEmpty else { return }
+        _ = await deleteUnavailableSystemMediaAndReport(references)
+    }
+
+    private func deleteUnavailableSystemMediaAndReport(_ references: [SystemMediaReference]) async -> Bool {
+        guard !references.isEmpty else { return true }
 
         let identifiers = Array(Set(references.map(Self.spotlightIdentifier(for:)))).sorted()
+        var succeeded = true
         if spotlightIndex.isIndexingAvailable {
             do {
                 try await spotlightIndex.deleteSearchableItems(withIdentifiers: identifiers)
                 EnsembleLogger.debug("[SystemMedia] Spotlight deleted \(identifiers.count) unavailable media items")
             } catch {
                 EnsembleLogger.debug("[SystemMedia] Spotlight item deletion failed: \(error.localizedDescription)")
+                succeeded = false
             }
+        } else {
+            succeeded = false
         }
 
         #if !os(macOS)
@@ -522,8 +594,11 @@ public final class SystemMediaIntegrationService {
             EnsembleLogger.debug("[SystemMedia] Deleted \(donationIdentifiers.count) unavailable Siri media donations")
         } catch {
             EnsembleLogger.debug("[SystemMedia] Siri media donation deletion failed: \(error.localizedDescription)")
+            succeeded = false
         }
         #endif
+
+        return succeeded
     }
 
     public func updateMediaUserContext() async {

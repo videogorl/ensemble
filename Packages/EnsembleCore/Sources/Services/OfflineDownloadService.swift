@@ -755,7 +755,76 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     public func handlePlaylistRefreshCompleted(serverSourceKey: String) async {
-        await reconcilePlaylistTargets(forServerSourceKey: serverSourceKey)
+        _ = await reconcileAfterRefresh(
+            librarySourceKeys: [],
+            playlistServerSourceKeys: [serverSourceKey]
+        )
+    }
+
+    /// Reconciles persisted offline targets for library and playlist phases that
+    /// completed successfully. Queue policy remains owned by the download service.
+    public func reconcileAfterRefresh(
+        librarySourceKeys: Set<String>,
+        playlistServerSourceKeys: Set<String>
+    ) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        guard !librarySourceKeys.isEmpty || !playlistServerSourceKeys.isEmpty else { return true }
+
+        let allTargets: [CDOfflineDownloadTarget]
+        do {
+            allTargets = try await targetRepository.fetchTargets()
+        } catch {
+            EnsembleLogger.debug("Failed fetching offline targets after sync: \(error.localizedDescription)")
+            return false
+        }
+        guard !Task.isCancelled else { return false }
+
+        let libraryTargets = allTargets
+            .filter {
+                guard let sourceKey = $0.sourceCompositeKey,
+                      librarySourceKeys.contains(sourceKey) else {
+                    return false
+                }
+                return $0.targetKind == .library || $0.targetKind == .album || $0.targetKind == .artist
+            }
+            .sorted { $0.key < $1.key }
+            .map(targetDescriptor(for:))
+        let favoritesTarget = librarySourceKeys.isEmpty
+            ? nil
+            : allTargets.first { $0.key == Self.favoritesTargetKey }.map(targetDescriptor(for:))
+        let playlistTargets = allTargets
+            .filter {
+                $0.targetKind == .playlist
+                    && $0.sourceCompositeKey.map(playlistServerSourceKeys.contains) == true
+            }
+            .sorted { $0.key < $1.key }
+            .map(targetDescriptor(for:))
+        let targets = libraryTargets + (favoritesTarget.map { [$0] } ?? []) + playlistTargets
+        guard !targets.isEmpty else { return !Task.isCancelled }
+
+        defer { startQueueIfNeeded() }
+        for target in targets {
+            guard !Task.isCancelled else { return false }
+            let refreshProgress = !isAppInBackground
+                && (foregroundWorkScheduler?.isIdleForNonessentialWork ?? true)
+            do {
+                try await reconcileTarget(target, refreshProgress: refreshProgress)
+            } catch {
+                EnsembleLogger.debug(
+                    "Failed reconciling offline target after sync: \(error.localizedDescription)"
+                )
+                return false
+            }
+        }
+        guard !Task.isCancelled else { return false }
+
+        if !isAppInBackground {
+            if foregroundWorkScheduler?.isIdleForNonessentialWork == false {
+                scheduleFullProgressRefresh()
+            }
+            await refreshTargetSnapshots()
+        }
+        return !Task.isCancelled
     }
 
     /// Requeue a failed/offline download for a specific track and wake the queue immediately.
@@ -868,20 +937,19 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
-    private func reconcileTarget(key: String) async throws {
-        let startedAt = ProcessInfo.processInfo.systemUptime
+    private func reconcileTarget(key: String, refreshProgress: Bool = true) async throws {
         guard let target = try await targetRepository.fetchTarget(key: key) else {
             return
         }
+        try await reconcileTarget(targetDescriptor(for: target), refreshProgress: refreshProgress)
+    }
 
-        let result = try await targetReconciler.reconcileTarget(
-            .init(
-                key: key,
-                kind: target.targetKind,
-                ratingKey: target.ratingKey,
-                sourceCompositeKey: target.sourceCompositeKey
-            )
-        )
+    private func reconcileTarget(
+        _ target: DownloadTargetReconciler.TargetDescriptor,
+        refreshProgress: Bool = true
+    ) async throws {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let result = try await targetReconciler.reconcileTarget(target)
 
         if result.targetWasRemoved {
             EnsembleLogger.info("Removed offline playlist target whose authoritative playlist no longer exists")
@@ -893,7 +961,20 @@ public final class OfflineDownloadService: ObservableObject {
             "Offline target reconciliation finished tracks=\(result.trackReferenceCount) newPending=\(result.newPendingCount) elapsedMs=\(elapsedMs)"
         )
 
-        await refreshTargetProgress(forTargetKey: key)
+        if refreshProgress {
+            await refreshTargetProgress(forTargetKey: target.key)
+        }
+    }
+
+    private func targetDescriptor(
+        for target: CDOfflineDownloadTarget
+    ) -> DownloadTargetReconciler.TargetDescriptor {
+        DownloadTargetReconciler.TargetDescriptor(
+            key: target.key,
+            kind: target.targetKind,
+            ratingKey: target.ratingKey,
+            sourceCompositeKey: target.sourceCompositeKey
+        )
     }
 
     // MARK: - Queue Control
@@ -2215,13 +2296,14 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func handleSourceSyncUpdate(_ statuses: [MusicSourceIdentifier: MusicSourceStatus]) async {
+        // Background refresh awaits its own committed-phase reconciliation.
+        // Keep this legacy observer as the idle foreground fallback.
         if let foregroundWorkScheduler {
             guard await foregroundWorkScheduler.waitUntilAllowed(.offlineHealing, policy: .idleOnly) else {
                 return
             }
         }
-
-        var anySourceUpdated = false
+        var updatedSources: [String: Date] = [:]
         for (source, status) in statuses {
             guard case .lastSynced(let syncDate) = status.syncStatus else { continue }
 
@@ -2229,57 +2311,26 @@ public final class OfflineDownloadService: ObservableObject {
             if let existing = lastObservedSyncBySource[key], existing >= syncDate {
                 continue
             }
+            updatedSources[key] = syncDate
+        }
+        guard !updatedSources.isEmpty else { return }
 
-            anySourceUpdated = true
+        for (key, syncDate) in updatedSources {
             lastObservedSyncBySource[key] = syncDate
-            await reconcileTargets(forSourceCompositeKey: key)
-            if let serverSourceKey = Self.serverSourceKey(fromLibrarySourceKey: key) {
-                await reconcilePlaylistTargets(forServerSourceKey: serverSourceKey)
-            }
         }
+        let librarySourceKeys = Set(updatedSources.keys)
+        let playlistServerSourceKeys = Set(
+            librarySourceKeys.compactMap(Self.serverSourceKey(fromLibrarySourceKey:))
+        )
 
-        // Reconcile favorites after source syncs so newly rated tracks are picked up
-        if anySourceUpdated {
-            await reconcileFavoritesTargetIfEnabled()
-        }
-    }
-
-    private func reconcileTargets(forSourceCompositeKey sourceCompositeKey: String) async {
-        do {
-            let allTargets = try await targetRepository.fetchTargets()
-            let sourceTargets = allTargets.filter {
-                guard $0.sourceCompositeKey == sourceCompositeKey else { return false }
-                return $0.targetKind == .library || $0.targetKind == .album || $0.targetKind == .artist
+        guard await reconcileAfterRefresh(
+            librarySourceKeys: librarySourceKeys,
+            playlistServerSourceKeys: playlistServerSourceKeys
+        ) else {
+            for (key, syncDate) in updatedSources where lastObservedSyncBySource[key] == syncDate {
+                lastObservedSyncBySource.removeValue(forKey: key)
             }
-
-            for target in sourceTargets {
-                try await reconcileTarget(key: target.key)
-            }
-            await refreshTargetSnapshots()
-
-            // Start downloading any newly-queued tracks from the reconciliation
-            startQueueIfNeeded()
-        } catch {
-            EnsembleLogger.debug("❌ Failed reconciling source targets for \(sourceCompositeKey): \(error.localizedDescription)")
-        }
-    }
-
-    private func reconcilePlaylistTargets(forServerSourceKey serverSourceKey: String) async {
-        do {
-            let allTargets = try await targetRepository.fetchTargets()
-            let playlistTargets = allTargets.filter {
-                $0.targetKind == .playlist && $0.sourceCompositeKey == serverSourceKey
-            }
-
-            for target in playlistTargets {
-                try await reconcileTarget(key: target.key)
-            }
-            await refreshTargetSnapshots()
-
-            // Start downloading any newly-queued tracks from the reconciliation
-            startQueueIfNeeded()
-        } catch {
-            EnsembleLogger.debug("❌ Failed reconciling playlist targets for \(serverSourceKey): \(error.localizedDescription)")
+            return
         }
     }
 

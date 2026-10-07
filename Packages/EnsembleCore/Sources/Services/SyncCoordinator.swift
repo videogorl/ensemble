@@ -147,6 +147,195 @@ public final class SyncCoordinator: ObservableObject {
     private var enforcesSourceConfigurationForProviders = true
     private let sourcePersistenceFence = SourcePersistenceFence()
     private var activeSourceSyncs: [String: ActiveSourceSync] = [:]
+    /// Awaited follow-up work for a committed refresh phase, wired by DI.
+    public var onRefreshRecoveryStarted: (() async -> Bool)?
+    public var onRefreshLibraryCommitted: ((String, Bool) async -> Bool)?
+    public var onRefreshPlaylistsCommitted: ((String, Bool) async -> Bool)?
+
+    private struct PendingBackgroundRefresh: Codable {
+        var sourceKeys: Set<String>
+    }
+
+    private var backgroundRefreshHandoffURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Ensemble/background-refresh-pending.json")
+    }
+
+    public var hasPendingBackgroundRefresh: Bool {
+        FileManager.default.fileExists(atPath: backgroundRefreshHandoffURL.path)
+    }
+
+    public var pendingBackgroundRefreshSourceCount: Int {
+        (try? loadPendingBackgroundRefresh().sourceKeys.count) ?? 0
+    }
+
+    private func loadPendingBackgroundRefresh() throws -> PendingBackgroundRefresh {
+        guard hasPendingBackgroundRefresh else { return .init(sourceKeys: []) }
+        return try JSONDecoder().decode(PendingBackgroundRefresh.self, from: Data(contentsOf: backgroundRefreshHandoffURL))
+    }
+
+    private func savePendingBackgroundRefresh(_ pending: PendingBackgroundRefresh) throws {
+        try FileManager.default.createDirectory(at: backgroundRefreshHandoffURL.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try JSONEncoder().encode(pending).write(to: backgroundRefreshHandoffURL, options: .atomic)
+    }
+
+    /// Persist intent before a background attempt so expiration or termination is recoverable.
+    public func requestBackgroundRefresh() throws {
+        var pending = (try? loadPendingBackgroundRefresh()) ?? .init(sourceKeys: [])
+        pending.sourceKeys.formUnion(accountManager.sourceConfigurationSnapshot.enabledSourceKeys)
+        try savePendingBackgroundRefresh(pending)
+        EnsembleLogger.info("Background refresh handoff saved sources=\(pending.sourceKeys.count)")
+    }
+
+    /// A warm foreground activation may arrive while the background attempt is
+    /// still unwinding. Wait for its owned sync, then retry the durable handoff.
+    public func resumePendingBackgroundRefresh() async {
+        while hasPendingBackgroundRefresh, isSyncing {
+            do { try await Task.sleep(nanoseconds: 200_000_000) }
+            catch { return }
+        }
+        guard hasPendingBackgroundRefresh, !Task.isCancelled else { return }
+        EnsembleLogger.info("Resuming background refresh handoff in foreground")
+        // Sources completed in background may have changed again before opening.
+        // Preserve startup freshness while reusing their incremental cursors.
+        do { try requestBackgroundRefresh() }
+        catch {
+            EnsembleLogger.error("Could not prepare foreground refresh recovery: \(error.localizedDescription)")
+            return
+        }
+        // Previously committed data may still owe Siri publication even when
+        // the next provider delta is empty. Prepare it once before recovery.
+        guard await onRefreshRecoveryStarted?() ?? true, !Task.isCancelled else {
+            EnsembleLogger.info("Background refresh recovery deferred until Siri catalog preparation succeeds")
+            return
+        }
+        do { try await refreshPendingBackgroundSources() }
+        catch { EnsembleLogger.info("Background refresh recovery remains pending: \(error.localizedDescription)") }
+    }
+
+    /// Refresh current endpoint availability without the one-shot launch guard.
+    public func refreshBackgroundEndpoints() async {
+        let states = serverHealthChecker.serverStates
+        let started = Date()
+        let summary = await runHealthChecks(forceServerRefresh: false, eligibleServerKeys: enabledServerKeysForHealthChecks())
+        await completeHealthRefresh(preCheckStates: states, reasonDescription: "background refresh",
+                                    summary: summary, startedAt: started,
+                                    completionMessage: "Background endpoint refresh finished")
+    }
+
+    /// Refresh each outstanding source; successful phases publish follow-up work immediately.
+    public func refreshPendingBackgroundSources() async throws {
+        var pending = (try? loadPendingBackgroundRefresh()) ?? .init(sourceKeys: [])
+        let registrations = configuredSourceProviderRegistrations
+        // A cold background launch can precede provider hydration. The empty handoff
+        // still requests a pass over the configured sources on the next launch.
+        if pending.sourceKeys.isEmpty {
+            pending.sourceKeys.formUnion(registrations.map { $0.provider.sourceIdentifier.compositeKey })
+            try savePendingBackgroundRefresh(pending)
+        }
+        guard !registrations.isEmpty else {
+            let configuration = accountManager.sourceConfigurationSnapshot
+            if configuration.isAuthoritative, configuration.enabledSourceKeys.isEmpty {
+                try FileManager.default.removeItem(at: backgroundRefreshHandoffURL)
+                return
+            }
+            throw BackgroundRefreshIncompleteError(message: "Refresh deferred until source configuration is available.")
+        }
+        guard !isOffline, !isSyncing else {
+            throw BackgroundRefreshIncompleteError(message: "Refresh deferred while offline or another sync is active.")
+        }
+        let dates = (try? await libraryRepository.fetchMusicSources()) ?? []
+        let lastSyncDates = Dictionary(uniqueKeysWithValues: dates.map { ($0.compositeKey, $0.lastSyncedAt ?? .distantPast) })
+        let ordered = registrations.sorted {
+            let lhs = $0.provider.sourceIdentifier, rhs = $1.provider.sourceIdentifier
+            // Serve Plex's quick deltas before potentially slow MusicKit inventory work.
+            if lhs.type != rhs.type { return lhs.type == .plex }
+            let lhsDate = lastSyncDates[lhs.compositeKey] ?? .distantPast
+            let rhsDate = lastSyncDates[rhs.compositeKey] ?? .distantPast
+            if lhsDate != rhsDate { return lhsDate < rhsDate }
+            return lhs.compositeKey < rhs.compositeKey
+        }
+        isSyncing = true
+        defer { isSyncing = false }
+        var failures: [String] = []
+        var completedPlaylistServers = Set<String>()
+        for registration in ordered {
+            let source = registration.provider.sourceIdentifier
+            guard pending.sourceKeys.contains(source.compositeKey) else { continue }
+            try RefreshExecution.checkCancellation()
+            guard activeSourceSyncs[source.compositeKey] == nil else {
+                failures.append("An existing source sync owns this work.")
+                continue
+            }
+            var lastSyncDate = await loadLastSyncDate(for: source)
+            if await sourceNeedsGenreMetadataRepair(source)
+                || lastSyncDate.map({ Date().timeIntervalSince($0) > 24 * 60 * 60 }) == true {
+                lastSyncDate = nil
+            }
+            var followUpSucceeded = true
+            let libraryCommitted: (LibrarySyncResult) async -> Void = { [self] result in
+                publishCommittedLibraryChangesIfNeeded(result, source: source)
+                let succeeded = await onRefreshLibraryCommitted?(source.compositeKey, result.hasMaterialChanges) ?? true
+                followUpSucceeded = followUpSucceeded && succeeded
+                EnsembleLogger.info("Background refresh phase=library completed=true followUp=\(succeeded)")
+            }
+            let playlistsCommitted: (PlaylistSyncResult) async -> Void = { [self] result in
+                let serverKey = MediaSourceIdentity.serverSourceKey(for: source)
+                let succeeded = await onRefreshPlaylistsCommitted?(serverKey, result.hasMaterialChanges) ?? true
+                followUpSucceeded = followUpSucceeded && succeeded
+                if succeeded { completedPlaylistServers.insert(serverKey) }
+                EnsembleLogger.info("Background refresh phase=playlists completed=true followUp=\(succeeded)")
+            }
+            let shouldSyncPlaylists = !completedPlaylistServers.contains(MediaSourceIdentity.serverSourceKey(for: source))
+            let attempt: @MainActor @Sendable () async -> MusicSourceSyncOutcome = { [self] in
+                await runSourceSyncSingleFlight(source: source, joinExisting: false) {
+                    if let lastSyncDate {
+                        return await self.syncIncrementalSource(
+                            registration, source: source, lastSyncDate: lastSyncDate,
+                            shouldSyncPlaylists: shouldSyncPlaylists, logTimings: false, cacheArtworkAfterSync: false,
+                            libraryCommitted: libraryCommitted, playlistsCommitted: playlistsCommitted
+                        )
+                    }
+                    return await self.syncFullSource(
+                        registration, source: source, shouldSyncPlaylists: shouldSyncPlaylists,
+                        publishGlobalSyncState: false, libraryProgressWeight: 0.9,
+                        playlistProgressBase: 0.9, playlistProgressWeight: 0.1,
+                        cacheArtworkAfterLibrarySync: false,
+                        libraryCommitted: libraryCommitted, playlistsCommitted: playlistsCommitted
+                    )
+                }
+            }
+            let outcome: MusicSourceSyncOutcome
+            if RefreshExecution.deadline != nil {
+                outcome = await RefreshExecution.withBudget(6, operation: attempt)
+            } else {
+                outcome = await attempt()
+            }
+            switch outcome {
+            case .success where followUpSucceeded && !Task.isCancelled:
+                // Preserve requests added while this source was being refreshed.
+                pending = try loadPendingBackgroundRefresh()
+                pending.sourceKeys.remove(source.compositeKey)
+                try savePendingBackgroundRefresh(pending)
+            case .success:
+                failures.append("Committed source data still needs Siri or offline reconciliation.")
+            case .failure(let message):
+                failures.append(message)
+            }
+        }
+        pending = try loadPendingBackgroundRefresh()
+        pending.sourceKeys = pending.sourceKeys.filter {
+            accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey($0)
+        }
+        if pending.sourceKeys.isEmpty, !Task.isCancelled {
+            try FileManager.default.removeItem(at: backgroundRefreshHandoffURL)
+            EnsembleLogger.info("Background refresh handoff cleared")
+        } else {
+            try savePendingBackgroundRefresh(pending)
+            throw BackgroundRefreshIncompleteError(message: "Refresh pending sources=\(pending.sourceKeys.count), failures=\(failures.count).")
+        }
+    }
     private var activeSourceLibraryAdds: [String: ActiveSourceLibraryAdd] = [:]
     private var providerResolver: SyncProviderResolver {
         SyncProviderResolver(providers: syncProviders)
@@ -524,10 +713,14 @@ public final class SyncCoordinator: ObservableObject {
 
     private func runSourceSyncSingleFlight(
         source: MusicSourceIdentifier,
+        joinExisting: Bool = true,
         operation: @escaping @MainActor () async -> MusicSourceSyncOutcome
     ) async -> MusicSourceSyncOutcome {
         let sourceKey = source.compositeKey
         if let activeSync = activeSourceSyncs[sourceKey] {
+            guard joinExisting else {
+                return .failure(message: "Refresh deferred while an existing source sync owns this work.")
+            }
             return await activeSync.task.value
         }
 
@@ -544,7 +737,12 @@ public final class SyncCoordinator: ObservableObject {
         }
         activeSourceSyncs[sourceKey] = ActiveSourceSync(id: id, task: task)
 
-        let outcome = await task.value
+        let outcome = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            // Only the creator owns cancellation; callers joining above do not.
+            task.cancel()
+        }
         if activeSourceSyncs[sourceKey]?.id == id {
             if case .failure(let message) = outcome,
                let status = sourceStatuses[source],
@@ -1276,6 +1474,12 @@ public final class SyncCoordinator: ObservableObject {
     /// - If last sync > 1 hour: incremental sync
     /// - Otherwise: skip (data is fresh enough)
     public func performStartupSync() async {
+        if hasPendingBackgroundRefresh {
+            EnsembleLogger.info("Resuming background refresh handoff on launch")
+            await resumePendingBackgroundRefresh()
+            lastStartupSyncCompletion = Date()
+            return
+        }
         await invalidatePlexReconciliationCursors()
         let registrations = configuredSourceProviderRegistrations
         await performStartupSync(registrations: registrations)
@@ -2708,6 +2912,10 @@ public final class SyncCoordinator: ObservableObject {
     private func performPeriodicSync() async {
         guard !Task.isCancelled, !isOffline, !isSyncing, networkMonitor.isConnected else { return }
 
+        if hasPendingBackgroundRefresh {
+            await resumePendingBackgroundRefresh()
+            guard !Task.isCancelled else { return }
+        }
         let now = nowProviderForTesting()
         let libraryAge = now.timeIntervalSince(lastPeriodicLibrarySyncAt ?? .distantPast)
         if libraryAge < 0 || libraryAge >= periodicLibrarySyncInterval {
@@ -3212,7 +3420,9 @@ private extension SyncCoordinator {
         libraryProgressWeight: Double,
         playlistProgressBase: Double,
         playlistProgressWeight: Double,
-        cacheArtworkAfterLibrarySync: Bool
+        cacheArtworkAfterLibrarySync: Bool,
+        libraryCommitted: ((LibrarySyncResult) async -> Void)? = nil,
+        playlistsCommitted: ((PlaylistSyncResult) async -> Void)? = nil
     ) async -> MusicSourceSyncOutcome {
         let provider = registration.provider
         guard let sourceWork = beginSourcePersistenceWork(for: registration) else {
@@ -3265,6 +3475,9 @@ private extension SyncCoordinator {
                 }
             }
 
+            try RefreshExecution.checkCancellation()
+            if let libraryResult { await libraryCommitted?(libraryResult) }
+            try RefreshExecution.checkCancellation()
             let playlistResult = try await syncPlaylistsIfNeeded(
                 provider: provider,
                 source: source,
@@ -3288,6 +3501,9 @@ private extension SyncCoordinator {
                     return staleSourceOutcome(for: source)
                 }
             }
+
+            try RefreshExecution.checkCancellation()
+            if let playlistResult { await playlistsCommitted?(playlistResult) }
 
             return await completeSourceSync(
                 source: source,
@@ -3315,6 +3531,7 @@ private extension SyncCoordinator {
         libraryResult: LibrarySyncResult?,
         playlistResult: PlaylistSyncResult?
     ) async -> MusicSourceSyncOutcome {
+        guard !Task.isCancelled else { return .failure(message: "Sync was cancelled.") }
         let syncedAt = Date()
         var resolvedConnectionState = currentConnectionState
         if source.type == .plex,
@@ -3350,7 +3567,7 @@ private extension SyncCoordinator {
             return staleSourceOutcome(for: source)
         }
         publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
-        if error is CancellationError {
+        if error is CancellationError || Task.isCancelled {
             restoreStatusAfterCancellation(for: source, previousStatus: previousStatus, fallbackConnectionState: currentConnectionState)
             return .failure(message: "Sync was cancelled.")
         }
@@ -3378,7 +3595,9 @@ private extension SyncCoordinator {
         lastSyncDate: Date,
         shouldSyncPlaylists: Bool,
         logTimings: Bool,
-        cacheArtworkAfterSync: Bool
+        cacheArtworkAfterSync: Bool,
+        libraryCommitted: ((LibrarySyncResult) async -> Void)? = nil,
+        playlistsCommitted: ((PlaylistSyncResult) async -> Void)? = nil
     ) async -> MusicSourceSyncOutcome {
         let provider = registration.provider
         guard let sourceWork = beginSourcePersistenceWork(for: registration) else {
@@ -3418,6 +3637,9 @@ private extension SyncCoordinator {
             }
 
             let playlistPhaseStart = CFAbsoluteTimeGetCurrent()
+            try RefreshExecution.checkCancellation()
+            if let libraryResult { await libraryCommitted?(libraryResult) }
+            try RefreshExecution.checkCancellation()
             let playlistResult = try await syncPlaylistsIfNeeded(
                 provider: provider,
                 source: source,
@@ -3452,8 +3674,9 @@ private extension SyncCoordinator {
                 }
             }
 
-            if playlistResult != nil {
-                notifyPlaylistRefreshCompleted(serverSourceKey: MediaSourceIdentity.serverSourceKey(for: source))
+            if let playlistResult {
+                if let playlistsCommitted { await playlistsCommitted(playlistResult) }
+                else { notifyPlaylistRefreshCompleted(serverSourceKey: MediaSourceIdentity.serverSourceKey(for: source)) }
             }
 
             if logTimings {

@@ -832,6 +832,29 @@ public final class DependencyContainer: @unchecked Sendable {
 
     @MainActor
     private func wireOfflineCallbacks() {
+        syncCoordinator.onRefreshRecoveryStarted = { [weak systemMediaIntegrationService] in
+            await systemMediaIntegrationService?.refreshSiriCatalog() ?? false
+        }
+        syncCoordinator.onRefreshLibraryCommitted = { [weak offlineDownloadService, weak systemMediaIntegrationService] sourceKey, hasMaterialChanges in
+            let offline = await offlineDownloadService?.reconcileAfterRefresh(
+                librarySourceKeys: [sourceKey], playlistServerSourceKeys: []
+            ) ?? false
+            if hasMaterialChanges {
+                let siri = await systemMediaIntegrationService?.refreshSiriCatalog() ?? false
+                return offline && siri
+            }
+            return offline
+        }
+        syncCoordinator.onRefreshPlaylistsCommitted = { [weak offlineDownloadService, weak systemMediaIntegrationService] serverKey, hasMaterialChanges in
+            let offline = await offlineDownloadService?.reconcileAfterRefresh(
+                librarySourceKeys: [], playlistServerSourceKeys: [serverKey]
+            ) ?? false
+            if hasMaterialChanges {
+                let siri = await systemMediaIntegrationService?.refreshSiriCatalog() ?? false
+                return offline && siri
+            }
+            return offline
+        }
         syncCoordinator.onPlaylistRefreshCompleted = { [weak offlineDownloadService] serverSourceKey in
             Task { @MainActor in
                 await offlineDownloadService?.handlePlaylistRefreshCompleted(serverSourceKey: serverSourceKey)

@@ -13,6 +13,7 @@ extension PlexAPIClient {
         var expectedTotalSize: Int?
 
         while true {
+            try Task.checkCancellation()
             var query = baseQuery
             query["X-Plex-Container-Start"] = String(start)
             query["X-Plex-Container-Size"] = String(pageSize)
@@ -21,6 +22,7 @@ extension PlexAPIClient {
                 path: "/library/sections/\(sectionKey)/all",
                 query: query
             )
+            try Task.checkCancellation()
             let container = try JSONDecoder().decode(
                 PlexMediaContainer<T>.self,
                 from: data

@@ -420,8 +420,11 @@ public final class PlexMusicSourceSyncProvider:
             existingMetadata: try await existingTracks
         )
 
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertArtists(artistsToSync, sourceCompositeKey: sourceKey)
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertAlbums(albumsToSync, sourceCompositeKey: sourceKey)
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertTracks(tracksToSync, sourceCompositeKey: sourceKey)
 
         EnsembleLogger.debug(
@@ -474,6 +477,7 @@ public final class PlexMusicSourceSyncProvider:
             artistInputs,
             existingMetadata: existingArtistMetadata
         )
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertArtists(artistsToSync, sourceCompositeKey: sourceKey)
         EnsembleLogger.debug(
             "⏱️ Incremental sync: artist metadata comparison took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(artists.count) from server, \(artistsToSync.count) changed"
@@ -518,6 +522,7 @@ public final class PlexMusicSourceSyncProvider:
             }
             return input
         }
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertAlbums(albumInputs, sourceCompositeKey: sourceKey)
 
         // Sync tracks added or updated since timestamp
@@ -564,6 +569,7 @@ public final class PlexMusicSourceSyncProvider:
             let trackGenreNames = track.parentRatingKey.flatMap { incrementalAlbumGenres[$0] }
             return Self.trackUpsertInput(from: track, genreNames: trackGenreNames)
         }
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)
 
         // Orphan removal: fetch server inventory only after changes or on a periodic cleanup.
@@ -649,10 +655,12 @@ public final class PlexMusicSourceSyncProvider:
                     authoritativeTrackInputs,
                     existingMetadata: cachedTrackMetadata
                 )
+                try RefreshExecution.checkCancellation()
                 try await repository.batchUpsertAlbums(
                     authoritativeAlbumsToSync,
                     sourceCompositeKey: sourceKey
                 )
+                try RefreshExecution.checkCancellation()
                 try await repository.batchUpsertTracks(
                     authoritativeTracksToSync,
                     sourceCompositeKey: sourceKey
@@ -689,8 +697,11 @@ public final class PlexMusicSourceSyncProvider:
             removedTrackRatingKeys = Set(
                 existingTrackTimestamps.keys.lazy.filter { !trackRatingKeys.contains($0) }
             )
+            try RefreshExecution.checkCancellation()
             removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
+            try RefreshExecution.checkCancellation()
             removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
+            try RefreshExecution.checkCancellation()
             removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
             let survivingArtistIDs = artistRatingKeys
             let survivingAlbumIDs = albumRatingKeys
@@ -701,12 +712,14 @@ public final class PlexMusicSourceSyncProvider:
                 HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: sourceKey, survivingItemIDs: survivingTrackIDs)
             }
             if fullMetadataReconciliationDue {
+                try RefreshExecution.checkCancellation()
                 try await syncCursorRepository?.recordFullSync(
                     scopeKey: sourceKey,
                     scopeType: .plexLibrary,
                     at: queryStartedAt
                 )
             } else {
+                try RefreshExecution.checkCancellation()
                 try await syncCursorRepository?.recordInventorySync(
                     scopeKey: sourceKey,
                     scopeType: .plexLibrary,
@@ -730,12 +743,14 @@ public final class PlexMusicSourceSyncProvider:
         }
 
         // Update last sync timestamp
-        try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
+        try RefreshExecution.checkCancellation()
         try await syncCursorRepository?.recordIncrementalSync(
             scopeKey: sourceKey,
             scopeType: .plexLibrary,
             at: queryStartedAt
         )
+        try RefreshExecution.checkCancellation()
+        try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
 
         progressHandler(1.0)
         EnsembleLogger.debug("✅ Incremental sync complete for \(sourceKey) — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
@@ -930,6 +945,7 @@ public final class PlexMusicSourceSyncProvider:
             artistRatingKeys = Set(artists.map { $0.ratingKey })
         }
         let artistInputs = artists.map(Self.artistUpsertInput)
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertArtists(artistInputs, sourceCompositeKey: sourceKey)
 
         EnsembleLogger.debug("⏱️ Full sync: artists \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(artists.count) items)")
@@ -969,6 +985,7 @@ public final class PlexMusicSourceSyncProvider:
             }
             return input
         }
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertAlbums(albumInputs, sourceCompositeKey: sourceKey)
 
         EnsembleLogger.debug("⏱️ Full sync: albums \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(albums.count) items)")
@@ -981,6 +998,7 @@ public final class PlexMusicSourceSyncProvider:
             let trackGenreNames = track.parentRatingKey.flatMap { albumGenresByKey[$0] }
             return Self.trackUpsertInput(from: track, genreNames: trackGenreNames)
         }
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)
 
         EnsembleLogger.debug("⏱️ Full sync: tracks \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(tracks.count) items)")
@@ -990,6 +1008,7 @@ public final class PlexMusicSourceSyncProvider:
         phaseStart = CFAbsoluteTimeGetCurrent()
         let genres = try await apiClient.getGenres(sectionKey: sectionKey)
         let genreRatingKeys = Set(genres.compactMap { $0.ratingKey })
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertGenres(
             genres.map { genre in
                 GenreUpsertInput(
@@ -1010,9 +1029,13 @@ public final class PlexMusicSourceSyncProvider:
         let removedTrackRatingKeys = Set(
             cachedTrackTimestamps.keys.lazy.filter { !trackRatingKeys.contains($0) }
         )
+        try RefreshExecution.checkCancellation()
         let removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
+        try RefreshExecution.checkCancellation()
         let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
+        try RefreshExecution.checkCancellation()
         let removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
+        try RefreshExecution.checkCancellation()
         let removedGenres = try await repository.removeOrphanedGenres(notIn: genreRatingKeys, forSource: sourceKey)
         let survivingArtistIDs = artistRatingKeys
         let survivingAlbumIDs = albumRatingKeys
@@ -1033,12 +1056,14 @@ public final class PlexMusicSourceSyncProvider:
         EnsembleLogger.debug("⏱️ Full sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s (\(artists.count) artists, \(albums.count) albums, \(tracks.count) tracks, \(genres.count) genres)")
 
         // Update last sync timestamp
-        try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
+        try RefreshExecution.checkCancellation()
         try await syncCursorRepository?.recordFullSync(
             scopeKey: sourceKey,
             scopeType: .plexLibrary,
             at: queryStartedAt
         )
+        try RefreshExecution.checkCancellation()
+        try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
 
         progressHandler(1.0)
         return LibrarySyncResult(
@@ -1111,6 +1136,7 @@ public final class PlexMusicSourceSyncProvider:
         }
 
         let validPlaylistKeys = Set(playlists.map(\.ratingKey))
+        try RefreshExecution.checkCancellation()
         let removedPlaylists = try await repository.removeOrphanedPlaylists(
             notIn: validPlaylistKeys,
             forSource: serverSourceKey
@@ -1128,13 +1154,15 @@ public final class PlexMusicSourceSyncProvider:
 
         let completedAt = Date()
         let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
-        UserDefaults.standard.set(queryStartedAt.timeIntervalSince1970, forKey: timestampKey)
-        UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: Self.playlistOrphanCheckKey(for: serverSourceKey))
+        try RefreshExecution.checkCancellation()
         try await syncCursorRepository?.recordFullSync(
             scopeKey: serverSourceKey,
             scopeType: .serverPlaylists,
             at: queryStartedAt
         )
+        try RefreshExecution.checkCancellation()
+        UserDefaults.standard.set(queryStartedAt.timeIntervalSince1970, forKey: timestampKey)
+        UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: Self.playlistOrphanCheckKey(for: serverSourceKey))
 
         EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists, fetchedTracks=\(fetchedTrackLists), skippedTracks=\(skippedTrackLists), removed=\(removedPlaylists))")
         progressHandler(1.0)
@@ -1265,6 +1293,7 @@ public final class PlexMusicSourceSyncProvider:
             }
             progressHandler(0.85)
 
+            try RefreshExecution.checkCancellation()
             removedPlaylists = try await repository.removeOrphanedPlaylists(notIn: validPlaylistKeys, forSource: serverSourceKey)
             await MainActor.run {
                 HiddenMediaStore.shared.removeMissing(
@@ -1274,12 +1303,14 @@ public final class PlexMusicSourceSyncProvider:
                 )
             }
             let inventorySyncedAt = Date()
-            UserDefaults.standard.set(inventorySyncedAt.timeIntervalSince1970, forKey: orphanTimestampKey)
+            try RefreshExecution.checkCancellation()
             try await syncCursorRepository?.recordInventorySync(
                 scopeKey: serverSourceKey,
                 scopeType: .serverPlaylists,
                 at: inventorySyncedAt
             )
+            try RefreshExecution.checkCancellation()
+            UserDefaults.standard.set(inventorySyncedAt.timeIntervalSince1970, forKey: orphanTimestampKey)
             if removedPlaylists > 0 {
                 EnsembleLogger.debug("🧹 Removed \(removedPlaylists) orphaned playlists")
             } else {
@@ -1293,12 +1324,14 @@ public final class PlexMusicSourceSyncProvider:
             EnsembleLogger.debug("⏭️ Incremental playlist orphan check skipped; no playlist changes and recent cleanup exists")
         }
 
-        UserDefaults.standard.set(queryStartedAt.timeIntervalSince1970, forKey: timestampKey)
+        try RefreshExecution.checkCancellation()
         try await syncCursorRepository?.recordIncrementalSync(
             scopeKey: serverSourceKey,
             scopeType: .serverPlaylists,
             at: queryStartedAt
         )
+        try RefreshExecution.checkCancellation()
+        UserDefaults.standard.set(queryStartedAt.timeIntervalSince1970, forKey: timestampKey)
 
         EnsembleLogger.debug("⏱️ Incremental playlist sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
 

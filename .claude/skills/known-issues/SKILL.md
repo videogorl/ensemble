@@ -101,6 +101,12 @@ No unresolved critical issues are currently documented.
 
 ## Watchlist
 
+### Plex Prepared Download Media Timeouts
+
+- **Area:** `PlexAPIClient+Downloads`, `BackgroundDownload`, `OfflineDownloadService`.
+- **Status:** During the 2026-10-07 physical Background Refresh verification, two disposable high-quality playlist downloads reached prepared-media retrieval but timed out after 60 seconds with no completed file. The queue retained them for retry; background discovery and membership were verified separately. An uninterrupted foreground minute also left them unfinished. Server preparation and endpoint behavior have not been isolated, so this is a verification gap rather than a confirmed regression. See [the refresh investigation](../../../docs/investigations/2026-10-07-background-refresh-recovery.md).
+- **Next step:** Capture sanitized PMS queue/item status and received/expected byte counts during an uninterrupted physical transfer. Distinguish server/media-response delays from debugger pauses and connection changes before changing fallback or lifecycle behavior.
+
 ### Cross-Source Snapshot Amplification
 
 - **Area:** `PlaylistRepository`, `HubRepository`, `DownloadManager`, `LibraryViewModel`, playlist/album/artist detail view models, `MediaTrackList`.

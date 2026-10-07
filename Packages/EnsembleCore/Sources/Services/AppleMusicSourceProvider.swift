@@ -280,22 +280,29 @@ public actor AppleMusicSourceProvider:
             "🎵 Apple Music inventory \(songs.count) songs; native \(nativeMetadata.elapsedMilliseconds)ms matched=\(matchedSongs)/\(songs.count) dated=\(datedTracks)/\(datedAlbums)/\(datedArtists) track/album/artist played=\(lastPlayedTracks) last/\(playedTracks) counted; writing \(changedArtists.count) artists, \(changedAlbums.count) albums, \(changedTracks.count) tracks"
         )
 
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertArtists(changedArtists, sourceCompositeKey: sourceKey)
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertAlbums(changedAlbums, sourceCompositeKey: sourceKey)
+        try RefreshExecution.checkCancellation()
         try await repository.batchUpsertTracks(changedTracks, sourceCompositeKey: sourceKey)
         progressHandler(0.85)
 
         let artistKeys = Set(artists.map(\.ratingKey))
         let albumKeys = Set(albums.map(\.ratingKey))
         let trackKeys = Set(tracks.map(\.ratingKey))
+        try RefreshExecution.checkCancellation()
         let removedArtists = try await repository.removeOrphanedArtists(notIn: artistKeys, forSource: sourceKey)
+        try RefreshExecution.checkCancellation()
         let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumKeys, forSource: sourceKey)
+        try RefreshExecution.checkCancellation()
         let removedTracks = try await repository.removeOrphanedTracks(notIn: trackKeys, forSource: sourceKey)
         await MainActor.run {
             HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: sourceKey, survivingItemIDs: artistKeys)
             HiddenMediaStore.shared.removeMissing(kind: .album, sourceKey: sourceKey, survivingItemIDs: albumKeys)
             HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: sourceKey, survivingItemIDs: trackKeys)
         }
+        try RefreshExecution.checkCancellation()
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
         Self.recordAuthoritativeLibraryInventory(completedAt: Date())
         progressHandler(1)
@@ -391,6 +398,7 @@ public actor AppleMusicSourceProvider:
             EnsembleLogger.debug(
                 "🎵 Apple Music authoritative library inventory is recent; reusing it"
             )
+            try RefreshExecution.checkCancellation()
             try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceIdentifier.compositeKey)
             progressHandler(1)
             return LibrarySyncResult()
@@ -479,10 +487,12 @@ public actor AppleMusicSourceProvider:
         var seenPlaylistIDs = Set<String>()
         var offset = 0
         while true {
+            try RefreshExecution.checkCancellation()
             var request = MusicLibraryRequest<MusicKit.Playlist>()
             request.limit = 100
             request.offset = offset
             let page = Array(try await request.response().items)
+            try RefreshExecution.checkCancellation()
             playlists.append(contentsOf: page.filter {
                 seenPlaylistIDs.insert(String(describing: $0.id)).inserted
             })
@@ -503,6 +513,7 @@ public actor AppleMusicSourceProvider:
         var ignoredStaleBodies = 0
 
         for (index, playlist) in playlists.enumerated() {
+            try RefreshExecution.checkCancellation()
             let id = String(describing: playlist.id)
             let libraryPlaylist = libraryPlaylistsByID[id]
             let canEdit = libraryPlaylist?.attributes.canEdit == true
@@ -586,6 +597,7 @@ public actor AppleMusicSourceProvider:
         }
 
         for (index, playlist) in restOnlyPlaylists.enumerated() {
+            try RefreshExecution.checkCancellation()
             let existing = existingStates[playlist.id]
             if Self.shouldRefreshPlaylistBody(
                 existing: existing,
@@ -630,6 +642,7 @@ public actor AppleMusicSourceProvider:
         EnsembleLogger.debug(
             "🎵 Apple Music playlist inventory \(validIDs.count); fetched \(fetchedBodies) bodies, rewrote \(rewrittenBodies) bodies, wrote \(headerWrites) headers, ignored \(ignoredStaleBodies) stale responses"
         )
+        try RefreshExecution.checkCancellation()
         let removed = try await repository.removeOrphanedPlaylists(notIn: validIDs, forSource: sourceKey)
         await MainActor.run {
             HiddenMediaStore.shared.removeMissing(kind: .playlist, sourceKey: sourceKey, survivingItemIDs: validIDs)
@@ -1035,6 +1048,7 @@ public actor AppleMusicSourceProvider:
         var fetchedPageCount = 0
         var fetchedPaths = Set<String>()
         while let current = path {
+            try RefreshExecution.checkCancellation()
             guard fetchedPaths.insert(current).inserted else {
                 throw AppleMusicSourceError.repeatedPaginationCursor
             }
@@ -1086,6 +1100,7 @@ public actor AppleMusicSourceProvider:
         var seenIDs = Set<MusicItemID>()
         var offset = 0
         while true {
+            try RefreshExecution.checkCancellation()
             var request = MusicLibraryRequest<Item>()
             request.limit = 100
             request.offset = offset
@@ -1689,13 +1704,18 @@ public actor AppleMusicSourceProvider:
     private func request(path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Data {
         let url = path.hasPrefix("http") ? URL(string: path) : URL(string: "https://api.music.apple.com\(path)")
         guard let url else { throw URLError(.badURL) }
+        try RefreshExecution.checkCancellation()
         var request = URLRequest(url: url)
+        if let remaining = RefreshExecution.remainingTime {
+            request.timeoutInterval = max(0.1, min(request.timeoutInterval, remaining))
+        }
         request.httpMethod = method
         if let body {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         let response = try await MusicDataRequest(urlRequest: request).response()
+        try RefreshExecution.checkCancellation()
         guard (200..<300).contains(response.urlResponse.statusCode) else {
             throw AppleMusicSourceError.http(response.urlResponse.statusCode)
         }

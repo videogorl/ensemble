@@ -28,6 +28,14 @@
 - WebSocket events accelerate exact-item reconciliation but are safe to miss.
   Cold start, foreground/background lifecycle, polling, manual refresh, and
   periodic authoritative reconciliation remain correctness paths.
+- iOS Background Refresh persists outstanding enabled sources before remote work.
+  Expiration, interruption, and provider failure retain that handoff for cold
+  launch and foreground recovery. A source clears only after its committed data
+  has completed the awaited Siri catalog and existing offline-target follow-ups.
+  An unavailable configuration never clears outstanding work as if no sources exist.
+- Background attempts use cooperative deadlines and preserve incremental cursors;
+  successful sources remain committed when another source cannot finish.
+  Authoritative inventory and deletion safety requirements still apply.
 - Cursors capture the query start boundary and commit only after success.
   Overlapping writes remain monotonic so a later completion cannot skip changes
   made during an earlier request.
@@ -43,7 +51,10 @@
   A server-limited smaller image remains valid until its source identity changes.
 - Provider mutations update the exact local row optimistically and protect it
   from older concurrent sync snapshots until authoritative reconciliation.
-- Siri/Spotlight indexing is source-scoped, coalesced, and material-change-only.
+- Siri catalog publication is source-scoped, coalesced, material-change-only,
+  and eligible in background. Spotlight acknowledges its own applied snapshot
+  only after all required deletion and indexing work succeeds; foreground
+  catch-up retains outstanding updates even after the Siri catalog has changed.
 - On iOS 27+, Now Playing relevance exposes only the current source-scoped track and removes it when playback has no current track.
   No-op syncs do not rewrite an identical shared index; bounded healing remains
   available for lost system state.

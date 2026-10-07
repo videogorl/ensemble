@@ -369,6 +369,14 @@ struct EnsembleApp: App {
                 DependencyContainer.shared.audioAnalyzer.exitBackground()
                 await DependencyContainer.shared.offlineDownloadService.resumeSidecarAnalysis()
                 WatchCompanionBridge.shared.refresh()
+                if !isInitialActivation {
+                    if DependencyContainer.shared.syncCoordinator.hasPendingBackgroundRefresh {
+                        await DependencyContainer.shared.syncCoordinator.resumePendingBackgroundRefresh()
+                    }
+                    // A successful background pass can leave Spotlight behind the
+                    // shared Siri catalog even after the source handoff clears.
+                    await DependencyContainer.shared.systemMediaIntegrationService.refreshSpotlightIndex()
+                }
 
             case .background:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "background"])
@@ -1135,9 +1143,10 @@ private func performBackgroundRefresh() async {
     let refreshCoordinator = await MainActor.run {
         DependencyContainer.shared.backgroundRefreshCoordinator
     }
-    await refreshCoordinator.performAppRefresh()
-
-    AppLogger.debug("✅ Background refresh complete")
+    let result = await refreshCoordinator.performAppRefresh()
+    let pending = await MainActor.run { DependencyContainer.shared.syncCoordinator.pendingBackgroundRefreshSourceCount }
+    let needsRecovery = await MainActor.run { DependencyContainer.shared.syncCoordinator.hasPendingBackgroundRefresh }
+    AppLogger.info("Background refresh returned succeeded=\(result.succeeded && result.didRunIncrementalSync && !needsRecovery) pendingSources=\(pending) needsRecovery=\(needsRecovery) errors=\(result.errorDescriptions.count)")
 }
 #endif
 
