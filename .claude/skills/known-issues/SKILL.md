@@ -101,6 +101,12 @@ No unresolved critical issues are currently documented.
 
 ## Watchlist
 
+### Cold-Launch Download Queue Claim Recovery
+
+- **Area:** `OfflineDownloadService.process`, `DownloadManager.fetchNextPendingDownload`, Plex download preparation.
+- **Status:** Confirmed in the 2026-10-07 physical cold-launch capture: two queued rows were claimed as downloading, both workers exited, and both rows remained downloading at zero progress without any native transfer scheduled. Warm foreground activation recovered them and reached native scheduling. A preparation error classified as cancelled is a suspected cause: that branch silently returns without restoring the claimed row, but the underlying error was not logged. See [the refresh investigation](../../../docs/investigations/2026-10-07-background-refresh-recovery.md).
+- **Next step:** Reproduce with a singleton album target, capture the pre-native cancellation reason, and verify that cancelled preparation releases the claimed row for retry without disturbing an actual native transfer handoff.
+
 ### Plex Prepared Download Media Timeouts
 
 - **Area:** `PlexAPIClient+Downloads`, `BackgroundDownload`, `OfflineDownloadService`.

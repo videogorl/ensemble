@@ -14,6 +14,12 @@ a source that completed in background may have changed again before opening.
 Unavailable configuration preserves outstanding work; authoritative source
 disablement can remove its key.
 
+The coordinator initializes its offline flag from the network monitor's restored
+state. When a fresh connected path arrives after an early foreground attempt,
+pending recovery retries after endpoint checks, using the existing foreground
+task owner. Backgrounding cancels that owner. This avoids waiting for the periodic
+fallback when opening initially sees an old offline path.
+
 The background coordinator uses a cooperative 25-second deadline, with six-second
 source budgets and Plex before Apple Music. Cancellation reaches the owned source
 task and providers check cancellation at pagination and persistence boundaries.
@@ -72,15 +78,68 @@ UUIDs distinguish the produced build from previously installed artifacts.
   method was invoked. Spotlight waited for its existing foreground idle gate;
   Siri's shared catalog remained fresh throughout.
 
-The two later fixture file transfers reached immediate native media retrieval
-but timed out after 60 seconds and were retained for retry. Discovery and durable
-queueing are proven; completion of those two files is not. These checks involved
-the debugger, so the cause is not established. The existing successful fixture
-files are positive controls, not completion evidence for the newly discovered
-track. The follow-up is recorded in the project's known-issues watchlist.
-An additional uninterrupted foreground minute with the debugger detached also
-left those two files unfinished. Their retained queue state was captured before
-fixture cleanup.
+Warm user opening automatically started both pending transfers at
+09:50:31.472–09:50:31.473. Native immediate-session tasks were scheduled at
+09:50:34.696 and 09:50:35.234; each timed out approximately 60 seconds later
+with zero received bytes and remained eligible for retry. Further attempts used
+the existing 30-, 60-, and 120-second backoff. The uninterrupted foreground
+control also timed out, so debugger pauses alone do not explain the stalled
+files. Automatic queue startup is verified; successful media delivery remains
+unresolved. Previously completed fixture files are positive controls, not
+completion evidence for these two tracks. The immediate-session transport and
+timeout predate this refresh change. Comparing the same prepared Plex item with
+an independent client is the next isolation step, recorded in the project's
+known-issues watchlist. Their retained queue state was captured before cleanup.
+
+Cold launch has a separate confirmed queue handoff gap. Recovery claimed both
+pending rows at 09:45:22.290, but workers exited at 09:45:24.908 and the uncancelled
+queue owner wound down at 09:45:25.438. Neither queue preparation telemetry nor
+native transfer scheduling appeared. The cold-launch database retained both rows
+as downloading at zero progress. A later warm activation recovered them. The
+suspected path is `OfflineDownloadService.process` returning silently when an
+inner error classifies as cancelled; the underlying error was not captured.
+Cold-start download resumption cannot be called reliable from this evidence.
+The separate claim-recovery issue is recorded in the existing watchlist.
+
+The controlled Plex mutation in these checks was adding existing library tracks
+to a disposable playlist. It establishes background playlist discovery, offline
+membership, and Siri publication. A newly added library media file or changed
+album/track metadata has not yet been tested.
+
+## Offline recovery follow-up
+
+The phone was physically disconnected using Airplane Mode with Wi-Fi and cellular
+off; no developer offline override was used. Initial checks exposed two related
+recovery gaps: the coordinator did not initialize its offline flag from the
+monitor's cached state, and an early foreground attempt could fail before the
+fresh connected path arrived without retrying until the periodic fallback.
+
+The corrected build is `0.4.0 / 202610071030.3615`, with runtime dylib UUID
+`895B578E-1945-35AE-A52B-8032395DC69D`. Both iPhone and macOS builds passed.
+The first newly installed launch required Apple developer tooling after an iOS
+development-signing verification prompt; subsequent offline cold launch used the
+actual Home icon successfully.
+
+- A connected-path event at 10:39:40.389 started recovery at 10:39:40.397,
+  completed all five library sources and applicable playlists, and cleared the
+  handoff at 10:40:29.067 without a manual refresh.
+- Actual Home/background transition occurred at 10:44:49.119. The registered
+  handler entered at 10:44:49.192, saved five keys, retained the unchanged
+  4,198-item Siri and Spotlight snapshots, and deferred remote work while
+  offline. Its return at 10:44:50.953 reported incomplete with recovery needed.
+  All library timestamps and sync cursor rows were unchanged.
+- After process termination, an ordinary offline icon launch started PID 43026
+  at 10:47:45. The five keys survived and recovery deferred at 10:47:49.551,
+  without attempting source requests or advancing library timestamps/cursors.
+  Cached Feed content and paused playback were visible.
+- With the original connectivity settings restored, an ordinary warm icon
+  opening activated the app at 10:51:39.663. Its first attempt correctly deferred
+  against the cached offline path. The fresh online event at 10:51:40.699 retried
+  recovery after endpoint checks at 10:51:42.313. All five libraries and their
+  playlist follow-ups completed; the marker cleared at 10:51:50.438 and Spotlight
+  indexed two changed items at 10:51:50.777. All five library timestamps advanced.
+  The original six targets, 405 memberships, and 322 completed file records were
+  unchanged. No manual sync or indexing method was invoked.
 
 Debugger-assisted handler invocation proves the registered route and observed
 work, not natural scheduling frequency. iOS chooses when to run refresh tasks;

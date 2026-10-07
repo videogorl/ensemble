@@ -433,6 +433,7 @@ public final class SyncCoordinator: ObservableObject {
         self.lastPlaylistTargetsByServer = Self.loadLastPlaylistTargetsByServer()
         self.lastPlaylistTarget = Self.loadLastPlaylistTarget()
 
+        applyNetworkState(networkMonitor.networkState)
         // Observe network state changes
         setupNetworkMonitoring()
         enabledServerKeysSnapshot = enabledServerKeysForHealthChecks()
@@ -2618,13 +2619,23 @@ public final class SyncCoordinator: ObservableObject {
         }
         if !hasCompletedInitialNetworkTransition, previous == .unknown, state.isConnected {
             hasCompletedInitialNetworkTransition = true
-            return
-        }
-        if let reason {
+        } else if let reason {
             await serverHealthChecker.invalidateConnectionHealth()
             EnsembleLogger.debug("🖼️ SyncCoordinator: Early artwork cache invalidation for network transition")
             await onConnectionsRefreshed?()
             scheduleHealthRefresh(reason: reason, forceServerRefresh: true)
+        }
+        if state.isConnected, hasPendingBackgroundRefresh,
+           periodicSyncTimer != nil, periodicSyncTask == nil {
+            // A foreground attempt may have preceded NWPathMonitor's fresh path.
+            // Reuse the foreground work owner so backgrounding cancels recovery.
+            periodicSyncTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.periodicSyncTask = nil }
+                await self.refreshOrchestrator.waitForActiveHealthRefresh()
+                guard !Task.isCancelled, self.periodicSyncTimer != nil else { return }
+                await self.resumePendingBackgroundRefresh()
+            }
         }
     }
 
