@@ -1333,8 +1333,26 @@ public final class OfflineDownloadService: ObservableObject {
 
             let executionError = error as? DownloadTransferExecutionError
             let underlyingError = executionError?.underlying ?? error
-            // A native execution handoff is recoverable lifecycle work, not a failed download.
-            if PlexErrorClassification.classify(underlyingError) == .cancelled { return }
+            if PlexErrorClassification.classify(underlyingError) == .cancelled {
+                // Expiration can cancel an app waiter before the queue worker,
+                // while the handoff owner is starting its native replacement.
+                guard backgroundHandoff == nil,
+                      (try? await targetRepository.hasAnyMembership(for: reference)) == true,
+                      !Task.isCancelled, backgroundHandoff == nil else { return }
+                deferDownloadRetry(ctx.downloadObjectID)
+                do {
+                    try await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: nil)
+                } catch {
+                    EnsembleLogger.error("Could not re-queue cancelled download track=\(ctx.trackRatingKey): \(error.localizedDescription)")
+                    return
+                }
+                let cancellation = underlyingError as NSError
+                EnsembleLogger.info(
+                    "Offline download request cancelled; re-queued track=\(ctx.trackRatingKey) retrySeconds=\(Int(retryDelays[ctx.downloadObjectID] ?? 0)) domain=\(cancellation.domain) code=\(cancellation.code)"
+                )
+                await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
+                return
+            }
             let resolution = retryPolicy.resolveFailure(
                 .init(
                     trackRatingKey: ctx.trackRatingKey,

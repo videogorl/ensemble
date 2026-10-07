@@ -91,15 +91,15 @@ timeout predate this refresh change. Comparing the same prepared Plex item with
 an independent client is the next isolation step, recorded in the project's
 known-issues watchlist. Their retained queue state was captured before cleanup.
 
-Cold launch has a separate confirmed queue handoff gap. Recovery claimed both
+Before the claim-recovery follow-up, cold launch had a separate confirmed queue handoff gap. Recovery claimed both
 pending rows at 09:45:22.290, but workers exited at 09:45:24.908 and the uncancelled
 queue owner wound down at 09:45:25.438. Neither queue preparation telemetry nor
 native transfer scheduling appeared. The cold-launch database retained both rows
 as downloading at zero progress. A later warm activation recovered them. The
 suspected path is `OfflineDownloadService.process` returning silently when an
 inner error classifies as cancelled; the underlying error was not captured.
-Cold-start download resumption cannot be called reliable from this evidence.
-The separate claim-recovery issue is recorded in the existing watchlist.
+Those earlier captures alone did not establish reliable cold-start resumption.
+The approved follow-up below addresses the silent cancellation path.
 
 The controlled Plex mutation in these checks was adding existing library tracks
 to a disposable playlist. It establishes background playlist discovery, offline
@@ -141,8 +141,17 @@ actual Home icon successfully.
   The original six targets, 405 memberships, and 322 completed file records were
   unchanged. No manual sync or indexing method was invoked.
 
+An unassisted OS delivery was subsequently observed on PID 43026 while the phone
+was locked: the handler entered at 11:07:24.628 and returned at 11:07:49.763,
+approximately 25.1 seconds later. No debugger or private invocation was used on
+that process. All four Plex library phases committed; the first library still
+owed its follow-ups, and Apple Music remained pending. The two-source marker
+survived the deadline. This run fetched no changed Plex library items. It proves
+one natural delivery and retained partial progress, not scheduling frequency or
+a new library-file mutation.
+
 Debugger-assisted handler invocation proves the registered route and observed
-work, not natural scheduling frequency. iOS chooses when to run refresh tasks;
+work. iOS chooses when to run refresh tasks;
 see [Apple's background strategy guidance](https://developer.apple.com/documentation/BackgroundTasks/choosing-background-strategies-for-your-app).
 
 No unit or integration suites were run. Both signed iPhone and macOS workspace
@@ -153,3 +162,59 @@ Cleanup verification restored the original six target keys and all 322 completed
 download rows (127 high quality, 195 original). The disposable playlist, target,
 memberships, and four fixture download links were absent; the remote server
 returned its original 38 audio playlists. Existing library tracks were preserved.
+
+## Cold-start download claim recovery
+
+`OfflineDownloadService.process` now returns a claimed download to pending when
+an inner preparation request is cancelled while its queue worker remains active.
+It preserves the selected quality and uses the existing retry backoff. A cancelled
+queue worker or an active expiration handoff retains its existing lifecycle owner;
+removed selections are not resurrected.
+
+Physical verification used build `0.4.0 / 202610071110.4505`, runtime UUID
+`CC2EFC5A-40C5-3B18-8B97-1FF45F2D9478`, on the same iPhone 16 Pro. The sole fixture
+was album 7203, whose cached and remote contents both contained only track 7204.
+It had no previous target, membership, or download. The selection was enabled
+while genuinely offline, then the app was terminated and connectivity restored
+from Home.
+
+An ordinary icon cold launch started PID 43443 at 11:25:04 with no debugger or
+manual queue call. Automatic recovery attempted track 7204 at 11:25:06.982;
+native transfer scheduling followed at 11:25:08.563. HTTP 200 delivered 1,352,214
+bytes, and the high-quality file was installed at 11:25:08.970. The persisted row
+was completed with progress 1. A copy of the installed file passed `ffprobe`:
+MP3, stereo, 44.1 kHz, and the full 43.52-second source duration. This proves normal
+cold-launch startup and completed delivery for this fixture; it does not establish
+that the two earlier FLAC prepared-media timeouts are resolved.
+
+The cancellation branch was separately exercised with debugger assistance on
+that same process. A one-shot preparation breakpoint stopped `/downloadQueue`
+item creation, then the existing network-monitor routing callback advanced the
+client revision without changing network settings or preferences. The stale
+request raised `Swift.CancellationError` while its queue worker remained active.
+At 11:36:05.746 the new log recorded a 30-second retry, and a database capture
+confirmed pending/high, zero progress, and no file. Without another opening or
+manual queue invocation, the worker retried at 11:36:36.060 and installed the
+1,352,214-byte high-quality file at 11:36:38.105. The resulting row was completed
+with progress 1; the copied file again had the full MP3 source duration. This is
+controlled cancellation evidence, not proof that the earlier unlogged failure had
+the same underlying cause.
+
+A final debugger-assisted regression invoked the production expiration callback
+and its normal `finishCurrentTask(success: true)` cleanup after the immediate
+transfer waiter was registered, before `task.resume()`. At 11:40:00.411 the
+immediate waiter was cancelled; at 11:40:00.434 a positive native background task
+was scheduled. The worker deferred to its lifecycle owner rather than entering
+the new preparation retry branch. Existing foreground recovery then resumed the
+native transfer in the immediate session, and the row completed at high quality
+with the same byte count. This covers registered-task handoff and recovery; it
+does not prove natural OS expiration or expiration during an in-flight media body.
+
+Both signed workspace builds passed. No unit or integration suites were run.
+The separate prepared-media timeout watchlist remains open.
+
+Final cleanup removed only the new album selection and its file. A fresh database
+capture matched the original six targets, 405 memberships, and 322 completed
+download records, including their quality, file paths, sizes, and completion
+state (excluding Core Data bookkeeping and target update timestamps). Track
+7204 had no remaining download row. No remote library objects were changed.
