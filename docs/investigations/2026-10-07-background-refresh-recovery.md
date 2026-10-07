@@ -101,10 +101,11 @@ inner error classifies as cancelled; the underlying error was not captured.
 Those earlier captures alone did not establish reliable cold-start resumption.
 The approved follow-up below addresses the silent cancellation path.
 
-The controlled Plex mutation in these checks was adding existing library tracks
+The controlled Plex mutation in these initial checks was adding existing library tracks
 to a disposable playlist. It establishes background playlist discovery, offline
 membership, and Siri publication. A newly added library media file or changed
-album/track metadata has not yet been tested.
+album/track metadata had not yet been tested; the follow-up below covers a genuinely
+new media file.
 
 ## Offline recovery follow-up
 
@@ -218,3 +219,111 @@ capture matched the original six targets, 405 memberships, and 322 completed
 download records, including their quality, file paths, sizes, and completion
 state (excluding Core Data bookkeeping and target update timestamps). Track
 7204 had no remaining download row. No remote library objects were changed.
+
+## Same-item phone transport and new library-file follow-up
+
+The same production code at `6711cfec` was rebuilt and installed as
+`0.4.0 / 202610071235.6711`, with running debug image UUID
+`C597D778-74EB-31D5-BDE5-20BD98ABC33C`, on the physical iPhone 16 Pro over USB.
+The signed workspace build passed. No production changes or test suites were
+part of this verification. Evidence is retained in
+`/Users/felicity/Documents/Codex/2026-10-07/ensemble-device-followup`.
+
+### Earlier prepared-media timeouts
+
+Both original FLACs fully decoded and matched their embedded PCM MD5s in the
+separate source-integrity check. The existing prepared jobs, queue 25/items
+31842 and 31843 (tracks 11927 and 11824), were available and returned complete
+HTTP 200 bodies to an independent client. No original media was repaired or
+replaced.
+
+In the fresh phone process, debugger-created tasks called the production
+`PlexAPIClient.fetchDownloadQueueMedia` method with the existing jobs and normal
+download policy. The actual `BackgroundDownload` immediate-session path returned
+797,052 and 1,444,527 bytes. Each phone body matched the independent prepared
+body's SHA-256 and decoded completely, with durations 30.2 and 46.227 seconds.
+The second, uninterrupted probe took approximately 1.10 seconds. The first included
+a one-shot debugger inspection, so its elapsed time is not transfer latency.
+
+The inspected production request used the HTTPS Plex Direct endpoint, 60-second
+request timeout, immediate default session, and the existing Wi-Fi-only policy.
+Original connectivity and download preferences were unchanged. These were
+isolated transport probes, not persistent offline selections. The earlier
+zero-byte stalls did not reproduce in this fresh session; their historical cause
+remains unknown. If they recur, capture native task metrics and sanitized PMS job
+status during the failed attempt before changing transport or fallback behavior.
+
+### New file while an existing album was offline
+
+Only a uniquely named disposable artist/album directory was added to Minibar's
+Music section 3. Its first six-second MP3 was scanned, cached, and selected for
+offline use before backgrounding. The baseline target contained one completed
+high-quality track. The second MP3 was generated after the phone visibly reached
+Home, and only the owned directory was scanned. The new source-scoped track was
+absent from the phone's cache and offline membership before the refresh handler.
+
+- Home/background transition: 12:50:39.896 local. New file created at
+  12:52:15.902; Plex added the new track at 12:52:17.
+- iOS delivered the registered refresh handler at 12:53:44.817, without a private
+  scheduling invocation. The debugger was attached and continued, so this proves
+  natural delivery and observed work, not debugger-free suspension/budget behavior
+  or scheduling frequency.
+- The incremental library phase fetched and committed one genuinely new track
+  at 12:53:50.982–12:53:51.025. Awaited offline reconciliation recorded the album's
+  two memberships and one new pending high-quality download at 12:53:51.744.
+- Siri saved a changed shared catalog at 12:54:02.125. All four Plex library
+  phases and three playlist phases completed. Apple Music's playlist phase
+  exceeded its source budget, retaining its source key. The handler returned
+  incomplete at 12:54:02.447, about 17.63 seconds after entry.
+- Ordinary icon reopening automatically started the pending transfer at
+  13:05:56.696 and installed its 100,818-byte file at 13:05:58.605. No manual sync
+  or queue restart occurred. The persisted row was completed/high with progress
+  1; the copied installed MP3 fully decoded for six seconds. Foreground catch-up
+  cleared the remaining source handoff at 13:06:04.936.
+
+### Confirmed parent-album metadata gap
+
+Background discovery and offline download succeeded, but the cached album and
+published Siri album still reported one track after Plex reported `leafCount=2`.
+The background Siri snapshot was copied at the first foreground-active branch,
+before foreground recovery or indexing could replace it. Ordinary reopening did
+not correct the stored count. The new track was unplayed and unfavorited, so it
+was not individually eligible for the existing Siri track catalog; the album
+count is the meaningful Siri freshness check here.
+
+Plex did not expose an updated parent-album timestamp. The incremental provider
+selects albums through their own `addedAt`/`updatedAt`, then persists changed
+tracks without refreshing their parents. Persistence retains the previous album
+count, and Siri exports it directly. This behavior predates the refresh changes;
+daily full metadata reconciliation can heal it. Browse views derive counts from
+cached tracks, which can conceal the stored/Siri discrepancy.
+
+The focused proposed fix is to fetch authoritative metadata for the distinct
+parents of changed tracks, merge it with the album delta, and reuse existing
+comparison/upsert handling before writing tracks. Use the parent's `leafCount`,
+preserve existing counts when metadata is missing, retain retry eligibility on
+request failure, and include material parent changes in `changedAlbums`.
+Do not infer an album's complete count from an incremental track batch. This
+repair was not implemented in the authorized verification pass; it is recorded
+in the [known-issues watchlist](../../.claude/skills/known-issues/SKILL.md).
+
+### Follow-up cleanup
+
+The owned album selection was disabled through the public offline service before
+server removal. The two generated files and their directories were removed, and
+all four owned PMS metadata IDs independently returned HTTP 404. Remaining local
+fixture metadata was removed through guarded, source-scoped repository APIs;
+Siri and Spotlight were refreshed solely for cleanup. Both final snapshots omit
+the fixture, and a fresh database capture contains no owned artist, album, or
+track. The two unrelated cached tracks sharing rating key 17295 on other sources
+are preserved exactly.
+
+Final captures match the original six offline targets, 405 memberships, and 322
+completed download rows, including quality, file path, size, and completion state
+(excluding `Z_OPT` and target update timestamps). Owned temporary exports were
+removed. Original connectivity/download preferences were unchanged, playback was
+paused, and the CLI debugger was detached. Independent `devicectl` lock-state
+verification confirmed `passcodeRequired=true` after Device Hub lock. No simulator
+was used. The visible Feed retained its previously loaded fixture tile after
+cache cleanup; this transient view snapshot is not evidence of a remaining
+library object, and no extra provider refresh was performed.
