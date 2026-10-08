@@ -144,6 +144,11 @@ Group file transfer denied the root-level Siri index. Consequently, publication
 is proven by the repaired persisted count and successful changed-index save,
 but the raw saved Siri album count and a spoken Siri request remain unverified.
 
+The subsequent [actual typed Siri check](2026-10-08-siri-album-resolution.md)
+played a new one-track album, then failed to resolve the identical request twice
+after a second track and changed-index save. That separate resolution failure
+remains open; publication logs alone do not establish end-to-end Siri reliability.
+
 Time Profiler/Activity Monitor could not resolve a CoreDevice-confirmed live
 PID and produced no trace. CPU, peak memory, and energy remain unmeasured.
 Malformed/partial inventory rejection, zero-track album handling, stable-ID

@@ -113,6 +113,12 @@ No unresolved critical issues are currently documented.
 - **Status:** The approved complete-inventory repair is implemented. On October 8, naturally delivered physical Background Refresh discovered a new file with no parent album delta or `leafCount`, repaired the stored count, saved a changed Siri index, and queued its offline download; ordinary reopening completed it. Cold recovery healed a persisted invalid inventory cursor. Normal notifications handled removal, and the approved cancellation repair recovered a cancelled callback without reopening. See [the membership investigation](../../../docs/investigations/2026-10-08-plex-membership-reconciliation.md).
 - **Remaining verification:** Native App Group transfer blocked direct inspection of the saved Siri count; debugger/profiler attachment failed on both Wi-Fi and USB. Verify the raw Siri album count, precise interruption after delta persistence, stable-ID reparenting, zero-track albums, malformed/partial responses, and CPU/memory measurements when those observation paths are available. The persisted count and successful index save are confirmed; these remaining paths are not runtime-proven.
 
+### Siri Album Resolution After Library Updates
+
+- **Area:** `EnsembleAlbumEntityQuery`, `PlayMediaIntentHandler`, shared Siri catalog publication.
+- **Status:** Confirmed physical failure on October 8: actual typed Siri played a newly indexed one-track album, but the identical request failed twice after its second track arrived. The database count was two and a changed index save preceded both failures. The responsible Siri route and raw reader-loaded catalog remain unverified; this does not establish a track-count regression. See [the Siri investigation](../../../docs/investigations/2026-10-08-siri-album-resolution.md).
+- **Next step:** Add approved, opt-in DEBUG-only readable index export and privacy-safe route/lookup diagnostics; compare writer and reader entries and run an existing-album control alongside the update. Launch-only `updateAppShortcutParameters()` is an inspected publication-gap lead, not a confirmed cause. Two removed synthetic fixture tracks remain in the device library cache pending reconciliation; original offline selections and downloads match their baseline, and the phone is paused and locked.
+
 ### Full Sync Joining Narrower Source Work
 
 - **Area:** `SyncCoordinator.runSourceSyncSingleFlight`, `syncAll`, `syncSingleSource`.
