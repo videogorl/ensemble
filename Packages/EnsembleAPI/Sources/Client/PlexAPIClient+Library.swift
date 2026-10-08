@@ -340,13 +340,13 @@ extension PlexAPIClient {
         )
     }
 
-    /// Get all track ratingKeys in a library section (minimal response)
+    /// Get all track identities and album relationships in a library section.
     public func getTrackInventory(sectionKey: String) async throws -> [PlexInventoryItem] {
         return try await getPagedSectionItems(
             sectionKey: sectionKey,
             baseQuery: [
                 "type": "10",
-                "includeFields": "ratingKey",
+                "includeFields": "ratingKey,parentRatingKey",
                 "excludeElements": "Media,Genre,Mood,Guid,Rating"
             ]
         )

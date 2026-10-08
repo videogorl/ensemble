@@ -97,7 +97,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private let playlistUpdateDebounce: TimeInterval = 5.0
     private let downloadCompletionDebounce: TimeInterval = 3.0
     private let recentLibrarySyncCooldown: TimeInterval = 10.0
-    private var activeLibrarySyncs: Set<String> = []
+    private var activeLibrarySyncs: [String: UUID] = [:]
     private var lastLibrarySyncCompletion: [String: Date] = [:]
 
     // Debounce settings-changed events per server to coalesce rapid bursts
@@ -319,7 +319,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         }
         pendingLibraryUpdates.cancel { $0.hasPrefix("\(serverKey):") }
         pendingLibraryChanges = pendingLibraryChanges.filter { !$0.key.hasPrefix("\(serverKey):") }
-        activeLibrarySyncs = activeLibrarySyncs.filter { !$0.hasPrefix("\(serverKey):") }
+        activeLibrarySyncs = activeLibrarySyncs.filter { !$0.key.hasPrefix("\(serverKey):") }
         lastLibrarySyncCompletion = lastLibrarySyncCompletion.filter { !$0.key.hasPrefix("\(serverKey):") }
         pendingPlaylistUpdates.cancel(key: serverKey)
         pendingDownloadCompletions.cancel(key: serverKey)
@@ -440,17 +440,18 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         pendingLibraryUpdates.schedule(key: debounceKey, delay: libraryUpdateDebounce) { [weak self] in
             guard let self else { return }
             let hasConcreteChanges = self.pendingLibraryChanges[debounceKey]?.isEmpty == false
-            guard self.shouldTriggerLibrarySync(
+            guard let syncID = self.beginLibrarySync(
                 for: debounceKey,
                 hasConcreteChanges: hasConcreteChanges
             ) else {
-                if hasConcreteChanges, self.activeLibrarySyncs.contains(debounceKey) {
+                if hasConcreteChanges, self.activeLibrarySyncs[debounceKey] != nil {
                     self.debouncedLibraryUpdate(sectionKey: sectionKey, serverKey: serverKey)
                 }
                 return
             }
             defer {
-                if !Task.isCancelled { self.finishLibrarySync(for: debounceKey) }
+                // Release cancelled work too; its token cannot clear a newer owner.
+                self.finishLibrarySync(for: debounceKey, id: syncID, completed: !Task.isCancelled)
             }
             let changes = self.pendingLibraryChanges.removeValue(forKey: debounceKey) ?? []
 
@@ -516,29 +517,33 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         }
     }
 
-    private func shouldTriggerLibrarySync(
+    private func beginLibrarySync(
         for debounceKey: String,
         hasConcreteChanges: Bool
-    ) -> Bool {
-        if activeLibrarySyncs.contains(debounceKey) {
+    ) -> UUID? {
+        if activeLibrarySyncs[debounceKey] != nil {
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Skipping section sync for \(debounceKey) — already in flight")
-            return false
+            return nil
         }
 
         if !hasConcreteChanges,
            let lastCompletion = lastLibrarySyncCompletion[debounceKey],
            Date().timeIntervalSince(lastCompletion) < recentLibrarySyncCooldown {
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Skipping section sync for \(debounceKey) — completed recently")
-            return false
+            return nil
         }
 
-        activeLibrarySyncs.insert(debounceKey)
-        return true
+        let id = UUID()
+        activeLibrarySyncs[debounceKey] = id
+        return id
     }
 
-    private func finishLibrarySync(for debounceKey: String) {
-        activeLibrarySyncs.remove(debounceKey)
-        lastLibrarySyncCompletion[debounceKey] = Date()
+    private func finishLibrarySync(for debounceKey: String, id: UUID, completed: Bool) {
+        guard activeLibrarySyncs[debounceKey] == id else { return }
+        activeLibrarySyncs.removeValue(forKey: debounceKey)
+        if completed {
+            lastLibrarySyncCompletion[debounceKey] = Date()
+        }
     }
 
     internal func setConnectedStateForTesting(_ serverKeys: Set<String>) {

@@ -3001,23 +3001,7 @@ public final class SyncCoordinator: ObservableObject {
         EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey) (sources=\(resolutions.count), items=\(changes.count))")
 
         for resolution in resolutions {
-            let targetedReconciliationSucceeded = await reconcilePlexLibraryChanges(
-                changes,
-                resolution: resolution
-            )
-            let requiresInventory = changes.isEmpty || changes.contains(where: { $0.isDeletion }) || !targetedReconciliationSucceeded
-            if requiresInventory {
-                do {
-                    try await syncCursorRepository?.invalidateInventorySync(
-                        scopeKey: resolution.sourceId.compositeKey,
-                        scopeType: .plexLibrary
-                    )
-                } catch {
-                    EnsembleLogger.error(
-                        "🔌 SyncCoordinator: Failed to invalidate library inventory cursor for \(resolution.compositeKey): \(error.localizedDescription)"
-                    )
-                }
-            }
+            _ = await reconcilePlexLibraryChanges(changes, resolution: resolution)
             await syncIncremental(source: resolution.sourceId)
             EnsembleLogger.debug("🔌 SyncCoordinator: Incremental sync completed for section \(sectionKey) (source=\(resolution.compositeKey))")
         }
@@ -3027,42 +3011,54 @@ public final class SyncCoordinator: ObservableObject {
         _ changes: Set<PlexLibraryChange>,
         resolution: WebSocketSyncController.SectionResolution
     ) async -> Bool {
-        guard changes.contains(where: { !$0.isDeletion }) else { return true }
-
-        if let activeSync = activeSourceSyncs[resolution.sourceId.compositeKey] {
+        while let activeSync = activeSourceSyncs[resolution.sourceId.compositeKey] {
             _ = await activeSync.task.value
+            guard !Task.isCancelled else { return false }
+            await Task.yield()
         }
-
-        guard let operation = beginSourcePersistenceOperation(sourceKey: resolution.sourceId.compositeKey) else {
-            return false
-        }
-        defer { finishSourcePersistenceOperation(operation) }
-        guard let provider = operation.providers[resolution.sourceId.compositeKey] as? PlexMusicSourceSyncProvider else {
-            return false
-        }
-
-        do {
-            let result = try await provider.reconcileLibraryChanges(changes, to: libraryRepository)
-            guard isSourcePersistenceOperationCurrent(operation) else { return false }
-            await processReparentedTracks()
-            guard isSourcePersistenceOperationCurrent(operation) else { return false }
-            await processArtworkInvalidations()
-            guard isSourcePersistenceOperationCurrent(operation) else { return false }
-            publishContentChangeIfNeeded(
-                for: resolution.sourceId,
-                libraryResult: result,
-                syncedAt: Date()
-            )
-            if result.hasMaterialChanges {
-                SiriMediaIndexNotifications.postRebuildRequest(reason: "plex_targeted_reconciliation")
+        let outcome = await runSourceSyncSingleFlight(source: resolution.sourceId, joinExisting: false) { [self] in
+            guard let operation = beginSourcePersistenceOperation(sourceKey: resolution.sourceId.compositeKey) else {
+                return .failure(message: "Source configuration is unavailable.")
             }
-            return true
-        } catch {
-            EnsembleLogger.error(
-                "🔌 SyncCoordinator: Targeted Plex reconciliation failed for \(resolution.compositeKey): \(error.localizedDescription)"
-            )
-            return false
+            defer { finishSourcePersistenceOperation(operation) }
+            guard let provider = operation.providers[resolution.sourceId.compositeKey] as? PlexMusicSourceSyncProvider else {
+                return .failure(message: "Plex source is unavailable.")
+            }
+            do {
+                if changes.isEmpty || changes.contains(where: { $0.isDeletion }) {
+                    try await syncCursorRepository?.invalidateInventorySync(
+                        scopeKey: resolution.sourceId.compositeKey, scopeType: .plexLibrary
+                    )
+                }
+                let result = try await provider.reconcileLibraryChanges(changes, to: libraryRepository)
+                guard isSourcePersistenceOperationCurrent(operation) else {
+                    return .failure(message: "Source configuration changed.")
+                }
+                await processReparentedTracks()
+                guard isSourcePersistenceOperationCurrent(operation) else {
+                    return .failure(message: "Source configuration changed.")
+                }
+                await processArtworkInvalidations()
+                guard isSourcePersistenceOperationCurrent(operation) else {
+                    return .failure(message: "Source configuration changed.")
+                }
+                publishContentChangeIfNeeded(for: resolution.sourceId, libraryResult: result, syncedAt: Date())
+                if result.hasMaterialChanges {
+                    SiriMediaIndexNotifications.postRebuildRequest(reason: "plex_targeted_reconciliation")
+                }
+                return .success
+            } catch {
+                // Keep reconciliation due even when targeted metadata has no timestamp delta to replay.
+                try? await syncCursorRepository?.invalidateInventorySync(
+                    scopeKey: resolution.sourceId.compositeKey, scopeType: .plexLibrary
+                )
+                EnsembleLogger.error(
+                    "🔌 SyncCoordinator: Targeted Plex reconciliation failed for \(resolution.compositeKey): \(error.localizedDescription)"
+                )
+                return .failure(message: "Targeted Plex reconciliation failed.")
+            }
         }
+        return outcome == .success
     }
 
     /// Trigger a playlist-only sync for a specific server.

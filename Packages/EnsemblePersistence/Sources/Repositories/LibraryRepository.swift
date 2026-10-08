@@ -692,6 +692,9 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func batchUpsertAlbums(_ inputs: [AlbumUpsertInput], sourceCompositeKey: String) async throws
     func batchUpsertTracks(_ inputs: [TrackUpsertInput], sourceCompositeKey: String) async throws
 
+    /// Updates only supplied album counts in the exact source, returning the number changed.
+    func batchUpdateAlbumTrackCounts(_ counts: [String: Int], forSource sourceKey: String) async throws -> Int
+
     /// Returns and clears any track reparent events accumulated during upsert operations.
     /// Called after sync to trigger artwork invalidation for tracks whose album changed.
     func drainTrackReparentInfo() -> [TrackReparentInfo]
@@ -896,6 +899,7 @@ public extension LibraryRepositoryProtocol {
     func fetchTrackSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: TrackSyncMetadata] {
         try await fetchTrackSyncMetadata(forSource: sourceKey).filter { ratingKeys.contains($0.key) }
     }
+    func batchUpdateAlbumTrackCounts(_ counts: [String: Int], forSource sourceKey: String) async throws -> Int { 0 }
     func batchUpsertGenres(_ inputs: [GenreUpsertInput], sourceCompositeKey: String) async throws {
         for input in inputs {
             _ = try await upsertGenre(

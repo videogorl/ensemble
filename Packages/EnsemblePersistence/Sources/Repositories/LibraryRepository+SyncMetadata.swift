@@ -464,6 +464,33 @@ extension LibraryRepository {
 
     // MARK: - Batch Upserts
 
+    public func batchUpdateAlbumTrackCounts(_ counts: [String: Int], forSource sourceKey: String) async throws -> Int {
+        guard !counts.isEmpty else { return 0 }
+        guard counts.values.allSatisfy({ $0 >= 0 && $0 <= Int(Int32.max) }) else {
+            throw NSError(domain: "LibraryRepository", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "Album track counts must fit a nonnegative Int32."
+            ])
+        }
+        return try await coreDataStack.performBackgroundContext { context in
+            let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
+            request.predicate = Self.sourceScopedPredicate(sourceKey: sourceKey, ratingKeys: Set(counts.keys))
+            request.fetchBatchSize = 200
+            let albums = try context.fetch(request)
+            let now = Date()
+            var changedCount = 0
+            for album in albums {
+                guard let count = counts[album.ratingKey], album.trackCount != Int32(count) else { continue }
+                album.trackCount = Int32(count)
+                album.updatedAt = now
+                changedCount += 1
+            }
+            if changedCount > 0 {
+                try context.save()
+            }
+            return changedCount
+        }
+    }
+
     /// Upsert all artists in a single background context with one save.
     /// Much faster than per-item upserts for full sync (eliminates N individual fetches + saves).
     public func batchUpsertArtists(_ inputs: [ArtistUpsertInput], sourceCompositeKey: String) async throws {

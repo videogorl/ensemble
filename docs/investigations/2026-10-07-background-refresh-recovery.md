@@ -306,6 +306,8 @@ request failure, and include material parent changes in `changedAlbums`.
 Do not infer an album's complete count from an incremental track batch. This
 repair was not implemented in the authorized verification pass; it is recorded
 in the [known-issues watchlist](../../.claude/skills/known-issues/SKILL.md).
+The subsequently approved deeper inventory repair and October 8 physical results
+are recorded in [the membership follow-up](2026-10-08-plex-membership-reconciliation.md).
 
 ### Follow-up cleanup
 
