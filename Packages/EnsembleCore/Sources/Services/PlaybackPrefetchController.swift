@@ -12,6 +12,7 @@ struct PlaybackStreamCacheContext {
 final class PlaybackPrefetchController {
     private let artifactCache: PlaybackArtifactCache
     private var deferredSmartMixPrefetch: (outgoingTrackID: String, incomingTrackID: String, retryAt: TimeInterval)?
+    private var failedPrefetch: (outgoingTrackID: String, incomingTrackID: String, retryAt: TimeInterval)?
 
     init(artifactCache: PlaybackArtifactCache = .shared) {
         self.artifactCache = artifactCache
@@ -107,6 +108,28 @@ final class PlaybackPrefetchController {
         until retryAt: TimeInterval
     ) {
         deferredSmartMixPrefetch = (outgoingTrackID, incomingTrackID, retryAt)
+    }
+
+    func shouldDeferFailedPrefetch(outgoingTrackID: String, incomingTrackID: String) -> Bool {
+        guard let failedPrefetch else { return false }
+        guard failedPrefetch.outgoingTrackID == outgoingTrackID,
+              failedPrefetch.incomingTrackID == incomingTrackID else {
+            self.failedPrefetch = nil
+            return false
+        }
+        return ProcessInfo.processInfo.systemUptime < failedPrefetch.retryAt
+    }
+
+    func recordPrefetchFailure(outgoingTrackID: String, incomingTrackID: String, error: Error) {
+        // Progress ticks must not turn a failed speculative download into a retry loop.
+        let retryAt = PlaybackSessionStateMachine.isRecoverableNetworkFailure(error)
+            ? ProcessInfo.processInfo.systemUptime + 30
+            : .infinity
+        failedPrefetch = (outgoingTrackID, incomingTrackID, retryAt)
+    }
+
+    func clearPrefetchFailure(for trackID: String) {
+        if failedPrefetch?.incomingTrackID == trackID { failedPrefetch = nil }
     }
 
     func shouldInvalidateScheduledTracks(

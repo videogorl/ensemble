@@ -1,3 +1,4 @@
+import EnsembleAPI
 import Foundation
 
 enum PlaybackSessionStateMachine {
@@ -42,7 +43,7 @@ enum PlaybackSessionStateMachine {
 
     static func shouldRetryResolution(after error: Error, attempt: Int) -> Bool {
         guard attempt + 1 < maxResolutionAttempts else { return false }
-        let nsError = error as NSError
+        let nsError = underlyingError(error) as NSError
         guard nsError.domain == NSURLErrorDomain else { return false }
         return retryableNetworkErrorCodes.contains(nsError.code)
     }
@@ -56,7 +57,7 @@ enum PlaybackSessionStateMachine {
             return .generic(message: "Failed to load track")
         }
 
-        let nsError = error as NSError
+        let nsError = underlyingError(error) as NSError
         if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorSecureConnectionFailed {
             return .tls
         }
@@ -64,6 +65,35 @@ enum PlaybackSessionStateMachine {
             return .connection(sourceCompositeKey: track.sourceCompositeKey)
         }
         return .generic(message: error.localizedDescription)
+    }
+
+    static func isCancellation(_ error: Error) -> Bool {
+        let error = underlyingError(error)
+        if error is CancellationError { return true }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    }
+
+    static func isRecoverableNetworkFailure(_ error: Error) -> Bool {
+        let nsError = underlyingError(error) as NSError
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        return nsError.code == NSURLErrorSecureConnectionFailed
+            || retryableNetworkErrorCodes.contains(nsError.code)
+    }
+
+    static func underlyingError(_ error: Error) -> Error {
+        if let playbackError = error as? PlaybackError {
+            switch playbackError {
+            case let .networkError(underlying), let .unknown(underlying):
+                return underlyingError(underlying)
+            default:
+                return error
+            }
+        }
+        if let plexError = error as? PlexAPIError, case let .networkError(underlying) = plexError {
+            return underlyingError(underlying)
+        }
+        return error
     }
 
     static func validatedRecoverySeekTime(

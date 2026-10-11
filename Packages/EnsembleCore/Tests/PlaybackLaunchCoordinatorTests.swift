@@ -91,7 +91,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
         XCTAssertEqual(plan, .init(priority: .utility, throttled: true))
     }
 
-    func testCompleteLaunchLoadsTrackSeeksAndPrefetches() async {
+    func testCompleteLaunchLoadsTrackSeeksAndPrefetches() async throws {
         let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 200)
         let url = URL(fileURLWithPath: "/tmp/test.mp3")
 
@@ -126,7 +126,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
             )
         )
 
-        await coordinator.completeLaunch(
+        try await coordinator.completeLaunch(
             for: track,
             source: .localFile(url),
             recoverySeekTime: 42,
@@ -142,7 +142,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
         XCTAssertEqual(prefetchCount.withValue { $0 }, 1)
     }
 
-    func testCompleteLaunchDoesNotPostSeekStreamingSources() async {
+    func testCompleteLaunchDoesNotPostSeekStreamingSources() async throws {
         let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 200)
         let loadedTrackID = LockedBox<String?>(nil)
         let soughtTime = LockedBox<TimeInterval?>(nil)
@@ -180,7 +180,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
             )
         )
 
-        await coordinator.completeLaunch(
+        try await coordinator.completeLaunch(
             for: track,
             source: source,
             recoverySeekTime: 42,
@@ -193,7 +193,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
         XCTAssertEqual(prefetchCount.withValue { $0 }, 1)
     }
 
-    func testSupersededLaunchDoesNotSeekOrPrefetch() async {
+    func testSupersededLaunchDoesNotSeekOrPrefetch() async throws {
         let soughtTime = LockedBox<TimeInterval?>(nil)
         let prefetchCount = LockedBox(0)
         let coordinator = PlaybackLaunchCoordinator(
@@ -213,7 +213,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
             )
         )
 
-        await coordinator.completeLaunch(
+        try await coordinator.completeLaunch(
             for: Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 200),
             source: .localFile(URL(fileURLWithPath: "/tmp/test.mp3")),
             recoverySeekTime: 42,
@@ -225,7 +225,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
         XCTAssertEqual(prefetchCount.withValue { $0 }, 0)
     }
 
-    func testSeekReloadPreservesTransportIntentForStreamingAndCachedSources() async {
+    func testSeekReloadPreservesTransportIntentForStreamingAndCachedSources() async throws {
         let track = Track(id: "seek", key: "/library/metadata/seek", title: "Seek", duration: 200)
         let streamingSource = PlaybackSource.transcodedHTTP(
             URLRequest(url: URL(string: "https://example.test/start.mp3")!),
@@ -261,7 +261,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
                     },
                     prefetchNext: {}
                 ))
-                await coordinator.completeLaunch(
+                try await coordinator.completeLaunch(
                     for: track,
                     source: source,
                     recoverySeekTime: 42,
@@ -274,7 +274,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
         }
     }
 
-    func testSupersededRecoverySeekDoesNotPrefetch() async {
+    func testSupersededRecoverySeekDoesNotPrefetch() async throws {
         let seekGeneration = LockedBox<UInt64?>(nil)
         let prefetchCount = LockedBox(0)
         let coordinator = PlaybackLaunchCoordinator(
@@ -294,7 +294,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
             )
         )
 
-        await coordinator.completeLaunch(
+        try await coordinator.completeLaunch(
             for: Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 200),
             source: .localFile(URL(fileURLWithPath: "/tmp/test.mp3")),
             recoverySeekTime: 42,

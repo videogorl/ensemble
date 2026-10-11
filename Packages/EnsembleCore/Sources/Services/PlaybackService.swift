@@ -1210,7 +1210,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.enqueueVisualizerTimelineLoad(track: track, fileURL: fileURL, plan: plan)
             },
             loadAndPlay: { [weak self] source, track, generation, shouldStartPlayback in
-                await self?.loadAndPlaySource(
+                try await self?.loadAndPlaySource(
                     source,
                     track: track,
                     generation: generation,
@@ -4861,9 +4861,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         for attempt in 0 ..< maxRetries {
             do {
+                try Task.checkCancellation()
                 if attempt > 0 {
                     EnsembleLogger.debug("[playCurrentQueueItem] Retrying resolvePlaybackSource (attempt \(attempt + 1)/\(maxRetries))")
-                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    try await Task.sleep(nanoseconds: 500_000_000)
                 }
 
                 // Check for cached file first; remote sources resolve through transport.
@@ -4905,7 +4906,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     return
                 }
 
-                await launchCoordinator.completeLaunch(
+                try Task.checkCancellation()
+                try await launchCoordinator.completeLaunch(
                     for: request.track,
                     source: source,
                     recoverySeekTime: request.recoverySeekTime,
@@ -4914,6 +4916,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 )
                 return
             } catch {
+                guard !Task.isCancelled, !PlaybackSessionStateMachine.isCancellation(error) else {
+                    endTrackTransitionBackgroundTask(for: requestGeneration)
+                    return
+                }
                 guard !PlaybackSessionStateMachine.isSuperseded(
                     requestGeneration: request.generation,
                     currentGeneration: playbackGenerationCounter
@@ -4927,6 +4933,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                 if !PlaybackSessionStateMachine.shouldRetryResolution(after: error, attempt: attempt) {
                     break
+                }
+                await MainActor.run { removeCachedPlayerItem(for: trackIdentity) }
+                transportCoordinator.evict(trackId: trackIdentity, includeDecision: true, cancelTask: true)
+                do {
+                    try await syncCoordinator.refreshConnection()
+                } catch {
+                    guard !Task.isCancelled, !PlaybackSessionStateMachine.isCancellation(error) else {
+                        endTrackTransitionBackgroundTask(for: requestGeneration)
+                        return
+                    }
+                    lastError = error
+                    break
+                }
+                guard requestGeneration == playbackGenerationCounter else {
+                    endTrackTransitionBackgroundTask(for: requestGeneration)
+                    return
                 }
             }
         }
@@ -4962,11 +4984,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         switch PlaybackSessionStateMachine.classifyTerminalFailure(lastError, track: request.track) {
         case .tls:
             loadingStateTask?.cancel()
-            endTrackTransitionBackgroundTask(for: requestGeneration)
             await handleTLSPlaybackFailure(
                 generation: requestGeneration,
                 shouldStartPlayback: shouldStartPlayback,
-                seekTo: shouldStartPlayback ? nil : request.recoverySeekTime
+                seekTo: request.recoverySeekTime
             )
             return
         case let .connection(sourceCompositeKey):
@@ -5062,7 +5083,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     ) async {
         guard generation == playbackGenerationCounter else { return }
         isHandlingTLSFailure = true
-        defer { isHandlingTLSFailure = false }
+        defer {
+            isHandlingTLSFailure = false
+            endTrackTransitionBackgroundTask(for: generation)
+        }
 
         guard let track = currentTrack else {
             failTLSPlayback("TLS connection error")
@@ -5087,20 +5111,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         EnsembleLogger.debug("🔒 Handling TLS playback failure (\(consecutivePlaybackFailures)/\(maxConsecutiveFailuresBeforeStop)) - refreshing connection and rebuilding queue")
 
+        do {
+            try await Task.sleep(nanoseconds: UInt64(consecutivePlaybackFailures) * 500_000_000)
+        } catch {
+            return
+        }
+        guard !Task.isCancelled, generation == playbackGenerationCounter else { return }
+
         // Force a connection refresh to find a working endpoint
+        transportCoordinator.evict(trackId: track.playbackIdentity, includeDecision: true, cancelTask: true)
         do {
             try await syncCoordinator.refreshConnection()
         } catch {
-            guard generation == playbackGenerationCounter else { return }
+            guard !Task.isCancelled, !PlaybackSessionStateMachine.isCancellation(error),
+                  generation == playbackGenerationCounter else { return }
             EnsembleLogger.debug("⚠️ Failed to refresh connection after TLS error: \(error.localizedDescription)")
             failTLSPlayback("TLS connection error - no working server found")
             return
         }
-        guard generation == playbackGenerationCounter else { return }
+        guard !Task.isCancelled, generation == playbackGenerationCounter else { return }
 
         // Rebuild upcoming queue items with fresh URLs
-        await rebuildUpcomingQueueForNetworkTransition()
-        guard generation == playbackGenerationCounter else { return }
+        await rebuildUpcomingQueueForNetworkTransition(shouldPrefetch: false)
+        guard !Task.isCancelled, generation == playbackGenerationCounter else { return }
 
         // Retry the current track with fresh connection
         EnsembleLogger.debug("🔄 Retrying current track with refreshed connection")
@@ -5131,8 +5164,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return source
     }
 
-    private func resolveAudioFile(for track: Track) async throws -> URL {
-        let fileURL = try await transportCoordinator.resolveAudioFile(for: track)
+    private func resolveAudioFile(
+        for track: Track,
+        shouldContinue: @Sendable () async -> Bool = { true }
+    ) async throws -> URL {
+        let fileURL = try await transportCoordinator.resolveAudioFile(for: track, shouldContinue: shouldContinue)
+        guard await shouldContinue(), !Task.isCancelled else { throw CancellationError() }
         await MainActor.run { cacheFileURL(fileURL, for: track.playbackIdentity) }
         return fileURL
     }
@@ -5380,7 +5417,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
             let track = self.queue[firstIndex].track
             let shouldDefer = self.currentTrack.map {
-                self.prefetchController.shouldDeferSmartMixPrefetch(
+                self.prefetchController.shouldDeferFailedPrefetch(
+                    outgoingTrackID: $0.playbackIdentity,
+                    incomingTrackID: track.playbackIdentity
+                ) || self.prefetchController.shouldDeferSmartMixPrefetch(
                     outgoingTrackID: $0.playbackIdentity,
                     incomingTrackID: track.playbackIdentity,
                     currentTime: self.currentTime
@@ -5408,6 +5448,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         let trackIdentity = track.playbackIdentity
 
+        let prefetchGeneration = await MainActor.run { playbackGenerationCounter }
+        let shouldContinue: @Sendable () async -> Bool = { [weak self] in
+            await MainActor.run {
+                guard let self else { return false }
+                return self.playbackGenerationCounter == prefetchGeneration
+                    && self.isPrefetchedTrackStillUpcoming(trackIdentity, depth: depth)
+            }
+        }
+
         // Don't schedule if already in the engine's gapless queue
         guard !engine.isTrackScheduled(trackIdentity) else { return }
 
@@ -5434,7 +5483,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             {
                 fileURL = cachedURL
             } else {
-                fileURL = try await resolveAudioFile(for: track)
+                fileURL = try await resolveAudioFile(for: track, shouldContinue: shouldContinue)
             }
 
             // Validate file duration against metadata to catch truncated cached files.
@@ -5447,14 +5496,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 if PlaybackLocalFilePolicy.shouldTreatAsTruncated(fileDuration: fileDuration, expectedDuration: expectedDuration) {
                     EnsembleLogger.debug("[prefetch] Truncated file for '\(track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — evicting and re-downloading")
                     await evictTruncatedFile(fileURL: fileURL, track: track, fileDuration: fileDuration, expectedDuration: expectedDuration)
-                    fileURL = try await resolveAudioFile(for: track)
+                    fileURL = try await resolveAudioFile(for: track, shouldContinue: shouldContinue)
                 }
             }
 
-            guard await isPrefetchedTrackStillUpcoming(trackIdentity, depth: depth) else {
+            guard !Task.isCancelled, await shouldContinue() else {
                 EnsembleLogger.debug("[prefetch] '\(track.title)' no longer matches the upcoming queue")
                 return
             }
+
+            await MainActor.run { prefetchController.clearPrefetchFailure(for: trackIdentity) }
 
             // Final guard: another caller may have scheduled while we were resolving
             guard !engine.isTrackScheduled(trackIdentity) else {
@@ -5623,12 +5674,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.enqueueVisualizerTimelineLoad(track: track, fileURL: fileURL, plan: plan)
             }
         } catch {
+            guard !Task.isCancelled, await shouldContinue(),
+                  !PlaybackSessionStateMachine.isCancellation(error) else { return }
             EnsembleLogger.debug("[prefetch] Failed for '\(track.title)': \(error)")
             // Clean up all cached state for the failed track so the next real
             // playback attempt gets a fresh resolution instead of hitting the
             // stale failed loader (fixes cross-server prefetch cascade failures)
-            await MainActor.run { removeCachedPlayerItem(for: trackIdentity) }
-            transportCoordinator.evict(trackId: trackIdentity, includeDecision: true, cancelTask: true)
+            await MainActor.run {
+                guard playbackGenerationCounter == prefetchGeneration,
+                      isPrefetchedTrackStillUpcoming(trackIdentity, depth: depth) else { return }
+                removeCachedPlayerItem(for: trackIdentity)
+                if let currentTrack {
+                    prefetchController.recordPrefetchFailure(
+                        outgoingTrackID: currentTrack.playbackIdentity,
+                        incomingTrackID: trackIdentity,
+                        error: error
+                    )
+                }
+                transportCoordinator.evict(trackId: trackIdentity, includeDecision: true, cancelTask: true)
+            }
         }
     }
     @MainActor
@@ -5637,7 +5701,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         track: Track,
         generation: UInt64,
         shouldStartPlayback: Bool
-    ) async -> Bool {
+    ) async throws -> Bool {
         guard let engine = audioEngine else {
             EnsembleLogger.playback("ENGINE: loadAndPlaySource called with no engine")
             playbackState = .failed("Audio engine not initialized")
@@ -5718,6 +5782,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             EnsembleLogger.debug("[loadAndPlaySource] deferred: \(handoffStateSnapshot())")
             do {
                 PlaybackJourneyLogger.mark("engineLoadStarted", trackId: trackIdentity, detail: source.journeyDescription)
+                #if DEBUG
+                    try await PlaybackAutomationFailure.check(stage: "startup", trackID: trackIdentity)
+                #endif
+                try Task.checkCancellation()
+                guard generation == playbackGenerationCounter else {
+                    endTrackTransitionBackgroundTask(for: generation)
+                    return false
+                }
                 try await engine.load(
                     source: source,
                     trackId: trackIdentity,
@@ -5736,10 +5808,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     return false
                 }
                 EnsembleLogger.playback("ENGINE: load failed -- \(error.localizedDescription)")
+                PlaybackJourneyLogger.mark("engineLoadFailed", trackId: trackIdentity, detail: error.localizedDescription)
+                removeCachedPlayerItem(for: trackIdentity)
                 engine.stop()
-                playbackState = .failed(error.localizedDescription)
-                endTrackTransitionBackgroundTask(for: generation)
-                return false
+                throw error
             }
             playbackState = .buffering
             isSkipTransitionInProgress = false
@@ -5749,6 +5821,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         do {
             PlaybackJourneyLogger.mark("engineLoadStarted", trackId: trackIdentity, detail: source.journeyDescription)
+            #if DEBUG
+                try await PlaybackAutomationFailure.check(stage: "startup", trackID: trackIdentity)
+            #endif
+            try Task.checkCancellation()
+            guard generation == playbackGenerationCounter else {
+                endTrackTransitionBackgroundTask(for: generation)
+                return false
+            }
             try await engine.load(
                 source: source,
                 trackId: trackIdentity,
@@ -5805,12 +5885,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             PlaybackJourneyLogger.mark("engineLoadFailed", trackId: trackIdentity, detail: error.localizedDescription)
             EnsembleLogger.playback("ENGINE: load/play failed -- \(error.localizedDescription)")
             engine.stop()
-            isSkipTransitionInProgress = false
-            disarmSkipTransitionSafety()
-            consecutivePlaybackFailures += 1
-            playbackState = .failed(error.localizedDescription)
-            endTrackTransitionBackgroundTask(for: generation)
-            return false
+            throw error
         }
     }
 
@@ -6831,7 +6906,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// When `prefetchUpcomingItems()` re-resolves, it finds the cached decision and skips
     /// the `/decision` network call, assembling a fresh URL from the updated endpoint.
     @MainActor
-    private func rebuildUpcomingQueueForNetworkTransition() async {
+    private func rebuildUpcomingQueueForNetworkTransition(shouldPrefetch: Bool = true) async {
         let upcomingTrackIDs: [String] = upcomingQueueIndices(depth: 2).map { queue[$0].track.playbackIdentity }
 
         // Skip tracks already scheduled in the engine — their audio is downloaded and loaded
@@ -6853,7 +6928,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             EnsembleLogger.debug("[rebuildQueue] Network transition — all upcoming tracks already scheduled, nothing to rebuild")
         } else {
             EnsembleLogger.debug("[rebuildQueue] Evicted \(staleTrackIDs.count) stale URLs, kept \(alreadyScheduled.count) scheduled + \(transportCoordinator.cachedDecisionCount()) decisions")
-            await prefetchUpcomingItems(depth: 2)
+            if shouldPrefetch {
+                await prefetchUpcomingItems(depth: 2)
+            }
         }
     }
 

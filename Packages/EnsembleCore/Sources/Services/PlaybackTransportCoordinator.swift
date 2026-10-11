@@ -71,9 +71,36 @@ final class PlaybackTransportCoordinator {
         }
     }
 
-    func resolveAudioFile(for track: Track) async throws -> URL {
-        let source = try await resolvePlaybackSource(for: track)
-        return try await materializeSourceToFile(source, for: track)
+    func resolveAudioFile(
+        for track: Track,
+        shouldContinue: @Sendable () async -> Bool = { true }
+    ) async throws -> URL {
+        for attempt in 0..<2 {
+            try Task.checkCancellation()
+            guard await shouldContinue() else { throw CancellationError() }
+            do {
+                let source = try await resolvePlaybackSource(for: track)
+                #if DEBUG
+                    if source.fileURL == nil {
+                        try await PlaybackAutomationFailure.check(stage: "prefetch", trackID: track.playbackIdentity)
+                    }
+                #endif
+                try Task.checkCancellation()
+                guard await shouldContinue() else { throw CancellationError() }
+                return try await materializeSourceToFile(source, for: track)
+            } catch {
+                try Task.checkCancellation()
+                guard await shouldContinue() else { throw CancellationError() }
+                guard !PlaybackSessionStateMachine.isCancellation(error) else { throw error }
+                evict(trackId: track.playbackIdentity, includeDecision: true, cancelTask: true)
+                guard attempt == 0,
+                      PlaybackSessionStateMachine.isRecoverableNetworkFailure(error) else { throw error }
+                EnsembleLogger.debug("[prefetch] Recovering download trackId=\(track.playbackIdentity) attempt=2/2")
+                try await dependencies.refreshConnection()
+                try await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+        throw PlaybackError.streamURLUnavailable
     }
 
     func cancelResolution(for trackId: String) {

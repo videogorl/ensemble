@@ -1,5 +1,45 @@
 import Foundation
 
+#if DEBUG
+/// Bounded, process-local failures for exercising the production playback recovery path.
+enum PlaybackAutomationFailure {
+    private final class State: @unchecked Sendable {
+        let lock = NSLock()
+        var consumed = 0
+
+        func consume(limit: Int) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard consumed < limit else { return false }
+            consumed += 1
+            return true
+        }
+    }
+
+    private static let state = State()
+
+    static func check(stage: String, trackID: String) async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["ENSEMBLE_AUTOMATION_MODE"] == "1",
+              environment["ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_STAGE"] == stage,
+              let target = environment["ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_TRACK"],
+              !target.isEmpty,
+              trackID == target || trackID.hasSuffix("||" + target),
+              let count = environment["ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_COUNT"].flatMap(Int.init),
+              (1...10).contains(count),
+              state.consume(limit: count) else { return }
+        PlaybackJourneyLogger.mark("injectedPlaybackFailure", trackId: trackID, detail: "stage=\(stage) error=TLS")
+        let delay = environment["ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_DELAY_SECONDS"]
+            .flatMap(Double.init) ?? 0
+        if delay.isFinite, delay > 0 {
+            try await Task.sleep(nanoseconds: UInt64(min(delay, 10) * 1_000_000_000))
+        }
+        try Task.checkCancellation()
+        throw URLError(.secureConnectionFailed)
+    }
+}
+#endif
+
 /// Automation hooks used by simulator/device runners. Keep these names stable:
 /// external agents depend on them for launch routing, logs, and accessibility lookup.
 public struct AutomationLaunchOptions: Equatable, Sendable {

@@ -77,6 +77,24 @@ Automation flags can fall back to app `UserDefaults`, and boolean sources are
 combined. Keep pool baselines free of persisted automation values and leave the
 Developer offline toggle disabled unless that runner owns an offline test.
 
+For playback recovery checks, Debug builds support a bounded, process-local TLS
+failure at `startup` or `prefetch`. Launch with `SIMCTL_CHILD_` environment
+variables (or the unprefixed names in another launcher):
+
+```text
+ENSEMBLE_AUTOMATION_MODE=1
+ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_STAGE=startup
+ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_TRACK=<exact playback identity or rating key>
+ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_COUNT=1
+ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_DELAY_SECONDS=0
+```
+
+Count must be 1–10; delay is capped at ten seconds. Restarting the process resets
+the count. The `injectedPlaybackFailure` journey event distinguishes synthetic
+failures from actual transport errors. These hooks exercise recovery after source
+resolution; they do not reproduce a real TLS handshake failure. Use live uncached
+playback separately to establish transport and decoder behavior.
+
 ## Drive And Verify Simulator Input
 
 Prefer XcodeBuildMCP:
