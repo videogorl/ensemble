@@ -37,6 +37,7 @@ final class PlaybackArtifactCache: @unchecked Sendable {
     static let shared = PlaybackArtifactCache()
     static let defaultByteBudget: Int64 = 1_073_741_824
     private static let fileLock = NSLock()
+    private static var activePartialURLs: Set<URL> = []
     static let didChange = Notification.Name("PlaybackArtifactCacheDidChange")
 
     let directory: URL
@@ -55,14 +56,26 @@ final class PlaybackArtifactCache: @unchecked Sendable {
     }
 
     func partialURL(for key: PlaybackArtifactKey) throws -> URL {
+        Self.fileLock.lock()
+        defer { Self.fileLock.unlock() }
         try ensureDirectory()
-        return directory.appendingPathComponent(
+        let url = directory.appendingPathComponent(
             PlaybackStreamCacheIdentity.fileName(
                 for: key.trackIdentity,
                 suffix: "partial-\(UUID().uuidString)",
                 pathExtension: key.fileExtension
             )
         )
+        Self.activePartialURLs.insert(url.standardizedFileURL)
+        return url
+    }
+
+    /// Cancellation may remove an unfinished writer's file, never a registered artifact.
+    static func removePartial(at url: URL) {
+        fileLock.lock()
+        defer { fileLock.unlock() }
+        guard activePartialURLs.remove(url.standardizedFileURL) != nil else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     func completedArtifact(
@@ -145,6 +158,7 @@ final class PlaybackArtifactCache: @unchecked Sendable {
             completedAt: now,
             lastAccessedAt: now
         ))
+        Self.activePartialURLs.remove(fileURL.standardizedFileURL)
         trimLocked(keepingTrackIdentities: [key.trackIdentity])
         notifyChange()
         return fileURL
@@ -196,7 +210,8 @@ final class PlaybackArtifactCache: @unchecked Sendable {
         ) else { return }
 
         for fileURL in files {
-            guard !fileURL.lastPathComponent.hasSuffix(".manifest.json"),
+            guard !Self.activePartialURLs.contains(fileURL.standardizedFileURL),
+                  !fileURL.lastPathComponent.hasSuffix(".manifest.json"),
                   !completeFileNames.contains(fileURL.lastPathComponent),
                   !PlaybackStreamCacheIdentity.shouldKeep(
                       fileName: fileURL.lastPathComponent,

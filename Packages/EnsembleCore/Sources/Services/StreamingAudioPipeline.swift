@@ -1,4 +1,5 @@
 import AVFoundation
+import EnsembleSupport
 import Foundation
 
 /// An append-only file with one writer and one independently paced reader.
@@ -47,17 +48,24 @@ final class GrowingAudioFile {
 
     func finish(error: Error? = nil) {
         condition.lock()
-        guard !writerClosed else {
-            condition.unlock()
-            return
-        }
         if terminalError == nil {
             terminalError = error
         }
         reachedEOF = error == nil
-        try? writer.close()
-        writerClosed = true
+        if !writerClosed {
+            try? writer.close()
+            writerClosed = true
+        }
         condition.broadcast()
+        condition.unlock()
+    }
+
+    func closeWriter() {
+        condition.lock()
+        if !writerClosed {
+            try? writer.close()
+            writerClosed = true
+        }
         condition.unlock()
     }
 
@@ -140,6 +148,9 @@ final class StreamingAudioPipeline: NSObject {
         let bufferSeconds: TimeInterval
         let startupTimeout: TimeInterval
         let sessionConfiguration: URLSessionConfiguration
+        let trackID: String?
+        let artifactKey: PlaybackArtifactKey?
+        let artifactCache: PlaybackArtifactCache
 
         init(
             request: URLRequest,
@@ -148,7 +159,10 @@ final class StreamingAudioPipeline: NSObject {
             duration: TimeInterval? = nil,
             bufferSeconds: TimeInterval = 20,
             startupTimeout: TimeInterval = 15,
-            sessionConfiguration: URLSessionConfiguration? = nil
+            sessionConfiguration: URLSessionConfiguration? = nil,
+            trackID: String? = nil,
+            artifactKey: PlaybackArtifactKey? = nil,
+            artifactCache: PlaybackArtifactCache = .shared
         ) {
             self.request = request
             self.fileExtension = fileExtension
@@ -157,6 +171,9 @@ final class StreamingAudioPipeline: NSObject {
             self.bufferSeconds = bufferSeconds
             self.startupTimeout = startupTimeout
             self.sessionConfiguration = sessionConfiguration ?? Self.defaultSessionConfiguration()
+            self.trackID = trackID
+            self.artifactKey = artifactKey
+            self.artifactCache = artifactCache
         }
 
         private static func defaultSessionConfiguration() -> URLSessionConfiguration {
@@ -171,6 +188,7 @@ final class StreamingAudioPipeline: NSObject {
     var onFirstPacket: (() -> Void)?
     var onFirstPCM: (() -> Void)?
     var onBufferedProgress: ((Double) -> Void)?
+    var onDownloadComplete: ((URL) -> Void)?
     var onComplete: ((URL) -> Void)?
     var onFailure: ((Error) -> Void)?
 
@@ -186,6 +204,7 @@ final class StreamingAudioPipeline: NSObject {
     private var completed = false
     private var cancelled = false
     private var receivedByteCount: Int64 = 0
+    private var payloadPrefix = Data()
     private var lastByteUptime: TimeInterval?
     private var lastPCMUptime: TimeInterval?
     private var decodedFrameCount: AVAudioFramePosition = 0
@@ -193,6 +212,15 @@ final class StreamingAudioPipeline: NSObject {
     private var responseSummary = "none"
     private var metricsSummary = "none"
     private var startupTimeoutWorkItem: DispatchWorkItem?
+    private var downloadStarted = false
+    private var decoderStarted = false
+    private var terminalError: Error?
+    private var downloadResult: Result<URL, Error>?
+    private var downloadWaiters: [UUID: CheckedContinuation<URL, Error>] = [:]
+    private var downloadTimeoutWorkItem: DispatchWorkItem?
+    #if DEBUG
+        private var didApplyAutomationNetworkDelay = false
+    #endif
 
     var cacheURL: URL { configuration.cacheURL }
 
@@ -205,6 +233,13 @@ final class StreamingAudioPipeline: NSObject {
         stateLock.lock()
         defer { stateLock.unlock() }
         return completed
+    }
+
+    var isDownloadComplete: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if case .success? = downloadResult { return true }
+        return false
     }
 
     func diagnostics(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Diagnostics {
@@ -238,53 +273,108 @@ final class StreamingAudioPipeline: NSObject {
         )
     }
 
-    func start() {
+    /// Prefetch downloads compressed bytes without allocating a PCM buffer or decoder.
+    func startDownload() {
+        stateLock.lock()
+        guard !downloadStarted, !cancelled else {
+            stateLock.unlock()
+            return
+        }
+        downloadStarted = true
         do {
             let growingFile = try GrowingAudioFile(url: configuration.cacheURL)
             self.growingFile = growingFile
-
-            let decoder = try StreamingAudioDecoder(fileExtension: configuration.fileExtension)
-            wire(decoder)
-            self.decoder = decoder
-            decoderQueue.async { [weak self, weak decoder] in
-                self?.decode(growingFile: growingFile, decoder: decoder)
-            }
-
             let queue = OperationQueue()
             queue.maxConcurrentOperationCount = 1
             let session = URLSession(configuration: configuration.sessionConfiguration, delegate: self, delegateQueue: queue)
             self.session = session
             let task = session.dataTask(with: configuration.request)
             self.task = task
-            task.resume()
-            let startupTimeoutWorkItem = DispatchWorkItem { [weak self] in
-                self?.failStartupIfNeeded()
+            let timeout = DispatchWorkItem { [weak self] in
+                self?.failDownloadStartupIfNeeded()
             }
-            self.startupTimeoutWorkItem = startupTimeoutWorkItem
+            downloadTimeoutWorkItem = timeout
+            stateLock.unlock()
+            task.resume()
+            EnsembleLogger.debug("[StreamingPipeline] downloadStarted trackId=\(configuration.trackID ?? "unknown")")
             DispatchQueue.global(qos: .utility).asyncAfter(
                 deadline: .now() + configuration.startupTimeout,
-                execute: startupTimeoutWorkItem
+                execute: timeout
             )
         } catch {
+            stateLock.unlock()
             fail(error)
         }
     }
 
-    func cancel() {
+    func start() {
         stateLock.lock()
-        let shouldNotify = !cancelled && !completed
-        cancelled = true
-        let pcmBuffer = self.pcmBuffer
+        let existingError = terminalError
         stateLock.unlock()
-        pcmBuffer?.wakeWaiters()
-        task?.cancel()
-        session?.invalidateAndCancel()
-        growingFile?.finish(error: URLError(.cancelled))
-        startupTimeoutWorkItem?.cancel()
-        startupTimeoutWorkItem = nil
-        if shouldNotify {
-            onFailure?(URLError(.cancelled))
+        if let existingError {
+            onFailure?(existingError)
+            return
         }
+
+        startDownload()
+        stateLock.lock()
+        guard !decoderStarted, !cancelled, let growingFile else {
+            let error = terminalError
+            stateLock.unlock()
+            if let error { onFailure?(error) }
+            return
+        }
+        decoderStarted = true
+        do {
+            let decoder = try StreamingAudioDecoder(fileExtension: configuration.fileExtension)
+            wire(decoder)
+            self.decoder = decoder
+            let startupTimeoutWorkItem = DispatchWorkItem { [weak self] in
+                self?.failStartupIfNeeded()
+            }
+            self.startupTimeoutWorkItem = startupTimeoutWorkItem
+            stateLock.unlock()
+            DispatchQueue.global(qos: .utility).asyncAfter(
+                deadline: .now() + configuration.startupTimeout,
+                execute: startupTimeoutWorkItem
+            )
+            decoderQueue.async { [weak self, weak decoder] in
+                self?.decode(growingFile: growingFile, decoder: decoder)
+            }
+        } catch {
+            stateLock.unlock()
+            fail(error)
+        }
+    }
+
+    func downloadedFile() async throws -> URL {
+        let waiterID = UUID()
+        try Task.checkCancellation()
+        startDownload()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                stateLock.lock()
+                let result: Result<URL, Error>? = Task.isCancelled
+                    ? .failure(CancellationError()) : downloadResult
+                if let result {
+                    stateLock.unlock()
+                    continuation.resume(with: result)
+                } else {
+                    downloadWaiters[waiterID] = continuation
+                    stateLock.unlock()
+                }
+            }
+        } onCancel: {
+            self.stateLock.lock()
+            let waiter = self.downloadWaiters.removeValue(forKey: waiterID)
+            self.stateLock.unlock()
+            waiter?.resume(throwing: CancellationError())
+        }
+    }
+
+    func cancel() {
+        fail(URLError(.cancelled))
+        session?.invalidateAndCancel()
     }
 
     @discardableResult
@@ -372,8 +462,14 @@ final class StreamingAudioPipeline: NSObject {
             let isFirstByte = !hasReceivedFirstByte
             hasReceivedFirstByte = true
             receivedByteCount += Int64(data.count)
+            if payloadPrefix.count < 64 {
+                payloadPrefix.append(data.prefix(64 - payloadPrefix.count))
+            }
             lastByteUptime = ProcessInfo.processInfo.systemUptime
+            let timeout = downloadTimeoutWorkItem
+            downloadTimeoutWorkItem = nil
             stateLock.unlock()
+            timeout?.cancel()
             if isFirstByte {
                 onFirstByte?()
             }
@@ -384,7 +480,50 @@ final class StreamingAudioPipeline: NSObject {
     }
 
     private func finishNetwork() {
+        stateLock.lock()
+        guard downloadResult == nil, !cancelled else {
+            stateLock.unlock()
+            return
+        }
+        let receivedByteCount = self.receivedByteCount
+        guard receivedByteCount >= 256,
+              !EnsembleAudioPayloadValidator.isClearlyInvalidLeadingText(
+                  payloadPrefix,
+                  rejectingServiceUnavailable: true
+              ) else {
+            stateLock.unlock()
+            fail(ProgressiveStreamError.invalidPayload(bytesReceived: receivedByteCount))
+            return
+        }
+        // Close the writer for validation, then expose EOF only after registration succeeds.
+        growingFile?.closeWriter()
+        do {
+            if let key = configuration.artifactKey, key.isCompleteTrack {
+                try configuration.artifactCache.recordCompleted(
+                    fileURL: configuration.cacheURL,
+                    key: key,
+                    expectedDuration: configuration.duration
+                )
+            }
+        } catch {
+            stateLock.unlock()
+            fail(error)
+            return
+        }
         growingFile?.finish()
+        downloadResult = .success(configuration.cacheURL)
+        let waiters = Array(downloadWaiters.values)
+        downloadWaiters.removeAll()
+        let timeout = downloadTimeoutWorkItem
+        downloadTimeoutWorkItem = nil
+        stateLock.unlock()
+        timeout?.cancel()
+        session?.finishTasksAndInvalidate()
+        EnsembleLogger.debug("[StreamingPipeline] downloadComplete trackId=\(configuration.trackID ?? "unknown") bytes=\(receivedByteCount)")
+        onDownloadComplete?(configuration.cacheURL)
+        for waiter in waiters {
+            waiter.resume(returning: configuration.cacheURL)
+        }
     }
 
     private func decode(growingFile: GrowingAudioFile, decoder: StreamingAudioDecoder?) {
@@ -421,16 +560,31 @@ final class StreamingAudioPipeline: NSObject {
     }
 
     private func fail(_ error: Error) {
-        startupTimeoutWorkItem?.cancel()
-        startupTimeoutWorkItem = nil
         stateLock.lock()
         let shouldNotify = !cancelled && !completed
         cancelled = true
+        if terminalError == nil { terminalError = error }
+        if downloadResult == nil { downloadResult = .failure(error) }
+        let waiters = Array(downloadWaiters.values)
+        downloadWaiters.removeAll()
         let pcmBuffer = self.pcmBuffer
+        let growingFile = self.growingFile
+        let task = self.task
+        let timeout = startupTimeoutWorkItem
+        startupTimeoutWorkItem = nil
+        let downloadTimeout = downloadTimeoutWorkItem
+        downloadTimeoutWorkItem = nil
         stateLock.unlock()
+        timeout?.cancel()
+        downloadTimeout?.cancel()
         pcmBuffer?.wakeWaiters()
         growingFile?.finish(error: error)
         task?.cancel()
+        session?.invalidateAndCancel()
+        PlaybackArtifactCache.removePartial(at: configuration.cacheURL)
+        for waiter in waiters {
+            waiter.resume(throwing: error)
+        }
         if shouldNotify {
             onFailure?(error)
         }
@@ -444,6 +598,33 @@ final class StreamingAudioPipeline: NSObject {
         fail(URLError(.timedOut))
         task?.cancel()
     }
+
+    private func failDownloadStartupIfNeeded() {
+        stateLock.lock()
+        let shouldFail = !hasReceivedFirstByte && downloadResult == nil && !cancelled
+        stateLock.unlock()
+        if shouldFail { fail(URLError(.timedOut)) }
+    }
+
+    #if DEBUG
+        private func delayAutomationNetworkChunkIfNeeded() {
+            let environment = ProcessInfo.processInfo.environment
+            guard environment["ENSEMBLE_AUTOMATION_MODE"] == "1",
+                  let trackID = configuration.trackID,
+                  let target = environment["ENSEMBLE_AUTOMATION_STREAM_DELAY_TRACK"],
+                  !target.isEmpty,
+                  trackID == target || trackID.hasSuffix("||" + target),
+                  let delay = environment["ENSEMBLE_AUTOMATION_STREAM_DELAY_SECONDS"].flatMap(Double.init),
+                  delay.isFinite, delay > 0 else { return }
+            stateLock.lock()
+            let shouldDelay = hasReceivedFirstByte && !didApplyAutomationNetworkDelay && !cancelled
+            if shouldDelay { didApplyAutomationNetworkDelay = true }
+            stateLock.unlock()
+            guard shouldDelay else { return }
+            PlaybackJourneyLogger.mark("injectedStreamChunkDelay", trackId: trackID)
+            Thread.sleep(forTimeInterval: min(delay, 20))
+        }
+    #endif
 
     private var isActiveForWrites: Bool {
         stateLock.lock()
@@ -487,6 +668,9 @@ extension StreamingAudioPipeline: URLSessionDataDelegate {
     }
 
     func urlSession(_: URLSession, dataTask _: URLSessionDataTask, didReceive data: Data) {
+        #if DEBUG
+            delayAutomationNetworkChunkIfNeeded()
+        #endif
         append(data)
     }
 

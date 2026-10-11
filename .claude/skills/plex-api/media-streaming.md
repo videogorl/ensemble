@@ -157,7 +157,7 @@ without it). Each download uses a unique session ID so concurrent downloads do n
 - Playback (transcode needed): `PlexAPIClient.resolveStreamURL()` — calls decision and returns a progressive transcode config for incremental decoding
 - Playback (smart routing): `PlexAPIClient.resolveStreamURL()` — calls decision, returns `.directStream(URL)`, `.downloadedFile(URL)`, or `.progressiveTranscode(ProgressiveStreamConfig)` based on PMS decision
 - Incremental playback streaming: `StreamingAudioPipeline` + `StreamingAudioDecoder` (EnsembleCore) feed decoded PCM into `AudioPlaybackEngine` while writing cache
-- Compatibility/local-file materialization: `ProgressiveStreamLoader` remains available for paths that explicitly need a completed temp file
+- Prefetch and completed-file materialization share `StreamingAudioPipeline` with playback: network EOF supplies validated files for SmartMix, while incomplete transfers can be adopted without another request or writer.
 
 
 ## Waveform / Loudness Data

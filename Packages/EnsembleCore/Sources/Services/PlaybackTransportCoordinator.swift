@@ -1,7 +1,7 @@
 import EnsembleAPI
 import Foundation
 
-/// Owns stream-decision, resolution-task, and progressive-loader state so
+/// Owns stream-decision, resolution-task, and prepared-stream state so
 /// PlaybackService can delegate transport concerns without owning Plex endpoint details.
 final class PlaybackTransportCoordinator {
     struct Dependencies {
@@ -26,7 +26,11 @@ final class PlaybackTransportCoordinator {
     private let lock = NSLock()
     private var cachedStreamDecisions: [String: StreamDecision] = [:]
     private var sourceResolutionTasks: [String: Task<PlaybackSource, Error>] = [:]
-    private var streamLoaders: [String: ProgressiveStreamLoader] = [:]
+    private struct PreparedStream {
+        let key: PlaybackArtifactKey
+        let pipeline: StreamingAudioPipeline
+    }
+    private var preparedStreams: [String: PreparedStream] = [:]
 
     init(
         dependencies: Dependencies,
@@ -111,7 +115,7 @@ final class PlaybackTransportCoordinator {
 
     func evict(trackId: String, includeDecision: Bool, cancelTask: Bool) {
         withLock {
-            streamLoaders.removeValue(forKey: trackId)?.cancel()
+            preparedStreams.removeValue(forKey: trackId)?.pipeline.cancel()
             if includeDecision {
                 cachedStreamDecisions.removeValue(forKey: trackId)
             }
@@ -123,10 +127,10 @@ final class PlaybackTransportCoordinator {
 
     func clear(removeDecisions: Bool) {
         withLock {
-            for loader in streamLoaders.values {
-                loader.cancel()
+            for stream in preparedStreams.values {
+                stream.pipeline.cancel()
             }
-            streamLoaders.removeAll()
+            preparedStreams.removeAll()
             for task in sourceResolutionTasks.values {
                 task.cancel()
             }
@@ -137,14 +141,22 @@ final class PlaybackTransportCoordinator {
         }
     }
 
+    func discardPreparedStreams(except trackIDs: Set<String>) {
+        withLock {
+            for trackID in Array(preparedStreams.keys) where !trackIDs.contains(trackID) {
+                preparedStreams.removeValue(forKey: trackID)?.pipeline.cancel()
+            }
+        }
+    }
+
     func activeLoaderTrackIDs() -> Set<String> {
-        withLock { Set(streamLoaders.keys) }
+        withLock { Set(preparedStreams.keys) }
     }
 
     func activeLoaderFileSize(for trackId: String) -> Int64? {
         withLock {
-            guard let loader = streamLoaders[trackId] else { return nil }
-            let size = loader.currentFileSize
+            guard let stream = preparedStreams[trackId] else { return nil }
+            let size = stream.pipeline.diagnostics().receivedBytes
             return size > 0 ? size : nil
         }
     }
@@ -360,125 +372,59 @@ final class PlaybackTransportCoordinator {
         }
     }
 
+    /// Removes transport ownership before the engine attaches its decoder. Subsequent
+    /// prefetch cancellation can only cancel unclaimed streams.
+    func takePreparedPipeline(for source: PlaybackSource, trackID: String) -> StreamingAudioPipeline? {
+        let metadata: PlaybackSourceMetadata
+        switch source {
+        case let .directHTTP(_, value), let .transcodedHTTP(_, value): metadata = value
+        case .localFile, .cachedFile:
+            withLock { preparedStreams.removeValue(forKey: trackID)?.pipeline.cancel() }
+            return nil
+        }
+        guard let key = metadata.artifactKey else { return nil }
+        return withLock {
+            guard let prepared = preparedStreams[metadata.trackId], prepared.key == key else { return nil }
+            preparedStreams.removeValue(forKey: metadata.trackId)
+            EnsembleLogger.debug("[prefetch] Adopted stream trackId=\(metadata.trackId) bytes=\(prepared.pipeline.diagnostics().receivedBytes)")
+            return prepared.pipeline
+        }
+    }
+
     private func materializeSourceToFile(_ source: PlaybackSource, for track: Track) async throws -> URL {
         switch source {
         case let .localFile(url), let .cachedFile(url, _):
             return url
-        case let .directHTTP(request, metadata):
-            return try await downloadStreamToTempFile(
-                request: request,
-                metadata: metadata
-            )
-        case let .transcodedHTTP(request, metadata):
-            let fileURL = try await startProgressiveDownload(
-                for: track,
-                request: request,
-                ratingKey: metadata.ratingKey ?? track.id,
-                estimatedContentLength: metadata.estimatedContentLength ?? 0,
-                metadataDuration: metadata.duration
-            )
-            if let key = metadata.artifactKey, key.isCompleteTrack {
-                return try artifactCache.recordCompleted(
-                    fileURL: fileURL,
-                    key: key,
-                    expectedDuration: metadata.duration
-                )
-            }
-            return fileURL
-        }
-    }
-
-    private func startProgressiveDownload(
-        for track: Track,
-        request: URLRequest,
-        ratingKey: String,
-        estimatedContentLength: Int64,
-        metadataDuration: Double?
-    ) async throws -> URL {
-        let trackIdentity = track.playbackIdentity
-        if let existing = withLock({ streamLoaders[trackIdentity] }) {
-            if existing.isDownloadComplete {
-                if let error = existing.completionError { throw error }
-                return existing.localFileURL
-            }
-            return try await waitForDownload(loader: existing)
-        }
-
-        let loader = ProgressiveStreamLoader(
-            request: request,
-            ratingKey: ratingKey,
-            cacheIdentity: trackIdentity,
-            estimatedContentLength: estimatedContentLength,
-            metadataDuration: metadataDuration
-        )
-        withLock { streamLoaders[trackIdentity] = loader }
-        return try await waitForDownload(loader: loader)
-    }
-
-    private func waitForDownload(
-        loader: ProgressiveStreamLoader
-    ) async throws -> URL {
-        if loader.isDownloadComplete {
-            if let error = loader.completionError { throw error }
-            return loader.localFileURL
-        }
-
-        return try await withCheckedThrowingContinuation { continuation in
-            var hasResumed = false
-            let resumeOnce: (Result<URL, Error>) -> Void = { result in
-                guard !hasResumed else { return }
-                hasResumed = true
-                continuation.resume(with: result)
-            }
-
-            let previousComplete = loader.onDownloadComplete
-            loader.onDownloadComplete = { fileURL, duration in
-                previousComplete?(fileURL, duration)
-                resumeOnce(.success(fileURL))
-            }
-            loader.onDownloadFailed = { error in
-                resumeOnce(.failure(error))
-            }
-
-            if loader.isDownloadComplete {
-                if let error = loader.completionError {
-                    resumeOnce(.failure(error))
-                } else {
-                    resumeOnce(.success(loader.localFileURL))
+        case let .directHTTP(request, metadata), let .transcodedHTTP(request, metadata):
+            guard let key = metadata.artifactKey else { throw PlaybackError.streamURLUnavailable }
+            let pipeline = try withLock { () throws -> StreamingAudioPipeline in
+                if let existing = preparedStreams[track.playbackIdentity], existing.key == key {
+                    return existing.pipeline
                 }
+                preparedStreams.removeValue(forKey: track.playbackIdentity)?.pipeline.cancel()
+                let pipeline = StreamingAudioPipeline(configuration: .init(
+                    request: request,
+                    fileExtension: metadata.cacheFileExtension,
+                    cacheURL: try artifactCache.partialURL(for: key),
+                    duration: metadata.duration,
+                    trackID: metadata.trackId,
+                    artifactKey: key,
+                    artifactCache: artifactCache
+                ))
+                preparedStreams[track.playbackIdentity] = PreparedStream(key: key, pipeline: pipeline)
+                pipeline.startDownload()
+                EnsembleLogger.debug("[prefetch] Prepared stream trackId=\(track.playbackIdentity)")
+                return pipeline
             }
+            // The pipeline registers the validated artifact at network EOF, before
+            // waking file consumers or handing completion to active playback.
+            return try await pipeline.downloadedFile()
         }
     }
 
-    private func downloadStreamToTempFile(
-        request: URLRequest,
-        metadata: PlaybackSourceMetadata
-    ) async throws -> URL {
-        guard let key = metadata.artifactKey else { throw PlaybackError.streamURLUnavailable }
-        let destURL = try artifactCache.partialURL(for: key)
-        let (temporaryURL, response) = try await URLSession.shared.download(for: request)
-        defer { try? FileManager.default.removeItem(at: temporaryURL) }
-
-        if let httpResponse = response as? HTTPURLResponse, !(200 ... 299).contains(httpResponse.statusCode) {
-            throw ProgressiveStreamError.httpError(statusCode: httpResponse.statusCode, bodySnippet: nil)
-        }
-
-        do {
-            try FileManager.default.moveItem(at: temporaryURL, to: destURL)
-            return try artifactCache.recordCompleted(
-                fileURL: destURL,
-                key: key,
-                expectedDuration: metadata.duration
-            )
-        } catch {
-            artifactCache.removeArtifact(at: destURL)
-            throw error
-        }
-    }
-
-    private func withLock<T>(_ body: () -> T) -> T {
+    private func withLock<T>(_ body: () throws -> T) rethrows -> T {
         lock.lock()
         defer { lock.unlock() }
-        return body()
+        return try body()
     }
 }

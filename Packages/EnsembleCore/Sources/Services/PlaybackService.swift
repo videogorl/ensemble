@@ -1472,26 +1472,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
-        engine.onStreamingFileComplete = { [weak self] fileURL, key, expectedDuration, _ in
-            guard let self else { return }
-            let artifactCache = self.artifactCache
-            Task.detached(priority: .utility) { [weak self] in
-                do {
-                    let completedURL = try artifactCache.recordCompleted(
-                        fileURL: fileURL,
-                        key: key,
-                        expectedDuration: expectedDuration
-                    )
-                    await MainActor.run { [weak self] in
-                        guard let self else { return }
-                        self.cacheFileURL(completedURL, for: key.trackIdentity)
-                        self.cleanupStreamCacheFiles()
-                    }
-                } catch {
-                    EnsembleLogger.debug(
-                        "[PlaybackArtifactCache] rejected completed stream for \(key.trackIdentity): \(error.localizedDescription)"
-                    )
-                }
+        engine.onStreamingFileComplete = { [weak self] fileURL, key, _, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.cacheFileURL(fileURL, for: key.trackIdentity)
+                self.cleanupStreamCacheFiles()
             }
         }
 
@@ -4663,6 +4648,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Preserves resolved URLs that overlap with the new queue.
     @MainActor
     private func evictPlayerItemsNotIn(_ keepTrackIds: Set<String>) {
+        transportCoordinator.discardPreparedStreams(except: keepTrackIds)
         let evictedCount = prefetchController.evictPlayerItemsNotIn(
             keepTrackIds,
             cache: resolvedFileCache,
@@ -5169,7 +5155,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         shouldContinue: @Sendable () async -> Bool = { true }
     ) async throws -> URL {
         let fileURL = try await transportCoordinator.resolveAudioFile(for: track, shouldContinue: shouldContinue)
-        guard await shouldContinue(), !Task.isCancelled else { throw CancellationError() }
+        guard await shouldContinue(), !Task.isCancelled else {
+            // An adopted prefetch may finish after its queue generation changes.
+            // Publish only the exact file still owned by current playback.
+            await MainActor.run {
+                if currentTrack?.playbackIdentity == track.playbackIdentity,
+                   audioEngine?.currentPlaybackFileURL == fileURL {
+                    cacheFileURL(fileURL, for: track.playbackIdentity)
+                }
+            }
+            throw CancellationError()
+        }
         await MainActor.run { cacheFileURL(fileURL, for: track.playbackIdentity) }
         return fileURL
     }
@@ -5385,6 +5381,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         schedule: () throws -> Void
     ) rethrows -> Bool {
         guard isPrefetchedTrackStillUpcoming(trackID, depth: depth),
+              !engine.isSmartMixTransitionActive,
               !engine.isTrackScheduled(trackID) else { return false }
         try schedule()
         return true
@@ -5413,9 +5410,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             )
             let targetIndices = self.upcomingQueueIndices(depth: depth)
             guard let firstIndex = targetIndices.first else {
+                self.transportCoordinator.discardPreparedStreams(
+                    except: Set([self.currentTrack?.playbackIdentity].compactMap { $0 })
+                )
                 return (track: nil, shouldClearSchedule: shouldInvalidateScheduledTracks, shouldDefer: false)
             }
             let track = self.queue[firstIndex].track
+            self.transportCoordinator.discardPreparedStreams(
+                except: Set([track.playbackIdentity, self.currentTrack?.playbackIdentity].compactMap { $0 })
+            )
             let shouldDefer = self.currentTrack.map {
                 self.prefetchController.shouldDeferFailedPrefetch(
                     outgoingTrackID: $0.playbackIdentity,
@@ -5793,7 +5796,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 try await engine.load(
                     source: source,
                     trackId: trackIdentity,
-                    playbackGeneration: generation
+                    playbackGeneration: generation,
+                    preparedPipeline: transportCoordinator.takePreparedPipeline(for: source, trackID: trackIdentity)
                 )
                 guard generation == playbackGenerationCounter else {
                     if engine.playbackRequestGeneration == generation { engine.stop() }
@@ -5832,7 +5836,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try await engine.load(
                 source: source,
                 trackId: trackIdentity,
-                playbackGeneration: generation
+                playbackGeneration: generation,
+                preparedPipeline: transportCoordinator.takePreparedPipeline(for: source, trackID: trackIdentity)
             )
             guard generation == playbackGenerationCounter else {
                 if engine.playbackRequestGeneration == generation { engine.stop() }

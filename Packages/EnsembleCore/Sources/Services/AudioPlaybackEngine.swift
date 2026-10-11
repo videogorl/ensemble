@@ -93,7 +93,7 @@ public final class AudioPlaybackEngine {
     private var streamingPipeline: StreamingAudioPipeline?
     var isStreamingSourceActive: Bool { streamingPipeline != nil }
     var currentPlaybackFileURL: URL? { currentFile?.url ?? streamingPipeline?.cacheURL }
-    var currentPlaybackFileIsComplete: Bool { streamingPipeline?.isComplete ?? (currentFile != nil) }
+    var currentPlaybackFileIsComplete: Bool { streamingPipeline?.isDownloadComplete ?? (currentFile != nil) }
     var currentPlaybackSampleRate: Double? { currentTrackId == nil ? nil : sampleRate }
     private var streamingStartTime: TimeInterval = 0
     private var streamingCompletionGeneration: UInt64 = 0
@@ -1030,7 +1030,8 @@ public final class AudioPlaybackEngine {
     func load(
         source: PlaybackSource,
         trackId: String,
-        playbackGeneration: UInt64 = 0
+        playbackGeneration: UInt64 = 0,
+        preparedPipeline: StreamingAudioPipeline? = nil
     ) async throws {
         switch source {
         case let .localFile(url), let .cachedFile(url, _):
@@ -1044,7 +1045,8 @@ public final class AudioPlaybackEngine {
                 request: request,
                 metadata: metadata,
                 trackId: trackId,
-                playbackGeneration: playbackGeneration
+                playbackGeneration: playbackGeneration,
+                preparedPipeline: preparedPipeline
             )
         }
     }
@@ -1054,7 +1056,8 @@ public final class AudioPlaybackEngine {
         request: URLRequest,
         metadata: PlaybackSourceMetadata,
         trackId: String,
-        playbackGeneration: UInt64
+        playbackGeneration: UInt64,
+        preparedPipeline: StreamingAudioPipeline?
     ) async throws {
         cancelSmartMixTransition()
         engine.stop()
@@ -1076,25 +1079,38 @@ public final class AudioPlaybackEngine {
         scheduledFiles.removeAll()
         updateDurablePlaybackPosition(0)
 
-        let cacheURL = PlaybackStreamCacheIdentity.streamCacheDirectory
-            .appendingPathComponent(PlaybackStreamCacheIdentity.fileName(
-                for: trackId,
-                pathExtension: metadata.cacheFileExtension
+        let pipeline: StreamingAudioPipeline
+        if let preparedPipeline {
+            pipeline = preparedPipeline
+        } else {
+            let cacheURL: URL
+            if let key = metadata.artifactKey {
+                cacheURL = try PlaybackArtifactCache.shared.partialURL(for: key)
+            } else {
+                cacheURL = PlaybackStreamCacheIdentity.streamCacheDirectory
+                    .appendingPathComponent(PlaybackStreamCacheIdentity.fileName(
+                        for: trackId,
+                        suffix: UUID().uuidString,
+                        pathExtension: metadata.cacheFileExtension
+                    ))
+            }
+            pipeline = StreamingAudioPipeline(configuration: .init(
+                request: request,
+                fileExtension: metadata.cacheFileExtension,
+                cacheURL: cacheURL,
+                duration: metadata.duration,
+                trackID: metadata.trackId,
+                artifactKey: metadata.artifactKey
             ))
-        let pipeline = StreamingAudioPipeline(configuration: .init(
-            request: request,
-            fileExtension: metadata.cacheFileExtension,
-            cacheURL: cacheURL,
-            duration: metadata.duration
-        ))
-        if let artifactKey = metadata.artifactKey, artifactKey.isCompleteTrack {
-            pipeline.onComplete = { [weak self] fileURL in
-                self?.onStreamingFileComplete?(
-                    fileURL,
-                    artifactKey,
-                    metadata.duration,
-                    playbackGeneration
-                )
+            if let artifactKey = metadata.artifactKey, artifactKey.isCompleteTrack {
+                pipeline.onDownloadComplete = { [weak self] fileURL in
+                    self?.onStreamingFileComplete?(
+                        fileURL,
+                        artifactKey,
+                        metadata.duration,
+                        playbackGeneration
+                    )
+                }
             }
         }
         streamingPipeline = pipeline
@@ -1355,6 +1371,9 @@ public final class AudioPlaybackEngine {
     /// Reads the file's packet table to trim encoder delay/padding for seamless transitions.
     /// Call this during prefetch to ensure seamless transitions.
     func scheduleNext(fileURL: URL, trackId: String) throws {
+        // The outgoing deck is stopped at mix completion. Scheduling another
+        // segment there would fire its completion before the incoming song ends.
+        guard smartMixTransition == nil else { return }
         let file = try AVAudioFile(forReading: fileURL)
 
         // Read encoder delay/padding so the gapless boundary is sample-accurate

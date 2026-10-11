@@ -69,17 +69,77 @@ high-quality requests on reachable local endpoints. The advertised remote
 endpoint still timed out. These probes do not identify the historical failed
 endpoint or establish the cause of the phone's TLS failure.
 
-## Remaining design decision
+## Shared prefetch implementation
 
-Incomplete prefetch reuse is a separate ownership change. Today prefetch's
-`ProgressiveStreamLoader` downloads a complete file, while active playback's
-`StreamingAudioPipeline` creates another request, writer, decoder, and PCM ring.
-A proposed shared pipeline would prepare the upcoming stream once and transfer
-it to the engine at handoff, removing the duplicate native prefetch downloader
-and request. Completed files would continue to serve SmartMix and cache replay.
+The approved ownership change now uses one `StreamingAudioPipeline` for both
+prefetch and active streaming. Transport owns an unclaimed pipeline matched by
+full artifact identity (source fingerprint, quality, delivery, and seek offset).
+The engine atomically takes it before decoding; transport eviction thereafter
+cannot cancel it. Queue replacement discards only unclaimed streams. Pruning
+uses the current queue and successor in one synchronous MainActor snapshot,
+preventing an older prefetch task from canceling a newer successor.
 
-That design needs explicit ownership transfer, cancellation/queue/quality/seek
-guards, startup readiness, and error delivery before and after acquisition.
-SmartMix still requires completed-file analysis. Do not represent a growing file
-as a completed `cachedFile`: native file loading can see premature EOF, and a
-second writer can replace the file. This architecture step awaits approval.
+Prefetch starts compressed-byte downloading without a decoder or PCM ring.
+Adoption starts the decoder against the same growing file. Network completion
+and decoder completion are distinct: the pipeline validates and registers the
+completed artifact once before waking file consumers, while rendering uses
+decoder EOF. SmartMix and gapless file scheduling still require complete files.
+
+`ProgressiveStreamLoader` and its unused AVAssetResourceLoader bridge were
+removed. Fresh streams also use unique partial paths. Active partial paths are
+protected from automatic artifact trimming until completion or cancellation;
+a completed artifact cannot be removed by a late cancellation.
+
+SmartMix verification exposed a duplicate scheduling path: a prefetch during an
+active mix could schedule the same incoming song on the outgoing deck. Stopping
+that deck at handoff fired a current-generation completion and skipped the
+incoming song. Both the scheduling guard and engine refuse gapless scheduling
+during an active mix, preserving the incoming segment's own completion.
+
+## Shared-pipeline verification
+
+Shared-pipeline verification build SHA-256 begins `523f8087`, version
+`202610111140.5179`. The final queue-pruning correction was rebuilt as `4e42f98d`
+and verified on the first simulator. Installed executables matched their built
+binaries on both iOS 26.5 simulators;
+version alone was insufficient because incremental builds reused the version.
+No unit/integration suites were added or run.
+
+On `08CA3DD8-D174-40E9-A361-62B95671B969`:
+
+- Earlier integration build: an uncached high-quality prefetch for track 6944
+  started at 11:44:16, then playback adopted its 90,105 bytes at 11:44:22 and
+  rendered in 63 ms. The artificial 20-second network pause caused buffering;
+  the same download completed and playback resumed at 11:44:37. Original-quality
+  adoption also occurred while Ensemble was backgrounded, before network EOF.
+- Final build: medium-quality 6943 prefetch remained intact across outgoing
+  6940's artifact completion at 11:54:15. With Ensemble backgrounded at 11:54:32,
+  actual outgoing completion at 11:54:34 advanced to the completed incoming file
+  and reached playing at 11:54:34.671. Each track logged one download start.
+- Final build: low-quality 6943 was adopted with 8,185 bytes at 11:55:52.907.
+  The decoder waited for more bytes; the same download completed at 11:56:02.967
+  and rendering began at 11:56:03.005. No replacement request was started.
+- Queue replacement at 11:58:20 canceled the delayed, unclaimed medium-quality
+  6944 prefetch before its 20-second delay ended. Track 6939 reached playing at
+  11:58:21; afterward there was no completed medium artifact, unregistered
+  partial file, stale retry, or playback failure for 6944.
+
+- Final ownership build: delayed 6944 started at 12:03:06; queue replacement at
+  12:03:13 reached rendering on 6939 in 133 ms. After the delay expired, there
+  was no 6944 completion, retry, medium-quality artifact, or unregistered audio
+  partial. Playback was paused and the simulator verified `Shutdown`.
+
+On `F0465DE7-086B-4FD2-AB91-193D4567031A` with build `523f8087`:
+
+- Completed-file SmartMix into track 6735 started at 11:54:41, promoted at
+  11:54:46, and completed deck handoff at 11:54:51. The incoming track continued
+  from 25 to 55 seconds, more than 35 seconds beyond handoff, without premature
+  advancement or duplicate gapless scheduling.
+- Uncached original-quality track 6941 reached audio rendering in 310 ms. Current
+  and prefetched direct-file streams each logged one successful download.
+- Playback finished paused; temporary launch overrides were removed and the
+  simulator was verified shut down.
+
+These are simulator/render-state results, not physical-device audibility or
+proof of the historical TLS failure's origin. Fresh endpoint probes verified
+both direct-file and decision-then-transcode paths before editing.

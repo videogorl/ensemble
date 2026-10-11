@@ -166,3 +166,18 @@ When an action appears ignored:
 
 An input tool's success response, a fresh mirror frame, or a journey log alone is
 not a pass. Require the observable state change relevant to the feature.
+
+## Incomplete stream handoff
+
+DEBUG builds can hold the second data callback of one stream after its first
+bytes arrive. Set `ENSEMBLE_AUTOMATION_MODE=1`,
+`ENSEMBLE_AUTOMATION_STREAM_DELAY_TRACK` to its exact playback identity or Plex
+rating key, and `ENSEMBLE_AUTOMATION_STREAM_DELAY_SECONDS` (clamped to 20 seconds).
+The delay applies once per pipeline and logs `injectedStreamChunkDelay`. This
+exercises a live incomplete transfer; it does not simulate TLS or network loss.
+
+Match `downloadStarted`, `Adopted stream ... bytes=`, and `downloadComplete` for
+the incoming track. One start followed by adoption before completion proves
+that the engine retained the prefetch request and growing file. Confirm actual
+render/progress and recovery after the delay, rather than treating adoption
+alone as a successful playback check.
