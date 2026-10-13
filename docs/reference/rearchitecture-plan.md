@@ -1,6 +1,7 @@
 # Ensemble re-architecture plan
 
-Status: plan read and accepted by Felicity on 2026-10-13. No implementation started.
+Status: plan accepted by Felicity on 2026-10-13. Step 0 is implemented and
+Mac-checked; its iPhone surface pass is still owed. Steps 1 to 6 not started.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
@@ -352,6 +353,34 @@ change.
 Done when: the app builds for iOS, macOS, and watchOS; the surface checklist
 passes on the iPhone 16 Pro through Device Hub and on the Mac build, except
 the parked item; line counts are recorded.
+
+Status at `254691f2`: scope items 1 to 6 are delivered and the three builds
+succeed. Not done: the iPhone surface pass has not run, and six Mac rows that
+need pointer or keyboard input are `not run`. See
+[`2026-10-13-step-0-verification.md`](../investigations/2026-10-13-step-0-verification.md).
+
+Line counts at `254691f2`, from the section 8 commands:
+
+| Unit | Source lines | Test lines |
+|---|---:|---:|
+| EnsembleCore | 69,496 | 38,656 |
+| EnsembleUI | 46,734 | 2,860 |
+| EnsemblePersistence | 7,955 | 4,429 |
+| EnsembleAPI | 6,335 | 2,693 |
+| Ensemble app target | 4,030 | not measured |
+| EnsembleWatch app target | 3,914 | 0 |
+| EnsembleWatchCore | 3,740 | 739 |
+| EnsembleDomain | 1,235 | 267 |
+| EnsembleSiriShared | 1,077 | 371 |
+| EnsemblePlex | 946 | 206 |
+| EnsembleSiriIntentsExtension | 910 | 0 |
+| EnsembleSupport | 198 | 106 |
+| Total | 146,570 | 50,327 |
+
+Source is down 1,754 lines, 1.2 percent, from the section 3 baseline. Periphery
+listed 567 more candidates in Core, UI, Domain, SiriShared, and WatchCore; 507
+were kept because a same-name reference or app-target use could not be ruled
+out. Expect later steps, not another Periphery pass, to remove them.
 
 ### Step 1. Playback state machine
 

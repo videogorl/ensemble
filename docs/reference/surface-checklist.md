@@ -40,7 +40,7 @@ interaction a row checks.
   `song/<id>`, each with an optional `sourceKey` query item.
 - Accepted commands log `USER_JOURNEY context=automation`.
 - Accessibility identifiers: `sidebar.search`, `sidebar.library.<tab>`,
-  `sidebar.playlists.all`, `sidebar.toolbar.downloads`,
+  `sidebar.library.playlists`, `sidebar.toolbar.downloads`,
   `sidebar.toolbar.profile`, `sidebar.browse`, `browse.artists`,
   `browse.genres`, `browse.playlists`, `info.lyrics`, `info.sources`,
   `toast.banner`, `toast.action`.
