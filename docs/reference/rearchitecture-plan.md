@@ -1,8 +1,8 @@
 # Ensemble re-architecture plan
 
 Status: plan accepted by Felicity on 2026-10-13. Step 0 is implemented,
-Mac-checked, and simulator-checked; its physical iPhone pass is on hold by
-Felicity's decision. Steps 1 to 6 not started.
+Mac-checked, and simulator-checked; its physical iPhone pass is in the device
+backlog. Step 1a, the playback inventory, is in progress.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
@@ -42,9 +42,9 @@ Decided by Felicity on 2026-10-13. Do not reopen these without asking.
 | Features | No feature is cut. StageFlow, song.link sharing, moods, cross-source merging, and the logs screen were each confirmed as important. |
 | Tests | The existing suite may be cut hard. Tests that pin internals of replaced code are deleted with that code. |
 | Freeze | A scoped feature freeze applies to the subsystem being rebuilt. See section 6. |
-| Verification | Nothing is called good until it has been exercised on the physical iPhone 16 Pro through Device Hub. See section 7. |
+| Verification | Steps proceed on simulator evidence. Nothing is called good or verified until it has been exercised on the physical iPhone 16 Pro through Device Hub; what the simulator could not prove accumulates in `physical-device-backlog.md`. Changed by Felicity on 2026-10-13. See section 7. |
 | Delegation | Subagents and the `codex` CLI may be used for implementation. |
-| TestFlight | No TestFlight builds during this work. They resume when the project is done. A git tag before each step is the rollback point. |
+| TestFlight | No TestFlight builds during this work. They resume when the project is done. Per-step git tags are optional; the commit before a step is the rollback point. |
 | Devices | iPhone 16 Pro approved now. The paired Apple Watch and iPad Pro are approved for their steps; ask Felicity to connect them first. |
 | Low-memory devices | No 2 GB device is a test target. Keep paging and memory discipline in code. |
 | Screen Mirroring | The broken external-display Now Playing view is parked. Do not diagnose it until asked. It stays on the surface checklist as known-broken. |
@@ -484,16 +484,28 @@ While a step is rebuilding a subsystem:
 - No new features and no behaviour changes land in that subsystem. Blocking
   bug fixes are allowed and must also land in the new path.
 - The rest of the app stays open.
-- A git tag `pre-step-N` marks the commit before the step starts. It is the
-  comparison baseline and the rollback point. No TestFlight build is made.
+- The commit before the step starts is the comparison baseline and the
+  rollback point; record its hash in the step's note. A `pre-step-N` tag is
+  optional. No TestFlight build is made.
 - `CLAUDE.md` carries one line naming the frozen subsystem, added when the
   step starts and removed when it ends.
-- The freeze ends when the old path is deleted and device acceptance passes.
+- The freeze ends when the old path is deleted and simulator acceptance
+  passes. Physical acceptance stays owed in the backlog.
 
 ## 7. Verification protocol
 
 "Good", "done", and "verified" are reserved for work that passed this
-protocol. Anything else is reported as unverified, with the reason.
+protocol on the physical iPhone. Anything else is reported as unverified, with
+the reason.
+
+By Felicity's decision on 2026-10-13, a step does not wait for the phone. Each
+step is accepted for continuing on simulator evidence: an exact-UUID simulator,
+a build proven to be the one just produced, and the step's acceptance list run
+there. Every acceptance item the simulator cannot prove, or proved only
+partly, is added to
+[`physical-device-backlog.md`](physical-device-backlog.md) with the commit it
+applies to. The backlog is worked through when Felicity makes the phone
+available; items leave it only with physical evidence.
 
 1. Build from `Ensemble.xcworkspace` for the exact device.
 2. Install with `xcrun devicectl` and prove the installed build is the one

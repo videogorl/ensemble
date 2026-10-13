@@ -8,8 +8,10 @@ in code: paged reads and bounded caches.
 
 - Start with `git status --short`; preserve unrelated worktree changes.
 - `docs/reference/rearchitecture-plan.md` is the active plan; read it before
-  structural work. Do not call a change verified until it has been exercised on
-  the physical iPhone through Device Hub per that plan's section 7.
+  structural work. Steps proceed on simulator evidence per that plan's section 7.
+  Do not call a change verified until it has been exercised on the physical
+  iPhone; add what the simulator could not prove to
+  `docs/reference/physical-device-backlog.md`.
 - Use `Ensemble.xcworkspace`, never `Ensemble.xcodeproj`.
 - Run agent builds through `python3 scripts/build_serial.py <xcodebuild arguments>`
   so sessions and worktrees share one build lock and use at most two build jobs.
