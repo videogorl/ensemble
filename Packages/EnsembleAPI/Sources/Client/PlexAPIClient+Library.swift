@@ -77,21 +77,6 @@ extension PlexAPIClient {
         return sections
     }
 
-    /// Get music library section - uses selected library if available, otherwise first music library
-    public func getMusicLibrarySection() async throws -> PlexLibrarySection? {
-        let sections = try await getLibrarySections()
-        let musicSections = sections.filter { $0.isMusicLibrary }
-
-        // If we have a selected library, try to find it
-        if let selected = getLibrarySelection(),
-           let match = musicSections.first(where: { $0.key == selected.key }) {
-            return match
-        }
-
-        // Fallback to first music library
-        return musicSections.first
-    }
-
     /// Get all artists in a library section
     public func getArtists(sectionKey: String) async throws -> [PlexArtist] {
         try await getArtists(sectionKey: sectionKey, limit: nil)
@@ -109,24 +94,6 @@ extension PlexAPIClient {
         query["X-Plex-Container-Start"] = "0"
         query["X-Plex-Container-Size"] = String(limit)
         return try await mediaContainerItems(path: "/library/sections/\(sectionKey)/all", query: query)
-    }
-
-    /// Get artists added or updated after a specific timestamp (incremental sync)
-    public func getArtists(sectionKey: String, addedAfter timestamp: TimeInterval) async throws -> [PlexArtist] {
-        let unixTime = Int(timestamp)
-        return try await mediaContainerItems(
-            path: "/library/sections/\(sectionKey)/all",
-            query: ["type": "8", "addedAt>": String(unixTime)]
-        )
-    }
-
-    /// Get artists updated after a specific timestamp (incremental sync)
-    public func getArtists(sectionKey: String, updatedAfter timestamp: TimeInterval) async throws -> [PlexArtist] {
-        let unixTime = Int(timestamp)
-        return try await mediaContainerItems(
-            path: "/library/sections/\(sectionKey)/all",
-            query: ["type": "8", "updatedAt>": String(unixTime)]
-        )
     }
 
     /// Get all albums in a library section
@@ -274,20 +241,6 @@ extension PlexAPIClient {
         )
     }
 
-    /// Get tracks rated after a specific timestamp (for syncing rating changes from other devices)
-    public func getTracks(sectionKey: String, ratedAfter timestamp: TimeInterval) async throws -> [PlexTrack] {
-        let unixTime = Int(timestamp)
-        return try await getPagedSectionItems(
-            sectionKey: sectionKey,
-            baseQuery: [
-                "type": "10",
-                "includeMedia": "1",
-                "includeElements": "Media",
-                "lastRatedAt>": String(unixTime)
-            ]
-        )
-    }
-
     /// Get tracks in an album
     public func getAlbumTracks(albumKey: String) async throws -> [PlexTrack] {
         return try await mediaContainerItems(
@@ -313,19 +266,6 @@ extension PlexAPIClient {
     /// Get genres in a library section
     public func getGenres(sectionKey: String) async throws -> [PlexGenre] {
         try await mediaContainerItems(path: "/library/sections/\(sectionKey)/genre")
-    }
-
-    /// Get all artist ratingKeys in a library section (minimal response)
-    /// Uses includeFields=ratingKey to reduce response size significantly
-    public func getArtistInventory(sectionKey: String) async throws -> [PlexInventoryItem] {
-        return try await getPagedSectionItems(
-            sectionKey: sectionKey,
-            baseQuery: [
-                "type": "8",
-                "includeFields": "ratingKey",
-                "excludeElements": "Media,Genre,Country,Guid,Rating,Collection,Director,Writer,Role"
-            ]
-        )
     }
 
     /// Get all album ratingKeys in a library section (minimal response)
@@ -403,42 +343,6 @@ extension PlexAPIClient {
         let hubs = container.mediaContainer.items
         EnsembleLogger.debug("🏠 Decoded \(hubs.count) hubs from Section \(sectionKey)")
         return hubs
-    }
-
-    /// Get global hubs (across all libraries)
-    public func getGlobalHubs() async throws -> [PlexHub] {
-        let data = try await serverRequest(
-            path: "/hubs",
-            query: [
-                "count": "12",
-                "includeLibrary": "1",
-                "includeExternalMedia": "1",
-                "excludeFields": "summary"
-            ]
-        )
-
-        EnsembleLogger.debug("🏠 Received global hubs payload: \(data.count) bytes")
-
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexHub>.self,
-            from: data
-        )
-        let hubs = container.mediaContainer.items
-        EnsembleLogger.debug("🏠 Decoded \(hubs.count) global hubs")
-        return hubs
-    }
-
-    /// Get items for a specific hub
-    public func getHubItems(hubKey: String) async throws -> [PlexHubMetadata] {
-        try await mediaContainerItems(path: hubKey)
-    }
-
-    /// Search library
-    public func search(query: String, sectionKey: String) async throws -> [PlexTrack] {
-        return try await mediaContainerItems(
-            path: "/library/sections/\(sectionKey)/search",
-            query: ["type": "10", "query": query]
-        )
     }
 
     /// Look up albums in one library without waiting for its local sync.

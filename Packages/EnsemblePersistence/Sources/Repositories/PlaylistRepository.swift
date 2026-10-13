@@ -221,8 +221,6 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist]
     func fetchPlaylists(sourceCompositeKeys: Set<String>) async throws -> [CDPlaylist]
     func countPlaylists(sourceCompositeKeys: Set<String>?) async throws -> Int
-    /// Fetches one playlist with memberships for detail and body operations.
-    func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist?
     /// Fetches one source-scoped playlist with memberships for detail and body operations.
     func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist?
     /// Fetches one playlist's metadata without loading track memberships.
@@ -257,7 +255,6 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     ) async throws
     func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
     func setPlaylistTrackSnapshots(_ snapshots: [PlaylistTrackSnapshot], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
-    func deletePlaylist(ratingKey: String) async throws
     func deletePlaylists(sourceCompositeKey: String) async throws
     func removeDuplicatePlaylists() async throws
     func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
@@ -837,10 +834,6 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         return NSCompoundPredicate(andPredicateWithSubpredicates: [base, scoped])
     }
 
-    public func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? {
-        try await fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: nil)
-    }
-
     public func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? {
         guard let sourceCompositeKey else { return nil }
         return try await withCheckedThrowingContinuation { continuation in
@@ -1221,25 +1214,6 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         let components = sourceCompositeKey.split(separator: ":")
         guard components.count >= 3 else { return nil }
         return components.prefix(3).joined(separator: ":")
-    }
-
-    public func deletePlaylist(ratingKey: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            self.coreDataStack.performBackgroundTask { context in
-                let request = CDPlaylist.fetchRequest()
-                request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-
-                do {
-                    if let playlist = try context.fetch(request).first {
-                        context.delete(playlist)
-                        try context.save()
-                    }
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
     }
 
     public func deletePlaylists(sourceCompositeKey: String) async throws {

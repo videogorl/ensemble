@@ -175,15 +175,4 @@ public enum EnsembleLogEmitter {
         logger.error("\(msg, privacy: .public)")
         fileLogHandler?("ERROR", category, msg)
     }
-
-    public static func fault(
-        _ message: @autoclosure () -> String,
-        logger: Logger,
-        category: String,
-        fileLogHandler: EnsembleFileLogHandler?
-    ) {
-        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
-        logger.fault("\(msg, privacy: .public)")
-        fileLogHandler?("FAULT", category, msg)
-    }
 }

@@ -596,20 +596,10 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func countTracks(sourceCompositeKeys: Set<String>?) async throws -> Int
     func countTracks(forSource sourceCompositeKey: String) async throws -> Int
     func fetchSiriEligibleTracks() async throws -> [CDTrack]
-    func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack]
     func fetchTracks(forAlbum albumRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack]
-    func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack]
     func fetchTracks(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack]
     func fetchFavoriteTracks() async throws -> [CDTrack]
-    func fetchTrack(ratingKey: String) async throws -> CDTrack?
     func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack?
-    func fetchTrackArtworkFallback(
-        title: String,
-        albumName: String?,
-        artistName: String?,
-        excludingRatingKey: String,
-        excludingSourceCompositeKey: String?
-    ) async throws -> TrackArtworkMetadata?
     func updateTrackTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws
     func deleteTrack(ratingKey: String, sourceCompositeKey: String?) async throws
     func upsertTrack(
@@ -680,7 +670,6 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func fetchArtistSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: ArtistSyncMetadata]
     func fetchAlbumSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: AlbumSyncMetadata]
     func fetchTrackSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: TrackSyncMetadata]
-    func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchTrackRatings(forSource sourceKey: String) async throws -> [String: Int16]
@@ -879,13 +868,6 @@ public extension LibraryRepositoryProtocol {
     func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws {}
     func updateTrackTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws {}
     func deleteTrack(ratingKey: String, sourceCompositeKey: String?) async throws {}
-    func fetchTrackArtworkFallback(
-        title _: String,
-        albumName _: String?,
-        artistName _: String?,
-        excludingRatingKey _: String,
-        excludingSourceCompositeKey _: String?
-    ) async throws -> TrackArtworkMetadata? { nil }
     func fetchGenreCoverageStats(forSource sourceKey: String) async throws -> GenreCoverageStats? { nil }
     func fetchArtistSyncMetadata(forSource sourceKey: String) async throws -> [String: ArtistSyncMetadata] { [:] }
     func fetchAlbumSyncMetadata(forSource sourceKey: String) async throws -> [String: AlbumSyncMetadata] { [:] }

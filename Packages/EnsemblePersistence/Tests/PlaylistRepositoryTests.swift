@@ -119,7 +119,7 @@ final class PlaylistRepositoryTests: XCTestCase {
             sourceCompositeKey: sourceA
         )
 
-        let unscopedPlaylist = try await repository.fetchPlaylist(ratingKey: ratingKey)
+        let unscopedPlaylist = try await repository.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: nil)
         let scopedPlaylist = try await repository.fetchPlaylist(
             ratingKey: ratingKey,
             sourceCompositeKey: sourceA

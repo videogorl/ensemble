@@ -88,11 +88,6 @@ extension CDArtist {
         return NSFetchRequest<CDArtist>(entityName: "CDArtist")
     }
 
-    public var albumsArray: [CDAlbum] {
-        let set = albums as? Set<CDAlbum> ?? []
-        return set.sorted { ($0.year) > ($1.year) }
-    }
-
     /// O(n) lookup for the newest album by year (avoids sorting the full set)
     public var newestAlbum: CDAlbum? {
         (albums as? Set<CDAlbum>)?.max(by: { $0.year < $1.year })
@@ -346,11 +341,6 @@ extension CDOfflineDownloadTarget {
         case completed
         case paused
         case failed
-    }
-
-    public var membershipArray: [CDOfflineDownloadMembership] {
-        let set = memberships as? Set<CDOfflineDownloadMembership> ?? []
-        return set.sorted { $0.id < $1.id }
     }
 
     public var targetKind: Kind {

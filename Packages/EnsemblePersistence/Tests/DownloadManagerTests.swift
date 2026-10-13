@@ -445,7 +445,7 @@ final class DownloadManagerTests: XCTestCase {
         let completed = try XCTUnwrap(fetchedCompleted)
         let failed = try XCTUnwrap(fetchedFailed)
 
-        try await downloadManager.updateDownloadStatus(downloading.objectID, status: .downloading)
+        try await downloadManager.updateDownloadStatus(downloading.objectID, status: .downloading, quality: nil)
         try await downloadManager.completeDownload(
             completed.objectID,
             filePath: "completed.mp3",

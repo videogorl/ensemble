@@ -1,13 +1,6 @@
 import CoreData
 import Foundation
 
-public struct TrackArtworkMetadata: Sendable, Equatable {
-    public let albumRatingKey: String?
-    public let thumbPath: String?
-    public let fallbackThumbPath: String?
-    public let fallbackRatingKey: String?
-}
-
 extension LibraryRepository {
     // MARK: - Tracks
 
@@ -151,17 +144,6 @@ extension LibraryRepository {
         }
     }
 
-    public func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack] {
-        try await fetchTracks { request in
-            request.predicate = NSPredicate(format: "album.ratingKey == %@", albumRatingKey)
-            request.sortDescriptors = [
-                NSSortDescriptor(key: "discNumber", ascending: true),
-                NSSortDescriptor(key: "trackNumber", ascending: true)
-            ]
-            request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
-        }
-    }
-
     public func fetchTracks(forAlbum albumRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] {
         try await fetchTracks { request in
             request.predicate = NSPredicate(
@@ -173,20 +155,6 @@ extension LibraryRepository {
                 NSSortDescriptor(key: "discNumber", ascending: true),
                 NSSortDescriptor(key: "trackNumber", ascending: true)
             ]
-            request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
-        }
-    }
-
-    public func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack] {
-        try await fetchTracks { request in
-            request.predicate = NSPredicate(format: "album.artist.ratingKey == %@", artistRatingKey)
-            request.sortDescriptors = [
-                NSSortDescriptor(key: "album.year", ascending: false),
-                NSSortDescriptor(key: "album.title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
-                NSSortDescriptor(key: "discNumber", ascending: true),
-                NSSortDescriptor(key: "trackNumber", ascending: true)
-            ]
-            request.fetchBatchSize = 50
             request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
         }
     }
@@ -240,10 +208,6 @@ extension LibraryRepository {
         NSPredicate(format: "isFavorite == YES OR (isFavorite == nil AND rating >= 8)")
     }
 
-    public func fetchTrack(ratingKey: String) async throws -> CDTrack? {
-        try await fetchTrack(ratingKey: ratingKey, sourceCompositeKey: nil)
-    }
-
     public func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? {
         guard let sourceCompositeKey else { return nil }
         return try await coreDataStack.performViewContext { context in
@@ -254,54 +218,6 @@ extension LibraryRepository {
             )
             request.fetchLimit = 1
             return try context.fetch(request).first
-        }
-    }
-
-    public func fetchTrackArtworkFallback(
-        title: String,
-        albumName: String?,
-        artistName: String?,
-        excludingRatingKey: String,
-        excludingSourceCompositeKey: String?
-    ) async throws -> TrackArtworkMetadata? {
-        try await coreDataStack.performBackgroundContext { context in
-            let request = CDTrack.fetchRequest()
-            var predicates: [NSPredicate] = [
-                NSPredicate(format: "title ==[c] %@", title),
-                NSPredicate(format: "thumbPath != nil OR album.thumbPath != nil")
-            ]
-
-            if let albumName, !albumName.isEmpty {
-                predicates.append(NSPredicate(format: "albumName ==[c] %@", albumName))
-            }
-
-            if let artistName, !artistName.isEmpty {
-                predicates.append(NSPredicate(format: "artistName ==[c] %@", artistName))
-            }
-
-            if let excludingSourceCompositeKey {
-                predicates.append(NSPredicate(
-                    format: "NOT (ratingKey == %@ AND sourceCompositeKey == %@)",
-                    excludingRatingKey,
-                    excludingSourceCompositeKey
-                ))
-            } else {
-                predicates.append(NSPredicate(format: "ratingKey != %@", excludingRatingKey))
-            }
-
-            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
-            request.sortDescriptors = [
-                NSSortDescriptor(key: "updatedAt", ascending: false)
-            ]
-            request.fetchLimit = 20
-            request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
-            guard let track = try context.fetch(request).first else { return nil }
-            return TrackArtworkMetadata(
-                albumRatingKey: track.album?.ratingKey,
-                thumbPath: track.thumbPath,
-                fallbackThumbPath: track.album?.thumbPath,
-                fallbackRatingKey: track.album?.ratingKey
-            )
         }
     }
 

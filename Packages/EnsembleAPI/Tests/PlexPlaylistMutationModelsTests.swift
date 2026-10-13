@@ -44,16 +44,6 @@ final class PlexPlaylistMutationModelsTests: XCTestCase {
         XCTAssertEqual(PlexPlaylist.deduplicated(playlists).map(\.title), ["First", "Second"])
     }
 
-    func testPlexSourceIdentityHandlesServerAndLibraryScopes() {
-        let library = PlexSourceIdentity.parse("plex:account:server:library")
-        let server = PlexSourceIdentity.parse("plex:account:server")
-
-        XCTAssertEqual(library?.serverSourceKey, "plex:account:server")
-        XCTAssertEqual(library?.librarySourceKey, "plex:account:server:library")
-        XCTAssertEqual(server?.isServerScoped, true)
-        XCTAssertTrue(PlexSourceIdentity.isSameServer(library?.librarySourceKey, server?.serverSourceKey))
-    }
-
     func testPlaylistMergeRulesPreserveIdentityOrderAndRoundRobinValues() {
         let items = [
             (title: "Café Mix", isSmart: false, id: "regular-a"),

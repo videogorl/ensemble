@@ -34,11 +34,6 @@ public enum PlexErrorClassification: Sendable {
         self == .connectionFailure
     }
 
-    /// Whether this error is a 429 rate-limit response.
-    public var isRateLimited: Bool {
-        self == .rateLimited
-    }
-
     /// Classify an arbitrary Error into one of the four categories.
     public static func classify(_ error: Error) -> PlexErrorClassification {
         if error is CancellationError {

@@ -48,20 +48,6 @@ public actor ConnectionFailoverManager {
         return result.success
     }
     
-    /// Test multiple connections and return the first working one
-    public func findWorkingConnection(
-        urls: [String],
-        token: String
-    ) async -> String? {
-        // Test connections in order
-        for url in urls {
-            if await testConnection(url: url, token: token) {
-                return url
-            }
-        }
-        return nil
-    }
-    
     /// Test connections in parallel and return the best one based on protocol and speed
     /// Prefers HTTPS connections even if they're slightly slower (better for remote access)
     public func findFastestConnection(

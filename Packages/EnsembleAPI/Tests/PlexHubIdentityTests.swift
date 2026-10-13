@@ -7,10 +7,6 @@ final class PlexHubIdentityTests: XCTestCase {
             PlexHubIdentity.normalized("music.recent.added.7"),
             PlexHubIdentity.recentlyAddedMusic
         )
-        XCTAssertEqual(
-            PlexHubIdentity.normalizedSourceScopedIdentifier("plex:account:server:3:music.recent.added.12"),
-            PlexHubIdentity.recentlyAddedMusic
-        )
         XCTAssertEqual(PlexHubIdentity.normalized("music.recent.played"), "music.recent.played")
     }
 

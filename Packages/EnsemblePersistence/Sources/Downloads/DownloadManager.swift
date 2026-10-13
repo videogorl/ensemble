@@ -101,10 +101,6 @@ public extension DownloadManagerProtocol {
         try await fetchDownloads(forSourceCompositeKey: sourceCompositeKey).count
     }
 
-    func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status) async throws {
-        try await updateDownloadStatus(downloadId, status: status, quality: nil)
-    }
-
     func requeueDownload(_ downloadId: NSManagedObjectID, quality: String) async throws {
         try await updateDownloadStatus(downloadId, status: .pending, quality: quality)
     }
@@ -1005,20 +1001,6 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
         // Already a bare filename
         return storedPath
-    }
-
-    /// Resolve a stored path (filename or legacy absolute path) to a validated
-    /// absolute path on disk, or nil if the file doesn't exist.
-    public static func resolveExistingDownloadedFilePath(_ storedPath: String) -> String? {
-        let filename = extractFilename(from: storedPath)
-        guard !filename.isEmpty else { return nil }
-
-        let absolutePath = self.absolutePath(forFilename: filename)
-        if FileManager.default.fileExists(atPath: absolutePath) {
-            return absolutePath
-        }
-
-        return nil
     }
 
     private static func downloadPredicate(trackRatingKey: String, sourceCompositeKey: String?) -> NSPredicate {

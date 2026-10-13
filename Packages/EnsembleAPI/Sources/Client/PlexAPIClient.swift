@@ -168,11 +168,6 @@ public struct PlexServerConnection: Sendable, Equatable {
         self.identifier = identifier
         self.name = name
     }
-    
-    /// All available connection URLs (primary + alternatives)
-    public var allURLs: [String] {
-        [url] + alternativeURLs
-    }
 }
 
 public struct PlexLibrarySelection: Sendable {
@@ -698,6 +693,7 @@ public actor PlexAPIClient {
         }
     }
 
+
     // MARK: - Server requests
 
     func serverRequest(
@@ -833,26 +829,6 @@ public actor PlexAPIClient {
                 throw PlexAPIError.httpError(statusCode: httpResponse.statusCode)
             }
 
-            return (data, httpResponse)
-        } catch let error as PlexAPIError {
-            throw error
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw PlexAPIError.networkError(error)
-        }
-    }
-
-    func performRequestAllowingNon2xx(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        if Task.isCancelled {
-            throw CancellationError()
-        }
-
-        do {
-            let (data, response) = try await session.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw PlexAPIError.invalidResponse
-            }
             return (data, httpResponse)
         } catch let error as PlexAPIError {
             throw error

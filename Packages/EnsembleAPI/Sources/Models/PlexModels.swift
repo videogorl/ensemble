@@ -832,41 +832,6 @@ public struct PlexSourceIdentity: Equatable, Sendable {
     public var serverSourceKey: String {
         "\(type):\(accountId):\(serverId)"
     }
-
-    public var accountServerKey: String {
-        "\(accountId):\(serverId)"
-    }
-
-    public var isServerScoped: Bool {
-        libraryId == nil
-    }
-
-    public var librarySourceKey: String? {
-        guard let libraryId else { return nil }
-        return "\(serverSourceKey):\(libraryId)"
-    }
-
-    public static func parse(_ sourceKey: String?) -> PlexSourceIdentity? {
-        guard let sourceKey else { return nil }
-        let components = sourceKey.split(separator: ":")
-        guard components.count >= 3 else { return nil }
-        return PlexSourceIdentity(
-            type: String(components[0]),
-            accountId: String(components[1]),
-            serverId: String(components[2]),
-            libraryId: components.count >= 4 ? String(components[3]) : nil
-        )
-    }
-
-    public static func serverSourceKey(from sourceKey: String?) -> String? {
-        parse(sourceKey)?.serverSourceKey
-    }
-
-    public static func isSameServer(_ lhs: String?, _ rhs: String?) -> Bool {
-        guard let lhsServer = serverSourceKey(from: lhs),
-              let rhsServer = serverSourceKey(from: rhs) else { return false }
-        return lhsServer == rhsServer
-    }
 }
 
 // MARK: - User Info
@@ -986,13 +951,6 @@ public enum PlexHubIdentity {
         guard let lastDot = identifier.lastIndex(of: ".") else { return identifier }
         let suffix = identifier[identifier.index(after: lastDot)...]
         return suffix.allSatisfy(\.isNumber) ? String(identifier[..<lastDot]) : identifier
-    }
-
-    /// Extracts and normalizes the hub identifier from Ensemble's source-scoped hub ID.
-    public static func normalizedSourceScopedIdentifier(_ hubID: String) -> String {
-        let components = hubID.split(separator: ":")
-        guard components.count >= 5 else { return normalized(hubID) }
-        return normalized(components[4...].joined(separator: ":"))
     }
 }
 

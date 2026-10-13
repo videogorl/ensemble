@@ -283,53 +283,6 @@ public actor EnsemblePlexDiscoveryService {
         return discovered
     }
 
-    public func cachedLibraries(
-        from credentials: [EnsembleAccountCredential],
-        snapshot: EnsemblePlexCatalogSnapshot
-    ) async -> [EnsemblePlexLibrary] {
-        let sourceKeys = Set(snapshot.watchSourceKeys.compactMap(Self.parseSourceKey))
-        guard !sourceKeys.isEmpty else { return [] }
-
-        var libraries: [EnsemblePlexLibrary] = []
-        for account in credentials {
-            let api = Self.bootstrapClient(token: account.authToken)
-            guard let devices = try? await api.getResources(token: account.authToken) else { continue }
-
-            for device in devices {
-                let matchedKeys = sourceKeys
-                    .filter { $0.accountId == account.accountId && $0.serverId == device.clientIdentifier }
-                    .map { $0.libraryKey }
-                guard !matchedKeys.isEmpty,
-                      let token = device.accessToken ?? account.servers.first(where: { $0.serverId == device.clientIdentifier })?.serverToken,
-                      let connection = device.bestConnection else {
-                    continue
-                }
-
-                let references = matchedKeys.sorted().map { key in
-                    EnsembleLibraryReference(
-                        id: key,
-                        key: key,
-                        title: snapshot.libraries.first(where: { $0.key == key })?.title ?? "Music",
-                        isEnabled: true
-                    )
-                }
-                let server = EnsemblePlexServer(
-                    account: account,
-                    id: device.clientIdentifier,
-                    name: device.name,
-                    token: token,
-                    url: connection.uri,
-                    connections: device.connections,
-                    libraries: references
-                )
-                libraries.append(contentsOf: references.map {
-                    EnsemblePlexLibrary(server: server, id: $0.id, key: $0.key, title: $0.title)
-                })
-            }
-        }
-        return libraries
-    }
-
     public func credential(from token: String) async throws -> EnsembleAccountCredential {
         let api = Self.bootstrapClient(token: token)
         let user = try await api.getUserInfo(token: token)
@@ -443,24 +396,6 @@ public actor EnsemblePlexDiscoveryService {
                 isEnabled: false
             )
         }
-    }
-
-    private struct SourceComponents: Hashable {
-        let accountId: String
-        let serverId: String
-        let libraryKey: String
-    }
-
-    private static func parseSourceKey(_ sourceKey: String) -> SourceComponents? {
-        let components = sourceKey.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
-        guard components.count == 4, components[0] == "plex" else { return nil }
-        return SourceComponents(accountId: components[1], serverId: components[2], libraryKey: components[3])
-    }
-}
-
-private extension EnsemblePlexCatalogSnapshot {
-    var watchSourceKeys: [String] {
-        (pins + albums + artists + playlists + recentlyAdded).map(\.sourceKey)
     }
 }
 

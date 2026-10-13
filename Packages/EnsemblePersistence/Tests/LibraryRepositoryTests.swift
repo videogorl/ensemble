@@ -116,7 +116,7 @@ final class LibraryRepositoryTests: XCTestCase {
 
         let unscopedArtist = try await repository.fetchArtist(ratingKey: ratingKey)
         let unscopedAlbum = try await repository.fetchAlbum(ratingKey: ratingKey)
-        let unscopedTrack = try await repository.fetchTrack(ratingKey: ratingKey)
+        let unscopedTrack = try await repository.fetchTrack(ratingKey: ratingKey, sourceCompositeKey: nil)
         let scopedArtist = try await repository.fetchArtist(ratingKey: ratingKey, sourceCompositeKey: sourceA)
         let scopedAlbum = try await repository.fetchAlbum(ratingKey: ratingKey, sourceCompositeKey: sourceA)
         let scopedTrack = try await repository.fetchTrack(ratingKey: ratingKey, sourceCompositeKey: sourceA)
@@ -324,61 +324,6 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(artistsByKey["\(sourceA)|shared"]?.sourceCompositeKey, sourceA)
         XCTAssertEqual(artistsByKey["\(sourceB)|shared"]?.sourceCompositeKey, sourceB)
         XCTAssertNil(artistsByKey["\(sourceA)|missing"])
-    }
-
-    func testFetchTrackArtworkFallbackFindsEquivalentArtworkBackedDuplicate() async throws {
-        let stack = CoreDataStack.inMemory()
-        let repository = LibraryRepository(coreDataStack: stack)
-
-        _ = try await repository.upsertTrack(
-            ratingKey: "track-1",
-            key: "/library/metadata/track-1",
-            title: "2085",
-            artistName: "AJR",
-            albumName: "The Maybe Man",
-            albumRatingKey: nil,
-            trackNumber: 13,
-            discNumber: 1,
-            duration: 331_000,
-            thumbPath: "/library/metadata/album-1/thumb/1000",
-            streamKey: "/library/parts/track-1/file.m4a",
-            dateAdded: nil,
-            dateModified: nil,
-            lastPlayed: nil,
-            rating: nil,
-            playCount: nil,
-            sourceCompositeKey: "plex/account/server/library-a"
-        )
-
-        _ = try await repository.upsertTrack(
-            ratingKey: "track-2",
-            key: "/library/metadata/track-2",
-            title: "2085",
-            artistName: "AJR",
-            albumName: "The Maybe Man",
-            albumRatingKey: nil,
-            trackNumber: 13,
-            discNumber: 1,
-            duration: 331_000,
-            thumbPath: "/library/metadata/album-2/thumb/1000",
-            streamKey: "/library/parts/track-2/file.m4a",
-            dateAdded: nil,
-            dateModified: nil,
-            lastPlayed: nil,
-            rating: nil,
-            playCount: nil,
-            sourceCompositeKey: "plex/account/server/library-b"
-        )
-
-        let fallback = try await repository.fetchTrackArtworkFallback(
-            title: "2085",
-            albumName: "The Maybe Man",
-            artistName: "AJR",
-            excludingRatingKey: "track-1",
-            excludingSourceCompositeKey: "plex/account/server/library-a"
-        )
-
-        XCTAssertEqual(fallback?.thumbPath, "/library/metadata/album-2/thumb/1000")
     }
 
     func testBatchAlbumUpsertRecordsArtworkInvalidationWhenThumbChanges() async throws {
@@ -970,7 +915,7 @@ final class LibraryRepositoryTests: XCTestCase {
             sourceCompositeKey: sourceKey
         )
         defer {
-            manager.deleteArtwork(ratingKey: ratingKey, type: .album)
+            manager.deleteArtwork(ratingKey: ratingKey, type: .album, sourceCompositeKey: nil)
             try? manager.deleteArtwork(forSourceCompositeKey: sourceKey)
         }
         try seedArtwork(
@@ -985,12 +930,6 @@ final class LibraryRepositoryTests: XCTestCase {
             )
         )
 
-        let legacyPath = try await manager.getLocalArtworkPath(
-            ratingKey: ratingKey,
-            type: .album,
-            sourcePath: sourcePath,
-            dateModifiedSeconds: 1_000
-        )
         let scopedPath = try await manager.getLocalArtworkPath(
             ratingKey: ratingKey,
             type: .album,
@@ -1004,19 +943,10 @@ final class LibraryRepositoryTests: XCTestCase {
             sourceCompositeKey: sourceKey
         )
 
-        XCTAssertNil(legacyPath)
         XCTAssertNil(scopedPath)
         XCTAssertNil(stalePath)
         XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: scopedURL.path))
-        do {
-            try await manager.downloadAndCacheArtwork(
-                from: try XCTUnwrap(URL(string: "https://example.com/artwork.jpg")),
-                ratingKey: ratingKey,
-                type: .album
-            )
-            XCTFail("Expected unscoped durable artwork writes to be rejected")
-        } catch ArtworkDownloadError.noArtworkPath {}
     }
 
     func testArtworkDownloadManagerRejectsScopedIdentityForAnotherSource() async throws {
@@ -1078,7 +1008,7 @@ final class LibraryRepositoryTests: XCTestCase {
             )
         )
 
-        manager.deleteArtwork(ratingKey: ratingKey, type: .album)
+        manager.deleteArtwork(ratingKey: ratingKey, type: .album, sourceCompositeKey: nil)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: scopedURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: ArtworkDownloadManager.identityURL(for: scopedURL).path))
@@ -1345,13 +1275,11 @@ final class LibraryRepositoryTests: XCTestCase {
         ], sourceCompositeKey: sourceB)
 
         let artistMetadata = try await repository.fetchArtistSyncMetadata(forSource: sourceA)
-        let artistTimestamps = try await repository.fetchArtistTimestamps(forSource: sourceA)
         let albumTimestamps = try await repository.fetchAlbumTimestamps(forSource: sourceA)
         let trackTimestamps = try await repository.fetchTrackTimestamps(forSource: sourceA)
         let trackRatings = try await repository.fetchTrackRatings(forSource: sourceA)
 
         XCTAssertEqual(artistMetadata, ["artist": ArtistSyncMetadata(artistInputA)])
-        XCTAssertEqual(artistTimestamps, ["artist": dateA])
         XCTAssertEqual(albumTimestamps, ["album": dateA])
         XCTAssertEqual(trackTimestamps, ["track": dateA])
         XCTAssertEqual(trackRatings, ["track": 5])

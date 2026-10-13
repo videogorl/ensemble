@@ -384,23 +384,6 @@ extension LibraryRepository {
         }
     }
 
-    /// Fetch all artist ratingKey -> dateModified pairs for a source (single query for change detection)
-    public func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
-        try await coreDataStack.performBackgroundContext { context in
-            let request: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
-            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-            request.propertiesToFetch = ["ratingKey", "dateModified"]
-            let artists = try context.fetch(request)
-            var result: [String: Date] = [:]
-            result.reserveCapacity(artists.count)
-            for artist in artists {
-                // Use distantPast for nil dateModified so we can detect existence
-                result[artist.ratingKey] = artist.dateModified ?? Date.distantPast
-            }
-            return result
-        }
-    }
-
     /// Fetch all album ratingKey -> dateModified pairs for a source (single query for change detection)
     public func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
         try await coreDataStack.performBackgroundContext { context in

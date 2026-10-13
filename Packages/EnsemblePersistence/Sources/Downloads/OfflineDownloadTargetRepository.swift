@@ -44,7 +44,6 @@ public protocol OfflineDownloadTargetRepositoryProtocol: Sendable {
     /// Delete all targets and their memberships.
     func deleteAllTargets() async throws
 
-    func fetchMemberships(targetKey: String) async throws -> [CDOfflineDownloadMembership]
     func fetchTrackReferences(targetKey: String) async throws -> [OfflineTrackReference]
 
     func replaceMemberships(targetKey: String, trackReferences: [OfflineTrackReference]) async throws
@@ -232,15 +231,6 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
             if context.hasChanges {
                 try context.save()
             }
-        }
-    }
-
-    public func fetchMemberships(targetKey: String) async throws -> [CDOfflineDownloadMembership] {
-        try await coreDataStack.performViewContext { context in
-            let request = CDOfflineDownloadMembership.fetchRequest()
-            request.predicate = NSPredicate(format: "targetKey == %@", targetKey)
-            request.sortDescriptors = [NSSortDescriptor(key: "trackRatingKey", ascending: true)]
-            return try context.fetch(request)
         }
     }
 

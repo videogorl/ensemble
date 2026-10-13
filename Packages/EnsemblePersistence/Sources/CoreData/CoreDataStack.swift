@@ -50,17 +50,6 @@ public final class CoreDataStack: @unchecked Sendable {
         return context
     }
 
-    public func saveContext() {
-        let context = viewContext
-        if context.hasChanges {
-            do {
-                try context.save()
-            } catch {
-                EnsembleLogger.debug("CoreData save error: \(error)")
-            }
-        }
-    }
-
     public func performBackgroundTask(_ block: @escaping (NSManagedObjectContext) -> Void) {
         persistentContainer.performBackgroundTask { context in
             // Match the merge policy used by viewContext and newBackgroundContext()

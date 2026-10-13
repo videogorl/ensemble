@@ -9,14 +9,12 @@ public protocol KeychainServiceProtocol: Sendable {
     // iCloud Keychain sync (optional — default no-ops for test mocks)
     func saveSynchronizable(_ value: String, forKey key: String) throws
     func getSynchronizable(_ key: String) throws -> String?
-    func deleteSynchronizable(_ key: String) throws
 }
 
 /// Default no-op implementations for sync methods (mocks don't need them)
 public extension KeychainServiceProtocol {
     func saveSynchronizable(_ value: String, forKey key: String) throws {}
     func getSynchronizable(_ key: String) throws -> String? { nil }
-    func deleteSynchronizable(_ key: String) throws {}
 }
 
 public final class KeychainService: KeychainServiceProtocol, Sendable {
@@ -63,11 +61,6 @@ public final class KeychainService: KeychainServiceProtocol, Sendable {
     /// Read a value from the synchronizable (iCloud Keychain) store
     public func getSynchronizable(_ key: String) throws -> String? {
         try syncKeychain.get(key)
-    }
-
-    /// Delete a value from the synchronizable (iCloud Keychain) store
-    public func deleteSynchronizable(_ key: String) throws {
-        try syncKeychain.remove(key)
     }
 }
 

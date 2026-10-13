@@ -25,10 +25,6 @@ extension PlexAPIClient {
 
     // MARK: - Library Selection
 
-    public func getLibrarySelection() -> PlexLibrarySelection? {
-        selectedLibrary
-    }
-
     /// Filters the server's sections down to music libraries only.
     public func getMusicLibrarySections() async throws -> [PlexLibrarySection] {
         let sections = try await getLibrarySections()
