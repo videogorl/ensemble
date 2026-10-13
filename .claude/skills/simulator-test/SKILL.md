@@ -111,7 +111,7 @@ sidebar.library.artists
 sidebar.library.albums
 sidebar.library.genres
 sidebar.library.favorites
-sidebar.playlists.all
+sidebar.library.playlists
 sidebar.toolbar.downloads
 sidebar.toolbar.profile
 profile.storage.clearArtworkCache

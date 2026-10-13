@@ -1,7 +1,8 @@
 # Ensemble re-architecture plan
 
-Status: plan accepted by Felicity on 2026-10-13. Step 0 is implemented and
-Mac-checked; its iPhone surface pass is still owed. Steps 1 to 6 not started.
+Status: plan accepted by Felicity on 2026-10-13. Step 0 is implemented,
+Mac-checked, and simulator-checked; its physical iPhone pass is on hold by
+Felicity's decision. Steps 1 to 6 not started.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
@@ -355,8 +356,8 @@ passes on the iPhone 16 Pro through Device Hub and on the Mac build, except
 the parked item; line counts are recorded.
 
 Status at `254691f2`: scope items 1 to 6 are delivered and the three builds
-succeed. Not done: the iPhone surface pass has not run, and four Mac rows that
-need pointer or keyboard input are `not run`. See
+succeed. The Mac pass is complete except Share. The iPhone rows were run on a
+simulator; the physical iPhone pass is on hold, so step 0 is not verified. See
 [`2026-10-13-step-0-verification.md`](../investigations/2026-10-13-step-0-verification.md).
 
 Line counts at `254691f2`, from the section 8 commands:

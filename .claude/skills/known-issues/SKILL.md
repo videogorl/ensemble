@@ -148,6 +148,18 @@ No unresolved critical issues are currently documented.
 - **Area:** `AudioAnalyzer`, sidecar frequency analysis.
 - **Status:** Tracks without cached `.freq` sidecars may show no visualizer data until analysis completes. Playback is unaffected.
 
+### Feed Shows "Loading..." After Cold Launch On Mac
+
+- **Area:** `HomeView`, hub loader, `AppReadinessCoordinator`.
+- **Status:** On 2026-10-13 two cold launches of the macOS Debug build showed the Feed's "Loading..." state for about 40 seconds before hubs appeared, although the hub loader later saved a last-good snapshot of 17 hubs. Sidebar, pins, and the restored mini player appeared at once. The Mac was switching between Ethernet and Wi-Fi during the run. Not compared against `pre-step-0`, so it is unknown whether the floor raise or cleanup changed it. See [the step 0 note](../../../docs/investigations/2026-10-13-step-0-verification.md).
+- **Next step:** Repeat on a stable network and on the `pre-step-0` tag. Check whether the last-good Feed snapshot is read before the first health refresh completes.
+
+### Large Track Lists Stall Under Accessibility Traversal
+
+- **Area:** Songs table on macOS and iOS, `ArtworkLoader`.
+- **Status:** On 2026-10-13 a full accessibility walk of the macOS Songs table (about 17,000 tracks) made it resolve artwork for thousands of rows; artwork then showed placeholders on every screen for minutes and recovered only after relaunch. On the iOS 26.5 simulator an accessibility snapshot of Songs exceeded the test runner's watchdog and held the app above 100 percent CPU; the app itself kept accepting routes. Both were triggered by automation. VoiceOver and other assistive clients have not been tested and may hit the same cost.
+- **Next step:** Measure a VoiceOver pass over Songs on a large library. If confirmed, bound what the table exposes or resolves per accessibility request.
+
 ## When To Update This Skill
 
 Add entries only for active bugs, limitations, fragile platform behavior, or watchlist items. Resolved incident writeups belong in `docs/investigations/`.

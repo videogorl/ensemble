@@ -3,8 +3,9 @@
 Date: 2026-10-13. Plan: [`rearchitecture-plan.md`](../reference/rearchitecture-plan.md)
 step 0. Checklist: [`surface-checklist.md`](../reference/surface-checklist.md).
 
-Step 0 is **not verified**. The Mac pass is partial and the iPhone pass has not
-run.
+Step 0 is **not verified**. The Mac pass is complete except Share. The iPhone
+rows were run on a simulator because the physical iPhone pass is on hold by
+Felicity's decision; simulator results do not satisfy plan section 7.
 
 ## Build under test
 
@@ -33,30 +34,74 @@ in `254691f2`.
 
 ## Mac
 
-Driven through accessibility actions and per-window captures, with the app in
-the background. Rows that need a real pointer or keyboard are `not run`.
+First pass driven through accessibility actions with the app in the background;
+second pass, with Felicity's go-ahead, with real pointer and media-key input on
+a relaunch of the same built app.
 
 | Surface | Result | Evidence |
 |---|---|---|
 | Launch and readiness | pass | PID path and version as above; window showed sidebar, pins, and the restored mini player. Feed showed "Loading..." for about 40 seconds on both cold launches before hubs appeared, see below |
 | Sidebar | pass | Search, Home, Songs, Artists, Albums, Genres, Favorites, a pinned playlist, album, and artist each highlighted and showed their screen |
 | Browse split | pass | Artists: selecting ABBA, then Adele, changed the detail pane while the list kept its place |
-| Songs table | not run | The table rendered with artwork. Row play and the context menu need pointer input |
+| Songs table | pass | Rendered with artwork. Double-click played the row (`firstAudibleRender` logged, speaker glyph on the row). Right-click listed Start Track Radio through Hide |
 | Detail screens | pass | Album (Fantasies), artist (alt-J), and merged playlist (Ambient Electric) rendered header and tracks. Album Play started playback: `firstAudibleRender` logged 645 ms after the press and the mini player showed track 1 |
 | Feed | pass | Hubs rendered with artwork; a Recently Added card opened its album. Scroll readability not checked |
 | Search | pass | A recent search returned Artists, Albums, and Songs sections. Typing was not exercised |
 | Mini player | pass | Next advanced to track 2. Nothing overlapped at 1100 and 1500 points wide. Width below 1100 not confirmed |
-| Now Playing | not run | The mini player did not respond to an accessibility press or a background click |
+| Now Playing | pass | Clicking the mini player opened it. Queue, Lyrics, and Info each rendered; Forward and Pause changed state; Close restored the toolbar and sidebar |
 | Menu commands | pass | Playback > Play/Pause paused playback. View > Refresh was accepted; no log line distinguishes it, so its effect is unconfirmed |
 | Profile window | pass | Every section rendered. Logs listed the current session and opened it with lines from this run |
 | Downloads window | pass | Library rows rendered; one row drilled in and went back. Nothing was toggled |
-| System Now Playing | not run | Needs Control Center interaction |
-| Share and song.link | not run | Needs a pointer-opened menu |
+| System Now Playing | pass | System Play/Pause and Next media keys reached Ensemble: logs show `remote toggle command received`, the next track, then paused. The Control Center tile was not looked at |
+| Share and song.link | not run | Share Link raised a system prompt asking to let Ensemble access the Apple Music library. It was left unanswered, so the picker was not reached |
 
-## iPhone, iPad, Apple Watch
+## iPhone rows on a simulator
 
-All rows `not run`. `devicectl` listed the iPhone 16 Pro as `unavailable`
-throughout. The iPad and watch are not approved until steps 5 and 6.
+Physical iPhone rows are all `not run`: the device pass is on hold. The rows
+below ran on simulator `C01A1C06-F40B-4B39-93A7-7D1D9C89D9A1` (iPhone 17 Pro,
+iOS 26.5), which already held a signed-in Plex library.
+
+- Prepared with `scripts/prepare_runtime.py`; run directory
+  `/tmp/ensemble-step0-sim`. Source commit `3a6a32fb`, clean tree.
+- Build `0.4.0 (202610131144.3632)`; the helper matched the installed
+  executable hash and the PID's path, and Profile > About showed the same build.
+- Driven with the `agent-device` CLI pinned to the UUID, plus debug routes.
+- Simulator shut down afterwards and confirmed `Shutdown`.
+
+| Surface | Result | Evidence |
+|---|---|---|
+| Launch and readiness | pass | Feed showed hubs with the restored mini player |
+| Tab bar shell | pass | Feed, Artists, Playlists, Search, More each showed their root |
+| More and Edit Tabs | partial | Songs opened from More. Edit Tabs opened once by accident and was closed; tabs were unchanged. Other rows reached by debug route, not from More |
+| Feed | partial | A Recently Added card opened its album. Hub scrolling and the order sheet not checked |
+| Songs | partial | List rendered with artwork. Chip filter and row tap not exercised: accessibility snapshots of this screen timed out |
+| Albums | pass | Filter sheet opened and closed; an album opened |
+| Artists, Artist detail | pass | Artist detail (Metric) rendered header, counts, and albums |
+| Playlists, Playlist detail | pass | Playlist opened; tapping a track started playback (system Now Playing log `state=playing`) |
+| Genres | pass | Genre list rendered; Blues opened |
+| Favorites | pass | Rendered with 278 tracks |
+| Album detail | pass | Header and track rendered; Play logged `firstAudibleRender` |
+| Search | pass | Typing "metric" returned Artists and Albums sections; the artist result opened |
+| Mini player | pass | Pause and Play changed state; present on every tab visited |
+| Now Playing: controls | pass | Elapsed advanced 0:14 to 0:20 after Play |
+| Now Playing: queue, lyrics, info | pass | Queue page with its toggles, "No Lyrics Available", and filled Info rows |
+| Share and song.link | pass | Share Link opened the share sheet with the track; the URL itself was not read |
+| Downloads | pass | Library rows rendered; nothing toggled |
+| Profile | pass | Sources, playback rows, Storage, Reset, Developer, and About rendered |
+| Settings subpages | partial | Audio Quality opened. The other five not opened |
+| Storage | pass | Clear Artwork Cache showed its confirmation; Cancel dismissed it and no clear was logged |
+| Add Source | pass | Plex and Apple Music options shown; cancelled |
+| Logs | pass | Current session listed and opened with lines from this run |
+| Toasts | pass | Test toast appeared above the Profile sheet |
+
+Not run on the simulator: Hidden, Moods, Pins, Item info, Now Playing dismiss
+and go-to, StageFlow, Song permalink, Download manager settings, Music source
+detail. Not possible on a simulator: Lock Screen, Control Center, Background
+playback, Offline playback, Siri, App Shortcuts, Focus filter, Spotlight.
+
+## iPad, Apple Watch
+
+All rows `not run`. Neither is approved until steps 5 and 6.
 
 ## Observations
 
@@ -68,10 +113,20 @@ throughout. The iPad and watch are not approved until steps 5 and 6.
   thousands of rows; artwork then showed placeholders on every screen for
   minutes. A relaunch cleared it. This may affect assistive-technology users
   with large libraries.
+- **Songs accessibility on the simulator.** A snapshot of Songs exceeded the
+  test runner's watchdog and held the app above 100 percent CPU. Same cost as
+  the Mac walk above.
+- **Queue order differs from the Songs list on the Mac.** After playing
+  "(Anesthesia) – Pulling Teeth" from Songs, Next went to "(Big) Wish" while
+  the list shows "[Anthems]" next. The list and the queue appear to sort
+  punctuation differently. Not investigated.
+- **Share Link on the Mac asks for Apple Music library access.** Unexpected
+  for a Plex track on a platform without the Apple Music source. Not
+  investigated.
 - The Mac's network switched between Ethernet and Wi-Fi several times during
   the run. The app logged each switch and recovered.
 
 ## Still owed for step 0
 
-1. iPhone surface pass on the iPhone 16 Pro through Device Hub.
-2. The four `not run` Mac rows, with pointer and keyboard input.
+1. iPhone surface pass on the iPhone 16 Pro through Device Hub. On hold.
+2. Mac Share row, once the Apple Music prompt is answered.
