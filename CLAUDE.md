@@ -11,6 +11,9 @@ in code: paged reads and bounded caches.
   structural work. Do not call a change verified until it has been exercised on
   the physical iPhone through Device Hub per that plan's section 7.
 - Use `Ensemble.xcworkspace`, never `Ensemble.xcodeproj`.
+- Run agent builds through `python3 scripts/build_serial.py <xcodebuild arguments>`
+  so sessions and worktrees share one build lock and use at most two build jobs.
+  `scripts/prepare_runtime.py` uses this wrapper automatically.
 - Keep investigation and design requests read-only until implementation is
   requested. Discussing a proposed fix is not approval to build it; once the
   user approves that fix, proceed without asking again.
@@ -34,8 +37,9 @@ in code: paged reads and bounded caches.
 
 ## Changelog Updates
 
-Before finishing each turn, search the [Ensemble changelog database](https://app.notion.com/p/videogorl/3351906996c0807780f8cbb9db0709f2?v=3ea1906996c080558d1f000c28aab9d0&source=copy_link)
-for the page titled exactly `{{future}}`. For completed changes, append a concise,
+After completing a user-facing fix or feature, search the [Ensemble changelog database](https://app.notion.com/p/videogorl/3351906996c0807780f8cbb9db0709f2?v=3ea1906996c080558d1f000c28aab9d0&source=copy_link)
+for the page titled exactly `{{future}}`. Skip advice, read-only investigation,
+agent guidance, and internal tooling changes. Append a concise,
 user-facing bullet to the page content describing the fix or feature, with
 `GitHub ↗` linked to the corresponding commit on GitHub. Example:
 “Now Playing view supports the Metal ‘aurora’ visual properly sized. GitHub ↗”

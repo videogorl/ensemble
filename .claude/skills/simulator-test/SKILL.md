@@ -17,6 +17,12 @@ This skill exists so the agent can iterate without asking the user to manually o
 
 Commands below assume `ENSEMBLE_SIMULATOR_UDID` is set to the currently discovered UUID for the requested runtime.
 
+For a cold Debug run, use `scripts/prepare_runtime.py` to build, install, check
+artifact/process identity, launch an existing surface, and capture evidence.
+Read `docs/reference/agent-runtime-testing.md`, section "Prepare And Capture A
+Run", for commands and limits. Continue with direct UI inspection and the
+behavior under test; preparation alone is not behavioral proof.
+
 Create one isolated run directory before using the examples below:
 
 ```bash

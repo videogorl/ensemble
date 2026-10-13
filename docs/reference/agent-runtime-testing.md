@@ -4,6 +4,55 @@ Use this protocol when one or more agents verify Ensemble on simulators or
 physical devices. The goal is isolated runners, deterministic app state, and
 evidence that proves an interaction was delivered.
 
+## Prepare And Capture A Run
+
+Use `scripts/prepare_runtime.py` for repeatable Debug build, install, launch,
+identity checks, and evidence collection. Discover and reserve the exact target
+first; open simulator targets in the available device panel so the user can
+observe. The helper uses a fresh DerivedData directory for each preparation and
+never selects a device by name or `booted`.
+
+```bash
+python3 scripts/prepare_runtime.py prepare --platform simulator \
+  --udid "$ENSEMBLE_SIMULATOR_UDID" --surface settings
+# For a connected physical device, use --platform device and its exact UDID.
+```
+
+The command prints its run directory. `run.json` records the source commit and
+dirty worktree status, built app path/version/hash, exact target, launch PID,
+and evidence directory. Simulator preparation compares the installed executable
+hash with the built executable and proves the PID's executable path. Physical
+preparation records the fresh install, compares installed build versions, and
+checks the launched PID/executable. Physical preparation requires an available,
+unlocked, paired device; it does not enter a passcode or operate Device Hub.
+
+Preparation launches an existing automation surface and captures evidence; it
+does not establish that the surface rendered or the requested behavior passed.
+Inspect the UI, exercise the actual flow, then collect updated evidence without
+rebuilding or relaunching:
+
+```bash
+python3 scripts/prepare_runtime.py collect --run-dir "$ENSEMBLE_RUN_DIR"
+python3 scripts/prepare_runtime.py shutdown --run-dir "$ENSEMBLE_RUN_DIR"
+```
+
+`collect` rechecks the original PID, so an app restart or replacement requires
+new preparation. Simulator captures include a screenshot, recent OS logs, and
+the latest persistent session log. Physical captures include session logs and
+lock evidence; capture UI through Device Hub. Raw logs may contain private
+library/account data; inspect and redact excerpts before sharing them.
+
+`shutdown` targets and verifies only the run's simulator. Run it after a failed
+preparation too, once all users of that simulator have released it. The helper
+leaves the simulator running during inspection and never erases its data.
+Physical cleanup remains playback pause and phone lock through Device Hub,
+followed by independent lock-state verification.
+
+Animations remain enabled unless `--disable-animations` is explicitly supplied.
+Use the lower-level recipes below for lifecycle scenarios requiring an existing
+process, Release/performance work, or custom launch arguments. The helper
+deliberately cold-launches and replaces the installed Debug app.
+
 ## Assign Isolated Lanes
 
 Each simulator runner owns:
