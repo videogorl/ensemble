@@ -1,6 +1,6 @@
 # Ensemble re-architecture plan
 
-Status: approved direction, no implementation started.
+Status: plan read and accepted by Felicity on 2026-10-13. No implementation started.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
@@ -42,6 +42,9 @@ Decided by Felicity on 2026-10-13. Do not reopen these without asking.
 | Freeze | A scoped feature freeze applies to the subsystem being rebuilt. See section 6. |
 | Verification | Nothing is called good until it has been exercised on the physical iPhone 16 Pro through Device Hub. See section 7. |
 | Delegation | Subagents and the `codex` CLI may be used for implementation. |
+| TestFlight | No TestFlight builds during this work. They resume when the project is done. A git tag before each step is the rollback point. |
+| Devices | iPhone 16 Pro approved now. The paired Apple Watch and iPad Pro are approved for their steps; ask Felicity to connect them first. |
+| Low-memory devices | No 2 GB device is a test target. Keep paging and memory discipline in code. |
 | Screen Mirroring | The broken external-display Now Playing view is parked. Do not diagnose it until asked. It stays on the surface checklist as known-broken. |
 
 ## 3. Evidence
@@ -288,6 +291,30 @@ protocol MusicSource: Sendable {
   AppKit split stays until the native one is shown not to cause the sidebar
   pop-in listed in `known-issues`.
 
+### 4.8 Packages and native APIs
+
+Checked on GitHub on 2026-10-13. Re-check versions when a step adopts one.
+
+| Choice | Use for | Status |
+|---|---|---|
+| GRDB 7.11 | The store, step 5 | Adopt. MIT, active, supports iOS 13 and watchOS 7 upward. |
+| swift-async-algorithms 1.1 | Debounce, throttle, and merge on async streams, replacing 81 Combine operator uses and the hand-written debounce registry | Adopt in step 2. Apple, Apache 2.0. |
+| Swift Testing | Table-driven reducer and conformance tests | Adopt. Ships with Xcode. |
+| Observation, `CKSyncEngine` | View model observation; possibly the hand-written CloudKit record handling | Native on iOS 17. Evaluate `CKSyncEngine` in step 2. |
+| Nuke | Artwork | Already used, pinned from 12; 13.2 is current. About 4,000 lines of artwork code sit on top of it, including hand-written URL caches and trackers. Review in step 5 how much Nuke's own caches can replace. |
+| jellyfin-sdk-swift 3.3 | The Jellyfin adapter, later | Use when Jellyfin is built. MPL 2.0, which is file-level copyleft. |
+| KeychainAccess | Keychain | Already used. Last release 2021. The wrapper is 84 lines; replacing it with direct Security calls is optional. |
+
+Rejected:
+
+- The Composable Architecture. The reducer in 4.3 is small; the framework
+  would add code and concepts rather than remove them.
+- A third-party audio engine such as SFBAudioEngine. Engines are out of
+  scope, and it has no watchOS support.
+- TPCircularBuffer for the render-thread buffer. It has no licence file on
+  GitHub. If the lock in the audio callback is addressed, use Apple's
+  swift-atomics.
+
 ## 5. Steps
 
 Order follows the pain and the churn. Each step ends with deletion of the old
@@ -427,8 +454,8 @@ While a step is rebuilding a subsystem:
 - No new features and no behaviour changes land in that subsystem. Blocking
   bug fixes are allowed and must also land in the new path.
 - The rest of the app stays open.
-- A TestFlight build ships from the commit before the step starts. It is the
-  comparison baseline and the rollback point.
+- A git tag `pre-step-N` marks the commit before the step starts. It is the
+  comparison baseline and the rollback point. No TestFlight build is made.
 - `CLAUDE.md` carries one line naming the frozen subsystem, added when the
   step starts and removed when it ends.
 - The freeze ends when the old path is deleted and device acceptance passes.
@@ -460,8 +487,8 @@ protocol. Anything else is reported as unverified, with the reason.
    what was exercised, evidence, and what was not exercised.
 
 Standing approval exists for signed builds and installs to the iPhone 16 Pro
-for this work. A physical Apple Watch and an iPad Pro are paired with the Mac
-but are not yet approved for use; ask before step 5 and step 6.
+for this work. The paired Apple Watch and iPad Pro are approved for steps 5
+and 6. Ask Felicity to connect them before those steps.
 
 Destructive checks, meaning source removal, playlist deletion, queue
 destruction, and cache cleanup on real data, still need explicit approval
@@ -513,10 +540,6 @@ contract changed.
 
 ## 10. Risks and open items
 
-- **Memory on older devices.** iPadOS 17 still runs on at least one 2 GB
-  iPad. Keep the paging and memory discipline; stop treating iPhone 6s and
-  iPad Air 2 as targets. Confirm with Felicity whether a 2 GB iPad remains a
-  test target.
 - **Apple Music matrix.** Mixed-provider behaviour is only physically
   verified on some OS versions. Step 1 must not widen or narrow that claim
   without device evidence.
@@ -524,8 +547,8 @@ contract changed.
   must mine `docs/investigations/` and the `known-issues` skill so the
   reducer tables cover them. Losing one silently is the main risk of this
   plan.
-- **GRDB on watchOS.** Confirm platform support and binary size at the start
-  of step 5.
+- **GRDB on watchOS.** Platform support is confirmed, see section 4.8.
+  Check binary size at the start of step 5.
 - **Estimates.** Every line target in this file is an estimate. Report
   actuals and revise the targets rather than bending the work to hit them.
 - **Screen Mirroring.** Parked by decision. Step 2 rebuilds how the external
