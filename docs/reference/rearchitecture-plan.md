@@ -355,7 +355,7 @@ passes on the iPhone 16 Pro through Device Hub and on the Mac build, except
 the parked item; line counts are recorded.
 
 Status at `254691f2`: scope items 1 to 6 are delivered and the three builds
-succeed. Not done: the iPhone surface pass has not run, and six Mac rows that
+succeed. Not done: the iPhone surface pass has not run, and four Mac rows that
 need pointer or keyboard input are `not run`. See
 [`2026-10-13-step-0-verification.md`](../investigations/2026-10-13-step-0-verification.md).
 

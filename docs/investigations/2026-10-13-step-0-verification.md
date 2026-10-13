@@ -21,7 +21,7 @@ run.
 | Check | Result |
 |---|---|
 | macOS build at `254691f2` | Succeeded |
-| iOS Simulator and watchOS Simulator builds | Succeeded on the same sources before the final whitespace and test-only edits; not rebuilt after them |
+| iOS Simulator and watchOS Simulator builds at `254691f2` | Succeeded |
 | EnsembleCore tests | 1,160 run. Two `PlaylistDetailViewModelTests` cases failed in the full run and passed when run alone: `testCreateFeedbackPreservesAccountIdentityAndEachBatchRetry`, `testPlaylistAddFeedbackPreservesActualCountsAndNavigation`. Both report an offline state leaking from another test |
 | EnsembleUI tests | 125 run, 0 failures |
 | EnsembleDomain, EnsembleSiriShared, EnsembleWatchCore tests | 14, 24, and 33 run, 0 failures |
@@ -74,5 +74,4 @@ throughout. The iPad and watch are not approved until steps 5 and 6.
 ## Still owed for step 0
 
 1. iPhone surface pass on the iPhone 16 Pro through Device Hub.
-2. The six `not run` Mac rows, with pointer and keyboard input.
-3. iOS and watchOS builds at the final commit.
+2. The four `not run` Mac rows, with pointer and keyboard input.
