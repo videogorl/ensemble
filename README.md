@@ -69,14 +69,14 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 
 ## Requirements
 
-- **iOS** 15.0+ (optimized for iOS 16+)
-- **iPadOS** 15.0+
-- **macOS** 12.0+
+- **iOS** 17.0+
+- **iPadOS** 17.0+
+- **macOS** 15.0+
 - **watchOS** 10.0+
 - **Xcode** 15.0+
 - **Swift** 5.9+
 
-**Performance Target:** Optimized for devices with 2GB RAM (iPhone 6s, iPad Air 2)
+**Performance:** Memory use stays bounded through paged reads and bounded caches. Devices with 2GB RAM are no longer test targets.
 
 ## Getting Started
 
@@ -137,7 +137,6 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 - **Network resilience** — Multi-layered connectivity monitoring with automatic failover
 - **Persistent artwork caching** — Two-tier caching (filesystem + memory) with local-first loading
 - **Performance optimizations** — Debouncing, background processing, memory-efficient design
-- **iOS 15 compatibility layer** — NestedNavigationLink pattern, traditional NavigationLink fallbacks, conditional feature checks
 
 ## Development
 
@@ -175,7 +174,7 @@ xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble test
 For agent-driven development, passing tests are only part of verification. User-visible changes should also be validated in the running app with the iOS Simulator MCP server so the agent can launch the app, interact with the UI, and confirm behavior without manual user input.
 
 ### Code Guidelines
-- **Target:** iOS 15+ devices with 2GB RAM
+- **Target:** iOS/iPadOS 17+, macOS 15+, watchOS 10+; keep reads paged and caches bounded
 - Use clear, descriptive names
 - Comment logical sections (not every line)
 - Favor simplicity over premature optimization
@@ -216,7 +215,6 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Network monitoring and server health checks
 - Playback tracking (timeline reporting every 10s and scrobbling at 90%)
 - Waveform visualization with Plex sonic analysis integration and deterministic fallback
-- iOS 15+ compatibility with NestedNavigationLink pattern
 - StageFlow chrome suppression for iPhone landscape carousel experiences
 - Account-centric Music Sources flow with grouped server/library selection and integrated sync status/actions
 - Library visibility profile groundwork with source-level filtering seams in Library/Search/Home (no selector UI yet)
@@ -292,7 +290,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 This is a personal project, but contributions are welcome! Please:
 1. Read `CLAUDE.md` for architecture details
 2. Follow existing code patterns
-3. Test on iOS 15 devices when possible
+3. Test on a physical iOS 17+ device when possible
 4. Focus on memory efficiency
 
 ## License

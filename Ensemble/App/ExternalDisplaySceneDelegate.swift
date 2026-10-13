@@ -21,7 +21,7 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
         willConnectTo session: UISceneSession,
         options connectionOptions: UIScene.ConnectionOptions
     ) {
-        guard session.role.rawValue == "UIWindowSceneSessionRoleExternalDisplayNonInteractive",
+        guard session.role == .windowExternalDisplayNonInteractive,
               let windowScene = scene as? UIWindowScene else { return }
 
         let externalScreen = windowScene.screen
@@ -101,7 +101,7 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidDisconnect(_ scene: UIScene) {
         EnsembleLogger.debug("[ExternalDisplay] scene disconnected — tearing down window")
         DependencyContainer.shared.playbackService.isScreenMirroringActive = UIApplication.shared.connectedScenes.contains {
-            $0 !== scene && $0.session.role.rawValue == "UIWindowSceneSessionRoleExternalDisplayNonInteractive"
+            $0 !== scene && $0.session.role == .windowExternalDisplayNonInteractive
         }
         window = nil
     }

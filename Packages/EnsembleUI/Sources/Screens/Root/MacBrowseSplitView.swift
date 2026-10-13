@@ -15,7 +15,6 @@ extension EnvironmentValues {
 }
 
 /// AppKit owns the panes so changing the section never replaces the sidebar.
-@available(macOS 15.0, *)
 struct MacBrowseSplitView<Sidebar: View, Picker: View, Detail: View>: NSViewControllerRepresentable {
     let sidebar: Sidebar
     let picker: Picker

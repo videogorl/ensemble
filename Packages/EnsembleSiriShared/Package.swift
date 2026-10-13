@@ -1,13 +1,13 @@
-// swift-tools-version: 5.7
+// swift-tools-version: 5.9
 
 import PackageDescription
 
 let package = Package(
     name: "EnsembleSiriShared",
     platforms: [
-        .iOS(.v15),
-        .macOS(.v12),
-        .watchOS(.v8)
+        .iOS(.v17),
+        .macOS("15.0"),
+        .watchOS(.v10)
     ],
     products: [
         .library(

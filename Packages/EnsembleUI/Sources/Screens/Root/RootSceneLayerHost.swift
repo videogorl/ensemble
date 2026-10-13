@@ -232,12 +232,10 @@ extension View {
                     .presentationSizing(NowPlayingPresentationSizing())
                     .presentationDetents([.large])
                     .presentationCompactAdaptation(.sheet)
-            } else if #available(iOS 16.4, *) {
+            } else {
                 content()
                     .presentationDetents([.large])
                     .presentationCompactAdaptation(.sheet)
-            } else {
-                content()
             }
         }
         #else

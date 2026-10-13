@@ -211,12 +211,10 @@ public actor WatchCloudPreferenceStore {
     public init() {}
 
     public func synchronize() {
-        guard #available(watchOS 9.0, *) else { return }
         NSUbiquitousKeyValueStore.default.synchronize()
     }
 
     public func selectedLibraryFlagEntries() -> [String: EnsembleLibraryFlagEntry] {
-        guard #available(watchOS 9.0, *) else { return [:] }
         synchronize()
         let store = NSUbiquitousKeyValueStore.default
         guard let data = store.data(forKey: EnsembleKVSKey.libraryFlags) else { return [:] }
@@ -224,7 +222,6 @@ public actor WatchCloudPreferenceStore {
     }
 
     public func saveSelectedLibraryFlagEntries(_ entries: [String: EnsembleLibraryFlagEntry]) {
-        guard #available(watchOS 9.0, *) else { return }
         let store = NSUbiquitousKeyValueStore.default
         let existingEntries = store.data(forKey: EnsembleKVSKey.libraryFlags)
             .flatMap(EnsembleLibraryFlagPolicy.decodedEntries) ?? [:]
@@ -239,7 +236,6 @@ public actor WatchCloudPreferenceStore {
     }
 
     public func pinnedReferences() -> [WatchPinnedReference]? {
-        guard #available(watchOS 9.0, *) else { return nil }
         synchronize()
         return Self.decodePinnedReferences(NSUbiquitousKeyValueStore.default.data(forKey: EnsembleKVSKey.pins))
     }
@@ -250,7 +246,6 @@ public actor WatchCloudPreferenceStore {
     }
 
     public func savePinnedReferences(_ pins: [WatchPinnedReference]) {
-        guard #available(watchOS 9.0, *) else { return }
         if pins.isEmpty {
             NSUbiquitousKeyValueStore.default.removeObject(forKey: EnsembleKVSKey.pins)
             synchronize()
@@ -262,13 +257,11 @@ public actor WatchCloudPreferenceStore {
     }
 
     public func accentColorName() -> String {
-        guard #available(watchOS 9.0, *) else { return "blue" }
         synchronize()
         return NSUbiquitousKeyValueStore.default.string(forKey: EnsembleKVSKey.accentColor) ?? "blue"
     }
 
     public func mergingPreferences() -> EnsembleMergingPreferences {
-        guard #available(watchOS 9.0, *) else { return .default }
         synchronize()
         guard let data = NSUbiquitousKeyValueStore.default.data(forKey: EnsembleKVSKey.mergingPreferences),
               let preferences = try? JSONDecoder().decode(EnsembleMergingPreferences.self, from: data)
@@ -277,7 +270,6 @@ public actor WatchCloudPreferenceStore {
     }
 
     public func saveAccentColorName(_ name: String) {
-        guard #available(watchOS 9.0, *) else { return }
         NSUbiquitousKeyValueStore.default.set(name, forKey: EnsembleKVSKey.accentColor)
         synchronize()
     }

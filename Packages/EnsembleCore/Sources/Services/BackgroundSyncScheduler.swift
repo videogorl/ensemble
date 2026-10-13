@@ -22,11 +22,6 @@ public final class BackgroundSyncScheduler {
         EnsembleLogger.debug("ℹ️ Background refresh scheduling skipped on simulator")
         return
         #else
-        guard #available(iOS 16.0, *) else {
-            EnsembleLogger.debug("ℹ️ Background refresh scheduling skipped on iOS 15")
-            return
-        }
-
         #if canImport(UIKit)
         guard UIApplication.shared.backgroundRefreshStatus == .available else {
             EnsembleLogger.debug("ℹ️ Background refresh unavailable; skipping schedule")

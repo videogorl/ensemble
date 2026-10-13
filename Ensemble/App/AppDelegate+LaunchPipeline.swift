@@ -49,10 +49,8 @@ extension AppDelegate {
         dependencies.accountManager.loadAccounts()
         logLaunchPhase("accounts.loaded")
 
-        if #available(iOS 16.0, *) {
-            EnsembleAppShortcutsProvider.updateAppShortcutParameters()
-            AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata at launch")
-        }
+        EnsembleAppShortcutsProvider.updateAppShortcutParameters()
+        AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata at launch")
         logLaunchPhase("appShortcuts.refreshed")
 
         // Pre-populate server health states with .unknown immediately after accounts load.

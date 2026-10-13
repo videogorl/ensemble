@@ -548,48 +548,6 @@ final class NavigationRootHelperTests: XCTestCase {
         )
     }
 
-    func testLegacyNestedNavigationResolvesDestinationAtDepth() {
-        let album = Self.album()
-        let path: [NavigationCoordinator.Destination] = [
-            .view(.albums),
-            .albumDetail(.single(album)),
-            .artist(id: "artist", sourceKey: "server/library")
-        ]
-
-        XCTAssertEqual(NestedNavigationLink.destination(in: path, at: 0), .view(.albums))
-        XCTAssertEqual(
-            NestedNavigationLink.destination(in: path, at: 1),
-            .albumDetail(.single(album))
-        )
-        XCTAssertEqual(
-            NestedNavigationLink.destination(in: path, at: 2),
-            .artist(id: "artist", sourceKey: "server/library")
-        )
-        XCTAssertNil(NestedNavigationLink.destination(in: path, at: 3))
-    }
-
-    func testLegacyNestedNavigationTrimsPathWhenNestedLinkDeactivates() {
-        let album = Self.album()
-        let path: [NavigationCoordinator.Destination] = [
-            .view(.albums),
-            .albumDetail(.single(album)),
-            .artist(id: "artist", sourceKey: "server/library")
-        ]
-
-        XCTAssertEqual(
-            NestedNavigationLink.pathAfterDeactivatingLink(at: 2, in: path),
-            [.view(.albums), .albumDetail(.single(album))]
-        )
-        XCTAssertEqual(
-            NestedNavigationLink.pathAfterDeactivatingLink(at: 1, in: path),
-            [.view(.albums)]
-        )
-        XCTAssertEqual(
-            NestedNavigationLink.pathAfterDeactivatingLink(at: 0, in: path),
-            []
-        )
-    }
-
     private static func album() -> Album {
         Album(id: "album", key: "/library/metadata/album", title: "Album", artistName: "Artist")
     }

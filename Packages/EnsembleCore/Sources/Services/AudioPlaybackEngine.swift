@@ -607,9 +607,7 @@ public final class AudioPlaybackEngine {
         // into several smaller AU render calls, deadline misses become much more
         // likely on device.
         #if os(macOS)
-        if #available(macOS 13.0, *) {
-            effect.auAudioUnit.maximumFramesToRender = Self.instrumentalIsolationMaxFramesToRender
-        }
+        effect.auAudioUnit.maximumFramesToRender = Self.instrumentalIsolationMaxFramesToRender
         #else
         effect.auAudioUnit.maximumFramesToRender = Self.instrumentalIsolationMaxFramesToRender
         #endif
@@ -939,16 +937,12 @@ public final class AudioPlaybackEngine {
 
         // Try AUParameterTree (may be empty for this AU)
         #if os(macOS)
-        if #available(macOS 13.0, *) {
-            if let avUnit = isolationEffect, let tree = avUnit.auAudioUnit.parameterTree {
-                for param in tree.allParameters {
-                    EnsembleLogger.debug("[AudioEngine]   Tree param: address=\(param.address), name='\(param.displayName)', min=\(param.minValue), max=\(param.maxValue), value=\(param.value)")
-                }
-            } else {
-                EnsembleLogger.debug("[AudioEngine]   No AUParameterTree available")
+        if let avUnit = isolationEffect, let tree = avUnit.auAudioUnit.parameterTree {
+            for param in tree.allParameters {
+                EnsembleLogger.debug("[AudioEngine]   Tree param: address=\(param.address), name='\(param.displayName)', min=\(param.minValue), max=\(param.maxValue), value=\(param.value)")
             }
         } else {
-            EnsembleLogger.debug("[AudioEngine]   AUParameterTree unavailable before macOS 13")
+            EnsembleLogger.debug("[AudioEngine]   No AUParameterTree available")
         }
         #else
         if let avUnit = isolationEffect, let tree = avUnit.auAudioUnit.parameterTree {

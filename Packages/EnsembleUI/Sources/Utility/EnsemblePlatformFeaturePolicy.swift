@@ -54,7 +54,6 @@ public struct EnsemblePlatformFeaturePolicy: Equatable {
 
     public static func resolve(
         family: EnsemblePlatformFamily,
-        supportsNavigationSplitView: Bool,
         supportsNativeBrowse: Bool,
         usesLargeMiniPlayer: Bool
     ) -> EnsemblePlatformFeaturePolicy {
@@ -77,10 +76,7 @@ public struct EnsemblePlatformFeaturePolicy: Equatable {
                 providesPlaybackCommandMenu: false
             )
         case .iPad:
-            rootNavigationShell = resolvedRootNavigationShell(
-                supportsNavigationSplitView: supportsNavigationSplitView,
-                supportsNativeBrowse: supportsNativeBrowse
-            )
+            rootNavigationShell = supportsNativeBrowse ? .nativeBrowse : .legacySidebar
             miniPlayerMenuRenderer = .popover
             nativeTrackListBackend = .uiKitTable
             usesUtilityCardScaffold = false
@@ -91,10 +87,7 @@ public struct EnsemblePlatformFeaturePolicy: Equatable {
                 providesPlaybackCommandMenu: false
             )
         case .macOS:
-            rootNavigationShell = resolvedRootNavigationShell(
-                supportsNavigationSplitView: supportsNavigationSplitView,
-                supportsNativeBrowse: supportsNativeBrowse
-            )
+            rootNavigationShell = .nativeBrowse
             miniPlayerMenuRenderer = .appKitMenu
             nativeTrackListBackend = .appKitTable
             usesUtilityCardScaffold = true
@@ -129,12 +122,6 @@ public struct EnsemblePlatformFeaturePolicy: Equatable {
     public static var current: EnsemblePlatformFeaturePolicy {
         #if os(iOS)
         let family: EnsemblePlatformFamily = UIDevice.current.userInterfaceIdiom == .pad ? .iPad : .iPhone
-        let supportsNavigationSplitView: Bool
-        if #available(iOS 16.0, *) {
-            supportsNavigationSplitView = true
-        } else {
-            supportsNavigationSplitView = false
-        }
         let supportsNativeBrowse: Bool
         if #available(iOS 18.0, *) {
             supportsNativeBrowse = family == .iPad
@@ -143,50 +130,17 @@ public struct EnsemblePlatformFeaturePolicy: Equatable {
         }
         return resolve(
             family: family,
-            supportsNavigationSplitView: supportsNavigationSplitView,
             supportsNativeBrowse: supportsNativeBrowse,
             usesLargeMiniPlayer: UIDevice.current.userInterfaceIdiom == .pad
         )
         #elseif os(macOS)
-        let supportsNavigationSplitView: Bool
-        if #available(macOS 13.0, *) {
-            supportsNavigationSplitView = true
-        } else {
-            supportsNavigationSplitView = false
-        }
-        let supportsNativeBrowse: Bool
-        if #available(macOS 15.0, *) {
-            supportsNativeBrowse = true
-        } else {
-            supportsNativeBrowse = false
-        }
-        return resolve(
-            family: .macOS,
-            supportsNavigationSplitView: supportsNavigationSplitView,
-            supportsNativeBrowse: supportsNativeBrowse,
-            usesLargeMiniPlayer: true
-        )
+        return resolve(family: .macOS, supportsNativeBrowse: true, usesLargeMiniPlayer: true)
         #else
-        return resolve(
-            family: .other,
-            supportsNavigationSplitView: false,
-            supportsNativeBrowse: false,
-            usesLargeMiniPlayer: false
-        )
+        return resolve(family: .other, supportsNativeBrowse: false, usesLargeMiniPlayer: false)
         #endif
     }
 
     public static var currentCommandPolicy: EnsembleCommandFeaturePolicy {
         current.commandPolicy
-    }
-
-    private static func resolvedRootNavigationShell(
-        supportsNavigationSplitView: Bool,
-        supportsNativeBrowse: Bool
-    ) -> EnsembleRootNavigationShell {
-        if supportsNativeBrowse {
-            return .nativeBrowse
-        }
-        return supportsNavigationSplitView ? .legacySidebar : .tabs
     }
 }

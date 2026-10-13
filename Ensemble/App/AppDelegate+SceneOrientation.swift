@@ -16,10 +16,8 @@ extension AppDelegate {
         )
 
         // Route external display (AirPlay screen mirroring) to dedicated scene delegate.
-        // Raw string comparison for iOS 15 compatibility — the typed Swift constant
-        // was only added in iOS 16, but the role string works on iOS 13+.
         // This does NOT affect iPadOS Stage Manager, which uses the windowApplication role.
-        if connectingSceneSession.role.rawValue == "UIWindowSceneSessionRoleExternalDisplayNonInteractive" {
+        if connectingSceneSession.role == .windowExternalDisplayNonInteractive {
             AppLogger.info("ExternalDisplay: routing external display scene to ExternalDisplaySceneDelegate")
             let config = UISceneConfiguration(
                 name: "External Display",
@@ -86,9 +84,7 @@ extension AppDelegate {
         let windowScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         for scene in windowScenes {
             for window in scene.windows {
-                if #available(iOS 16.0, *) {
-                    window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-                }
+                window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
             }
         }
 

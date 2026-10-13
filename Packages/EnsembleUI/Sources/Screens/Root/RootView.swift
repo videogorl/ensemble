@@ -11,7 +11,6 @@ import AppKit
 #endif
 
 /// Root view that renders the main content directly (no auth gate)
-@available(iOS 15.0, macOS 12.0, *)
 public struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var usesExpandedPhoneBrowse = false
@@ -111,7 +110,6 @@ public struct RootView: View {
         .onAppear {
             NavigationCoordinator.setActiveSceneCoordinator(navigationCoordinator)
             NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
-            updateAppearance()
             DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
             logAutomationLaunchOptionsIfNeeded()
             applyAutomationNetworkStateIfNeeded()
@@ -129,9 +127,6 @@ public struct RootView: View {
                 applyAutomationLaunchRouteIfNeeded()
                 applyAutomationPlaylistRefreshIfNeeded()
             }
-        }
-        .onChange(of: settingsManager.auroraVisualizationEnabled) { _ in
-            updateAppearance()
         }
         .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
             isLowPowerMode = newValue
@@ -267,56 +262,6 @@ public struct RootView: View {
     }
     #endif
 
-    private func updateAppearance() {
-        #if canImport(UIKit)
-        if #available(iOS 16.0, *) {
-            return
-        }
-
-        let tabBarAppearance = UITabBarAppearance()
-
-        if settingsManager.auroraVisualizationEnabled {
-            tabBarAppearance.configureWithTransparentBackground()
-        } else {
-            tabBarAppearance.configureWithDefaultBackground()
-        }
-
-        let navAppearance = UINavigationBarAppearance()
-        if settingsManager.auroraVisualizationEnabled {
-            navAppearance.configureWithTransparentBackground()
-        } else {
-            navAppearance.configureWithDefaultBackground()
-        }
-
-        // iOS 15 fix: scrollEdgeAppearance via appearance proxy doesn't reliably
-        // apply, leaving tab bar/toolbar with no background. Explicitly set a blur
-        // effect so content doesn't scroll behind chrome.
-        let chromeRole = EnsembleDesign.Material.Role.sidebar
-        let bgAlpha = chromeRole.chromeBackgroundAlpha(
-            auroraEnabled: settingsManager.auroraVisualizationEnabled
-        )
-        let blurStyle = chromeRole.chromeBlurStyle
-
-        navAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
-        navAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
-
-        tabBarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
-        tabBarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
-
-        let toolbarAppearance = UIToolbarAppearance()
-        toolbarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
-        toolbarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
-        UIToolbar.appearance().standardAppearance = toolbarAppearance
-        UIToolbar.appearance().scrollEdgeAppearance = toolbarAppearance
-
-        UINavigationBar.appearance().standardAppearance = navAppearance
-        UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
-        UINavigationBar.appearance().compactAppearance = navAppearance
-        UITabBar.appearance().standardAppearance = tabBarAppearance
-        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
-        #endif
-    }
-
     @ViewBuilder
     private var mainContentView: some View {
         switch EnsemblePlatformFeaturePolicy.current.rootNavigationShell {
@@ -333,16 +278,12 @@ public struct RootView: View {
                 MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
             }
         case .legacySidebar:
-            if #available(iOS 16.0, macOS 13.0, *) {
-                SidebarView(
-                    nowPlayingVM: nowPlayingVM,
-                    viewModels: screenModels,
-                    selection: $sidebarSelection,
-                    rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
-                )
-            } else {
-                MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
-            }
+            SidebarView(
+                nowPlayingVM: nowPlayingVM,
+                viewModels: screenModels,
+                selection: $sidebarSelection,
+                rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
+            )
         case .tabs:
             if #available(iOS 27.0, macOS 27.0, *), supportsAdaptivePhoneBrowse {
                 GeometryReader { geometry in
@@ -485,7 +426,7 @@ private struct MediaSourceActionPicker: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             List(request.choices) { choice in
                 Button {
                     presenter.choose(choice)

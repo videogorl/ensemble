@@ -100,13 +100,11 @@ final class PlaybackAudioSessionCoordinator {
             // the system to surface route disconnects as interruptions. That
             // lines up better with Apple's documented coordination model and
             // reduces custom disconnect heuristics in PlaybackService.
-            if #available(iOS 17.0, tvOS 17.0, watchOS 10.0, *) {
-                do {
-                    try session.setPrefersInterruptionOnRouteDisconnect(true)
-                    EnsembleLogger.debug("[AudioSession] prefersInterruptionOnRouteDisconnect enabled")
-                } catch {
-                    EnsembleLogger.debug("[AudioSession] prefersInterruptionOnRouteDisconnect failed: \(error)")
-                }
+            do {
+                try session.setPrefersInterruptionOnRouteDisconnect(true)
+                EnsembleLogger.debug("[AudioSession] prefersInterruptionOnRouteDisconnect enabled")
+            } catch {
+                EnsembleLogger.debug("[AudioSession] prefersInterruptionOnRouteDisconnect failed: \(error)")
             }
 
             configuredMixing = mixWithOthers

@@ -497,11 +497,7 @@ public struct SearchView: View {
         .listStyle(.plain)
         .frame(height: listHeight)
 
-        if #available(iOS 16.0, macOS 13.0, watchOS 9.0, *) {
-            return AnyView(list.scrollDisabled(true))
-        } else {
-            return AnyView(list)
-        }
+        return AnyView(list.scrollDisabled(true))
     }
 
     private func exploreSection<T: Identifiable, ID: Hashable, Content: View>(

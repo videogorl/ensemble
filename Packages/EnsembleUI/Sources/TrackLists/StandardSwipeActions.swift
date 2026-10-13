@@ -24,14 +24,9 @@ public extension View {
 
 // MARK: - ClearScrollContentBackgroundModifier
 
-/// Removes the default opaque background from List/ScrollView on macOS 13+ / iOS 16+.
-/// Falls through on older OS versions where scrollContentBackground is unavailable.
+/// Removes the default opaque background from List/ScrollView.
 struct ClearScrollContentBackgroundModifier: ViewModifier {
     func body(content: Content) -> some View {
-        if #available(macOS 13.0, iOS 16.0, *) {
-            content.scrollContentBackground(.hidden)
-        } else {
-            content
-        }
+        content.scrollContentBackground(.hidden)
     }
 }

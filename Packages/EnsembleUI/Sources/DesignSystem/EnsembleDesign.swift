@@ -222,29 +222,13 @@ public extension EnsembleDesign.Icon {
     }
 
     static var chords: String {
-        chordIconName(modernSymbolSetAvailable: isModernChordSymbolAvailable)
+        "apple.classical.pages"
     }
 }
 
 extension EnsembleDesign.Icon {
-    static func chordIconName(modernSymbolSetAvailable: Bool) -> String {
-        modernSymbolSetAvailable ? "apple.classical.pages" : "music.note.list"
-    }
-
     static func smartMixIconName(modernSymbolSetAvailable: Bool) -> String {
         modernSymbolSetAvailable ? "circle.dotted.and.circle" : "sparkles"
-    }
-
-    private static var isModernChordSymbolAvailable: Bool {
-        #if os(iOS)
-        if #available(iOS 16.0, *) { return true }
-        return false
-        #elseif os(macOS)
-        if #available(macOS 13.0, *) { return true }
-        return false
-        #else
-        return false
-        #endif
     }
 
     private static var isModernSmartMixSymbolAvailable: Bool {

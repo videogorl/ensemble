@@ -159,14 +159,7 @@ public struct MainTabView: View {
                 )
                 .tabViewStyle(.automatic)
             }
-                // iOS 15: set additionalSafeAreaInsets on each tab's navigation controller
-                // so content scrolls behind the tab bar with proper mini player clearance.
-                // The 70pt covers the mini player height + spacing above the tab bar.
-                .miniPlayerContainerInset(
-                    TrackListLayoutMetrics.miniPlayerContainerInset,
-                    isVisible: !isShowingNowPlaying && !miniPlayerSuppressed,
-                    tabBarBottomClearance: $tabBarBottomClearance
-                )
+                .tabBarBottomClearanceProbe($tabBarBottomClearance)
                 .zIndex(0)
             .task {
                 // Sync selectedTab with the actual first visible tab on launch.
@@ -219,14 +212,7 @@ public struct MainTabView: View {
     @ViewBuilder
     private func tabBarVisibility<Content: View>(_ content: Content, isHidden: Bool) -> some View {
         #if os(iOS)
-        if #available(iOS 16.0, *) {
-            content.toolbar(isHidden ? .hidden : .visible, for: .tabBar)
-        } else {
-            // iOS 15: hide tab bar via UIKit since .toolbar(_, for: .tabBar) is unavailable
-            content.background(
-                iOS15TabBarHider(isHidden: isHidden)
-            )
-        }
+        content.toolbar(isHidden ? .hidden : .visible, for: .tabBar)
         #else
         content
         #endif
@@ -328,30 +314,10 @@ public struct MainTabView: View {
         isStageFlowActive: Bool
     ) -> some View {
         Group {
-            if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationStack(path: navigationCoordinator.pathBinding(for: tab, isActive: {
-                    !isAdaptivePhoneRoot || navigationCoordinator.routesHiddenTabsThroughMore
-                })) {
-                    tabContentView(for: tab, isMoreRoot: isMoreRoot)
-                }
-            } else {
-                NavigationView {
-                    // iOS 15 Fallback: Support nested navigation by passing the remaining path
-                    NavigationDestinationFactory.tabContent(
-                        for: tab,
-                        nowPlayingVM: nowPlayingVM,
-                        viewModels: viewModels,
-                        mediaNavigationNamespace: mediaNavigationNamespace,
-                        isMoreRoot: isMoreRoot,
-                        isSelectedRoot: selectedRootTab == tab
-                    )
-                    .rootProfileToolbar(isVisible: shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
-                    .auroraBackgroundSupport()
-                    .background(legacyNavigationBridge(for: tab))
-                }
-                #if os(iOS)
-                .navigationViewStyle(.stack)
-                #endif
+            NavigationStack(path: navigationCoordinator.pathBinding(for: tab, isActive: {
+                !isAdaptivePhoneRoot || navigationCoordinator.routesHiddenTabsThroughMore
+            })) {
+                tabContentView(for: tab, isMoreRoot: isMoreRoot)
             }
         }
         .adaptiveTabChrome(
@@ -383,7 +349,6 @@ public struct MainTabView: View {
     }
 
     /// Tab content with navigation destinations registered for path-based push.
-    @available(iOS 16.0, macOS 13.0, *)
     @ViewBuilder
     private func tabContentView(for tab: TabItem, isMoreRoot: Bool = false) -> some View {
         NavigationDestinationFactory.tabContent(
@@ -413,27 +378,9 @@ public struct MainTabView: View {
         .id(destination)
     }
 
-    @ViewBuilder
-    private func legacyNavigationBridge(for tab: TabItem) -> some View {
-        let path = navigationCoordinator.pathSnapshot(for: tab)
-        NestedNavigationLink(
-            path: path,
-            tab: tab,
-            navigationCoordinator: navigationCoordinator,
-            destinationBuilder: legacyDestinationView
-        )
-    }
-
-    private func legacyDestinationView(for destination: NavigationCoordinator.Destination) -> AnyView {
-        AnyView(destinationView(for: destination))
-    }
-
     private func shouldShowProfileButton(for tab: TabItem, isMoreRoot: Bool) -> Bool {
         #if os(iOS)
         guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
-        if #unavailable(iOS 16.0) {
-            guard navigationCoordinator.pathSnapshot(for: tab).isEmpty else { return false }
-        }
         return isMoreRoot || barTabs.contains(tab)
         #else
         return false
@@ -445,22 +392,12 @@ private extension View {
     @ViewBuilder
     func rootProfileToolbar(isVisible: Bool) -> some View {
         #if os(iOS)
-        if #available(iOS 16.0, *) {
-            self.toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    if isVisible {
-                        ProfileToolbarButton()
-                    }
+        self.toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                if isVisible {
+                    ProfileToolbarButton()
                 }
             }
-        } else {
-            self.navigationBarItems(
-                trailing: Group {
-                    if isVisible {
-                        ProfileToolbarButton()
-                    }
-                }
-            )
         }
         #else
         self
@@ -470,11 +407,7 @@ private extension View {
     @ViewBuilder
     func tabBarVisibility(isHidden: Bool) -> some View {
         #if os(iOS)
-        if #available(iOS 16.0, *) {
-            self.toolbar(isHidden ? .hidden : .visible, for: .tabBar)
-        } else {
-            self
-        }
+        self.toolbar(isHidden ? .hidden : .visible, for: .tabBar)
         #else
         self
         #endif
@@ -573,7 +506,6 @@ enum RootSidebarColumnWidth {
     static let maximum: CGFloat = 360
 }
 
-@available(iOS 16.0, macOS 13.0, *)
 public struct SidebarView: View {
     var usesNativeBrowse = false
     var adaptsToPhone = false
@@ -1033,7 +965,7 @@ public struct SidebarView: View {
         }
 
         #if os(iOS)
-        if #available(iOS 17.0, *), newSelection != nil {
+        if newSelection != nil {
             compactColumnPreference = .detail
         }
         #endif
@@ -1245,7 +1177,7 @@ public struct SidebarView: View {
             .tag(SidebarSelection.library(tab))
     }
 
-    /// Collapsible sidebar section using native Section(isExpanded:) on iOS 17+/macOS 14+,
+    /// Collapsible sidebar section using native Section(isExpanded:).
     /// falling back to DisclosureGroup on earlier versions. Section(isExpanded:) renders
     /// like Apple Music / Finder — a normal section header with hover-reveal chevron.
     @ViewBuilder
@@ -1254,20 +1186,8 @@ public struct SidebarView: View {
         isExpanded: Binding<Bool>,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        if #available(iOS 17.0, macOS 14.0, *) {
-            Section(title, isExpanded: isExpanded) {
-                content()
-            }
-        } else {
-            // Evaluate content eagerly to avoid escaping capture in DisclosureGroup
-            let builtContent = content()
-            Section {
-                DisclosureGroup(isExpanded: isExpanded) {
-                    builtContent
-                } label: {
-                    Text(title)
-                }
-            }
+        Section(title, isExpanded: isExpanded) {
+            content()
         }
     }
 
@@ -1514,21 +1434,16 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private var splitNavigationView: some View {
-        if #available(iOS 18.0, macOS 15.0, *), usesNativeBrowse {
+        #if os(macOS)
+        // The Mac root always uses the AppKit-backed native browse shell.
+        nativeExplorerNavigationView
+        #else
+        if #available(iOS 18.0, *), usesNativeBrowse {
             nativeExplorerNavigationView
-        } else if #available(iOS 17.0, macOS 14.0, *) {
-            splitNavigationViewWithCompactColumn
         } else {
-            NavigationSplitView(columnVisibility: $columnVisibility) {
-                sidebarColumn
-            } detail: {
-                detailColumnRootChromeRegistrationHost {
-                    detailContainerView
-                }
-                .macEditorToolbarRoleIfAvailable()
-            }
-            .navigationSplitViewStyle(.balanced)
+            splitNavigationViewWithCompactColumn
         }
+        #endif
     }
 
     @available(iOS 18.0, macOS 15.0, *)
@@ -1582,11 +1497,9 @@ public struct SidebarView: View {
         #endif
     }
 
-
-    @available(iOS 17.0, macOS 14.0, *)
+    #if !os(macOS)
     @ViewBuilder
     private var splitNavigationViewWithCompactColumn: some View {
-        #if os(iOS)
         let preferredCompactColumn = Binding<NavigationSplitViewColumn>(
             get: {
                 isShowingCompactSidebarRoot ? .sidebar : .detail
@@ -1604,21 +1517,10 @@ public struct SidebarView: View {
             detailColumnRootChromeRegistrationHost {
                 detailContainerView
             }
-                .macEditorToolbarRoleIfAvailable()
         }
         .navigationSplitViewStyle(.balanced)
-        #else
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebarColumn
-        } detail: {
-            detailColumnRootChromeRegistrationHost {
-                detailContainerView
-            }
-                .macEditorToolbarRoleIfAvailable()
-        }
-        .navigationSplitViewStyle(.balanced)
-        #endif
     }
+    #endif
 
     @ViewBuilder
     private func detailColumnRootChromeRegistrationHost<Content: View>(

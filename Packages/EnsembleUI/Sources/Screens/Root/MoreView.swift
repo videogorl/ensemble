@@ -93,21 +93,6 @@ public struct MoreView: View {
     private func moreTabRowLabel(for tab: TabItem) -> some View {
         HStack {
             Label(tab.displayTitle, systemImage: tab.designSystemImage)
-            #if os(iOS)
-            if #unavailable(iOS 16.0) {
-                Spacer()
-                Image(systemName: EnsembleDesign.Icon.chevronRight)
-                    .font(EnsembleDesign.Typography.rowSecondary)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-            }
-            #elseif os(macOS)
-            if #unavailable(macOS 13.0) {
-                Spacer()
-                Image(systemName: EnsembleDesign.Icon.chevronRight)
-                    .font(EnsembleDesign.Typography.rowSecondary)
-                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-            }
-            #endif
         }
     }
 

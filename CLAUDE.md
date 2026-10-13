@@ -1,12 +1,15 @@
 # Ensemble Agent Guide
 
-Ensemble is a native Plex music player for iOS 15+, iPadOS 15+, macOS 12+,
-and watchOS 10+. Keep it reliable on 2 GB devices such as iPhone 6s and iPad
-Air 2.
+Ensemble is a native Plex music player for iOS 17+, iPadOS 17+, macOS 15+,
+and watchOS 10+. No 2 GB device is a test target, but keep memory discipline
+in code: paged reads and bounded caches.
 
 ## Working Rules
 
 - Start with `git status --short`; preserve unrelated worktree changes.
+- `docs/reference/rearchitecture-plan.md` is the active plan; read it before
+  structural work. Do not call a change verified until it has been exercised on
+  the physical iPhone through Device Hub per that plan's section 7.
 - Use `Ensemble.xcworkspace`, never `Ensemble.xcodeproj`.
 - Keep investigation and design requests read-only until implementation is
   requested. Discussing a proposed fix is not approval to build it; once the

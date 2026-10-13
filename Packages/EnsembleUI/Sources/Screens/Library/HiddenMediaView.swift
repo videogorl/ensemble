@@ -165,7 +165,7 @@ private struct HiddenSectionOrderView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             orderedList
             .navigationTitle("Edit Hidden")
             .toolbar {

@@ -758,14 +758,10 @@ private struct PlaybackScrubber: View {
         .opacity(EnsembleScaffold.NowPlaying.waveformOpacity)
 
         #if os(iOS)
-            if #available(iOS 16.0, *) {
-                waveform
-                    .id(track.playbackIdentity)
-                    .transition(.opacity)
-                    .animation(.easeInOut, value: track.playbackIdentity)
-            } else {
-                waveform
-            }
+            waveform
+                .id(track.playbackIdentity)
+                .transition(.opacity)
+                .animation(.easeInOut, value: track.playbackIdentity)
         #else
             waveform
                 .id(track.playbackIdentity)

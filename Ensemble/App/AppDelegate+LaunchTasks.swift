@@ -88,10 +88,8 @@ extension AppDelegate {
                 return
             }
 
-            if #available(iOS 16.0, *) {
-                EnsembleAppShortcutsProvider.updateAppShortcutParameters()
-                AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
-            }
+            EnsembleAppShortcutsProvider.updateAppShortcutParameters()
+            AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
 
             // Refresh system media context and Spotlight from the shared media index.
             await DependencyContainer.shared.systemMediaIntegrationService.updateMediaUserContext()

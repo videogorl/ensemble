@@ -258,11 +258,7 @@ public struct PlaylistsView: View {
             #if os(iOS)
             .navigationBarHidden(isStageFlowActive)
             .if(isStageFlowActive) { view in
-                if #available(iOS 16.0, *) {
-                    view.toolbar(.hidden, for: .navigationBar)
-                } else {
-                    view
-                }
+                view.toolbar(.hidden, for: .navigationBar)
             }
             .statusBar(hidden: isStageFlowActive)
             #endif
@@ -544,11 +540,7 @@ public struct PlaylistsView: View {
             .listRowBackground(Color.clear)
 
         #if os(macOS)
-        if #available(macOS 13.0, *) {
-            footer.listRowSeparator(.hidden)
-        } else {
-            footer
-        }
+        footer.listRowSeparator(.hidden)
         #else
         footer.listRowSeparator(.hidden)
         #endif

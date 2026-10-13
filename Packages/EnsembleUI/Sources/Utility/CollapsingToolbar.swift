@@ -2,7 +2,6 @@ import EnsembleDesignTokens
 import SwiftUI
 #if os(iOS)
 import UIKit
-import ObjectiveC
 #endif
 
 // MARK: - Scroll Offset Title Preference Key
@@ -19,7 +18,6 @@ struct TitleOffsetPreferenceKey: PreferenceKey {
 // MARK: - Collapsing Toolbar Title Modifier
 
 /// Modifier that shows a toolbar title when the inline title scrolls out of view.
-/// Works on iOS 15+ using a UINavigationBar appearance configurator for transparent nav bars.
 struct CollapsingToolbarTitleModifier: ViewModifier {
     let title: String
     let threshold: CGFloat  // maxY value below which toolbar title appears
@@ -56,10 +54,8 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
                         }
                     }
                     #if os(iOS)
-                    // iOS 16+: use SwiftUI toolbarBackground (respects iOS 26 Liquid Glass)
+                    // SwiftUI toolbarBackground respects iOS 26 Liquid Glass.
                     .modifier(ToolbarBackgroundModifier(isTransparent: !showToolbarTitle))
-                    // iOS 15 fallback only; newer OS releases own navigation chrome natively.
-                    .modifier(IOS15NavigationBarAppearanceModifier(isTransparent: !showToolbarTitle))
                     #endif
             } else {
                 content
@@ -88,196 +84,17 @@ struct TitleOffsetTracker: View {
     }
 }
 
-// MARK: - Toolbar Background Modifier (iOS 16+)
+// MARK: - Toolbar Background Modifier
 
 #if os(iOS)
-/// Uses SwiftUI's `.toolbarBackground` API (iOS 16+) to hide/show the nav bar background.
-/// On iOS 26+ this correctly suppresses the Liquid Glass bar material that the UIKit
-/// appearance configurator alone cannot control.
+/// Uses SwiftUI's `.toolbarBackground` API to hide/show the nav bar background.
+/// On iOS 26+ this also suppresses the Liquid Glass bar material.
 private struct ToolbarBackgroundModifier: ViewModifier {
     let isTransparent: Bool
 
     func body(content: Content) -> some View {
-        if #available(iOS 16.0, *) {
-            content
-                .toolbarBackground(isTransparent ? .hidden : .visible, for: .navigationBar)
-        } else {
-            content
-        }
-    }
-}
-
-/// Applies the UIKit navigation-bar fallback only on iOS 15.
-private struct IOS15NavigationBarAppearanceModifier: ViewModifier {
-    let isTransparent: Bool
-
-    func body(content: Content) -> some View {
-        if #available(iOS 16.0, *) {
-            content
-        } else {
-            content
-                .background(
-                    NavigationBarAppearanceConfigurator(isTransparent: isTransparent)
-                )
-        }
-    }
-}
-#endif
-
-// MARK: - Navigation Bar Appearance Configurator (iOS)
-
-#if os(iOS)
-/// UIKit fallback that toggles the parent navigation bar between transparent
-/// and default appearance on iOS 15 only. Modern iOS uses SwiftUI's
-/// `.toolbarBackground(...)` so UIKit appearance proxies do not fight native
-/// navigation chrome.
-struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
-    let isTransparent: Bool
-
-    func makeUIView(context: Context) -> NavigationBarProbeView {
-        let view = NavigationBarProbeView()
-        view.isHidden = true
-        view.isUserInteractionEnabled = false
-        return view
-    }
-
-    func updateUIView(_ uiView: NavigationBarProbeView, context: Context) {
-        if #available(iOS 16.0, *) {
-            return
-        }
-        uiView.isTransparent = isTransparent
-        uiView.updateAppearance()
-    }
-
-    /// Probe view that walks up the responder chain to find the parent UINavigationController
-    final class NavigationBarProbeView: UIView {
-        var isTransparent = true
-        private final class AppearanceOwner: NSObject {}
-
-        private static var appearanceOwnerKey: UInt8 = 0
-
-        private let ownerToken = AppearanceOwner()
-        private weak var appliedNavigationBar: UINavigationBar?
-        private var lastAppliedState: Bool?
-        private var retryScheduled = false
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            if #available(iOS 16.0, *) {
-                return
-            }
-            if window != nil {
-                updateAppearance()
-            }
-        }
-
-        func updateAppearance() {
-            if #available(iOS 16.0, *) {
-                return
-            }
-            guard let navBar = findNavigationBar() else {
-                scheduleAppearanceRetry()
-                return
-            }
-
-            let ownsCurrentAppearance = Self.ownerToken(for: navBar) === ownerToken
-            guard lastAppliedState != isTransparent || appliedNavigationBar !== navBar || !ownsCurrentAppearance else {
-                return
-            }
-
-            applyAppearance(isTransparent: isTransparent, to: navBar)
-        }
-
-        private func applyAppearance(isTransparent: Bool, to navBar: UINavigationBar) {
-            let appearance = UINavigationBarAppearance()
-            if isTransparent {
-                appearance.configureWithTransparentBackground()
-            } else {
-                appearance.configureWithDefaultBackground()
-            }
-            navBar.standardAppearance = appearance
-            navBar.scrollEdgeAppearance = appearance
-            navBar.compactAppearance = appearance
-            Self.setOwnerToken(ownerToken, for: navBar)
-            appliedNavigationBar = navBar
-            lastAppliedState = isTransparent
-        }
-
-        private func scheduleAppearanceRetry() {
-            guard !retryScheduled else { return }
-            retryScheduled = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.retryScheduled = false
-                self.updateAppearance()
-            }
-        }
-
-        /// Walk up the responder chain to find the UINavigationBar
-        private func findNavigationBar() -> UINavigationBar? {
-            var responder: UIResponder? = self
-            while let next = responder?.next {
-                if let navController = next as? UINavigationController {
-                    return navController.navigationBar
-                }
-                responder = next
-            }
-            return nil
-        }
-
-        override func willMove(toWindow newWindow: UIWindow?) {
-            super.willMove(toWindow: newWindow)
-            if #available(iOS 16.0, *) {
-                return
-            }
-            if newWindow == nil {
-                restoreDefaultAppearanceIfOwned()
-            }
-        }
-
-        private func restoreDefaultAppearanceIfOwned() {
-            if #available(iOS 16.0, *) {
-                return
-            }
-            // During nested pushes, an offscreen source detail can detach after the
-            // destination has already claimed transparent chrome. Only the current
-            // owner may restore default chrome.
-            guard let navBar = appliedNavigationBar ?? findNavigationBar(),
-                  Self.ownerToken(for: navBar) === ownerToken else {
-                return
-            }
-
-            let appearance = UINavigationBarAppearance()
-            appearance.configureWithDefaultBackground()
-            navBar.standardAppearance = appearance
-            navBar.scrollEdgeAppearance = appearance
-            navBar.compactAppearance = appearance
-            Self.clearOwnerToken(for: navBar)
-            appliedNavigationBar = nil
-            lastAppliedState = nil
-        }
-
-        private static func ownerToken(for navBar: UINavigationBar) -> AppearanceOwner? {
-            objc_getAssociatedObject(navBar, &appearanceOwnerKey) as? AppearanceOwner
-        }
-
-        private static func setOwnerToken(_ token: AppearanceOwner, for navBar: UINavigationBar) {
-            objc_setAssociatedObject(
-                navBar,
-                &appearanceOwnerKey,
-                token,
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-        }
-
-        private static func clearOwnerToken(for navBar: UINavigationBar) {
-            objc_setAssociatedObject(
-                navBar,
-                &appearanceOwnerKey,
-                nil,
-                .OBJC_ASSOCIATION_ASSIGN
-            )
-        }
+        content
+            .toolbarBackground(isTransparent ? .hidden : .visible, for: .navigationBar)
     }
 }
 #endif
@@ -319,15 +136,8 @@ private struct ToolbarMaterialBackgroundModifier: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         #if os(macOS)
-        if #available(macOS 15.0, *) {
-            content
-                .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
-        } else if #available(macOS 13.0, *) {
-            content
-                .toolbarBackground(.visible, for: .windowToolbar)
-        } else {
-            content
-        }
+        content
+            .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
         #else
         content
         #endif
@@ -341,13 +151,8 @@ private struct ToolbarMaterialBleedModifier: ViewModifier {
     func body(content: Content) -> some View {
         #if os(iOS)
         if UIDevice.current.userInterfaceIdiom == .pad {
-            if #available(iOS 16.0, *) {
-                content
-                    .toolbarBackground(.hidden, for: .navigationBar)
-            } else {
-                content
-                    .background(NavigationBarAppearanceConfigurator(isTransparent: true))
-            }
+            content
+                .toolbarBackground(.hidden, for: .navigationBar)
         } else {
             phoneContent(content)
         }
@@ -356,14 +161,9 @@ private struct ToolbarMaterialBleedModifier: ViewModifier {
             content
                 .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
                 .scrollEdgeEffectStyle(.automatic, for: .top)
-        } else if #available(macOS 15.0, *) {
-            content
-                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-        } else if #available(macOS 13.0, *) {
-            content
-                .toolbarBackground(.hidden, for: .windowToolbar)
         } else {
             content
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         }
         #else
         content

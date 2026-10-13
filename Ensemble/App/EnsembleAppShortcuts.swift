@@ -6,7 +6,6 @@ import EnsembleSiriShared
 import Foundation
 import OSLog
 
-@available(iOS 16.0, *)
 private enum SiriAppShortcutLogger {
     static let logger = Logger(
         subsystem: "com.videogorl.ensemble.siri-appshortcuts",
@@ -60,7 +59,6 @@ final class EnsembleRelevantEntitiesPublisher {
     }
 }
 
-@available(iOS 16.0, *)
 private enum SiriIndexLookup {
     private static let appGroupIdentifier = SiriSharedConstants.appGroupIdentifier
     private static let filename = SiriSharedConstants.indexFilename
@@ -108,13 +106,11 @@ private enum SiriIndexLookup {
     }
 }
 
-@available(iOS 16.0, *)
 private func makeCompositeEntityID(ratingKey: String, sourceCompositeKey: String?) -> String {
     let source = sourceCompositeKey ?? ""
     return "\(ratingKey)||\(source)"
 }
 
-@available(iOS 16.0, *)
 private func parseCompositeEntityID(_ id: String) -> (ratingKey: String, sourceCompositeKey: String?) {
     let components = id.components(separatedBy: "||")
     guard let ratingKey = components.first else {
@@ -124,7 +120,6 @@ private func parseCompositeEntityID(_ id: String) -> (ratingKey: String, sourceC
     return (ratingKey, source.isEmpty ? nil : source)
 }
 
-@available(iOS 16.0, *)
 struct EnsembleTrackEntity: AppEntity {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Track")
     static var defaultQuery = EnsembleTrackEntityQuery()
@@ -143,7 +138,6 @@ struct EnsembleTrackEntity: AppEntity {
     }
 }
 
-@available(iOS 16.0, *)
 struct EnsembleTrackEntityQuery: EntityStringQuery {
     func entities(for identifiers: [EnsembleTrackEntity.ID]) async throws -> [EnsembleTrackEntity] {
         let wanted = Set(identifiers)
@@ -183,7 +177,6 @@ struct EnsembleTrackEntityQuery: EntityStringQuery {
     }
 }
 
-@available(iOS 16.0, *)
 struct EnsembleArtistEntity: AppEntity {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Artist")
     static var defaultQuery = EnsembleArtistEntityQuery()
@@ -198,7 +191,6 @@ struct EnsembleArtistEntity: AppEntity {
     }
 }
 
-@available(iOS 16.0, *)
 struct EnsembleArtistEntityQuery: EntityStringQuery {
     func entities(for identifiers: [EnsembleArtistEntity.ID]) async throws -> [EnsembleArtistEntity] {
         let wanted = Set(identifiers)
@@ -236,7 +228,6 @@ struct EnsembleArtistEntityQuery: EntityStringQuery {
     }
 }
 
-@available(iOS 16.0, *)
 struct EnsembleAlbumEntity: AppEntity {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Album")
     static var defaultQuery = EnsembleAlbumEntityQuery()
@@ -251,7 +242,6 @@ struct EnsembleAlbumEntity: AppEntity {
     }
 }
 
-@available(iOS 16.0, *)
 struct EnsembleAlbumEntityQuery: EntityStringQuery {
     func entities(for identifiers: [EnsembleAlbumEntity.ID]) async throws -> [EnsembleAlbumEntity] {
         let wanted = Set(identifiers)
@@ -291,7 +281,6 @@ struct EnsembleAlbumEntityQuery: EntityStringQuery {
     }
 }
 
-@available(iOS 16.0, *)
 struct EnsemblePlaylistEntity: AppEntity {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Playlist")
     static var defaultQuery = EnsemblePlaylistEntityQuery()
@@ -306,7 +295,6 @@ struct EnsemblePlaylistEntity: AppEntity {
     }
 }
 
-@available(iOS 16.0, *)
 struct EnsemblePlaylistEntityQuery: EntityStringQuery {
     func entities(for identifiers: [EnsemblePlaylistEntity.ID]) async throws -> [EnsemblePlaylistEntity] {
         let wanted = Set(identifiers)
@@ -345,7 +333,6 @@ struct EnsemblePlaylistEntityQuery: EntityStringQuery {
     }
 }
 
-@available(iOS 16.0, *)
 private struct SiriShortcutPlaybackExecutor {
     @MainActor
     static func play(
@@ -367,7 +354,6 @@ private struct SiriShortcutPlaybackExecutor {
 }
 
 /// AppIntent fallback for album playback when SiriKit media-domain routing misses the app.
-@available(iOS 16.0, *)
 struct PlayEnsembleTrackIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Track in Ensemble"
     static var description = IntentDescription("Plays a specific track from your Ensemble library.")
@@ -397,7 +383,6 @@ struct PlayEnsembleTrackIntent: AppIntent {
 }
 
 /// AppIntent fallback for artist playback when SiriKit media-domain routing misses the app.
-@available(iOS 16.0, *)
 struct PlayEnsembleArtistIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Artist in Ensemble"
     static var description = IntentDescription("Plays music by a specific artist from your Ensemble library.")
@@ -430,7 +415,6 @@ struct PlayEnsembleArtistIntent: AppIntent {
 }
 
 /// AppIntent fallback for shuffled artist playback when SiriKit drops the media item slot.
-@available(iOS 16.0, *)
 struct ShuffleEnsembleArtistIntent: AppIntent {
     static var title: LocalizedStringResource = "Shuffle Artist in Ensemble"
     static var description = IntentDescription("Shuffles music by a specific artist from your Ensemble library.")
@@ -472,7 +456,6 @@ struct ShuffleEnsembleArtistIntent: AppIntent {
 }
 
 /// AppIntent fallback for album playback when SiriKit media-domain routing misses the app.
-@available(iOS 16.0, *)
 struct PlayEnsembleAlbumIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Album in Ensemble"
     static var description = IntentDescription("Plays a specific album from your Ensemble library.")
@@ -502,7 +485,6 @@ struct PlayEnsembleAlbumIntent: AppIntent {
 }
 
 /// AppIntent fallback for playlist playback when SiriKit media-domain routing misses the app.
-@available(iOS 16.0, *)
 struct PlayEnsemblePlaylistIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Playlist in Ensemble"
     static var description = IntentDescription("Plays a specific playlist from your Ensemble library.")
@@ -532,7 +514,6 @@ struct PlayEnsemblePlaylistIntent: AppIntent {
 }
 
 /// AppIntent fallback for shuffled playlist playback when SiriKit drops the media item slot.
-@available(iOS 16.0, *)
 struct ShuffleEnsemblePlaylistIntent: AppIntent {
     static var title: LocalizedStringResource = "Shuffle Playlist in Ensemble"
     static var description = IntentDescription("Shuffles a specific playlist from your Ensemble library.")
@@ -563,7 +544,6 @@ struct ShuffleEnsemblePlaylistIntent: AppIntent {
     }
 }
 
-@available(iOS 16.0, *)
 struct EnsembleMediaEntity: AppEntity {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Ensemble Media")
     static var defaultQuery = EnsembleMediaEntityQuery()
@@ -640,7 +620,6 @@ struct EnsembleMediaEntity: AppEntity {
     }
 }
 
-@available(iOS 16.0, *)
 struct EnsembleMediaEntityQuery: EntityStringQuery {
     func entities(for identifiers: [EnsembleMediaEntity.ID]) async throws -> [EnsembleMediaEntity] {
         let wanted = Set(identifiers)
@@ -676,7 +655,6 @@ extension EnsembleMediaEntityQuery: IndexedEntityQuery {
     }
 }
 
-@available(iOS 16.0, *)
 private extension SiriMediaKind {
     var displayName: String {
         switch self {
@@ -689,7 +667,6 @@ private extension SiriMediaKind {
 }
 
 /// Opens a selected local media item without starting playback.
-@available(iOS 16.0, *)
 struct OpenEnsembleMediaIntent: AppIntent {
     static var title: LocalizedStringResource = "Open Media in Ensemble"
     static var description = IntentDescription("Opens a song, artist, album, or playlist in Ensemble without playing it.")
@@ -724,7 +701,6 @@ struct OpenEnsembleMediaIntent: AppIntent {
 }
 
 /// Produces the same portable URL used by the in-app Share Ensemble Link action.
-@available(iOS 16.0, *)
 struct GetEnsembleLinkIntent: AppIntent {
     static var title: LocalizedStringResource = "Get Ensemble Link"
     static var description = IntentDescription("Creates a library-independent Ensemble link for selected media.")
@@ -744,7 +720,6 @@ struct GetEnsembleLinkIntent: AppIntent {
     }
 }
 
-@available(iOS 16.0, *)
 private enum EnsembleFocusFilterLogger {
     static let logger = Logger(
         subsystem: "com.videogorl.ensemble.focus-filter",
@@ -752,7 +727,6 @@ private enum EnsembleFocusFilterLogger {
     )
 }
 
-@available(iOS 16.0, *)
 enum EnsembleFocusScrobblingSetting: String, AppEnum {
     case useAppSetting
     case enabled
@@ -782,7 +756,6 @@ enum EnsembleFocusScrobblingSetting: String, AppEnum {
     }
 }
 
-@available(iOS 16.0, *)
 struct EnsembleLibraryEntity: AppEntity {
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Library")
     static var defaultQuery = EnsembleLibraryEntityQuery()
@@ -799,7 +772,6 @@ struct EnsembleLibraryEntity: AppEntity {
     }
 }
 
-@available(iOS 16.0, *)
 struct EnsembleLibraryEntityQuery: EntityQuery {
     @MainActor
     func entities(for identifiers: [EnsembleLibraryEntity.ID]) async throws -> [EnsembleLibraryEntity] {
@@ -843,7 +815,6 @@ struct EnsembleLibraryEntityQuery: EntityQuery {
 }
 
 /// Applies temporary playback and library-visibility overrides for the active system Focus.
-@available(iOS 16.0, *)
 struct EnsembleFocusFilter: SetFocusFilterIntent {
     static var title: LocalizedStringResource = "Playback & Libraries"
     static var description = IntentDescription(
@@ -914,7 +885,6 @@ struct EnsembleFocusFilter: SetFocusFilterIntent {
 }
 
 /// Registers explicit Siri phrases so Ensemble can be invoked even when media-domain parsing fails.
-@available(iOS 16.0, *)
 struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(

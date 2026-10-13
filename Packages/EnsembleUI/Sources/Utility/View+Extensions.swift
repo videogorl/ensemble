@@ -84,13 +84,9 @@ private struct AuroraBackgroundSupportModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            content
-                .scrollContentBackground(colorScheme == .dark ? .hidden : .visible)
-                .background(Color.clear)
-        } else {
-            content.background(Color.clear)
-        }
+        content
+            .scrollContentBackground(colorScheme == .dark ? .hidden : .visible)
+            .background(Color.clear)
     }
 }
 
@@ -128,54 +124,19 @@ public extension View {
 
     /// Adds bottom spacing for the mini player/tab bar area so content can
     /// scroll clear of the floating player overlay.
-    /// iOS 15 is a no-op here — the inset is applied once at the container level via
-    /// `miniPlayerContainerInset()` in MainTabView, which sets additionalSafeAreaInsets
-    /// on the TabView's hosting controller.
-    @ViewBuilder
     func miniPlayerBottomSpacing(_ height: CGFloat = TrackListLayoutMetrics.miniPlayerBottomSpacing) -> some View {
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            self.safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: height)
-            }
-        } else {
-            // No-op on iOS 15: container-level additionalSafeAreaInsets
-            // handles this via miniPlayerContainerInset() in MainTabView
-            self
-        }
-        #else
-        // macOS: floating mini player overlay needs bottom inset so the last
-        // items in scroll views aren't hidden behind it.
-        self.safeAreaInset(edge: .bottom) {
+        safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: height)
         }
-        #endif
     }
 
-    /// Measures the native tab bar clearance on every iOS version and applies the
-    /// additional TabView content inset needed by iOS 15.
+    /// Measures the native tab bar's window-bottom clearance.
     @ViewBuilder
-    func miniPlayerContainerInset(
-        _ height: CGFloat,
-        isVisible: Bool,
-        tabBarBottomClearance: Binding<CGFloat>
-    ) -> some View {
+    func tabBarBottomClearanceProbe(_ tabBarBottomClearance: Binding<CGFloat>) -> some View {
         #if os(iOS)
-        if #available(iOS 16.0, *) {
-            self.background(
-                MiniPlayerContainerInsetter(
-                    bottomInset: nil,
-                    tabBarBottomClearance: tabBarBottomClearance
-                )
-            )
-        } else {
-            self.background(
-                MiniPlayerContainerInsetter(
-                    bottomInset: isVisible ? height : 0,
-                    tabBarBottomClearance: tabBarBottomClearance
-                )
-            )
-        }
+        self.background(
+            TabBarBottomClearanceProbe(tabBarBottomClearance: tabBarBottomClearance)
+        )
         #else
         self
         #endif
@@ -244,8 +205,7 @@ private struct StageFlowRotationSupportModifier: ViewModifier {
     }
 }
 
-/// Finds SwiftUI's native tab bar to report its window-bottom clearance. On
-/// iOS 15 it also sets the content inset on each tab hosting controller.
+/// Finds SwiftUI's native tab bar to report its window-bottom clearance.
 ///
 /// The responder chain walk (bottom-up) doesn't work because the probe view
 /// sits in a SwiftUI hosting context that's a sibling of the tab bar controller,
@@ -253,13 +213,11 @@ private struct StageFlowRotationSupportModifier: ViewModifier {
 ///
 /// Uses UIViewRepresentable (not UIViewControllerRepresentable) to avoid
 /// inserting a child VC that could cause layout feedback loops.
-private struct MiniPlayerContainerInsetter: UIViewRepresentable {
-    let bottomInset: CGFloat?
+private struct TabBarBottomClearanceProbe: UIViewRepresentable {
     let tabBarBottomClearance: Binding<CGFloat>
 
     func makeUIView(context: Context) -> InsetProbeView {
         let view = InsetProbeView()
-        view.bottomInset = bottomInset
         view.bottomClearanceDidChange = { tabBarBottomClearance.wrappedValue = $0 }
         view.backgroundColor = .clear
         view.isUserInteractionEnabled = false
@@ -267,15 +225,12 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
     }
 
     func updateUIView(_ view: InsetProbeView, context: Context) {
-        view.bottomInset = bottomInset
         view.bottomClearanceDidChange = { tabBarBottomClearance.wrappedValue = $0 }
         view.applyInsets()
     }
 
     final class InsetProbeView: UIView {
-        var bottomInset: CGFloat?
         var bottomClearanceDidChange: ((CGFloat) -> Void)?
-        private var appliedInset: CGFloat = -1
         private var reportedBottomClearance: CGFloat = -1
 
         override func didMoveToWindow() {
@@ -305,33 +260,6 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
                 reportedBottomClearance = bottomClearance
                 bottomClearanceDidChange?(bottomClearance)
             }
-
-            guard let bottomInset else { return }
-
-            // Set additionalSafeAreaInsets on ALL direct children of the UITabBarController.
-            // These are UIHostingControllers that SwiftUI creates for each tab — they exist
-            // for ALL tabs from the start, even unvisited ones. The insets propagate down
-            // through to NavigationView's UINavigationController and its content.
-            //
-            // Also set on any UINavigationControllers found deeper in the hierarchy for
-            // tabs that have been visited (handles pushed views that inherit the inset).
-            var appliedCount = 0
-            for child in tabBarController.children {
-                // Set on the tab's hosting controller (covers all tabs including unvisited)
-                if child.additionalSafeAreaInsets.bottom != bottomInset {
-                    var insets = child.additionalSafeAreaInsets
-                    insets.bottom = bottomInset
-                    child.additionalSafeAreaInsets = insets
-                    appliedCount += 1
-                }
-            }
-
-            if bottomInset != appliedInset {
-                EnsembleLogger.debug(
-                    "[MiniPlayerInset] Applied \(Int(bottomInset))pt inset to \(appliedCount)/\(tabBarController.children.count) tab children"
-                )
-            }
-            appliedInset = bottomInset
         }
 
         /// Recursively search the view controller hierarchy for a UITabBarController
@@ -367,30 +295,17 @@ extension View {
     /// Hosts short sheet content in the platform's native navigation container.
     @ViewBuilder
     func nativeSheetNavigationContainer() -> some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationStack {
-                self
-            }
-        } else {
-            NavigationView {
-                self
-            }
-            #if os(iOS)
-            .navigationViewStyle(.stack)
-            #endif
+        NavigationStack {
+            self
         }
     }
 
-    /// Applies the editor toolbar role on macOS 13+ so primary actions land on
+    /// Applies the editor toolbar role on macOS so primary actions land on
     /// the trailing edge instead of clustering beside the sidebar/title area.
     @ViewBuilder
     func macEditorToolbarRoleIfAvailable() -> some View {
         #if os(macOS)
-        if #available(macOS 13.0, *) {
-            self.toolbarRole(.editor)
-        } else {
-            self
-        }
+        self.toolbarRole(.editor)
         #else
         self
         #endif

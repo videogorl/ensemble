@@ -309,11 +309,7 @@ private struct GenreChip: View {
 private extension View {
     @ViewBuilder
     func genreChipScrollClipping() -> some View {
-        if #available(iOS 17, macOS 14, *) {
-            scrollClipDisabled()
-        } else {
-            self
-        }
+        scrollClipDisabled()
     }
 
     @ViewBuilder

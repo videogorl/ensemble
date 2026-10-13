@@ -93,7 +93,7 @@ Watch: EnsembleDomain + EnsemblePlex + EnsemblePersistence + EnsembleWatchCore (
 - **Location:** `Packages/EnsembleCore/`
 - **Dependencies:** EnsembleAPI, EnsemblePersistence, EnsembleSiriShared, Nuke
 - **Purpose:** Services, ViewModels, domain models, dependency injection
-- **Platforms:** iOS 15+ and macOS 12+. Core intentionally does not advertise watchOS support because playback/background services are not watch-portable as a full package.
+- **Platforms:** iOS 17+ and macOS 15+. Core intentionally does not advertise watchOS support because playback/background services are not watch-portable as a full package.
 
 **Key Services:**
 - `DependencyContainer` (singleton) -- Wires all services, creates ViewModels, injected via SwiftUI environment
@@ -171,7 +171,7 @@ Watch: EnsembleDomain + EnsemblePlex + EnsemblePersistence + EnsembleWatchCore (
 - `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates, playback connection readiness checks, source-key API-client lookup, explicit endpoint refresh fan-out/fallback reset callbacks, failure-message lookup, and post-sync connection-state URL resolution while `SyncCoordinator` remains the façade
 - `SyncProviderResolver` -- Internal provider-lookup seam extracted from `SyncCoordinator`; owns exact-source and fallback provider routing for playback/download/reporting calls so source-key policy stays consistent
 - `SettingsManager` (@MainActor) -- Manages accent colors, customizable tab configuration, and track swipe action layout settings
-- `BackgroundRefreshCoordinator` -- Shared app-refresh and foreground freshness sequence for endpoint health, incremental sync, Feed snapshot refresh, Siri index rebuild, and Siri context refresh. iOS 16+ `BGAppRefreshTask` and iOS 15 foreground activation route through this coordinator so launch freshness policy is not duplicated.
+- `BackgroundRefreshCoordinator` -- Shared app-refresh and foreground freshness sequence for endpoint health, incremental sync, Feed snapshot refresh, Siri index rebuild, and Siri context refresh. `BGAppRefreshTask` and foreground activation route through this coordinator so launch freshness policy is not duplicated.
 - `BackgroundSyncScheduler` -- iOS `BGAppRefreshTask` scheduling for Feed/library refresh ~every 15min (system-controlled); background execution should call `BackgroundRefreshCoordinator` rather than instantiating `HomeViewModel`
 - `MoodRepository` -- Mood data persistence (CDMood)
 - `LibraryVisibilityStore` (@MainActor) -- Persists visibility profiles and active profile state for source-level browse filtering
@@ -645,7 +645,7 @@ Universal link and audio file sharing for tracks and albums:
    - Link sharing: song.link URL -> Apple Music URL -> plain text fallback
    - File sharing: local download path (if downloaded) or temp download via Plex universal stream URL
    - Temp files stored in `NSTemporaryDirectory()/EnsembleShare/`, cleaned after share sheet dismissal
-3. **ShareSheetPresenter** (`EnsembleUI`) -- iOS 15-compatible `UIActivityViewController` wrapper with imperative presentation via topmost window scene. macOS uses `NSSharingServicePicker`.
+3. **ShareSheetPresenter** (`EnsembleUI`) -- `UIActivityViewController` wrapper with imperative presentation via topmost window scene. macOS uses `NSSharingServicePicker`.
 4. **ShareActions** (`EnsembleUI`) -- Static namespace bridging `ShareService` -> share sheet, with toast feedback for download progress and text fallback.
 5. **Context menu integration** -- "Share Link..." and "Share Audio File..." in `MediaTrackList` and Now Playing ellipsis menu. "Share Link..." in `AlbumCard` context menu.
 6. **Drag and drop (iPad/macOS)** -- `MediaDragPayload` provides internal track/album/playlist references for Ensemble drop targets and file representations for external track destinations. `MediaDragExportPolicy` owns copy-vs-move and external file-promise defaults and should be used by drag providers (`itemProvider`/macOS pasteboard writer) instead of calling payload export directly: tracks can copy to playlists/Finder, queue rows can move only inside the queue, albums/playlists are in-app payloads only. Playlist drop targets call Core `PlaylistDropResolver`; UI owns provider loading and toast presentation only.
@@ -675,7 +675,7 @@ Two sync modes to balance freshness and speed:
 
 On-device vocal removal using Apple's AUSoundIsolation AudioUnit (same technology as Apple Music Sing). Uses hybrid engine switching:
 
-1. **InstrumentalModeCapability** (`EnsembleCore`) -- Static probe for AUSoundIsolation AudioComponent availability. Returns true on iOS 16+ / A13+ devices.
+1. **InstrumentalModeCapability** (`EnsembleCore`) -- Static probe for AUSoundIsolation AudioComponent availability. Returns true on A13+ devices.
 2. **InstrumentalAudioEngine** (`EnsembleCore`) -- Isolated AVAudioEngine wrapper. Audio graph: `AVAudioPlayerNode -> AVAudioUnitEffect(AUSoundIsolation) -> mainMixerNode -> outputNode`. WetDryMix set to 100% for full vocal removal. Handles play/pause/seek/stop with frame-accurate time tracking via `playerNode.playerTime(forNodeTime:)`.
 3. **PlaybackService Integration** -- Hybrid engine switching:
    - Toggle ON: captures AVQueuePlayer position, pauses it, creates InstrumentalAudioEngine, loads local file, plays from captured position

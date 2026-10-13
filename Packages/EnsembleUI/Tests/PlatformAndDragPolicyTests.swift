@@ -19,7 +19,6 @@ final class PlatformAndDragPolicyTests: XCTestCase {
     func testPlatformPolicyKeepsFeatureRulesSeparateFromRenderers() {
         let phone = EnsemblePlatformFeaturePolicy.resolve(
             family: .iPhone,
-            supportsNavigationSplitView: true,
             supportsNativeBrowse: true,
             usesLargeMiniPlayer: false
         )
@@ -33,17 +32,8 @@ final class PlatformAndDragPolicyTests: XCTestCase {
         XCTAssertTrue(phone.commandPolicy.providesRefreshCommand)
         XCTAssertFalse(phone.commandPolicy.removesSystemSidebarCommand)
 
-        let oldIPad = EnsemblePlatformFeaturePolicy.resolve(
-            family: .iPad,
-            supportsNavigationSplitView: false,
-            supportsNativeBrowse: false,
-            usesLargeMiniPlayer: true
-        )
-        XCTAssertEqual(oldIPad.rootNavigationShell, .tabs)
-
         let iPad = EnsemblePlatformFeaturePolicy.resolve(
             family: .iPad,
-            supportsNavigationSplitView: true,
             supportsNativeBrowse: false,
             usesLargeMiniPlayer: true
         )
@@ -55,7 +45,6 @@ final class PlatformAndDragPolicyTests: XCTestCase {
 
         let mac = EnsemblePlatformFeaturePolicy.resolve(
             family: .macOS,
-            supportsNavigationSplitView: true,
             supportsNativeBrowse: true,
             usesLargeMiniPlayer: true
         )

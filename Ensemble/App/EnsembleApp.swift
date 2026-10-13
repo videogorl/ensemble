@@ -174,31 +174,29 @@ struct EnsembleApp: App {
             #endif
         }
         #if os(macOS)
-        if #available(macOS 13.0, *) {
-            Window("Profile", id: NavigationCoordinator.AuxiliaryPresentation.profile.windowID) {
-                ProfilePresentationContainer()
-                    .environment(\.dependencies, DependencyContainer.shared)
-                    .environmentObject(DependencyContainer.shared.navigationCoordinator)
-                    .ensembleAuxiliaryWindowFrame(.profile)
-            }
-            .defaultSize(
-                width: EnsembleScaffold.AuxiliaryWindow.Configuration.profile.idealWidth,
-                height: EnsembleScaffold.AuxiliaryWindow.Configuration.profile.idealHeight
-            )
-            .windowResizability(.contentSize)
-
-            Window("Downloads", id: NavigationCoordinator.AuxiliaryPresentation.downloads.windowID) {
-                DownloadsPresentationContainer()
-                    .environment(\.dependencies, DependencyContainer.shared)
-                    .environmentObject(DependencyContainer.shared.navigationCoordinator)
-                    .ensembleAuxiliaryWindowFrame(.downloads)
-            }
-            .defaultSize(
-                width: EnsembleScaffold.AuxiliaryWindow.Configuration.downloads.idealWidth,
-                height: EnsembleScaffold.AuxiliaryWindow.Configuration.downloads.idealHeight
-            )
-            .windowResizability(.contentSize)
+        Window("Profile", id: NavigationCoordinator.AuxiliaryPresentation.profile.windowID) {
+            ProfilePresentationContainer()
+                .environment(\.dependencies, DependencyContainer.shared)
+                .environmentObject(DependencyContainer.shared.navigationCoordinator)
+                .ensembleAuxiliaryWindowFrame(.profile)
         }
+        .defaultSize(
+            width: EnsembleScaffold.AuxiliaryWindow.Configuration.profile.idealWidth,
+            height: EnsembleScaffold.AuxiliaryWindow.Configuration.profile.idealHeight
+        )
+        .windowResizability(.contentSize)
+
+        Window("Downloads", id: NavigationCoordinator.AuxiliaryPresentation.downloads.windowID) {
+            DownloadsPresentationContainer()
+                .environment(\.dependencies, DependencyContainer.shared)
+                .environmentObject(DependencyContainer.shared.navigationCoordinator)
+                .ensembleAuxiliaryWindowFrame(.downloads)
+        }
+        .defaultSize(
+            width: EnsembleScaffold.AuxiliaryWindow.Configuration.downloads.idealWidth,
+            height: EnsembleScaffold.AuxiliaryWindow.Configuration.downloads.idealHeight
+        )
+        .windowResizability(.contentSize)
         #endif
     }
 
@@ -318,9 +316,7 @@ struct EnsembleApp: App {
         switch phase {
             case .active:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "active"])
-                if #available(iOS 16.0, *) {
-                    await EnsembleFocusFilter.refreshCurrent()
-                }
+                await EnsembleFocusFilter.refreshCurrent()
                 guard !Task.isCancelled else { return }
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
                 let isInitialActivation = !hasHandledInitialIOSActivePhase
@@ -332,12 +328,10 @@ struct EnsembleApp: App {
                 // Wire UI + App loggers here (Core/API/Persistence wired in DependencyContainer).
                 startPersistentLogSessionIfNeeded()
 
-                // Schedule background refresh on first activation (iOS 16+)
-                if #available(iOS 16.0, *) {
-                    if !hasScheduledBackgroundRefresh {
-                        BackgroundSyncScheduler.shared.scheduleAppRefresh()
-                        hasScheduledBackgroundRefresh = true
-                    }
+                // Schedule background refresh on first activation
+                if !hasScheduledBackgroundRefresh {
+                    BackgroundSyncScheduler.shared.scheduleAppRefresh()
+                    hasScheduledBackgroundRefresh = true
                 }
 
                 if isInitialActivation {
@@ -1114,15 +1108,11 @@ private extension PinnedItemType {
 // MARK: - Background Refresh Extension
 
 extension Scene {
-    /// Adds background refresh capability on iOS 16+, no-op on iOS 15 and other platforms
+    /// Adds background refresh capability on iOS, no-op on other platforms
     func applyBackgroundRefresh() -> some Scene {
         #if os(iOS)
-        if #available(iOS 16.0, *) {
-            return self.backgroundTask(.appRefresh("com.videogorl.ensemble.refresh")) {
-                await performBackgroundRefresh()
-            }
-        } else {
-            return self
+        return self.backgroundTask(.appRefresh("com.videogorl.ensemble.refresh")) {
+            await performBackgroundRefresh()
         }
         #else
         return self

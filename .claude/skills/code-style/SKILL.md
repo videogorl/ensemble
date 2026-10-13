@@ -19,7 +19,8 @@ native framework, or installed dependency before adding code.
   `#if DEBUG`.
 - Treat logs as production data. Route URLs, headers, query strings, auth data,
   filesystem paths, and token-like values through the existing redaction path.
-- Keep iOS 15 and macOS 12 source compatibility with availability checks. Remove
+- Deployment floors are iOS/iPadOS 17, macOS 15, and watchOS 10. Do not add
+  availability checks or fallbacks for anything at or below them. Remove
   obsolete internal compatibility paths; do not remove user features or stored
   data without explicit authorization.
 - Validate remote and persisted inputs. Preserve last-good data when responses
@@ -33,7 +34,8 @@ native framework, or installed dependency before adding code.
 - Guard high-frequency publications and expensive work. Keep I/O and CPU-heavy
   work off the main actor, but do not use detached work that escapes ownership
   or can write after cancellation/source removal.
-- Account for 2 GB devices. Load [performance.md](references/performance.md) only
+- Keep memory bounded: paged reads and bounded caches, although no 2 GB device
+  is a test target. Load [performance.md](references/performance.md) only
   when changing persistent SwiftUI observation, large collections, CoreData,
   artwork, audio analysis, downloads, sync, or another performance-sensitive
   path.

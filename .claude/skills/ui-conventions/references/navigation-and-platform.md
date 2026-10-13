@@ -7,9 +7,8 @@
   `NavigationCoordinator`. When a concrete model is available, push the concrete
   detail rather than an ID loader. A sheet-to-route handoff uses pending
   navigation owned by the root, not an animation delay.
-- iOS 16+ uses `NavigationStack`; iOS 15 keeps the existing mounted
-  `NestedNavigationLink` bridge. Add availability branches only at the shared
-  owner, not at every caller.
+- Navigation uses `NavigationStack` on every supported OS. Add availability
+  branches for newer-OS behavior only at the shared owner, not at every caller.
 - Expanded iOS 27 iPhone windows reuse the iPad sidebar and native browse split;
   compact phones retain tabs and push navigation. Keep split selections and
   navigation state above the adaptive containers. Convert sidebar-only roots to
@@ -23,7 +22,7 @@
 - Keep persistent navigation and scroll roots structurally stable across runtime
   environment changes; pass changing values into modifiers instead of choosing
   conditional modifier branches.
-- On macOS 15+, `MacBrowseSplitView` owns the permanent sidebar/picker/detail
+- On macOS, `MacBrowseSplitView` owns the permanent sidebar/picker/detail
   panes. Only its detail host bridges the window title, toolbar, and search;
   picker controls reuse the leaf builders and view-model bindings. Forward app
   context explicitly between hosting roots, not SwiftUI's whole environment.
@@ -38,7 +37,7 @@
   `EnsembleBrowseToolbar`, and native track-list hosts rather than duplicating
   spacing, pane math, row gestures, or table columns.
 - Keep intentional native bridges for native tables, AirPlay, Metal aurora,
-  global toast hosting, share/menu hosting, and iOS 15 tab/mini-player behavior.
+  global toast hosting, and share/menu hosting.
   New representables must own real platform functionality, not timing/layout
   workarounds.
 - Native table callers pass value requests with coordinator-owned handled IDs.

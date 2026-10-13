@@ -14,8 +14,9 @@ behavior is insufficient.
 
 - Keep navigation and presentation scene/window-scoped. Do not route user UI
   through shared singleton navigation state.
-- Preserve iOS 15/macOS 12 fallbacks with availability checks; use modern native
-  APIs on newer systems rather than broad appearance overrides.
+- Floors are iOS/iPadOS 17, macOS 15, and watchOS 10. Use native APIs available
+  at those floors directly; gate only newer-OS behavior with availability
+  checks, and prefer native APIs over broad appearance overrides.
 - Reuse shared scaffolds, design tokens, menu/action catalogs, track-list hosts,
   detail surfaces, and root chrome owners. Do not fork behavior per screen.
 - Render cached/last-good content immediately. Refresh in place; do not replace a
@@ -29,7 +30,7 @@ behavior is insufficient.
 ## Load One Relevant Reference
 
 - [navigation-and-platform.md](references/navigation-and-platform.md): root
-  shells, typed routes, iOS 15 navigation, split views, root chrome, StageFlow,
+  shells, typed routes, split views, root chrome, StageFlow,
   native tables, and platform bridges.
 - [presentation-and-actions.md](references/presentation-and-actions.md): sheets,
   keyboard flows, menus, swipe actions, toasts, source capability copy, and

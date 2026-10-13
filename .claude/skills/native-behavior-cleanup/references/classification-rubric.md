@@ -46,7 +46,6 @@ Defer instead of deleting when removal could silently break complex UI behavior:
 - Root chrome or mini-player placement preferences.
 - StageFlow layout/gesture systems.
 - Native track-list bridges with self-scrolling or header observers.
-- iOS 15 fallback behavior where the newer native API does not exist.
 
 Proof needed before deletion: before/after simulator or macOS screenshots, logs when relevant, and a narrow rollback plan.
 

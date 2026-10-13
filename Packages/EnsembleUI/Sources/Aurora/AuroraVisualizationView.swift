@@ -9,7 +9,6 @@ import UIKit
 /// Real-time frequency visualization with soft aurora-style glow.
 /// Mirrors live FFT bands with bass at the center and higher frequencies outward,
 /// rising from the bottom with blurred, overlapping wisps.
-@available(iOS 15.0, macOS 12.0, *)
 public struct AuroraVisualizationView: View {
     // MARK: - Dependencies
 

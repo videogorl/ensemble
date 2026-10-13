@@ -60,28 +60,8 @@ class DeferredLayoutTableView: UITableView {
     }
 }
 
-private final class HostedContentController: UIHostingController<AnyView> {
-    var onContentHeightChange: ((CGFloat) -> Void)?
-    private var contentHeight: CGFloat = 0
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        guard view.bounds.width > 0 else { return }
-
-        let fittingHeight = view.systemLayoutSizeFitting(
-            CGSize(width: view.bounds.width, height: UIView.layoutFittingCompressedSize.height),
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        ).height
-        guard abs(contentHeight - fittingHeight) > 1 else { return }
-        contentHeight = fittingHeight
-        onContentHeightChange?(fittingHeight)
-    }
-}
-
 private final class HostedContentCell: UITableViewCell {
     static let reuseIdentifier = "HostedContentCell"
-    private var hostingController: HostedContentController?
 
     func configure(content: AnyView, tableView: UITableView) {
         selectionStyle = .none
@@ -89,39 +69,10 @@ private final class HostedContentCell: UITableViewCell {
         contentView.backgroundColor = .clear
         separatorInset = UIEdgeInsets(top: 0, left: tableView.bounds.width, bottom: 0, right: 0)
 
-        if #available(iOS 16.0, *) {
-            hostingController?.view.removeFromSuperview()
-            hostingController = nil
-            contentConfiguration = UIHostingConfiguration {
-                content
-            }
-            .margins(.all, 0)
-            return
+        contentConfiguration = UIHostingConfiguration {
+            content
         }
-
-        if let hostingController {
-            hostingController.rootView = content
-            return
-        }
-
-        let hostingController = HostedContentController(rootView: content)
-        hostingController.view.backgroundColor = .clear
-        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(hostingController.view)
-        NSLayoutConstraint.activate([
-            hostingController.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            hostingController.view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            hostingController.view.topAnchor.constraint(equalTo: contentView.topAnchor),
-            hostingController.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
-        ])
-        hostingController.onContentHeightChange = { [weak self, weak tableView] _ in
-            guard self?.window != nil, let tableView else { return }
-            UIView.performWithoutAnimation {
-                tableView.beginUpdates()
-                tableView.endUpdates()
-            }
-        }
-        self.hostingController = hostingController
+        .margins(.all, 0)
     }
 }
 

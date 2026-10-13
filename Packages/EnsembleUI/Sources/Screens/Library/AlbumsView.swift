@@ -82,11 +82,7 @@ public struct AlbumsView: View {
         #if os(iOS)
         .navigationBarHidden(isStageFlowActive)
         .if(true) { view in
-            if #available(iOS 16.0, *) {
-                view.toolbar(isStageFlowActive ? .hidden : .automatic, for: .navigationBar)
-            } else {
-                view
-            }
+            view.toolbar(isStageFlowActive ? .hidden : .automatic, for: .navigationBar)
         }
         .statusBar(hidden: isStageFlowActive)
         #endif
@@ -130,13 +126,11 @@ public struct AlbumsView: View {
         guard hasLibraryContent, !isStageFlowActive else { return false }
 
         #if os(iOS)
-        if #available(iOS 16.0, *) {
-            return true
-        }
-        #endif
-
+        return true
+        #else
         return navigationCoordinator.pathSnapshot(for: .albums).isEmpty &&
             !navigationCoordinator.isRouteTransitionActive(for: .albums)
+        #endif
     }
 
     private var emptyView: some View {
