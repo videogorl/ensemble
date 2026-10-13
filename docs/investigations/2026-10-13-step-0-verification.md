@@ -3,7 +3,7 @@
 Date: 2026-10-13. Plan: [`rearchitecture-plan.md`](../reference/rearchitecture-plan.md)
 step 0. Checklist: [`surface-checklist.md`](../reference/surface-checklist.md).
 
-Step 0 is **not verified**. The Mac pass is complete except Share. The iPhone
+Step 0 is **not verified**. The Mac pass is complete. The iPhone
 rows were run on a simulator because the physical iPhone pass is on hold by
 Felicity's decision; simulator results do not satisfy plan section 7.
 
@@ -53,7 +53,7 @@ a relaunch of the same built app.
 | Profile window | pass | Every section rendered. Logs listed the current session and opened it with lines from this run |
 | Downloads window | pass | Library rows rendered; one row drilled in and went back. Nothing was toggled |
 | System Now Playing | pass | System Play/Pause and Next media keys reached Ensemble: logs show `remote toggle command received`, the next track, then paused. The Control Center tile was not looked at |
-| Share and song.link | not run | Share Link raised a system prompt asking to let Ensemble access the Apple Music library. It was left unanswered, so the picker was not reached |
+| Share and song.link | pass | The first attempt raised the Apple Music access prompt, which Felicity allowed. Share Link then opened the sharing picker for the track with AirDrop, Mail, Messages, and Copy. The URL itself was not read |
 
 ## iPhone rows on a simulator
 
@@ -120,13 +120,12 @@ All rows `not run`. Neither is approved until steps 5 and 6.
   "(Anesthesia) – Pulling Teeth" from Songs, Next went to "(Big) Wish" while
   the list shows "[Anthems]" next. The list and the queue appear to sort
   punctuation differently. Not investigated.
-- **Share Link on the Mac asks for Apple Music library access.** Unexpected
-  for a Plex track on a platform without the Apple Music source. Not
-  investigated.
+- **Share Link on the Mac asks for Apple Music library access.** This is by
+  design: `SongLinkService` resolves the item in the Apple Music catalogue
+  before calling song.link. The denied path was not exercised.
 - The Mac's network switched between Ethernet and Wi-Fi several times during
   the run. The app logged each switch and recovered.
 
 ## Still owed for step 0
 
 1. iPhone surface pass on the iPhone 16 Pro through Device Hub. On hold.
-2. Mac Share row, once the Apple Music prompt is answered.

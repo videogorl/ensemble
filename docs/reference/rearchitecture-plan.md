@@ -356,7 +356,7 @@ passes on the iPhone 16 Pro through Device Hub and on the Mac build, except
 the parked item; line counts are recorded.
 
 Status at `254691f2`: scope items 1 to 6 are delivered and the three builds
-succeed. The Mac pass is complete except Share. The iPhone rows were run on a
+succeed. The Mac pass is complete. The iPhone rows were run on a
 simulator; the physical iPhone pass is on hold, so step 0 is not verified. See
 [`2026-10-13-step-0-verification.md`](../investigations/2026-10-13-step-0-verification.md).
 

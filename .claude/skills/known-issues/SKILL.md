@@ -160,6 +160,18 @@ No unresolved critical issues are currently documented.
 - **Status:** On 2026-10-13 a full accessibility walk of the macOS Songs table (about 17,000 tracks) made it resolve artwork for thousands of rows; artwork then showed placeholders on every screen for minutes and recovered only after relaunch. On the iOS 26.5 simulator an accessibility snapshot of Songs exceeded the test runner's watchdog and held the app above 100 percent CPU; the app itself kept accepting routes. Both were triggered by automation. VoiceOver and other assistive clients have not been tested and may hit the same cost.
 - **Next step:** Measure a VoiceOver pass over Songs on a large library. If confirmed, bound what the table exposes or resolves per accessibility request.
 
+### Queue Order Differs From The Songs List On Mac
+
+- **Area:** macOS Songs table, `LibraryViewModel` track sorting, queue construction from Songs.
+- **Status:** On 2026-10-13, after double-clicking "(Anesthesia) – Pulling Teeth" in Songs, the Queue page listed "(Big) Wish" next while the Songs list showed "[Anthems]", "[Anthems2]", "À quai", and "A.D.D." next. The list and the queue appear to order titles with leading punctuation or diacritics differently. Seen once on the macOS Debug build; not checked on iOS and not investigated.
+- **Next step:** Compare the sort key used for the displayed Songs rows with the order handed to the queue, and check whether iOS shows the same mismatch.
+
+### Share Link Requests Apple Music Access
+
+- **Area:** `SongLinkService`, track and album Share Link.
+- **Status:** By design, Share Link looks the item up in the Apple Music catalogue and passes that URL to song.link, so the first use asks for Apple Music access. On 2026-10-13 the prompt appeared on the Mac for a Plex track with no explanation in the app. The sharing picker opened normally once access was allowed. The denied path was not exercised.
+- **Next step:** Confirm what Share Link produces when access is denied, and decide whether the prompt needs in-app context first.
+
 ## When To Update This Skill
 
 Add entries only for active bugs, limitations, fragile platform behavior, or watchlist items. Resolved incident writeups belong in `docs/investigations/`.
