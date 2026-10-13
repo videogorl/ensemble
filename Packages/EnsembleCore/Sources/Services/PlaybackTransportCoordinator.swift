@@ -153,14 +153,6 @@ final class PlaybackTransportCoordinator {
         withLock { Set(preparedStreams.keys) }
     }
 
-    func activeLoaderFileSize(for trackId: String) -> Int64? {
-        withLock {
-            guard let stream = preparedStreams[trackId] else { return nil }
-            let size = stream.pipeline.diagnostics().receivedBytes
-            return size > 0 ? size : nil
-        }
-    }
-
     func cachedDecisionCount() -> Int {
         withLock { cachedStreamDecisions.count }
     }

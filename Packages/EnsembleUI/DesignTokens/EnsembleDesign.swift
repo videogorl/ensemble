@@ -37,9 +37,7 @@ public enum EnsembleDesign {
         public static let compactControl: CGFloat = 8
         public static let card: CGFloat = 12
         public static let sheet: CGFloat = 20
-        public static let chip: CGFloat = 20
         public static let miniPlayer: CGFloat = 28
-        public static let toolbarPill: CGFloat = 28
 
         public static func artworkSquare(for dimension: CGFloat) -> CGFloat {
             guard dimension > 0 else { return 4 }

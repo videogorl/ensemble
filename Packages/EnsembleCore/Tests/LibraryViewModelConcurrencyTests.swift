@@ -80,16 +80,8 @@ final class LibraryViewModelConcurrencyTests: XCTestCase {
             try await repository.fetchSiriEligibleTracks()
         }
 
-        func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack] {
-            try await repository.fetchTracks(forAlbum: albumRatingKey)
-        }
-
         func fetchTracks(forAlbum albumRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] {
             try await repository.fetchTracks(forAlbum: albumRatingKey, sourceCompositeKey: sourceCompositeKey)
-        }
-
-        func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack] {
-            try await repository.fetchTracks(forArtist: artistRatingKey)
         }
 
         func fetchTracks(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] {
@@ -98,10 +90,6 @@ final class LibraryViewModelConcurrencyTests: XCTestCase {
 
         func fetchFavoriteTracks() async throws -> [CDTrack] {
             try await repository.fetchFavoriteTracks()
-        }
-
-        func fetchTrack(ratingKey: String) async throws -> CDTrack? {
-            try await repository.fetchTrack(ratingKey: ratingKey)
         }
 
         func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? {
@@ -249,10 +237,6 @@ final class LibraryViewModelConcurrencyTests: XCTestCase {
 
         func fetchTrackRatings(forSource sourceKey: String) async throws -> [String: Int16] {
             try await repository.fetchTrackRatings(forSource: sourceKey)
-        }
-
-        func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
-            try await repository.fetchArtistTimestamps(forSource: sourceKey)
         }
 
         func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date] {

@@ -449,10 +449,6 @@ public final class SettingsManager: ObservableObject {
         songsTableColumns = columns
     }
 
-    public func resetSongsTableColumnsToDefaults() {
-        songsTableColumns = SongsTableColumn.defaultVisibleColumns
-    }
-
     @discardableResult
     public func setTrackSwipeAction(
         _ action: TrackSwipeAction?,
@@ -476,17 +472,6 @@ public final class SettingsManager: ObservableObject {
         }
         trackSwipeLayout = layout
         return true
-    }
-
-    public func moveTrackSwipeAction(edge: TrackSwipeEdge, fromOffsets: IndexSet, toOffset: Int) {
-        var layout = trackSwipeLayout
-        switch edge {
-        case .leading:
-            layout.leading.move(fromOffsets: fromOffsets, toOffset: toOffset)
-        case .trailing:
-            layout.trailing.move(fromOffsets: fromOffsets, toOffset: toOffset)
-        }
-        trackSwipeLayout = layout
     }
 
     public func isTrackSwipeActionAssigned(

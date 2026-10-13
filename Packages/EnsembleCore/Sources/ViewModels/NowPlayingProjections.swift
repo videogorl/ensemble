@@ -64,17 +64,8 @@ public final class NowPlayingPlaybackProjection: ObservableObject {
         max(0, duration)
     }
 
-    public var formattedCurrentTime: String {
-        MediaFormatters.trackClock(currentTime)
-    }
-
     public var formattedDuration: String {
         MediaFormatters.trackClock(duration)
-    }
-
-    public var formattedRemainingTime: String {
-        let remaining = max(0, scrubberDuration - currentTime)
-        return MediaFormatters.negativeTrackClock(remaining)
     }
 
     func updateCurrentTrack(_ track: Track?) {
@@ -313,22 +304,6 @@ public final class NowPlayingLyricsProjection: ObservableObject {
 
     public var lyricsScrollTargetIndex: Int? {
         scrollTargetIndexSubject.value
-    }
-
-    public var instrumentalProgress: Double? {
-        instrumentalProgressSubject.value
-    }
-
-    public var currentLyricsLineIndexPublisher: AnyPublisher<Int?, Never> {
-        currentLineIndexSubject.eraseToAnyPublisher()
-    }
-
-    public var lyricsScrollTargetIndexPublisher: AnyPublisher<Int?, Never> {
-        scrollTargetIndexSubject.eraseToAnyPublisher()
-    }
-
-    public var instrumentalProgressPublisher: AnyPublisher<Double?, Never> {
-        instrumentalProgressSubject.eraseToAnyPublisher()
     }
 
     func updateLyricsState(_ state: LyricsState) {

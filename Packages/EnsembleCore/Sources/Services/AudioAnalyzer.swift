@@ -190,7 +190,6 @@ public struct FrequencyTimelinePersistence {
 // MARK: - Frequency Analysis Error
 
 public enum FrequencyAnalysisError: Error {
-    case cannotOpenFile
     case invalidSidecar
 }
 

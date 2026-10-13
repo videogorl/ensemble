@@ -83,10 +83,6 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
         !items.isEmpty
     }
 
-    public func removeDownload(key: String) async {
-        await offlineDownloadService.removeTarget(key: key)
-    }
-
     /// Remove all download targets, memberships, and files
     public func removeAllDownloads() async {
         await offlineDownloadService.removeAllDownloads()

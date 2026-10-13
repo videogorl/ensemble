@@ -66,8 +66,8 @@ final class SearchViewModelResponseTests: XCTestCase {
         XCTAssertFalse(harness.viewModel.isSearching)
         XCTAssertFalse(harness.viewModel.playlistResults.isEmpty)
 
-        for playlistID in ["10425", "26898", "p.1YeW3rpCkzaPXR"] {
-            try await harness.playlistRepository.deletePlaylist(ratingKey: playlistID)
+        for source in [Self.plexSourceOne, Self.plexSourceTwo, Self.appleMusicSource] {
+            try await harness.playlistRepository.deletePlaylists(sourceCompositeKey: source)
         }
 
         harness.viewModel.searchQuery = ""

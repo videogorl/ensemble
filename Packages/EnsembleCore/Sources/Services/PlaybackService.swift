@@ -566,10 +566,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
-    static func isSameTrackIdentity(_ lhs: Track, _ rhs: Track) -> Bool {
-        lhs.id == rhs.id && lhs.sourceCompositeKey == rhs.sourceCompositeKey
-    }
-
     static func shouldContinuePlaybackRequest(
         generation: UInt64,
         currentGeneration: UInt64,

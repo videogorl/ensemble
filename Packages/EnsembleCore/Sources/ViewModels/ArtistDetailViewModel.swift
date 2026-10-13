@@ -255,10 +255,6 @@ public final class ArtistDetailViewModel: ObservableObject {
         displaySnapshot.filteredTracks
     }
 
-    public var totalDuration: String {
-        MediaFormatters.trackCollectionDuration(displaySnapshot.filteredTracks)
-    }
-
     public var trackCount: Int {
         displaySnapshot.trackCount
     }

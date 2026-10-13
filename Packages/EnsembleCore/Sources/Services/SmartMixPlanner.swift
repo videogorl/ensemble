@@ -113,10 +113,6 @@ public struct SmartMixPlan: Equatable, Sendable {
     public let incomingBeatOffset: TimeInterval
     public let outgoingHighPassSweep: SmartMixHighPassSweep?
 
-    public var incomingPromotionPosition: TimeInterval {
-        incomingStartTime + metadataPromotionTime * incomingPlaybackRate
-    }
-
     public init(
         transitionDuration: TimeInterval,
         outgoingStartTime: TimeInterval,
@@ -228,26 +224,6 @@ public enum SmartMixPlanner {
         return candidates.min { lhs, rhs in
             abs(outgoingBPM / lhs - 1) < abs(outgoingBPM / rhs - 1)
         }
-    }
-
-    public static func tempoMatchDecision(
-        outgoingStartTime: TimeInterval,
-        baseIncomingStartTime: TimeInterval,
-        incomingDuration: TimeInterval,
-        transitionDuration: TimeInterval,
-        outgoingTempo: SmartMixTempoAnalysis?,
-        incomingTempo: SmartMixTempoAnalysis?,
-        tempoMatchingAllowed: Bool = true
-    ) -> (matched: Bool, incomingPlaybackRate: Double, outgoingPlaybackRate: Double, beatOffset: TimeInterval) {
-        tempoDecision(
-            outgoingStartTime: outgoingStartTime,
-            baseIncomingStartTime: baseIncomingStartTime,
-            incomingDuration: incomingDuration,
-            transitionDuration: transitionDuration,
-            outgoingTempo: outgoingTempo,
-            incomingTempo: incomingTempo,
-            tempoMatchingAllowed: tempoMatchingAllowed
-        )
     }
 
     private static func tempoDecision(

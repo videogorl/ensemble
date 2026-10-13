@@ -12,7 +12,6 @@ import SwiftUI
 public struct MiniPlayer: View {
     public enum SurfaceStyle {
         case automatic
-        case stableMaterial
     }
 
     let viewModel: NowPlayingViewModel

@@ -274,12 +274,6 @@ public actor CloudSyncService {
         return true
     }
 
-    /// Foreground recovery path for devices that miss silent push delivery.
-    public func refreshProfileFromCloud() async {
-        guard let result = await pullProfile() else { return }
-        await onRemoteProfileChanged?(result.profile, result.imageData)
-    }
-
     // MARK: - Hidden Media Sync
 
     public func pullHiddenMedia() async -> [HiddenMediaMutation]? {

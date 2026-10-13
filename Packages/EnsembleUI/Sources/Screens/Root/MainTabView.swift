@@ -63,20 +63,12 @@ public struct MainTabView: View {
         viewModels.library
     }
 
-    private var homeVM: HomeViewModel {
-        viewModels.home
-    }
-
     private var searchVM: SearchViewModel {
         viewModels.search
     }
 
     private var pinnedVM: PinnedViewModel {
         viewModels.pinned
-    }
-
-    private var playlistsVM: PlaylistViewModel {
-        viewModels.playlists
     }
 
     private var showsPhoneAuroraOverlay: Bool {
@@ -593,14 +585,6 @@ public struct SidebarView: View {
 
     private var libraryVM: LibraryViewModel {
         viewModels.library
-    }
-
-    private var homeVM: HomeViewModel {
-        viewModels.home
-    }
-
-    private var searchVM: SearchViewModel {
-        viewModels.search
     }
 
     private var playlistsVM: PlaylistViewModel {

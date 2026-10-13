@@ -154,33 +154,6 @@ public final class CacheManager: ObservableObject {
         totalCacheSize = infos.values.reduce(0) { $0 + $1.size }
     }
     
-    /// Clear a specific cache type
-    public func clearCache(type: CacheType) async throws {
-        let before = try await cleanupSnapshot()
-        EnsembleLogger.info("CacheManager: clearing \(type.rawValue) (before: \(before.logDescription))")
-        let clearsLibraryData = type == .libraryMetadata
-
-        switch type {
-        case .libraryMetadata:
-            try await clearLibraryMetadata()
-        case .albumArtwork:
-            try await clearArtworkStorageAndConsumers()
-        case .downloadedTracks:
-            try await clearAllDownloads()
-        case .playbackAudio:
-            try playbackArtifactCache.removeAll()
-        case .nukeImageCache:
-            try await clearNukeImageCache()
-        }
-        
-        await refreshCacheInfo()
-        let after = try await cleanupSnapshot()
-        EnsembleLogger.info("CacheManager: cleared \(type.rawValue) (after: \(after.logDescription))")
-        if clearsLibraryData {
-            notifyLibraryDataDidClear()
-        }
-    }
-
     /// Clear artwork-only caches without deleting library metadata, downloads, lyrics, or account state.
     public func clearArtworkCaches() async throws {
         let before = try await cleanupSnapshot()
@@ -193,11 +166,6 @@ public final class CacheManager: ObservableObject {
         EnsembleLogger.info("CacheManager: cleared artwork caches (after: \(after.logDescription))")
     }
 
-    /// Clears shared transient artwork render caches without touching source-owned durable files.
-    public func clearTransientArtworkCaches() async throws {
-        try await clearNukeImageCache()
-    }
-    
     /// Clear all caches
     public func clearAllCaches() async throws {
         let before = try await cleanupSnapshot()
@@ -348,9 +316,5 @@ public final class CacheManager: ObservableObject {
     private func clearNukeImageCache() async throws {
         try await ArtworkLoader.resetSharedPipelineCaches()
         invalidateArtworkCacheConsumers()
-    }
-    
-    public var formattedTotalSize: String {
-        MediaFormatters.fileBytes(totalCacheSize)
     }
 }

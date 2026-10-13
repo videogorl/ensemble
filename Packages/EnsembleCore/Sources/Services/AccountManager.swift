@@ -908,40 +908,6 @@ public final class AccountManager: ObservableObject {
         return sources
     }
 
-    /// Returns all enabled sources as MusicSource domain objects (without live status)
-    public func enabledMusicSources() -> [MusicSource] {
-        var sources: [MusicSource] = []
-        for account in plexAccounts {
-            for server in account.servers {
-                for library in server.libraries where library.isEnabled {
-                    let identifier = MusicSourceIdentifier(
-                        type: .plex,
-                        accountId: account.id,
-                        serverId: server.id,
-                        libraryId: library.key
-                    )
-                    sources.append(MusicSource(
-                        id: identifier,
-                        displayName: "\(server.name) - \(library.title)",
-                        accountName: account.accountIdentifier,
-                        sourceType: .plex
-                    ))
-                }
-            }
-        }
-        #if os(iOS)
-        if isAppleMusicEnabled {
-            sources.append(MusicSource(
-                id: .appleMusic,
-                displayName: "Apple Music",
-                accountName: "This Device",
-                sourceType: .appleMusic
-            ))
-        }
-        #endif
-        return sources
-    }
-
     public struct SourceLibraryContext: Sendable, Equatable {
         public let accountId: String
         public let accountName: String

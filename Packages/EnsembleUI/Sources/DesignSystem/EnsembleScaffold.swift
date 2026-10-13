@@ -56,7 +56,6 @@ public enum EnsembleScaffold {
     }
 
     public enum Toast {
-        public static let hiddenHostDimension = EnsembleDesign.Spacing.none
         public static let iconTextSpacing: CGFloat = 10
         public static let textSpacing = EnsembleDesign.Spacing.xxs
         public static let trailingSpacerMinLength = EnsembleDesign.Spacing.sm
@@ -146,7 +145,6 @@ public enum EnsembleScaffold {
     }
 
     public enum Genres {
-        public static let iconLaneWidth = EnsembleScaffold.UtilityRow.iconLaneWidth
         public static let detailHeaderSpacing = EnsembleDesign.Spacing.xs
     }
 
@@ -352,7 +350,6 @@ public enum EnsembleScaffold {
         public static let compactActionCornerRadius = EnsembleDesign.Radius.compactControl
         public static let listCardCornerRadius = EnsembleDesign.Radius.card
         public static let listCardHorizontalPadding = EnsembleDesign.Spacing.lg
-        public static let loadingTopPadding = TrackListLayoutMetrics.detailHorizontalPadding
         public static let compactWideActionThreshold: CGFloat = 300
         public static let stackedWideActionThreshold: CGFloat = 420
         public static let compactWideActionHorizontalPadding: CGFloat = 18
@@ -378,8 +375,6 @@ public enum EnsembleScaffold {
         public static let metadataSpacing = EnsembleDesign.Spacing.sm
         public static let progressSpacing = EnsembleDesign.Spacing.xs
         public static let bannerSpacing = EnsembleDesign.Spacing.sm
-        public static let actionVerticalPadding = EnsembleScaffold.DetailSurface.actionVerticalPadding
-        public static let actionCornerRadius = EnsembleScaffold.DetailSurface.actionCornerRadius
         public static let headerIconDimension: CGFloat = 120
         public static let headerIconSize = EnsembleDesign.Typography.emptyStateIcon
         public static let backgroundHeight: CGFloat = 400
@@ -455,7 +450,6 @@ public enum EnsembleScaffold {
         public static let viewportPickerWidth: CGFloat = 300
         public static let viewportMinimumPanelWidth: CGFloat = 320
         public static let viewportWideAspectMultiplier: CGFloat = 0.82
-        public static let dismissPillTopPadding: CGFloat = 28
         public static let dismissPillWidth: CGFloat = 36
         public static let dismissPillHeight: CGFloat = 5
         public static let dismissPillOpacity = 0.3
@@ -538,7 +532,6 @@ public enum EnsembleScaffold {
         public static let popoverWidth: CGFloat = 240
         public static let popoverDividerVerticalPadding = EnsembleDesign.Spacing.chipVertical
         public static let macMenuYOffset = EnsembleDesign.Spacing.xs
-        public static let backgroundOpacity = 0.3
         public static let sheenDarkTopOpacity = 0.03
         public static let sheenDarkBottomOpacity = 0.02
         public static let sheenLightOpacity = 0.01

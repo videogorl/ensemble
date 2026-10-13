@@ -23,8 +23,6 @@ public struct OfflineDownloadTargetSnapshot: Identifiable {
     public var isComplete: Bool {
         totalTrackCount > 0 && completedTrackCount >= totalTrackCount
     }
-
-    public var hasFailedTracks: Bool { failedTrackCount > 0 }
 }
 
 public struct OfflineDownloadQualityRefreshResult: Sendable {

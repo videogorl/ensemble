@@ -116,17 +116,6 @@ public enum SiriMediaIndexResolver {
             .sorted(by: rankSort)
     }
 
-    public static func matchingItem(
-        for payload: SiriPlaybackRequestPayload,
-        in index: SiriMediaIndex?
-    ) -> SiriMediaIndexItem? {
-        index?.items.first {
-            $0.kind == payload.kind
-                && $0.id == payload.entityID
-                && sourceMatches(requestSource: payload.sourceCompositeKey, candidateSource: $0.sourceCompositeKey)
-        }
-    }
-
     public static func sourceMatches(
         requestSource: String?,
         candidateSource: String?

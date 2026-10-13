@@ -566,10 +566,6 @@ public final class SystemMediaIntegrationService {
         }
     }
 
-    public func deleteUnavailableSystemMedia(_ references: [SystemMediaReference]) async {
-        _ = await deleteUnavailableSystemMediaAndReport(references)
-    }
-
     private func deleteUnavailableSystemMediaAndReport(_ references: [SystemMediaReference]) async -> Bool {
         guard !references.isEmpty else { return true }
 

@@ -109,16 +109,4 @@ public final class FilterPersistence {
         let key = keyPrefix + viewType
         UserDefaults.standard.removeObject(forKey: key)
     }
-    
-    /// Clear all saved filters (including per-playlist keys)
-    public static func clearAll() {
-        let viewTypes = ["Albums", "Artists", "Songs", "Playlists", "Genres", "AlbumDetail", "ArtistDetail", "PlaylistDetail", "Favorites"]
-        viewTypes.forEach { clear(for: $0) }
-
-        // Also clear any per-playlist filter keys (PlaylistDetail-<id>)
-        let defaults = UserDefaults.standard
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(keyPrefix + "PlaylistDetail-") {
-            defaults.removeObject(forKey: key)
-        }
-    }
 }

@@ -113,19 +113,6 @@ public final class MergedArtistDetailViewModel: ObservableObject {
         isLoading = false
     }
 
-    public func refreshFromServer() async {
-        guard !syncCoordinator.isOffline, !syncCoordinator.isSyncing else {
-            await load()
-            return
-        }
-
-        error = nil
-        await Task.detached { [syncCoordinator] in
-            await syncCoordinator.syncAllIncremental()
-        }.value
-        await load()
-    }
-
     public var tracks: [Track] {
         sourceSections.flatMap(\.tracks)
     }
@@ -152,10 +139,6 @@ public final class MergedArtistDetailViewModel: ObservableObject {
 
     public var availableGenres: [String] {
         displaySnapshot.availableGenres
-    }
-
-    public var totalDuration: String {
-        MediaFormatters.trackCollectionDuration(displaySnapshot.filteredTracks)
     }
 
     private func rebuildDisplaySnapshots() {

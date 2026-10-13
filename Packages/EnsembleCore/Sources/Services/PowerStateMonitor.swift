@@ -9,11 +9,6 @@ public final class PowerStateMonitor: ObservableObject {
     @Published public private(set) var isLowPowerMode: Bool
     @Published public private(set) var thermalState: ProcessInfo.ThermalState
 
-    /// Publisher for non-SwiftUI consumers that need Combine-based observation
-    public var isLowPowerModePublisher: AnyPublisher<Bool, Never> {
-        $isLowPowerMode.eraseToAnyPublisher()
-    }
-
     private var cancellables = Set<AnyCancellable>()
 
     public init() {

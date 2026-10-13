@@ -12,7 +12,6 @@ public final class WatchCatalogStore: @unchecked Sendable {
     private let defaults: UserDefaults
     private let coreDataStack: CoreDataStack
     private let writeContext: NSManagedObjectContext
-    private let selectedLibraryKey = "ensemble.watch.selectedLibraries"
     private let libraryFlagsKey = "ensemble.watch.libraryFlags"
 
     public convenience init() {
@@ -94,14 +93,6 @@ public final class WatchCatalogStore: @unchecked Sendable {
             Self.replaceHub(id: Self.pinsHubID, title: "Pins", order: 0, items: pins, on: state, in: context)
             try context.save()
         }
-    }
-
-    public func loadSelectedLibraryKeys() -> Set<String> {
-        Set(defaults.stringArray(forKey: selectedLibraryKey) ?? [])
-    }
-
-    public func saveSelectedLibraryKeys(_ keys: Set<String>) {
-        defaults.set(Array(keys).sorted(), forKey: selectedLibraryKey)
     }
 
     public func loadLibraryFlags() -> [String: Bool] {

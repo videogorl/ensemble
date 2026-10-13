@@ -222,30 +222,6 @@ public final class KVSSyncService: ObservableObject {
         }
     }
 
-    // MARK: - Bulk Pull (for first-connect and re-enable flows)
-
-    /// Pull all synced values from KVS and invoke their callbacks.
-    /// Used during first iCloud connect or when master sync is re-enabled.
-    public func pullAll() {
-        store.synchronize()
-
-        if let color = store.string(forKey: KVSKey.accentColor) {
-            onRemoteAccentColorChanged?(color)
-        }
-        if let data = store.data(forKey: KVSKey.swipeLayout) {
-            onRemoteSwipeLayoutChanged?(data)
-        }
-        if let data = store.data(forKey: KVSKey.pins) {
-            onRemotePinsChanged?(data)
-        }
-        if let data = store.data(forKey: KVSKey.libraryFlags) {
-            onRemoteLibraryFlagsChanged?(data)
-        }
-        if let data = store.data(forKey: KVSKey.mergingPreferences) {
-            onRemoteMergingPreferencesChanged?(data)
-        }
-    }
-
     private func markInitialSyncCompleted() {
         guard initialSyncState == .pending else { return }
         initialSyncState = .completed

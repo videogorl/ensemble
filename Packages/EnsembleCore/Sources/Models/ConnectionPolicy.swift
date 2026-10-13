@@ -3,7 +3,6 @@ import Foundation
 
 /// Re-export API policy types for Core/UI usage.
 public typealias PlexEndpointDescriptor = EnsembleAPI.PlexEndpointDescriptor
-public typealias ConnectionSelectionPolicy = EnsembleAPI.ConnectionSelectionPolicy
 public typealias AllowInsecureConnectionsPolicy = EnsembleAPI.AllowInsecureConnectionsPolicy
 
 public extension AllowInsecureConnectionsPolicy {

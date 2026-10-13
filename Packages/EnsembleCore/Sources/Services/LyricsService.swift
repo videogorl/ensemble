@@ -941,15 +941,6 @@ public final class LyricsService: ObservableObject {
         return parsed.lines.isEmpty ? nil : parsed
     }
 
-    // MARK: - Pre-Cache for Downloads
-
-    /// Fetch and cache lyrics for a track that was just downloaded.
-    /// Called fire-and-forget after audio download completion so lyrics
-    /// are available immediately when the user plays the track offline.
-    public func fetchAndCacheLyrics(for track: Track) async {
-        _ = await fetchAndCacheLyricsWithMetrics(for: track)
-    }
-
     func fetchAndCacheLyricsWithMetrics(for track: Track) async -> ArtifactPrefetchMetrics {
         var metrics = ArtifactPrefetchMetrics()
         let stateCheckStartedAt = ProcessInfo.processInfo.systemUptime

@@ -234,7 +234,6 @@ public enum AutomationSurface: String, CaseIterable, Sendable {
 public enum AutomationIdentifiers {
     public enum Sidebar {
         public static let search = "sidebar.search"
-        public static let allPlaylists = "sidebar.playlists.all"
         public static let downloadsToolbar = "sidebar.toolbar.downloads"
         public static let profileToolbar = "sidebar.toolbar.profile"
 

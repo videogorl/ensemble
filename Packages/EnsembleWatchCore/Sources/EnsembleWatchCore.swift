@@ -704,10 +704,6 @@ public final class WatchPlaybackController: ObservableObject {
         status == .playing
     }
 
-    public var hasActivePlayer: Bool {
-        player != nil
-    }
-
     public var progress: Double {
         guard let duration = currentTrack?.duration, duration > 0 else { return 0 }
         return min(max(currentTime / duration, 0), 1)

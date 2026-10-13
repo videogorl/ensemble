@@ -134,18 +134,6 @@ public final class LibraryVisibilityStore: ObservableObject {
         persist()
     }
 
-    public func deleteProfile(id: String) {
-        guard id != LibraryVisibilityProfile.defaultProfileID else { return }
-        profiles.removeAll(where: { $0.id == id })
-        profiles = Self.normalizedProfiles(from: profiles)
-
-        if activeProfileID == id {
-            activeProfileID = LibraryVisibilityProfile.defaultProfileID
-        }
-
-        persist()
-    }
-
     public func setHiddenSourceCompositeKeys(
         _ keys: Set<String>,
         inProfile profileID: String? = nil

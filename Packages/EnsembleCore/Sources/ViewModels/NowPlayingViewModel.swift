@@ -76,10 +76,6 @@ public final class NowPlayingViewModel: ObservableObject {
         set { _waveformHeights.send(newValue) }
     }
 
-    public var waveformHeightsPublisher: AnyPublisher<[Double], Never> {
-        _waveformHeights.eraseToAnyPublisher()
-    }
-
     /// Playback progress is high-frequency like waveform heights. The published
     /// stream is forwarded through playbackProjection so Now Playing surfaces share
     /// one progress subject instead of duplicating every display tick.
@@ -1027,11 +1023,6 @@ public final class NowPlayingViewModel: ObservableObject {
         guard let track = currentTrack else { return false }
         let availability = trackAvailabilityResolver.availability(for: track)
         return availability == .available || availability == .availableDownloadedOnly
-    }
-
-    public var formattedRemainingTime: String {
-        let remaining = max(0, scrubberDuration - currentTime)
-        return MediaFormatters.negativeTrackClock(remaining)
     }
 
     // MARK: - Album Metadata

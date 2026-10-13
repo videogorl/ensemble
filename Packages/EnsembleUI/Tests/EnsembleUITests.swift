@@ -1329,7 +1329,7 @@ final class EnsembleUITests: XCTestCase {
         )
 
         XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .management])
-        XCTAssertEqual(sections.actions(in: .playback), [.playNext, .playLast])
+        XCTAssertEqual(sections.actions(in: .playback), [.startTrackRadio, .shuffleFromTrack, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .playlist), [.addToLibrary, .addToPlaylist, .addToRecentPlaylist, .favorite])
         XCTAssertEqual(sections.actions(in: .navigation), [.goToAlbum, .goToArtist])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink, .shareLink, .shareAudioFile])
@@ -1466,7 +1466,7 @@ final class EnsembleUITests: XCTestCase {
 
         XCTAssertEqual(sections.actions(in: .destructive), [.removeFromPlaylist])
         XCTAssertEqual(sections.role(for: .removeFromPlaylist), .destructive)
-        XCTAssertEqual(sections.actions(in: .playback), [.playNext, .playLast])
+        XCTAssertEqual(sections.actions(in: .playback), [.startTrackRadio, .shuffleFromTrack, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .management), [.getInfo, .editMetadata, .toggleHidden, .deleteTrack])
     }
 
@@ -1715,8 +1715,8 @@ final class EnsembleUITests: XCTestCase {
             EnsembleDesign.Icon.favoriteRemoveFilled
         )
         XCTAssertEqual(
-            TrackActionPresentation.confirmationToast(for: .playNext, track: track, dedupeNamespace: "test")?.dedupeKey,
-            "test-swipe-play-next-plex:account:server:library||track-1"
+            TrackActionPresentation.confirmationToast(for: .addToPlaylist, track: track, dedupeNamespace: "test")?.dedupeKey,
+            "test-swipe-add-to-playlist-plex:account:server:library||track-1"
         )
     }
 
@@ -1729,8 +1729,8 @@ final class EnsembleUITests: XCTestCase {
         )
 
         XCTAssertEqual(
-            TrackActionPresentation.confirmationToast(for: .playNext, track: track, dedupeNamespace: "test")?.dedupeKey,
-            "test-swipe-play-next-plex:free:server:music||7551"
+            TrackActionPresentation.confirmationToast(for: .addToPlaylist, track: track, dedupeNamespace: "test")?.dedupeKey,
+            "test-swipe-add-to-playlist-plex:free:server:music||7551"
         )
         XCTAssertEqual(
             TrackActionPresentation.favoriteLoadingToast(for: track, willFavorite: true, dedupeNamespace: "test").dedupeKey,

@@ -771,22 +771,6 @@ public final class SearchViewModel: ObservableObject {
         }
     }
 
-    public func clearSearch() {
-        searchQuery = ""
-        unfilteredTrackResults = []
-        unfilteredArtistResults = []
-        unfilteredAlbumResults = []
-        unfilteredPlaylistResults = []
-        trackResults = []
-        artistResults = []
-        displayArtistResults = []
-        albumResults = []
-        displayAlbumResults = []
-        playlistResults = []
-        displayPlaylistResults = []
-        orderedSections = []
-    }
-    
     public func requestFocus() {
         focusRequested.send()
     }

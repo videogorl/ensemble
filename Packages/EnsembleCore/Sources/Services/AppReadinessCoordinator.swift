@@ -51,10 +51,6 @@ public struct AppReadinessSnapshot: Equatable, Sendable {
     public var canShowCachedLibrary: Bool {
         hasCachedLibrary || hasCachedFeed
     }
-
-    public var canShowRefreshingOverlay: Bool {
-        canShowCachedLibrary && !isBootstrapSettled
-    }
 }
 
 /// Owns UI-safe launch/source readiness so browse views do not infer empty states

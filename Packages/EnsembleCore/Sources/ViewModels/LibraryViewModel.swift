@@ -877,9 +877,6 @@ public final class LibraryViewModel: ObservableObject {
     
     // MARK: - Sorted Collections (instance accessors for callers that need them)
 
-    public var sortedTracks: [Track] { LibraryViewModel.sortTracks(tracks, by: trackSortOption, direction: tracksFilterOptions.sortDirection) }
-    public var sortedArtists: [Artist] { LibraryViewModel.sortArtists(artists, by: artistSortOption, direction: artistsFilterOptions.sortDirection) }
-    public var sortedAlbums: [Album] { LibraryViewModel.sortAlbums(albums, by: albumSortOption, direction: albumsFilterOptions.sortDirection) }
     public var sortedGenres: [Genre] {
         genres.sortedByCachedStringKey({ $0.title.sortingKey }, ascending: true)
     }

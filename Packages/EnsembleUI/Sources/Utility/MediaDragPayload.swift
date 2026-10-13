@@ -169,10 +169,6 @@ struct MediaDragPayload: Codable, Equatable {
         )
     }
 
-    static var pasteboardTypes: [NSPasteboard.PasteboardType] {
-        acceptedTypeIdentifiers.map { NSPasteboard.PasteboardType($0) }
-    }
-
     func pasteboardItem(fallbackFileURL: URL? = nil) -> NSPasteboardItem? {
         let item = NSPasteboardItem()
         var wroteRepresentation = false

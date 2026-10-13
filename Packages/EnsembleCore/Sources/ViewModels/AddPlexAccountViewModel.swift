@@ -111,12 +111,6 @@ public final class AddPlexAccountViewModel: ObservableObject {
         isLoading = false
     }
 
-    public func selectServer(_ server: Server) async {
-        selectedServer = server
-        state = .selectingLibraries
-        await loadLibraries(for: server.id)
-    }
-
     // MARK: - Library Selection
 
     public func loadLibraries() async {

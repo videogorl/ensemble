@@ -65,7 +65,6 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
 
         func fetchPlaylists() async throws -> [CDPlaylist] { try await base.fetchPlaylists() }
         func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] { try await base.fetchPlaylists(sourceCompositeKey: sourceCompositeKey) }
-        func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? { try await base.fetchPlaylist(ratingKey: ratingKey) }
         func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? { try await base.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey) }
         func searchPlaylists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDPlaylist]) -> [Value]) async throws -> [Value] { try await base.searchPlaylists(query: query, map: map) }
         func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist] { try await base.findPlaylistsByTitle(title, sourceCompositeKeys: sourceCompositeKeys) }
@@ -78,7 +77,6 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             if fails { throw CocoaError(.fileWriteUnknown) }
             try await base.setPlaylistTrackSnapshots(snapshots, forPlaylist: playlistRatingKey, sourceCompositeKey: sourceCompositeKey)
         }
-        func deletePlaylist(ratingKey: String) async throws { try await base.deletePlaylist(ratingKey: ratingKey) }
         func deletePlaylists(sourceCompositeKey: String) async throws { try await base.deletePlaylists(sourceCompositeKey: sourceCompositeKey) }
         func removeDuplicatePlaylists() async throws { try await base.removeDuplicatePlaylists() }
         func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { try await base.removeOrphanedPlaylists(notIn: validRatingKeys, forSource: sourceKey) }
