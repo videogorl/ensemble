@@ -424,6 +424,16 @@ public struct ProfileView: View {
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }
+
+            NavigationLink {
+                NowPlayingActionsSettingsView()
+            } label: {
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.trackActionsCircle,
+                    title: "Now Playing Actions",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
+            }
         }
     }
 
@@ -806,6 +816,18 @@ public struct ProfileView: View {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.editPlaylist,
                     title: "Track Swipe Actions",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
+            }
+
+            EnsembleUtilityCardDivider()
+
+            macNavigationRow {
+                NowPlayingActionsSettingsView()
+            } label: {
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.trackActionsCircle,
+                    title: "Now Playing Actions",
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }

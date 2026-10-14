@@ -29,6 +29,7 @@ public final class KVSSyncService: ObservableObject {
 
     /// Callbacks for when remote changes arrive for each key
     public var onRemoteAccentColorChanged: ((String) -> Void)?
+    public var onRemoteNowPlayingActionsChanged: ((Data) -> Void)?
     public var onRemoteSwipeLayoutChanged: ((Data) -> Void)?
     public var onRemotePinsChanged: ((Data) -> Void)?
     public var onRemoteLibraryFlagsChanged: ((Data) -> Void)?
@@ -190,6 +191,14 @@ public final class KVSSyncService: ObservableObject {
                     lastDeliveredDataValues[key] = data
                     EnsembleLogger.info("KVS: remote swipe layout change (\(data.count) bytes)")
                     onRemoteSwipeLayoutChanged?(data)
+                }
+
+            case KVSKey.nowPlayingActions:
+                if let data = store.data(forKey: key) {
+                    guard lastDeliveredDataValues[key] != data else { continue }
+                    lastDeliveredDataValues[key] = data
+                    EnsembleLogger.info("KVS: remote Now Playing actions change (\(data.count) bytes)")
+                    onRemoteNowPlayingActionsChanged?(data)
                 }
 
             case KVSKey.pins:

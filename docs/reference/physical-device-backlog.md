@@ -13,6 +13,24 @@ hardware. See [`rearchitecture-plan.md`](rearchitecture-plan.md) section 7.
 
 ## iPhone 16 Pro
 
+### Customizable Now Playing secondary actions, 2026-10-13 feature commit
+
+Builds and SE/macOS/iPad evidence are in
+[the feature verification note](../investigations/2026-10-13-now-playing-secondary-actions.md).
+The final iOS app is built and installed, but the phone remained passcode-locked.
+
+- Open AirPlay from the overflow and from its pinned native button; cancel
+  without changing the route. The Mac picker opened; neither simulator path
+  showed a picker, so iOS presentation remains unproven.
+- Verify Apple Music availability in the real app (capability logic is covered
+  by focused tests; simulator row checks used Plex).
+- Verify a controlled iCloud layout round trip between two physical clients,
+  including sync OFF. SE displayed actual local push and remote pull statuses,
+  and coordinator tests cover gating, but those do not prove full convergence.
+- Exercise the guarded visible AirPlay fallback if the native internal button
+  is unavailable; normal runtime used an intact native picker hierarchy.
+
+
 ### Step 0, at `254691f2` or later
 
 Rows from [`surface-checklist.md`](surface-checklist.md). Results so far are in

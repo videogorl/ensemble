@@ -132,6 +132,20 @@ final class SyncSettingsManagerTests: XCTestCase {
         XCTAssertEqual(manager.featureActivity(for: .pins)?.date, date)
     }
 
+    @MainActor
+    func testNowPlayingActionsSyncTogglePersistsAndReenablesBootstrap() {
+        let manager = SyncSettingsManager()
+        XCTAssertTrue(manager.isFeatureEnabled(.nowPlayingActions))
+        manager.setFeatureEnabled(.nowPlayingActions, enabled: false)
+        XCTAssertFalse(SyncSettingsManager().isFeatureEnabled(.nowPlayingActions))
+        var feature: SyncSettingsManager.SyncFeature?
+        manager.onFeatureReEnabled = { feature = $0 }
+        manager.setFeatureEnabled(.nowPlayingActions, enabled: true)
+        XCTAssertEqual(feature, .nowPlayingActions)
+        manager.isMasterSyncEnabled = false
+        XCTAssertFalse(manager.isFeatureEnabled(.nowPlayingActions))
+    }
+
     // MARK: - Dependency Cascade
 
     @MainActor
