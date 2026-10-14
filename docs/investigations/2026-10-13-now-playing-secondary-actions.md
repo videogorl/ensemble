@@ -35,17 +35,29 @@ The default remains AirPlay / Favorite / Add to Playlist / empty.
 - Screenshots: `/tmp/nowplaying-se-*-slots.png`,
   `/tmp/nowplaying-se-max-type-final.png`, `/tmp/nowplaying-ipad-wide.png`.
 
-## Remaining evidence
+## Physical follow-up, 2026-10-14
 
-Physical iPhone `00008140-00023030117B001C` remained locked. The completed app is
-built and installed, but no physical runtime success is claimed. Both pinned and
-menu AirPlay showed no picker on the SE simulator; macOS presentation passed.
-Remaining checks are in the [physical-device backlog](../reference/physical-device-backlog.md).
+Physical iPhone `00008140-00023030117B001C`, iOS 27.0.1, installed build
+`202610132056.3666` from implementation commit `09a1bcc0`: direct devicectl launch
+and independent process inventory agreed on PID `26746` and installed executable
+`935B6574-0018-477C-B5AB-45E293412658/Ensemble.app/Ensemble`.
+
+Device Hub showed the existing paused Plex track. The pinned native AirPlay button
+opened the route picker with iPhone Speaker selected and available speakers listed.
+After dismissal, the overflow retained pinned actions, navigation, sharing and the
+recent-playlist action. Tapping its first AirPlay item dismissed the menu and opened
+the same native picker. Both paths passed; no route or playback change was made.
+Local window-targeted evidence: `/tmp/ensemble-nowplaying-phone/airplay-overflow-physical.png`.
+
+The SE simulator's lack of presentation did not reproduce on physical hardware.
+Apple Music availability, controlled two-client iCloud convergence, and the guarded
+missing-button fallback remain in the
+[physical-device backlog](../reference/physical-device-backlog.md).
 
 Unrelated findings were recorded without repair:
 
 - [Metadata and transport overlap at largest Dynamic Type](https://app.notion.com/p/3f91906996c081cdb9a2c4adbfe1abce).
-  Screenshot upload awaits approval because it contains library metadata.
+  Screenshot was uploaded and attached to the Notion issue with explicit user approval.
 - [Physical runtime helper launch argument parsing](https://app.notion.com/p/3f91906996c081868fdcea50eceea560).
 
 ## Cleanup

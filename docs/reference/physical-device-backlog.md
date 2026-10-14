@@ -17,11 +17,9 @@ hardware. See [`rearchitecture-plan.md`](rearchitecture-plan.md) section 7.
 
 Builds and SE/macOS/iPad evidence are in
 [the feature verification note](../investigations/2026-10-13-now-playing-secondary-actions.md).
-The final iOS app is built and installed, but the phone remained passcode-locked.
+Physical AirPlay passed on the iPhone 16 Pro on 2026-10-14, at `09a1bcc0`.
+Both the pinned native button and overflow item opened the route picker.
 
-- Open AirPlay from the overflow and from its pinned native button; cancel
-  without changing the route. The Mac picker opened; neither simulator path
-  showed a picker, so iOS presentation remains unproven.
 - Verify Apple Music availability in the real app (capability logic is covered
   by focused tests; simulator row checks used Plex).
 - Verify a controlled iCloud layout round trip between two physical clients,
