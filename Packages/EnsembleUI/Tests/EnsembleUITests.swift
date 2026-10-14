@@ -15,6 +15,13 @@ import AppKit
 #endif
 
 final class EnsembleUITests: XCTestCase {
+    func testNowPlayingOverflowContainsEveryActionRegardlessOfPinnedSlots() {
+        let actions = NowPlayingSecondaryMenu.sections.flatMap { $0 }
+        XCTAssertEqual(actions.first, .airPlay)
+        XCTAssertEqual(Set(actions), Set(NowPlayingSecondaryAction.allCases))
+        XCTAssertEqual(actions.count, NowPlayingSecondaryAction.allCases.count)
+    }
+
     func testMediaDetailSourceLabelsUseProviderOrLibraryAndServer() {
         let appleMusic = MusicSourcePresentation(
             capabilities: MusicSourceType.appleMusic.capabilities,

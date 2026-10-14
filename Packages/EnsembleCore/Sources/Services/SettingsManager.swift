@@ -50,6 +50,112 @@ public enum TrackSwipeAction: String, CaseIterable, Codable, Sendable, Identifia
     }
 }
 
+public enum NowPlayingSecondaryAction: String, CaseIterable, Codable, Sendable, Identifiable {
+    case airPlay, favorite, addToPlaylist, addToRecentPlaylist, addToLibrary
+    case goToAlbum, goToArtist, shareEnsembleLink, shareLink, shareAudioFile
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .airPlay: return "AirPlay…"
+        case .favorite: return "Favorite"
+        case .addToPlaylist: return "Add to Playlist…"
+        case .addToRecentPlaylist: return "Add to Recent Playlist"
+        case .addToLibrary: return "Add to Library"
+        case .goToAlbum: return "Go to Album"
+        case .goToArtist: return "Go to Artist"
+        case .shareEnsembleLink: return "Share Ensemble Link…"
+        case .shareLink: return "Share Link…"
+        case .shareAudioFile: return "Share Audio File…"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .airPlay: return "airplay.audio"
+        case .favorite: return "heart"
+        case .addToPlaylist, .addToLibrary: return "text.badge.plus"
+        case .addToRecentPlaylist: return "clock.arrow.circlepath"
+        case .goToAlbum: return "square.stack"
+        case .goToArtist: return "music.mic"
+        case .shareEnsembleLink, .shareLink: return "link"
+        case .shareAudioFile: return "square.and.arrow.up"
+        }
+    }
+
+    public func isAvailable(
+        for track: Track?,
+        isFavorited: Bool,
+        canAddToLibrary: Bool,
+        hasRecentPlaylist: Bool
+    ) -> Bool {
+        if self == .airPlay { return true }
+        guard let track else { return false }
+        switch self {
+        case .favorite: return track.actionAvailability(for: .favorite, isFavorited: isFavorited).isAvailable
+        case .addToPlaylist: return track.actionAvailability(for: .addItems).isAvailable
+        case .addToLibrary: return canAddToLibrary
+        case .addToRecentPlaylist: return hasRecentPlaylist
+        case .goToAlbum: return track.albumRatingKey != nil
+        case .goToArtist: return track.artistRatingKey != nil
+        case .shareAudioFile: return track.sourceCapabilities.supportsAudioFileSharing
+        default: return true
+        }
+    }
+}
+
+public struct NowPlayingSecondaryLayout: Codable, Equatable, Sendable {
+    public static let slotCount = 4
+    public var slots: [NowPlayingSecondaryAction?]
+
+    public init(slots: [NowPlayingSecondaryAction?]) {
+        self.slots = slots
+        sanitize()
+    }
+
+    public static var `default`: Self {
+        Self(slots: [.airPlay, .favorite, .addToPlaylist, nil])
+    }
+
+    private enum CodingKeys: String, CodingKey { case slots }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let values = try container.decode([String?].self, forKey: .slots)
+        slots = values.map { $0.flatMap(NowPlayingSecondaryAction.init(rawValue:)) }
+        sanitize()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var sanitized = self
+        sanitized.sanitize()
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sanitized.slots.map { $0?.rawValue }, forKey: .slots)
+    }
+
+    public mutating func sanitize() {
+        slots = Array(slots.prefix(Self.slotCount))
+        slots.append(contentsOf: repeatElement(nil, count: Self.slotCount - slots.count))
+        var seen = Set<NowPlayingSecondaryAction>()
+        for index in slots.indices {
+            if let action = slots[index], !seen.insert(action).inserted {
+                slots[index] = nil
+            }
+        }
+    }
+
+    /// Selecting an action already assigned elsewhere swaps the two slots.
+    public mutating func setAction(_ action: NowPlayingSecondaryAction?, at index: Int) {
+        guard (0..<Self.slotCount).contains(index) else { return }
+        sanitize()
+        if let action, let previousIndex = slots.firstIndex(of: action), previousIndex != index {
+            slots[previousIndex] = slots[index]
+        }
+        slots[index] = action
+    }
+}
+
 public enum TrackSwipeEdge: String, Codable, Sendable {
     case leading
     case trailing
@@ -272,6 +378,7 @@ public final class SettingsManager: ObservableObject {
 
     @AppStorage("accentColor") public var accentColorName: String = "blue"
     @AppStorage("enabledTabs") private var enabledTabsData: Data = Data()
+    @AppStorage("nowPlayingSecondaryLayout") private var nowPlayingSecondaryLayoutData: Data = Data()
     @AppStorage("trackSwipeLayout") private var trackSwipeLayoutData: Data = Data()
     @AppStorage("songsTableColumns") private var songsTableColumnsData: Data = Data()
     @AppStorage(AllowInsecureConnectionsPolicy.defaultsKey) private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
@@ -368,6 +475,33 @@ public final class SettingsManager: ObservableObject {
             onConnectionPolicyChanged?()
             objectWillChange.send()
         }
+    }
+
+    public var nowPlayingSecondaryLayout: NowPlayingSecondaryLayout {
+        get {
+            guard let layout = try? JSONDecoder().decode(
+                NowPlayingSecondaryLayout.self, from: nowPlayingSecondaryLayoutData
+            ) else { return .default }
+            return layout
+        }
+        set {
+            var layout = newValue
+            layout.sanitize()
+            guard let data = try? JSONEncoder().encode(layout),
+                  data != nowPlayingSecondaryLayoutData else { return }
+            nowPlayingSecondaryLayoutData = data
+            objectWillChange.send()
+        }
+    }
+
+    public func resetNowPlayingSecondaryLayoutToDefaults() {
+        nowPlayingSecondaryLayout = .default
+    }
+
+    public func setNowPlayingSecondaryAction(_ action: NowPlayingSecondaryAction?, index: Int) {
+        var layout = nowPlayingSecondaryLayout
+        layout.setAction(action, at: index)
+        nowPlayingSecondaryLayout = layout
     }
 
     public var trackSwipeLayout: TrackSwipeLayout {

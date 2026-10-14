@@ -2,6 +2,7 @@ import Foundation
 
 public enum EnsembleKVSKey {
     public static let accentColor = "ensemble.sync.accentColor"
+    public static let nowPlayingActions = "ensemble.sync.nowPlayingActions"
     public static let swipeLayout = "ensemble.sync.swipeLayout"
     public static let pins = "ensemble.sync.pins"
     public static let libraryFlags = "ensemble.sync.libraryFlags"

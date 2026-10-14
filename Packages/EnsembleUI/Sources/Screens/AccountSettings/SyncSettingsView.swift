@@ -396,6 +396,8 @@ public struct SyncSettingsView: View {
             return "eye.slash"
         case .accentColor:
             return EnsembleDesign.Icon.paintPalette
+        case .nowPlayingActions:
+            return EnsembleDesign.Icon.trackActionsCircle
         case .swipeActions:
             return EnsembleDesign.Icon.tapGesture
         case .merging:

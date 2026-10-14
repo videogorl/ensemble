@@ -19,6 +19,7 @@ final class CloudSyncCoordinator {
     private let syncCoordinator: SyncCoordinator
     private var kvsSyncCancellables = Set<AnyCancellable>()
     private var lastSyncedAccentColor: String = AppAccentColor.blue.rawValue
+    private var lastSyncedNowPlayingLayout: NowPlayingSecondaryLayout = .default
     private var lastSyncedSwipeLayout: TrackSwipeLayout = .default
     private var lastSyncedMergingPreferences = EnsembleMergingPreferences.default
     private var lastSyncedPinsData: Data?
@@ -52,6 +53,7 @@ final class CloudSyncCoordinator {
         self.accountDiscoveryService = accountDiscoveryService
         self.syncCoordinator = syncCoordinator
         lastSyncedAccentColor = settingsManager.accentColorName
+        lastSyncedNowPlayingLayout = settingsManager.nowPlayingSecondaryLayout
         lastSyncedSwipeLayout = settingsManager.trackSwipeLayout
         lastSyncedMergingPreferences = settingsManager.mergingPreferences
         lastSyncedPinsData = pinManager.exportPinsData()
@@ -137,7 +139,7 @@ final class CloudSyncCoordinator {
             .store(in: &kvsSyncCancellables)
     }
 
-    private func wireKVSSyncCallbacks() {
+    func wireKVSSyncCallbacks() {
         let settings = settingsManager
         let kvs = kvsSyncService
         let syncToggles = syncSettingsManager
@@ -172,6 +174,29 @@ final class CloudSyncCoordinator {
             )
             guard settings.trackSwipeLayout != layout else { return }
             settings.trackSwipeLayout = layout
+        }
+
+        kvsSyncService.onRemoteNowPlayingActionsChanged = { [weak self] data in
+            guard let self else { return }
+            guard syncToggles.isFeatureEnabled(.nowPlayingActions) else { return }
+            guard let layout = try? JSONDecoder().decode(NowPlayingSecondaryLayout.self, from: data) else {
+                syncToggles.recordFeatureActivity(
+                    for: .nowPlayingActions,
+                    state: .error,
+                    direction: .pulledFromICloud,
+                    detail: "Could not read Now Playing actions from iCloud. Keeping this device’s layout."
+                )
+                return
+            }
+            self.lastSyncedNowPlayingLayout = layout
+            syncToggles.recordFeatureActivity(
+                for: .nowPlayingActions,
+                state: .appliedRemote,
+                direction: .pulledFromICloud,
+                detail: "Pulled Now Playing actions from iCloud."
+            )
+            guard settings.nowPlayingSecondaryLayout != layout else { return }
+            settings.nowPlayingSecondaryLayout = layout
         }
 
         kvsSyncService.onRemoteMergingPreferencesChanged = { [weak self] data in
@@ -216,6 +241,22 @@ final class CloudSyncCoordinator {
                         )
                         if let data = try? JSONEncoder().encode(currentLayout) {
                             kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
+                        }
+                    }
+                }
+
+                if syncToggles.isFeatureEnabled(.nowPlayingActions) {
+                    let currentLayout = settings.nowPlayingSecondaryLayout
+                    if currentLayout != self.lastSyncedNowPlayingLayout {
+                        self.lastSyncedNowPlayingLayout = currentLayout
+                        syncToggles.recordFeatureActivity(
+                            for: .nowPlayingActions,
+                            state: .seededLocal,
+                            direction: .pushedFromThisDevice,
+                            detail: "Pushed Now Playing actions from this device."
+                        )
+                        if let data = try? JSONEncoder().encode(currentLayout) {
+                            kvs.pushData(data, forKey: KVSSyncService.KVSKey.nowPlayingActions)
                         }
                     }
                 }
@@ -665,6 +706,8 @@ final class CloudSyncCoordinator {
         switch feature {
         case .accentColor:
             return await bootstrapAccentColor(reason: reason)
+        case .nowPlayingActions:
+            return await bootstrapNowPlayingActions(reason: reason)
         case .swipeActions:
             return await bootstrapSwipeActions(reason: reason)
         case .merging:
@@ -821,6 +864,37 @@ final class CloudSyncCoordinator {
                     detail: "Pushed swipe actions from this device."
                 )
                 kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
+                return true
+            }
+        )
+    }
+
+    func bootstrapNowPlayingActions(reason: String) async -> Bool {
+        await bootstrapKVSFeature(
+            .nowPlayingActions,
+            reason: reason,
+            label: "Now Playing layout",
+            readRemote: { kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.nowPlayingActions) },
+            applyRemote: { kvsSyncService.onRemoteNowPlayingActionsChanged?($0) },
+            seedLocal: {
+                guard syncSettingsManager.isFeatureEnabled(.nowPlayingActions) else {
+                    syncSettingsManager.setFeatureState(.idle, for: .nowPlayingActions)
+                    return true
+                }
+                lastSyncedNowPlayingLayout = settingsManager.nowPlayingSecondaryLayout
+                guard let data = try? JSONEncoder().encode(settingsManager.nowPlayingSecondaryLayout) else {
+                    syncSettingsManager.setFeatureState(.error, for: .nowPlayingActions)
+                    return false
+                }
+
+                EnsembleLogger.info("Sync bootstrap: seeding local Now Playing layout after \(reason)")
+                syncSettingsManager.recordFeatureActivity(
+                    for: .nowPlayingActions,
+                    state: .seededLocal,
+                    direction: .pushedFromThisDevice,
+                    detail: "Pushed Now Playing actions from this device."
+                )
+                kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.nowPlayingActions)
                 return true
             }
         )

@@ -88,6 +88,9 @@ public struct ControlsCard: View {
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
 
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @StateObject private var airPlayPresentation = AirPlayPresentationController()
+
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var showLoadingIndicator = false
@@ -413,140 +416,141 @@ public struct ControlsCard: View {
             ((playbackProjection.playbackState == .loading || playbackProjection.playbackState == .buffering) && wasPlayingBeforeTransition)
     }
 
-    private var hasCurrentTrack: Bool {
-        playbackProjection.currentTrack != nil
+    private var secondaryLayout: NowPlayingSecondaryLayout {
+        settingsManager.nowPlayingSecondaryLayout
     }
 
-    private var canChangeFavorite: Bool {
-        guard let track = playbackProjection.currentTrack else { return false }
-        return track.actionAvailability(
-            for: .favorite,
-            isFavorited: ratingProjection.currentRating != .none
-        ).isAvailable
+    private var recentPlaylistTitle: String? {
+        guard let track = playbackProjection.currentTrack else { return nil }
+        return PlaylistActionPresentationHost.recentPlaylistTitle(
+            for: [track], target: lastPlaylistQuickTarget, nowPlayingVM: viewModel
+        )
     }
 
-    // MARK: - Secondary Controls
+    private func isAvailable(_ action: NowPlayingSecondaryAction) -> Bool {
+        action.isAvailable(
+            for: playbackProjection.currentTrack,
+            isFavorited: ratingProjection.currentRating != .none,
+            canAddToLibrary: playbackProjection.currentTrack.map(viewModel.canAddTrackToLibrary) ?? false,
+            hasRecentPlaylist: recentPlaylistTitle != nil
+        )
+    }
 
     private var secondaryControlsView: some View {
-        HStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsSpacing) {
-            // AirPlay
-            AirPlayButton()
-                .frame(
-                    width: EnsembleScaffold.NowPlaying.routePickerSize,
-                    height: EnsembleScaffold.NowPlaying.routePickerSize
-                )
-
-            // Favorite toggle (heart)
-            Button(action: viewModel.toggleRating) {
-                Image(systemName: ratingProjection.currentRating.icon)
-                    .font(EnsembleDesign.Typography.detailSubtitle)
-                    .foregroundColor(ratingProjection.currentRating == .none ? EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity) : EnsembleDesign.Color.accent)
-            }
-            .disabled(!canChangeFavorite)
-            .opacity(canChangeFavorite ? 1 : EnsembleScaffold.NowPlaying.unavailableControlOpacity)
-
-            // Add to Playlist
-            Button {
-                if let currentTrack = playbackProjection.currentTrack {
-                    playlistActionRequest = PlaylistActionPresentationHost.request(
-                        for: [currentTrack],
-                        title: "Add to Playlist"
-                    )
+        let actions = secondaryLayout.slots.compactMap { $0 }
+        return GeometryReader { geometry in
+            let itemCount = actions.count + 1
+            let buttonWidth = EnsembleScaffold.NowPlaying.routePickerSize
+            let spacing = min(
+                EnsembleScaffold.NowPlaying.secondaryControlsSpacing,
+                max(0, (geometry.size.width - CGFloat(itemCount) * buttonWidth) / CGFloat(max(1, itemCount - 1)))
+            )
+            HStack(spacing: spacing) {
+                ForEach(actions) { action in
+                    secondaryActionButton(action)
+                        .frame(width: buttonWidth, height: EnsembleScaffold.NowPlaying.controlsSecondaryRowMinHeight)
                 }
-            } label: {
-                Image(systemName: EnsembleDesign.Icon.addToPlaylist)
-                    .font(EnsembleDesign.Typography.detailSubtitle)
-                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
+                secondaryOverflowMenu
+                    .frame(width: buttonWidth, height: EnsembleScaffold.NowPlaying.controlsSecondaryRowMinHeight)
             }
-            .disabled(!hasCurrentTrack)
-            .opacity(hasCurrentTrack ? 1 : EnsembleScaffold.NowPlaying.unavailableControlOpacity)
-
-            // More menu with navigation, sharing, and quick add
-            Menu {
-                if let currentTrack = playbackProjection.currentTrack {
-                    if viewModel.canAddTrackToLibrary(currentTrack) {
-                        Button {
-                            Task { await viewModel.addTrackToLibrary(currentTrack) }
-                        } label: {
-                            MediaActionLabel(kind: .addToLibrary)
-                        }
-                    }
-
-                    Section {
-                        if currentTrack.albumRatingKey != nil {
-                            Button {
-                                handleAlbumTap(track: currentTrack)
-                            } label: {
-                                MediaActionLabel(kind: .goToAlbum)
-                            }
-                        }
-
-                        if currentTrack.artistRatingKey != nil {
-                            Button {
-                                handleArtistTap(track: currentTrack)
-                            } label: {
-                                MediaActionLabel(kind: .goToArtist)
-                            }
-                        }
-                    }
-                }
-
-                // Share actions
-                if let currentTrack = playbackProjection.currentTrack {
-                    Section {
-                        Button {
-                            ShareActions.shareEnsembleLink(currentTrack, deps: deps)
-                        } label: {
-                            MediaActionLabel(kind: .shareEnsembleLink)
-                        }
-
-                        Button {
-                            ShareActions.shareTrackLink(currentTrack, deps: deps)
-                        } label: {
-                            MediaActionLabel(kind: .shareLink)
-                        }
-
-                        if currentTrack.sourceCapabilities.supportsAudioFileSharing {
-                            Button {
-                                ShareActions.shareTrackFile(currentTrack, deps: deps)
-                            } label: {
-                                MediaActionLabel(kind: .shareAudioFile)
-                            }
-                        }
-                    }
-                }
-
-                if let currentTrack = playbackProjection.currentTrack,
-                   let recentTitle = PlaylistActionPresentationHost.recentPlaylistTitle(
-                       for: [currentTrack],
-                       target: lastPlaylistQuickTarget,
-                       nowPlayingVM: viewModel
-                   )
-                {
-                    Button {
-                        PlaylistActionPresentationHost.addToRecentPlaylist(
-                            [currentTrack],
-                            target: lastPlaylistQuickTarget,
-                            nowPlayingVM: viewModel
-                        )
-                    } label: {
-                        Label("Add to \(recentTitle)", systemImage: EnsembleDesign.Icon.recentPlaylist)
-                    }
-                }
-            } label: {
-                Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
-                    .font(EnsembleDesign.Typography.detailSubtitle)
-                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .chromelessMediaControlButton()
+            .chromelessMediaControlMenu()
+            .animation(.default, value: secondaryLayout)
+            .background {
+                AirPlayButton(presentation: airPlayPresentation)
+                    .frame(width: buttonWidth, height: buttonWidth)
+                    .opacity(airPlayPresentation.showsFallbackButton ? 1 : 0)
+                    .offset(y: airPlayPresentation.showsFallbackButton ? -36 : 0)
+                    .allowsHitTesting(airPlayPresentation.showsFallbackButton)
+                    .accessibilityHidden(!airPlayPresentation.showsFallbackButton)
             }
-            .transaction { transaction in
-                transaction.animation = nil
-            }
-            .disabled(!hasCurrentTrack)
-            .opacity(hasCurrentTrack ? 1 : EnsembleScaffold.NowPlaying.unavailableControlOpacity)
         }
-        .chromelessMediaControlButton()
-        .chromelessMediaControlMenu()
-        // Removed shadow on secondary controls
+        .frame(height: EnsembleScaffold.NowPlaying.controlsSecondaryRowMinHeight)
+    }
+
+    @ViewBuilder
+    private func secondaryActionButton(_ action: NowPlayingSecondaryAction) -> some View {
+        if action == .airPlay {
+            AirPlayButton()
+                .frame(width: EnsembleScaffold.NowPlaying.routePickerSize, height: EnsembleScaffold.NowPlaying.routePickerSize)
+                .accessibilityLabel("AirPlay")
+        } else {
+            Button { performSecondaryAction(action) } label: {
+                Image(systemName: action == .favorite ? ratingProjection.currentRating.icon : action.systemImage)
+                    .font(EnsembleDesign.Typography.detailSubtitle)
+                    .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                    .foregroundColor(action == .favorite && ratingProjection.currentRating != .none
+                        ? EnsembleDesign.Color.accent
+                        : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .accessibilityLabel(action == .favorite && ratingProjection.currentRating != .none ? "Unfavorite" : action.title)
+            .accessibilityIdentifier("nowPlaying.secondary.\(action.rawValue)")
+            .disabled(!isAvailable(action))
+            .opacity(isAvailable(action) ? 1 : EnsembleScaffold.NowPlaying.unavailableControlOpacity)
+        }
+    }
+
+    private var secondaryOverflowMenu: some View {
+        Menu {
+            ForEach(Array(NowPlayingSecondaryMenu.sections.enumerated()), id: \.offset) { _, actions in
+                Section {
+                    ForEach(actions.filter(isAvailable)) { action in
+                        Button { performSecondaryAction(action) } label: {
+                            secondaryActionLabel(action)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
+                .font(EnsembleDesign.Typography.detailSubtitle)
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .accessibilityLabel("More Actions")
+        .accessibilityIdentifier("nowPlaying.secondary.overflow")
+    }
+
+    @ViewBuilder
+    private func secondaryActionLabel(_ action: NowPlayingSecondaryAction) -> some View {
+        switch action {
+        case .airPlay: Label("AirPlay…", systemImage: action.systemImage)
+        case .favorite: MediaActionLabel(kind: .favorite(isFavorited: ratingProjection.currentRating != .none, usesFilledIcon: false))
+        case .addToPlaylist: MediaActionLabel(kind: .addToPlaylist)
+        case .addToRecentPlaylist: MediaActionLabel(kind: .addToRecentPlaylist(recentPlaylistTitle ?? "Recent Playlist"))
+        case .addToLibrary: MediaActionLabel(kind: .addToLibrary)
+        case .goToAlbum: MediaActionLabel(kind: .goToAlbum)
+        case .goToArtist: MediaActionLabel(kind: .goToArtist)
+        case .shareEnsembleLink: MediaActionLabel(kind: .shareEnsembleLink)
+        case .shareLink: MediaActionLabel(kind: .shareLink)
+        case .shareAudioFile: MediaActionLabel(kind: .shareAudioFile)
+        }
+    }
+
+    private func performSecondaryAction(_ action: NowPlayingSecondaryAction) {
+        guard isAvailable(action) else { return }
+        if action == .airPlay {
+            airPlayPresentation.present()
+            return
+        }
+        guard let track = playbackProjection.currentTrack else { return }
+        switch action {
+        case .airPlay: break
+        case .favorite: viewModel.toggleRating()
+        case .addToPlaylist:
+            playlistActionRequest = PlaylistActionPresentationHost.request(for: [track], title: "Add to Playlist")
+        case .addToRecentPlaylist:
+            PlaylistActionPresentationHost.addToRecentPlaylist([track], target: lastPlaylistQuickTarget, nowPlayingVM: viewModel)
+        case .addToLibrary: Task { await viewModel.addTrackToLibrary(track) }
+        case .goToAlbum: handleAlbumTap(track: track)
+        case .goToArtist: handleArtistTap(track: track)
+        case .shareEnsembleLink: ShareActions.shareEnsembleLink(track, deps: deps)
+        case .shareLink: ShareActions.shareTrackLink(track, deps: deps)
+        case .shareAudioFile: ShareActions.shareTrackFile(track, deps: deps)
+        }
     }
 
     // MARK: - Helper Methods
