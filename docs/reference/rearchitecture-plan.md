@@ -438,12 +438,19 @@ or fresh logs:
   pause, next, previous, and scrub.
 - A downloaded track plays in Airplane Mode.
 - Kill and relaunch: the queue and position restore paused.
-- Injected startup failure recovers; three failures show the Retry banner and
-  Retry works. Uses the DEBUG hook in `docs/reference/agent-runtime-testing.md`.
+- An injected startup failure skips to the next track; a failure on that
+  track too shows Retry, and Retry works. Uses the DEBUG hook in
+  `docs/reference/agent-runtime-testing.md`.
+- Track Radio and autoplay, started with no queue and with a paused queue,
+  and autoplay continuing at the end of the queue.
 - Interruption by another audio app, then return.
 
 Mac acceptance: start, pause, seek, next, natural completion, relaunch
-restore, using the explicitly launched built app.
+restore, sleep and wake (stays paused), and two windows sharing one player,
+using the explicitly launched built app.
+
+The expected outcome of each item is in the step 1 design note, section 6,
+and inventory `E-edge-cases.md` section 5 (decided 2026-10-16).
 
 ### Step 2. Composition root and Observation
 

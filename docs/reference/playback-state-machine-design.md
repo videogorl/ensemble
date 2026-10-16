@@ -1,8 +1,10 @@
 # Playback state machine: step 1 design
 
-Status: draft for Felicity's review. Step 1b does not start until this is
-approved. Written 2026-10-13 against `2586f6e5`. Read-only work; nothing in
-the playback code has changed.
+Status: under review. Written 2026-10-13 against `2586f6e5`. Decision 6
+(the 22 undocumented behaviours) was approved on 2026-10-16 and is folded
+into sections 2, 6, and 10. Decisions 1 to 5 were approved earlier and are
+recorded here once their details are sent. Step 1b does not start until
+they are. Read-only work; nothing in the playback code has changed.
 
 This is the detailed design that
 [`rearchitecture-plan.md`](rearchitecture-plan.md) step 1a asks for. It turns
@@ -83,18 +85,24 @@ struct PlaybackState: Equatable, Sendable {
 | `queue.repeatMode` | off, all, one | `repeatMode` |
 | `queue.continuation` | `.none`, `.autoplay(exhausted: Bool)`, `.radio(seed)`, `.station(engineOwned)` | `isAutoplayEnabled`, `radioMode`, `recommendationsExhausted`, `isAutoplayActive`, station flags |
 | `queue.hasUserEdits`, `queue.revision` | Edit marker; revision for the watch bridge | `hasUserQueueEdits`, `queueStateRevision` |
+| `queue.pendingShuffle` | A shuffle toggle made during an Apple Music track or a SmartMix transition, applied when it finishes (G7) | none |
 | `session.id` | `SessionID`, new for every load of an item into an engine | all three generation spaces |
-| `session.phase` | `idle`, `restored(position)`, `resolving`, `loading(intent)`, `playing`, `paused(reason)`, `stalled`, `failed(reason)` | `playbackState`, `isSkipTransitionInProgress`, `playbackPreparationShouldStart`, `pendingPreBufferTime`, `startupRestoreStatus` |
+| `session.phase` | `idle`, `restored(position)`, `resolving`, `loading(intent, pendingSeek)`, `playing`, `paused(reason)`, `stalled`, `failed(reason, intent)`. There is no stopped phase: Stop leaves `idle` with an empty queue | `playbackState`, `isSkipTransitionInProgress`, `playbackPreparationShouldStart`, `pendingPreBufferTime`, `startupRestoreStatus` |
 | `session.engine` | `.native`, `.appleMusic`, or none | implicit in which controller exists and is active |
 | `session.scheduledNext` | The item pre-scheduled for gapless or SmartMix, if any | engine-side scheduled-track arrays read back by the service |
-| `session.retry` | Attempts used and last failure for the current item | `consecutivePlaybackFailures`, `isHandlingTLSFailure` |
+| `session.retry` | Whether the current item was reached by skipping a failed one, and the last failure. No counter (G11) | `consecutivePlaybackFailures`, `isHandlingTLSFailure` |
 | `position` | Time, duration, buffered fraction, timeline revision | `currentTime`, `duration`, `bufferedProgress`, `playbackTimelineRevision` |
 | `route` | Output kind, interruption state, resume-after-interruption intent | `presentationRouteKind`, `isExternalPlaybackActive`, `isScreenMirroringActive`, `PlaybackHandoffCoordinator` state |
-| `settings` | SmartMix switches, instrumental mode, quality, network state | settings mirrors and `lastObservedNetworkState` |
+| `settings` | SmartMix switches, instrumental mode, quality, network state, and per-source and download availability. `playability(item, settings)` is a pure function the UI also calls to grey tracks out (G17) | settings mirrors, `lastObservedNetworkState`, UI-side availability checks |
 
-`paused(reason)` distinguishes user, interruption, route loss, and restored.
-That one field replaces the handoff coordinator's separate record of why
-playback stopped.
+`paused(reason)` distinguishes user, interruption, route loss, end of queue,
+and restored. That one field replaces the handoff coordinator's separate
+record of why playback stopped. Mac sleep is an interruption (G22).
+
+`loading` and `failed` keep the intent, so a load or a failure never turns a
+paused session into a playing one (G12). `loading(intent: .play)` is the only
+loading state published to system Now Playing as playing; this matches Apple
+Music, and a track that loads while paused stays paused.
 
 Not in the state: waveform and frequency data, artwork, lyrics. They are
 presentation data loaded by effect handlers and published beside the snapshot.
@@ -199,15 +207,30 @@ completion, Next, gapless scheduling, and SmartMix, on both engines.
 
 | Situation | Decision |
 |---|---|
-| Next, any phase | Next playable item. Repeat One does not hold a manual Next. At the end: wrap if Repeat All, else continuation, else no-op while paused or stop while playing |
-| Previous | Over 3 seconds in: restart. Otherwise the previous queue item, else the last history item, else restart |
+| Next, mid-queue | Next playable item. Repeat One does not hold a manual Next |
+| Next at the last item | Repeat All or Repeat One: wrap to the first item (G3). Repeat off: the autoplay item if autoplay is on, else as natural end with nothing else (G2) |
+| Next at a Plex and Apple Music boundary | The new item becomes current at once, in `loading` (G16) |
+| Previous | Over 3 seconds in: restart. Otherwise the previous item in the order heard, which under shuffle is history, skipping unavailable items; at the first item with no history, restart. Keeps the paused or playing intent. During a load: cancel the load and go back (G4) |
 | Natural end, Repeat One | Same item again, new session |
-| Natural end mid-queue | Next playable item |
+| Natural end mid-queue | Next playable item. Locked or not, an uncached Plex item streams normally (G15) |
 | Natural end at the end, Repeat All | First playable item |
 | Natural end at the end, continuation available | Continue: play fetched autoplay items, or hand over to a station |
-| Natural end at the end, nothing else | Stop, keep the queue |
-| Item unplayable | Skip forward to the next playable item; report it once |
-| Shuffle on or off, Play Next, Play Last, move, remove | Edit the queue value; if the pre-scheduled next item changed, emit `clearScheduled` and `scheduleNext` |
+| Natural end at the end, nothing else | Stay on the last item, `paused(.endOfQueue)` at position 0, keep the queue (G1) |
+| Seek | Applies to both engines and to remote scrubs alike, and keeps the paused or playing intent (G5, G6). During a load: held in `pendingSeek` and applied when the item starts. Past the buffered part: `stalled`, then resume. To exactly the end: treated as a natural end |
+| Item fails | Skip to the next playable item. If the item reached by that skip also fails, halt in `failed` and offer Retry, which retries the current item. No counter (G11). Applies to a locked advance (G15) and to a refresh on Play (G18) |
+| Play after a long pause | If the stream expired or the network changed, re-resolve silently at the same position (G18) |
+| Play from `restored` | Resolve from the restored position, including offline and transcode checks (G13) |
+| Item unplayable | Skip forward to the next playable item; report it once. The same `playability` answer greys it out in the UI (G17) |
+| Play Next, Play Last, Start Radio | With no queue: start playback. With a queue: edit it and keep the current intent; a paused queue stays paused (G10, G21) |
+| Shuffle on or off | Keep the current item and re-pick the next. During an Apple Music item or a SmartMix transition: record in `queue.pendingShuffle` and apply when it finishes (G7) |
+| Move, remove | Edit the queue value. Moving or removing the scheduled next item cancels its prefetch and schedules the new next item. Removing the last item mid-transition ends as natural end with nothing else (G9) |
+| Any edit that changes the scheduled next item | Emit `clearScheduled` and `scheduleNext` |
+| Interruption begins | During a load or handoff, let it finish, then pause. Otherwise pause. Resume only on the system's should-resume hint; locked or not, stay paused otherwise (G14) |
+| Stop | Only on sign-out, server removal, or clear queue. Clears the current item and the queue. Every other halt is Pause (G20) |
+| Relaunch | Restore paused, on the same item and position, with shuffle, repeat, and autoplay (G8, G13) |
+
+The Mac follows the same table: seek, track endings, relaunch, and route
+changes behave as on iOS, and all windows share one player (G19, G22).
 
 Where today's two paths disagree, and which behaviour this design keeps.
 These are behaviour changes on one path each, so they need a decision; see
@@ -251,7 +274,8 @@ and not addressed.
 
 ## 8. How the sub-steps change
 
-The plan's 1b to 1f hold. Three adjustments from what the inventory showed:
+The plan's 1b to 1f hold. Four adjustments from what the inventory and the
+gap decisions showed:
 
 - **1b is smaller than planned and should also create the state value.**
   Queue policy is mostly shared already. 1b introduces `PlaybackQueue`, the
@@ -264,6 +288,9 @@ The plan's 1b to 1f hold. Three adjustments from what the inventory showed:
 - **Add isolation in 1d.** The reducer's owner becomes a single
   `@MainActor` type. This removes the unsynchronised mutators without
   enabling strict concurrency, which stays out of scope.
+- **Extend the failure hook.** `ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_TRACK`
+  takes one track. Proving G11 needs two consecutive tracks to fail, so the
+  hook takes a list in the step that changes failure handling.
 
 Line budget from the plan, 18,200 down to at most 12,000, still looks
 reachable: the service's 36 bookkeeping properties, 70 task launches, and
@@ -284,6 +311,9 @@ duplicated transitions are where the lines are.
    origins.
 5. **D1 to D5.** Recommended: do not patch the old path; let 1b to 1d remove
    them, and put D1 and D3 on the simulator acceptance list for those steps.
+6. **The 22 undocumented behaviours, G1 to G22.** Approved 2026-10-16. The
+   rulings are in inventory `E-edge-cases.md` section 5 and are applied in
+   sections 2 and 6 above.
 
 ## 10. Contracts and past bugs to carry over
 
@@ -333,24 +363,17 @@ the stale event" cases:
 
 ### Behaviours no document states
 
-The acceptance list implies 22 behaviours that no document, test, or commit
-describes (inventory section 5). Examples: the final state at the end of the
-queue with repeat off; Next at the last item under each repeat mode; Previous
-at index 0 with no history; whether repeat mode and autoplay survive a
-relaunch; Play Next with an empty queue; whether the three-failure limit
-counts per track; an interruption during loading; when Stop is issued rather
-than Pause.
+The acceptance list implied 22 behaviours that no document, test, or commit
+described (inventory section 5). Felicity decided all of them on 2026-10-16;
+section 6 carries the rulings, and inventory section 5 lists each one beside
+the gap it closes. They are target behaviour, not a record of today's code.
+Where 1b to 1d find the current code doing something else, the step's note
+lists the difference as an approved change.
 
-Proposed rule: for each, 1b to 1d read what the current code does, pin that
-as the table row, and list the row in the step's note. Felicity is asked only
-where the current behaviour looks wrong. This keeps step 1 free of unplanned
-behaviour changes.
+The same decision settles the conflict between
+`2026-09-06-system-playback-state.md` and the later skip-load commits:
+system Now Playing publishes a loading track as playing only if the user
+pressed Play (section 2).
 
-One conflict to settle by reading before 1d:
-`2026-09-06-system-playback-state.md` says a loading track publishes rate 0
-to system Now Playing, while two later commits made skip loads publish
-"playing", and the test that pinned it is gone.
-
-Track radio and autoplay are live behaviour with past bugs and are missing
-from the plan's step 1 acceptance list. They are added to the simulator
-acceptance for 1b.
+Track radio and autoplay are added to the plan's step 1 acceptance list as
+ordinary queue sources (G21).
