@@ -91,18 +91,6 @@ final class PlaybackQueueControllerTests: XCTestCase {
         )
     }
 
-    func testNextPlayableIndexSkipsUnavailableItems() {
-        let controller = makeController()
-        let queue = [makeItem(id: "current"), makeItem(id: "offline"), makeItem(id: "available")]
-
-        let index = controller.nextPlayableIndex(in: queue, after: 0) {
-            $0.id == "available"
-        }
-
-        XCTAssertEqual(index, 2)
-        XCTAssertNil(controller.nextPlayableIndex(in: queue, after: 2) { _ in true })
-    }
-
     func testRestorePreviousHistoryItemUsesExistingQueueItemAndTruncatesHistory() {
         let controller = makeController()
         let previous = makeItem(id: "previous")

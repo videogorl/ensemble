@@ -72,6 +72,14 @@ public enum RepeatMode: Int, CaseIterable, Sendable {
     public var isActive: Bool {
         self != .off
     }
+
+    var queueRepeat: EnsembleQueueRepeat {
+        switch self {
+        case .off: return .off
+        case .all: return .all
+        case .one: return .one
+        }
+    }
 }
 
 // MARK: - Queue Item Source
@@ -519,10 +527,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
-    static func shouldStartAppleMusicAutoplay(
-        nextItem: QueueItem?, isEnabled: Bool, isWrappingQueue: Bool = false
+    /// At an Apple Music boundary with autoplay on, a station replaces the
+    /// continuation and any already-fetched autoplay items (Q1). A Repeat All wrap
+    /// is a queue item, not a continuation, so it never starts a station (Q2).
+    static func appleMusicStationReplacesAdvance(
+        _ advance: EnsembleQueueAdvance,
+        in queue: [QueueItem]
     ) -> Bool {
-        isEnabled && !isWrappingQueue && (nextItem == nil || nextItem?.source == .autoplay)
+        switch advance {
+        case .continuation:
+            return true
+        case let .item(index, wrapped):
+            return !wrapped && queue.indices.contains(index) && queue[index].source == .autoplay
+        case .repeatCurrent, .endOfQueue, .unavailable:
+            return false
+        }
     }
 
     static func futureQueueIndex(
@@ -1132,7 +1151,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     // Playback history for "previous" navigation (not persisted across app restarts)
     @Published public private(set) var playbackHistory: [QueueItem] = []
     private static let maxHistorySize = 100 // Cap for 2GB RAM devices
-    private var isNavigatingBackward = false // Flag to prevent duplicate history entries
 
     private var isSkipTransitionInProgress = false // Suppresses stale callbacks during next/previous
     private var lastRemoteSkipTime: CFTimeInterval = 0 // Debounce for remote command center skip events
@@ -1627,10 +1645,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.playback("GAPLESS_ADVANCE: '\(prevTrack)' (idx \(currentQueueIndex)) → '\(queue[index].track.title)' (idx \(index))")
 
         // Record previous track to history
-        if !isNavigatingBackward, currentQueueIndex >= 0, currentQueueIndex < queue.count {
+        if currentQueueIndex >= 0, currentQueueIndex < queue.count {
             recordToHistory(queue[currentQueueIndex])
         }
-        isNavigatingBackward = false
 
         let newTrack = queue[index].track
         currentQueueIndex = index
@@ -1717,21 +1734,93 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         handleEngineTrackAdvance(trackId: engineTrackID)
     }
 
-    static func completionQueueIndex(
-        nextPlayableIndex: Int?,
-        repeatMode: RepeatMode,
-        firstPlayableIndex: () -> Int?
-    ) -> Int? {
-        nextPlayableIndex ?? (repeatMode == .all ? firstPlayableIndex() : nil)
+    /// What follows the current item, decided by the one shared queue rule.
+    @MainActor
+    private func queueAdvance(
+        _ trigger: EnsembleQueueAdvanceTrigger,
+        after index: Int? = nil
+    ) -> EnsembleQueueAdvance {
+        let plexStreamingAllowed = isPlexStreamingAllowedOnCurrentNetwork()
+        return EnsembleQueuePolicy.advance(
+            after: index ?? currentQueueIndex,
+            count: queue.count,
+            trigger: trigger,
+            repeatMode: repeatMode.queueRepeat,
+            isAutoplayEnabled: isAutoplayEnabled
+        ) { index in
+            let track = queue[index].track
+            return Self.isQueueTrackPlayable(
+                track,
+                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey),
+                plexStreamingAllowed: plexStreamingAllowed
+            )
+        }
     }
 
+    /// Carries out a queue advance while playing. Every playing advance path
+    /// (natural end, Next, SmartMix Next, Apple Music boundary) ends here.
     @MainActor
-    private func nextQueueIndexAfterCompletion() -> Int? {
-        Self.completionQueueIndex(
-            nextPlayableIndex: findNextPlayableTrackIndex(after: currentQueueIndex),
-            repeatMode: repeatMode,
-            firstPlayableIndex: { findNextPlayableTrackIndex(after: -1) }
-        )
+    private func performQueueAdvance(_ advance: EnsembleQueueAdvance, caller: String) async {
+        switch advance {
+        case .repeatCurrent:
+            await playCurrentQueueItem(caller: "\(caller)-repeatOne")
+            savePlaybackState()
+        case let .item(index, wrapped):
+            guard !Task.isCancelled, queue.indices.contains(index) else { return }
+            currentQueueIndex = index
+            currentTrack = queue[index].track
+            updatePlaybackTimes(rawTime: 0)
+            updateNowPlayingInfo()
+            await playCurrentQueueItem(caller: wrapped ? "\(caller)-wrap" : caller)
+            guard !Task.isCancelled else { return }
+            savePlaybackState()
+            await checkAndRefreshAutoplayQueue()
+        case .continuation:
+            guard !(await continueWithAutoplay(caller: "\(caller)-autoplay")),
+                  !Task.isCancelled else { return }
+            settleAtEndOfQueue(caller: caller)
+        case .unavailable:
+            if !reportUnavailableNextTrackIfNeeded(after: currentQueueIndex) {
+                settleAtEndOfQueue(caller: caller)
+            }
+        case .endOfQueue:
+            settleAtEndOfQueue(caller: caller)
+        }
+    }
+
+    /// Plays the next autoplay item, or hands an Apple Music seed to a station.
+    /// Returns false when autoplay has nothing to play.
+    @MainActor
+    private func continueWithAutoplay(caller: String) async -> Bool {
+        if let seed = currentTrack,
+           await startAppleMusicAutoplayStationIfPossible(seed: seed) {
+            return true
+        }
+        let previousCount = queue.count
+        await refreshAutoplayQueue()
+        guard !Task.isCancelled else { return true }
+        let nextIndex = currentQueueIndex + 1
+        guard queue.count > previousCount, queue.indices.contains(nextIndex) else {
+            EnsembleLogger.debug("⏹️ Queue ended with no autoplay recommendations")
+            return false
+        }
+        await performQueueAdvance(.item(index: nextIndex, wrapped: false), caller: caller)
+        return true
+    }
+
+    /// End of queue: stay on the last item, paused at the start, and keep the queue.
+    @MainActor
+    private func settleAtEndOfQueue(caller: String) {
+        guard queue.indices.contains(currentQueueIndex) else {
+            stop()
+            return
+        }
+        if let track = currentTrack {
+            reportingController.reportState(track: track, state: "stopped", time: currentTime)
+        }
+        isSkipTransitionInProgress = false
+        disarmSkipTransitionSafety()
+        selectQueueItemWhilePaused(at: currentQueueIndex, caller: "\(caller)-endOfQueue")
     }
 
     /// Handles natural native playback completion.
@@ -1806,49 +1895,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             recordToHistory(queue[currentQueueIndex])
         }
 
-        if repeatMode == .one {
-            await playCurrentQueueItem(caller: "handleQueueExhausted-repeatOne")
-            savePlaybackState()
-            return
-        }
-
-        // Find the next playable track, skipping unavailable ones (offline server, not downloaded).
-        // This prevents trying to play a track we already know will fail.
-        let nextIndex = nextQueueIndexAfterCompletion()
-        if let nextIndex, nextIndex < queue.count {
-            currentQueueIndex = nextIndex
-            await playCurrentQueueItem(caller: "handleQueueExhausted-next")
-            savePlaybackState()
-            await checkAndRefreshAutoplayQueue()
-            return
-        }
-
-        if isAutoplayEnabled {
-            if let seed = currentTrack,
-               await startAppleMusicAutoplayStationIfPossible(seed: seed) {
-                return
-            }
-            let previousCount = queue.count
-            await refreshAutoplayQueue()
-
-            if let refreshedNextIndex = Self.autoplayAdvanceIndex(
-                previousQueueCount: previousCount,
-                currentQueueIndex: currentQueueIndex,
-                queueCount: queue.count
-            ) {
-                currentQueueIndex = refreshedNextIndex
-                await playCurrentQueueItem(caller: "handleQueueExhausted-autoplay")
-                savePlaybackState()
-                await checkAndRefreshAutoplayQueue()
-            } else {
-                EnsembleLogger.debug("⏹️ Queue ended with no autoplay recommendations - stopping playback")
-                stop()
-            }
-            return
-        }
-
-        EnsembleLogger.debug("⏹️ Queue ended - stopping playback")
-        stop()
+        await performQueueAdvance(queueAdvance(.naturalEnd), caller: "handleQueueExhausted")
     }
 
     private func generateWaveform(for trackIdentity: String) {
@@ -3185,9 +3232,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             // Remove tapped item and everything after from history
             playbackHistory.removeSubrange(historyIndex...)
-
-            // Set flag to prevent re-adding to history
-            isNavigatingBackward = true
             currentQueueIndex = existingIndex
 
             await playCurrentQueueItem(caller: "playFromHistory-existing")
@@ -3203,9 +3247,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let insertPosition = max(0, currentQueueIndex)
             queue.insert(historyItem, at: insertPosition)
             currentQueueIndex = insertPosition
-
-            // Set flag to prevent re-adding to history
-            isNavigatingBackward = true
 
             await playCurrentQueueItem(caller: "playFromHistory-inserted")
             savePlaybackState()
@@ -3546,66 +3587,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         skipTransitionTask = Task { @MainActor [weak self] in
             guard let self else { return }
-
-            if let nextIndex = self.findNextPlayableTrackIndex(after: self.currentQueueIndex) {
-                // Check cancellation before mutating state — a second next() call
-                // cancels this task, so committing state here would briefly flash
-                // the wrong track in the UI before being overwritten.
-                guard !Task.isCancelled else { return }
-                self.currentQueueIndex = nextIndex
-                let nextTrack = self.queue[nextIndex].track
-                self.currentTrack = nextTrack
-                self.updatePlaybackTimes(rawTime: 0)
-                self.updateNowPlayingInfo()
-
-                guard !Task.isCancelled else { return }
-                await self.playCurrentQueueItem(caller: "next()")
-                guard !Task.isCancelled else { return }
-                self.savePlaybackState()
-                await self.checkAndRefreshAutoplayQueue()
-            } else {
-                if self.repeatMode == .all {
-                    if let wrappedIndex = self.findNextPlayableTrackIndex(after: -1) {
-                        guard !Task.isCancelled else { return }
-                        self.currentQueueIndex = wrappedIndex
-                        let wrappedTrack = self.queue[wrappedIndex].track
-                        self.currentTrack = wrappedTrack
-                        self.updatePlaybackTimes(rawTime: 0)
-                        self.updateNowPlayingInfo()
-
-                        guard !Task.isCancelled else { return }
-                        await self.playCurrentQueueItem(caller: "next()-repeatAll")
-                        guard !Task.isCancelled else { return }
-                        self.savePlaybackState()
-                    } else if !self.reportUnavailableNextTrackIfNeeded(after: self.currentQueueIndex) {
-                        self.stop()
-                    }
-                } else if self.reportUnavailableNextTrackIfNeeded(after: self.currentQueueIndex) {
-                    return
-                } else if self.isAutoplayEnabled {
-                    EnsembleLogger.debug("[next] Queue ended, autoplay enabled, refreshing...")
-                    if let seed = self.currentTrack,
-                       await self.startAppleMusicAutoplayStationIfPossible(seed: seed) {
-                        return
-                    }
-                    let previousCount = self.queue.count
-                    await self.refreshAutoplayQueue()
-                    guard !Task.isCancelled else { return }
-                    if let nextIndex = Self.autoplayAdvanceIndex(
-                        previousQueueCount: previousCount,
-                        currentQueueIndex: self.currentQueueIndex,
-                        queueCount: self.queue.count
-                    ) {
-                        self.currentQueueIndex = nextIndex
-                        await self.playCurrentQueueItem(caller: "next()-autoplay")
-                        self.savePlaybackState()
-                    } else {
-                        self.stop()
-                    }
-                } else {
-                    self.stop()
-                }
-            }
+            await self.performQueueAdvance(self.queueAdvance(.next), caller: "next()")
         }
     }
 
@@ -3651,33 +3633,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         skipTransitionTask = Task { @MainActor [weak self] in
             guard let self else { return }
-
-            if let nextIndex = self.findNextPlayableTrackIndex(after: incomingIndex) {
-                guard !Task.isCancelled else { return }
-                self.currentQueueIndex = nextIndex
-                self.currentTrack = self.queue[nextIndex].track
-                self.updatePlaybackTimes(rawTime: 0)
-                self.updateNowPlayingInfo()
-                await self.playCurrentQueueItem(caller: "smartMix-next-after-incoming")
-                guard !Task.isCancelled else { return }
-                self.savePlaybackState()
-                await self.checkAndRefreshAutoplayQueue()
-            } else if self.repeatMode == .all,
-                      let wrappedIndex = self.findNextPlayableTrackIndex(after: -1)
-            {
-                guard !Task.isCancelled else { return }
-                self.currentQueueIndex = wrappedIndex
-                self.currentTrack = self.queue[wrappedIndex].track
-                self.updatePlaybackTimes(rawTime: 0)
-                self.updateNowPlayingInfo()
-                await self.playCurrentQueueItem(caller: "smartMix-next-repeatAll")
-                guard !Task.isCancelled else { return }
-                self.savePlaybackState()
-            } else if self.isAutoplayEnabled {
-                await self.refreshAutoplayQueue()
-            } else {
-                self.stop()
-            }
+            await self.performQueueAdvance(
+                self.queueAdvance(.next, after: incomingIndex),
+                caller: "smartMix-next"
+            )
         }
 
         EnsembleLogger.playback("SMARTMIX_NEXT: skipped incoming track at \(String(format: "%.1f", elapsed))s")
@@ -3728,9 +3687,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         EnsembleLogger.playback("SKIP: previous() — idx=\(currentQueueIndex)/\(queue.count), track='\(currentTrack?.title ?? "nil")'")
 
-        // Set flag to prevent recording to history when navigating backward
-        isNavigatingBackward = true
-
         // Remove the last item from history since we're navigating back to it
         if !playbackHistory.isEmpty {
             playbackHistory.removeLast()
@@ -3779,7 +3735,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             currentQueueIndex: currentQueueIndex
         ) else { return }
         currentQueueIndex = targetIndex
-        isNavigatingBackward = true
         currentTrack = queue[currentQueueIndex].track
         updatePlaybackTimes(rawTime: 0)
         updateNowPlayingInfo()
@@ -3796,15 +3751,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     private func navigateToNextQueueItemWhilePaused() {
-        if let nextIndex = findNextPlayableTrackIndex(after: currentQueueIndex) {
-            recordCurrentAndSkippedTracksBeforeJump(to: nextIndex)
-            selectQueueItemWhilePaused(at: nextIndex, caller: "next-paused")
-        } else if repeatMode == .all,
-                  let wrappedIndex = findNextPlayableTrackIndex(after: -1) {
-            recordCurrentAndSkippedTracksBeforeJump(to: wrappedIndex)
-            selectQueueItemWhilePaused(at: wrappedIndex, caller: "next-paused-repeatAll")
-        } else {
+        switch queueAdvance(.next) {
+        case let .item(index, wrapped):
+            recordCurrentAndSkippedTracksBeforeJump(to: index)
+            selectQueueItemWhilePaused(at: index, caller: wrapped ? "next-paused-wrap" : "next-paused")
+        case .unavailable:
             _ = reportUnavailableNextTrackIfNeeded(after: currentQueueIndex)
+        case .repeatCurrent, .continuation, .endOfQueue:
+            settleAtEndOfQueue(caller: "next-paused")
         }
     }
 
@@ -3845,7 +3799,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             currentQueueIndex: currentQueueIndex
         ) else { return }
 
-        isNavigatingBackward = true
         selectQueueItemWhilePaused(at: targetIndex, caller: "previous-history-paused")
     }
 
@@ -4110,6 +4063,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         EnsembleLogger.debug("🔄 Moved queue item '\(result.item.track.title)' (ID: \(sourceId)) from \(sourceIndex) to \(result.destinationIndex)")
 
+        if isShuffleEnabled {
+            originalQueue = queueController.unshuffledOrder(originalQueue, carryingMove: result.item, in: queue)
+        }
+
         // Force @Published update by reassigning the queue array
         // (Required because in-place mutations don't trigger Combine notifications)
         queue = queue
@@ -4297,7 +4254,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
         #endif
-        audioEngine?.cancelSmartMixTransition(continueIncoming: audioEngine?.hasPromotedSmartMixTransition == true)
+        invalidateGaplessSchedule()
         updateNowPlayingInfo()
     }
 
@@ -4499,15 +4456,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             queue.append(makeQueueItem(track: track, source: .autoplay))
             queueController.markAutoGeneratedTrack(id: track.playbackIdentity)
         }
-    }
-
-    static func autoplayAdvanceIndex(
-        previousQueueCount: Int,
-        currentQueueIndex: Int,
-        queueCount: Int
-    ) -> Int? {
-        let nextIndex = currentQueueIndex + 1
-        return queueCount > previousQueueCount && nextIndex < queueCount ? nextIndex : nil
     }
 
     @MainActor
@@ -6291,8 +6239,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 queueGeneration,
                 acceptsPausedPlayback: true
             ) else { return }
-            let nextIndex = nextQueueIndexAfterCompletion()
-            let nextItem = nextIndex.map { queue[$0] }
+            let advance = queueAdvance(.naturalEnd)
+            var nextItem: QueueItem?
+            if case let .item(index, _) = advance { nextItem = queue[index] }
             EnsembleLogger.debug(
                 "[ProviderHandoff] phase=appleBoundary queueGeneration=\(queueGeneration)"
                     + " current=\(currentTrack?.playbackIdentity ?? "none")"
@@ -6300,27 +6249,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     + " nextAppleMusic=\(nextItem?.track.isAppleMusic == true)"
                     + " appState=\(UIApplication.shared.applicationState)"
             )
-            if Self.shouldStartAppleMusicAutoplay(nextItem: nextItem, isEnabled: isAutoplayEnabled),
-               let seed = currentTrack {
-                let autoplayStart = nextIndex ?? queue.count
-                if autoplayStart < queue.count { queue.removeSubrange(autoplayStart...) }
-                if !(await startAppleMusicAutoplayStationIfPossible(seed: seed)) { stop() }
+            if isAutoplayEnabled, let seed = currentTrack, Self.appleMusicStationReplacesAdvance(advance, in: queue) {
+                if case let .item(index, _) = advance { queue.removeSubrange(index...) }
+                if !(await startAppleMusicAutoplayStationIfPossible(seed: seed)) {
+                    settleAtEndOfQueue(caller: "appleMusicSegmentEnded")
+                }
                 return
             }
-            guard let nextIndex, nextItem != nil else {
-                stop()
-                return
+            if case .item = advance {
+                recordToHistory(queue[currentQueueIndex])
+                playbackState = .loading
+                isSkipTransitionInProgress = true
+                armSkipTransitionSafety()
             }
-            recordToHistory(queue[currentQueueIndex])
-            currentQueueIndex = nextIndex
-            currentTrack = nextItem?.track
-            updatePlaybackTimes(rawTime: 0)
-            playbackState = .loading
-            isSkipTransitionInProgress = true
-            armSkipTransitionSafety()
-            updateNowPlayingInfo()
-            await playCurrentQueueItem(caller: "appleMusicSegmentEnded")
-            savePlaybackState()
+            await performQueueAdvance(advance, caller: "appleMusicSegmentEnded")
         }
 
         @available(iOS 18, *)
@@ -6705,20 +6647,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             ]
         )
         return true
-    }
-
-    /// Scan the queue after `startIndex` for the next playable track.
-    /// Accepts downloaded tracks or tracks from a server that is still available.
-    /// Used by the circuit breaker to skip over unavailable tracks.
-    @MainActor
-    private func findNextPlayableTrackIndex(after startIndex: Int) -> Int? {
-        queueController.nextPlayableIndex(in: queue, after: startIndex) { track in
-            Self.isQueueTrackPlayable(
-                track,
-                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey),
-                plexStreamingAllowed: isPlexStreamingAllowedOnCurrentNetwork()
-            )
-        }
     }
 
     /// Bridge pre-computed frequency bands from the analyzer to the published property.

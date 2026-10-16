@@ -83,19 +83,6 @@ final class PlaybackQueueController {
         )
     }
 
-    func nextPlayableIndex(
-        in queue: [QueueItem],
-        after startIndex: Int,
-        isPlayable: (Track) -> Bool
-    ) -> Int? {
-        let searchStart = startIndex + 1
-        guard searchStart < queue.count else { return nil }
-
-        return queue.indices.first {
-            $0 >= searchStart && isPlayable(queue[$0].track)
-        }
-    }
-
     func restorePreviousHistoryItem(
         at historyIndex: Int,
         queue: inout [QueueItem],
@@ -319,6 +306,25 @@ final class PlaybackQueueController {
             queue: &queue
         )
         return PlaybackQueueMoveResult(item: item, destinationIndex: adjustedDestination)
+    }
+
+    /// Keeps a reorder made while shuffled, including a changed source, when
+    /// shuffle is turned off.
+    func unshuffledOrder(
+        _ originalQueue: [QueueItem],
+        carryingMove movedItem: QueueItem,
+        in queue: [QueueItem]
+    ) -> [QueueItem] {
+        var reordered = EnsembleQueuePolicy.unshuffledOrder(
+            originalQueue,
+            carryingMoveOf: movedItem.id,
+            in: queue,
+            identity: \.id
+        )
+        if let index = reordered.firstIndex(where: { $0.id == movedItem.id }) {
+            reordered[index] = movedItem
+        }
+        return reordered
     }
 
     static func pruneDuplicateFutureAutoplayItems(

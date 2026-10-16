@@ -818,6 +818,15 @@ public final class WatchPlaybackController: ObservableObject {
         }
     }
 
+    /// End of queue: stay on the current track, paused at the start.
+    public func settleAtStart() {
+        player?.pause()
+        player?.seek(to: .zero)
+        currentTime = 0
+        if player != nil { status = .paused }
+        updateNowPlayingInfo()
+    }
+
     public func stop() {
         player?.pause()
         tearDownPlaybackObservers()
@@ -1870,23 +1879,8 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func playNext() {
-        guard let track = playbackQueue.nextTrack else {
-            switch playbackQueue.repeatMode {
-            case .one:
-                playback.restart()
-            case .all:
-                guard let firstTrack = playbackQueue.select(index: 0) else { return }
-                markQueueChanged()
-                startPlayback(firstTrack)
-            case .off:
-                break
-            }
-            return
-        }
-        if playback.advanceToPreloadedTrack(track) { return }
-        _ = playbackQueue.advance()
-        markQueueChanged()
-        startPlayback(track)
+        if let track = playbackQueue.nextTrack, playback.advanceToPreloadedTrack(track) { return }
+        performQueueAdvance(.next)
     }
 
     private func replacePlaybackQueue(
@@ -1990,18 +1984,36 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func advanceAfterPlaybackEnded() {
-        if playbackQueue.repeatMode == .one {
-            playback.restart()
-        } else if let track = playbackQueue.advance() {
-            markQueueChanged()
-            startPlayback(track)
-        } else if playbackQueue.repeatMode == .all,
-                  let track = playbackQueue.select(index: 0) {
-            markQueueChanged()
-            startPlayback(track)
-        }
+        performQueueAdvance(.naturalEnd)
         if playbackQueue.isAutoplayEnabled {
             refreshAutoplayQueue()
+        }
+    }
+
+    /// Applies the shared queue rule that the iPhone player also follows.
+    private func performQueueAdvance(_ trigger: EnsembleQueueAdvanceTrigger) {
+        guard let currentIndex = playbackQueue.currentIndex else { return }
+        let advance = EnsembleQueuePolicy.advance(
+            after: currentIndex,
+            count: playbackQueue.items.count,
+            trigger: trigger,
+            repeatMode: playbackQueue.repeatMode.queueRepeat,
+            isAutoplayEnabled: playbackQueue.isAutoplayEnabled,
+            isPlayable: { _ in true }
+        )
+        switch advance {
+        case .repeatCurrent:
+            playback.restart()
+        case let .item(index, _):
+            let track = index == currentIndex + 1 ? playbackQueue.advance() : playbackQueue.select(index: index)
+            guard let track else { return }
+            markQueueChanged()
+            startPlayback(track)
+        case .continuation:
+            refreshAutoplayQueue()
+            playback.settleAtStart()
+        case .endOfQueue, .unavailable:
+            playback.settleAtStart()
         }
     }
 

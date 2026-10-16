@@ -6,6 +6,14 @@ public enum WatchQueueRepeatMode: Int, Codable, CaseIterable, Equatable, Sendabl
     case off = 0
     case all = 1
     case one = 2
+
+    var queueRepeat: EnsembleQueueRepeat {
+        switch self {
+        case .off: return .off
+        case .all: return .all
+        case .one: return .one
+        }
+    }
 }
 
 public struct WatchQueueItem: Codable, Equatable, Sendable, Identifiable {

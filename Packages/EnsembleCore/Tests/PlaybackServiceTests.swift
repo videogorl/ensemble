@@ -1,5 +1,6 @@
 import AVFoundation
 @testable import EnsembleCore
+import EnsembleDomain
 import XCTest
 
 final class PlaybackServiceTests: XCTestCase {
@@ -462,20 +463,6 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(decision.shouldAutoHealQueue)
         XCTAssertFalse(decision.shouldHandleReconnect)
         XCTAssertTrue(decision.shouldHandleDisconnect)
-    }
-
-    func testCompletionUsesPlayableSuccessorAndOnlyWrapsRepeatAll() {
-        for mode: RepeatMode in [.off, .one, .all] {
-            XCTAssertEqual(PlaybackService.completionQueueIndex(
-                nextPlayableIndex: 4, repeatMode: mode, firstPlayableIndex: { 1 }
-            ), 4)
-            XCTAssertEqual(PlaybackService.completionQueueIndex(
-                nextPlayableIndex: nil, repeatMode: mode, firstPlayableIndex: { 1 }
-            ), mode == .all ? 1 : nil)
-            XCTAssertNil(PlaybackService.completionQueueIndex(
-                nextPlayableIndex: nil, repeatMode: mode, firstPlayableIndex: { nil }
-            ))
-        }
     }
 
     func testPlaybackSnapshotPersistsAfterInterval() {
@@ -1693,25 +1680,13 @@ final class PlaybackServiceTests: XCTestCase {
             source: .continuePlaying
         )
 
-        XCTAssertTrue(PlaybackService.shouldStartAppleMusicAutoplay(nextItem: autoplay, isEnabled: true))
-        XCTAssertTrue(PlaybackService.shouldStartAppleMusicAutoplay(nextItem: nil, isEnabled: true))
-        XCTAssertFalse(PlaybackService.shouldStartAppleMusicAutoplay(nextItem: manual, isEnabled: true))
-        XCTAssertFalse(PlaybackService.shouldStartAppleMusicAutoplay(
-            nextItem: autoplay, isEnabled: true, isWrappingQueue: true
-        ))
-    }
+        let queue = [manual, autoplay]
 
-    func testQueueEndAutoplayOnlyAdvancesWhenRefreshAppendsATrack() {
-        XCTAssertNil(PlaybackService.autoplayAdvanceIndex(
-            previousQueueCount: 1,
-            currentQueueIndex: 0,
-            queueCount: 1
-        ))
-        XCTAssertEqual(PlaybackService.autoplayAdvanceIndex(
-            previousQueueCount: 1,
-            currentQueueIndex: 0,
-            queueCount: 2
-        ), 1)
+        XCTAssertTrue(PlaybackService.appleMusicStationReplacesAdvance(.item(index: 1, wrapped: false), in: queue))
+        XCTAssertTrue(PlaybackService.appleMusicStationReplacesAdvance(.continuation, in: queue))
+        XCTAssertFalse(PlaybackService.appleMusicStationReplacesAdvance(.item(index: 0, wrapped: false), in: queue))
+        XCTAssertFalse(PlaybackService.appleMusicStationReplacesAdvance(.item(index: 1, wrapped: true), in: queue))
+        XCTAssertFalse(PlaybackService.appleMusicStationReplacesAdvance(.endOfQueue, in: queue))
     }
 
     func testAppleMusicStationAdvancesPastSeedBeforePlaying() async throws {

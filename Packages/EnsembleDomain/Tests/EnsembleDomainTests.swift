@@ -92,6 +92,69 @@ final class EnsembleDomainTests: XCTestCase {
         XCTAssertEqual(persisted, ["current", "manual"])
     }
 
+    func testQueueAdvanceTable() {
+        struct Row {
+            let name: String
+            let current: Int
+            let count: Int
+            let trigger: EnsembleQueueAdvanceTrigger
+            let repeatMode: EnsembleQueueRepeat
+            let autoplay: Bool
+            var unplayable: Set<Int> = []
+            let expected: EnsembleQueueAdvance
+        }
+
+        let rows = [
+            Row(name: "mid-queue next", current: 0, count: 3, trigger: .next, repeatMode: .off, autoplay: false, expected: .item(index: 1, wrapped: false)),
+            Row(name: "mid-queue end skips unplayable", current: 0, count: 3, trigger: .naturalEnd, repeatMode: .off, autoplay: false, unplayable: [1], expected: .item(index: 2, wrapped: false)),
+            Row(name: "repeat one holds a natural end", current: 1, count: 3, trigger: .naturalEnd, repeatMode: .one, autoplay: true, expected: .repeatCurrent),
+            Row(name: "repeat one does not hold next", current: 1, count: 3, trigger: .next, repeatMode: .one, autoplay: false, expected: .item(index: 2, wrapped: false)),
+            Row(name: "G3: next at last wraps under repeat one", current: 2, count: 3, trigger: .next, repeatMode: .one, autoplay: false, expected: .item(index: 0, wrapped: true)),
+            Row(name: "G3: next at last wraps under repeat all", current: 2, count: 3, trigger: .next, repeatMode: .all, autoplay: false, expected: .item(index: 0, wrapped: true)),
+            Row(name: "Q2: repeat all wraps before autoplay", current: 2, count: 3, trigger: .naturalEnd, repeatMode: .all, autoplay: true, expected: .item(index: 0, wrapped: true)),
+            Row(name: "G2: next at last continues with autoplay", current: 2, count: 3, trigger: .next, repeatMode: .off, autoplay: true, expected: .continuation),
+            Row(name: "G2: next at last without autoplay ends", current: 2, count: 3, trigger: .next, repeatMode: .off, autoplay: false, expected: .endOfQueue),
+            Row(name: "G1: natural end at last ends", current: 2, count: 3, trigger: .naturalEnd, repeatMode: .off, autoplay: false, expected: .endOfQueue),
+            Row(name: "next blocked by unavailable items", current: 0, count: 3, trigger: .next, repeatMode: .off, autoplay: true, unplayable: [1, 2], expected: .unavailable),
+            Row(name: "natural end past unavailable items continues", current: 0, count: 3, trigger: .naturalEnd, repeatMode: .off, autoplay: true, unplayable: [1, 2], expected: .continuation),
+            Row(name: "empty queue ends", current: -1, count: 0, trigger: .next, repeatMode: .all, autoplay: true, expected: .endOfQueue)
+        ]
+
+        for row in rows {
+            let advance = EnsembleQueuePolicy.advance(
+                after: row.current,
+                count: row.count,
+                trigger: row.trigger,
+                repeatMode: row.repeatMode,
+                isAutoplayEnabled: row.autoplay,
+                isPlayable: { !row.unplayable.contains($0) }
+            )
+            XCTAssertEqual(advance, row.expected, row.name)
+        }
+    }
+
+    func testReorderWhileShuffledSurvivesTurningShuffleOff() {
+        // Original order a b c d. The moved item follows its new predecessor,
+        // or precedes its new successor when it was dropped first.
+        let cases: [(queue: [String], moved: String, expected: [String])] = [
+            (["d", "a", "c", "b"], "b", ["a", "c", "b", "d"]),
+            (["b", "d", "a", "c"], "b", ["a", "c", "b", "d"]),
+            (["c", "a", "d", "b"], "a", ["b", "c", "a", "d"]),
+            (["x", "a"], "missing", ["a", "b", "c", "d"])
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                EnsembleQueuePolicy.unshuffledOrder(
+                    ["a", "b", "c", "d"],
+                    carryingMoveOf: testCase.moved,
+                    in: testCase.queue,
+                    identity: { $0 }
+                ),
+                testCase.expected
+            )
+        }
+    }
+
     func testShuffleDoesNotDuplicateCurrentAutoplayItem() {
         let shuffled = EnsembleQueuePolicy.shuffledQueue(
             ["manual", "current-auto", "future-auto"],

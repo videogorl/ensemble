@@ -13,8 +13,69 @@ public enum EnsembleQueuePreviousNavigationTarget: Equatable, Sendable {
     case historyIndex(Int)
 }
 
+public enum EnsembleQueueRepeat: Equatable, Sendable {
+    case off
+    case all
+    case one
+}
+
+public enum EnsembleQueueAdvanceTrigger: Equatable, Sendable {
+    /// The current item finished playing.
+    case naturalEnd
+    /// The user, a remote command, or another explicit skip asked for the next item.
+    case next
+}
+
+/// What follows the current item. Every advance path on every engine asks this.
+public enum EnsembleQueueAdvance: Equatable, Sendable {
+    /// Play the current item again (natural end under Repeat One).
+    case repeatCurrent
+    /// Play the item at `index`. `wrapped` is true when it comes from the start of the queue.
+    case item(index: Int, wrapped: Bool)
+    /// Nothing queued follows; autoplay may supply the next item.
+    case continuation
+    /// Nothing follows: stay on the current item, paused at the start, and keep the queue.
+    case endOfQueue
+    /// Later items exist but none can play now; report it instead of ending.
+    case unavailable
+}
+
 public enum EnsembleQueuePolicy {
     public static let displayLimit = 50
+
+    /// The one rule for what follows the current item.
+    ///
+    /// Repeat One holds only a natural end; Next leaves the item, and at the end of
+    /// the queue wraps exactly as Repeat All does. Wrapping is decided before
+    /// autoplay, so Repeat All never hands over to a continuation.
+    public static func advance(
+        after currentIndex: Int,
+        count: Int,
+        trigger: EnsembleQueueAdvanceTrigger,
+        repeatMode: EnsembleQueueRepeat,
+        isAutoplayEnabled: Bool,
+        isPlayable: (Int) -> Bool
+    ) -> EnsembleQueueAdvance {
+        guard count > 0 else { return .endOfQueue }
+        if trigger == .naturalEnd, repeatMode == .one, (0 ..< count).contains(currentIndex) {
+            return .repeatCurrent
+        }
+
+        let searchStart = max(currentIndex + 1, 0)
+        if searchStart < count, let index = (searchStart ..< count).first(where: isPlayable) {
+            return .item(index: index, wrapped: false)
+        }
+
+        let wraps = repeatMode == .all || (repeatMode == .one && trigger == .next)
+        if wraps, let index = (0 ..< count).first(where: isPlayable) {
+            return .item(index: index, wrapped: true)
+        }
+
+        if trigger == .next, searchStart < count {
+            return .unavailable
+        }
+        return isAutoplayEnabled ? .continuation : .endOfQueue
+    }
 
     public static func nextRepeatRawValue(current: Int, caseCount: Int) -> Int {
         guard caseCount > 0 else { return 0 }
@@ -113,6 +174,37 @@ public enum EnsembleQueuePolicy {
             index != currentQueueIndex && source(item) == .autoplay ? item : nil
         }
         return ([currentItem] + candidates + autoplayItems, 0)
+    }
+
+    /// Carries a reorder made while shuffled into the unshuffled order, so turning
+    /// shuffle off keeps the moved item beside the neighbour it was dropped next to.
+    public static func unshuffledOrder<Item>(
+        _ original: [Item],
+        carryingMoveOf movedIdentity: String,
+        in queue: [Item],
+        identity: (Item) -> String
+    ) -> [Item] {
+        guard let originalIndex = original.firstIndex(where: { identity($0) == movedIdentity }),
+              let queueIndex = queue.firstIndex(where: { identity($0) == movedIdentity }) else {
+            return original
+        }
+
+        var reordered = original
+        let item = reordered.remove(at: originalIndex)
+        func index(of neighbour: Int) -> Int? {
+            guard queue.indices.contains(neighbour) else { return nil }
+            let neighbourIdentity = identity(queue[neighbour])
+            return reordered.firstIndex { identity($0) == neighbourIdentity }
+        }
+
+        if let predecessor = index(of: queueIndex - 1) {
+            reordered.insert(item, at: predecessor + 1)
+        } else if let successor = index(of: queueIndex + 1) {
+            reordered.insert(item, at: successor)
+        } else {
+            reordered.insert(item, at: originalIndex)
+        }
+        return reordered
     }
 
     public static func restoredIndex<Item>(
