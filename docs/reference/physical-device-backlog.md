@@ -29,6 +29,22 @@ Both the pinned native button and overflow item opened the route picker.
   is unavailable; normal runtime used an intact native picker hierarchy.
 
 
+### Step 1b queue policy, at `3e063453` or later
+
+See [the step note](../investigations/2026-10-16-step-1b-queue-policy.md).
+
+- End of queue: natural end and Next on the last item leave it paused at 0:00
+  with the queue kept; Lock Screen shows the paused item.
+- Next on the last item under Repeat One wraps to the first item, also from
+  the Lock Screen.
+- Q2: an Apple Music item at the end of a queue under Repeat All with autoplay
+  on wraps to the first item and does not start a station.
+- Apple Music boundary at the end of the queue with autoplay off: stays on the
+  last item, paused.
+- Q7: Next during a SmartMix transition on the last item with autoplay on
+  plays the autoplay item.
+- Changing repeat with a gapless successor scheduled, with the phone locked.
+
 ### Step 0, at `254691f2` or later
 
 Rows from [`surface-checklist.md`](surface-checklist.md). Results so far are in
@@ -75,4 +91,8 @@ pass before step 0 is called verified.
 
 ## iPad Pro and Apple Watch
 
-Nothing yet. Their checklist sections start with steps 5 and 6.
+- Watch, step 1b at `3e063453`: Next on the last track wraps under Repeat One
+  and Repeat All; with repeat off, Next and a natural end leave the last track
+  paused at the start.
+
+The iPad and watch checklist sections start with steps 5 and 6.

@@ -116,9 +116,10 @@ history all read play order directly, and a permutation would put an
 indirection in every one of those reads. The cost today is that
 `originalQueue` holds a second full copy of every `QueueItem`, including its
 `Track`, and the queue snapshot encodes both. Holding the original order as
-IDs instead keeps the model and removes the duplicate. In memory that is a
-few bytes per item; the snapshot format change waits for the persistence
-handler in 1d, with the old field still decoded.
+IDs instead keeps the model and removes the duplicate. It lands in 1d with the
+persistence handler, not 1b: turning shuffle on drops already-played items
+from the live queue, so the IDs need those items kept somewhere, and the
+snapshot must still decode the old field.
 
 Not in the state: waveform and frequency data, artwork, lyrics. They are
 presentation data loaded by effect handlers and published beside the snapshot.

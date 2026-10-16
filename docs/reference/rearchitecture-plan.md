@@ -3,8 +3,10 @@
 Status: plan accepted by Felicity on 2026-10-13. Step 0 is implemented,
 Mac-checked, and simulator-checked; its physical iPhone pass is in the device
 backlog. Step 1a is written up in
-[`playback-state-machine-design.md`](playback-state-machine-design.md) and
-awaits Felicity's review; 1b has not started.
+[`playback-state-machine-design.md`](playback-state-machine-design.md) and was
+approved on 2026-10-14 and 2026-10-16. Step 1b is implemented and
+simulator-checked at `3e063453`
+([note](../investigations/2026-10-16-step-1b-queue-policy.md)); 1c is next.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
