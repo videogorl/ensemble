@@ -25,6 +25,12 @@ No unresolved critical issues are currently documented.
 - **Status:** Finite playback now submits one Apple item at a time. Locked iOS 27 testing verified exactly-once Next across Plex-to-Apple, Apple-to-Apple, and Apple-to-Plex boundaries, plus standard two-tap Previous across Apple-to-Apple and Apple-to-Plex boundaries. MusicKit still consumes the raw Previous command, so Ensemble infers only the near-start rewind that represents the navigate-back gesture. iOS 18–26 remain unverified.
 - **Rule:** Keep each finite MusicKit queue disposable and one-item, preserve the three-second Previous restart threshold, and require locked physical verification before expanding the supported OS matrix.
 
+### External Next Replays An Apple Music Item Under Repeat One
+
+- **Area:** `AppleMusicPlaybackController`, Lock Screen, Control Center, and other system Next commands, iOS/iPadOS 18+.
+- **Status:** MusicKit reports a system Next on an Apple Music item the same way as a natural end. With Repeat One on, Ensemble therefore replays the item instead of advancing. In-app Next is unaffected. Accepted as a limitation on 2026-10-14 (playback design note, decision 3).
+- **Rule:** Do not infer the cause from timing or playhead heuristics to work around this. Revisit only if MusicKit exposes the command source.
+
 ### HomePod Music Transfer Does Not Carry the Mixed Queue
 
 - **Area:** `ApplicationMusicPlayer`, AirPlay/HomePod, mixed Apple Music and Plex queues on iOS/iPadOS 18+.

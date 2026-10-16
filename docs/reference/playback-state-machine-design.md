@@ -1,10 +1,9 @@
 # Playback state machine: step 1 design
 
-Status: under review. Written 2026-10-13 against `2586f6e5`. Decision 6
-(the 22 undocumented behaviours) was approved on 2026-10-16 and is folded
-into sections 2, 6, and 10. Decisions 1 to 5 were approved earlier and are
-recorded here once their details are sent. Step 1b does not start until
-they are. Read-only work; nothing in the playback code has changed.
+Status: approved. Written 2026-10-13 against `2586f6e5`. Felicity approved
+decisions 1 to 5 on 2026-10-14 and decision 6 on 2026-10-16; section 9
+records them, and they are folded into the sections they affect. Step 1b
+starts from this note.
 
 This is the detailed design that
 [`rearchitecture-plan.md`](rearchitecture-plan.md) step 1a asks for. It turns
@@ -80,7 +79,7 @@ struct PlaybackState: Equatable, Sendable {
 | Part | Holds | Replaces today |
 |---|---|---|
 | `queue.items`, `queue.currentIndex` | The one live queue, in play order | `queue`, `currentQueueIndex` |
-| `queue.unshuffledOrder` | Original order while shuffled; nil when not | `originalQueue`, `isShuffleEnabled` |
+| `queue.unshuffledOrder` | Original order while shuffled, as item IDs; nil when not. A reorder made while shuffled is carried into it (Q6) | `originalQueue`, `isShuffleEnabled` |
 | `queue.history` | Played items for Previous and the History page | `playbackHistory`, `isNavigatingBackward` |
 | `queue.repeatMode` | off, all, one | `repeatMode` |
 | `queue.continuation` | `.none`, `.autoplay(exhausted: Bool)`, `.radio(seed)`, `.station(engineOwned)` | `isAutoplayEnabled`, `radioMode`, `recommendationsExhausted`, `isAutoplayActive`, station flags |
@@ -104,6 +103,23 @@ paused session into a playing one (G12). `loading(intent: .play)` is the only
 loading state published to system Now Playing as playing; this matches Apple
 Music, and a track that loads while paused stays paused.
 
+**Shuffle representation.** Felicity asked whether keeping the original
+order adds too much overhead, and how other players do it. There are two
+common models. Android's Media3 keeps items in their original order and holds
+shuffle as a separate immutable permutation that is cloned on every insert,
+remove, and move ([`ShuffleOrder`](https://developer.android.com/reference/androidx/media3/exoplayer/source/ShuffleOrder)).
+Apple Music and Spotify present the shuffled list as the queue and restore
+the set order when shuffle is turned off; MusicKit exposes no unshuffled
+order, so an app that wants one keeps its own copy. Ensemble uses the second
+model because the queue UI, the watch bridge, MusicKit's one-item queue, and
+history all read play order directly, and a permutation would put an
+indirection in every one of those reads. The cost today is that
+`originalQueue` holds a second full copy of every `QueueItem`, including its
+`Track`, and the queue snapshot encodes both. Holding the original order as
+IDs instead keeps the model and removes the duplicate. In memory that is a
+few bytes per item; the snapshot format change waits for the persistence
+handler in 1d, with the old field still decoded.
+
 Not in the state: waveform and frequency data, artwork, lyrics. They are
 presentation data loaded by effect handlers and published beside the snapshot.
 
@@ -120,9 +136,11 @@ Four kinds, as in the plan. Every engine and resolution event carries the
 | `resolved` | sourceResolved, playableQueueResolved, autoplayFetched, stationStarted, restoreLoaded, downloadStateRefreshed, each with success or failure | 30 continuations, five of which check nothing after the await |
 
 The command origin is what makes "Siri, App Shortcuts, remote commands,
-autoplay, restoration, and recovery do not donate" a property of the data
-rather than of which function was called. Six non-UI origins are already
-declared today and never constructed.
+the watch, autoplay, restoration, and recovery do not donate" a property of
+the data rather than of which function was called. Six non-UI origins are
+already declared today and never constructed. Watch-initiated starts are
+donated as app UI today; they take the `watch` origin and stop donating
+(decision 4).
 
 ## 4. Effects
 
@@ -233,17 +251,17 @@ The Mac follows the same table: seek, track endings, relaunch, and route
 changes behave as on iOS, and all windows share one player (G19, G22).
 
 Where today's two paths disagree, and which behaviour this design keeps.
-These are behaviour changes on one path each, so they need a decision; see
-section 9.
+These are behaviour changes on one path each. Felicity approved the right
+column on 2026-10-14 (decision 2).
 
-| # | Today | Proposed single behaviour |
+| # | Today | Single behaviour |
 |---|---|---|
 | Q1 | At the end of the queue with autoplay on, native plays already-fetched autoplay items; Apple Music discards them and starts a station | Keep both, as a property of the continuation kind rather than of the path |
 | Q2 | Repeat All wrap: native wraps first and then considers autoplay. Apple Music considers autoplay first and can truncate the queue from the wrapped index, which at index 0 is the whole queue (by reading) | Wrap first on both. Repeat All never truncates |
 | Q3 | Natural end has guards on native only: skip in progress, re-entrancy, a limit of 3 advances in 2 seconds, stay put when failed | The session check covers the first two. Keep the rapid-advance limit and the failed-state rule for both |
 | Q4 | "Current track changed" resets reporting, buffered progress, and waveform on native only | Reset on every item change, both engines |
 | Q5 | `setRepeatMode` leaves an already-scheduled gapless successor in place, so the old choice plays once more (by reading) | Changing repeat re-evaluates the scheduled item |
-| Q6 | Reordering while shuffled is lost when shuffle is turned off | Decide: keep the reorder, or document the loss |
+| Q6 | Reordering while shuffled is lost when shuffle is turned off | Keep the reorder: a moved item keeps its new neighbour when shuffle is turned off |
 | Q7 | Next during SmartMix at the end of the queue with autoplay on neither plays nor stops until the 10-second watchdog (by reading) | Same as any other Next at the end |
 
 Apple Music stations are the one place the engine owns the order. The design
@@ -255,9 +273,10 @@ current track as a finite item.
 
 ## 7. Suspected defects found on the way
 
-Found by reading, not reproduced. None is fixed here. The plan's freeze
-allows blocking bug fixes during step 1; none of these looks blocking, and
-each disappears in the new path.
+Found by reading, not reproduced. None is patched in the old path
+(decision 5). The plan's freeze allows blocking bug fixes during step 1;
+none of these looks blocking, and each disappears in the new path: D2 in 1b,
+D3 and D5 in 1c, D1 and D4 in 1d.
 
 | # | Finding | Where |
 |---|---|---|
@@ -288,6 +307,12 @@ gap decisions showed:
 - **Add isolation in 1d.** The reducer's owner becomes a single
   `@MainActor` type. This removes the unsynchronised mutators without
   enabling strict concurrency, which stays out of scope.
+- **Simulator acceptance additions.** 1b: Previous followed by a gapless
+  advance keeps both history entries (D2), Repeat All wraps without
+  truncating on both engines (Q2), changing repeat changes the scheduled
+  successor (Q5), and a reorder made while shuffled survives turning shuffle
+  off (Q6). 1c: a second ordinary track start reports and scrobbles from zero
+  (D3). 1d: network-change handling still works after a Stop (D1).
 - **Extend the failure hook.** `ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_TRACK`
   takes one track. Proving G11 needs two consecutive tracks to fail, so the
   hook takes a list in the step that changes failure handling.
@@ -296,24 +321,25 @@ Line budget from the plan, 18,200 down to at most 12,000, still looks
 reachable: the service's 36 bookkeeping properties, 70 task launches, and
 duplicated transitions are where the lines are.
 
-## 9. Decisions for Felicity
+## 9. Decisions
 
-1. **Approve the state, event, and effect shapes** in sections 2 to 5, or mark
-   what should change.
-2. **Q1 to Q7.** Each makes one path behave like the other. The proposed
-   column is the recommendation. Q6 is a real choice: keeping a reorder made
-   while shuffled is the less surprising behaviour, and is recommended.
-3. **External Next on an Apple Music item.** MusicKit cannot distinguish it
-   from a natural end, so with Repeat One it replays instead of advancing.
-   Recommended: accept as a limitation and add it to `known-issues`.
-4. **Watch-initiated starts are donated as app UI today.** Recommended: give
-   them the `watch` origin and stop donating, to match the other non-UI
-   origins.
-5. **D1 to D5.** Recommended: do not patch the old path; let 1b to 1d remove
-   them, and put D1 and D3 on the simulator acceptance list for those steps.
-6. **The 22 undocumented behaviours, G1 to G22.** Approved 2026-10-16. The
+Decisions 1 to 5 were approved on 2026-10-14 and decision 6 on 2026-10-16.
+
+1. **State, event, and effect shapes** in sections 2 to 5: approved as
+   designed. The shuffle review kept the model and changed only how the
+   original order is held (section 2).
+2. **Q1 to Q7:** approved as proposed. Q6 keeps a reorder made while
+   shuffled.
+3. **External Next on an Apple Music item under Repeat One** replays instead
+   of advancing, because MusicKit cannot tell it from a natural end.
+   Accepted as a limitation and recorded in `known-issues`.
+4. **Watch-initiated starts** take the `watch` origin and are no longer
+   donated, matching the other non-UI origins.
+5. **D1 to D5:** not patched in the old path. 1b to 1d remove them; D1 and D3
+   are on the simulator acceptance for their steps (section 8).
+6. **The 22 undocumented behaviours, G1 to G22:** decided individually. The
    rulings are in inventory `E-edge-cases.md` section 5 and are applied in
-   sections 2 and 6 above.
+   sections 2 and 6.
 
 ## 10. Contracts and past bugs to carry over
 
