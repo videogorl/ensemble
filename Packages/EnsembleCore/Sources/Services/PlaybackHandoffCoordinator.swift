@@ -173,14 +173,10 @@ struct PlaybackHandoffCoordinator {
             || state.hasSystemManagedPause
     }
 
-    func remoteSkipCommandsEnabled(
-        playbackState: PlaybackState,
-        isSkipTransitionInProgress: Bool
-    ) -> Bool {
-        guard isSkipTransitionInProgress
-            || (playbackState != .loading && playbackState != .buffering) else {
-            return false
-        }
+    /// Skips are accepted while loading, so a command can replace a pending load
+    /// (G4); a buffering stall or route settle and any handoff suppress them.
+    func remoteSkipCommandsEnabled(playbackState: PlaybackState) -> Bool {
+        guard playbackState != .buffering else { return false }
         return !shouldSuppressAutomaticAdvance
     }
 

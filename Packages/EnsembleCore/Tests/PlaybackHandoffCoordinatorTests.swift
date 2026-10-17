@@ -15,18 +15,12 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
                 _ = coordinator.handle(signal, playbackState: index == 0 ? .playing : .paused)
             }
             XCTAssertTrue(coordinator.shouldSuppressAutomaticAdvance)
-            XCTAssertFalse(coordinator.remoteSkipCommandsEnabled(
-                playbackState: .paused,
-                isSkipTransitionInProgress: true
-            ))
+            XCTAssertFalse(coordinator.remoteSkipCommandsEnabled(playbackState: .paused))
 
             _ = coordinator.handle(.resumeRequested(.user), playbackState: .paused)
 
             XCTAssertFalse(coordinator.shouldSuppressAutomaticAdvance)
-            XCTAssertTrue(coordinator.remoteSkipCommandsEnabled(
-                playbackState: .playing,
-                isSkipTransitionInProgress: false
-            ))
+            XCTAssertTrue(coordinator.remoteSkipCommandsEnabled(playbackState: .playing))
         }
     }
 
@@ -330,10 +324,7 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            coordinator.remoteSkipCommandsEnabled(
-                playbackState: .paused,
-                isSkipTransitionInProgress: false
-            )
+            coordinator.remoteSkipCommandsEnabled(playbackState: .paused)
         )
     }
 }

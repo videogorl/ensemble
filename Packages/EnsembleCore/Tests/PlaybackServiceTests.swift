@@ -508,30 +508,21 @@ final class PlaybackServiceTests: XCTestCase {
         let coordinator = PlaybackHandoffCoordinator()
 
         XCTAssertFalse(
-            coordinator.remoteSkipCommandsEnabled(
-                playbackState: .buffering,
-                isSkipTransitionInProgress: false
-            )
+            coordinator.remoteSkipCommandsEnabled(playbackState: .buffering)
         )
     }
 
-    func testRemoteSkipCommandsEnabledDuringManualSkipTransition() {
+    func testRemoteSkipCommandsEnabledWhileLoading() {
         var coordinator = PlaybackHandoffCoordinator()
 
         XCTAssertTrue(
-            coordinator.remoteSkipCommandsEnabled(
-                playbackState: .loading,
-                isSkipTransitionInProgress: true
-            )
+            coordinator.remoteSkipCommandsEnabled(playbackState: .loading)
         )
 
         _ = coordinator.handle(.interruptionBegan(now: Date()), playbackState: .loading)
 
         XCTAssertFalse(
-            coordinator.remoteSkipCommandsEnabled(
-                playbackState: .loading,
-                isSkipTransitionInProgress: true
-            )
+            coordinator.remoteSkipCommandsEnabled(playbackState: .loading)
         )
     }
 
@@ -540,10 +531,7 @@ final class PlaybackServiceTests: XCTestCase {
         _ = coordinator.handle(.interruptionBegan(now: Date()), playbackState: .playing)
 
         XCTAssertFalse(
-            coordinator.remoteSkipCommandsEnabled(
-                playbackState: .paused,
-                isSkipTransitionInProgress: false
-            )
+            coordinator.remoteSkipCommandsEnabled(playbackState: .paused)
         )
     }
 
@@ -552,10 +540,7 @@ final class PlaybackServiceTests: XCTestCase {
         _ = coordinator.handle(.pauseRequested(.user), playbackState: .playing)
 
         XCTAssertTrue(
-            coordinator.remoteSkipCommandsEnabled(
-                playbackState: .paused,
-                isSkipTransitionInProgress: false
-            )
+            coordinator.remoteSkipCommandsEnabled(playbackState: .paused)
         )
     }
 

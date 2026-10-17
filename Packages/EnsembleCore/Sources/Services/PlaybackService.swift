@@ -991,7 +991,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var isHandlingQueueExhaustion = false
     /// Set while handleTLSPlaybackFailure is refreshing connection and retrying.
     /// Prevents handleQueueExhausted from racing with the TLS retry path.
-    private var isHandlingTLSFailure = false
     /// Tracks consecutive playback failures to stop rapid retry loops when server is unreachable
     /// The item reached by skipping a failed one; if it fails too, playback halts (G11).
     private var failureSkipItemID: String?
@@ -1132,23 +1131,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     #if os(macOS)
         private var systemSleepObservers: [NSObjectProtocol] = []
     #endif
-    /// The session engine events must carry to be acted on; nil when no item is loaded.
-    private var activeEngineSession: PlaybackSessionID?
     private var nativeEngineAdapter: NativePlaybackEngineAdapter?
     // Playback history for "previous" navigation (not persisted across app restarts)
     @Published public private(set) var playbackHistory: [QueueItem] = []
     private static let maxHistorySize = 100 // Cap for 2GB RAM devices
 
-    private var isSkipTransitionInProgress = false // Suppresses stale callbacks during next/previous
     private var lastRemoteSkipTime: CFTimeInterval = 0 // Debounce for remote command center skip events
     private var trackStartWallTime: CFTimeInterval = 0 // Wall-clock time when the current track started playing (for stale seek rejection)
-    private var playbackGenerationCounter: UInt64 = 0 // Incremented on each new playback request to cancel stale completions
+    /// The current session. See `beginSession()`.
+    private var sessionGeneration: UInt64 = 0
     private var playbackPreparationShouldStart = true
     private var appleMusicQueueMutationGeneration: UInt64 = 0
     /// Timestamps of recent handleQueueExhausted calls for rapid-advance rate limiting
     private var queueExhaustedTimestamps: [Date] = []
-    /// Safety timer to force-reset isSkipTransitionInProgress if it gets stuck
-    private var skipTransitionSafetyTask: Task<Void, Never>?
     private lazy var transportCoordinator = PlaybackTransportCoordinator(
         dependencies: .init(
             networkState: { [weak self] in
@@ -1218,7 +1213,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 ) ?? false
             },
             seek: { [weak self] time, generation in
-                guard let self, generation == self.playbackGenerationCounter else { return false }
+                guard let self, generation == self.sessionGeneration else { return false }
                 self.seek(to: time)
                 return true
             },
@@ -1434,8 +1429,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.playback("RECREATE_ENGINE: destroying audio engine and creating fresh instance")
         cleanup()
         setupPlayer()
-        isSkipTransitionInProgress = false
-        disarmSkipTransitionSafety()
     }
 
     /// Ensures a playable AudioPlaybackEngine exists before a new launch request
@@ -1466,25 +1459,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Engine Events
 
-    /// Starts the session for an item about to be loaded into an engine. The
-    /// session takes the request generation of that load, so the engine's stamp
-    /// and the transition background task share one number.
+    /// The session engine events must carry to be acted on.
+    private var activeEngineSession: PlaybackSessionID {
+        PlaybackSessionID(rawValue: sessionGeneration)
+    }
+
+    /// Starts a new session: every load request, a stop, a paused load, and a
+    /// change of the loaded item. Events and async work from older sessions are stale.
     @discardableResult
-    private func beginEngineSession(generation: UInt64) -> PlaybackSessionID {
-        let session = PlaybackSessionID(rawValue: generation)
-        activeEngineSession = session
-        return session
-    }
-
-    /// The engine keeps its load's session across pause and resume; resuming
-    /// only starts a new progress revision.
-    private func resumeSessionGeneration() -> UInt64 {
-        (activeEngineSession ?? beginEngineSession(generation: playbackGenerationCounter)).rawValue
-    }
-
-    /// Ends the current session: no event from it is acted on afterwards.
-    private func endEngineSession() {
-        activeEngineSession = nil
+    private func beginSession() -> UInt64 {
+        sessionGeneration &+= 1
+        return sessionGeneration
     }
 
     /// Which playback states each event is acted on in, for both engines.
@@ -1520,7 +1505,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             if case .progress = envelope.event { return }
             EnsembleLogger.debug(
                 "[EngineEvent] dropped \(envelope.engine) event from session \(envelope.session)"
-                    + " active=\(activeEngineSession?.description ?? "none")"
+                    + " active=\(activeEngineSession)"
             )
             return
         }
@@ -1580,8 +1565,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         updateNowPlayingInfo()
         audioAnalyzer.resumeUpdates()
         endTrackTransitionBackgroundTask(for: session.rawValue)
-        isSkipTransitionInProgress = false
-        disarmSkipTransitionSafety()
     }
 
     /// Position updates from either engine.
@@ -1658,8 +1641,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         switch kind {
         case .gapless:
             // A manual skip or an interruption owns the transition; it loads the right item.
-            guard !isSkipTransitionInProgress, !shouldSuppressAutomaticAdvanceDuringHandoff else {
-                EnsembleLogger.playback("GAPLESS_ADVANCE: ignored for trackId \(trackID) (skip or handoff active)")
+            guard !shouldSuppressAutomaticAdvanceDuringHandoff else {
+                EnsembleLogger.playback("GAPLESS_ADVANCE: ignored for trackId \(trackID) (handoff active)")
                 return
             }
             index = Self.queueIndexForAdvance(
@@ -1779,7 +1762,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         beginTrackTransitionBackgroundTask(for: generation)
         Task { @MainActor [self] in
             defer { self.endTrackTransitionBackgroundTask(for: generation) }
-            guard self.activeEngineSession == session else { return }
+            guard session == self.activeEngineSession else { return }
             await self.handleQueueExhausted()
         }
     }
@@ -1826,8 +1809,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// The one path for an item that could not play, whichever engine or stage failed.
     @MainActor
     private func handleItemFailure(_ message: String, generation: UInt64) async {
-        isSkipTransitionInProgress = false
-        disarmSkipTransitionSafety()
         audioEngine?.pause()
         endTrackTransitionBackgroundTask(for: generation)
 
@@ -1935,8 +1916,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if let track = currentTrack {
             reportingController.reportState(track: track, state: "stopped", time: currentTime)
         }
-        isSkipTransitionInProgress = false
-        disarmSkipTransitionSafety()
         selectQueueItemWhilePaused(at: currentQueueIndex, caller: "\(caller)-endOfQueue")
     }
 
@@ -1944,23 +1923,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func handleQueueExhausted() async {
         EnsembleLogger.playback("QUEUE_EXHAUSTED: idx=\(currentQueueIndex)/\(queue.count), state=\(playbackState)")
-
-        // If a TLS connection refresh is in progress, wait for it to finish
-        // so the retry completes before we try to advance the queue.
-        if isHandlingTLSFailure {
-            EnsembleLogger.debug("⏭️ Queue exhaustion deferred — waiting for TLS failure handler")
-            for _ in 0 ..< 100 {
-                await Task.yield()
-                if !isHandlingTLSFailure { break }
-            }
-        }
-
-        // During a skip transition, a nil currentItem is expected — the old item was
-        // removed, the new one hasn't loaded yet. Don't treat this as queue exhaustion.
-        if isSkipTransitionInProgress {
-            EnsembleLogger.playback("QUEUE_EXHAUSTED: ignored — skip transition in progress")
-            return
-        }
 
         if shouldSuppressAutomaticAdvanceDuringHandoff {
             EnsembleLogger.playback("QUEUE_EXHAUSTED: ignored — handoff active")
@@ -2026,8 +1988,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if case .item = advance {
             // The incoming item shows as loading at once, on either engine (G16).
             playbackState = .loading
-            isSkipTransitionInProgress = true
-            armSkipTransitionSafety()
         }
         await performQueueAdvance(advance, caller: "handleQueueExhausted")
     }
@@ -2182,7 +2142,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 return
             }
 
-            let generation = playbackGenerationCounter
+            let generation = sessionGeneration
             if let leaseGeneration = endTransitionLeaseGeneration {
                 guard leaseGeneration != generation else { return }
                 releaseEndTransitionLease()
@@ -2507,11 +2467,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func applyPauseForHandoff(reason: PlaybackHandoffCoordinator.PauseReason) {
         let wasActive = playbackState == .playing || playbackState == .buffering
         guard wasActive || reason == .user || reason == .system else { return }
-        playbackGenerationCounter &+= 1
+        // Pausing a load cancels it; pausing playback keeps the session.
+        if playbackState == .loading || playbackState == .buffering {
+            beginSession()
+        }
         skipTransitionTask?.cancel()
         skipTransitionTask = nil
-        isSkipTransitionInProgress = false
-        disarmSkipTransitionSafety()
 
         #if os(iOS)
             if #available(iOS 18, *), currentTrack?.isAppleMusic == true {
@@ -2553,10 +2514,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private func shouldAcceptRemoteSkipCommand() -> Bool {
         let now = CACurrentMediaTime()
-        guard handoffCoordinator.remoteSkipCommandsEnabled(
-            playbackState: playbackState,
-            isSkipTransitionInProgress: isSkipTransitionInProgress
-        ) else {
+        guard handoffCoordinator.remoteSkipCommandsEnabled(playbackState: playbackState) else {
             EnsembleLogger.debug(
                 "[Handoff] remote skip ignored — playbackState=\(playbackState), pauseReason=\(currentPauseReason?.rawValue ?? "none"), interruption=\(handoffCoordinator.state.interruption.logValue), routeTransition=\(handoffCoordinator.state.routeTransition.logValue)"
             )
@@ -3426,18 +3384,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         )
                         return
                     }
-                    let generation = playbackGenerationCounter
+                    let generation = sessionGeneration
                     do {
                         guard ensureAudioSessionConfigured(mixWithOthers: true) else {
                             throw AppleMusicSourceError.musicKitPlaybackRequired
                         }
                         try await appleMusicPlaybackController?.resume()
-                        guard generation == playbackGenerationCounter,
+                        guard generation == sessionGeneration,
                               currentTrack?.isAppleMusic == true else { return }
                         playbackState = .playing
                         updateNowPlayingInfo()
                     } catch {
-                        guard generation == playbackGenerationCounter,
+                        guard generation == sessionGeneration,
                               currentTrack?.isAppleMusic == true else { return }
                         await playCurrentQueueItem(
                             seekTo: currentTime,
@@ -3458,15 +3416,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             if let task = preBufferTask {
                 // Pre-buffer is downloading — await it instead of starting a duplicate
                 playbackState = .buffering
-                let generation = playbackGenerationCounter
+                let generation = sessionGeneration
                 Task { @MainActor [weak self] in
                     await task.value
-                    guard let self, generation == self.playbackGenerationCounter,
+                    guard let self, generation == self.sessionGeneration,
                           self.playbackState == .buffering else { return }
                     self.preBufferTask = nil
                     if self.audioEngine?.currentTrackId == self.currentTrack?.playbackIdentity {
                         do {
-                            self.audioEngine?.adoptPlaybackGeneration(self.resumeSessionGeneration())
+                            self.audioEngine?.adoptPlaybackGeneration(self.sessionGeneration)
                             try self.audioEngine?.resume()
                             self.refreshPresentationLatencyEstimate()
                             self.playbackState = .playing
@@ -3511,7 +3469,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 endTrackTransitionBackgroundTask()
                 return
             }
-            audioEngine.adoptPlaybackGeneration(resumeSessionGeneration())
+            audioEngine.adoptPlaybackGeneration(sessionGeneration)
             try audioEngine.resume()
             updatePlaybackTimes(rawTime: audioEngine.currentTimeSubject.value.time)
         } catch {
@@ -3566,8 +3524,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     public func stop() {
-        playbackGenerationCounter &+= 1
-        endEngineSession()
+        beginSession()
 
         // Report stopped state to Plex before cleaning up
         if let track = currentTrack {
@@ -3599,9 +3556,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 0
         queueExhaustedTimestamps.removeAll()
-        isSkipTransitionInProgress = false
         _ = resolvedFileCache.clear()
-        disarmSkipTransitionSafety()
         nowPlayingBridge.clearNowPlayingInfo()
     }
 
@@ -3659,16 +3614,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                appleMusicPlaybackController?.isStationActive == true {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    let generation = self.playbackGenerationCounter
+                    let generation = self.sessionGeneration
                     do {
                         try await self.appleMusicPlaybackController?.skipToNextEntry()
-                        guard generation == self.playbackGenerationCounter,
+                        guard generation == self.sessionGeneration,
                               self.currentTrack?.isAppleMusic == true,
                               self.appleMusicPlaybackController?.isStationActive == true,
                               self.appleMusicPlaybackController?.activeQueueGeneration != nil
                         else { return }
                     } catch {
-                        guard generation == self.playbackGenerationCounter,
+                        guard generation == self.sessionGeneration,
                               self.currentTrack?.isAppleMusic == true else { return }
                         self.playbackState = .failed(error.localizedDescription)
                     }
@@ -3689,8 +3644,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         skipTransitionTask = nil
 
         // Stop old audio immediately and clear scheduled gapless files
-        isSkipTransitionInProgress = true
-        armSkipTransitionSafety()
+        beginSession()
         audioEngine?.clearScheduledFiles()
         audioEngine?.pause()
         playbackState = .loading
@@ -3736,8 +3690,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         skipTransitionTask?.cancel()
         skipTransitionTask = nil
-        isSkipTransitionInProgress = true
-        armSkipTransitionSafety()
+        beginSession()
         engine.cancelSmartMixTransition()
         playbackState = .loading
 
@@ -3797,8 +3750,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         skipTransitionTask = nil
 
         // Stop old audio immediately and clear scheduled gapless files
-        isSkipTransitionInProgress = true
-        armSkipTransitionSafety()
+        beginSession()
         audioEngine?.clearScheduledFiles()
         audioEngine?.pause()
         playbackState = .loading
@@ -3840,8 +3792,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         skipTransitionTask?.cancel()
         skipTransitionTask = nil
 
-        isSkipTransitionInProgress = true
-        armSkipTransitionSafety()
+        beginSession()
         audioEngine?.clearScheduledFiles()
         audioEngine?.pause()
         playbackState = .loading
@@ -3934,8 +3885,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func selectQueueItemWhilePaused(at index: Int, caller: String) {
         guard queue.indices.contains(index) else { return }
 
-        playbackGenerationCounter &+= 1
-        endEngineSession()
+        beginSession()
         skipTransitionTask?.cancel()
         skipTransitionTask = nil
         #if os(iOS)
@@ -3992,9 +3942,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 EnsembleLogger.playback("ENGINE: seek requires stream restart at \(String(format: "%.2f", clampedTime))s")
                 let shouldStartPlayback = playbackState == .loading
                     ? playbackPreparationShouldStart : playbackState != .paused
-                let generation = playbackGenerationCounter
+                let generation = sessionGeneration
                 Task { @MainActor [weak self] in
-                    guard let self, generation == self.playbackGenerationCounter else { return }
+                    guard let self, generation == self.sessionGeneration else { return }
                     await self.playCurrentQueueItem(
                         forcingFreshItem: false,
                         seekTo: clampedTime,
@@ -4263,8 +4213,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     return
                 }
 
-                self.playbackGenerationCounter &+= 1
-                self.endEngineSession()
+                self.beginSession()
                 self.appleMusicPlaybackController?.stop()
                 switch self.playbackState {
                 case .loading, .buffering, .playing:
@@ -4581,9 +4530,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard #available(iOS 18, *),
                   seed.isAppleMusic,
                   syncCoordinator.accountManager.isAppleMusicEnabled else { return false }
-            playbackGenerationCounter &+= 1
-            let generation = playbackGenerationCounter
-            let session = beginEngineSession(generation: generation)
+            beginSession()
+            let generation = sessionGeneration
+            let session = PlaybackSessionID(rawValue: generation)
             appleMusicEngineAdapter?.bind(session, startTime: 0)
             do {
                 try await appleMusicPlaybackController?.startStation(
@@ -4591,12 +4540,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     smartMixEnabled: isSmartMixEnabled,
                     repeatOneEnabled: repeatMode == .one
                 )
-                guard generation == playbackGenerationCounter,
+                guard generation == sessionGeneration,
                       appleMusicPlaybackController?.isStationActive == true,
                       appleMusicPlaybackController?.activeQueueGeneration != nil else { return false }
                 recommendationsExhausted = false
-                isSkipTransitionInProgress = false
-                disarmSkipTransitionSafety()
                 return true
             } catch {
                 EnsembleLogger.error("Apple Music autoplay station failed: \(error.localizedDescription)")
@@ -4784,9 +4731,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         // Bump generation so any in-flight playback request knows it's been superseded
-        playbackGenerationCounter &+= 1
-        let requestGeneration = playbackGenerationCounter
-        endEngineSession()
+        beginSession()
+        let requestGeneration = sessionGeneration
         playbackPreparationShouldStart = shouldStartPlayback
         // A start from the beginning is a new listen for reporting and scrobbling (D3).
         if (startTime ?? 0) == 0 {
@@ -4860,7 +4806,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let track = await resolveTrackForPlaybackIfNeeded(queuedTrack)
         guard Self.shouldContinuePlaybackRequest(
             generation: requestGeneration,
-            currentGeneration: playbackGenerationCounter,
+            currentGeneration: sessionGeneration,
             queuedTrack: queuedTrack,
             queue: queue,
             currentQueueIndex: currentQueueIndex
@@ -4891,8 +4837,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             self.updatePlaybackTimes(rawTime: request.recoverySeekTime ?? 0)
             self.bufferedProgress = 0
             self.waveformHeights = []
-            isSkipTransitionInProgress = true
-            armSkipTransitionSafety()
             audioEngine?.pause()
             audioAnalyzer.pauseUpdates()
             playbackState = .loading
@@ -4951,7 +4895,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // Check if this playback request has been superseded
                 guard !PlaybackSessionStateMachine.isSuperseded(
                     requestGeneration: request.generation,
-                    currentGeneration: playbackGenerationCounter
+                    currentGeneration: sessionGeneration
                 ) else {
                     EnsembleLogger.debug("[playCurrentQueueItem] Discarding stale result for \(request.track.title)")
                     endTrackTransitionBackgroundTask(for: requestGeneration)
@@ -4974,7 +4918,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
                 guard !PlaybackSessionStateMachine.isSuperseded(
                     requestGeneration: request.generation,
-                    currentGeneration: playbackGenerationCounter
+                    currentGeneration: sessionGeneration
                 ) else {
                     endTrackTransitionBackgroundTask(for: requestGeneration)
                     return
@@ -4998,7 +4942,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     lastError = error
                     break
                 }
-                guard requestGeneration == playbackGenerationCounter else {
+                guard requestGeneration == sessionGeneration else {
                     endTrackTransitionBackgroundTask(for: requestGeneration)
                     return
                 }
@@ -5007,7 +4951,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         guard !PlaybackSessionStateMachine.isSuperseded(
             requestGeneration: request.generation,
-            currentGeneration: playbackGenerationCounter
+            currentGeneration: sessionGeneration
         ) else {
             endTrackTransitionBackgroundTask(for: requestGeneration)
             return
@@ -5022,7 +4966,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             await MainActor.run {
                 self.recreatePlayer()
             }
-            guard requestGeneration == playbackGenerationCounter else { return }
+            guard requestGeneration == sessionGeneration else { return }
             await playCurrentQueueItem(
                 forcingFreshItem: true,
                 seekTo: request.recoverySeekTime,
@@ -5044,7 +4988,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Refresh server health first, so a skip passes over that server's tracks.
             if let sourceCompositeKey {
                 await syncCoordinator.triggerServerHealthCheck(sourceKey: sourceCompositeKey)
-                guard requestGeneration == playbackGenerationCounter else {
+                guard requestGeneration == sessionGeneration else {
                     endTrackTransitionBackgroundTask(for: requestGeneration)
                     return
                 }
@@ -5112,12 +5056,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         shouldStartPlayback: Bool,
         seekTo startTime: TimeInterval?
     ) async {
-        guard generation == playbackGenerationCounter else { return }
-        isHandlingTLSFailure = true
-        defer {
-            isHandlingTLSFailure = false
-            endTrackTransitionBackgroundTask(for: generation)
-        }
+        guard generation == sessionGeneration else { return }
+        defer { endTrackTransitionBackgroundTask(for: generation) }
+        // The failed attempt's session ends here, so a late event from it is stale.
+        let generation = beginSession()
 
         // A local file, or an item whose one refresh already failed, has failed.
         guard let track = currentTrack,
@@ -5134,7 +5076,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         } catch {
             return
         }
-        guard !Task.isCancelled, generation == playbackGenerationCounter else { return }
+        guard !Task.isCancelled, generation == sessionGeneration else { return }
 
         // Force a connection refresh to find a working endpoint
         transportCoordinator.evict(trackId: track.playbackIdentity, includeDecision: true, cancelTask: true)
@@ -5142,16 +5084,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try await syncCoordinator.refreshConnection()
         } catch {
             guard !Task.isCancelled, !PlaybackSessionStateMachine.isCancellation(error),
-                  generation == playbackGenerationCounter else { return }
+                  generation == sessionGeneration else { return }
             EnsembleLogger.debug("⚠️ Failed to refresh connection after TLS error: \(error.localizedDescription)")
             await handleItemFailure("TLS connection error - no working server found", generation: generation)
             return
         }
-        guard !Task.isCancelled, generation == playbackGenerationCounter else { return }
+        guard !Task.isCancelled, generation == sessionGeneration else { return }
 
         // Rebuild upcoming queue items with fresh URLs
         await rebuildUpcomingQueueForNetworkTransition(shouldPrefetch: false)
-        guard !Task.isCancelled, generation == playbackGenerationCounter else { return }
+        guard !Task.isCancelled, generation == sessionGeneration else { return }
 
         // Retry the current track with fresh connection
         EnsembleLogger.debug("🔄 Retrying current track with refreshed connection")
@@ -5474,11 +5416,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         let trackIdentity = track.playbackIdentity
 
-        let prefetchGeneration = await MainActor.run { playbackGenerationCounter }
+        let prefetchGeneration = await MainActor.run { sessionGeneration }
         let shouldContinue: @Sendable () async -> Bool = { [weak self] in
             await MainActor.run {
                 guard let self else { return false }
-                return self.playbackGenerationCounter == prefetchGeneration
+                return self.sessionGeneration == prefetchGeneration
                     && self.isPrefetchedTrackStillUpcoming(trackIdentity, depth: depth)
             }
         }
@@ -5707,7 +5649,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // playback attempt gets a fresh resolution instead of hitting the
             // stale failed loader (fixes cross-server prefetch cascade failures)
             await MainActor.run {
-                guard playbackGenerationCounter == prefetchGeneration,
+                guard sessionGeneration == prefetchGeneration,
                       isPrefetchedTrackStillUpcoming(trackIdentity, depth: depth) else { return }
                 removeCachedPlayerItem(for: trackIdentity)
                 if let currentTrack {
@@ -5734,7 +5676,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             endTrackTransitionBackgroundTask(for: generation)
             return false
         }
-        guard generation == playbackGenerationCounter else {
+        guard generation == sessionGeneration else {
             endTrackTransitionBackgroundTask(for: generation)
             return false
         }
@@ -5750,7 +5692,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let activated = await audioSessionCoordinator.activateForPlayback(
                 shouldStartPlayback: shouldStartPlayback
             )
-            guard generation == playbackGenerationCounter else {
+            guard generation == sessionGeneration else {
                 endTrackTransitionBackgroundTask(for: generation)
                 return false
             }
@@ -5764,7 +5706,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 if #available(iOS 18, *),
                    !ensureAudioSessionConfigured(mixWithOthers: false) {
                     await Task.yield()
-                    guard generation == playbackGenerationCounter else {
+                    guard generation == sessionGeneration else {
                         endTrackTransitionBackgroundTask(for: generation)
                         return false
                     }
@@ -5805,26 +5747,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     try await PlaybackAutomationFailure.check(stage: "startup", trackID: trackIdentity)
                 #endif
                 try Task.checkCancellation()
-                guard generation == playbackGenerationCounter else {
+                guard generation == sessionGeneration else {
                     endTrackTransitionBackgroundTask(for: generation)
                     return false
                 }
-                beginEngineSession(generation: generation)
-                nativeEngineAdapter?.willLoad(trackID: trackIdentity)
+                                nativeEngineAdapter?.willLoad(trackID: trackIdentity)
                 try await engine.load(
                     source: source,
                     trackId: trackIdentity,
                     playbackGeneration: generation,
                     preparedPipeline: transportCoordinator.takePreparedPipeline(for: source, trackID: trackIdentity)
                 )
-                guard generation == playbackGenerationCounter else {
+                guard generation == sessionGeneration else {
                     if engine.playbackRequestGeneration == generation { engine.stop() }
                     endTrackTransitionBackgroundTask(for: generation)
                     return false
                 }
                 PlaybackJourneyLogger.mark("engineLoadCompleted", trackId: trackIdentity, detail: source.journeyDescription)
             } catch {
-                guard generation == playbackGenerationCounter else {
+                guard generation == sessionGeneration else {
                     if engine.playbackRequestGeneration == generation { engine.stop() }
                     endTrackTransitionBackgroundTask(for: generation)
                     return false
@@ -5844,8 +5785,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             case .user, .system, nil:
                 playbackState = .buffering
             }
-            isSkipTransitionInProgress = false
-            disarmSkipTransitionSafety()
             return true
         }
 
@@ -5855,19 +5794,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 try await PlaybackAutomationFailure.check(stage: "startup", trackID: trackIdentity)
             #endif
             try Task.checkCancellation()
-            guard generation == playbackGenerationCounter else {
+            guard generation == sessionGeneration else {
                 endTrackTransitionBackgroundTask(for: generation)
                 return false
             }
-            beginEngineSession(generation: generation)
-            nativeEngineAdapter?.willLoad(trackID: trackIdentity)
+                        nativeEngineAdapter?.willLoad(trackID: trackIdentity)
             try await engine.load(
                 source: source,
                 trackId: trackIdentity,
                 playbackGeneration: generation,
                 preparedPipeline: transportCoordinator.takePreparedPipeline(for: source, trackID: trackIdentity)
             )
-            guard generation == playbackGenerationCounter else {
+            guard generation == sessionGeneration else {
                 if engine.playbackRequestGeneration == generation { engine.stop() }
                 endTrackTransitionBackgroundTask(for: generation)
                 return false
@@ -5878,8 +5816,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             if !shouldStartPlayback {
                 updatePlaybackTimes(rawTime: engine.currentTime())
                 playbackState = .paused
-                isSkipTransitionInProgress = false
-                disarmSkipTransitionSafety()
                 updateNowPlayingInfo()
                 savePlaybackState()
                 endTrackTransitionBackgroundTask(for: generation)
@@ -5897,14 +5833,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // Release background task protection
                 endTrackTransitionBackgroundTask(for: generation)
 
-                isSkipTransitionInProgress = false
-                disarmSkipTransitionSafety()
             }
 
             EnsembleLogger.playback("ENGINE: playing '\(track.title)'")
             return true
         } catch {
-            guard generation == playbackGenerationCounter else {
+            guard generation == sessionGeneration else {
                 if engine.playbackRequestGeneration == generation { engine.stop() }
                 endTrackTransitionBackgroundTask(for: generation)
                 return false
@@ -5918,44 +5852,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             engine.stop()
             throw error
         }
-    }
-
-    // AVQueuePlayer observers removed — AudioPlaybackEngine handles time tracking,
-    // completion, and error callbacks directly via onPlaybackComplete/onTrackAdvance/onError.
-
-    // MARK: - Stuck-Playing Watchdog
-
-    // Starts a 3-second watchdog that verifies AVPlayer actually transitions to `.playing`.
-    // If `playbackState == .playing` but `player.timeControlStatus != .playing` after 3s,
-    // we treat it as a stall and trigger recovery.
-
-    // MARK: - Stuck-Loading Watchdog
-
-    // Arms a 15-second watchdog that detects when `playbackState` is stuck at `.loading`
-    // with no skip transition in progress. This can happen when AVPlayer's internal XPC
-    // connection to mediaserverd is corrupted — no amount of item replacement will fix it.
-    // The watchdog recreates the player and retries the current track.
-
-    // MARK: - Skip Transition Safety
-
-    /// Arms a 10-second safety timer that force-resets `isSkipTransitionInProgress` if it
-    /// gets stuck `true`. This prevents skip commands from being permanently dropped.
-    private func armSkipTransitionSafety() {
-        skipTransitionSafetyTask?.cancel()
-        skipTransitionSafetyTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            guard let self, !Task.isCancelled else { return }
-            if self.isSkipTransitionInProgress {
-                EnsembleLogger.playback("SKIP_SAFETY: isSkipTransitionInProgress stuck for >10s — force resetting")
-                self.isSkipTransitionInProgress = false
-            }
-        }
-    }
-
-    /// Cancels the skip transition safety timer (called when `isSkipTransitionInProgress` is cleared normally).
-    private func disarmSkipTransitionSafety() {
-        skipTransitionSafetyTask?.cancel()
-        skipTransitionSafetyTask = nil
     }
 
     /// The Mac treats sleep as an interruption that does not resume on its own (G22).
@@ -6074,7 +5970,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         pendingPreBufferTime = nil
-        let generation = playbackGenerationCounter
+        let generation = sessionGeneration
 
         guard prepareAudioEngineForPlaybackIfNeeded() else {
             return
@@ -6086,16 +5982,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let fileURL = try await resolveAudioFile(for: track)
 
             guard playbackState == .paused,
-                  generation == playbackGenerationCounter,
+                  generation == sessionGeneration,
                   currentTrack?.playbackIdentity == track.playbackIdentity else { return }
 
             // Load into engine without playing
-            let session = beginEngineSession(generation: generation)
             nativeEngineAdapter?.willLoad(trackID: track.playbackIdentity)
             try audioEngine?.load(
                 fileURL: fileURL,
                 trackId: track.playbackIdentity,
-                playbackGeneration: session.rawValue
+                playbackGeneration: generation
             )
             let restoredTime = Self.restoredPausedSeekTime(
                 savedTime: savedTime,
@@ -6192,13 +6087,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             startTime: TimeInterval?,
             generation: UInt64
         ) async {
-            let preservesNowPlayingContinuity = isSkipTransitionInProgress
-            defer {
-                if preservesNowPlayingContinuity {
-                    isSkipTransitionInProgress = false
-                    disarmSkipTransitionSafety()
-                }
-            }
             pendingPreBufferTime = nil
             let segment = Self.appleMusicSegment(from: queue[currentQueueIndex...].map(\.track))
             guard !segment.isEmpty else { return }
@@ -6218,7 +6106,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     throw AppleMusicSourceError.musicKitPlaybackRequired
                 }
                 controller.stop()
-                let session = beginEngineSession(generation: generation)
+                let session = PlaybackSessionID(rawValue: generation)
                 appleMusicEngineAdapter?.bind(session, startTime: startTime)
 
                 EnsembleLogger.debug(
@@ -6231,7 +6119,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     startTime: startTime,
                     repeatOneEnabled: repeatMode == .one
                 )
-                guard generation == playbackGenerationCounter,
+                guard generation == sessionGeneration,
                       queue.indices.contains(currentQueueIndex),
                       queue[currentQueueIndex].track.playbackIdentity == segment[0].playbackIdentity
                 else { return }
@@ -6250,7 +6138,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 playbackState = .playing
                 updateNowPlayingInfo()
             } catch is CancellationError {
-                guard generation == playbackGenerationCounter else { return }
+                guard generation == sessionGeneration else { return }
                 appleMusicPlaybackController?.stop()
                 audioEngine?.stop()
                 playbackState = .failed("Apple Music playback was cancelled. Try again.")
@@ -6258,7 +6146,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 endTrackTransitionBackgroundTask(for: generation)
                 return
             } catch {
-                guard generation == playbackGenerationCounter else { return }
+                guard generation == sessionGeneration else { return }
                 appleMusicPlaybackController?.stop()
                 audioEngine?.stop()
                 await handleItemFailure(error.localizedDescription, generation: generation)
@@ -6486,8 +6374,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 isCellularStreamingDisabled: isCellularStreamingDisabled
             )
         playbackState = .failed(message)
-        isSkipTransitionInProgress = false
-        disarmSkipTransitionSafety()
 
         EnsembleLogger.playback(
             "QUEUE_NEXT_BLOCKED: offline=\(isDeviceOffline), idx=\(currentQueueIndex)/\(queue.count), message='\(message)'"
@@ -6614,7 +6500,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     private func clearPlaybackAfterSourcePrune() {
-        playbackGenerationCounter &+= 1
+        beginSession()
         endTrackTransitionBackgroundTask()
         #if os(iOS)
             if #available(iOS 18, *) {
@@ -6667,7 +6553,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 return
             } else if playbackState == .buffering {
                 EnsembleLogger.debug("🔄 Network back - attempting to resume buffering")
-                audioEngine?.adoptPlaybackGeneration(resumeSessionGeneration())
+                audioEngine?.adoptPlaybackGeneration(sessionGeneration)
                 try? audioEngine?.resume()
             }
         } else if decision.shouldHandleDisconnect {
@@ -6741,10 +6627,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         stallRecoveryTask?.cancel()
         stallRecoveryTask = nil
 
-        // Cancel skip transition safety
-        skipTransitionSafetyTask?.cancel()
-        skipTransitionSafetyTask = nil
-
         fastSeekTask?.cancel()
         fastSeekTask = nil
         gaplessScheduleRequestTask?.cancel()
@@ -6776,10 +6658,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             isLiked: feedbackFlags.isLiked
         )
         let hasCurrentTrack = currentTrack != nil
-        let remoteSkipCommandsEnabled = handoffCoordinator.remoteSkipCommandsEnabled(
-            playbackState: playbackState,
-            isSkipTransitionInProgress: isSkipTransitionInProgress
-        )
+        let remoteSkipCommandsEnabled = handoffCoordinator.remoteSkipCommandsEnabled(playbackState: playbackState)
         let canSkipForward = remoteSkipCommandsEnabled && (queue.indices.contains(currentQueueIndex + 1) || repeatMode == .all)
         let canSkipBackward = remoteSkipCommandsEnabled && (currentQueueIndex > 0 || !playbackHistory.isEmpty || currentTime > 3)
         let canPlay = hasCurrentTrack && (playbackState == .paused || playbackState == .buffering)
