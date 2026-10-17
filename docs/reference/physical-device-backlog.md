@@ -29,6 +29,22 @@ Both the pinned native button and overflow item opened the route picker.
   is unavailable; normal runtime used an intact native picker hierarchy.
 
 
+### Step 1c engine contract, at `5dfdef45` or later
+
+See [the step note](../investigations/2026-10-16-step-1c-engine-contract.md).
+Everything on Apple Music runs through the new adapter and is unproven:
+
+- Plex to Apple Music, Apple Music to Apple Music, and Apple Music to Plex,
+  with Next and with natural completion, locked and unlocked.
+- System Previous on an Apple Music item: the first restarts, a second within
+  three seconds goes back (inferred by the adapter).
+- Pause and resume from Control Center on an Apple Music item: the app follows.
+- Apple Music autoplay station: items advance, the queue mirrors upcoming
+  items, and a station Previous does not add a duplicate (D5).
+- A track that follows a skip scrobbles in Plex once past 90 percent (D3),
+  with scrobbling enabled.
+- Lock Screen progress for native and Apple Music items.
+
 ### Step 1b queue policy, at `3e063453` or later
 
 See [the step note](../investigations/2026-10-16-step-1b-queue-policy.md).
@@ -88,6 +104,8 @@ pass before step 0 is called verified.
   is currently allowed on this Mac, so this needs a reset of that permission.
 - Control Center Now Playing tile: item shown and controls work. Media keys
   were checked instead.
+- Step 1c at `5dfdef45`: play, pause, seek, Next, a gapless advance, and a
+  natural end at the last item in the built Mac app.
 
 ## iPad Pro and Apple Watch
 

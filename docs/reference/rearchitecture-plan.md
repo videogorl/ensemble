@@ -6,7 +6,9 @@ backlog. Step 1a is written up in
 [`playback-state-machine-design.md`](playback-state-machine-design.md) and was
 approved on 2026-10-14 and 2026-10-16. Step 1b is implemented and
 simulator-checked at `3e063453`
-([note](../investigations/2026-10-16-step-1b-queue-policy.md)); 1c is next.
+([note](../investigations/2026-10-16-step-1b-queue-policy.md)). Step 1c is
+implemented and simulator-checked at `5dfdef45`
+([note](../investigations/2026-10-16-step-1c-engine-contract.md)); 1d is next.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
