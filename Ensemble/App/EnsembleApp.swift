@@ -693,6 +693,7 @@ private extension View {
 
 #if os(macOS)
 private enum MacPlaybackShortcut {
+    @MainActor
     static func togglePlaybackIfAllowed() {
         guard !isTextInputActive else { return }
 

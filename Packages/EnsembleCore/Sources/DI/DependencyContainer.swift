@@ -321,7 +321,11 @@ public final class DependencyContainer: @unchecked Sendable {
         siriAddToPlaylistCoordinator = siri.siriAddToPlaylistCoordinator
         siriMediaUserContextManager = siri.siriMediaUserContextManager
         systemMediaIntegrationService = siri.systemMediaIntegrationService
-        playbackService.setSystemMediaIntegrationService(systemMediaIntegrationService)
+        let builtPlaybackService = playbackService
+        let builtSystemMediaIntegrationService = siri.systemMediaIntegrationService
+        MainActor.assumeIsolated {
+            builtPlaybackService.setSystemMediaIntegrationService(builtSystemMediaIntegrationService)
+        }
         backgroundRefreshCoordinator = BackgroundRefreshCoordinator(
             syncCoordinator: sync.syncCoordinator,
             homeHubLoader: builtHomeHubLoader,
@@ -480,15 +484,17 @@ public final class DependencyContainer: @unchecked Sendable {
             FrequencyAnalysisService()
         }
         let trackRatingLocalStore = TrackRatingLocalStore(coreDataStack: core.coreDataStack)
-        let playbackService = PlaybackService(
-            syncCoordinator: sync.syncCoordinator,
-            networkMonitor: network.networkMonitor,
-            artworkLoader: artworkLoader,
-            audioAnalyzer: audioAnalyzer,
-            downloadManager: core.downloadManager,
-            trackRatingLocalStore: trackRatingLocalStore,
-            foregroundWorkScheduler: foregroundWorkScheduler
-        )
+        let playbackService = MainActor.assumeIsolated {
+            PlaybackService(
+                syncCoordinator: sync.syncCoordinator,
+                networkMonitor: network.networkMonitor,
+                artworkLoader: artworkLoader,
+                audioAnalyzer: audioAnalyzer,
+                downloadManager: core.downloadManager,
+                trackRatingLocalStore: trackRatingLocalStore,
+                foregroundWorkScheduler: foregroundWorkScheduler
+            )
+        }
         let cacheManager = MainActor.assumeIsolated {
             CacheManager(
                 libraryRepository: core.libraryRepository,

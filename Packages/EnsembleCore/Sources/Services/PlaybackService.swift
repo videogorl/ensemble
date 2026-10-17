@@ -266,6 +266,7 @@ struct PlaybackBackgroundTaskOwnership {
 
 // MARK: - Playback Service Implementation
 
+@MainActor
 public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     enum PresentationRouteKind: Equatable {
         case builtInOrWired
@@ -284,7 +285,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     static let previousRestartThreshold: TimeInterval = 3
     private static let audioCriticalInteractionHoldNs: UInt64 = 3_000_000_000
 
-    static func shouldInferAppleMusicPrevious(
+    nonisolated static func shouldInferAppleMusicPrevious(
         previousTime: TimeInterval,
         currentTime: TimeInterval,
         restartWasObserved: Bool
@@ -295,7 +296,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             && previousTime - currentTime >= 0.25
     }
 
-    static func inferPresentationRouteKind(
+    nonisolated static func inferPresentationRouteKind(
         hasAirPlay: Bool,
         hasBluetooth: Bool,
         isScreenMirroringActive: Bool = false
@@ -316,7 +317,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Estimates how far audible output trails transport time for presentation-only UI.
     /// Uses reported latency when available and applies route-specific floors only when
     /// the platform reports implausibly small values for delayed external routes.
-    static func estimatedPresentationLatency(
+    nonisolated static func estimatedPresentationLatency(
         routeKind: PresentationRouteKind,
         reportedOutputLatency: TimeInterval,
         ioBufferDuration: TimeInterval
@@ -339,7 +340,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    static func resolvedPresentationTime(
+    nonisolated static func resolvedPresentationTime(
         rawTime: TimeInterval,
         playbackState: PlaybackState,
         effectiveLatency: TimeInterval
@@ -349,7 +350,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return max(0, clampedRawTime - max(0, effectiveLatency))
     }
 
-    static func feedbackRating(from currentRating: Int, isLike: Bool) -> Int {
+    nonisolated static func feedbackRating(from currentRating: Int, isLike: Bool) -> Int {
         if isLike {
             // Toggle between loved (10) and none (0).
             return (currentRating >= 8) ? 0 : 10
@@ -358,11 +359,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return (currentRating > 0 && currentRating <= 4) ? 0 : 2
     }
 
-    static func feedbackFlags(for rating: Int) -> (isLiked: Bool, isDisliked: Bool) {
+    nonisolated static func feedbackFlags(for rating: Int) -> (isLiked: Bool, isDisliked: Bool) {
         (rating >= 8, rating > 0 && rating <= 4)
     }
 
-    static func systemFeedbackAvailability(
+    nonisolated static func systemFeedbackAvailability(
         for track: Track?,
         isLiked: Bool
     ) -> (canLike: Bool, canDislike: Bool) {
@@ -373,7 +374,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
-    static func evaluateNetworkTransition(from previous: NetworkState?, to current: NetworkState) -> NetworkTransitionDecision {
+    nonisolated static func evaluateNetworkTransition(from previous: NetworkState?, to current: NetworkState) -> NetworkTransitionDecision {
         let previousIsConnected = previous?.isConnected ?? false
         let currentIsConnected = current.isConnected
         let didReconnect = !previousIsConnected && currentIsConnected
@@ -407,7 +408,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
-    static func effectiveDuration(
+    nonisolated static func effectiveDuration(
         metadataDuration: TimeInterval,
         itemDuration: TimeInterval?
     ) -> TimeInterval {
@@ -441,14 +442,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let removedQueueItemCount: Int
     }
 
-    static func isTrackSourceAvailable(
+    nonisolated static func isTrackSourceAvailable(
         _ track: Track,
         configuration: SourceConfigurationSnapshot
     ) -> Bool {
         configuration.shouldPreserveSourceKey(track.sourceCompositeKey)
     }
 
-    static func isQueueTrackPlayable(
+    nonisolated static func isQueueTrackPlayable(
         _ track: Track,
         serverPossiblyAvailable: Bool,
         plexStreamingAllowed: Bool = true
@@ -456,12 +457,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         track.isAppleMusic || track.isDownloaded || (plexStreamingAllowed && serverPossiblyAvailable)
     }
 
-    static func appleMusicSegment(from tracks: [Track]) -> [Track] {
+    nonisolated static func appleMusicSegment(from tracks: [Track]) -> [Track] {
         guard let first = tracks.first, first.isAppleMusic else { return [] }
         return [first]
     }
 
-    static func shouldPrepareEndTransitionLease(
+    nonisolated static func shouldPrepareEndTransitionLease(
         playbackState: PlaybackState,
         currentTime: TimeInterval,
         duration: TimeInterval,
@@ -479,7 +480,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return currentTime >= max(0, duration - leadTime)
     }
 
-    static func appleMusicQueueItemIDNeedingSynchronization(
+    nonisolated static func appleMusicQueueItemIDNeedingSynchronization(
         queue: [QueueItem],
         currentQueueIndex: Int,
         playbackState: PlaybackState
@@ -492,7 +493,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    static func pruningUnresolvedAppleMusicItems(
+    nonisolated static func pruningUnresolvedAppleMusicItems(
         queue: [QueueItem],
         originalQueue: [QueueItem],
         submittedItems: [QueueItem],
@@ -514,7 +515,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// At an Apple Music boundary with autoplay on, a station replaces the
     /// continuation and any already-fetched autoplay items (Q1). A Repeat All wrap
     /// is a queue item, not a continuation, so it never starts a station (Q2).
-    static func appleMusicStationReplacesAdvance(
+    nonisolated static func appleMusicStationReplacesAdvance(
         _ advance: EnsembleQueueAdvance,
         in queue: [QueueItem]
     ) -> Bool {
@@ -528,7 +529,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    static func futureQueueIndex(
+    nonisolated static func futureQueueIndex(
         matching playbackIdentity: String,
         in queue: [QueueItem],
         after currentQueueIndex: Int
@@ -538,7 +539,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    static func queueIndexForAdvance(
+    nonisolated static func queueIndexForAdvance(
         matching playbackIdentity: String,
         in queue: [QueueItem],
         after currentQueueIndex: Int,
@@ -555,7 +556,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ) ?? queue.firstIndex { $0.track.playbackIdentity == playbackIdentity }
     }
 
-    static func smartMixPromotionQueueIndex(
+    nonisolated static func smartMixPromotionQueueIndex(
         matching playbackIdentity: String,
         currentTrackIdentity: String?,
         in queue: [QueueItem],
@@ -569,7 +570,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
-    static func shouldContinuePlaybackRequest(
+    nonisolated static func shouldContinuePlaybackRequest(
         generation: UInt64,
         currentGeneration: UInt64,
         queuedTrack: Track,
@@ -589,7 +590,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         static let smartMixDisabledForAlbums = "isSmartMixDisabledForAlbums"
     }
 
-    static func pruneQueueForSourceConfiguration(
+    nonisolated static func pruneQueueForSourceConfiguration(
         queue: [QueueItem],
         originalQueue: [QueueItem],
         playbackHistory: [QueueItem],
@@ -662,7 +663,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
-    private static func preferredFallbackQueueItemID(
+    nonisolated private static func preferredFallbackQueueItemID(
         afterRemovingCurrentAt currentQueueIndex: Int,
         from queue: [QueueItem],
         configuration: SourceConfigurationSnapshot
@@ -702,7 +703,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         })?.id
     }
 
-    static func pruningRestoredSnapshot(
+    nonisolated static func pruningRestoredSnapshot(
         _ snapshot: PlaybackQueueSnapshot,
         configuration: SourceConfigurationSnapshot
     ) -> PlaybackQueueSnapshot {
@@ -737,7 +738,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Decides whether a playback request can reuse the current engine or must
     /// rebuild it first. This keeps "play after stop()" on the normal launch path
     /// instead of falling through to a nil-engine failure after transport resolves.
-    static func audioEnginePreparation(
+    nonisolated static func audioEnginePreparation(
         hasAudioEngine: Bool,
         playbackState: PlaybackState
     ) -> AudioEnginePreparation {
@@ -750,7 +751,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return .reuseExisting
     }
 
-    static func smartMixTempoMatchingGate(processInfo: ProcessInfo = .processInfo) -> (allowed: Bool, reason: String?) {
+    nonisolated static func smartMixTempoMatchingGate(processInfo: ProcessInfo = .processInfo) -> (allowed: Bool, reason: String?) {
         let processorCount = processInfo.processorCount
         if processorCount <= 2 {
             return (false, "processor-count-\(processorCount)")
@@ -770,7 +771,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    static func smartMixTempoFallbackReason(
+    nonisolated static func smartMixTempoFallbackReason(
         plan: SmartMixPlan,
         outgoingAnalysis: SmartMixAnalysis,
         incomingAnalysis: SmartMixAnalysis,
@@ -1347,7 +1348,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     deinit {
-        cleanup()
+        // deinit is not main-actor isolated, so it releases the engine and tasks
+        // directly instead of running cleanup().
+        audioEngine?.stop()
+        stallRecoveryTask?.cancel()
+        fastSeekTask?.cancel()
+        handoffSettleTask?.cancel()
         audioSessionCoordinator.stopObserving()
         accountSourcesObservation?.cancel()
         accountSourcesObservation = nil
@@ -1475,7 +1481,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Which playback states each event is acted on in, for both engines.
     /// Apple Music reports its end while paused at the last frame; the native
     /// engine never ends while paused, so a late native end after a pause is dropped.
-    static func acceptsEngineEvent(
+    nonisolated static func acceptsEngineEvent(
         _ event: PlaybackEngineEvent,
         from engine: PlaybackEngineKind,
         playbackState: PlaybackState
@@ -1791,7 +1797,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// G11 and G12: a failed item is skipped once while the intent is to play.
     /// If the item reached by that skip fails too, or the intent was to stay
     /// paused, playback halts on the error and offers Retry. No counter.
-    static func itemFailureResponse(intendsToPlay: Bool, reachedBySkippingFailure: Bool) -> ItemFailureResponse {
+    nonisolated static func itemFailureResponse(intendsToPlay: Bool, reachedBySkippingFailure: Bool) -> ItemFailureResponse {
         intendsToPlay && !reachedBySkippingFailure ? .skipToNext : .halt
     }
 
@@ -2286,7 +2292,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         presentationTime = presentationTime(for: clampedRawTime)
     }
 
-    static func shouldPersistPlaybackSnapshot(
+    nonisolated static func shouldPersistPlaybackSnapshot(
         observedTime: TimeInterval,
         lastSavedTime: TimeInterval,
         interval: TimeInterval = 15
@@ -2294,7 +2300,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         observedTime > 0 && (lastSavedTime == 0 || observedTime - lastSavedTime >= interval)
     }
 
-    static func restoredPausedSeekTime(
+    nonisolated static func restoredPausedSeekTime(
         savedTime: TimeInterval,
         duration: TimeInterval,
         endPadding: TimeInterval = 0.001
@@ -2957,7 +2963,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    private static func shouldMarkAudioCritical(for context: PlaybackStartContext) -> Bool {
+    nonisolated private static func shouldMarkAudioCritical(for context: PlaybackStartContext) -> Bool {
         switch context.origin {
         case .appUI, .siri, .appShortcut, .remoteCommand:
             return true
@@ -3099,7 +3105,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
-    private static func systemMediaReference(for track: Track, kind: SiriMediaKind) -> SystemMediaReference {
+    nonisolated private static func systemMediaReference(for track: Track, kind: SiriMediaKind) -> SystemMediaReference {
         SystemMediaReference(
             kind: kind,
             id: track.id,
@@ -4152,7 +4158,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
-    static func shouldConfirmQueueReplacement(
+    nonisolated static func shouldConfirmQueueReplacement(
         playbackState: PlaybackState,
         hasUserQueueEdits: Bool,
         isQueueEmpty: Bool
@@ -5135,7 +5141,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return fileURL
     }
 
-    private func shouldRetryStreamURLRequest(after error: Error) -> Bool {
+    nonisolated private func shouldRetryStreamURLRequest(after error: Error) -> Bool {
         if let plexError = error as? PlexAPIError {
             switch plexError {
             case .networkError, .noServerSelected:
@@ -5149,7 +5155,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return nsError.domain == NSURLErrorDomain
     }
 
-    private func mapToPlaybackError(_ error: Error) -> PlaybackError {
+    nonisolated private func mapToPlaybackError(_ error: Error) -> PlaybackError {
         // Progressive stream errors (HTTP status, payload validation)
         if let streamError = error as? ProgressiveStreamError {
             switch streamError {
@@ -6290,8 +6296,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// download state changed. Non-scheduled track changes update metadata
     /// silently so bulk downloads don't stutter playback.
     private func refreshQueueDownloadState() async {
+        var refreshedQueue = queue
         let result = await queueController.refreshDownloadState(
-            queue: &queue,
+            queue: &refreshedQueue,
             currentQueueIndex: currentQueueIndex,
             fallbackStreamingQuality: AudioQualityPreference.storedStreamingQuality(),
             localFilePathForTrack: { [downloadManager] track in
@@ -6303,6 +6310,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 )
             }
         )
+        // The refresh awaited; apply its results by item so edits made meanwhile survive.
+        if result.changed {
+            let refreshedByID = Dictionary(refreshedQueue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            queue = queue.map { item in
+                guard let refreshed = refreshedByID[item.id] else { return item }
+                return QueueItem(
+                    id: item.id,
+                    track: refreshed.track,
+                    source: item.source,
+                    streamingQuality: refreshed.streamingQuality
+                )
+            }
+        }
 
         // Evict cached player items when download state changes for non-current tracks.
         // Covers both download completion (re-resolve to local file) and removal
@@ -6337,7 +6357,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Returns an appropriate error message when no tracks are playable.
     /// Distinguishes between device-offline and server-offline scenarios.
-    static func noPlayableTracksMessage(
+    nonisolated static func noPlayableTracksMessage(
         isDeviceOffline: Bool,
         isCellularStreamingDisabled: Bool = false
     ) -> String {

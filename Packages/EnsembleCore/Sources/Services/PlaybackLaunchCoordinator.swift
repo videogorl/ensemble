@@ -25,9 +25,9 @@ final class PlaybackLaunchCoordinator {
 
     struct Dependencies {
         let processorCount: @Sendable () -> Int
-        let isVisualizerEnabled: @Sendable () -> Bool
-        let isInstrumentalModeActive: @Sendable () -> Bool
-        let enqueueVisualizerLoad: @Sendable (Track, URL, VisualizerPlan) -> Void
+        let isVisualizerEnabled: @MainActor () -> Bool
+        let isInstrumentalModeActive: @MainActor () -> Bool
+        let enqueueVisualizerLoad: @MainActor (Track, URL, VisualizerPlan) -> Void
         let loadAndPlay: @MainActor (PlaybackSource, Track, UInt64, Bool) async throws -> Bool
         let seek: @MainActor (TimeInterval, UInt64) -> Bool
         let prefetchNext: @Sendable () async -> Void
@@ -79,6 +79,7 @@ final class PlaybackLaunchCoordinator {
         )
     }
 
+    @MainActor
     func completeLaunch(
         for track: Track,
         source: PlaybackSource,
