@@ -1131,6 +1131,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private var lastRemoteSkipTime: CFTimeInterval = 0 // Debounce for remote command center skip events
     private var trackStartWallTime: CFTimeInterval = 0 // Wall-clock time when the current track started playing (for stale seek rejection)
+    /// A shuffle toggle waiting for the current Apple Music item or SmartMix overlap to finish.
+    private var hasPendingShuffleReorder = false
     /// A seek made while an item was loading, applied when that item starts.
     private var pendingSeek: (itemID: String, time: TimeInterval)?
     /// The current session. See `beginSession()`.
@@ -1528,6 +1530,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         case let .transitionActive(isActive):
             guard isSmartMixTransitionActive != isActive else { return }
             isSmartMixTransitionActive = isActive
+            if !isActive { applyPendingShuffleReorder() }
         case .ended:
             handleEngineEnded(session: envelope.session)
         case .externallyPaused:
@@ -1701,6 +1704,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             playbackState = .playing
         }
         updateEndTransitionLease(shouldHold: false)
+        if kind != .crossfade { applyPendingShuffleReorder() }
         updateNowPlayingInfo()
         savePlaybackState()
         if engine == .native {
@@ -1980,6 +1984,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         stallRecoveryTask?.cancel()
         stallRecoveryTask = nil
 
+        applyPendingShuffleReorder()
         let advance = queueAdvance(.naturalEnd)
         // At an Apple Music item with autoplay on, a station replaces the
         // continuation and any fetched autoplay items (Q1).
@@ -2913,6 +2918,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         queue = queueTracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
         originalQueue = queue
+        hasPendingShuffleReorder = false
         currentQueueIndex = playableQueue.startIndex
         setQueueProtection(false, reason: "play")
 
@@ -3057,6 +3063,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         let items = playableQueue.tracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
         originalQueue = items
+        hasPendingShuffleReorder = false
 
         var shuffled = items
         shuffled.shuffle()
@@ -3615,6 +3622,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let currentState = playbackState
         EnsembleLogger.debug("[next] called — track='\(currentTrackTitle)', state=\(currentState), idx=\(currentQueueIndex)/\(queue.count)")
         resetHandoffForUserPlaybackIntent()
+        if audioEngine?.isSmartMixTransitionActive != true {
+            applyPendingShuffleReorder()
+        }
 
         if handleSmartMixNextIfNeeded() {
             return
@@ -3728,6 +3738,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     public func previous() {
+        applyPendingShuffleReorder()
         let target = queueController.previousNavigationTarget(
             currentTime: currentTime,
             currentQueueIndex: currentQueueIndex,
@@ -4318,6 +4329,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         isShuffleEnabled.toggle()
         UserDefaults.standard.set(isShuffleEnabled, forKey: PlaybackPreferenceKey.shuffleEnabled)
 
+        // During an Apple Music item or a SmartMix overlap the reorder waits for
+        // the item to finish; toggling back before then cancels it (G7).
+        if isQueueReorderDeferred {
+            hasPendingShuffleReorder.toggle()
+            updateNowPlayingInfo()
+            return
+        }
+        applyShuffleReorder(synchronizeAppleMusicQueue: true)
+    }
+
+    /// Reordering now would restart the current Apple Music item or cut a SmartMix overlap.
+    private var isQueueReorderDeferred: Bool {
+        currentTrack?.isAppleMusic == true || audioEngine?.isSmartMixTransitionActive == true
+    }
+
+    /// Applies a deferred shuffle at an item boundary, before the next item is chosen.
+    private func applyPendingShuffleReorder() {
+        guard hasPendingShuffleReorder else { return }
+        hasPendingShuffleReorder = false
+        applyShuffleReorder(synchronizeAppleMusicQueue: false)
+    }
+
+    private func applyShuffleReorder(synchronizeAppleMusicQueue: Bool) {
         if isShuffleEnabled {
             queueController.enableShuffle(
                 queue: &queue,
@@ -4333,7 +4367,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             )
         }
 
-        commitQueueMutation()
+        commitQueueMutation(synchronizeAppleMusicQueue: synchronizeAppleMusicQueue)
         updateNowPlayingInfo()
     }
 
@@ -4620,6 +4654,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Set queue and start from beginning
         queue = items
         originalQueue = items
+        hasPendingShuffleReorder = false
         currentQueueIndex = 0
         setQueueProtection(false, reason: "radio")
 
@@ -6581,6 +6616,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         queue = []
         originalQueue = []
+        hasPendingShuffleReorder = false
         currentQueueIndex = -1
         currentTrack = nil
         playbackState = .stopped
@@ -6900,6 +6936,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         queue = decision.queue
         originalQueue = decision.originalQueue
+        hasPendingShuffleReorder = false
         currentQueueIndex = decision.currentIndex
         isShuffleEnabled = decision.shuffleEnabled
         UserDefaults.standard.set(isShuffleEnabled, forKey: PlaybackPreferenceKey.shuffleEnabled)
