@@ -1950,9 +1950,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         queueExhaustedTimestamps.append(now)
         queueExhaustedTimestamps = queueExhaustedTimestamps.filter { now.timeIntervalSince($0) < 2.0 }
         if queueExhaustedTimestamps.count > 3 {
-            EnsembleLogger.playback("RAPID_ADVANCE: handleQueueExhausted called \(queueExhaustedTimestamps.count)x in 2s — stopping")
+            // A cascade of ends halts paused on the current item; only sign-out,
+            // server removal and clearing stop playback (G20).
+            EnsembleLogger.playback("RAPID_ADVANCE: handleQueueExhausted called \(queueExhaustedTimestamps.count)x in 2s — pausing")
             queueExhaustedTimestamps.removeAll()
-            stop()
+            if queue.indices.contains(currentQueueIndex) {
+                selectQueueItemWhilePaused(at: currentQueueIndex, caller: "rapidAdvance")
+            } else {
+                stop()
+            }
             return
         }
 
@@ -4052,6 +4058,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Add tracks after the existing Up Next items, preserving action and track order.
     public func playNext(_ tracks: [Track]) {
         guard !tracks.isEmpty else { return }
+        guard startPlaybackIfNoCurrentItem(tracks) == false else { return }
         let items = tracks.map { makeQueueItem(track: $0, source: .upNext) }
         queueController.insertUpNext(
             items,
@@ -4064,6 +4071,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         commitQueueMutation()
     }
 
+    /// Play Next or Play Last with nothing to add to starts playback (G10); with a
+    /// queue, even a paused one, they only edit it.
+    private func startPlaybackIfNoCurrentItem(_ tracks: [Track]) -> Bool {
+        guard !queue.indices.contains(currentQueueIndex) else { return false }
+        Task { await play(tracks: tracks, startingAt: 0) }
+        return true
+    }
+
     /// Add a track to end of the "real" queue (before autoplay tracks)
     public func playLast(_ track: Track) {
         playLast([track])
@@ -4072,6 +4087,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Add tracks to end of the "real" queue (before autoplay tracks)
     public func playLast(_ tracks: [Track]) {
         guard !tracks.isEmpty else { return }
+        guard startPlaybackIfNoCurrentItem(tracks) == false else { return }
         let items = tracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
         queueController.insertAtEndOfManualQueue(
             items,

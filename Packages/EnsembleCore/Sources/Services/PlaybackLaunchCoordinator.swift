@@ -108,6 +108,8 @@ final class PlaybackLaunchCoordinator {
             EnsembleLogger.debug("[playCurrentQueueItem] Recovered position at \(recoverySeekTime)s")
         }
 
-        Task { await dependencies.prefetchNext() }
+        // Prefetch does not need the main actor; keep it off main as before.
+        let prefetchNext = dependencies.prefetchNext
+        Task.detached { await prefetchNext() }
     }
 }
