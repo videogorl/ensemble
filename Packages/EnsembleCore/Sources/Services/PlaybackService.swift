@@ -985,7 +985,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var audioEngine: AudioPlaybackEngine?
     private let maxCachedFileURLs = 10
     /// Combine subscription for engine time updates
-    private var loadingStateTask: Task<Void, Never>? // Delayed loading state transition
     private var isHandlingQueueExhaustion = false
     /// Set while handleTLSPlaybackFailure is refreshing connection and retrying.
     /// Prevents handleQueueExhausted from racing with the TLS retry path.
@@ -993,7 +992,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Tracks consecutive playback failures to stop rapid retry loops when server is unreachable
     private var consecutivePlaybackFailures = 0
     private let maxConsecutiveFailuresBeforeStop = 3
-    private var prefetchThrottleUntil: Date?
     private var networkStateObservation: AnyCancellable?
     private var accountSourcesObservation: AnyCancellable?
     private var healthCheckCompletionObservation: AnyCancellable?
@@ -1037,7 +1035,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var skipTransitionTask: Task<Void, Never>?
     private var handoffCoordinator = PlaybackHandoffCoordinator()
     private var handoffSettleTask: Task<Void, Never>?
-    private var handoffEventCounter: UInt64 = 0
     // Background task identifier used to keep the app alive during track transitions.
     // Without this, iOS may suspend the app between tracks when no audio is playing.
     #if canImport(UIKit)
@@ -1566,8 +1563,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     private func handleEngineStarted(trackID: String, session: PlaybackSessionID) {
-        guard currentTrack?.playbackIdentity == trackID,
-              playbackState == .loading || playbackState == .buffering else { return }
+        guard let track = currentTrack, track.playbackIdentity == trackID else { return }
+        // A fresh start reports "playing", as a resume already does (D4).
+        reportingController.reportState(track: track, state: "playing", time: currentTime)
+        guard playbackState == .loading || playbackState == .buffering else { return }
         playbackState = .playing
         updateNowPlayingInfo()
         audioAnalyzer.resumeUpdates()
@@ -1928,8 +1927,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        let throttleActive = (prefetchThrottleUntil?.timeIntervalSince(Date()) ?? 0) > 0
-        EnsembleLogger.debug("GAPLESS_DIAG: handleQueueExhausted — NOT gapless. depth=\(2), throttle=\(throttleActive), idx=\(currentQueueIndex)/\(queue.count)")
 
         guard !queue.isEmpty else {
             stop()
@@ -2400,10 +2397,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     #endif
 
     private func logHandoff(event: String, outcome: PlaybackHandoffCoordinator.Outcome) {
-        handoffEventCounter &+= 1
         let actionSummary = outcome.actions.map { "\($0)" }.joined(separator: ",")
         EnsembleLogger.debug(
-            "[Handoff #\(handoffEventCounter)] category=\(outcome.category.rawValue) "
+            "[Handoff] category=\(outcome.category.rawValue) "
                 + "event=\(event) summary=\(outcome.summary) actions=[\(actionSummary)] "
                 + "\(handoffStateSnapshot())"
         )
@@ -4830,8 +4826,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         PlaybackJourneyLogger.start(trackId: trackIdentity, title: track.title, caller: caller)
 
         // Cancel any pending loading state transition
-        loadingStateTask?.cancel()
-        loadingStateTask = nil
 
         // Update the exposed track first so state-transition logs and Now Playing
         // do not briefly point at the previous item during a skip.
@@ -4967,7 +4961,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             track: request.track,
             forcingFreshItem: request.forcingFreshItem
         ) {
-            loadingStateTask?.cancel()
             endTrackTransitionBackgroundTask(for: requestGeneration)
             await MainActor.run {
                 self.recreatePlayer()
@@ -4984,7 +4977,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         switch PlaybackSessionStateMachine.classifyTerminalFailure(lastError, track: request.track) {
         case .tls:
-            loadingStateTask?.cancel()
             await handleTLSPlaybackFailure(
                 generation: requestGeneration,
                 shouldStartPlayback: shouldStartPlayback,
@@ -5006,7 +4998,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             } else {
                 consecutivePlaybackFailures += 1
             }
-            loadingStateTask?.cancel()
             endTrackTransitionBackgroundTask(for: requestGeneration)
             let failureMessage = lastError?.localizedDescription ?? "Failed to load track"
             await MainActor.run {
@@ -5017,7 +5008,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         case let .generic(message):
             consecutivePlaybackFailures += 1
-            loadingStateTask?.cancel()
             endTrackTransitionBackgroundTask(for: requestGeneration)
             await MainActor.run {
                 self.isSkipTransitionInProgress = false
@@ -5784,10 +5774,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if source.fileURL != nil {
             audioAnalyzer.activateTimeline(for: trackIdentity)
         }
-
-        // Cancel loading state delay
-        loadingStateTask?.cancel()
-        loadingStateTask = nil
 
         bufferedProgress = source.initialBufferedProgress
 
@@ -6706,10 +6692,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         _ = resolvedFileCache.clear()
         transportCoordinator.clear(removeDecisions: true)
 
-        // Cancel network observations
-        networkStateObservation?.cancel()
-        networkStateObservation = nil
-
         // Cancel stall recovery
         stallRecoveryTask?.cancel()
         stallRecoveryTask = nil
@@ -6718,9 +6700,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         skipTransitionSafetyTask?.cancel()
         skipTransitionSafetyTask = nil
 
-        // Cancel loading state
-        loadingStateTask?.cancel()
-        loadingStateTask = nil
         fastSeekTask?.cancel()
         fastSeekTask = nil
         gaplessScheduleRequestTask?.cancel()
