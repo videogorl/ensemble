@@ -442,6 +442,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         track.isAppleMusic || track.isDownloaded || (plexStreamingAllowed && serverPossiblyAvailable)
     }
 
+    /// The one playability answer. The container sets it to the same resolver
+    /// the UI uses to grey tracks out, so the two cannot disagree (G17).
+    private var trackPlayability: ((Track) -> Bool)?
+
+    public func setTrackPlayability(_ isPlayable: @escaping (Track) -> Bool) {
+        trackPlayability = isPlayable
+    }
+
+    private func isTrackPlayableNow(_ track: Track, plexStreamingAllowed: Bool) -> Bool {
+        if let trackPlayability { return trackPlayability(track) }
+        return Self.isQueueTrackPlayable(
+            track,
+            serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey),
+            plexStreamingAllowed: plexStreamingAllowed
+        )
+    }
+
     nonisolated static func appleMusicSegment(from tracks: [Track]) -> [Track] {
         guard let first = tracks.first, first.isAppleMusic else { return [] }
         return [first]
@@ -1857,11 +1874,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             isAutoplayEnabled: isAutoplayEnabled
         ) { index in
             let track = queue[index].track
-            return Self.isQueueTrackPlayable(
-                track,
-                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey),
-                plexStreamingAllowed: plexStreamingAllowed
-            )
+            return isTrackPlayableNow(track, plexStreamingAllowed: plexStreamingAllowed)
         }
     }
 
@@ -3161,11 +3174,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         } else {
             hasUnavailableTracks = await MainActor.run {
                 tracks.contains { track in
-                    !Self.isQueueTrackPlayable(
-                        track,
-                        serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey),
-                        plexStreamingAllowed: plexStreamingAllowed
-                    )
+                    !isTrackPlayableNow(track, plexStreamingAllowed: plexStreamingAllowed)
                 }
             }
         }
@@ -3195,11 +3204,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 playableTracks.append(track)
                 originalPlayableIndices.append(index)
             } else if await MainActor.run(body: {
-                Self.isQueueTrackPlayable(
-                    track,
-                    serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey),
-                    plexStreamingAllowed: plexStreamingAllowed
-                )
+                isTrackPlayableNow(track, plexStreamingAllowed: plexStreamingAllowed)
             }) {
                 // Track's server is online — can stream
                 playableTracks.append(track)
@@ -3278,11 +3283,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Block playback of tracks from offline servers
         let track = queue[index].track
         let isUnavailable = await MainActor.run {
-            !Self.isQueueTrackPlayable(
-                track,
-                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey),
-                plexStreamingAllowed: isPlexStreamingAllowedOnCurrentNetwork()
-            )
+            !isTrackPlayableNow(track, plexStreamingAllowed: isPlexStreamingAllowedOnCurrentNetwork())
         }
         if isUnavailable { return }
 
@@ -6459,11 +6460,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard nextIndex < queue.count else { return false }
 
         let hasKnownUnavailableNextTrack = queue[nextIndex...].contains { item in
-            !Self.isQueueTrackPlayable(
-                item.track,
-                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: item.track.sourceCompositeKey),
-                plexStreamingAllowed: isPlexStreamingAllowedOnCurrentNetwork()
-            )
+            !isTrackPlayableNow(item.track, plexStreamingAllowed: isPlexStreamingAllowedOnCurrentNetwork())
         }
         guard hasKnownUnavailableNextTrack else { return false }
 

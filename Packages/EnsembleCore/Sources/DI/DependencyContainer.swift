@@ -323,8 +323,15 @@ public final class DependencyContainer: @unchecked Sendable {
         systemMediaIntegrationService = siri.systemMediaIntegrationService
         let builtPlaybackService = playbackService
         let builtSystemMediaIntegrationService = siri.systemMediaIntegrationService
+        let builtTrackAvailabilityResolver = network.trackAvailabilityResolver
         MainActor.assumeIsolated {
             builtPlaybackService.setSystemMediaIntegrationService(builtSystemMediaIntegrationService)
+            // Playback and the UI share one playability answer (G17).
+            builtPlaybackService.setTrackPlayability { [weak builtTrackAvailabilityResolver] track in
+                MainActor.assumeIsolated {
+                    builtTrackAvailabilityResolver?.availability(for: track).canPlay ?? true
+                }
+            }
         }
         backgroundRefreshCoordinator = BackgroundRefreshCoordinator(
             syncCoordinator: sync.syncCoordinator,
