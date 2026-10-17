@@ -1139,6 +1139,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private var lastRemoteSkipTime: CFTimeInterval = 0 // Debounce for remote command center skip events
     private var trackStartWallTime: CFTimeInterval = 0 // Wall-clock time when the current track started playing (for stale seek rejection)
+    /// A seek made while the current item was loading, applied when it starts.
+    private var pendingSeekTime: TimeInterval?
     /// The current session. See `beginSession()`.
     private var sessionGeneration: UInt64 = 0
     private var playbackPreparationShouldStart = true
@@ -1566,6 +1568,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // A fresh start reports "playing", as a resume already does (D4).
         reportingController.reportState(track: track, state: "playing", time: currentTime)
         clearItemFailureMarkers()
+        applyPendingSeek()
         guard playbackState == .loading || playbackState == .buffering else { return }
         playbackState = .playing
         updateNowPlayingInfo()
@@ -1804,6 +1807,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private var currentQueueItemID: String? {
         queue.indices.contains(currentQueueIndex) ? queue[currentQueueIndex].id : nil
+    }
+
+    @MainActor
+    private func applyPendingSeek() {
+        guard let time = pendingSeekTime else { return }
+        pendingSeekTime = nil
+        seek(to: time)
     }
 
     @MainActor
@@ -3938,6 +3948,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 return
             }
         #endif
+        // A seek during a load applies once the item starts (G5).
+        if playbackState == .loading {
+            pendingSeekTime = clampedTime
+            updatePlaybackTimes(rawTime: clampedTime)
+            updateNowPlayingInfo()
+            return
+        }
+        // Seeking to the exact end while paused finishes the item, keeping the pause (G5).
+        if playbackState == .paused, effectiveDur > 0, clampedTime >= effectiveDur {
+            finishCurrentItemWhilePaused()
+            return
+        }
         if let trackId = currentTrack?.playbackIdentity {
             PlaybackJourneyLogger.mark("seekRequested", trackId: trackId, detail: "time=\(String(format: "%.2f", clampedTime))")
         }
@@ -3967,6 +3989,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 return
             }
             EnsembleLogger.playback("ENGINE: seek failed -- \(error.localizedDescription)")
+        }
+    }
+
+    /// The end-of-track rule, applied without starting playback.
+    @MainActor
+    private func finishCurrentItemWhilePaused() {
+        switch queueAdvance(.naturalEnd) {
+        case .repeatCurrent:
+            selectQueueItemWhilePaused(at: currentQueueIndex, caller: "seekToEnd-repeatOne")
+        case let .item(index, _):
+            recordCurrentAndSkippedTracksBeforeJump(to: index)
+            selectQueueItemWhilePaused(at: index, caller: "seekToEnd")
+        case .continuation, .endOfQueue, .unavailable:
+            settleAtEndOfQueue(caller: "seekToEnd")
         }
     }
 
@@ -4755,6 +4791,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Bump generation so any in-flight playback request knows it's been superseded
         beginSession()
         let requestGeneration = sessionGeneration
+        pendingSeekTime = nil
         playbackPreparationShouldStart = shouldStartPlayback
         // A start from the beginning is a new listen for reporting and scrobbling (D3).
         if (startTime ?? 0) == 0 {
@@ -5838,6 +5875,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             if !shouldStartPlayback {
                 updatePlaybackTimes(rawTime: engine.currentTime())
                 playbackState = .paused
+                applyPendingSeek()
                 updateNowPlayingInfo()
                 savePlaybackState()
                 endTrackTransitionBackgroundTask(for: generation)
@@ -6158,6 +6196,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
                 clearItemFailureMarkers()
                 playbackState = .playing
+                applyPendingSeek()
                 updateNowPlayingInfo()
             } catch is CancellationError {
                 guard generation == sessionGeneration else { return }
