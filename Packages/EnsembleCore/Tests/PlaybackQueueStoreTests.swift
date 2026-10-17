@@ -53,6 +53,41 @@ final class PlaybackQueueStoreTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: "com.ensemble.playback.snapshot"))
     }
 
+    func testUnshuffledOrderRoundTripsAsIDsAndLegacySnapshotsStillDecode() throws {
+        let played = QueueItem(id: "played", track: makeTrack(id: "p"))
+        let current = QueueItem(id: "current", track: makeTrack(id: "c"))
+        let next = QueueItem(id: "next", track: makeTrack(id: "n"))
+        // Shuffle dropped the played item from the live queue.
+        let snapshot = PlaybackQueueSnapshot(
+            queue: [current, next],
+            history: [played],
+            currentIndex: 0,
+            currentTime: 0,
+            originalQueue: [played, next, current],
+            shuffleEnabled: true
+        )
+
+        let data = try JSONEncoder().encode(snapshot)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertNil(json["originalQueue"])
+        XCTAssertEqual(json["originalQueueIDs"] as? [String], ["played", "next", "current"])
+        XCTAssertEqual((json["originalQueueExtras"] as? [Any])?.count, 1)
+        XCTAssertEqual(try JSONDecoder().decode(PlaybackQueueSnapshot.self, from: data), snapshot)
+
+        // A snapshot written before this format carries the full original queue.
+        var legacy = json
+        legacy["originalQueue"] = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode([played, next, current])
+        )
+        legacy.removeValue(forKey: "originalQueueIDs")
+        legacy.removeValue(forKey: "originalQueueExtras")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacy)
+        XCTAssertEqual(
+            try JSONDecoder().decode(PlaybackQueueSnapshot.self, from: legacyData).originalQueue,
+            [played, next, current]
+        )
+    }
+
     func testProgressSaveDoesNotRewriteQueueSnapshot() async throws {
         let store = makeStore()
         let queue = [QueueItem(track: makeTrack(id: "track-1"))]

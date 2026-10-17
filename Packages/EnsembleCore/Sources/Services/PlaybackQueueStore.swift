@@ -36,9 +36,34 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
         case history
         case currentIndex
         case currentTime
+        /// Written by builds before 2026-10-17: the full unshuffled queue.
         case originalQueue
+        /// The unshuffled order as item IDs.
+        case originalQueueIDs
+        /// Unshuffled items that are not in the live queue, such as played items
+        /// that turning shuffle on removed. Every other ID refers to a queue item.
+        case originalQueueExtras
         case shuffleEnabled
         case hasUserQueueEdits
+    }
+
+    /// Writes the unshuffled order as IDs instead of a second copy of every item.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(queue, forKey: .queue)
+        try container.encode(history, forKey: .history)
+        try container.encode(currentIndex, forKey: .currentIndex)
+        try container.encode(currentTime, forKey: .currentTime)
+        if let originalQueue {
+            let queueIDs = Set(queue.map(\.id))
+            try container.encode(originalQueue.map(\.id), forKey: .originalQueueIDs)
+            try container.encode(
+                originalQueue.filter { !queueIDs.contains($0.id) },
+                forKey: .originalQueueExtras
+            )
+        }
+        try container.encodeIfPresent(shuffleEnabled, forKey: .shuffleEnabled)
+        try container.encode(hasUserQueueEdits, forKey: .hasUserQueueEdits)
     }
 
     init(from decoder: Decoder) throws {
@@ -47,7 +72,19 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
         history = try container.decode([QueueItem].self, forKey: .history)
         currentIndex = try container.decode(Int.self, forKey: .currentIndex)
         currentTime = try container.decode(TimeInterval.self, forKey: .currentTime)
-        originalQueue = try container.decodeIfPresent([QueueItem].self, forKey: .originalQueue)
+        if let legacyOriginalQueue = try container.decodeIfPresent([QueueItem].self, forKey: .originalQueue) {
+            originalQueue = legacyOriginalQueue
+        } else if let ids = try container.decodeIfPresent([String].self, forKey: .originalQueueIDs) {
+            let extras = try container.decodeIfPresent([QueueItem].self, forKey: .originalQueueExtras) ?? []
+            var itemsByID: [String: QueueItem] = [:]
+            for item in queue + extras where itemsByID[item.id] == nil {
+                itemsByID[item.id] = item
+            }
+            // An ID with no item is skipped rather than failing the whole restore.
+            originalQueue = ids.compactMap { itemsByID[$0] }
+        } else {
+            originalQueue = nil
+        }
         shuffleEnabled = try container.decodeIfPresent(Bool.self, forKey: .shuffleEnabled)
         hasUserQueueEdits = try container.decodeIfPresent(Bool.self, forKey: .hasUserQueueEdits) ?? false
     }
