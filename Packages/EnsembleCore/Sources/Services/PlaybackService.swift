@@ -1139,8 +1139,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private var lastRemoteSkipTime: CFTimeInterval = 0 // Debounce for remote command center skip events
     private var trackStartWallTime: CFTimeInterval = 0 // Wall-clock time when the current track started playing (for stale seek rejection)
-    /// A seek made while the current item was loading, applied when it starts.
-    private var pendingSeekTime: TimeInterval?
+    /// A seek made while an item was loading, applied when that item starts.
+    private var pendingSeek: (itemID: String, time: TimeInterval)?
     /// The current session. See `beginSession()`.
     private var sessionGeneration: UInt64 = 0
     private var playbackPreparationShouldStart = true
@@ -1811,9 +1811,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     private func applyPendingSeek() {
-        guard let time = pendingSeekTime else { return }
-        pendingSeekTime = nil
-        seek(to: time)
+        guard let pending = pendingSeek else { return }
+        pendingSeek = nil
+        guard pending.itemID == currentQueueItemID else { return }
+        seek(to: pending.time)
     }
 
     @MainActor
@@ -3949,8 +3950,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         #endif
         // A seek during a load applies once the item starts (G5).
-        if playbackState == .loading {
-            pendingSeekTime = clampedTime
+        if playbackState == .loading, let itemID = currentQueueItemID {
+            pendingSeek = (itemID, clampedTime)
             updatePlaybackTimes(rawTime: clampedTime)
             updateNowPlayingInfo()
             return
@@ -4791,7 +4792,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Bump generation so any in-flight playback request knows it's been superseded
         beginSession()
         let requestGeneration = sessionGeneration
-        pendingSeekTime = nil
+        // A retry of the same item keeps its pending seek; another item drops it.
+        if pendingSeek?.itemID != currentQueueItemID {
+            pendingSeek = nil
+        }
         playbackPreparationShouldStart = shouldStartPlayback
         // A start from the beginning is a new listen for reporting and scrobbling (D3).
         if (startTime ?? 0) == 0 {
