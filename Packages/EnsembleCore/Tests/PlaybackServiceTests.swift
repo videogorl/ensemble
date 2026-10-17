@@ -1212,6 +1212,14 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
+    func testSystemNowPlayingStateDuringALoadFollowsIntent() {
+        XCTAssertEqual(PlaybackNowPlayingBridge.systemPlaybackState(for: .loading, intendsToPlay: true), .playing)
+        XCTAssertEqual(PlaybackNowPlayingBridge.systemPlaybackState(for: .loading, intendsToPlay: false), .paused)
+        XCTAssertEqual(PlaybackNowPlayingBridge.systemPlaybackState(for: .buffering, intendsToPlay: true), .playing)
+        XCTAssertEqual(PlaybackNowPlayingBridge.systemPlaybackState(for: .paused, intendsToPlay: true), .paused)
+        XCTAssertEqual(PlaybackNowPlayingBridge.systemPlaybackState(for: .failed("x"), intendsToPlay: true), .stopped)
+    }
+
     func testItemFailureSkipsOnceThenHalts() {
         let rows: [(intendsToPlay: Bool, reachedBySkip: Bool, expected: PlaybackService.ItemFailureResponse)] = [
             (true, false, .skipToNext),   // G11: a failing item is skipped

@@ -6722,7 +6722,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             canToggleShuffle: !queue.isEmpty,
             canCycleRepeatMode: !queue.isEmpty,
             timelineRevision: currentTrack?.isAppleMusic == true
-                ? playbackTimelineRevision : (audioEngine?.progressRevision ?? playbackTimelineRevision)
+                ? playbackTimelineRevision : (audioEngine?.progressRevision ?? playbackTimelineRevision),
+            intendsToPlay: playbackPreparationShouldStart
         )
     }
 

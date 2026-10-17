@@ -162,6 +162,8 @@ struct PlaybackNowPlayingState: Equatable {
     let canToggleShuffle: Bool
     let canCycleRepeatMode: Bool
     var timelineRevision: UInt64 = 0
+    /// Whether a load or buffer in progress is meant to play.
+    var intendsToPlay = false
 }
 
 /// Owns lock-screen metadata plus remote command registration.
@@ -355,7 +357,7 @@ final class PlaybackNowPlayingBridge {
             state: state,
             artwork: artworkForMetadata
         )
-        syncNowPlayingPlaybackState(state.playbackState)
+        syncNowPlayingPlaybackState(state.playbackState, intendsToPlay: state.intendsToPlay)
         updateCommandAvailability(state)
         updateFeedbackCommandState(isLiked: state.isLiked, isDisliked: state.isDisliked)
 
@@ -708,17 +710,24 @@ final class PlaybackNowPlayingBridge {
         applyArtwork(Self.fallbackArtwork(for: track), for: requestKey)
     }
 
-    private func syncNowPlayingPlaybackState(_ playbackState: PlaybackState) {
-        guard let nowPlayingCenter else { return }
-        let mpState: MPNowPlayingPlaybackState
+    /// Matches Apple Music: a load or buffer publishes playing only when the
+    /// user asked to play, so a track that loads while paused stays paused.
+    static func systemPlaybackState(for playbackState: PlaybackState, intendsToPlay: Bool) -> MPNowPlayingPlaybackState {
         switch playbackState {
         case .playing:
-            mpState = .playing
-        case .paused, .loading, .buffering:
-            mpState = .paused
+            return .playing
+        case .loading, .buffering:
+            return intendsToPlay ? .playing : .paused
+        case .paused:
+            return .paused
         case .stopped, .failed:
-            mpState = .stopped
+            return .stopped
         }
+    }
+
+    private func syncNowPlayingPlaybackState(_ playbackState: PlaybackState, intendsToPlay: Bool) {
+        guard let nowPlayingCenter else { return }
+        let mpState = Self.systemPlaybackState(for: playbackState, intendsToPlay: intendsToPlay)
 
         nowPlayingCenter.playbackState = mpState
         EnsembleLogger.debug("[NowPlaying] Synced playbackState -> \(mpState.rawValue) (app=\(playbackState))")
