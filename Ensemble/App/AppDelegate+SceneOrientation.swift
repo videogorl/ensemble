@@ -15,9 +15,10 @@ extension AppDelegate {
             "SIRI_APP: configurationForConnecting - activities=\(options.userActivities.count), intents=\(options.shortcutItem != nil ? 1 : 0)"
         )
 
-        // Route external display (AirPlay screen mirroring) to dedicated scene delegate.
-        // This does NOT affect iPadOS Stage Manager, which uses the windowApplication role.
-        if connectingSceneSession.role == .windowExternalDisplayNonInteractive {
+        // iOS 27 uses RootView's SwiftUI scene accessory. Keep the delegate
+        // route for earlier systems without overriding the accessory's scene.
+        if #unavailable(iOS 27.0),
+           connectingSceneSession.role == .windowExternalDisplayNonInteractive {
             AppLogger.info("ExternalDisplay: routing external display scene to ExternalDisplaySceneDelegate")
             let config = UISceneConfiguration(
                 name: "External Display",

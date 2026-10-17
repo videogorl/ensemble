@@ -13,6 +13,21 @@ hardware. See [`rearchitecture-plan.md`](rearchitecture-plan.md) section 7.
 
 ## iPhone 16 Pro
 
+### TV Now Playing scene accessory, 2026-10-17 fix
+
+Applies to the commit containing the external-display accessory fix and this
+entry, or later. See the [investigation and simulator evidence](../investigations/2026-10-17-tv-now-playing-screen-mirroring.md).
+
+- Install the exact fixed build and record iOS/app/SDK identity. Connect a TV
+  through Control Center Screen Mirroring: the dedicated wide Now Playing view
+  should replace the ordinary phone mirror while Ensemble is foregrounded.
+- Check idle and active playback, artwork/progress, Queue/Lyrics/Info selection,
+  lyrics timing, phone navigation/dismissal, cold launch while mirrored, and
+  disconnect/reconnect. Compare audio-only AirPlay, which should not take over
+  the TV. Simulator proof is limited to idle content and a 720×480 guest display.
+- Pause playback and lock the phone after the check. iPad multiwindow handoff
+  and interactive external windows also remain unverified on hardware.
+
 ### Customizable Now Playing secondary actions, 2026-10-13 feature commit
 
 Builds and SE/macOS/iPad evidence are in
