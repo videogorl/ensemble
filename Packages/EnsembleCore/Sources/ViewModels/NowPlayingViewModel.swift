@@ -87,7 +87,6 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var isAutoplayEnabled = false
     @Published public private(set) var isSmartMixEnabled = false
     @Published public private(set) var autoplayTracks: [Track] = []
-    @Published public private(set) var isAutoplayActive = false
     @Published public private(set) var radioMode: RadioMode = .off
     @Published public private(set) var recommendationsExhausted = false
     @Published public var showHistory: Bool = false
@@ -260,41 +259,25 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        playbackService.currentTrackPublisher
+        // One subscription to the playback snapshot; each field updates only when it changes.
+        playbackService.snapshotPublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] track in
+            .sink { [weak self] snapshot in
                 guard let self else { return }
-                self.setIfChanged(\.currentTrack, track)
-            }
-            .store(in: &cancellables)
-
-        playbackService.playbackStatePublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                self?.setIfChanged(\.playbackState, state)
-            }
-            .store(in: &cancellables)
-
-        // Queue changes also reset chord presentation after the active queue is replaced.
-        // The queue projection independently owns the UI-facing values.
-        playbackService.queuePublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] queue in
-                self?.resetChordModeIfQueueRebuilt(queue)
-            }
-            .store(in: &cancellables)
-
-        playbackService.shufflePublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isEnabled in
-                self?.setIfChanged(\.isShuffleEnabled, isEnabled)
-            }
-            .store(in: &cancellables)
-
-        playbackService.repeatModePublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] mode in
-                self?.setIfChanged(\.repeatMode, mode)
+                self.setIfChanged(\.currentTrack, snapshot.currentTrack)
+                self.setIfChanged(\.playbackState, snapshot.playbackState)
+                // Queue changes also reset chord presentation after the active queue is replaced.
+                // The queue projection independently owns the UI-facing values.
+                self.resetChordModeIfQueueRebuilt(snapshot.queue)
+                self.setIfChanged(\.isShuffleEnabled, snapshot.isShuffleEnabled)
+                self.setIfChanged(\.repeatMode, snapshot.repeatMode)
+                self.setIfChanged(\.isAutoplayEnabled, snapshot.isAutoplayEnabled)
+                self.setIfChanged(\.isSmartMixEnabled, snapshot.isSmartMixEnabled)
+                self.playbackProjection.updateSmartMixTransitionActive(snapshot.isSmartMixTransitionActive)
+                self.setIfChanged(\.autoplayTracks, snapshot.autoplayTracks)
+                self.setIfChanged(\.radioMode, snapshot.radioMode)
+                self.setIfChanged(\.recommendationsExhausted, snapshot.recommendationsExhausted)
+                self.setIfChanged(\.isInstrumentalModeActive, snapshot.isInstrumentalModeActive)
             }
             .store(in: &cancellables)
 
@@ -306,62 +289,6 @@ public final class NowPlayingViewModel: ObservableObject {
                     self.waveformHeights = heights
                 }
                 self.playbackProjection.updateWaveformHeights(heights)
-            }
-            .store(in: &cancellables)
-
-        playbackService.autoplayEnabledPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isEnabled in
-                self?.setIfChanged(\.isAutoplayEnabled, isEnabled)
-            }
-            .store(in: &cancellables)
-
-        playbackService.smartMixEnabledPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isEnabled in
-                self?.setIfChanged(\.isSmartMixEnabled, isEnabled)
-            }
-            .store(in: &cancellables)
-
-        playbackService.smartMixTransitionActivePublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isActive in
-                self?.playbackProjection.updateSmartMixTransitionActive(isActive)
-            }
-            .store(in: &cancellables)
-
-        playbackService.autoplayTracksPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] tracks in
-                self?.setIfChanged(\.autoplayTracks, tracks)
-            }
-            .store(in: &cancellables)
-
-        playbackService.autoplayActivePublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isActive in
-                self?.setIfChanged(\.isAutoplayActive, isActive)
-            }
-            .store(in: &cancellables)
-
-        playbackService.radioModePublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] mode in
-                self?.setIfChanged(\.radioMode, mode)
-            }
-            .store(in: &cancellables)
-
-        playbackService.recommendationsExhaustedPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isExhausted in
-                self?.setIfChanged(\.recommendationsExhausted, isExhausted)
-            }
-            .store(in: &cancellables)
-
-        playbackService.instrumentalModeActivePublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isActive in
-                self?.setIfChanged(\.isInstrumentalModeActive, isActive)
             }
             .store(in: &cancellables)
 

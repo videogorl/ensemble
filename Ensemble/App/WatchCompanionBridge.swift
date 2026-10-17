@@ -55,14 +55,16 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
     }
 
     private func bindPlayback(_ playbackService: PlaybackService) {
-        let playbackChanged = Publishers.MergeMany(
-            playbackService.currentTrackPublisher.map { _ in () }.eraseToAnyPublisher(),
-            playbackService.playbackStatePublisher.map { _ in () }.eraseToAnyPublisher(),
-            playbackService.queuePublisher.map { _ in () }.eraseToAnyPublisher(),
-            playbackService.currentQueueIndexPublisher.map { _ in () }.eraseToAnyPublisher(),
-            playbackService.shufflePublisher.map { _ in () }.eraseToAnyPublisher(),
-            playbackService.repeatModePublisher.map { _ in () }.eraseToAnyPublisher()
-        )
+        // The watch mirrors the current item, state, queue, and modes.
+        let playbackChanged = playbackService.snapshotPublisher
+            .removeDuplicates { old, new in
+                old.currentTrack == new.currentTrack
+                    && old.playbackState == new.playbackState
+                    && old.queue == new.queue
+                    && old.currentQueueIndex == new.currentQueueIndex
+                    && old.isShuffleEnabled == new.isShuffleEnabled
+                    && old.repeatMode == new.repeatMode
+            }
 
         playbackChanged
             .debounce(for: .milliseconds(100), scheduler: RunLoop.main)

@@ -23,7 +23,6 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         private let smartMixDisabledForAlbumsSubject = CurrentValueSubject<Bool, Never>(true)
         private let smartMixTransitionActiveSubject = CurrentValueSubject<Bool, Never>(false)
         private let autoplayTracksSubject = CurrentValueSubject<[Track], Never>([])
-        private let autoplayActiveSubject = CurrentValueSubject<Bool, Never>(false)
         private let radioModeSubject = CurrentValueSubject<RadioMode, Never>(.off)
         private let recommendationsSubject = CurrentValueSubject<Bool, Never>(false)
         private let historySubject = CurrentValueSubject<[QueueItem], Never>([])
@@ -50,39 +49,65 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var isSmartMixDisabledForAlbums: Bool { smartMixDisabledForAlbumsSubject.value }
         var isSmartMixTransitionActive: Bool { smartMixTransitionActiveSubject.value }
         var autoplayTracks: [Track] { autoplayTracksSubject.value }
-        var isAutoplayActive: Bool { autoplayActiveSubject.value }
         var radioMode: RadioMode { radioModeSubject.value }
         var recommendationsExhausted: Bool { recommendationsSubject.value }
         var playbackHistory: [QueueItem] { historySubject.value }
+        var snapshot: PlaybackSnapshot {
+            PlaybackSnapshot(
+                currentTrack: currentTrack,
+                playbackState: playbackState,
+                queue: queue,
+                currentQueueIndex: currentQueueIndex,
+                history: playbackHistory,
+                isShuffleEnabled: isShuffleEnabled,
+                repeatMode: repeatMode,
+                isAutoplayEnabled: isAutoplayEnabled,
+                autoplayTracks: autoplayTracks,
+                radioMode: radioMode,
+                recommendationsExhausted: recommendationsExhausted,
+                isSmartMixEnabled: isSmartMixEnabled,
+                isSmartMixDisabledForAlbums: isSmartMixDisabledForAlbums,
+                isSmartMixTransitionActive: isSmartMixTransitionActive,
+                isInstrumentalModeActive: isInstrumentalModeActive,
+                isExternalPlaybackActive: isExternalPlaybackActive
+            )
+        }
+
+        /// Re-emits the snapshot whenever any field subject changes.
+        var snapshotPublisher: AnyPublisher<PlaybackSnapshot, Never> {
+            let changes: [AnyPublisher<Void, Never>] = [
+                currentTrackSubject.map { _ in () }.eraseToAnyPublisher(),
+                playbackStateSubject.map { _ in () }.eraseToAnyPublisher(),
+                queueSubject.map { _ in () }.eraseToAnyPublisher(),
+                queueIndexSubject.map { _ in () }.eraseToAnyPublisher(),
+                historySubject.map { _ in () }.eraseToAnyPublisher(),
+                shuffleSubject.map { _ in () }.eraseToAnyPublisher(),
+                repeatModeSubject.map { _ in () }.eraseToAnyPublisher(),
+                autoplayEnabledSubject.map { _ in () }.eraseToAnyPublisher(),
+                autoplayTracksSubject.map { _ in () }.eraseToAnyPublisher(),
+                radioModeSubject.map { _ in () }.eraseToAnyPublisher(),
+                recommendationsSubject.map { _ in () }.eraseToAnyPublisher(),
+                smartMixEnabledSubject.map { _ in () }.eraseToAnyPublisher(),
+                smartMixDisabledForAlbumsSubject.map { _ in () }.eraseToAnyPublisher(),
+                smartMixTransitionActiveSubject.map { _ in () }.eraseToAnyPublisher()
+            ]
+            return Publishers.MergeMany(changes)
+                .map { [unowned self] in self.snapshot }
+                .eraseToAnyPublisher()
+        }
+
         var isScreenMirroringActive: Bool = false
 
-        var currentTrackPublisher: AnyPublisher<Track?, Never> { currentTrackSubject.eraseToAnyPublisher() }
-        var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { playbackStateSubject.eraseToAnyPublisher() }
         var currentTimePublisher: AnyPublisher<TimeInterval, Never> { currentTimeSubject.eraseToAnyPublisher() }
         var currentTimeValue: TimeInterval { currentTimeSubject.value }
         var presentationTimePublisher: AnyPublisher<TimeInterval, Never> { presentationTimeSubject.eraseToAnyPublisher() }
         var presentationTimeValue: TimeInterval { presentationTimeSubject.value }
         var bufferedProgressValue: Double { bufferedProgressSubject.value }
         var bufferedProgressPublisher: AnyPublisher<Double, Never> { bufferedProgressSubject.eraseToAnyPublisher() }
-        var queuePublisher: AnyPublisher<[QueueItem], Never> { queueSubject.eraseToAnyPublisher() }
-        var currentQueueIndexPublisher: AnyPublisher<Int, Never> { queueIndexSubject.eraseToAnyPublisher() }
-        var shufflePublisher: AnyPublisher<Bool, Never> { shuffleSubject.eraseToAnyPublisher() }
-        var repeatModePublisher: AnyPublisher<RepeatMode, Never> { repeatModeSubject.eraseToAnyPublisher() }
         var waveformPublisher: AnyPublisher<[Double], Never> { waveformSubject.eraseToAnyPublisher() }
         var frequencyBandsPublisher: AnyPublisher<[Double], Never> { Just([]).eraseToAnyPublisher() }
-        var isExternalPlaybackActivePublisher: AnyPublisher<Bool, Never> { Just(false).eraseToAnyPublisher() }
-        var autoplayEnabledPublisher: AnyPublisher<Bool, Never> { autoplayEnabledSubject.eraseToAnyPublisher() }
-        var smartMixEnabledPublisher: AnyPublisher<Bool, Never> { smartMixEnabledSubject.eraseToAnyPublisher() }
-        var smartMixDisabledForAlbumsPublisher: AnyPublisher<Bool, Never> { smartMixDisabledForAlbumsSubject.eraseToAnyPublisher() }
-        var smartMixTransitionActivePublisher: AnyPublisher<Bool, Never> { smartMixTransitionActiveSubject.eraseToAnyPublisher() }
-        var autoplayTracksPublisher: AnyPublisher<[Track], Never> { autoplayTracksSubject.eraseToAnyPublisher() }
-        var autoplayActivePublisher: AnyPublisher<Bool, Never> { autoplayActiveSubject.eraseToAnyPublisher() }
-        var radioModePublisher: AnyPublisher<RadioMode, Never> { radioModeSubject.eraseToAnyPublisher() }
-        var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { recommendationsSubject.eraseToAnyPublisher() }
-        var historyPublisher: AnyPublisher<[QueueItem], Never> { historySubject.eraseToAnyPublisher() }
 
         var isInstrumentalModeActive: Bool { false }
-        var instrumentalModeActivePublisher: AnyPublisher<Bool, Never> { Just(false).eraseToAnyPublisher() }
         func setInstrumentalMode(_ enabled: Bool) {}
 
         func play(track: Track, context: PlaybackStartContext) async {

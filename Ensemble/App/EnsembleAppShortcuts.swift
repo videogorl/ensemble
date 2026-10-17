@@ -27,7 +27,7 @@ final class EnsembleRelevantEntitiesPublisher {
         guard observationTask == nil else { return }
 
         observationTask = Task { @MainActor in
-            for await track in DependencyContainer.shared.playbackService.currentTrackPublisher.values {
+            for await track in DependencyContainer.shared.playbackService.snapshotPublisher(\.currentTrack).values {
                 guard !Task.isCancelled else { return }
                 await publish(track)
             }

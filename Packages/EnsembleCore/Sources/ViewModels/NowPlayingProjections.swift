@@ -141,19 +141,14 @@ public final class NowPlayingQueueProjection: ObservableObject {
     }
 
     func bind(to playbackService: PlaybackServiceProtocol) {
-        playbackService.queuePublisher
+        playbackService.snapshotPublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] queue in self?.updateQueue(queue) }
-            .store(in: &cancellables)
-
-        playbackService.currentQueueIndexPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] index in self?.updateCurrentQueueIndex(index) }
-            .store(in: &cancellables)
-
-        playbackService.historyPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] history in self?.updatePlaybackHistory(history) }
+            .sink { [weak self] snapshot in
+                guard let self else { return }
+                self.updateQueue(snapshot.queue)
+                self.updateCurrentQueueIndex(snapshot.currentQueueIndex)
+                self.updatePlaybackHistory(snapshot.history)
+            }
             .store(in: &cancellables)
     }
 

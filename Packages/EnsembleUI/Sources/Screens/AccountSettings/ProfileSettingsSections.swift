@@ -201,11 +201,11 @@ struct SmartMixSettingsView: View {
                 }
             }
         }
-        .onReceive(playbackService.smartMixEnabledPublisher) { isEnabled in
+        .onReceive(playbackService.snapshotPublisher(\.isSmartMixEnabled)) { isEnabled in
             guard isSmartMixEnabled != isEnabled else { return }
             isSmartMixEnabled = isEnabled
         }
-        .onReceive(playbackService.smartMixDisabledForAlbumsPublisher) { isDisabled in
+        .onReceive(playbackService.snapshotPublisher(\.isSmartMixDisabledForAlbums)) { isDisabled in
             guard isSmartMixDisabledForAlbums != isDisabled else { return }
             isSmartMixDisabledForAlbums = isDisabled
         }

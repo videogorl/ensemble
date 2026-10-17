@@ -140,7 +140,7 @@ public struct AuroraVisualizationView: View {
             cancelSettleToZero()
             ingestBands(bands)
         }
-        .onReceive(playbackService.playbackStatePublisher) { state in
+        .onReceive(playbackService.snapshotPublisher(\.playbackState)) { state in
             // Deduplicate: skip repeated state values to avoid redundant visibility checks
             guard state != playbackState else { return }
             playbackState = state

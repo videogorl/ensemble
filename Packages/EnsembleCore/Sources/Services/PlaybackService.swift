@@ -114,6 +114,9 @@ public struct QueueItem: Identifiable, Equatable, Sendable, Codable {
 // MARK: - Playback Service Protocol
 
 public protocol PlaybackServiceProtocol: AnyObject {
+    /// The one published playback value; views and view models render from it.
+    var snapshot: PlaybackSnapshot { get }
+    var snapshotPublisher: AnyPublisher<PlaybackSnapshot, Never> { get }
     var currentTrack: Track? { get }
     var playbackState: PlaybackState { get }
     var currentTime: TimeInterval { get }
@@ -131,34 +134,17 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var isSmartMixDisabledForAlbums: Bool { get }
     var isSmartMixTransitionActive: Bool { get }
     var autoplayTracks: [Track] { get }
-    var isAutoplayActive: Bool { get }
     var radioMode: RadioMode { get }
     var recommendationsExhausted: Bool { get }
     var playbackHistory: [QueueItem] { get }
-    var currentTrackPublisher: AnyPublisher<Track?, Never> { get }
-    var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { get }
     var currentTimePublisher: AnyPublisher<TimeInterval, Never> { get }
     var currentTimeValue: TimeInterval { get }
     var presentationTimePublisher: AnyPublisher<TimeInterval, Never> { get }
     var presentationTimeValue: TimeInterval { get }
     var bufferedProgressValue: Double { get }
     var bufferedProgressPublisher: AnyPublisher<Double, Never> { get }
-    var queuePublisher: AnyPublisher<[QueueItem], Never> { get }
-    var currentQueueIndexPublisher: AnyPublisher<Int, Never> { get }
-    var shufflePublisher: AnyPublisher<Bool, Never> { get }
-    var repeatModePublisher: AnyPublisher<RepeatMode, Never> { get }
     var waveformPublisher: AnyPublisher<[Double], Never> { get }
     var frequencyBandsPublisher: AnyPublisher<[Double], Never> { get }
-    var isExternalPlaybackActivePublisher: AnyPublisher<Bool, Never> { get }
-    var autoplayEnabledPublisher: AnyPublisher<Bool, Never> { get }
-    var smartMixEnabledPublisher: AnyPublisher<Bool, Never> { get }
-    var smartMixDisabledForAlbumsPublisher: AnyPublisher<Bool, Never> { get }
-    var smartMixTransitionActivePublisher: AnyPublisher<Bool, Never> { get }
-    var autoplayTracksPublisher: AnyPublisher<[Track], Never> { get }
-    var autoplayActivePublisher: AnyPublisher<Bool, Never> { get }
-    var radioModePublisher: AnyPublisher<RadioMode, Never> { get }
-    var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> { get }
-    var historyPublisher: AnyPublisher<[QueueItem], Never> { get }
     func play(track: Track, context: PlaybackStartContext) async
     func play(tracks: [Track], startingAt index: Int, context: PlaybackStartContext) async
     func shufflePlay(tracks: [Track], context: PlaybackStartContext) async
@@ -209,7 +195,6 @@ public protocol PlaybackServiceProtocol: AnyObject {
 
     /// Whether instrumental mode (vocal attenuation) is currently active
     var isInstrumentalModeActive: Bool { get }
-    var instrumentalModeActivePublisher: AnyPublisher<Bool, Never> { get }
 
     /// Toggle instrumental mode on or off. Requires iOS 16+ / A13+ device.
     func setInstrumentalMode(_ enabled: Bool)
@@ -819,9 +804,30 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Publishers
 
-    @Published public private(set) var currentTrack: Track?
-    @Published public private(set) var playbackState: PlaybackState = .stopped {
-        didSet {
+    /// The one published playback value. The properties below read and write it.
+    @Published public private(set) var snapshot = PlaybackSnapshot(
+        isShuffleEnabled: UserDefaults.standard.bool(forKey: PlaybackPreferenceKey.shuffleEnabled),
+        repeatMode: RepeatMode(rawValue: UserDefaults.standard.integer(forKey: PlaybackPreferenceKey.repeatMode)) ?? .off,
+        isAutoplayEnabled: UserDefaults.standard.bool(forKey: PlaybackPreferenceKey.autoplayEnabled),
+        isSmartMixEnabled: UserDefaults.standard.bool(forKey: PlaybackPreferenceKey.smartMixEnabled),
+        isSmartMixDisabledForAlbums: UserDefaults.standard.object(
+            forKey: PlaybackPreferenceKey.smartMixDisabledForAlbums
+        ) as? Bool ?? true
+    )
+
+    public var snapshotPublisher: AnyPublisher<PlaybackSnapshot, Never> {
+        $snapshot.eraseToAnyPublisher()
+    }
+
+    public private(set) var currentTrack: Track? {
+        get { snapshot.currentTrack }
+        set { snapshot.currentTrack = newValue }
+    }
+    public private(set) var playbackState: PlaybackState {
+        get { snapshot.playbackState }
+        set {
+            let oldValue = snapshot.playbackState
+            snapshot.playbackState = newValue
             guard playbackState != oldValue else { return }
             let trackTitle = currentTrack?.title ?? "nil"
             EnsembleLogger.playback("STATE: \(oldValue) → \(playbackState), track='\(trackTitle)'")
@@ -837,20 +843,30 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var currentTime: TimeInterval = 0
     @Published public private(set) var presentationTime: TimeInterval = 0
     @Published public private(set) var bufferedProgress: Double = 0
-    @Published public private(set) var queue: [QueueItem] = [] {
-        didSet { queueStateRevision &+= 1 }
+    public private(set) var queue: [QueueItem] {
+        get { snapshot.queue }
+        set {
+            snapshot.queue = newValue
+            queueStateRevision &+= 1
+        }
     }
-    @Published public private(set) var currentQueueIndex: Int = -1 {
-        didSet { queueStateRevision &+= 1 }
+    public private(set) var currentQueueIndex: Int {
+        get { snapshot.currentQueueIndex }
+        set {
+            snapshot.currentQueueIndex = newValue
+            queueStateRevision &+= 1
+        }
     }
     public private(set) var queueStateRevision = 0
     private var hasUserQueueEdits = false
-    @Published public private(set) var isShuffleEnabled: Bool = UserDefaults.standard.bool(
-        forKey: PlaybackPreferenceKey.shuffleEnabled
-    )
-    @Published public private(set) var repeatMode: RepeatMode = .init(
-        rawValue: UserDefaults.standard.integer(forKey: PlaybackPreferenceKey.repeatMode)
-    ) ?? .off
+    public private(set) var isShuffleEnabled: Bool {
+        get { snapshot.isShuffleEnabled }
+        set { snapshot.isShuffleEnabled = newValue }
+    }
+    public private(set) var repeatMode: RepeatMode {
+        get { snapshot.repeatMode }
+        set { snapshot.repeatMode = newValue }
+    }
     @Published public private(set) var waveformHeights: [Double] = []
     /// Decoupled from @Published to avoid firing objectWillChange at 30Hz.
     /// Views that need frequency data subscribe via frequencyBandsPublisher instead.
@@ -860,29 +876,44 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         set { frequencyBandsSubject.send(newValue) }
     }
 
-    @Published public private(set) var isExternalPlaybackActive: Bool = false
-    @Published public private(set) var isAutoplayEnabled: Bool = UserDefaults.standard.bool(
-        forKey: PlaybackPreferenceKey.autoplayEnabled
-    )
-    @Published public private(set) var isSmartMixEnabled: Bool = UserDefaults.standard.bool(
-        forKey: PlaybackPreferenceKey.smartMixEnabled
-    )
-    @Published public private(set) var isSmartMixDisabledForAlbums: Bool =
-        UserDefaults.standard.object(forKey: PlaybackPreferenceKey.smartMixDisabledForAlbums) as? Bool ?? true
-    @Published public private(set) var isSmartMixTransitionActive: Bool = false
-    @Published public private(set) var autoplayTracks: [Track] = []
-    @Published public private(set) var isAutoplayActive: Bool = false
-    @Published public private(set) var radioMode: RadioMode = .off
-    @Published public private(set) var recommendationsExhausted: Bool = false
-    @Published public private(set) var isInstrumentalModeActive: Bool = false
-
-    public var currentTrackPublisher: AnyPublisher<Track?, Never> {
-        $currentTrack.eraseToAnyPublisher()
+    public private(set) var isExternalPlaybackActive: Bool {
+        get { snapshot.isExternalPlaybackActive }
+        set { snapshot.isExternalPlaybackActive = newValue }
+    }
+    public private(set) var isAutoplayEnabled: Bool {
+        get { snapshot.isAutoplayEnabled }
+        set { snapshot.isAutoplayEnabled = newValue }
+    }
+    public private(set) var isSmartMixEnabled: Bool {
+        get { snapshot.isSmartMixEnabled }
+        set { snapshot.isSmartMixEnabled = newValue }
+    }
+    public private(set) var isSmartMixDisabledForAlbums: Bool {
+        get { snapshot.isSmartMixDisabledForAlbums }
+        set { snapshot.isSmartMixDisabledForAlbums = newValue }
+    }
+    public private(set) var isSmartMixTransitionActive: Bool {
+        get { snapshot.isSmartMixTransitionActive }
+        set { snapshot.isSmartMixTransitionActive = newValue }
+    }
+    public private(set) var autoplayTracks: [Track] {
+        get { snapshot.autoplayTracks }
+        set { snapshot.autoplayTracks = newValue }
+    }
+    public private(set) var radioMode: RadioMode {
+        get { snapshot.radioMode }
+        set { snapshot.radioMode = newValue }
+    }
+    public private(set) var recommendationsExhausted: Bool {
+        get { snapshot.recommendationsExhausted }
+        set { snapshot.recommendationsExhausted = newValue }
+    }
+    public private(set) var isInstrumentalModeActive: Bool {
+        get { snapshot.isInstrumentalModeActive }
+        set { snapshot.isInstrumentalModeActive = newValue }
     }
 
-    public var playbackStatePublisher: AnyPublisher<PlaybackState, Never> {
-        $playbackState.eraseToAnyPublisher()
-    }
+
 
     public var currentTimePublisher: AnyPublisher<TimeInterval, Never> {
         $currentTime.eraseToAnyPublisher()
@@ -909,21 +940,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         $bufferedProgress.eraseToAnyPublisher()
     }
 
-    public var queuePublisher: AnyPublisher<[QueueItem], Never> {
-        $queue.eraseToAnyPublisher()
-    }
 
-    public var currentQueueIndexPublisher: AnyPublisher<Int, Never> {
-        $currentQueueIndex.eraseToAnyPublisher()
-    }
 
-    public var shufflePublisher: AnyPublisher<Bool, Never> {
-        $isShuffleEnabled.eraseToAnyPublisher()
-    }
 
-    public var repeatModePublisher: AnyPublisher<RepeatMode, Never> {
-        $repeatMode.eraseToAnyPublisher()
-    }
 
     public var waveformPublisher: AnyPublisher<[Double], Never> {
         $waveformHeights.eraseToAnyPublisher()
@@ -933,45 +952,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         frequencyBandsSubject.eraseToAnyPublisher()
     }
 
-    public var isExternalPlaybackActivePublisher: AnyPublisher<Bool, Never> {
-        $isExternalPlaybackActive.eraseToAnyPublisher()
-    }
 
-    public var autoplayEnabledPublisher: AnyPublisher<Bool, Never> {
-        $isAutoplayEnabled.eraseToAnyPublisher()
-    }
 
-    public var smartMixEnabledPublisher: AnyPublisher<Bool, Never> {
-        $isSmartMixEnabled.eraseToAnyPublisher()
-    }
 
-    public var smartMixDisabledForAlbumsPublisher: AnyPublisher<Bool, Never> {
-        $isSmartMixDisabledForAlbums.eraseToAnyPublisher()
-    }
 
-    public var smartMixTransitionActivePublisher: AnyPublisher<Bool, Never> {
-        $isSmartMixTransitionActive.eraseToAnyPublisher()
-    }
 
-    public var autoplayTracksPublisher: AnyPublisher<[Track], Never> {
-        $autoplayTracks.eraseToAnyPublisher()
-    }
 
-    public var autoplayActivePublisher: AnyPublisher<Bool, Never> {
-        $isAutoplayActive.eraseToAnyPublisher()
-    }
 
-    public var radioModePublisher: AnyPublisher<RadioMode, Never> {
-        $radioMode.eraseToAnyPublisher()
-    }
 
-    public var recommendationsExhaustedPublisher: AnyPublisher<Bool, Never> {
-        $recommendationsExhausted.eraseToAnyPublisher()
-    }
 
-    public var instrumentalModeActivePublisher: AnyPublisher<Bool, Never> {
-        $isInstrumentalModeActive.eraseToAnyPublisher()
-    }
 
     /// Returns the duration for the current track.
     /// Prefers the engine's file-level duration (exact PCM frame count) when available,
@@ -1134,7 +1123,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     #endif
     private var nativeEngineAdapter: NativePlaybackEngineAdapter?
     // Playback history for "previous" navigation (not persisted across app restarts)
-    @Published public private(set) var playbackHistory: [QueueItem] = []
+    public private(set) var playbackHistory: [QueueItem] {
+        get { snapshot.history }
+        set { snapshot.history = newValue }
+    }
     private static let maxHistorySize = 100 // Cap for 2GB RAM devices
 
     private var lastRemoteSkipTime: CFTimeInterval = 0 // Debounce for remote command center skip events
@@ -1263,9 +1255,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    public var historyPublisher: AnyPublisher<[QueueItem], Never> {
-        $playbackHistory.eraseToAnyPublisher()
-    }
 
     // MARK: - Section Boundary Helpers
 
@@ -4398,7 +4387,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Remove all autoplay items from queue and clear state
             queue.removeAll { $0.source == .autoplay }
             originalQueue.removeAll { $0.source == .autoplay }
-            isAutoplayActive = false
             autoplayTracks = []
             queueController.clearAutoGeneratedTrackIds()
             radioMode = .off
