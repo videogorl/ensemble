@@ -36,10 +36,10 @@ Done in slices, each committed and tested:
   (silent stream refresh after a long pause; today the existing recovery
   path runs), and the unshuffled order as IDs in the snapshot. These
   touch the snapshot and the UI, so they move to 1e.
-- **"Clear queue" under G20 is unresolved.** `clearQueue()` keeps the
-  current track playing and clears what follows it. A literal reading of
-  G20 would stop playback and clear everything. That is a visible change,
-  so it waits for Felicity's answer.
+- **"Clear queue" under G20, resolved 2026-10-17.** Felicity amended G20:
+  Clear Queue keeps today's behaviour (the current track keeps playing and
+  only upcoming items are cleared), and Stop happens only on sign-out or
+  server removal. No code change was needed.
 
 ## Checks
 

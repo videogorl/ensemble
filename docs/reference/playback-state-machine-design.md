@@ -245,7 +245,8 @@ completion, Next, gapless scheduling, and SmartMix, on both engines.
 | Move, remove | Edit the queue value. Moving or removing the scheduled next item cancels its prefetch and schedules the new next item. Removing the last item mid-transition ends as natural end with nothing else (G9) |
 | Any edit that changes the scheduled next item | Emit `clearScheduled` and `scheduleNext` |
 | Interruption begins | During a load or handoff, let it finish, then pause. Otherwise pause. Resume only on the system's should-resume hint; locked or not, stay paused otherwise (G14) |
-| Stop | Only on sign-out, server removal, or clear queue. Clears the current item and the queue. Every other halt is Pause (G20) |
+| Stop | Only on sign-out or server removal. Clears the current item and the queue. Every other halt is Pause (G20, amended 2026-10-17) |
+| Clear queue | Keeps the current item playing and clears only the upcoming items (G20, amended 2026-10-17) |
 | Relaunch | Restore paused, on the same item and position, with shuffle, repeat, and autoplay (G8, G13) |
 
 The Mac follows the same table: seek, track endings, relaunch, and route
