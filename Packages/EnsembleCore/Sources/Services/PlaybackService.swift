@@ -489,25 +489,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    static func shouldAcceptAppleMusicCallback(
-        queueGeneration: UInt64,
-        activeQueueGeneration: UInt64?,
-        isAppleMusicEnabled: Bool,
-        currentTrackIsAppleMusic: Bool,
-        playbackState: PlaybackState,
-        acceptsPausedPlayback: Bool = false
-    ) -> Bool {
-        guard activeQueueGeneration == queueGeneration,
-              isAppleMusicEnabled,
-              currentTrackIsAppleMusic else { return false }
-
-        return switch playbackState {
-        case .loading, .buffering, .playing: true
-        case .paused: acceptsPausedPlayback
-        case .stopped, .failed: false
-        }
-    }
-
     static func pruningUnresolvedAppleMusicItems(
         queue: [QueueItem],
         originalQueue: [QueueItem],
@@ -1004,7 +985,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var audioEngine: AudioPlaybackEngine?
     private let maxCachedFileURLs = 10
     /// Combine subscription for engine time updates
-    private var engineTimeCancellable: AnyCancellable?
     private var loadingStateTask: Task<Void, Never>? // Delayed loading state transition
     private var isHandlingQueueExhaustion = false
     /// Set while handleTLSPlaybackFailure is refreshing connection and retrying.
@@ -1058,7 +1038,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var handoffCoordinator = PlaybackHandoffCoordinator()
     private var handoffSettleTask: Task<Void, Never>?
     private var handoffEventCounter: UInt64 = 0
-    private var unexpectedPauseCount = 0
     // Background task identifier used to keep the app alive during track transitions.
     // Without this, iOS may suspend the app between tracks when no audio is playing.
     #if canImport(UIKit)
@@ -1146,8 +1125,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let maxQueueLookahead = 5 // Max number of future tracks to keep queued
     #if os(iOS)
         private var appleMusicPlaybackController: AppleMusicPlaybackControlling?
-        private var appleMusicPreviousRestartGeneration: UInt64?
+        private var appleMusicEngineAdapter: AppleMusicEngineEventAdapter?
     #endif
+    /// The session engine events must carry to be acted on; nil when no item is loaded.
+    private var activeEngineSession: PlaybackSessionID?
+    private var nativeEngineAdapter: NativePlaybackEngineAdapter?
     // Playback history for "previous" navigation (not persisted across app restarts)
     @Published public private(set) var playbackHistory: [QueueItem] = []
     private static let maxHistorySize = 100 // Cap for 2GB RAM devices
@@ -1158,7 +1140,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var playbackGenerationCounter: UInt64 = 0 // Incremented on each new playback request to cancel stale completions
     private var playbackPreparationShouldStart = true
     private var appleMusicQueueMutationGeneration: UInt64 = 0
-    private var isSynchronizingAppleMusicQueueMutation = false
     /// Timestamps of recent handleQueueExhausted calls for rapid-advance rate limiting
     private var queueExhaustedTimestamps: [Date] = []
     /// Safety timer to force-reset isSkipTransitionInProgress if it gets stuck
@@ -1401,91 +1382,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // Wire engine callbacks for queue management
-        engine.onPlaybackComplete = { [weak self] generation in
-            guard let self else { return }
-            guard generation == self.playbackGenerationCounter else {
-                EnsembleLogger.debug(
-                    "[AudioEngine] Ignoring stale completion generation=\(generation)"
-                        + " current=\(self.playbackGenerationCounter)"
-                )
-                return
-            }
-            #if canImport(UIKit)
-                self.endTransitionLeaseGeneration = nil
-            #endif
-            self.beginTrackTransitionBackgroundTask(for: generation)
-            Task { @MainActor [self] in
-                defer { self.endTrackTransitionBackgroundTask(for: generation) }
-                guard generation == self.playbackGenerationCounter else { return }
-                await self.handleQueueExhausted()
-            }
+        let adapter = NativePlaybackEngineAdapter(engine: engine)
+        adapter.onEvent = { [weak self] envelope in
+            MainActor.assumeIsolated { self?.handleEngineEvent(envelope) }
         }
+        nativeEngineAdapter = adapter
 
-        engine.onTrackAdvance = { [weak self] newTrackId, generation in
-            DispatchQueue.main.async {
-                guard let self, generation == self.playbackGenerationCounter else { return }
-                self.handleEngineTrackAdvance(trackId: newTrackId)
-            }
-        }
-
-        engine.onSmartMixPromote = { [weak self] newTrackId, generation in
-            DispatchQueue.main.async {
-                guard let self, generation == self.playbackGenerationCounter else { return }
-                self.handleSmartMixPromotion(trackId: newTrackId)
-            }
-        }
-
-        engine.onSmartMixTransitionActiveChanged = { [weak self] isActive, generation in
-            DispatchQueue.main.async {
-                guard let self,
-                      generation == self.playbackGenerationCounter,
-                      self.isSmartMixTransitionActive != isActive else { return }
-                self.isSmartMixTransitionActive = isActive
-            }
-        }
-
-        engine.onFirstAudibleRender = { [weak self] trackId, generation in
-            DispatchQueue.main.async {
-                guard let self,
-                      generation == self.playbackGenerationCounter,
-                      self.currentTrack?.playbackIdentity == trackId else { return }
-                if self.playbackState == .loading || self.playbackState == .buffering {
-                    self.playbackState = .playing
-                    self.updateNowPlayingInfo()
-                    self.audioAnalyzer.resumeUpdates()
-                    self.consecutivePlaybackFailures = 0
-                    self.endTrackTransitionBackgroundTask(for: generation)
-                    self.isSkipTransitionInProgress = false
-                    self.disarmSkipTransitionSafety()
-                }
-            }
-        }
-
+        // Native-only side channels: network pressure and completed stream files.
         engine.onStreamingBufferPressureChanged = { [weak self] low in
             guard let self else { return }
             self.streamingBufferLow = low
             self.updateNetworkWorkPressure()
         }
-        engine.onStreamingRebufferingChanged = { [weak self] rebuffering, generation in
-            guard let self, generation == self.playbackGenerationCounter,
-                  self.playbackState == .playing || self.playbackState == .buffering else { return }
-            self.playbackState = rebuffering ? .buffering : .playing
-        }
-
-        engine.onBufferedProgress = { [weak self] trackId, generation, progress in
-            DispatchQueue.main.async {
-                guard let self,
-                      generation == self.playbackGenerationCounter,
-                      self.currentTrack?.playbackIdentity == trackId else { return }
-                let bounded = min(max(progress, 0), 1)
-                guard bounded >= self.bufferedProgress,
-                      abs(self.bufferedProgress - bounded) > 0.002
-                else { return }
-                self.bufferedProgress = bounded
-            }
-        }
-
         engine.onStreamingFileComplete = { [weak self] fileURL, key, _, _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -1493,69 +1401,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.cleanupStreamCacheFiles()
             }
         }
-
-        engine.onError = { [weak self, weak engine] error, trackId, generation in
-            DispatchQueue.main.async {
-                guard let self, generation == self.playbackGenerationCounter else { return }
-                if let trackId, trackId != self.currentTrack?.playbackIdentity {
-                    // Error in a gapless-scheduled track — remove it from the schedule
-                    // without stopping the currently playing track.
-                    EnsembleLogger.playback("ENGINE: scheduled track error (trackId=\(trackId)) -- \(error.localizedDescription)")
-                    self.audioEngine?.removeScheduledTrack(trackId)
-                } else if engine?.isStreamingSourceActive == true,
-                          self.playbackState == .playing
-                          || self.playbackState == .buffering
-                          || self.playbackState == .loading
-                {
-                    self.recoverCurrentStream(after: error)
-                } else {
-                    EnsembleLogger.playback("ENGINE: error -- \(error.localizedDescription)")
-                    if self.playbackState == .playing || self.playbackState == .loading {
-                        self.playbackState = .failed(error.localizedDescription)
-                        self.endTrackTransitionBackgroundTask(for: generation)
-                    }
-                }
-            }
-        }
-
-        // Bridge engine time updates to @Published currentTime
-        engineTimeCancellable = engine.currentTimeSubject
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak engine] progress in
-                guard let self, let engine,
-                      self.playbackState == .playing,
-                      progress.generation == self.playbackGenerationCounter,
-                      engine.isCurrentProgress(progress) else { return }
-                let time = progress.time
-                if let engine = self.audioEngine,
-                   engine.hasPromotedSmartMixTransition,
-                   let incomingTrackId = engine.smartMixIncomingTrackId,
-                   self.currentTrack?.playbackIdentity != incomingTrackId {
-                    self.handleSmartMixPromotion(trackId: incomingTrackId)
-                }
-                self.reconcileEngineTrackStateIfNeeded()
-                guard progress.trackID == self.currentTrack?.playbackIdentity else { return }
-                self.updatePlaybackTimes(rawTime: time)
-                self.scheduleGaplessIfNeeded()
-                self.updateEndTransitionLease(shouldHold: Self.shouldPrepareEndTransitionLease(
-                    playbackState: self.playbackState,
-                    currentTime: time,
-                    duration: self.duration,
-                    hasContinuousProviderSuccessor: !(engine.scheduledTrackIdsInOrder.isEmpty)
-                        || engine.isSmartMixTransitionActive
-                ))
-                self.persistPlaybackSnapshotIfNeeded(forObservedTime: time)
-                MainActor.assumeIsolated {
-                    self.audioAnalyzer.updatePlaybackPosition(self.presentationTime)
-                }
-
-                self.reportingController.observePlayingProgress(
-                    track: self.currentTrack,
-                    time: time,
-                    duration: self.duration,
-                    isNetworkConnected: self.lastObservedNetworkState?.isConnected == true
-                )
-            }
 
         audioEngine = engine
     }
@@ -1614,124 +1459,336 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return true
     }
 
-    /// Handle gapless track advance from AudioPlaybackEngine
-    private func handleEngineTrackAdvance(trackId: String) {
-        // If a manual skip (next/previous) is in progress, ignore the gapless advance —
-        // the skip task owns state mutation and will load the correct track.
-        if isSkipTransitionInProgress {
-            EnsembleLogger.playback("GAPLESS_ADVANCE: ignored — skip transition in progress for trackId \(trackId)")
-            return
-        }
+    // MARK: - Engine Events
 
-        if shouldSuppressAutomaticAdvanceDuringHandoff {
-            EnsembleLogger.playback("GAPLESS_ADVANCE: ignored — handoff active for trackId \(trackId)")
-            return
-        }
-
-        guard let index = Self.queueIndexForAdvance(
-            matching: trackId,
-            in: queue,
-            after: currentQueueIndex,
-            repeatCurrent: repeatMode == .one
-        ) else {
-            EnsembleLogger.debug("[AudioEngine] Track advance: trackId \(trackId) not found in queue")
-            return
-        }
-        guard currentQueueIndex != index || repeatMode == .one else {
-            EnsembleLogger.debug("[AudioEngine] Track advance: already at index \(index) for trackId \(trackId)")
-            return
-        }
-        let prevTrack = currentTrack?.title ?? "nil"
-        EnsembleLogger.playback("GAPLESS_ADVANCE: '\(prevTrack)' (idx \(currentQueueIndex)) → '\(queue[index].track.title)' (idx \(index))")
-
-        // Record previous track to history
-        if currentQueueIndex >= 0, currentQueueIndex < queue.count {
-            recordToHistory(queue[currentQueueIndex])
-        }
-
-        let newTrack = queue[index].track
-        currentQueueIndex = index
-        currentTrack = newTrack
-        consecutivePlaybackFailures = 0 // Successful gapless advance = healthy playback
-        trackStartWallTime = CACurrentMediaTime()
-        updatePlaybackTimes(rawTime: 0)
-        bufferedProgress = 1.0
-        waveformHeights = []
-        reportingController.resetForTrack()
-
-        // Reset pause tracking for the new track
-        unexpectedPauseCount = 0
-
-        // Activate the pre-computed frequency timeline for the new track.
-        MainActor.assumeIsolated {
-            audioAnalyzer.activateTimeline(for: newTrack.playbackIdentity, at: 0)
-            audioAnalyzer.resumeUpdates()
-        }
-
-        generateWaveform(for: newTrack.playbackIdentity)
-        updateNowPlayingInfo()
-        savePlaybackState()
-
-        // Re-schedule next gapless file (critical for repeat-one looping)
-        Task { await prefetchNextItem() }
-        Task { await checkAndRefreshAutoplayQueue() }
-
-        EnsembleLogger.debug("[AudioEngine] Gapless advance to '\(newTrack.title)' (index \(index))")
+    /// Starts the session for an item about to be loaded into an engine. The
+    /// session takes the request generation of that load, so the engine's stamp
+    /// and the transition background task share one number.
+    @discardableResult
+    private func beginEngineSession(generation: UInt64) -> PlaybackSessionID {
+        let session = PlaybackSessionID(rawValue: generation)
+        activeEngineSession = session
+        return session
     }
 
-    private func handleSmartMixPromotion(trackId: String) {
-        guard let index = Self.smartMixPromotionQueueIndex(
-            matching: trackId,
-            currentTrackIdentity: currentTrack?.playbackIdentity,
-            in: queue,
-            after: currentQueueIndex
-        ) else {
-            EnsembleLogger.debug("[SmartMix] Promotion ignored: trackId \(trackId) not found in queue")
-            return
-        }
-        guard currentQueueIndex != index else { return }
-
-        if currentQueueIndex >= 0, currentQueueIndex < queue.count {
-            recordToHistory(queue[currentQueueIndex])
-        }
-
-        let promotedTrack = queue[index].track
-        currentQueueIndex = index
-        currentTrack = promotedTrack
-        trackStartWallTime = CACurrentMediaTime()
-        updatePlaybackTimes(rawTime: audioEngine?.currentTime() ?? 0)
-        bufferedProgress = 1.0
-        waveformHeights = []
-        reportingController.resetForTrack()
-        unexpectedPauseCount = 0
-
-        MainActor.assumeIsolated {
-            audioAnalyzer.activateTimeline(for: promotedTrack.playbackIdentity, at: currentTime)
-            audioAnalyzer.resumeUpdates()
-        }
-
-        generateWaveform(for: promotedTrack.playbackIdentity)
-        updateNowPlayingInfo()
-        savePlaybackState()
-        Task { await prefetchNextItem() }
-        Task { await checkAndRefreshAutoplayQueue() }
-
-        EnsembleLogger.playback("SMARTMIX_PROMOTE: '\(promotedTrack.title)' (idx \(index))")
+    /// The engine keeps its load's session across pause and resume; resuming
+    /// only starts a new progress revision.
+    private func resumeSessionGeneration() -> UInt64 {
+        (activeEngineSession ?? beginEngineSession(generation: playbackGenerationCounter)).rawValue
     }
 
-    private func reconcileEngineTrackStateIfNeeded() {
-        guard let engineTrackID = audioEngine?.currentTrackId else { return }
-        guard Self.shouldReconcileEngineTrack(
-            currentTrackID: currentTrack?.playbackIdentity,
-            engineTrackID: engineTrackID,
-            isSkipTransitionInProgress: isSkipTransitionInProgress,
-            isSmartMixTransitionActive: audioEngine?.isSmartMixTransitionActive == true
-        ) else {
+    /// Ends the current session: no event from it is acted on afterwards.
+    private func endEngineSession() {
+        activeEngineSession = nil
+    }
+
+    /// Which playback states each event is acted on in, for both engines.
+    /// Apple Music reports its end while paused at the last frame; the native
+    /// engine never ends while paused, so a late native end after a pause is dropped.
+    static func acceptsEngineEvent(
+        _ event: PlaybackEngineEvent,
+        from engine: PlaybackEngineKind,
+        playbackState: PlaybackState
+    ) -> Bool {
+        let isActive = switch playbackState {
+        case .loading, .buffering, .playing: true
+        case .paused, .stopped, .failed: false
+        }
+        switch event {
+        case .progress, .itemChanged, .metadataChanged, .upcomingChanged, .externalPrevious:
+            return isActive
+        case .ended:
+            return isActive || (playbackState == .paused && engine == .appleMusic)
+        case .externallyPaused:
+            return playbackState == .playing || playbackState == .buffering
+        case .externallyResumed:
+            return playbackState == .paused
+        case .started, .buffered, .stalled, .transitionActive, .failed:
+            return true
+        }
+    }
+
+    /// The single entry for engine events. Staleness is decided here, once.
+    @MainActor
+    private func handleEngineEvent(_ envelope: PlaybackEngineEventEnvelope) {
+        guard envelope.session == activeEngineSession else {
+            if case .progress = envelope.event { return }
+            EnsembleLogger.debug(
+                "[EngineEvent] dropped \(envelope.engine) event from session \(envelope.session)"
+                    + " active=\(activeEngineSession?.description ?? "none")"
+            )
+            return
+        }
+        guard Self.acceptsEngineEvent(envelope.event, from: envelope.engine, playbackState: playbackState) else {
             return
         }
 
-        EnsembleLogger.debug("[AudioEngine] Reconciling UI to engine trackId=\(engineTrackID)")
-        handleEngineTrackAdvance(trackId: engineTrackID)
+        switch envelope.event {
+        case let .started(trackID):
+            handleEngineStarted(trackID: trackID, session: envelope.session)
+        case let .progress(trackID, position):
+            handleEngineProgress(trackID: trackID, position: position, engine: envelope.engine)
+        case let .buffered(trackID, fraction):
+            guard currentTrack?.playbackIdentity == trackID else { return }
+            let bounded = min(max(fraction, 0), 1)
+            guard bounded >= bufferedProgress, abs(bufferedProgress - bounded) > 0.002 else { return }
+            bufferedProgress = bounded
+        case let .stalled(isStalled):
+            guard playbackState == .playing || playbackState == .buffering else { return }
+            playbackState = isStalled ? .buffering : .playing
+        case let .itemChanged(trackID, kind):
+            commitEngineItemChange(trackID: trackID, via: kind, engine: envelope.engine)
+        case let .transitionActive(isActive):
+            guard isSmartMixTransitionActive != isActive else { return }
+            isSmartMixTransitionActive = isActive
+        case .ended:
+            handleEngineEnded(session: envelope.session)
+        case .externallyPaused:
+            applyPauseForHandoff(reason: .system)
+        case .externallyResumed:
+            EnsembleLogger.info("[EngineEvent] reconciled externally resumed playback")
+            playbackState = .playing
+            updateNowPlayingInfo()
+        case .externalPrevious:
+            previous()
+        case let .metadataChanged(track):
+            guard let currentTrack,
+                  currentTrack.playbackIdentity == track.playbackIdentity,
+                  currentTrack != track else { return }
+            self.currentTrack = track
+            updateNowPlayingInfo()
+        case let .upcomingChanged(tracks):
+            handleStationUpcomingChanged(tracks)
+        case let .failed(error):
+            handleEngineFailure(error, session: envelope.session)
+        }
+    }
+
+    @MainActor
+    private func handleEngineStarted(trackID: String, session: PlaybackSessionID) {
+        guard currentTrack?.playbackIdentity == trackID,
+              playbackState == .loading || playbackState == .buffering else { return }
+        playbackState = .playing
+        updateNowPlayingInfo()
+        audioAnalyzer.resumeUpdates()
+        consecutivePlaybackFailures = 0
+        endTrackTransitionBackgroundTask(for: session.rawValue)
+        isSkipTransitionInProgress = false
+        disarmSkipTransitionSafety()
+    }
+
+    /// Position updates from either engine.
+    @MainActor
+    private func handleEngineProgress(trackID: String?, position: TimeInterval, engine: PlaybackEngineKind) {
+        guard position.isFinite, position >= 0 else { return }
+        if let trackID, trackID != currentTrack?.playbackIdentity { return }
+        let previousTime = currentTime
+        let hasContinuousSuccessor = engineHasContinuousSuccessor(engine)
+        let isFinalEntryReset = AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
+            playbackTime: position,
+            lastPlayingTime: previousTime,
+            duration: duration,
+            isFinalEntry: !hasContinuousSuccessor,
+            wasPlaying: playbackState == .playing
+        )
+        updatePlaybackTimes(rawTime: position)
+        if position < previousTime { updateNowPlayingInfo() }
+        // Only the native engine schedules successors; MusicKit queues its own.
+        if engine == .native { scheduleGaplessIfNeeded() }
+        updateEndTransitionLease(shouldHold: Self.shouldPrepareEndTransitionLease(
+            playbackState: playbackState,
+            currentTime: position,
+            duration: duration,
+            hasContinuousProviderSuccessor: hasContinuousSuccessor,
+            isFinalEntryReset: isFinalEntryReset
+        ))
+        persistPlaybackSnapshotIfNeeded(forObservedTime: position)
+        audioAnalyzer.updatePlaybackPosition(presentationTime)
+        reportingController.observePlayingProgress(
+            track: currentTrack,
+            time: position,
+            duration: duration,
+            isNetworkConnected: lastObservedNetworkState?.isConnected == true
+        )
+    }
+
+    @MainActor
+    private func engineHasContinuousSuccessor(_ engine: PlaybackEngineKind) -> Bool {
+        switch engine {
+        case .native:
+            guard let audioEngine else { return false }
+            return !audioEngine.scheduledTrackIdsInOrder.isEmpty || audioEngine.isSmartMixTransitionActive
+        case .appleMusic:
+            #if os(iOS)
+                if #available(iOS 18, *) {
+                    return appleMusicEngineAdapter?.hasContinuousSuccessor == true
+                }
+            #endif
+            return false
+        }
+    }
+
+    @MainActor
+    private var isAppleMusicStationActive: Bool {
+        #if os(iOS)
+            return appleMusicPlaybackController?.isStationActive == true
+        #else
+            return false
+        #endif
+    }
+
+    /// The current item changed inside an engine: a gapless boundary, a SmartMix
+    /// midpoint, a MusicKit-owned advance, or a station pick. One bookkeeping path
+    /// for all of them (Q4).
+    @MainActor
+    private func commitEngineItemChange(
+        trackID: String,
+        via kind: PlaybackEngineAdvanceKind,
+        engine: PlaybackEngineKind
+    ) {
+        var index: Int?
+        var newTrack: Track?
+        switch kind {
+        case .gapless:
+            // A manual skip or an interruption owns the transition; it loads the right item.
+            guard !isSkipTransitionInProgress, !shouldSuppressAutomaticAdvanceDuringHandoff else {
+                EnsembleLogger.playback("GAPLESS_ADVANCE: ignored for trackId \(trackID) (skip or handoff active)")
+                return
+            }
+            index = Self.queueIndexForAdvance(
+                matching: trackID,
+                in: queue,
+                after: currentQueueIndex,
+                repeatCurrent: repeatMode == .one
+            )
+            if index == currentQueueIndex, repeatMode != .one { return }
+        case .crossfade:
+            index = Self.smartMixPromotionQueueIndex(
+                matching: trackID,
+                currentTrackIdentity: currentTrack?.playbackIdentity,
+                in: queue,
+                after: currentQueueIndex
+            )
+            if index == currentQueueIndex { return }
+        case .engineOwned:
+            guard currentTrack?.playbackIdentity != trackID else { return }
+            index = Self.queueIndexForAdvance(matching: trackID, in: queue, after: currentQueueIndex)
+            if index == currentQueueIndex { return }
+        case let .station(track):
+            guard isAppleMusicStationActive else { return }
+            if queue.indices.contains(currentQueueIndex),
+               queue[currentQueueIndex].source == .autoplay,
+               currentTrack?.playbackIdentity == track.playbackIdentity {
+                currentTrack = track
+                updateNowPlayingInfo()
+                return
+            }
+            // A station Previous returns to an item already in the queue (D5).
+            index = Self.futureQueueIndex(matching: trackID, in: queue, after: currentQueueIndex)
+                ?? queue.firstIndex { $0.track.playbackIdentity == trackID }
+            if index == nil {
+                queue.append(makeQueueItem(track: track, source: .autoplay))
+                index = queue.count - 1
+                queueController.markAutoGeneratedTrack(id: trackID)
+            }
+            newTrack = track
+        }
+        guard let index, queue.indices.contains(index) else {
+            EnsembleLogger.debug("[EngineEvent] item change to \(trackID) not found in queue")
+            return
+        }
+
+        EnsembleLogger.playback(
+            "ITEM_CHANGED: '\(currentTrack?.title ?? "nil")' (idx \(currentQueueIndex))"
+                + " → '\(queue[index].track.title)' (idx \(index)) via \(kind)"
+        )
+        if queue.indices.contains(currentQueueIndex) {
+            recordToHistory(queue[currentQueueIndex])
+        }
+        currentQueueIndex = index
+        currentTrack = newTrack ?? queue[index].track
+        let position = kind == .crossfade ? (audioEngine?.currentTime() ?? 0) : 0
+        resetForNewItem(at: position, isFullyBuffered: engine == .native)
+        if playbackState != .playing {
+            playbackState = .playing
+        }
+        updateEndTransitionLease(shouldHold: false)
+        updateNowPlayingInfo()
+        savePlaybackState()
+        if engine == .native {
+            Task { await prefetchNextItem() }
+        }
+        if !isAppleMusicStationActive {
+            Task { await checkAndRefreshAutoplayQueue() }
+        }
+    }
+
+    /// Per-item state that every new item resets, whichever engine plays it (Q4, D3).
+    @MainActor
+    private func resetForNewItem(at position: TimeInterval, isFullyBuffered: Bool) {
+        trackStartWallTime = CACurrentMediaTime()
+        updatePlaybackTimes(rawTime: position)
+        if isFullyBuffered { bufferedProgress = 1.0 }
+        waveformHeights = []
+        reportingController.resetForTrack()
+        consecutivePlaybackFailures = 0
+        guard let track = currentTrack else { return }
+        audioAnalyzer.activateTimeline(for: track.playbackIdentity, at: position)
+        audioAnalyzer.resumeUpdates()
+        generateWaveform(for: track.playbackIdentity)
+    }
+
+    @MainActor
+    private func handleStationUpcomingChanged(_ tracks: [Track]) {
+        guard isAppleMusicStationActive else { return }
+        let futureStart = currentQueueIndex + 1
+        if futureStart < queue.count { queue.removeSubrange(futureStart...) }
+        queue.append(contentsOf: tracks.map { makeQueueItem(track: $0, source: .autoplay) })
+        let removedTrackIDs = removeDuplicateFutureAutoplayItemsIfNeeded(
+            shouldInvalidateGaplessSchedule: false
+        )
+        #if os(iOS)
+            if #available(iOS 18, *) {
+                for trackID in removedTrackIDs {
+                    guard let catalogID = tracks.first(where: {
+                        $0.playbackIdentity == trackID
+                    })?.appleMusicCatalogID else { continue }
+                    _ = appleMusicPlaybackController?.removeFirstUpcomingEntry(catalogID: catalogID)
+                }
+            }
+        #endif
+        autoplayTracks = queue.dropFirst(currentQueueIndex + 1).compactMap {
+            $0.source == .autoplay ? $0.track : nil
+        }
+        savePlaybackState()
+    }
+
+    /// An item finished with nothing scheduled after it.
+    @MainActor
+    private func handleEngineEnded(session: PlaybackSessionID) {
+        #if canImport(UIKit)
+            endTransitionLeaseGeneration = nil
+        #endif
+        let generation = session.rawValue
+        beginTrackTransitionBackgroundTask(for: generation)
+        Task { @MainActor [self] in
+            defer { self.endTrackTransitionBackgroundTask(for: generation) }
+            guard self.activeEngineSession == session else { return }
+            await self.handleQueueExhausted()
+        }
+    }
+
+    @MainActor
+    private func handleEngineFailure(_ error: Error, session: PlaybackSessionID) {
+        if audioEngine?.isStreamingSourceActive == true,
+           playbackState == .playing || playbackState == .buffering || playbackState == .loading {
+            recoverCurrentStream(after: error)
+            return
+        }
+        EnsembleLogger.playback("ENGINE: error -- \(error.localizedDescription)")
+        guard playbackState == .playing || playbackState == .loading else { return }
+        playbackState = .failed(error.localizedDescription)
+        endTrackTransitionBackgroundTask(for: session.rawValue)
     }
 
     /// What follows the current item, decided by the one shared queue rule.
@@ -1823,7 +1880,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         selectQueueItemWhilePaused(at: currentQueueIndex, caller: "\(caller)-endOfQueue")
     }
 
-    /// Handles natural native playback completion.
+    /// Handles a natural end on either engine.
     @MainActor
     private func handleQueueExhausted() async {
         EnsembleLogger.playback("QUEUE_EXHAUSTED: idx=\(currentQueueIndex)/\(queue.count), state=\(playbackState), failures=\(consecutivePlaybackFailures)")
@@ -1891,11 +1948,30 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         stallRecoveryTask?.cancel()
         stallRecoveryTask = nil
 
+        let advance = queueAdvance(.naturalEnd)
+        // At an Apple Music item with autoplay on, a station replaces the
+        // continuation and any fetched autoplay items (Q1).
+        if isAutoplayEnabled,
+           let seed = currentTrack,
+           seed.isAppleMusic,
+           Self.appleMusicStationReplacesAdvance(advance, in: queue) {
+            if case let .item(index, _) = advance { queue.removeSubrange(index...) }
+            if !(await startAppleMusicAutoplayStationIfPossible(seed: seed)) {
+                settleAtEndOfQueue(caller: "handleQueueExhausted")
+            }
+            return
+        }
+
         if queue.indices.contains(currentQueueIndex) {
             recordToHistory(queue[currentQueueIndex])
         }
-
-        await performQueueAdvance(queueAdvance(.naturalEnd), caller: "handleQueueExhausted")
+        if case .item = advance {
+            // The incoming item shows as loading at once, on either engine (G16).
+            playbackState = .loading
+            isSkipTransitionInProgress = true
+            armSkipTransitionSafety()
+        }
+        await performQueueAdvance(advance, caller: "handleQueueExhausted")
     }
 
     private func generateWaveform(for trackIdentity: String) {
@@ -2212,16 +2288,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         return min(clampedSavedTime, safeUpperBound)
     }
 
-    static func shouldReconcileEngineTrack(
-        currentTrackID: String?,
-        engineTrackID: String?,
-        isSkipTransitionInProgress: Bool,
-        isSmartMixTransitionActive: Bool = false
-    ) -> Bool {
-        guard !isSkipTransitionInProgress, !isSmartMixTransitionActive, let engineTrackID else { return false }
-        return currentTrackID != engineTrackID
-    }
-
     private func refreshPresentationTime() {
         presentationTime = presentationTime(for: currentTime)
         let syncedPresentationTime = presentationTime
@@ -2371,7 +2437,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         playbackState: self.playbackState
                     )
                     self.applyHandoffOutcome(settleOutcome, event: "settleWindowFinished")
-                    self.unexpectedPauseCount = 0
                     EnsembleLogger.debug("🎧 Route handover settle window finished; pause counters reset")
                 }
 
@@ -3345,7 +3410,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     self.preBufferTask = nil
                     if self.audioEngine?.currentTrackId == self.currentTrack?.playbackIdentity {
                         do {
-                            self.audioEngine?.adoptPlaybackGeneration(self.playbackGenerationCounter)
+                            self.audioEngine?.adoptPlaybackGeneration(self.resumeSessionGeneration())
                             try self.audioEngine?.resume()
                             self.refreshPresentationLatencyEstimate()
                             self.playbackState = .playing
@@ -3390,7 +3455,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 endTrackTransitionBackgroundTask()
                 return
             }
-            audioEngine.adoptPlaybackGeneration(playbackGenerationCounter)
+            audioEngine.adoptPlaybackGeneration(resumeSessionGeneration())
             try audioEngine.resume()
             updatePlaybackTimes(rawTime: audioEngine.currentTimeSubject.value.time)
         } catch {
@@ -3437,7 +3502,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
         // Reset pause loop counters for the new route
-        unexpectedPauseCount = 0
         EnsembleLogger.debug("🎧 nudgeForAirPlayRoute: state=\(playbackState) — re-asserting playback on new route")
         // AudioPlaybackEngine handles route changes via AVAudioEngineConfigurationChange
         // notification internally. For paused state, resume normally.
@@ -3449,6 +3513,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     public func stop() {
         playbackGenerationCounter &+= 1
+        endEngineSession()
 
         // Report stopped state to Plex before cleaning up
         if let track = currentTrack {
@@ -3463,7 +3528,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #if os(iOS)
             if #available(iOS 18, *) {
                 appleMusicPlaybackController?.stop()
-                isSynchronizingAppleMusicQueueMutation = false
             }
         #endif
 
@@ -3591,6 +3655,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
+    @MainActor
     @discardableResult
     private func handleSmartMixNextIfNeeded() -> Bool {
         guard let engine = audioEngine,
@@ -3608,7 +3673,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let elapsed = engine.smartMixTransitionElapsed
         if elapsed < engine.smartMixSkipThreshold {
             engine.acceptSmartMixIncomingTrack()
-            handleSmartMixPromotion(trackId: incomingTrackId)
+            commitEngineItemChange(trackID: incomingTrackId, via: .crossfade, engine: .native)
             playbackState = .playing
             updateNowPlayingInfo()
             savePlaybackState()
@@ -3817,12 +3882,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard queue.indices.contains(index) else { return }
 
         playbackGenerationCounter &+= 1
+        endEngineSession()
         skipTransitionTask?.cancel()
         skipTransitionTask = nil
         #if os(iOS)
             if #available(iOS 18, *) {
                 appleMusicPlaybackController?.stop()
-                isSynchronizingAppleMusicQueueMutation = false
             }
         #endif
         audioEngine?.clearScheduledFiles()
@@ -3850,7 +3915,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let clampedTime = effectiveDur > 0 ? max(0, min(time, effectiveDur)) : max(0, time)
         #if os(iOS)
             if #available(iOS 18, *), currentTrack?.isAppleMusic == true {
-                appleMusicPreviousRestartGeneration = nil
+                appleMusicEngineAdapter?.noteSeek(to: clampedTime)
                 appleMusicPlaybackController?.seek(to: clampedTime)
                 updatePlaybackTimes(rawTime: clampedTime)
                 updateNowPlayingInfo()
@@ -4146,9 +4211,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
 
                 self.playbackGenerationCounter &+= 1
-                self.isSynchronizingAppleMusicQueueMutation = true
+                self.endEngineSession()
                 self.appleMusicPlaybackController?.stop()
-                self.isSynchronizingAppleMusicQueueMutation = false
                 switch self.playbackState {
                 case .loading, .buffering, .playing:
                     await self.playCurrentQueueItem(
@@ -4464,7 +4528,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard #available(iOS 18, *),
                   seed.isAppleMusic,
                   syncCoordinator.accountManager.isAppleMusicEnabled else { return false }
+            playbackGenerationCounter &+= 1
             let generation = playbackGenerationCounter
+            let session = beginEngineSession(generation: generation)
+            appleMusicEngineAdapter?.bind(session, startTime: 0)
             do {
                 try await appleMusicPlaybackController?.startStation(
                     seed: seed,
@@ -4666,7 +4733,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Bump generation so any in-flight playback request knows it's been superseded
         playbackGenerationCounter &+= 1
         let requestGeneration = playbackGenerationCounter
+        endEngineSession()
         playbackPreparationShouldStart = shouldStartPlayback
+        // A start from the beginning is a new listen for reporting and scrobbling (D3).
+        if (startTime ?? 0) == 0 {
+            reportingController.resetForTrack()
+        }
 
         // Keep the app alive during track transitions in background. A newer
         // request takes ownership of an existing task so stale requests cannot end it.
@@ -4700,7 +4772,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     "[ProviderHandoff] ApplicationMusicPlayer stopped=\(wasAppleMusicActive)"
                         + " running=\(audioEngine?.isRunningForDiagnostics == true)"
                 )
-                isSynchronizingAppleMusicQueueMutation = false
                 if wasAppleMusicActive,
                    queue.indices.contains(currentQueueIndex) {
                     currentTrack = queue[currentQueueIndex].track
@@ -5718,9 +5789,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         loadingStateTask?.cancel()
         loadingStateTask = nil
 
-        // Reset pause tracking for the new track
-        unexpectedPauseCount = 0
-
         bufferedProgress = source.initialBufferedProgress
 
         // CRITICAL: If the audio session is currently interrupted or a route change
@@ -5737,6 +5805,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     endTrackTransitionBackgroundTask(for: generation)
                     return false
                 }
+                beginEngineSession(generation: generation)
+                nativeEngineAdapter?.willLoad(trackID: trackIdentity)
                 try await engine.load(
                     source: source,
                     trackId: trackIdentity,
@@ -5777,6 +5847,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 endTrackTransitionBackgroundTask(for: generation)
                 return false
             }
+            beginEngineSession(generation: generation)
+            nativeEngineAdapter?.willLoad(trackID: trackIdentity)
             try await engine.load(
                 source: source,
                 trackId: trackIdentity,
@@ -5986,7 +6058,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                   currentTrack?.playbackIdentity == track.playbackIdentity else { return }
 
             // Load into engine without playing
-            try audioEngine?.load(fileURL: fileURL, trackId: track.playbackIdentity)
+            let session = beginEngineSession(generation: generation)
+            nativeEngineAdapter?.willLoad(trackID: track.playbackIdentity)
+            try audioEngine?.load(
+                fileURL: fileURL,
+                trackId: track.playbackIdentity,
+                playbackGeneration: session.rawValue
+            )
             let restoredTime = Self.restoredPausedSeekTime(
                 savedTime: savedTime,
                 duration: Self.effectiveDuration(
@@ -6066,60 +6144,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard appleMusicPlaybackController == nil else { return }
             let controller = AppleMusicPlaybackController()
             guard appleMusicPlaybackController == nil else { return }
-            controller.onTrackChanged = { [weak self] identity, queueGeneration in
-                self?.handleAppleMusicTrackChanged(
-                    identity,
-                    queueGeneration: queueGeneration
-                )
+            let adapter = AppleMusicEngineEventAdapter(controller: controller)
+            adapter.onEvent = { [weak self] envelope in
+                self?.handleEngineEvent(envelope)
             }
-            controller.onTimeChanged = { [weak self] time, queueGeneration in
-                self?.handleAppleMusicTimeChanged(
-                    time,
-                    queueGeneration: queueGeneration
-                )
-            }
-            controller.onEnded = { [weak self] queueGeneration in
-                Task { @MainActor in
-                    await self?.advanceAfterAppleMusicSegment(
-                        queueGeneration: queueGeneration
-                    )
-                }
-            }
-            controller.onPaused = { [weak self] queueGeneration in
-                guard let self,
-                      self.isCurrentAppleMusicQueue(queueGeneration),
-                      self.playbackState == .playing || self.playbackState == .buffering else { return }
-                self.applyPauseForHandoff(reason: .system)
-            }
-            controller.onResumed = { [weak self] queueGeneration in
-                guard let self,
-                      self.playbackState == .paused,
-                      self.isCurrentAppleMusicQueue(
-                          queueGeneration,
-                          acceptsPausedPlayback: true
-                      ) else { return }
-                EnsembleLogger.info("[MusicKit] Reconciled externally resumed playback")
-                self.playbackState = .playing
-                self.updateNowPlayingInfo()
-            }
-            controller.onDynamicTrack = { [weak self] track, queueGeneration in
-                self?.handleAppleMusicRadioTrack(
-                    track,
-                    queueGeneration: queueGeneration
-                )
-            }
-            controller.onTrackMetadataChanged = { [weak self] track, queueGeneration in
-                self?.handleAppleMusicTrackMetadata(
-                    track,
-                    queueGeneration: queueGeneration
-                )
-            }
-            controller.onDynamicQueueChanged = { [weak self] tracks, queueGeneration in
-                self?.handleAppleMusicRadioQueue(
-                    tracks,
-                    queueGeneration: queueGeneration
-                )
-            }
+            appleMusicEngineAdapter = adapter
             appleMusicPlaybackController = controller
         #endif
     }
@@ -6157,7 +6186,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     throw AppleMusicSourceError.musicKitPlaybackRequired
                 }
                 controller.stop()
-                isSynchronizingAppleMusicQueueMutation = false
+                let session = beginEngineSession(generation: generation)
+                appleMusicEngineAdapter?.bind(session, startTime: startTime)
 
                 EnsembleLogger.debug(
                     "[ProviderHandoff] phase=beforeApplicationPlay generation=\(generation)"
@@ -6204,211 +6234,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
-        @available(iOS 18, *)
-        @MainActor
-        private func handleAppleMusicTrackChanged(
-            _ identity: String,
-            queueGeneration: UInt64
-        ) {
-            guard isCurrentAppleMusicQueue(queueGeneration) else { return }
-            guard currentTrack?.playbackIdentity != identity,
-                  let index = Self.queueIndexForAdvance(
-                matching: identity,
-                in: queue,
-                after: currentQueueIndex
-            ),
-                  index != currentQueueIndex else { return }
-            updateEndTransitionLease(shouldHold: false)
-            if queue.indices.contains(currentQueueIndex) { recordToHistory(queue[currentQueueIndex]) }
-            currentQueueIndex = index
-            currentTrack = queue[index].track
-            EnsembleLogger.debug(
-                "[MusicKitTrack] generation=\(queueGeneration)"
-                    + " identity=\(identity) queueIndex=\(index)"
-            )
-            updatePlaybackTimes(rawTime: 0)
-            playbackState = .playing
-            updateNowPlayingInfo()
-            savePlaybackState()
-        }
-
-        @available(iOS 18, *)
-        @MainActor
-        private func advanceAfterAppleMusicSegment(queueGeneration: UInt64) async {
-            guard isCurrentAppleMusicQueue(
-                queueGeneration,
-                acceptsPausedPlayback: true
-            ) else { return }
-            let advance = queueAdvance(.naturalEnd)
-            var nextItem: QueueItem?
-            if case let .item(index, _) = advance { nextItem = queue[index] }
-            EnsembleLogger.debug(
-                "[ProviderHandoff] phase=appleBoundary queueGeneration=\(queueGeneration)"
-                    + " current=\(currentTrack?.playbackIdentity ?? "none")"
-                    + " next=\(nextItem?.track.playbackIdentity ?? "none")"
-                    + " nextAppleMusic=\(nextItem?.track.isAppleMusic == true)"
-                    + " appState=\(UIApplication.shared.applicationState)"
-            )
-            if isAutoplayEnabled, let seed = currentTrack, Self.appleMusicStationReplacesAdvance(advance, in: queue) {
-                if case let .item(index, _) = advance { queue.removeSubrange(index...) }
-                if !(await startAppleMusicAutoplayStationIfPossible(seed: seed)) {
-                    settleAtEndOfQueue(caller: "appleMusicSegmentEnded")
-                }
-                return
-            }
-            if case .item = advance {
-                recordToHistory(queue[currentQueueIndex])
-                playbackState = .loading
-                isSkipTransitionInProgress = true
-                armSkipTransitionSafety()
-            }
-            await performQueueAdvance(advance, caller: "appleMusicSegmentEnded")
-        }
-
-        @available(iOS 18, *)
-        @MainActor
-        private func handleAppleMusicTrackMetadata(
-            _ track: Track,
-            queueGeneration: UInt64
-        ) {
-            guard isCurrentAppleMusicQueue(queueGeneration) else { return }
-            guard let currentTrack,
-                  currentTrack.playbackIdentity == track.playbackIdentity,
-                  currentTrack != track else { return }
-            self.currentTrack = track
-            updateNowPlayingInfo()
-        }
-
-        @available(iOS 18, *)
-        @MainActor
-        private func handleAppleMusicRadioTrack(
-            _ track: Track,
-            queueGeneration: UInt64
-        ) {
-            guard isCurrentAppleMusicStationQueue(queueGeneration) else { return }
-            if queue.indices.contains(currentQueueIndex),
-               queue[currentQueueIndex].source == .autoplay,
-               currentTrack?.playbackIdentity == track.playbackIdentity {
-                currentTrack = track
-                updateNowPlayingInfo()
-                return
-            }
-            if queue.indices.contains(currentQueueIndex) {
-                recordToHistory(queue[currentQueueIndex])
-            }
-            if let existing = Self.futureQueueIndex(
-                matching: track.playbackIdentity,
-                in: queue,
-                after: currentQueueIndex
-            ) {
-                currentQueueIndex = existing
-            } else {
-                queue.append(makeQueueItem(track: track, source: .autoplay))
-                currentQueueIndex = queue.count - 1
-                queueController.markAutoGeneratedTrack(id: track.playbackIdentity)
-            }
-            currentTrack = track
-            updatePlaybackTimes(rawTime: 0)
-            playbackState = .playing
-            updateNowPlayingInfo()
-            savePlaybackState()
-        }
-
-        @available(iOS 18, *)
-        @MainActor
-        private func handleAppleMusicRadioQueue(
-            _ tracks: [Track],
-            queueGeneration: UInt64
-        ) {
-            guard isCurrentAppleMusicStationQueue(queueGeneration) else { return }
-            let futureStart = currentQueueIndex + 1
-            if futureStart < queue.count { queue.removeSubrange(futureStart...) }
-            queue.append(contentsOf: tracks.map { makeQueueItem(track: $0, source: .autoplay) })
-            let removedTrackIDs = removeDuplicateFutureAutoplayItemsIfNeeded(
-                shouldInvalidateGaplessSchedule: false
-            )
-            for trackID in removedTrackIDs {
-                guard let catalogID = tracks.first(where: {
-                    $0.playbackIdentity == trackID
-                })?.appleMusicCatalogID else { continue }
-                _ = appleMusicPlaybackController?.removeFirstUpcomingEntry(catalogID: catalogID)
-            }
-            autoplayTracks = queue.dropFirst(currentQueueIndex + 1).compactMap {
-                $0.source == .autoplay ? $0.track : nil
-            }
-            savePlaybackState()
-        }
-
-        @available(iOS 18, *)
-        @MainActor
-        private func handleAppleMusicTimeChanged(
-            _ time: TimeInterval,
-            queueGeneration: UInt64
-        ) {
-            guard time.isFinite, time >= 0, isCurrentAppleMusicQueue(queueGeneration) else { return }
-            let hasContinuousAppleMusicSuccessor = appleMusicPlaybackController?.isStationActive == true
-                || appleMusicPlaybackController?.hasQueuedSuccessor == true
-                || appleMusicPlaybackController?.isRepeatOneEnabled == true
-            let isFinalEntryReset = AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
-                playbackTime: time,
-                lastPlayingTime: currentTime,
-                duration: duration,
-                isFinalEntry: !hasContinuousAppleMusicSuccessor,
-                wasPlaying: playbackState == .playing
-            )
-            if hasContinuousAppleMusicSuccessor || time > Self.previousRestartThreshold {
-                appleMusicPreviousRestartGeneration = nil
-            }
-            if !hasContinuousAppleMusicSuccessor, currentTime > Self.previousRestartThreshold, time <= 0.75 {
-                appleMusicPreviousRestartGeneration = queueGeneration
-            }
-            if !hasContinuousAppleMusicSuccessor,
-               Self.shouldInferAppleMusicPrevious(
-                   previousTime: currentTime,
-                   currentTime: time,
-                   restartWasObserved: appleMusicPreviousRestartGeneration == queueGeneration
-               ) {
-                appleMusicPreviousRestartGeneration = nil
-                EnsembleLogger.debug("[Handoff] inferred Apple Music previous command")
-                previous()
-                return
-            }
-            let didRewind = time < currentTime
-            updatePlaybackTimes(rawTime: time)
-            persistPlaybackSnapshotIfNeeded(forObservedTime: time)
-            if didRewind { updateNowPlayingInfo() }
-            updateEndTransitionLease(shouldHold: Self.shouldPrepareEndTransitionLease(
-                playbackState: playbackState,
-                currentTime: time,
-                duration: duration,
-                hasContinuousProviderSuccessor: hasContinuousAppleMusicSuccessor,
-                isFinalEntryReset: isFinalEntryReset
-            ))
-        }
-
-        @available(iOS 18, *)
-        @MainActor
-        private func isCurrentAppleMusicQueue(
-            _ queueGeneration: UInt64,
-            acceptsPausedPlayback: Bool = false
-        ) -> Bool {
-            guard !isSynchronizingAppleMusicQueueMutation else { return false }
-            return Self.shouldAcceptAppleMusicCallback(
-                queueGeneration: queueGeneration,
-                activeQueueGeneration: appleMusicPlaybackController?.activeQueueGeneration,
-                isAppleMusicEnabled: syncCoordinator.accountManager.isAppleMusicEnabled,
-                currentTrackIsAppleMusic: currentTrack?.isAppleMusic == true,
-                playbackState: playbackState,
-                acceptsPausedPlayback: acceptsPausedPlayback
-            )
-        }
-
-        @available(iOS 18, *)
-        @MainActor
-        private func isCurrentAppleMusicStationQueue(_ queueGeneration: UInt64) -> Bool {
-            isCurrentAppleMusicQueue(queueGeneration)
-                && appleMusicPlaybackController?.isStationActive == true
-        }
     #endif
 
     /// When a download completes (or is removed), update matching queue items
@@ -6763,7 +6588,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #if os(iOS)
             if #available(iOS 18, *) {
                 appleMusicPlaybackController?.stop()
-                isSynchronizingAppleMusicQueueMutation = false
             }
         #endif
         audioEngine?.pause()
@@ -6812,7 +6636,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 return
             } else if playbackState == .buffering {
                 EnsembleLogger.debug("🔄 Network back - attempting to resume buffering")
-                audioEngine?.adoptPlaybackGeneration(playbackGenerationCounter)
+                audioEngine?.adoptPlaybackGeneration(resumeSessionGeneration())
                 try? audioEngine?.resume()
             }
         } else if decision.shouldHandleDisconnect {
@@ -6875,9 +6699,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Stop and release engine
         audioEngine?.stop()
         audioEngine = nil
+        nativeEngineAdapter = nil
         isSmartMixTransitionActive = false
-        engineTimeCancellable?.cancel()
-        engineTimeCancellable = nil
 
         // Clear caches
         _ = resolvedFileCache.clear()

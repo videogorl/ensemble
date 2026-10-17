@@ -483,37 +483,6 @@ final class PlaybackServiceTests: XCTestCase {
         )
     }
 
-    func testEngineTrackReconciliationTriggersWhenEngineAndUIDiverge() {
-        XCTAssertTrue(
-            PlaybackService.shouldReconcileEngineTrack(
-                currentTrackID: "8877",
-                engineTrackID: "8878",
-                isSkipTransitionInProgress: false
-            )
-        )
-    }
-
-    func testEngineTrackReconciliationSkipsDuringManualTransitions() {
-        XCTAssertFalse(
-            PlaybackService.shouldReconcileEngineTrack(
-                currentTrackID: "8877",
-                engineTrackID: "8878",
-                isSkipTransitionInProgress: true
-            )
-        )
-    }
-
-    func testEngineTrackReconciliationSkipsDuringSmartMixTransition() {
-        XCTAssertFalse(
-            PlaybackService.shouldReconcileEngineTrack(
-                currentTrackID: "8877",
-                engineTrackID: "8878",
-                isSkipTransitionInProgress: false,
-                isSmartMixTransitionActive: true
-            )
-        )
-    }
-
     func testAutomaticAdvanceIsSuppressedDuringInterruption() {
         var coordinator = PlaybackHandoffCoordinator()
         _ = coordinator.handle(.interruptionBegan(now: Date()), playbackState: .playing)
@@ -1258,63 +1227,24 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
-    func testAppleMusicCallbackAcceptanceRequiresTheCurrentEnabledAppleQueue() {
-        for state in [PlaybackState.loading, .buffering, .playing] {
-            XCTAssertTrue(PlaybackService.shouldAcceptAppleMusicCallback(
-                queueGeneration: 42,
-                activeQueueGeneration: 42,
-                isAppleMusicEnabled: true,
-                currentTrackIsAppleMusic: true,
-                playbackState: state
-            ))
+    func testEngineEventAcceptanceByPlaybackState() {
+        let inactive: [PlaybackState] = [.paused, .stopped, .failed("test")]
+        for engine in [PlaybackEngineKind.native, .appleMusic] {
+            for state in [PlaybackState.loading, .buffering, .playing] {
+                XCTAssertTrue(PlaybackService.acceptsEngineEvent(.progress(trackID: nil, position: 1), from: engine, playbackState: state))
+                XCTAssertTrue(PlaybackService.acceptsEngineEvent(.ended, from: engine, playbackState: state))
+            }
+            for state in inactive {
+                XCTAssertFalse(PlaybackService.acceptsEngineEvent(.progress(trackID: nil, position: 1), from: engine, playbackState: state))
+                XCTAssertFalse(PlaybackService.acceptsEngineEvent(.itemChanged(trackID: "a", via: .gapless), from: engine, playbackState: state))
+            }
         }
-
-        XCTAssertFalse(PlaybackService.shouldAcceptAppleMusicCallback(
-            queueGeneration: 41,
-            activeQueueGeneration: 42,
-            isAppleMusicEnabled: true,
-            currentTrackIsAppleMusic: true,
-            playbackState: .playing
-        ))
-        XCTAssertFalse(PlaybackService.shouldAcceptAppleMusicCallback(
-            queueGeneration: 42,
-            activeQueueGeneration: 42,
-            isAppleMusicEnabled: false,
-            currentTrackIsAppleMusic: true,
-            playbackState: .playing
-        ))
-        XCTAssertFalse(PlaybackService.shouldAcceptAppleMusicCallback(
-            queueGeneration: 42,
-            activeQueueGeneration: 42,
-            isAppleMusicEnabled: true,
-            currentTrackIsAppleMusic: false,
-            playbackState: .playing
-        ))
-    }
-
-    func testAppleMusicCallbackAcceptanceRejectsInactivePlaybackStates() {
-        for state in [
-            PlaybackState.paused,
-            .stopped,
-            .failed("test")
-        ] {
-            XCTAssertFalse(PlaybackService.shouldAcceptAppleMusicCallback(
-                queueGeneration: 42,
-                activeQueueGeneration: 42,
-                isAppleMusicEnabled: true,
-                currentTrackIsAppleMusic: true,
-                playbackState: state
-            ))
-        }
-
-        XCTAssertTrue(PlaybackService.shouldAcceptAppleMusicCallback(
-            queueGeneration: 42,
-            activeQueueGeneration: 42,
-            isAppleMusicEnabled: true,
-            currentTrackIsAppleMusic: true,
-            playbackState: .paused,
-            acceptsPausedPlayback: true
-        ))
+        // MusicKit reports its end paused at the last frame; a native end after a pause is late.
+        XCTAssertTrue(PlaybackService.acceptsEngineEvent(.ended, from: .appleMusic, playbackState: .paused))
+        XCTAssertFalse(PlaybackService.acceptsEngineEvent(.ended, from: .native, playbackState: .paused))
+        XCTAssertTrue(PlaybackService.acceptsEngineEvent(.externallyResumed, from: .appleMusic, playbackState: .paused))
+        XCTAssertFalse(PlaybackService.acceptsEngineEvent(.externallyResumed, from: .appleMusic, playbackState: .playing))
+        XCTAssertFalse(PlaybackService.acceptsEngineEvent(.externallyPaused, from: .appleMusic, playbackState: .paused))
     }
 
     func testAppleMusicResolutionSkipsOnlyUnresolvedLaterItems() throws {

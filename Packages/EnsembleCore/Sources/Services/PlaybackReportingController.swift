@@ -92,6 +92,7 @@ final class PlaybackReportingController {
         }
 
         hasScrobbled = true
+        EnsembleLogger.playback("SCROBBLE: trackId=\(track.id) at \(Int(time))s of \(Int(duration))s")
         let mutationCoordinator = self.mutationCoordinator
         let fallbackScrobbler = self.fallbackScrobbler
         Task {

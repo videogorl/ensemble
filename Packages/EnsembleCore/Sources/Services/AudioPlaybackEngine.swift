@@ -1667,13 +1667,6 @@ public final class AudioPlaybackEngine {
     /// Remove a single scheduled track by ID (e.g. when a gapless-scheduled file fails to decode).
     /// Only removes it from the tracking array — the playerNode's FIFO segment cannot be surgically
     /// removed, but its completion callback will find no matching entry and be ignored.
-    func removeScheduledTrack(_ trackId: String) {
-        if let idx = scheduledFiles.firstIndex(where: { $0.trackId == trackId }) {
-            scheduledFiles.remove(at: idx)
-            EnsembleLogger.debug("[AudioEngine] Removed scheduled track \(trackId), queueDepth=\(scheduledFiles.count)")
-        }
-    }
-
     /// Remove all pending gapless files from the schedule.
     /// Called when the queue changes (skip, shuffle, etc.) to prevent stale transitions.
     ///
