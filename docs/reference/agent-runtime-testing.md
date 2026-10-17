@@ -133,13 +133,16 @@ variables (or the unprefixed names in another launcher):
 ```text
 ENSEMBLE_AUTOMATION_MODE=1
 ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_STAGE=startup
-ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_TRACK=<exact playback identity or rating key>
+ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_TRACK=<identity or rating key>[,<identity or rating key>...]
 ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_COUNT=1
 ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_DELAY_SECONDS=0
 ```
 
-Count must be 1–10; delay is capped at ten seconds. Restarting the process resets
-the count. The `injectedPlaybackFailure` journey event distinguishes synthetic
+Count must be 1–10 and applies to each listed track; delay is capped at ten
+seconds. Restarting the process resets the counts. One attempt can consume more
+than one failure, because resolution and the TLS path each retry once, so use a
+count of 10 to make a track fail for the whole run. Listing two consecutive
+tracks exercises the skip-then-halt rule (G11). The `injectedPlaybackFailure` journey event distinguishes synthetic
 failures from actual transport errors. These hooks exercise recovery after source
 resolution; they do not reproduce a real TLS handshake failure. Use live uncached
 playback separately to establish transport and decoder behavior.

@@ -5,15 +5,22 @@ import Foundation
 enum PlaybackAutomationFailure {
     private final class State: @unchecked Sendable {
         let lock = NSLock()
-        var consumed = 0
+        var consumed: [String: Int] = [:]
 
-        func consume(limit: Int) -> Bool {
+        func consume(_ target: String, limit: Int) -> Bool {
             lock.lock()
             defer { lock.unlock() }
-            guard consumed < limit else { return false }
-            consumed += 1
+            guard consumed[target, default: 0] < limit else { return false }
+            consumed[target, default: 0] += 1
             return true
         }
+    }
+
+    /// Matches a playback identity against a comma-separated list of identities or rating keys.
+    static func matchingTarget(for trackID: String, in list: String) -> String? {
+        list.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty && (trackID == $0 || trackID.hasSuffix("||" + $0)) }
     }
 
     private static let state = State()
@@ -22,12 +29,11 @@ enum PlaybackAutomationFailure {
         let environment = ProcessInfo.processInfo.environment
         guard environment["ENSEMBLE_AUTOMATION_MODE"] == "1",
               environment["ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_STAGE"] == stage,
-              let target = environment["ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_TRACK"],
-              !target.isEmpty,
-              trackID == target || trackID.hasSuffix("||" + target),
+              let list = environment["ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_TRACK"],
+              let target = matchingTarget(for: trackID, in: list),
               let count = environment["ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_COUNT"].flatMap(Int.init),
               (1...10).contains(count),
-              state.consume(limit: count) else { return }
+              state.consume(target, limit: count) else { return }
         PlaybackJourneyLogger.mark("injectedPlaybackFailure", trackId: trackID, detail: "stage=\(stage) error=TLS")
         let delay = environment["ENSEMBLE_AUTOMATION_PLAYBACK_FAILURE_DELAY_SECONDS"]
             .flatMap(Double.init) ?? 0

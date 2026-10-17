@@ -990,8 +990,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Prevents handleQueueExhausted from racing with the TLS retry path.
     private var isHandlingTLSFailure = false
     /// Tracks consecutive playback failures to stop rapid retry loops when server is unreachable
-    private var consecutivePlaybackFailures = 0
-    private let maxConsecutiveFailuresBeforeStop = 3
+    /// The item reached by skipping a failed one; if it fails too, playback halts (G11).
+    private var failureSkipItemID: String?
+    /// The item whose TLS failure already had its one connection refresh.
+    private var tlsRefreshedItemID: String?
     private var networkStateObservation: AnyCancellable?
     private var accountSourcesObservation: AnyCancellable?
     private var healthCheckCompletionObservation: AnyCancellable?
@@ -1425,7 +1427,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.playback("RECREATE_ENGINE: destroying audio engine and creating fresh instance")
         cleanup()
         setupPlayer()
-        consecutivePlaybackFailures = 0
         isSkipTransitionInProgress = false
         disarmSkipTransitionSafety()
     }
@@ -1566,11 +1567,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard let track = currentTrack, track.playbackIdentity == trackID else { return }
         // A fresh start reports "playing", as a resume already does (D4).
         reportingController.reportState(track: track, state: "playing", time: currentTime)
+        clearItemFailureMarkers()
         guard playbackState == .loading || playbackState == .buffering else { return }
         playbackState = .playing
         updateNowPlayingInfo()
         audioAnalyzer.resumeUpdates()
-        consecutivePlaybackFailures = 0
         endTrackTransitionBackgroundTask(for: session.rawValue)
         isSkipTransitionInProgress = false
         disarmSkipTransitionSafety()
@@ -1730,7 +1731,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if isFullyBuffered { bufferedProgress = 1.0 }
         waveformHeights = []
         reportingController.resetForTrack()
-        consecutivePlaybackFailures = 0
         guard let track = currentTrack else { return }
         audioAnalyzer.activateTimeline(for: track.playbackIdentity, at: position)
         audioAnalyzer.resumeUpdates()
@@ -1786,8 +1786,62 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         EnsembleLogger.playback("ENGINE: error -- \(error.localizedDescription)")
         guard playbackState == .playing || playbackState == .loading else { return }
-        playbackState = .failed(error.localizedDescription)
-        endTrackTransitionBackgroundTask(for: session.rawValue)
+        Task { @MainActor in
+            await self.handleItemFailure(error.localizedDescription, generation: session.rawValue)
+        }
+    }
+
+    // MARK: - Item Failure
+
+    enum ItemFailureResponse: Equatable {
+        case skipToNext
+        case halt
+    }
+
+    /// G11 and G12: a failed item is skipped once while the intent is to play.
+    /// If the item reached by that skip fails too, or the intent was to stay
+    /// paused, playback halts on the error and offers Retry. No counter.
+    static func itemFailureResponse(intendsToPlay: Bool, reachedBySkippingFailure: Bool) -> ItemFailureResponse {
+        intendsToPlay && !reachedBySkippingFailure ? .skipToNext : .halt
+    }
+
+    @MainActor
+    private var currentQueueItemID: String? {
+        queue.indices.contains(currentQueueIndex) ? queue[currentQueueIndex].id : nil
+    }
+
+    @MainActor
+    private func clearItemFailureMarkers() {
+        failureSkipItemID = nil
+        tlsRefreshedItemID = nil
+    }
+
+    /// The one path for an item that could not play, whichever engine or stage failed.
+    @MainActor
+    private func handleItemFailure(_ message: String, generation: UInt64) async {
+        isSkipTransitionInProgress = false
+        disarmSkipTransitionSafety()
+        audioEngine?.pause()
+        endTrackTransitionBackgroundTask(for: generation)
+
+        let response = Self.itemFailureResponse(
+            intendsToPlay: playbackPreparationShouldStart,
+            reachedBySkippingFailure: failureSkipItemID != nil && failureSkipItemID == currentQueueItemID
+        )
+        if response == .skipToNext, case let .item(index, _) = queueAdvance(.next) {
+            EnsembleLogger.playback(
+                "ITEM_FAILED: '\(currentTrack?.title ?? "nil")' (\(message)) — skipping to idx \(index)"
+            )
+            failureSkipItemID = queue[index].id
+            tlsRefreshedItemID = nil
+            await performQueueAdvance(.item(index: index, wrapped: false), caller: "itemFailed-skip")
+            return
+        }
+
+        EnsembleLogger.playback("ITEM_FAILED: '\(currentTrack?.title ?? "nil")' (\(message)) — halting")
+        clearItemFailureMarkers()
+        playbackState = .failed(message)
+        updateNowPlayingInfo()
     }
 
     /// What follows the current item, decided by the one shared queue rule.
@@ -1882,7 +1936,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Handles a natural end on either engine.
     @MainActor
     private func handleQueueExhausted() async {
-        EnsembleLogger.playback("QUEUE_EXHAUSTED: idx=\(currentQueueIndex)/\(queue.count), state=\(playbackState), failures=\(consecutivePlaybackFailures)")
+        EnsembleLogger.playback("QUEUE_EXHAUSTED: idx=\(currentQueueIndex)/\(queue.count), state=\(playbackState)")
 
         // If a TLS connection refresh is in progress, wait for it to finish
         // so the retry completes before we try to advance the queue.
@@ -3251,7 +3305,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Clear scheduled gapless files for the track change
         audioEngine?.clearScheduledFiles()
 
-        consecutivePlaybackFailures = 0
 
         // Record current track to history before jumping
         if currentQueueIndex >= 0, currentQueueIndex < queue.count {
@@ -3468,8 +3521,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playbackState = .playing
         updateNowPlayingInfo()
 
-        // Audio confirmed — reset circuit breaker
-        consecutivePlaybackFailures = 0
 
         // Check queue population on resume
         Task {
@@ -3540,7 +3591,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playbackState = .stopped
         updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 0
-        consecutivePlaybackFailures = 0
         queueExhaustedTimestamps.removeAll()
         isSkipTransitionInProgress = false
         _ = resolvedFileCache.clear()
@@ -3579,7 +3629,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Retry playing the current track (useful after network errors)
     public func retryCurrentTrack() async {
-        consecutivePlaybackFailures = 0
+        await MainActor.run { clearItemFailureMarkers() }
         await retryCurrentTrack(forceConnectionRefresh: true, reason: "manual")
     }
 
@@ -4984,37 +5034,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             )
             return
         case let .connection(sourceCompositeKey):
+            // Refresh server health first, so a skip passes over that server's tracks.
             if let sourceCompositeKey {
                 await syncCoordinator.triggerServerHealthCheck(sourceKey: sourceCompositeKey)
                 guard requestGeneration == playbackGenerationCounter else {
                     endTrackTransitionBackgroundTask(for: requestGeneration)
                     return
                 }
-                if !syncCoordinator.isServerAvailable(sourceKey: sourceCompositeKey) {
-                    consecutivePlaybackFailures = maxConsecutiveFailuresBeforeStop
-                } else {
-                    consecutivePlaybackFailures += 1
-                }
-            } else {
-                consecutivePlaybackFailures += 1
             }
-            endTrackTransitionBackgroundTask(for: requestGeneration)
-            let failureMessage = lastError?.localizedDescription ?? "Failed to load track"
-            await MainActor.run {
-                self.isSkipTransitionInProgress = false
-                self.disarmSkipTransitionSafety()
-                self.audioEngine?.pause()
-                self.playbackState = .failed(failureMessage)
-            }
+            await handleItemFailure(
+                lastError?.localizedDescription ?? "Failed to load track",
+                generation: requestGeneration
+            )
         case let .generic(message):
-            consecutivePlaybackFailures += 1
-            endTrackTransitionBackgroundTask(for: requestGeneration)
-            await MainActor.run {
-                self.isSkipTransitionInProgress = false
-                self.disarmSkipTransitionSafety()
-                self.audioEngine?.pause()
-                self.playbackState = .failed(message)
-            }
+            await handleItemFailure(message, generation: requestGeneration)
         }
     }
 
@@ -5079,31 +5112,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             endTrackTransitionBackgroundTask(for: generation)
         }
 
-        guard let track = currentTrack else {
-            failTLSPlayback("TLS connection error")
+        // A local file, or an item whose one refresh already failed, has failed.
+        guard let track = currentTrack,
+              track.localFilePath == nil,
+              tlsRefreshedItemID != currentQueueItemID else {
+            await handleItemFailure("Unable to establish secure connection to server", generation: generation)
             return
         }
-
-        // If playing local file, TLS shouldn't apply
-        guard track.localFilePath == nil else {
-            failTLSPlayback("TLS connection error")
-            return
-        }
-
-        // Participate in the circuit breaker to prevent infinite retry loops.
-        // TLS errors often affect ALL tracks on a server, so retrying endlessly
-        // just burns CPU and network while the UI flickers.
-        consecutivePlaybackFailures += 1
-        if consecutivePlaybackFailures >= maxConsecutiveFailuresBeforeStop {
-            EnsembleLogger.debug("🔒 TLS retry limit reached (\(consecutivePlaybackFailures) failures) — stopping")
-            failTLSPlayback("Unable to establish secure connection to server")
-            return
-        }
-
-        EnsembleLogger.debug("🔒 Handling TLS playback failure (\(consecutivePlaybackFailures)/\(maxConsecutiveFailuresBeforeStop)) - refreshing connection and rebuilding queue")
+        tlsRefreshedItemID = currentQueueItemID
+        EnsembleLogger.debug("🔒 Handling TLS playback failure - refreshing connection and rebuilding queue")
 
         do {
-            try await Task.sleep(nanoseconds: UInt64(consecutivePlaybackFailures) * 500_000_000)
+            try await Task.sleep(nanoseconds: 500_000_000)
         } catch {
             return
         }
@@ -5117,7 +5137,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard !Task.isCancelled, !PlaybackSessionStateMachine.isCancellation(error),
                   generation == playbackGenerationCounter else { return }
             EnsembleLogger.debug("⚠️ Failed to refresh connection after TLS error: \(error.localizedDescription)")
-            failTLSPlayback("TLS connection error - no working server found")
+            await handleItemFailure("TLS connection error - no working server found", generation: generation)
             return
         }
         guard !Task.isCancelled, generation == playbackGenerationCounter else { return }
@@ -5134,15 +5154,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             shouldStartPlayback: shouldStartPlayback,
             caller: "handleTLSPlaybackFailure"
         )
-    }
-
-    @MainActor
-    private func failTLSPlayback(_ message: String) {
-        isSkipTransitionInProgress = false
-        disarmSkipTransitionSafety()
-        audioEngine?.pause()
-        playbackState = .failed(message)
-        updateNowPlayingInfo()
     }
 
     /// Resolve a playable source for a track. File-backed sources are cached;
@@ -5867,8 +5878,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             updateNowPlayingInfo()
             if !isStreamingSource {
                 audioAnalyzer.resumeUpdates()
-                // Audio is confirmed flowing — safe to reset the circuit breaker
-                consecutivePlaybackFailures = 0
 
                 // Release background task protection
                 endTrackTransitionBackgroundTask(for: generation)
@@ -5980,10 +5989,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func handleHealthCheckCompletion() async {
         guard !queue.isEmpty else { return }
-
-        // Reset the failure circuit breaker — a passing health check means
-        // conditions have changed, so give playback a fresh failure budget.
-        consecutivePlaybackFailures = 0
 
         // Defer pre-buffer for restored streaming tracks by 3s so the critical
         // launch path (health checks, UI rendering, sync) has time to complete.
@@ -6200,6 +6205,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     originalQueue = pruned.originalQueue
                     savePlaybackState()
                 }
+                clearItemFailureMarkers()
                 playbackState = .playing
                 updateNowPlayingInfo()
             } catch is CancellationError {
@@ -6214,9 +6220,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 guard generation == playbackGenerationCounter else { return }
                 appleMusicPlaybackController?.stop()
                 audioEngine?.stop()
-                playbackState = .failed(error.localizedDescription)
-                updateNowPlayingInfo()
-                endTrackTransitionBackgroundTask(for: generation)
+                await handleItemFailure(error.localizedDescription, generation: generation)
             }
         }
 

@@ -1227,6 +1227,34 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
+    func testItemFailureSkipsOnceThenHalts() {
+        let rows: [(intendsToPlay: Bool, reachedBySkip: Bool, expected: PlaybackService.ItemFailureResponse)] = [
+            (true, false, .skipToNext),   // G11: a failing item is skipped
+            (true, true, .halt),          // G11: the item reached by that skip fails too
+            (false, false, .halt),        // G12: a failure never starts playback
+            (false, true, .halt)
+        ]
+        for row in rows {
+            XCTAssertEqual(
+                PlaybackService.itemFailureResponse(
+                    intendsToPlay: row.intendsToPlay,
+                    reachedBySkippingFailure: row.reachedBySkip
+                ),
+                row.expected
+            )
+        }
+    }
+
+    #if DEBUG
+        func testFailureHookMatchesAnyListedTrack() {
+            let list = "1001, 2002"
+            XCTAssertEqual(PlaybackAutomationFailure.matchingTarget(for: "plex:a:b:3||2002", in: list), "2002")
+            XCTAssertEqual(PlaybackAutomationFailure.matchingTarget(for: "1001", in: list), "1001")
+            XCTAssertNil(PlaybackAutomationFailure.matchingTarget(for: "plex:a:b:3||12002", in: list))
+            XCTAssertNil(PlaybackAutomationFailure.matchingTarget(for: "3003", in: list))
+        }
+    #endif
+
     func testEngineEventAcceptanceByPlaybackState() {
         let inactive: [PlaybackState] = [.paused, .stopped, .failed("test")]
         for engine in [PlaybackEngineKind.native, .appleMusic] {
