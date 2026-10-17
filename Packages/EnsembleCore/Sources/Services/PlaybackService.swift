@@ -13,6 +13,9 @@ import Nuke
 #if canImport(UIKit)
     import UIKit
 #endif
+#if os(macOS)
+    import AppKit
+#endif
 
 // MARK: - Playback State
 
@@ -1126,6 +1129,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         private var appleMusicPlaybackController: AppleMusicPlaybackControlling?
         private var appleMusicEngineAdapter: AppleMusicEngineEventAdapter?
     #endif
+    #if os(macOS)
+        private var systemSleepObservers: [NSObjectProtocol] = []
+    #endif
     /// The session engine events must carry to be acted on; nil when no item is loaded.
     private var activeEngineSession: PlaybackSessionID?
     private var nativeEngineAdapter: NativePlaybackEngineAdapter?
@@ -1336,6 +1342,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupRemoteCommands()
         refreshPresentationLatencyEstimate()
         setupNetworkObservation()
+        setupSystemSleepObservation()
         setupHealthCheckObservation()
         setupAccountSourcesObservation()
         setupAudioAnalyzer()
@@ -5828,7 +5835,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 engine.stop()
                 throw error
             }
-            playbackState = .buffering
+            // An interruption or a lost route lets the load finish and then pauses
+            // (G14); a settling new route stays buffering until its window ends.
+            switch handoffCoordinator.state.pauseReason {
+            case .interruption, .disconnect:
+                playbackState = .paused
+                updateNowPlayingInfo()
+            case .user, .system, nil:
+                playbackState = .buffering
+            }
             isSkipTransitionInProgress = false
             disarmSkipTransitionSafety()
             return true
@@ -5942,6 +5957,32 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         skipTransitionSafetyTask?.cancel()
         skipTransitionSafetyTask = nil
     }
+
+    /// The Mac treats sleep as an interruption that does not resume on its own (G22).
+    private func setupSystemSleepObservation() {
+        #if os(macOS)
+            let center = NSWorkspace.shared.notificationCenter
+            systemSleepObservers = [
+                center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.handleSystemSleep(isWaking: false) }
+                },
+                center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.handleSystemSleep(isWaking: true) }
+                }
+            ]
+        #endif
+    }
+
+    #if os(macOS)
+        @MainActor
+        private func handleSystemSleep(isWaking: Bool) {
+            let signal: PlaybackHandoffCoordinator.Signal = isWaking
+                ? .interruptionEnded(shouldResume: false)
+                : .interruptionBegan(now: Date())
+            let outcome = handoffCoordinator.handle(signal, playbackState: playbackState)
+            applyHandoffOutcome(outcome, event: isWaking ? "systemDidWake" : "systemWillSleep")
+        }
+    #endif
 
     /// Set up network state observation to handle network transitions during playback
     private func setupNetworkObservation() {
