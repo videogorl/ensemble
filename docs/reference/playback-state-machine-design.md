@@ -1,9 +1,11 @@
 # Playback state machine: step 1 design
 
 Status: approved. Written 2026-10-13 against `2586f6e5`. Felicity approved
-decisions 1 to 5 on 2026-10-14 and decision 6 on 2026-10-16; section 9
-records them, and they are folded into the sections they affect. Step 1b
-starts from this note.
+decisions 1 to 5 on 2026-10-14, decision 6 on 2026-10-16, and decision 7
+on 2026-10-17; section 9 records them, and they are folded into the
+sections they affect. Steps 1b to 1e are implemented. Decision 7 replaces
+the full reducer with the shape 1b to 1e built; read sections 2 to 5 as the
+target model, not the code.
 
 This is the detailed design that
 [`rearchitecture-plan.md`](rearchitecture-plan.md) step 1a asks for. It turns
@@ -341,7 +343,17 @@ Decisions 1 to 5 were approved on 2026-10-14 and decision 6 on 2026-10-16.
    are on the simulator acceptance for their steps (section 8).
 6. **The 22 undocumented behaviours, G1 to G22:** decided individually. The
    rulings are in inventory `E-edge-cases.md` section 5 and are applied in
-   sections 2 and 6.
+   sections 2 and 6. G20 was amended on 2026-10-17: Clear Queue keeps the
+   current track playing.
+7. **Step 1f keeps the current shape (2026-10-17).** The full reducer, one
+   `PlaybackState` value changed only by `reduce` with an effect runner, is
+   not built. Steps 1b to 1e left one queue rule, one session gate and
+   acceptance rule for both engines, one handler each for item change,
+   natural end, and item failure, pure decision functions, and one
+   published snapshot. 1f deletes dead code and splits `PlaybackService`
+   into focused files (queue, session lifecycle, Apple Music, persistence,
+   reporting), each with table tests. The reducer may be revisited after
+   device testing if transition bugs persist.
 
 ## 10. Contracts and past bugs to carry over
 
