@@ -1148,6 +1148,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private var lastRemoteSkipTime: CFTimeInterval = 0 // Debounce for remote command center skip events
     private var trackStartWallTime: CFTimeInterval = 0 // Wall-clock time when the current track started playing (for stale seek rejection)
+    /// The paused stream cannot continue: its download failed, or the network
+    /// changed, while paused. Play restarts it at the same position (G18).
+    private var pausedStreamNeedsRefresh = false
     /// A shuffle toggle waiting for the current Apple Music item or SmartMix overlap to finish.
     private var hasPendingShuffleReorder = false
     /// A seek made while an item was loading, applied when that item starts.
@@ -1788,6 +1791,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     private func handleEngineFailure(_ error: Error, session: PlaybackSessionID) {
+        if audioEngine?.isStreamingSourceActive == true, playbackState == .paused {
+            EnsembleLogger.playback("ENGINE: paused stream failed -- refreshing on Play (\(error.localizedDescription))")
+            pausedStreamNeedsRefresh = true
+            return
+        }
         if audioEngine?.isStreamingSourceActive == true,
            playbackState == .playing || playbackState == .buffering || playbackState == .loading {
             recoverCurrentStream(after: error)
@@ -3482,6 +3490,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
         #endif
 
+        // A stale paused stream restarts at the same position instead of resuming
+        // into a dead connection; a failure there follows the item-failure rule (G18).
+        if pausedStreamNeedsRefresh, audioEngine?.isStreamingSourceActive == true {
+            pausedStreamNeedsRefresh = false
+            EnsembleLogger.playback("ENGINE: refreshing paused stream at \(String(format: "%.1f", currentTime))s")
+            playbackState = .buffering
+            let resumeTime = currentTime
+            Task { @MainActor in
+                await playCurrentQueueItem(seekTo: resumeTime, caller: "resume-refreshStream")
+            }
+            return
+        }
+
         do {
             guard let audioEngine else {
                 playbackState = .failed("Audio engine not initialized")
@@ -4816,6 +4837,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Bump generation so any in-flight playback request knows it's been superseded
         beginSession()
         let requestGeneration = sessionGeneration
+        pausedStreamNeedsRefresh = false
         // A retry of the same item keeps its pending seek; another item drops it.
         if pendingSeek?.itemID != currentQueueItemID {
             pendingSeek = nil
@@ -6630,7 +6652,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func handleNetworkStateTransition(from previous: NetworkState?, to current: NetworkState) async {
         let decision = Self.evaluateNetworkTransition(from: previous, to: current)
-        // Adaptive buffering removed — engine plays from local files
+        if playbackState == .paused,
+           audioEngine?.isStreamingSourceActive == true,
+           decision.isInterfaceSwitch || decision.shouldHandleDisconnect || decision.shouldHandleReconnect {
+            pausedStreamNeedsRefresh = true
+        }
 
         EnsembleLogger.debug("🌐 Playback network transition: \(previous?.description ?? "nil") -> \(current.description)")
         if decision.isInterfaceSwitch {
