@@ -29,6 +29,20 @@ Both the pinned native button and overflow item opened the route picker.
   is unavailable; normal runtime used an intact native picker hierarchy.
 
 
+### Step 1e snapshot, at `691211a9` or later
+
+See [the step note](../investigations/2026-10-17-step-1e-snapshot.md).
+
+- G7: toggle shuffle during an Apple Music track; the track keeps playing and
+  the next track comes from the new order. Same during a SmartMix overlap.
+- G17: in Airplane Mode, a track already streamed in full plays and is not
+  greyed out; an Apple Music track is greyed out and skipped.
+- G18: pause an uncached Plex stream, switch from Wi-Fi to cellular (or wait
+  until the server drops the connection), press Play; it continues from the
+  same position without a long buffering wait.
+- Watch: queue, track, and shuffle state still mirror after the snapshot
+  change.
+
 ### Step 1d session lifecycle, at `2544a52a` or later
 
 See [the step note](../investigations/2026-10-17-step-1d-session-lifecycle.md).

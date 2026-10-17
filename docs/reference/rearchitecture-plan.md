@@ -11,7 +11,11 @@ implemented and simulator-checked at `5dfdef45`
 ([note](../investigations/2026-10-16-step-1c-engine-contract.md)). Step 1d is
 implemented and simulator-checked at `2544a52a`, without a reducer type yet;
 G7, G17, G18 and the ID-based unshuffled order move to 1e
-([note](../investigations/2026-10-17-step-1d-session-lifecycle.md)); 1e is next.
+([note](../investigations/2026-10-17-step-1d-session-lifecycle.md)). Step 1e
+is implemented and simulator-checked at `691211a9`
+([note](../investigations/2026-10-17-step-1e-snapshot.md)). Open before 1f:
+the playback stack is 17,427 lines against a 12,000 target, and the reducer
+form was not built; 1f's shape needs Felicity's decision.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
