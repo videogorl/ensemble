@@ -29,6 +29,21 @@ Both the pinned native button and overflow item opened the route picker.
   is unavailable; normal runtime used an intact native picker hierarchy.
 
 
+### Step 1d session lifecycle, at `2544a52a` or later
+
+See [the step note](../investigations/2026-10-17-step-1d-session-lifecycle.md).
+
+- Phone call during a load: the load finishes, then pauses; it resumes only
+  if iOS sends the should-resume hint, and stays paused while locked otherwise
+  (G14).
+- Bluetooth disconnect during a load: ends paused.
+- Lock Screen while a track loads after Next: shows playing; a track that
+  loads while paused shows paused.
+- A failed track while locked skips once; a second failure halts with the
+  error on the Lock Screen (G11, G15).
+- Apple Music item that fails to start: skipped once (G11).
+- Pause during a load from the Lock Screen: stays paused.
+
 ### Step 1c engine contract, at `5dfdef45` or later
 
 See [the step note](../investigations/2026-10-16-step-1c-engine-contract.md).
@@ -106,6 +121,9 @@ pass before step 0 is called verified.
   were checked instead.
 - Step 1c at `5dfdef45`: play, pause, seek, Next, a gapless advance, and a
   natural end at the last item in the built Mac app.
+- Step 1d at `2544a52a`: sleep the Mac while playing; after wake it stays
+  paused (G22). Play and pause from the keyboard shortcut still work after
+  the main-actor change.
 
 ## iPad Pro and Apple Watch
 

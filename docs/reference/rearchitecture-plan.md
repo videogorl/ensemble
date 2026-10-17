@@ -8,7 +8,10 @@ approved on 2026-10-14 and 2026-10-16. Step 1b is implemented and
 simulator-checked at `3e063453`
 ([note](../investigations/2026-10-16-step-1b-queue-policy.md)). Step 1c is
 implemented and simulator-checked at `5dfdef45`
-([note](../investigations/2026-10-16-step-1c-engine-contract.md)); 1d is next.
+([note](../investigations/2026-10-16-step-1c-engine-contract.md)). Step 1d is
+implemented and simulator-checked at `2544a52a`, without a reducer type yet;
+G7, G17, G18 and the ID-based unshuffled order move to 1e
+([note](../investigations/2026-10-17-step-1d-session-lifecycle.md)); 1e is next.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
