@@ -420,7 +420,6 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertTrue(decision.isInterfaceSwitch)
-        XCTAssertTrue(decision.shouldRefreshConnection)
         XCTAssertTrue(decision.shouldAutoHealQueue)
         XCTAssertFalse(decision.shouldHandleReconnect)
         XCTAssertFalse(decision.shouldHandleDisconnect)
@@ -433,7 +432,6 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertFalse(decision.isInterfaceSwitch)
-        XCTAssertFalse(decision.shouldRefreshConnection)
         XCTAssertFalse(decision.shouldAutoHealQueue)
         XCTAssertFalse(decision.shouldHandleReconnect)
         XCTAssertFalse(decision.shouldHandleDisconnect)
@@ -446,7 +444,6 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertFalse(decision.isInterfaceSwitch)
-        XCTAssertTrue(decision.shouldRefreshConnection)
         XCTAssertTrue(decision.shouldAutoHealQueue)
         XCTAssertTrue(decision.shouldHandleReconnect)
         XCTAssertFalse(decision.shouldHandleDisconnect)
@@ -459,7 +456,6 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertFalse(decision.isInterfaceSwitch)
-        XCTAssertFalse(decision.shouldRefreshConnection)
         XCTAssertFalse(decision.shouldAutoHealQueue)
         XCTAssertFalse(decision.shouldHandleReconnect)
         XCTAssertTrue(decision.shouldHandleDisconnect)

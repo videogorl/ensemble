@@ -177,15 +177,6 @@ final class PlaybackArtifactCache: @unchecked Sendable {
         notifyChange()
     }
 
-    func removeAll() throws {
-        Self.fileLock.lock()
-        defer { Self.fileLock.unlock() }
-        cachedManifests = [:]
-        guard fileManager.fileExists(atPath: directory.path) else { return }
-        try fileManager.removeItem(at: directory)
-        notifyChange()
-    }
-
     func size() -> Int64 {
         Self.fileLock.lock()
         defer { Self.fileLock.unlock() }

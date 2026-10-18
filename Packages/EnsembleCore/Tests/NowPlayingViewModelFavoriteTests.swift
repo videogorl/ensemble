@@ -326,8 +326,6 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             presentationTimeSubject.send(time)
         }
 
-        func startFastSeeking(forward _: Bool) {}
-        func stopFastSeeking() {}
         func addToQueue(_: Track) {}
         func addToQueue(_: [Track]) {}
         func playNext(_: Track) {}

@@ -1193,10 +1193,6 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.resume()
     }
 
-    public func stop() {
-        playbackService.stop()
-    }
-
     public func retryCurrentTrack() async {
         await playbackService.retryCurrentTrack()
     }
@@ -1225,15 +1221,6 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     // MARK: - Queue Management
-
-    public func addToQueue(_ track: Track) {
-        guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
-        playbackService.addToQueue(track)
-    }
-
-    public func addToQueue(_ tracks: [Track]) {
-        playbackService.addToQueue(tracksForNewQueue(tracks))
-    }
 
     public func playNext(_ track: Track) {
         guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
