@@ -233,7 +233,7 @@ extension PlaybackService {
                     endTrackTransitionBackgroundTask(for: requestGeneration)
                     return
                 }
-                await playCurrentAppleMusicSegment(
+                await playCurrentAppleMusicTrack(
                     startTime: startTime,
                     generation: requestGeneration
                 )

@@ -30,11 +30,6 @@ extension PlaybackService {
             && previousTime - currentTime >= 0.25
     }
 
-    nonisolated static func appleMusicSegment(from tracks: [Track]) -> [Track] {
-        guard let first = tracks.first, first.isAppleMusic else { return [] }
-        return [first]
-    }
-
     nonisolated static func appleMusicQueueItemIDNeedingSynchronization(
         queue: [QueueItem],
         currentQueueIndex: Int,
@@ -46,25 +41,6 @@ extension PlaybackService {
         case .loading, .buffering, .playing, .paused: queue[currentQueueIndex].id
         case .stopped, .failed: nil
         }
-    }
-
-    nonisolated static func pruningUnresolvedAppleMusicItems(
-        queue: [QueueItem],
-        originalQueue: [QueueItem],
-        submittedItems: [QueueItem],
-        unresolvedPlaybackIdentities: Set<String>
-    ) -> (queue: [QueueItem], originalQueue: [QueueItem], removedItemIDs: Set<String>) {
-        let removedItemIDs = Set(submittedItems.compactMap { item in
-            unresolvedPlaybackIdentities.contains(item.track.playbackIdentity) ? item.id : nil
-        })
-        guard !removedItemIDs.isEmpty else {
-            return (queue, originalQueue, [])
-        }
-        return (
-            queue.filter { !removedItemIDs.contains($0.id) },
-            originalQueue.filter { !removedItemIDs.contains($0.id) },
-            removedItemIDs
-        )
     }
 
     /// At an Apple Music boundary with autoplay on, a station replaces the
@@ -209,17 +185,17 @@ extension PlaybackService {
     #if os(iOS)
         @available(iOS 18, *)
         @MainActor
-        func playCurrentAppleMusicSegment(
+        func playCurrentAppleMusicTrack(
             startTime: TimeInterval?,
             generation: UInt64
         ) async {
             pendingPreBufferTime = nil
-            let segment = Self.appleMusicSegment(from: queue[currentQueueIndex...].map(\.track))
-            guard !segment.isEmpty else { return }
-            let submittedItems = Array(queue[currentQueueIndex...].prefix(segment.count))
+            guard queue.indices.contains(currentQueueIndex) else { return }
+            let track = queue[currentQueueIndex].track
+            guard track.isAppleMusic else { return }
 
             audioAnalyzer.pauseUpdates()
-            currentTrack = segment[0]
+            currentTrack = track
             updatePlaybackTimes(rawTime: startTime ?? 0)
             waveformHeights = []
             frequencyBands = []
@@ -237,29 +213,18 @@ extension PlaybackService {
 
                 EnsembleLogger.debug(
                     "[ProviderHandoff] phase=beforeApplicationPlay generation=\(generation)"
-                        + " track=\(segment[0].playbackIdentity)"
+                        + " track=\(track.playbackIdentity)"
                         + " route=\(currentAudioRouteDescription())"
                 )
-                let unresolvedPlaybackIdentities = try await controller.play(
-                    tracks: segment,
+                try await controller.play(
+                    track: track,
                     startTime: startTime,
                     repeatOneEnabled: repeatMode == .one
                 )
                 guard generation == sessionGeneration,
                       queue.indices.contains(currentQueueIndex),
-                      queue[currentQueueIndex].track.playbackIdentity == segment[0].playbackIdentity
+                      queue[currentQueueIndex].track.playbackIdentity == track.playbackIdentity
                 else { return }
-                let pruned = Self.pruningUnresolvedAppleMusicItems(
-                    queue: queue,
-                    originalQueue: originalQueue,
-                    submittedItems: submittedItems,
-                    unresolvedPlaybackIdentities: unresolvedPlaybackIdentities
-                )
-                if !pruned.removedItemIDs.isEmpty {
-                    queue = pruned.queue
-                    originalQueue = pruned.originalQueue
-                    savePlaybackState()
-                }
                 clearItemFailureMarkers()
                 playbackState = .playing
                 applyPendingSeek()
