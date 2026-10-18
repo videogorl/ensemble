@@ -16,7 +16,10 @@ is implemented and simulator-checked at `691211a9`
 ([note](../investigations/2026-10-17-step-1e-snapshot.md)). For 1f, Felicity
 chose on 2026-10-17 to keep the current shape: delete dead code and split
 `PlaybackService` into focused files with table tests, without the full
-reducer (design note decision 7).
+reducer (design note decision 7). Step 1f is implemented and
+simulator-checked at `7d127734`, with an Apple Music cleanup at `302a5d78`
+that is built and unit-tested only; the playback stack is 17,287 lines
+against the 12,000 target ([note](../investigations/2026-10-17-step-1f-split.md)).
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 

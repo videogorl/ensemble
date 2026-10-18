@@ -29,6 +29,17 @@ Both the pinned native button and overflow item opened the route picker.
   is unavailable; normal runtime used an intact native picker hierarchy.
 
 
+### Step 1f split, at `302a5d78` or later
+
+See [the step note](../investigations/2026-10-17-step-1f-split.md). The split
+moves code without changing it; the 1b to 1e checks cover it when run on this
+build or later.
+
+- Apple Music items now start one at a time. Play an Apple Music album from
+  a later track and let it advance through two tracks; play a library-only
+  (uploaded) Apple Music track; play a catalog track whose catalog match is
+  stale but which is in the library.
+
 ### Step 1e snapshot, at `691211a9` or later
 
 See [the step note](../investigations/2026-10-17-step-1e-snapshot.md).
