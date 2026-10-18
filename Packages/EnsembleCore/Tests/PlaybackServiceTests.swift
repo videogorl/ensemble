@@ -227,23 +227,26 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(time, 75.3696, accuracy: 0.0001)
     }
 
-    func testRestoredPausedSeekTimeClampsExactTrackEnd() {
-        let restored = PlaybackService.restoredPausedSeekTime(
-            savedTime: 270.85061224489795,
-            duration: 270.85061224489795
-        )
-
-        XCTAssertEqual(restored, 270.8496122448979, accuracy: 0.0001)
+    func testRestoredPausedSeekTimeTable() {
+        // A restored position stays inside the track so the paused item can load.
+        let rows: [(saved: TimeInterval, duration: TimeInterval, expected: TimeInterval)] = [
+            (108.09313673675985, 289.1861224489796, 108.09313673675985),
+            (270.85061224489795, 270.85061224489795, 270.8496122448979),
+            (400, 270.85061224489795, 270.8496122448979),
+            (-5, 200, 0),
+            (42, 0, 42),
+            (42, .nan, 42),
+        ]
+        for row in rows {
+            XCTAssertEqual(
+                PlaybackService.restoredPausedSeekTime(savedTime: row.saved, duration: row.duration),
+                row.expected,
+                accuracy: 0.0001,
+                "saved \(row.saved), duration \(row.duration)"
+            )
+        }
     }
 
-    func testRestoredPausedSeekTimeLeavesInteriorPositionsUntouched() {
-        let restored = PlaybackService.restoredPausedSeekTime(
-            savedTime: 108.09313673675985,
-            duration: 289.1861224489796
-        )
-
-        XCTAssertEqual(restored, 108.09313673675985, accuracy: 0.0001)
-    }
 
     func testAudioEnginePreparationCreatesMissingEngineAfterStop() {
         let action = PlaybackService.audioEnginePreparation(
@@ -387,31 +390,29 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(mode, .off)
     }
 
-    func testFeedbackRatingToggleForLikeCommand() {
-        XCTAssertEqual(PlaybackService.feedbackRating(from: 0, isLike: true), 10)
-        XCTAssertEqual(PlaybackService.feedbackRating(from: 10, isLike: true), 0)
-        XCTAssertEqual(PlaybackService.feedbackRating(from: 2, isLike: true), 10)
+    func testRemoteFeedbackTable() {
+        // Like toggles loved (10) and none; Dislike toggles disliked (2) and none.
+        let rows: [(current: Int, isLike: Bool, rating: Int, liked: Bool, disliked: Bool)] = [
+            (0, true, 10, true, false),
+            (10, true, 0, false, false),
+            (8, true, 0, false, false),
+            (2, true, 10, true, false),
+            (0, false, 2, false, true),
+            (2, false, 0, false, false),
+            (4, false, 0, false, false),
+            (10, false, 2, false, true),
+            (6, false, 2, false, true),
+        ]
+        for row in rows {
+            let rating = PlaybackService.feedbackRating(from: row.current, isLike: row.isLike)
+            let flags = PlaybackService.feedbackFlags(for: rating)
+            XCTAssertEqual(rating, row.rating, "from \(row.current), like \(row.isLike)")
+            XCTAssertEqual(flags.isLiked, row.liked, "rating \(rating)")
+            XCTAssertEqual(flags.isDisliked, row.disliked, "rating \(rating)")
+        }
     }
 
-    func testFeedbackRatingToggleForDislikeCommand() {
-        XCTAssertEqual(PlaybackService.feedbackRating(from: 0, isLike: false), 2)
-        XCTAssertEqual(PlaybackService.feedbackRating(from: 2, isLike: false), 0)
-        XCTAssertEqual(PlaybackService.feedbackRating(from: 10, isLike: false), 2)
-    }
 
-    func testFeedbackFlagsReflectRatingBuckets() {
-        let none = PlaybackService.feedbackFlags(for: 0)
-        XCTAssertFalse(none.isLiked)
-        XCTAssertFalse(none.isDisliked)
-
-        let liked = PlaybackService.feedbackFlags(for: 10)
-        XCTAssertTrue(liked.isLiked)
-        XCTAssertFalse(liked.isDisliked)
-
-        let disliked = PlaybackService.feedbackFlags(for: 2)
-        XCTAssertFalse(disliked.isLiked)
-        XCTAssertTrue(disliked.isDisliked)
-    }
 
     func testNetworkTransitionOnlineWifiToOnlineCellularTriggersAutoHeal() {
         let decision = PlaybackService.evaluateNetworkTransition(
@@ -461,23 +462,25 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertTrue(decision.shouldHandleDisconnect)
     }
 
-    func testPlaybackSnapshotPersistsAfterInterval() {
-        XCTAssertTrue(
-            PlaybackService.shouldPersistPlaybackSnapshot(
-                observedTime: 30,
-                lastSavedTime: 10
+    func testPlaybackSnapshotPersistenceTable() {
+        // The position is written at the first observed time, then every 15 seconds.
+        let rows: [(observed: TimeInterval, lastSaved: TimeInterval, persists: Bool)] = [
+            (30, 10, true),
+            (25, 10, true),
+            (20, 10, false),
+            (5, 0, true),
+            (0, 0, false),
+            (0, 10, false),
+        ]
+        for row in rows {
+            XCTAssertEqual(
+                PlaybackService.shouldPersistPlaybackSnapshot(observedTime: row.observed, lastSavedTime: row.lastSaved),
+                row.persists,
+                "observed \(row.observed), last saved \(row.lastSaved)"
             )
-        )
+        }
     }
 
-    func testPlaybackSnapshotSkipsFrequentWrites() {
-        XCTAssertFalse(
-            PlaybackService.shouldPersistPlaybackSnapshot(
-                observedTime: 20,
-                lastSavedTime: 10
-            )
-        )
-    }
 
     func testAutomaticAdvanceIsSuppressedDuringInterruption() {
         var coordinator = PlaybackHandoffCoordinator()
@@ -1084,30 +1087,22 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertNil(ownership.generation)
     }
 
-    func testSystemFeedbackAvailabilityMatchesProviderCapabilities() {
+    func testSystemFeedbackAvailabilityTable() {
+        // Plex supports both; Apple Music can add a favorite but has no dislike.
         let plex = makePlexTrack(id: "plex")
         let apple = makeAppleTrack(id: "apple")
-
-        XCTAssertTrue(PlaybackService.systemFeedbackAvailability(
-            for: plex,
-            isLiked: true
-        ).canLike)
-        XCTAssertTrue(PlaybackService.systemFeedbackAvailability(
-            for: plex,
-            isLiked: false
-        ).canDislike)
-        XCTAssertTrue(PlaybackService.systemFeedbackAvailability(
-            for: apple,
-            isLiked: false
-        ).canLike)
-        XCTAssertFalse(PlaybackService.systemFeedbackAvailability(
-            for: apple,
-            isLiked: false
-        ).canDislike)
-        XCTAssertFalse(PlaybackService.systemFeedbackAvailability(
-            for: apple,
-            isLiked: true
-        ).canLike)
+        let rows: [(track: Track?, isLiked: Bool, canLike: Bool, canDislike: Bool)] = [
+            (plex, false, true, true),
+            (plex, true, true, true),
+            (apple, false, true, false),
+            (apple, true, false, false),
+            (nil, false, false, false),
+        ]
+        for (index, row) in rows.enumerated() {
+            let availability = PlaybackService.systemFeedbackAvailability(for: row.track, isLiked: row.isLiked)
+            XCTAssertEqual(availability.canLike, row.canLike, "row \(index)")
+            XCTAssertEqual(availability.canDislike, row.canDislike, "row \(index)")
+        }
     }
 
     func testAppleMusicQueueMutationSynchronizationTargetsOnlyActiveApplePlayback() {
@@ -1148,32 +1143,30 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
-    func testAppleMusicPreviousInferenceRequiresObservedRestart() {
-        XCTAssertTrue(PlaybackService.shouldInferAppleMusicPrevious(
-            previousTime: 1.2,
-            currentTime: 0,
-            restartWasObserved: true
-        ))
-        XCTAssertFalse(PlaybackService.shouldInferAppleMusicPrevious(
-            previousTime: 0.7,
-            currentTime: 0,
-            restartWasObserved: false
-        ))
-        XCTAssertFalse(PlaybackService.shouldInferAppleMusicPrevious(
-            previousTime: 1.2,
-            currentTime: 0,
-            restartWasObserved: false
-        ))
-        XCTAssertFalse(PlaybackService.shouldInferAppleMusicPrevious(
-            previousTime: 30,
-            currentTime: 0,
-            restartWasObserved: true
-        ))
-        XCTAssertFalse(PlaybackService.shouldInferAppleMusicPrevious(
-            previousTime: 1.2,
-            currentTime: 1.1,
-            restartWasObserved: true
-        ))
+    func testAppleMusicPreviousInferenceTable() {
+        // MusicKit consumes Previous; only a restart seen near the start counts as one.
+        let rows: [(previous: TimeInterval, current: TimeInterval, restartObserved: Bool, infers: Bool)] = [
+            (1.2, 0, true, true),
+            (3, 0.5, true, true),
+            (1.2, 0, false, false),
+            (0.7, 0, false, false),
+            (30, 0, true, false),
+            (3.1, 0, true, false),
+            (1.2, 1.1, true, false),
+            (1.2, 0.8, true, false),
+            (0.2, 0, true, false),
+        ]
+        for row in rows {
+            XCTAssertEqual(
+                PlaybackService.shouldInferAppleMusicPrevious(
+                    previousTime: row.previous,
+                    currentTime: row.current,
+                    restartWasObserved: row.restartObserved
+                ),
+                row.infers,
+                "previous \(row.previous), current \(row.current), restart \(row.restartObserved)"
+            )
+        }
     }
 
     func testEndTransitionLeaseStartsNearBoundaryAndReleasesAfterSeekBack() {
