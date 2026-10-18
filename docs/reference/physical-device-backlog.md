@@ -13,6 +13,21 @@ hardware. See [`rearchitecture-plan.md`](rearchitecture-plan.md) section 7.
 
 ## iPhone 16 Pro
 
+### TV Now Playing scene accessory, 2026-10-17 fix
+
+At `c273feb5`, Felicity confirmed on 2026-10-18 that the view looks good on her
+real TV. The fixed build `202610171652.2735` was installed on the iPhone 16 Pro
+running iOS 27.0.1 before that check. See the
+[investigation and evidence](../investigations/2026-10-17-tv-now-playing-screen-mirroring.md).
+
+- The real-TV report confirms the dedicated presentation. Individual checks
+  of lyrics timing, pause/skip, phone dismissal, reconnect/cold launch and
+  audio-only AirPlay were not itemized; retain those as focused follow-ups if
+  timing or lifecycle symptoms recur. Do not infer them from simulator results.
+- iPad multiwindow handoff and interactive external windows remain unverified
+  on hardware. The integration onto the later playback split is build/test
+  checked separately; it has not been reinstalled for another physical run.
+
 ### Customizable Now Playing secondary actions, 2026-10-13 feature commit
 
 Builds and SE/macOS/iPad evidence are in

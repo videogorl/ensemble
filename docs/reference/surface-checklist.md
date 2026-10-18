@@ -96,7 +96,7 @@ Device for every row unless stated: iPhone 16 Pro through Device Hub.
 | App Shortcuts | Shortcuts app > Ensemble | Confirm Play Track, Play Album, Play Artist, Play Playlist, and Open Media are listed; run Play Album | All five appear; the run starts playback of the chosen album | iPhone |
 | Focus filter | Settings > Focus > a Focus > Focus Filters | Confirm an Ensemble filter is offered; do not save | The Ensemble filter and its parameters appear | iPhone |
 | Spotlight | Swipe down on the Home Screen, search a known album | Tap the Ensemble result | An Ensemble result shows and opens that item in the app | iPhone |
-| External display Now Playing (`ExternalDisplayNowPlayingView`) | Screen Mirroring or a wired display during playback | None | **KNOWN BROKEN, PARKED by owner decision.** Record `not run`. Do not diagnose until asked | iPhone and external display |
+| External display Now Playing (`ExternalDisplayNowPlayingView`) | Screen Mirroring or a wired display during playback | Confirm the dedicated TV layout and phone panel selection, then reconnect | Felicity confirmed the real-TV presentation at `c273feb5` on 2026-10-18; iOS 27 activation and iOS 26.5 fallback also have simulator evidence. See [the investigation](../investigations/2026-10-17-tv-now-playing-screen-mirroring.md) | iPhone and external display |
 
 ## iPad
 

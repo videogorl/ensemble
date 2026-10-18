@@ -4,11 +4,12 @@ import EnsembleUI
 import SwiftUI
 import UIKit
 
-/// Scene delegate for a noninteractive supplementary display.
+/// Legacy scene delegate for a noninteractive supplementary display on iOS 17–26.
 ///
 /// When the user activates Screen Mirroring from Control Center, iOS creates a
 /// `UIWindowSceneSessionRoleExternalDisplayNonInteractive` scene. This delegate
 /// hosts a dedicated Now Playing view on the TV via `UIHostingController`.
+/// iOS 27 uses the SwiftUI accessory registered by `RootView` instead.
 ///
 /// Interactive extended-desktop windows use the application scene role and
 /// remain owned by the normal root shell. This scene uses the shared wide

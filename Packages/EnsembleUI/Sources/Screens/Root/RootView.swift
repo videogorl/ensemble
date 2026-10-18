@@ -181,6 +181,7 @@ public struct RootView: View {
         }
         .macRootWindowMinimumFrame(usesNativeBrowse: usesNativeBrowse)
         .macViewportNowPlayingWindowChromeHidden(isNowPlayingPresented)
+        .modifier(ExternalDisplayNowPlayingModifier(viewModel: nowPlayingVM))
     }
 
     private func logAutomationLaunchOptionsIfNeeded() {

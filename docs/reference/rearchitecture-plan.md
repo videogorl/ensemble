@@ -64,7 +64,7 @@ Decided by Felicity on 2026-10-13. Do not reopen these without asking.
 | TestFlight | No TestFlight builds during this work. They resume when the project is done. Per-step git tags are optional; the commit before a step is the rollback point. |
 | Devices | iPhone 16 Pro approved now. The paired Apple Watch and iPad Pro are approved for their steps; ask Felicity to connect them first. |
 | Low-memory devices | No 2 GB device is a test target. Keep paging and memory discipline in code. |
-| Screen Mirroring | The broken external-display Now Playing view is parked. Do not diagnose it until asked. It stays on the surface checklist as known-broken. |
+| Screen Mirroring | Restored with the iOS 27 scene accessory at `c273feb5`; Felicity confirmed the real-TV presentation on 2026-10-18. Preserve the shared-model accessory and older-system delegate path through step 2. See [the investigation](../investigations/2026-10-17-tv-now-playing-screen-mirroring.md). |
 
 ## 3. Evidence
 
@@ -617,7 +617,8 @@ contract changed.
   Check binary size at the start of step 5.
 - **Estimates.** Every line target in this file is an estimate. Report
   actuals and revise the targets rather than bending the work to hit them.
-- **Screen Mirroring.** Parked by decision. Step 2 rebuilds how the external
-  display scene gets its dependencies, which may fix or expose the cause.
+- **Screen Mirroring.** The iOS 27 activation gap is fixed and the owner has
+  confirmed the TV presentation. Step 2 must preserve the accessory's shared
+  model, presentation timing flag, and older-system delegate path.
 - **Watch verification.** How the watch is driven for acceptance is not yet
   decided.
