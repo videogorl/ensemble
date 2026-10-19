@@ -152,19 +152,21 @@ def prepare(args):
         state["pid"] = int(launch.rsplit(":", 1)[1].strip())
     else:
         installed = device_command(state, "install", "device", "install", "app", str(app))
+        # Recent devicectl versions report "unknown"; the installed build version
+        # check below and the launched PID's executable still prove identity.
         identifiers = [item["launchServicesIdentifier"] for item in objects(installed)
-                       if item.get("launchServicesIdentifier")]
-        if len(identifiers) != 1:
-            raise RuntimeError("Fresh installation did not provide one launch services identifier")
+                       if item.get("launchServicesIdentifier") not in (None, "", "unknown")]
+        if len(identifiers) > 1:
+            raise RuntimeError("Fresh installation reported several launch services identifiers")
         apps = device_command(state, "apps", "device", "info", "apps", "--bundle-id", BUNDLE)
         matches = [item for item in objects(apps) if item.get("bundleIdentifier") == BUNDLE]
         if len(matches) != 1 or str(matches[0].get("bundleVersion")) != str(state["build"]):
             raise RuntimeError("Installed device build version does not match built artifact")
         state["installed_app"] = matches[0]
         state["launched_at"] = datetime.now(timezone.utc).isoformat()
+        persistent = ["--launch-persistent-identifier", identifiers[0]] if identifiers else []
         launch = device_command(state, "launch", "device", "process", "launch",
-                                "--terminate-existing", "--launch-persistent-identifier",
-                                identifiers[0], BUNDLE, *launch_args)
+                                "--terminate-existing", *persistent, "--", BUNDLE, *launch_args)
         state["pid"] = launch["process"]["processIdentifier"]
     state["process"] = verify_process(state)
     state["prepared"] = True
