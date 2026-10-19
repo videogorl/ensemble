@@ -50,15 +50,11 @@ See [the step note](../investigations/2026-10-17-step-1f-split.md). The split
 moves code without changing it; the 1b to 1e checks cover it when run on this
 build or later.
 
-- Apple Music items now start one at a time. Play an Apple Music album from
-  a later track and let it advance through two tracks; play a library-only
-  (uploaded) Apple Music track; play a catalog track whose catalog match is
-  stale but which is in the library.
-- Clear Queue (`5b2792ad` or later): the Plex case with Autoplay on passed on
-  the iPhone on 2026-10-19 (step note). Still owed: with Autoplay off, the
-  action is disabled afterwards and the track pauses at its end instead of
-  continuing into a cleared track; during an Apple Music track; and with
-  shuffle on, then turned off.
+- Apple Music one-at-a-time advance and Clear Queue (Plex and Apple Music,
+  Autoplay on and off, with shuffle) passed on the iPhone on 2026-10-19
+  (step note). Still owed: play a library-only (uploaded) Apple Music track,
+  and a catalog track whose catalog match is stale but which is in the
+  library.
 
 ### Step 1e snapshot, at `691211a9` or later
 

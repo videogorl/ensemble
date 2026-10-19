@@ -93,13 +93,17 @@ final class PlaybackDeviceAcceptanceUITests: XCTestCase {
     /// Music queue from a later track and let it advance through two tracks.
     /// Set ENSEMBLE_DEVICE_APPLE_MUSIC_PLAYLIST to a playlist of Apple Music
     /// tracks. The test seeks to each track's end, so it refuses to run on a
-    /// row that is not Apple Music: a Plex track seeked to its end is scrobbled.
+    /// row that is not labelled Apple Music: a Plex track seeked to its end is
+    /// scrobbled. Rows name their source only in multi-source lists; for a
+    /// playlist already confirmed to hold only Apple Music, also set
+    /// ENSEMBLE_DEVICE_APPLE_MUSIC_CONFIRMED=1.
     func testAppleMusicAdvancesOneTrackAtATime() throws {
         let playlist = try XCTUnwrap(
             ProcessInfo.processInfo.environment["ENSEMBLE_DEVICE_APPLE_MUSIC_PLAYLIST"],
             "Set ENSEMBLE_DEVICE_APPLE_MUSIC_PLAYLIST"
         )
-        startPlaylist(named: playlist, atTrackNumber: 3, requiringSubtitle: "Apple Music")
+        let confirmed = ProcessInfo.processInfo.environment["ENSEMBLE_DEVICE_APPLE_MUSIC_CONFIRMED"] == "1"
+        startPlaylist(named: playlist, atTrackNumber: 3, requiringSubtitle: confirmed ? nil : "Apple Music")
         XCTAssertTrue(app.buttons["Pause"].firstMatch.waitForExistence(timeout: 30), "Apple Music track did not start")
         var current = try XCTUnwrap(miniPlayerTrackLabel())
         attach("apple-music-started")

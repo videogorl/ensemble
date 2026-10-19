@@ -111,6 +111,42 @@ That run also showed 8 of the playlist's 14 items skipped because one Plex
 server failed its remote probes on cellular; the 6 played came from the
 stream cache, as G17 allows.
 
+#### Device round 2 (Codex subagent, 2026-10-19)
+
+Run by a Codex `gpt-6.1-sol` subagent driving the same iPhone (iOS 27.0.1)
+with Device Hub and scratch copies of the device UI test, build `0.4.0
+(202610190823.9521)` from a clean `e9df5e21`. The parent agent checked the
+quoted log lines, the screenshots, the cleanup, and the scrobbles against the
+evidence in `/tmp/ensemble-device-codex-r2-hsXkzi`. Apple Music was hidden in
+the active "All Libraries" visibility profile, which is why earlier attempts
+found none; Felicity approved showing it for the run, and it was hidden
+again afterwards with the profile otherwise unchanged. A disposable Apple
+Music playlist, `Ensemble QA 2026-10-19`, held five versions of "Blinding
+Lights" and was deleted afterwards (Apple Music playlist count back to 156).
+Autoplay, Shuffle, and Repeat were restored to on, off, off.
+
+| Check | Result |
+|---|---|
+| A. Step 1f, Autoplay off: tracks 3, 4, 5 each start on their own (`beforeApplicationPlay` generations 1, 2, 3 at 09:02:44, 09:02:55, 09:03:06); no unresolved skip, no failed state | pass |
+| B. Clear Queue during an Apple Music track, Autoplay off: upcoming items gone, playback not restarted, History kept, action then disabled; at the track's end it stops on it paused at 0:00 (`QUEUE_NAVIGATE_PAUSED: handleQueueExhausted-endOfQueue` at 09:07:39) | pass |
+| C. Clear Queue with Shuffle on, then Shuffle off: cleared items stay gone (`[MusicKitQueue] Discarded stale upcoming entries after logical queue mutation` at 09:10:02, no provider restart) | pass |
+| D. Plex Clear Queue, Autoplay off: action disabled afterwards, Next pauses on the same track (`QUEUE_NAVIGATE_PAUSED: next()-endOfQueue` at 09:19:12); no Plex seek | pass |
+
+No Plex play was scrobbled. The four `SCROBBLE:` lines in the run are Apple
+Music tracks, for which the provider's `scrobble` does nothing. Deviations:
+one interrupted D attempt played a Plex track for about 66 seconds (no
+scrobble), and in round 1 a swipe moved a paused Plex track near its end
+(no scrobble). Device Hub's touch input failed partway through both rounds
+(`CoreDeviceError 15004`), so most steps ran through XCUITest; the "Enable
+UI Automation" passcode prompt needed Felicity each time the runner started
+after a while. In a single-source playlist the rows do not name their
+source, so the Apple Music test's guard now accepts
+`ENSEMBLE_DEVICE_APPLE_MUSIC_CONFIRMED=1` for a playlist already confirmed
+to hold only Apple Music.
+
+Not covered: a library-only (uploaded) Apple Music track and a catalog track
+with a stale catalog match, since none was identified.
+
 ## Checks
 
 - EnsembleCore: playback, Now Playing, Siri, and Apple Music tests pass
