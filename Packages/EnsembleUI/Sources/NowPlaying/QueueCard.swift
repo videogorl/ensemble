@@ -159,6 +159,14 @@ public struct QueueCard: View {
                     } label: {
                         Label("Save Queue as Playlist", systemImage: EnsembleDesign.Icon.saveQueue)
                     }
+
+                    Button(role: .destructive) {
+                        viewModel.clearQueue()
+                    } label: {
+                        Label("Clear Queue", systemImage: EnsembleDesign.Icon.clearQueue)
+                    }
+                    .disabled(!hasUpcomingItems)
+                    .accessibilityIdentifier("nowPlaying.queue.clear")
                 } label: {
                     Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
                         .font(.system(size: EnsembleScaffold.NowPlaying.menuIconSize))
@@ -170,6 +178,11 @@ public struct QueueCard: View {
         }
         .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
         .frame(minHeight: EnsembleScaffold.NowPlaying.headerMinHeight)
+    }
+
+    /// Clear Queue removes only what follows the current track (G20).
+    private var hasUpcomingItems: Bool {
+        queueProjection.queue.count > queueProjection.currentQueueIndex + 1
     }
 
     // MARK: - Queue List

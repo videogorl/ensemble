@@ -1270,6 +1270,11 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.removeFromQueue(at: index)
     }
 
+    /// Clears the upcoming items; the current track keeps playing (G20).
+    public func clearQueue() {
+        playbackService.clearQueue()
+    }
+
     // MARK: - Playlist Management
 
     /// Candidate source options for playlist creation. Plex is deduplicated at server level.

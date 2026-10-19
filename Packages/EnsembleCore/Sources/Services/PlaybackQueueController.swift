@@ -244,22 +244,20 @@ final class PlaybackQueueController {
         return item
     }
 
-    func clear(
+    /// Clear Queue (G20): drops every item after the current one. The current
+    /// item, the items already played before it, and history stay.
+    func clearUpcoming(
         queue: inout [QueueItem],
         originalQueue: inout [QueueItem],
-        playbackHistory: inout [QueueItem],
         currentQueueIndex: inout Int
     ) {
-        if queue.indices.contains(currentQueueIndex) {
-            queue = [queue[currentQueueIndex]]
-            currentQueueIndex = 0
-        } else {
-            queue = []
+        let keptCount = queue.indices.contains(currentQueueIndex) ? currentQueueIndex + 1 : 0
+        let removedIDs = Set(queue.dropFirst(keptCount).map(\.id))
+        queue.removeLast(queue.count - keptCount)
+        originalQueue.removeAll { removedIDs.contains($0.id) }
+        if keptCount == 0 {
             currentQueueIndex = -1
         }
-
-        originalQueue = queue
-        playbackHistory.removeAll()
     }
 
     @discardableResult

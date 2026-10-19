@@ -148,6 +148,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     func playLast(_ track: Track)
     func playLast(_ tracks: [Track])
     @MainActor func removeFromQueue(at index: Int)
+    @MainActor func clearQueue()
     func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int, destinationSource: QueueItemSource?)
     func toggleShuffle()
     func cycleRepeatMode()

@@ -179,6 +179,7 @@ public enum EnsembleDesign {
         public static let paintPalette = "paintpalette"
         public static let tapGesture = "hand.tap"
         public static let saveQueue = "square.and.arrow.down"
+        public static let clearQueue = "trash"
         public static let instrumentalOn = "mic.slash.circle"
         public static let instrumentalOff = "mic.circle"
         public static let lyricsUnavailable = "text.quote"

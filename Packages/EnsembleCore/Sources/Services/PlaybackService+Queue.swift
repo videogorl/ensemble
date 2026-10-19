@@ -815,10 +815,9 @@ extension PlaybackService {
     }
 
     public func clearQueue() {
-        queueController.clear(
+        queueController.clearUpcoming(
             queue: &queue,
             originalQueue: &originalQueue,
-            playbackHistory: &playbackHistory,
             currentQueueIndex: &currentQueueIndex
         )
         setQueueProtection(false, reason: "clear")

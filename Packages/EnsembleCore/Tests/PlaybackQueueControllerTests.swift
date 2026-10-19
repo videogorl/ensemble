@@ -339,28 +339,37 @@ final class PlaybackQueueControllerTests: XCTestCase {
         XCTAssertEqual(currentQueueIndex, 0)
     }
 
-    func testClearRetainsCurrentItemAndClearsHistory() {
-        let controller = makeController()
-        var queue = [
-            makeItem(id: "before"),
-            makeItem(id: "current"),
-            makeItem(id: "after"),
+    func testClearUpcomingTable() {
+        // G20: Clear Queue keeps the current item and everything before it, and
+        // removes the cleared items from the unshuffled order too.
+        let rows: [(queue: [String], original: [String], index: Int, queueAfter: [String], originalAfter: [String], indexAfter: Int)] = [
+            (["before", "current", "next", "later"], ["before", "current", "next", "later"], 1,
+             ["before", "current"], ["before", "current"], 1),
+            (["current", "b", "a"], ["played", "a", "current", "b"], 0,
+             ["current"], ["played", "current"], 0),
+            (["first", "current"], ["first", "current"], 1,
+             ["first", "current"], ["first", "current"], 1),
+            (["a", "b"], ["a", "b"], -1,
+             [], [], -1),
+            ([], [], -1,
+             [], [], -1),
         ]
-        var originalQueue = Array(queue.reversed())
-        var history = [makeItem(id: "history")]
-        var currentQueueIndex = 1
+        for row in rows {
+            let controller = makeController()
+            var queue = row.queue.map { makeItem(id: $0) }
+            var originalQueue = row.original.map { makeItem(id: $0) }
+            var currentQueueIndex = row.index
 
-        controller.clear(
-            queue: &queue,
-            originalQueue: &originalQueue,
-            playbackHistory: &history,
-            currentQueueIndex: &currentQueueIndex
-        )
+            controller.clearUpcoming(
+                queue: &queue,
+                originalQueue: &originalQueue,
+                currentQueueIndex: &currentQueueIndex
+            )
 
-        XCTAssertEqual(queue.map(\.track.id), ["current"])
-        XCTAssertEqual(originalQueue, queue)
-        XCTAssertTrue(history.isEmpty)
-        XCTAssertEqual(currentQueueIndex, 0)
+            XCTAssertEqual(queue.map(\.track.id), row.queueAfter, "queue \(row.queue) at \(row.index)")
+            XCTAssertEqual(originalQueue.map(\.track.id), row.originalAfter, "original \(row.original)")
+            XCTAssertEqual(currentQueueIndex, row.indexAfter)
+        }
     }
 
     func testMoveItemFlattensAutoplayAndTracksCurrentPosition() {
