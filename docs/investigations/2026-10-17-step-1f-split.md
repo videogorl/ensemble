@@ -87,6 +87,30 @@ identity matched, shut down afterwards:
 | Clear Queue is disabled with nothing upcoming | pass |
 | Next then pauses at the end of the queue on the current track (G2, G1); the already-prefetched next track does not play | pass |
 
+Physical iPhone 16 Pro (`00008140-00023030117B001C`), build `0.4.0
+(202610190723.8453)`, app code as at `676358bf`, installed by the test run.
+Driven by `PlaybackDeviceAcceptanceUITests` (skipped unless
+`ENSEMBLE_DEVICE_ACCEPTANCE=1`), with screenshots and the app's session log.
+
+| Check | Result |
+|---|---|
+| `testClearQueueKeepsCurrentTrackAndHistory` with the Plex playlist "Ambient Electric", Autoplay on | pass |
+| The More menu shows Clear Queue in the destructive style | pass |
+| After Clear Queue every Continue Playing track is gone; Autoplay refills with recommendations, as G2 allows | pass |
+| History keeps the first track; the current track keeps playing | pass |
+| Next plays an Autoplay recommendation, never a cleared track | pass |
+
+Not done on the device: the disabled state (Autoplay kept the queue
+non-empty), Clear Queue during an Apple Music track, and the step 1f Apple
+Music advance. The first Apple Music attempt used "am test", which turned
+out to hold Plex tracks: it played three Plex tracks by gapless advance and,
+by seeking near their ends, scrobbled two real Plex plays (rating keys 12323
+and 13729). The test now refuses to seek unless the row is labelled Apple
+Music and takes its playlist from `ENSEMBLE_DEVICE_APPLE_MUSIC_PLAYLIST`.
+That run also showed 8 of the playlist's 14 items skipped because one Plex
+server failed its remote probes on cellular; the 6 played came from the
+stream cache, as G17 allows.
+
 ## Checks
 
 - EnsembleCore: playback, Now Playing, Siri, and Apple Music tests pass

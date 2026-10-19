@@ -54,10 +54,11 @@ build or later.
   a later track and let it advance through two tracks; play a library-only
   (uploaded) Apple Music track; play a catalog track whose catalog match is
   stale but which is in the library.
-- Clear Queue (`5b2792ad` or later): with Plex playing, clear from the Queue
-  Card's More menu; the track keeps playing, History stays, and at its end
-  playback pauses on it instead of continuing into a cleared track. Repeat
-  during an Apple Music track, and once with shuffle on, then turn shuffle off.
+- Clear Queue (`5b2792ad` or later): the Plex case with Autoplay on passed on
+  the iPhone on 2026-10-19 (step note). Still owed: with Autoplay off, the
+  action is disabled afterwards and the track pauses at its end instead of
+  continuing into a cleared track; during an Apple Music track; and with
+  shuffle on, then turned off.
 
 ### Step 1e snapshot, at `691211a9` or later
 
