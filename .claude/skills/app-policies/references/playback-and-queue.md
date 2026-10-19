@@ -28,6 +28,9 @@
   mutations protect the queue from direct app-UI replacement only while media
   is playing, until confirmed. Otherwise replacement needs no confirmation;
   background/system recovery never presents confirmation UI.
+- Clear Queue removes only the items after the current one. The current item
+  keeps playing, and History and already-played items stay. Stop happens only
+  on sign-out or server removal.
 - SmartMix is an opt-in, device-local Plex-only enhancement. It uses the existing
   two-deck model and must gracefully fall back to ordinary gapless playback when
   analysis, device state, queue shape, route, or scheduling is unsuitable.

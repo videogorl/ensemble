@@ -54,6 +54,10 @@ build or later.
   a later track and let it advance through two tracks; play a library-only
   (uploaded) Apple Music track; play a catalog track whose catalog match is
   stale but which is in the library.
+- Clear Queue (`5b2792ad` or later): with Plex playing, clear from the Queue
+  Card's More menu; the track keeps playing, History stays, and at its end
+  playback pauses on it instead of continuing into a cleared track. Repeat
+  during an Apple Music track, and once with shuffle on, then turn shuffle off.
 
 ### Step 1e snapshot, at `691211a9` or later
 

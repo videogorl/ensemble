@@ -64,12 +64,28 @@ not reached and is not pursued further in step 1.
 - No `ForTesting` hooks remain in the playback stack.
 - Coordinators were not folded into effect handlers; that needed the reducer.
 
-## Left for Felicity
+## Clear Queue (follow-up, 2026-10-19)
 
-- `clearQueue()` has no caller. No screen offers Clear Queue; the only
-  similar control is "Clear Queue and Play" in the Replace Queue alert,
-  which replaces the queue. G20 describes Clear Queue, so the method stays
-  until you decide whether the UI should offer it or it should go.
+`clearQueue()` had no caller after 1f. Felicity decided to keep it and add
+Clear Queue to the Queue Card's More menu (`5b2792ad`), on iOS and macOS
+alike since both use the card. It follows G20 as written: everything after
+the current track is removed; the current track keeps playing, and History
+and the already-played items before the current index stay. The previous
+implementation also emptied History, which G20 does not ask for. Cleared
+items also leave the unshuffled order. The action is disabled when nothing
+follows the current track. Test: `testClearUpcomingTable`, replacing
+`testClearRetainsCurrentItemAndClearsHistory`.
+
+Simulator, build `0.4.0 (202610190655.5279)` from `5b2792ad`, clean tree,
+identity matched, shut down afterwards:
+
+| Check | Result |
+|---|---|
+| More menu lists Clear Queue in the destructive style, below Save Queue as Playlist | pass |
+| After Clear Queue, the queue page shows no upcoming items and the track keeps playing | pass |
+| History still lists the earlier track | pass |
+| Clear Queue is disabled with nothing upcoming | pass |
+| Next then pauses at the end of the queue on the current track (G2, G1); the already-prefetched next track does not play | pass |
 
 ## Checks
 
