@@ -10,8 +10,8 @@ import AppKit
 /// Includes shuffle, repeat, autoplay buttons relocated from Controls card
 public struct QueueCard: View {
     private let viewModel: NowPlayingViewModel
-    @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
-    @ObservedObject private var queueProjection: NowPlayingQueueProjection
+    private let playbackProjection: NowPlayingPlaybackProjection
+    private let queueProjection: NowPlayingQueueProjection
     @Binding var currentPage: Int
     private let isAlwaysVisible: Bool
     @Environment(DependencyContainer.self) private var deps
@@ -33,8 +33,8 @@ public struct QueueCard: View {
         isAlwaysVisible: Bool = false
     ) {
         self.viewModel = viewModel
-        _playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
-        _queueProjection = ObservedObject(wrappedValue: viewModel.queueProjection)
+        self.playbackProjection = viewModel.playbackProjection
+        self.queueProjection = viewModel.queueProjection
         _currentPage = currentPage
         self.isAlwaysVisible = isAlwaysVisible
     }

@@ -18,7 +18,6 @@ public struct RootView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private var powerStateMonitor: PowerStateMonitor { dependencies.powerStateMonitor }
     @StateObject private var navigationCoordinator: NavigationCoordinator
-    @StateObject private var nowPlayingVM: NowPlayingViewModel
     @StateObject private var screenModels: RootScreenModels
     @StateObject private var artworkDetailBackgroundContinuity = ArtworkDetailBackgroundContinuityStore()
     @StateObject private var artistDetailArtworkContinuity = ArtistDetailArtworkContinuityStore()
@@ -48,13 +47,13 @@ public struct RootView: View {
             foregroundWorkScheduler: dependencies.foregroundWorkScheduler
         )
         _navigationCoordinator = StateObject(wrappedValue: navigationCoordinator)
-        _nowPlayingVM = StateObject(
-            wrappedValue: dependencies.makeNowPlayingViewModel(
-                navigationCoordinator: navigationCoordinator
-            )
-        )
-        _screenModels = StateObject(wrappedValue: RootScreenModels(dependencies: dependencies))
+        _screenModels = StateObject(wrappedValue: RootScreenModels(
+            dependencies: dependencies,
+            navigationCoordinator: navigationCoordinator
+        ))
     }
+
+    private var nowPlayingVM: NowPlayingViewModel { screenModels.nowPlaying }
 
     public var body: some View {
         RootSceneLayerHost(

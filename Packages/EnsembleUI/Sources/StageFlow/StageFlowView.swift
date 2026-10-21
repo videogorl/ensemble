@@ -178,13 +178,13 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         .onChange(of: selectedItem?.id) { _ in
             isPanelPresented = false
         }
-        .onReceive(nowPlayingVM.$playbackState) { playbackState in
+        .onChange(of: nowPlayingVM.playbackState, initial: true) { _, playbackState in
             updateTransportState(
                 currentTrack: nowPlayingVM.currentTrack,
                 playbackState: playbackState
             )
         }
-        .onReceive(nowPlayingVM.$currentTrack) { track in
+        .onChange(of: nowPlayingVM.currentTrack, initial: true) { _, track in
             updatePlaybackContext(
                 currentTrack: track,
                 queueCount: nowPlayingVM.queueProjection.queue.count
@@ -194,8 +194,8 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 playbackState: nowPlayingVM.playbackState
             )
         }
-        .onReceive(nowPlayingVM.queueProjection.$queue) { queue in
-            updatePlaybackContext(currentTrack: nowPlayingVM.currentTrack, queueCount: queue.count)
+        .onChange(of: nowPlayingVM.queueProjection.queue.count, initial: true) { _, count in
+            updatePlaybackContext(currentTrack: nowPlayingVM.currentTrack, queueCount: count)
         }
         .ignoresSafeArea()
     }

@@ -48,12 +48,12 @@ public struct ProfilePresentationContainer: View {
 
 public struct DownloadsPresentationContainer: View {
     @Environment(DependencyContainer.self) private var dependencies
-    @StateObject private var nowPlayingVM: NowPlayingViewModel
+    @StateObject private var holder = NowPlayingHolder(dependencies: DependencyContainer.shared)
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
 
-    public init() {
-        _nowPlayingVM = StateObject(wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel())
-    }
+    public init() {}
+
+    private var nowPlayingVM: NowPlayingViewModel { holder.nowPlaying }
 
     public var body: some View {
         #if os(macOS)
@@ -165,5 +165,17 @@ public extension View {
     /// Presents the root add-account sheet from the active navigation shell.
     func addAccountPresentationSheet() -> some View {
         modifier(AddAccountPresentationSheetModifier())
+    }
+}
+
+/// Builds the window's Now Playing model once; `@StateObject` gives the lazy,
+/// once-per-window ownership that `@State` cannot on iOS 17.
+@MainActor
+private final class NowPlayingHolder: ObservableObject {
+    let nowPlaying: NowPlayingViewModel
+
+    init(dependencies: DependencyContainer) {
+        nowPlaying = NowPlayingViewModel(dependencies: dependencies)
+        nowPlaying.start()
     }
 }

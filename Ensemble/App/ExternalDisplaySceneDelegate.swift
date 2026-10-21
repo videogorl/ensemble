@@ -77,7 +77,8 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
             viewModel = shared
         } else {
             EnsembleLogger.debug("[ExternalDisplay] activeNowPlayingViewModel not yet set, creating fallback instance")
-            viewModel = AppRoot.container.makeNowPlayingViewModel()
+            viewModel = NowPlayingViewModel(dependencies: AppRoot.container)
+            viewModel.start()
         }
 
         let externalView = ExternalDisplayNowPlayingView(viewModel: viewModel)

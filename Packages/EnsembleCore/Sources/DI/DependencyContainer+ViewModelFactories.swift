@@ -42,26 +42,6 @@ public extension DependencyContainer {
     }
 
     @MainActor
-    func makeNowPlayingViewModel(
-        navigationCoordinator: NavigationCoordinator? = nil
-    ) -> NowPlayingViewModel {
-        NowPlayingViewModel(
-            playbackService: playbackService,
-            syncCoordinator: syncCoordinator,
-            libraryRepository: libraryRepository,
-            navigationCoordinator: navigationCoordinator ?? self.navigationCoordinator,
-            toastCenter: toastCenter,
-            mutationCoordinator: mutationCoordinator,
-            trackRatingLocalStore: TrackRatingLocalStore(coreDataStack: coreDataStack),
-            trackAvailabilityResolver: trackAvailabilityResolver,
-            lyricsService: lyricsService,
-            artworkLoader: artworkLoader,
-            foregroundWorkScheduler: foregroundWorkScheduler,
-            hiddenMediaStore: hiddenMediaStore
-        )
-    }
-
-    @MainActor
     func makeLibraryItemInfoViewModel(request: LibraryItemInfoRequest) -> LibraryItemInfoViewModel {
         LibraryItemInfoViewModel(
             request: request,

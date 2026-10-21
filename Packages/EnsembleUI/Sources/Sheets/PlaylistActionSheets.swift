@@ -3,7 +3,7 @@ import EnsembleCore
 import SwiftUI
 
 public struct PlaylistPickerSheet: View {
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     let tracks: [Track]
     let title: String
     let createsPlaylistAcrossSources: Bool

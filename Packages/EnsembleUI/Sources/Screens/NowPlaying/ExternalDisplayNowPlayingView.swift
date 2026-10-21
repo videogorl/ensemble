@@ -11,7 +11,7 @@ import SwiftUI
 /// The view shares the same `NowPlayingViewModel` instance as the main UI so playback,
 /// lyrics, queue, and panel selection stay in sync with zero duplicate work.
 public struct ExternalDisplayNowPlayingView: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    @Bindable var viewModel: NowPlayingViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
 
     public init(viewModel: NowPlayingViewModel) {

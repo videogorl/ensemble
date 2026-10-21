@@ -87,7 +87,7 @@ public enum PlaylistActionPresentationHost {
 }
 
 private struct PlaylistActionPresentationModifier: ViewModifier {
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     @Binding var request: PlaylistActionPresentationRequest?
 
     func body(content: Content) -> some View {
@@ -121,9 +121,9 @@ private struct RecentPlaylistTargetObservationModifier: ViewModifier {
                 lastPlaylistTargetID = nowPlayingVM.lastPlaylistTarget?.id
                 await refreshTarget()
             }
-            .onReceive(nowPlayingVM.lastPlaylistTargetPublisher) { playlistTarget in
-                guard playlistTarget?.id != lastPlaylistTargetID else { return }
-                lastPlaylistTargetID = playlistTarget?.id
+            .onChange(of: nowPlayingVM.lastPlaylistTarget?.id) { _, id in
+                guard id != lastPlaylistTargetID else { return }
+                lastPlaylistTargetID = id
                 Task { @MainActor in await refreshTarget() }
             }
     }

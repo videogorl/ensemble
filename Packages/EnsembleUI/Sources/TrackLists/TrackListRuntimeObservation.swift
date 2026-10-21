@@ -53,21 +53,17 @@ private struct NowPlayingTrackListObservationModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .environment(\.trackListDisplayRatingsRevision, displayRatingsRevision)
-            .onReceive(nowPlayingVM.$currentTrack.map { $0?.playbackIdentity }.removeDuplicates()) { id in
+            .onChange(of: nowPlayingVM.currentTrack?.playbackIdentity, initial: true) { _, id in
                 if id != currentTrackId {
                     currentTrackId = id
                 }
             }
-            .onReceive(nowPlayingVM.ratingProjection.$displayRatingsRevision.removeDuplicates()) { revision in
+            .onChange(of: nowPlayingVM.ratingProjection.displayRatingsRevision, initial: true) { _, revision in
                 if revision != displayRatingsRevision {
                     displayRatingsRevision = revision
                 }
             }
-            .onReceive(
-                nowPlayingVM.$lastPlaylistTarget
-                    .map { lastPlaylistProjection.value(from: $0) }
-                    .removeDuplicates()
-            ) { value in
+            .onChange(of: lastPlaylistProjection.value(from: nowPlayingVM.lastPlaylistTarget), initial: true) { _, value in
                 lastPlaylistProjection.update(value)
             }
     }

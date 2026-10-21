@@ -62,12 +62,21 @@ public enum PlaylistActionError: LocalizedError {
 }
 
 @MainActor
-public final class NowPlayingViewModel: ObservableObject {
-    @Published public private(set) var currentTrack: Track?
-    @Published public private(set) var playbackState: PlaybackState = .stopped
-    @Published public private(set) var duration: TimeInterval = 0
-    @Published public private(set) var isShuffleEnabled = false
-    @Published public private(set) var repeatMode: RepeatMode = .off
+@Observable
+public final class NowPlayingViewModel {
+    public private(set) var currentTrack: Track? {
+        didSet { handleCurrentTrackSet() }
+    }
+    public private(set) var playbackState: PlaybackState = .stopped {
+        didSet { playbackProjection.updatePlaybackState(playbackState) }
+    }
+    public private(set) var duration: TimeInterval = 0
+    public private(set) var isShuffleEnabled = false {
+        didSet { playbackProjection.updateShuffle(isShuffleEnabled) }
+    }
+    public private(set) var repeatMode: RepeatMode = .off {
+        didSet { playbackProjection.updateRepeatMode(repeatMode) }
+    }
     // waveformHeights uses CurrentValueSubject to avoid firing objectWillChange
     // at ~10Hz — only ControlsCard needs this, not all 4 NP cards.
     private let _waveformHeights = CurrentValueSubject<[Double], Never>([])
@@ -83,32 +92,47 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackProjection.progressPublisher
     }
 
-    @Published public var currentRating: TrackRating = .none
-    @Published public private(set) var isAutoplayEnabled = false
-    @Published public private(set) var isSmartMixEnabled = false
-    @Published public private(set) var autoplayTracks: [Track] = []
-    @Published public private(set) var radioMode: RadioMode = .off
-    @Published public private(set) var recommendationsExhausted = false
-    @Published public var showHistory: Bool = false
+    public var currentRating: TrackRating = .none {
+        didSet { ratingProjection.updateCurrentRating(currentRating) }
+    }
+    public private(set) var isAutoplayEnabled = false {
+        didSet { queueProjection.updateAutoplayEnabled(isAutoplayEnabled) }
+    }
+    public private(set) var isSmartMixEnabled = false {
+        didSet { queueProjection.updateSmartMixEnabled(isSmartMixEnabled) }
+    }
+    public private(set) var autoplayTracks: [Track] = []
+    public private(set) var radioMode: RadioMode = .off
+    public private(set) var recommendationsExhausted = false {
+        didSet { queueProjection.updateRecommendationsExhausted(recommendationsExhausted) }
+    }
+    public var showHistory: Bool = false {
+        didSet { queueProjection.updateShowHistory(showHistory) }
+    }
     /// Persists the selected card page (0: Queue, 1: Controls, 2: Lyrics, 3: Info) across sheet dismiss/reopen
-    @Published public var currentPage: Int = 1
-    @Published public private(set) var isPlaylistMutationInProgress = false
-    @Published public private(set) var isQueueReplacementConfirmationPresented = false
-    @Published public var lastPlaylistTarget: LastPlaylistTarget?
-    public var lastPlaylistTargetPublisher: AnyPublisher<LastPlaylistTarget?, Never> {
-        $lastPlaylistTarget.eraseToAnyPublisher()
+    public var currentPage: Int = 1
+    public private(set) var isPlaylistMutationInProgress = false
+    public private(set) var isQueueReplacementConfirmationPresented = false
+    public var lastPlaylistTarget: LastPlaylistTarget?
+
+    private var optimisticTrackRatingsByIdentity: [String: Int] = [:] {
+        didSet { ratingProjection.updateDisplayRatings(optimisticTrackRatingsByIdentity) }
+    }
+    private var optimisticTrackFavoritesByIdentity: [String: Bool] = [:]
+    private var acceptedSourceLibraryCatalogIDs = Set<String>()
+    private var sourceLibraryCatalogIDsInFlight = Set<String>()
+    /// Mirrors TrackAvailabilityResolver generation to drive isCurrentTrackPlayable re-evaluation
+    private var availabilityGeneration: UInt64 = 0 {
+        didSet { publishCurrentTrackAvailability() }
     }
 
-    @Published private var optimisticTrackRatingsByIdentity: [String: Int] = [:]
-    private var optimisticTrackFavoritesByIdentity: [String: Bool] = [:]
-    @Published private var acceptedSourceLibraryCatalogIDs = Set<String>()
-    @Published private var sourceLibraryCatalogIDsInFlight = Set<String>()
-    /// Mirrors TrackAvailabilityResolver generation to drive isCurrentTrackPlayable re-evaluation
-    @Published private var availabilityGeneration: UInt64 = 0
-
     // Lyrics state driven by LyricsService
-    @Published public private(set) var lyricsState: LyricsState = .notAvailable
-    @Published public private(set) var lyricsSource: LyricsSource = .none
+    public private(set) var lyricsState: LyricsState = .notAvailable {
+        didSet { lyricsProjection.updateLyricsState(lyricsState) }
+    }
+    public private(set) var lyricsSource: LyricsSource = .none {
+        didSet { lyricsProjection.updateLyricsSource(lyricsSource) }
+    }
     // High-frequency lyrics properties use CurrentValueSubject to avoid firing
     // objectWillChange every ~0.5s — only LyricsCard needs these, not all 4 NP cards.
     private let _currentLyricsLineIndex = CurrentValueSubject<Int?, Never>(nil)
@@ -153,18 +177,32 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     /// Pre-computed set of line indices that have an instrumental gap AFTER them
-    @Published public private(set) var instrumentalGapAfterIndices: Set<Int> = []
+    public private(set) var instrumentalGapAfterIndices: Set<Int> = [] {
+        didSet { lyricsProjection.updateInstrumentalGapAfterIndices(instrumentalGapAfterIndices) }
+    }
     /// Whether there's an instrumental gap before the first lyric
-    @Published public private(set) var hasIntroInstrumentalGap: Bool = false
+    public private(set) var hasIntroInstrumentalGap: Bool = false {
+        didSet { lyricsProjection.updateHasIntroInstrumentalGap(hasIntroInstrumentalGap) }
+    }
     /// Whether there's an instrumental gap after the last lyric (outro)
-    @Published public private(set) var hasOutroInstrumentalGap: Bool = false
+    public private(set) var hasOutroInstrumentalGap: Bool = false {
+        didSet { lyricsProjection.updateHasOutroInstrumentalGap(hasOutroInstrumentalGap) }
+    }
 
     // Instrumental mode (vocal attenuation)
-    @Published public private(set) var isInstrumentalModeActive: Bool = false
+    public private(set) var isInstrumentalModeActive: Bool = false {
+        didSet { lyricsProjection.updateInstrumentalModeActive(isInstrumentalModeActive) }
+    }
     public let isInstrumentalModeSupported: Bool = InstrumentalModeCapability.isSupported
-    @Published public private(set) var hasChordLyrics: Bool = false
-    @Published public private(set) var isChordModeEnabled: Bool = false
-    @Published public private(set) var isDisplayingChordLyrics: Bool = false
+    public private(set) var hasChordLyrics: Bool = false {
+        didSet { lyricsProjection.updateHasChordLyrics(hasChordLyrics) }
+    }
+    public private(set) var isChordModeEnabled: Bool = false {
+        didSet { lyricsProjection.updateChordModeEnabled(isChordModeEnabled) }
+    }
+    public private(set) var isDisplayingChordLyrics: Bool = false {
+        didSet { lyricsProjection.updateDisplayingChordLyrics(isDisplayingChordLyrics) }
+    }
 
     private let playbackService: PlaybackServiceProtocol
     private let syncCoordinator: SyncCoordinator
@@ -180,6 +218,7 @@ public final class NowPlayingViewModel: ObservableObject {
     private let foregroundWorkScheduler: ForegroundWorkScheduling
     private let hiddenMediaStore: HiddenMediaStore
     private var cancellables = Set<AnyCancellable>()
+    private var isStarted = false
     private var currentQueueIdentity: [String]?
     private var hiddenPlaybackScopeDepth = 0
 
@@ -231,33 +270,17 @@ public final class NowPlayingViewModel: ObservableObject {
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
         lyricsProjection = NowPlayingLyricsProjection(isInstrumentalModeSupported: InstrumentalModeCapability.isSupported)
         lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
-        setupBindings()
     }
 
-    private func setupBindings() {
+    /// Starts playback, lyrics, availability, and artwork observation and
+    /// projects the current values. Scene owners call it right after building
+    /// the model so the first frame is complete. Safe to call again.
+    public func start() {
+        guard !isStarted else { return }
+        isStarted = true
         queueProjection.bind(to: playbackService)
-
-        // Keep this before the playback-service subscriptions so an already-restored
-        // current track is projected and repaired when the view model is created.
-        $currentTrack
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] track in
-                guard let self else { return }
-                self.refreshCurrentTrackMetadataIfNeeded(track)
-                self.playbackProjection.updateCurrentTrack(track)
-                self.ratingProjection.updateCurrentTrack(
-                    track,
-                    displayRating: track.map { self.trackDisplayRating(for: $0) }
-                )
-                if track == nil {
-                    self.duration = 0
-                } else {
-                    self.duration = self.playbackService.duration
-                }
-                self.publishPlaybackProjectionSnapshot()
-                self.publishCurrentTrackAvailability()
-            }
-            .store(in: &cancellables)
+        syncProjections()
+        handleCurrentTrackSet()
 
         // One subscription to the playback snapshot; each field updates only when it changes.
         playbackService.snapshotPublisher
@@ -313,69 +336,6 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        $playbackState
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                self?.playbackProjection.updatePlaybackState(state)
-            }
-            .store(in: &cancellables)
-
-        $isShuffleEnabled
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isEnabled in
-                self?.playbackProjection.updateShuffle(isEnabled)
-            }
-            .store(in: &cancellables)
-
-        $repeatMode
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] mode in
-                self?.playbackProjection.updateRepeatMode(mode)
-            }
-            .store(in: &cancellables)
-
-        $showHistory
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isShowing in
-                self?.queueProjection.updateShowHistory(isShowing)
-            }
-            .store(in: &cancellables)
-
-        $isAutoplayEnabled
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isEnabled in
-                self?.queueProjection.updateAutoplayEnabled(isEnabled)
-            }
-            .store(in: &cancellables)
-
-        $isSmartMixEnabled
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isEnabled in
-                self?.queueProjection.updateSmartMixEnabled(isEnabled)
-            }
-            .store(in: &cancellables)
-
-        $recommendationsExhausted
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isExhausted in
-                self?.queueProjection.updateRecommendationsExhausted(isExhausted)
-            }
-            .store(in: &cancellables)
-
-        $currentRating
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] rating in
-                self?.ratingProjection.updateCurrentRating(rating)
-            }
-            .store(in: &cancellables)
-
-        $optimisticTrackRatingsByIdentity
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] ratings in
-                self?.ratingProjection.updateDisplayRatings(ratings)
-            }
-            .store(in: &cancellables)
-
         // Keep duration synchronized with AVPlayer's effective item duration as playback advances.
         playbackService.currentTimePublisher
             .receive(on: DispatchQueue.main)
@@ -406,66 +366,11 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Update rating when track changes (but not if we're actively updating it)
-        $currentTrack
-            .sink { [weak self] track in
-                guard let self = self, !self.isUpdatingRating else { return }
-                guard let track = track else {
-                    self.currentRating = .none
-                    return
-                }
-                self.currentRating = TrackRating.from(rating: self.trackDisplayRating(for: track))
-            }
-            .store(in: &cancellables)
-
-        // Automatically load artwork when track changes
-        $currentTrack
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] track in
-                guard let self = self else { return }
-                guard self.isArtworkLoadingEnabledForTesting else {
-                    self.artworkLoadTask?.cancel()
-                    self.artworkProjection.clear(track: track)
-                    return
-                }
-                if let track = track {
-                    self.loadArtworkImage(for: track)
-                } else {
-                    self.artworkLoadTask?.cancel()
-                    self.blurGenerationTask?.cancel()
-                    self.currentLoadTrackIdentity = nil
-                    self.artworkProjection.clear()
-                }
-            }
-            .store(in: &cancellables)
-
         // Forward availability generation so isCurrentTrackPlayable re-evaluates
         // when server connectivity changes (e.g. health check completes after restore)
         trackAvailabilityResolver.$availabilityGeneration
             .receive(on: DispatchQueue.main)
-            .assign(to: &$availabilityGeneration)
-
-        $availabilityGeneration
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.publishCurrentTrackAvailability()
-            }
-            .store(in: &cancellables)
-
-        // Load lyrics when track changes
-        $currentTrack
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] track in
-                guard let self else { return }
-                if let track {
-                    self.lyricsService.loadLyrics(for: track)
-                } else {
-                    self.lyricsService.clearLyrics()
-                    self.currentLyricsLineIndex = nil
-                    self.lyricsScrollTargetIndex = nil
-                    self.instrumentalProgress = nil
-                }
-            }
+            .sink { [weak self] value in self?.availabilityGeneration = value }
             .store(in: &cancellables)
 
         // Pipe lyrics state from service to view model
@@ -506,77 +411,17 @@ public final class NowPlayingViewModel: ObservableObject {
         // Pipe lyrics source from service to view model
         lyricsService.$currentLyricsSource
             .receive(on: DispatchQueue.main)
-            .assign(to: &$lyricsSource)
+            .sink { [weak self] value in self?.lyricsSource = value }
+            .store(in: &cancellables)
 
         lyricsService.$hasChordLyricsForCurrentTrack
             .receive(on: DispatchQueue.main)
-            .assign(to: &$hasChordLyrics)
+            .sink { [weak self] value in self?.hasChordLyrics = value }
+            .store(in: &cancellables)
 
         lyricsService.$isDisplayingChordLyrics
             .receive(on: DispatchQueue.main)
-            .assign(to: &$isDisplayingChordLyrics)
-
-        $lyricsState
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                self?.lyricsProjection.updateLyricsState(state)
-            }
-            .store(in: &cancellables)
-
-        $lyricsSource
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] source in
-                self?.lyricsProjection.updateLyricsSource(source)
-            }
-            .store(in: &cancellables)
-
-        $instrumentalGapAfterIndices
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] indices in
-                self?.lyricsProjection.updateInstrumentalGapAfterIndices(indices)
-            }
-            .store(in: &cancellables)
-
-        $hasIntroInstrumentalGap
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] hasGap in
-                self?.lyricsProjection.updateHasIntroInstrumentalGap(hasGap)
-            }
-            .store(in: &cancellables)
-
-        $hasOutroInstrumentalGap
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] hasGap in
-                self?.lyricsProjection.updateHasOutroInstrumentalGap(hasGap)
-            }
-            .store(in: &cancellables)
-
-        $isInstrumentalModeActive
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isActive in
-                self?.lyricsProjection.updateInstrumentalModeActive(isActive)
-            }
-            .store(in: &cancellables)
-
-        $hasChordLyrics
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] hasChords in
-                self?.lyricsProjection.updateHasChordLyrics(hasChords)
-            }
-            .store(in: &cancellables)
-
-        $isChordModeEnabled
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isEnabled in
-                self?.lyricsProjection.updateChordModeEnabled(isEnabled)
-            }
-            .store(in: &cancellables)
-
-        $isDisplayingChordLyrics
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isDisplaying in
-                self?.lyricsProjection.updateDisplayingChordLyrics(isDisplaying)
-            }
+            .sink { [weak self] value in self?.isDisplayingChordLyrics = value }
             .store(in: &cancellables)
 
         // Track active lyrics line based on playback time.
@@ -589,6 +434,77 @@ public final class NowPlayingViewModel: ObservableObject {
                 self.applyLyricsPosition(lyrics: lyrics, time: time)
             }
             .store(in: &cancellables)
+    }
+
+    /// The rating follows the track at once; projection, artwork, and lyrics
+    /// updates run on the next main-queue turn, after the whole playback
+    /// snapshot has been applied.
+    private func handleCurrentTrackSet() {
+        guard isStarted else { return }
+        let track = currentTrack
+        if !isUpdatingRating {
+            currentRating = track.map { TrackRating.from(rating: trackDisplayRating(for: $0)) } ?? .none
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.applyCurrentTrack(track)
+        }
+    }
+
+    private func applyCurrentTrack(_ track: Track?) {
+        refreshCurrentTrackMetadataIfNeeded(track)
+        playbackProjection.updateCurrentTrack(track)
+        ratingProjection.updateCurrentTrack(
+            track,
+            displayRating: track.map { trackDisplayRating(for: $0) }
+        )
+        duration = track == nil ? 0 : playbackService.duration
+        publishPlaybackProjectionSnapshot()
+        publishCurrentTrackAvailability()
+
+        // Load artwork for the new track.
+        if !isArtworkLoadingEnabledForTesting {
+            artworkLoadTask?.cancel()
+            artworkProjection.clear(track: track)
+        } else if let track {
+            loadArtworkImage(for: track)
+        } else {
+            artworkLoadTask?.cancel()
+            blurGenerationTask?.cancel()
+            currentLoadTrackIdentity = nil
+            artworkProjection.clear()
+        }
+
+        // Load lyrics for the new track.
+        if let track {
+            lyricsService.loadLyrics(for: track)
+        } else {
+            lyricsService.clearLyrics()
+            currentLyricsLineIndex = nil
+            lyricsScrollTargetIndex = nil
+            instrumentalProgress = nil
+        }
+    }
+
+    /// Projects the current values, as the old subscriptions did on attach.
+    private func syncProjections() {
+        playbackProjection.updatePlaybackState(playbackState)
+        playbackProjection.updateShuffle(isShuffleEnabled)
+        playbackProjection.updateRepeatMode(repeatMode)
+        queueProjection.updateShowHistory(showHistory)
+        queueProjection.updateAutoplayEnabled(isAutoplayEnabled)
+        queueProjection.updateSmartMixEnabled(isSmartMixEnabled)
+        queueProjection.updateRecommendationsExhausted(recommendationsExhausted)
+        ratingProjection.updateCurrentRating(currentRating)
+        ratingProjection.updateDisplayRatings(optimisticTrackRatingsByIdentity)
+        lyricsProjection.updateLyricsState(lyricsState)
+        lyricsProjection.updateLyricsSource(lyricsSource)
+        lyricsProjection.updateInstrumentalGapAfterIndices(instrumentalGapAfterIndices)
+        lyricsProjection.updateHasIntroInstrumentalGap(hasIntroInstrumentalGap)
+        lyricsProjection.updateHasOutroInstrumentalGap(hasOutroInstrumentalGap)
+        lyricsProjection.updateInstrumentalModeActive(isInstrumentalModeActive)
+        lyricsProjection.updateHasChordLyrics(hasChordLyrics)
+        lyricsProjection.updateChordModeEnabled(isChordModeEnabled)
+        lyricsProjection.updateDisplayingChordLyrics(isDisplayingChordLyrics)
     }
 
     private func setIfChanged<Value: Equatable>(
@@ -665,7 +581,7 @@ public final class NowPlayingViewModel: ObservableObject {
             newLineIndex = activeIndex
         }
 
-        // Skip assignment if nothing changed — avoids firing @Published for 3 properties
+        // Skip assignment if nothing changed — avoids firing for 3 properties
         // every 0.5s when the active line hasn't changed
         if newLineIndex == currentLyricsLineIndex,
            progress == instrumentalProgress,

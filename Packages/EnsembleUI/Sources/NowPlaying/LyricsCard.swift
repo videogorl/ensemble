@@ -5,7 +5,7 @@ import SwiftUI
 /// Left card displaying lyrics with time-synced highlighting (karaoke style)
 /// Supports timed LRC lyrics with auto-scroll, plain text lyrics, and empty/loading states
 public struct LyricsCard: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    let viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
 
     /// When true, disables progressive blur on lyrics lines to reduce GPU work

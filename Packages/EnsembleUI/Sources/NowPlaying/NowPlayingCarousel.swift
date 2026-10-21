@@ -34,13 +34,13 @@ public struct NowPlayingCarousel: View {
     @Environment(DependencyContainer.self) private var dependencies
     let viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
-    @ObservedObject private var lyricsProjection: NowPlayingLyricsProjection
+    private let lyricsProjection: NowPlayingLyricsProjection
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
 
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
         self.viewModel = viewModel
         self._currentPage = currentPage
-        self._lyricsProjection = ObservedObject(wrappedValue: viewModel.lyricsProjection)
+        self.lyricsProjection = viewModel.lyricsProjection
     }
 
     public var body: some View {

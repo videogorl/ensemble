@@ -14,7 +14,7 @@ struct NowPlayingWidePanelLayout: View {
     private let headerTrailingPadding: CGFloat
     private let centersContentInAvailableSpace: Bool
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
-    @ObservedObject private var queueProjection: NowPlayingQueueProjection
+    private let queueProjection: NowPlayingQueueProjection
 
     init(
         viewModel: NowPlayingViewModel,
@@ -29,7 +29,7 @@ struct NowPlayingWidePanelLayout: View {
     ) {
         self.viewModel = viewModel
         self._currentPage = currentPage
-        self._queueProjection = ObservedObject(wrappedValue: viewModel.queueProjection)
+        self.queueProjection = viewModel.queueProjection
         self.dismissAction = dismissAction
         self.topPadding = topPadding
         self.maxContentWidth = maxContentWidth

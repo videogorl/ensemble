@@ -7,8 +7,8 @@ import SwiftUI
 #endif
 
 struct MiniPlayerActionsMenuButton: View {
-    @ObservedObject var playbackProjection: NowPlayingPlaybackProjection
-    @ObservedObject var ratingProjection: NowPlayingRatingProjection
+    let playbackProjection: NowPlayingPlaybackProjection
+    let ratingProjection: NowPlayingRatingProjection
     let viewModel: NowPlayingViewModel
     @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator

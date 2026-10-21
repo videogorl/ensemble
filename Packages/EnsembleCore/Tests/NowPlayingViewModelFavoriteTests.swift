@@ -725,6 +725,8 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             artworkLoader: artworkLoader,
             foregroundWorkScheduler: ForegroundWorkScheduler()
         )
+
+        viewModel.start()
         viewModel.isArtworkLoadingEnabledForTesting = false
 
         return (

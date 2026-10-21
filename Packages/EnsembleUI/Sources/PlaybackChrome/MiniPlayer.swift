@@ -186,8 +186,8 @@ public struct MiniPlayer: View {
 /// re-renders on NVM changes — the parent MiniPlayer body (gestures, background,
 /// context menu) stays untouched.
 private struct MiniPlayerTrackInfo: View {
-    @ObservedObject var playbackProjection: NowPlayingPlaybackProjection
-    @ObservedObject var artworkProjection: NowPlayingArtworkProjection
+    let playbackProjection: NowPlayingPlaybackProjection
+    let artworkProjection: NowPlayingArtworkProjection
     let viewModel: NowPlayingViewModel
     let showsWaveform: Bool
     let waveformColor: Color
@@ -443,7 +443,7 @@ private struct MiniPlayerWaveform: View {
 /// playbackState/isPlaying/isCurrentTrackPlayable — only these small controls
 /// re-render on state changes, not the entire MiniPlayer body.
 private struct MiniPlayerControls: View {
-    @ObservedObject var playbackProjection: NowPlayingPlaybackProjection
+    let playbackProjection: NowPlayingPlaybackProjection
     let viewModel: NowPlayingViewModel
     var showsPreviousButton = false
     var showsActionsMenu = false

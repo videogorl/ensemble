@@ -80,9 +80,9 @@ struct ControlsCardLayoutMetrics: Equatable {
 public struct ControlsCard: View {
     let viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
-    @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
-    @ObservedObject private var artworkProjection: NowPlayingArtworkProjection
-    @ObservedObject private var ratingProjection: NowPlayingRatingProjection
+    private let playbackProjection: NowPlayingPlaybackProjection
+    private let artworkProjection: NowPlayingArtworkProjection
+    private let ratingProjection: NowPlayingRatingProjection
     @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
@@ -120,9 +120,9 @@ public struct ControlsCard: View {
     ) {
         self.viewModel = viewModel
         _currentPage = currentPage
-        _playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
-        _artworkProjection = ObservedObject(wrappedValue: viewModel.artworkProjection)
-        _ratingProjection = ObservedObject(wrappedValue: viewModel.ratingProjection)
+        self.playbackProjection = viewModel.playbackProjection
+        self.artworkProjection = viewModel.artworkProjection
+        self.ratingProjection = viewModel.ratingProjection
         self.namespace = namespace
         self.animationID = animationID
         self.isAlwaysVisible = isAlwaysVisible
@@ -600,7 +600,7 @@ public struct ControlsCard: View {
 }
 
 private struct PlaybackScrubber: View {
-    @ObservedObject var playbackProjection: NowPlayingPlaybackProjection
+    let playbackProjection: NowPlayingPlaybackProjection
     let track: Track
     let isActive: Bool
     let seekToProgress: (Double) -> Void

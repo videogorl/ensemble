@@ -6,6 +6,7 @@ import EnsembleCore
 /// it lazy, once-per-scene ownership, which `@State` cannot on iOS 17.
 @MainActor
 final class RootScreenModels: ObservableObject {
+    let nowPlaying: NowPlayingViewModel
     let library: LibraryViewModel
     let home: HomeViewModel
     let search: SearchViewModel
@@ -27,8 +28,11 @@ final class RootScreenModels: ObservableObject {
     )
     lazy var downloads = DownloadsViewModel(dependencies: dependencies)
 
-    init(dependencies: DependencyContainer) {
+    init(dependencies: DependencyContainer, navigationCoordinator: NavigationCoordinator) {
         self.dependencies = dependencies
+        nowPlaying = NowPlayingViewModel(dependencies: dependencies, navigationCoordinator: navigationCoordinator)
+        // Started here, not in `.task`, so the first frame shows the restored track.
+        nowPlaying.start()
         library = LibraryViewModel(
             libraryRepository: dependencies.libraryRepository,
             syncCoordinator: dependencies.syncCoordinator,

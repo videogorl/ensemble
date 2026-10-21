@@ -3,6 +3,26 @@ import EnsembleCore
 // Convenience initializers for view models that more than one view builds.
 // View models stay independent of the container; views supply it.
 
+public extension NowPlayingViewModel {
+    /// Builds an unstarted model; the owner calls `start()` once.
+    convenience init(dependencies: DependencyContainer, navigationCoordinator: NavigationCoordinator? = nil) {
+        self.init(
+            playbackService: dependencies.playbackService,
+            syncCoordinator: dependencies.syncCoordinator,
+            libraryRepository: dependencies.libraryRepository,
+            navigationCoordinator: navigationCoordinator ?? dependencies.navigationCoordinator,
+            toastCenter: dependencies.toastCenter,
+            mutationCoordinator: dependencies.mutationCoordinator,
+            trackRatingLocalStore: TrackRatingLocalStore(coreDataStack: dependencies.coreDataStack),
+            trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
+            lyricsService: dependencies.lyricsService,
+            artworkLoader: dependencies.artworkLoader,
+            foregroundWorkScheduler: dependencies.foregroundWorkScheduler,
+            hiddenMediaStore: dependencies.hiddenMediaStore
+        )
+    }
+}
+
 extension DownloadsViewModel {
     convenience init(dependencies: DependencyContainer) {
         self.init(

@@ -910,7 +910,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleFavorite(_: NSMenuItem) {
         let dependencies = AppRoot.container
         guard let track = dependencies.playbackService.currentTrack else { return }
-        let viewModel = dependencies.activeNowPlayingViewModel ?? dependencies.makeNowPlayingViewModel()
+        let viewModel = dependencies.activeNowPlayingViewModel ?? NowPlayingViewModel(dependencies: dependencies)
 
         Task { @MainActor in
             await viewModel.toggleTrackFavorite(track)

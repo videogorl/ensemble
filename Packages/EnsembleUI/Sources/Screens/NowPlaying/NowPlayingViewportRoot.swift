@@ -6,8 +6,8 @@ import SwiftUI
 struct NowPlayingBackdrop: View {
     @Environment(DependencyContainer.self) private var dependencies
     let viewModel: NowPlayingViewModel
-    @ObservedObject private var artworkProjection: NowPlayingArtworkProjection
-    @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
+    private let artworkProjection: NowPlayingArtworkProjection
+    private let playbackProjection: NowPlayingPlaybackProjection
     let consumer: VisualizationConsumer
     let activeContentMaxWidth: CGFloat?
     let forceDarkPresentation: Bool
@@ -23,8 +23,8 @@ struct NowPlayingBackdrop: View {
         forceDarkPresentation: Bool
     ) {
         self.viewModel = viewModel
-        _artworkProjection = ObservedObject(wrappedValue: viewModel.artworkProjection)
-        _playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
+        self.artworkProjection = viewModel.artworkProjection
+        self.playbackProjection = viewModel.playbackProjection
         self.consumer = consumer
         self.activeContentMaxWidth = activeContentMaxWidth
         self.forceDarkPresentation = forceDarkPresentation
@@ -98,9 +98,9 @@ struct NowPlayingViewportRoot: View {
         case dualPanel
     }
 
-    @ObservedObject var viewModel: NowPlayingViewModel
+    @Bindable var viewModel: NowPlayingViewModel
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
-    @ObservedObject private var queueProjection: NowPlayingQueueProjection
+    private let queueProjection: NowPlayingQueueProjection
 
     private let dismissAction: () -> Void
     private var auroraActiveContentMaxWidth: CGFloat? {
@@ -112,7 +112,7 @@ struct NowPlayingViewportRoot: View {
         dismissAction: @escaping () -> Void
     ) {
         self.viewModel = viewModel
-        self._queueProjection = ObservedObject(wrappedValue: viewModel.queueProjection)
+        self.queueProjection = viewModel.queueProjection
         self.dismissAction = dismissAction
     }
 

@@ -1,20 +1,25 @@
 import Combine
 import Foundation
+import Observation
 
 @MainActor
-public final class NowPlayingPlaybackProjection: ObservableObject {
-    @Published public private(set) var currentTrack: Track?
-    @Published public private(set) var playbackState: PlaybackState = .stopped
-    @Published public private(set) var duration: TimeInterval = 0
-    @Published public private(set) var isCurrentTrackPlayable = false
-    @Published public private(set) var isShuffleEnabled = false
-    @Published public private(set) var repeatMode: RepeatMode = .off
-    @Published public private(set) var isSmartMixTransitionActive = false
+@Observable
+public final class NowPlayingPlaybackProjection {
+    public private(set) var currentTrack: Track?
+    public private(set) var playbackState: PlaybackState = .stopped
+    public private(set) var duration: TimeInterval = 0 {
+        didSet { durationSubject.send(duration) }
+    }
+    public private(set) var isCurrentTrackPlayable = false
+    public private(set) var isShuffleEnabled = false
+    public private(set) var repeatMode: RepeatMode = .off
+    public private(set) var isSmartMixTransitionActive = false
 
     private let progressSubject = CurrentValueSubject<Double, Never>(0)
     private let bufferedProgressSubject = CurrentValueSubject<Double, Never>(0)
     private let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
     private let waveformSubject = CurrentValueSubject<[Double], Never>([])
+    private let durationSubject = CurrentValueSubject<TimeInterval, Never>(0)
 
     public var progressPublisher: AnyPublisher<Double, Never> {
         progressSubject.eraseToAnyPublisher()
@@ -29,7 +34,7 @@ public final class NowPlayingPlaybackProjection: ObservableObject {
     }
 
     public var durationPublisher: AnyPublisher<TimeInterval, Never> {
-        $duration.eraseToAnyPublisher()
+        durationSubject.eraseToAnyPublisher()
     }
 
     public var waveformPublisher: AnyPublisher<[Double], Never> {
@@ -125,14 +130,15 @@ public final class NowPlayingPlaybackProjection: ObservableObject {
 }
 
 @MainActor
-public final class NowPlayingQueueProjection: ObservableObject {
-    @Published public private(set) var queue: [QueueItem] = []
-    @Published public private(set) var currentQueueIndex: Int = -1
-    @Published public private(set) var playbackHistory: [QueueItem] = []
-    @Published public private(set) var showHistory = false
-    @Published public private(set) var isAutoplayEnabled = false
-    @Published public private(set) var isSmartMixEnabled = false
-    @Published public private(set) var recommendationsExhausted = false
+@Observable
+public final class NowPlayingQueueProjection {
+    public private(set) var queue: [QueueItem] = []
+    public private(set) var currentQueueIndex: Int = -1
+    public private(set) var playbackHistory: [QueueItem] = []
+    public private(set) var showHistory = false
+    public private(set) var isAutoplayEnabled = false
+    public private(set) var isSmartMixEnabled = false
+    public private(set) var recommendationsExhausted = false
     private var cancellables = Set<AnyCancellable>()
 
     public var currentQueueItem: QueueItem? {
@@ -190,7 +196,8 @@ public final class NowPlayingQueueProjection: ObservableObject {
 }
 
 @MainActor
-public final class NowPlayingArtworkProjection: ObservableObject {
+@Observable
+public final class NowPlayingArtworkProjection {
     public struct State {
         public let currentTrack: Track?
         public let artworkIdentityKey: String?
@@ -199,7 +206,7 @@ public final class NowPlayingArtworkProjection: ObservableObject {
         public let isLoading: Bool
     }
 
-    @Published public private(set) var state = State(
+    public private(set) var state = State(
         currentTrack: nil,
         artworkIdentityKey: nil,
         artworkImage: nil,
@@ -273,16 +280,17 @@ public final class NowPlayingArtworkProjection: ObservableObject {
 }
 
 @MainActor
-public final class NowPlayingLyricsProjection: ObservableObject {
-    @Published public private(set) var lyricsState: LyricsState = .notAvailable
-    @Published public private(set) var lyricsSource: LyricsSource = .none
-    @Published public private(set) var instrumentalGapAfterIndices: Set<Int> = []
-    @Published public private(set) var hasIntroInstrumentalGap = false
-    @Published public private(set) var hasOutroInstrumentalGap = false
-    @Published public private(set) var isInstrumentalModeActive = false
-    @Published public private(set) var hasChordLyrics = false
-    @Published public private(set) var isChordModeEnabled = false
-    @Published public private(set) var isDisplayingChordLyrics = false
+@Observable
+public final class NowPlayingLyricsProjection {
+    public private(set) var lyricsState: LyricsState = .notAvailable
+    public private(set) var lyricsSource: LyricsSource = .none
+    public private(set) var instrumentalGapAfterIndices: Set<Int> = []
+    public private(set) var hasIntroInstrumentalGap = false
+    public private(set) var hasOutroInstrumentalGap = false
+    public private(set) var isInstrumentalModeActive = false
+    public private(set) var hasChordLyrics = false
+    public private(set) var isChordModeEnabled = false
+    public private(set) var isDisplayingChordLyrics = false
     public let isInstrumentalModeSupported: Bool
 
     private let currentLineIndexSubject = CurrentValueSubject<Int?, Never>(nil)
@@ -362,10 +370,11 @@ public final class NowPlayingLyricsProjection: ObservableObject {
 }
 
 @MainActor
-public final class NowPlayingRatingProjection: ObservableObject {
-    @Published public private(set) var currentTrack: Track?
-    @Published public private(set) var currentRating: TrackRating = .none
-    @Published public private(set) var displayRatingsRevision: UInt64 = 0
+@Observable
+public final class NowPlayingRatingProjection {
+    public private(set) var currentTrack: Track?
+    public private(set) var currentRating: TrackRating = .none
+    public private(set) var displayRatingsRevision: UInt64 = 0
 
     private var displayRatingsByTrackIdentity: [String: Int] = [:]
 

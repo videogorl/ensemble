@@ -57,12 +57,10 @@ public struct FavoritesView: View {
         }
         .ensembleBrowseToolbarMinimization()
         .task { viewModel.start() }
-        .onReceive(nowPlayingVM.$currentTrack) { track in
-            let id = track?.playbackIdentity
+        .onChange(of: nowPlayingVM.currentTrack?.playbackIdentity, initial: true) { _, id in
             if id != currentTrackId { currentTrackId = id }
         }
-        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
-            let title = target?.title
+        .onChange(of: nowPlayingVM.lastPlaylistTarget?.title, initial: true) { _, title in
             if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
         .onReceive(DependencyContainer.shared.accountManager.sourceConfigurationPublisher) { snapshot in

@@ -6,8 +6,8 @@ import SwiftUI
 /// Positioned after Lyrics card in the NowPlaying carousel
 public struct InfoCard: View {
     private let viewModel: NowPlayingViewModel
-    @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
-    @ObservedObject private var lyricsProjection: NowPlayingLyricsProjection
+    private let playbackProjection: NowPlayingPlaybackProjection
+    private let lyricsProjection: NowPlayingLyricsProjection
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Binding var currentPage: Int
     @Environment(DependencyContainer.self) private var deps
@@ -21,8 +21,8 @@ public struct InfoCard: View {
 
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
         self.viewModel = viewModel
-        _playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
-        _lyricsProjection = ObservedObject(wrappedValue: viewModel.lyricsProjection)
+        self.playbackProjection = viewModel.playbackProjection
+        self.lyricsProjection = viewModel.lyricsProjection
         _currentPage = currentPage
     }
 
