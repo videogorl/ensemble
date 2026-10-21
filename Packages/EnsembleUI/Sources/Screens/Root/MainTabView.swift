@@ -20,7 +20,7 @@ public struct MainTabView: View {
     private let networkMonitor = DependencyContainer.shared.networkMonitor
     private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @Environment(\.isSoftwareKeyboardVisible) private var isSoftwareKeyboardVisible
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -527,7 +527,7 @@ public struct SidebarView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let settingsManager = DependencyContainer.shared.settingsManager
     private let rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @Environment(\.isSoftwareKeyboardVisible) private var isSoftwareKeyboardVisible
     #if os(macOS)
@@ -1908,7 +1908,7 @@ public struct SidebarView: View {
     }
 
     private struct SidebarPlaylistDragDropHost<Content: View>: View {
-        @Environment(\.dependencies) private var deps
+        @Environment(DependencyContainer.self) private var deps
 
         let content: Content
         let playlist: SidebarPlaylistItem

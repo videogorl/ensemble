@@ -23,6 +23,7 @@ struct MacBrowseSplitView<Sidebar: View, Picker: View, Detail: View>: NSViewCont
     let sidebarFrameChanged: (CGRect?) -> Void
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(DependencyContainer.self) private var dependencies
 
     func makeNSViewController(context: Context) -> Controller {
         let controller = Controller()
@@ -58,7 +59,7 @@ struct MacBrowseSplitView<Sidebar: View, Picker: View, Detail: View>: NSViewCont
         AnyView(content
             .environmentObject(navigationCoordinator)
             .environmentObject(sourceActionPresenter)
-            .environment(\.dependencies, environment.dependencies)
+            .environment(dependencies)
             .environment(\.colorScheme, environment.colorScheme)
             .environment(\.locale, environment.locale)
             .environment(\.layoutDirection, environment.layoutDirection)
@@ -73,7 +74,7 @@ struct MacBrowseSplitView<Sidebar: View, Picker: View, Detail: View>: NSViewCont
             .environment(\.artistDetailArtworkContinuity, environment.artistDetailArtworkContinuity)
             .environment(\.mediaNavigationTransitionNamespace, environment.mediaNavigationTransitionNamespace)
             .environment(\.nativeBrowseScrollPosition, environment.nativeBrowseScrollPosition)
-            .tint(environment.dependencies.settingsManager.accentColor.color))
+            .tint(dependencies.settingsManager.accentColor.color))
     }
 
     @MainActor

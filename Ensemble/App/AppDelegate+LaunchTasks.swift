@@ -13,11 +13,11 @@ extension AppDelegate {
             }
 
             AppLogger.debug("📱 AppDelegate: Starting network monitor + early health checks at \(Date())")
-            DependencyContainer.shared.networkMonitor.startMonitoring()
+            AppRoot.container.networkMonitor.startMonitoring()
 
             // If the cached state was .unknown (first launch or cleared cache),
             // wait briefly for NWPathMonitor to report real state.
-            let nm = DependencyContainer.shared.networkMonitor
+            let nm = AppRoot.container.networkMonitor
             if nm.networkState == .unknown {
                 for _ in 0..<10 { // 1s max
                     try? await Task.sleep(nanoseconds: 100_000_000)
@@ -25,13 +25,13 @@ extension AppDelegate {
                 }
             }
 
-            let sc = DependencyContainer.shared.syncCoordinator
+            let sc = AppRoot.container.syncCoordinator
             AppLogger.debug("📱 AppDelegate: Running early health checks (network: \(nm.networkState))...")
             // Route through SyncCoordinator so lastHealthRefreshAt is set,
             // preventing the initial Unknown→Online network transition from
             // triggering a duplicate health check pass.
             await sc.performStartupHealthChecks()
-            let shc = DependencyContainer.shared.serverHealthChecker
+            let shc = AppRoot.container.serverHealthChecker
             AppLogger.debug("📱 AppDelegate: Early health checks complete — serverStates: \(shc.serverStates)")
         }
     }
@@ -54,7 +54,7 @@ extension AppDelegate {
 
             AppLogger.debug("📱 AppDelegate: Getting playbackService...")
             let playbackService = await MainActor.run {
-                DependencyContainer.shared.playbackService
+                AppRoot.container.playbackService
             }
             AppLogger.debug("📱 AppDelegate: Calling restorePlaybackState()...")
             await playbackService.restorePlaybackState()
@@ -69,9 +69,9 @@ extension AppDelegate {
         Task { @MainActor in
             await self.earlyHealthCheckTask?.value
 
-            guard DependencyContainer.shared.networkMonitor.networkState.isConnected else {
+            guard AppRoot.container.networkMonitor.networkState.isConnected else {
                 AppLogger.debug(
-                    "📱 AppDelegate: Deferring Siri media index/context refresh while network is \(DependencyContainer.shared.networkMonitor.networkState.description)"
+                    "📱 AppDelegate: Deferring Siri media index/context refresh while network is \(AppRoot.container.networkMonitor.networkState.description)"
                 )
                 return
             }
@@ -82,7 +82,7 @@ extension AppDelegate {
                 os_signpost(.end, log: LaunchTaskSignposts.log, name: LaunchTaskSignposts.siriMediaRefresh, signpostID: signpostID)
             }
 
-            let foregroundWorkScheduler = DependencyContainer.shared.foregroundWorkScheduler
+            let foregroundWorkScheduler = AppRoot.container.foregroundWorkScheduler
             guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
                 AppLogger.debug("📱 AppDelegate: Siri media index/context refresh skipped because foreground work is unavailable")
                 return
@@ -92,8 +92,8 @@ extension AppDelegate {
             AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
 
             // Refresh system media context and Spotlight from the shared media index.
-            await DependencyContainer.shared.systemMediaIntegrationService.updateMediaUserContext()
-            await DependencyContainer.shared.systemMediaIntegrationService.refreshSpotlightIndex()
+            await AppRoot.container.systemMediaIntegrationService.updateMediaUserContext()
+            await AppRoot.container.systemMediaIntegrationService.refreshSpotlightIndex()
         }
     }
 
@@ -102,7 +102,7 @@ extension AppDelegate {
         // This enables real-time push notifications from Plex servers.
         Task { @MainActor in
             await self.earlyHealthCheckTask?.value
-            DependencyContainer.shared.webSocketCoordinator.start()
+            AppRoot.container.webSocketCoordinator.start()
         }
     }
 
@@ -137,8 +137,8 @@ extension AppDelegate {
             AppLogger.debug("📱 AppDelegate: Starting startup sync...")
             let (syncCoordinator, foregroundWorkScheduler) = await MainActor.run {
                 (
-                    DependencyContainer.shared.syncCoordinator,
-                    DependencyContainer.shared.foregroundWorkScheduler
+                    AppRoot.container.syncCoordinator,
+                    AppRoot.container.foregroundWorkScheduler
                 )
             }
             guard await foregroundWorkScheduler.waitUntilAllowed(.startupSync, policy: .idleOnly) else {
@@ -170,7 +170,7 @@ extension AppDelegate {
             let playbackRestoreWasSuppressedForSiri = await MainActor.run {
                 self.startupRestoreWasSuppressedForSiri
             }
-            await DependencyContainer.shared.emitColdLaunchDiagnostics(
+            await AppRoot.container.emitColdLaunchDiagnostics(
                 playbackRestoreWasSuppressedForSiri: playbackRestoreWasSuppressedForSiri
             )
         }

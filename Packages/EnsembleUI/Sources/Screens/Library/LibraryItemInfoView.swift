@@ -10,7 +10,7 @@ public struct LibraryItemInfoView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @State private var isLyricsExpanded = false
     @State private var lyrics: LyricsState = .loading
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @Environment(\.dismiss) private var dismiss
 
     public init(request: LibraryItemInfoRequest) {

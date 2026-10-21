@@ -12,7 +12,7 @@ struct PlaylistDetailLoader: View {
     @State private var isLoading = true
     @State private var error: Error?
     
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
 
     init(playlistId: String, playlistSourceKey: String? = nil, nowPlayingVM: NowPlayingViewModel) {
         self.playlistId = playlistId

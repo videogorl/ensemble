@@ -14,7 +14,7 @@ public struct QueueCard: View {
     @ObservedObject private var queueProjection: NowPlayingQueueProjection
     @Binding var currentPage: Int
     private let isAlwaysVisible: Bool
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss

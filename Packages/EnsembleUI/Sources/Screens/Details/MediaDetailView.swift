@@ -269,7 +269,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var currentTrackId: String?
     @State private var nvmLastPlaylistTargetId: String?
     @State private var isPinnedForHeader: Bool
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     private let pinManager = DependencyContainer.shared.pinManager

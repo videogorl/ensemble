@@ -27,7 +27,7 @@ private enum PlaylistMutationEvent {
 struct PlaylistBrowseControls: View {
     @ObservedObject var viewModel: PlaylistViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @State private var showsCreatePlaylist = false
 
     var body: some View {
@@ -104,7 +104,7 @@ public struct PlaylistsView: View {
     private let settingsManager = DependencyContainer.shared.settingsManager
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @Environment(\.isStageFlowActive) private var rootStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -759,7 +759,7 @@ public struct PlaylistDetailView: View {
     private let startedInEditMode: Bool
     private let initialArtworkImage: PlatformImage?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
 
     public init(
         playlist: Playlist,

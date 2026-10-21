@@ -13,6 +13,13 @@ import AppKit
 import BackgroundTasks
 #endif
 
+/// The composition root. The app target owns the one container; scenes,
+/// delegates, and intents receive it from here, and nothing in Core or UI can
+/// reach it.
+enum AppRoot {
+    static let container = DependencyContainer.shared
+}
+
 @main
 struct EnsembleApp: App {
     #if os(iOS)
@@ -53,12 +60,12 @@ struct EnsembleApp: App {
     var body: some Scene {
         WindowGroup {
             rootContent
-                .environment(\.dependencies, DependencyContainer.shared)
-                .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
+                .environment(AppRoot.container)
+                .installGlobalToastWindow(toastCenter: AppRoot.container.toastCenter)
                 .onAppear {
                     #if DEBUG && os(iOS)
                     if ProcessInfo.processInfo.arguments.contains("-EnsembleAutomationToastOverlay") {
-                        DependencyContainer.shared.toastCenter.show(ToastPayload(
+                        AppRoot.container.toastCenter.show(ToastPayload(
                             style: .info,
                             iconSystemName: "info.circle",
                             title: "Toast layout test",
@@ -72,7 +79,7 @@ struct EnsembleApp: App {
                     AppLogger.info("SIRI_APP: RootView.onAppear - app UI is visible")
                     UserJourneyLogger.log(context: "app", event: "rootVisible")
                     #if os(iOS)
-                    WatchCompanionBridge.shared.configure(dependencies: DependencyContainer.shared)
+                    WatchCompanionBridge.shared.configure(dependencies: AppRoot.container)
                     #endif
                 }
                 .onOpenURL { url in
@@ -128,7 +135,7 @@ struct EnsembleApp: App {
                 Button("Settings…") {
                     guard EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesSettingsShortcut else { return }
                     NavigationCoordinator.openProfileFromActiveScene(
-                        fallback: DependencyContainer.shared.navigationCoordinator
+                        fallback: AppRoot.container.navigationCoordinator
                     )
                 }
                 .keyboardShortcut(",", modifiers: .command)
@@ -176,8 +183,8 @@ struct EnsembleApp: App {
         #if os(macOS)
         Window("Profile", id: NavigationCoordinator.AuxiliaryPresentation.profile.windowID) {
             ProfilePresentationContainer()
-                .environment(\.dependencies, DependencyContainer.shared)
-                .environmentObject(DependencyContainer.shared.navigationCoordinator)
+                .environment(AppRoot.container)
+                .environmentObject(AppRoot.container.navigationCoordinator)
                 .ensembleAuxiliaryWindowFrame(.profile)
         }
         .defaultSize(
@@ -188,8 +195,8 @@ struct EnsembleApp: App {
 
         Window("Downloads", id: NavigationCoordinator.AuxiliaryPresentation.downloads.windowID) {
             DownloadsPresentationContainer()
-                .environment(\.dependencies, DependencyContainer.shared)
-                .environmentObject(DependencyContainer.shared.navigationCoordinator)
+                .environment(AppRoot.container)
+                .environmentObject(AppRoot.container.navigationCoordinator)
                 .ensembleAuxiliaryWindowFrame(.downloads)
         }
         .defaultSize(
@@ -204,7 +211,7 @@ struct EnsembleApp: App {
         guard let permalink = EnsemblePermalink(url: url) else {
             _ = NavigationCoordinator.handleDeepLinkInActiveScene(
                 url,
-                fallback: DependencyContainer.shared.navigationCoordinator
+                fallback: AppRoot.container.navigationCoordinator
             )
             return
         }
@@ -215,7 +222,7 @@ struct EnsembleApp: App {
     @MainActor
     private func openPermalink(_ permalink: EnsemblePermalink, refresh: Bool = false) {
         permalinkTask?.cancel()
-        let dependencies = DependencyContainer.shared
+        let dependencies = AppRoot.container
         if let permalinkFeedbackToastID {
             dependencies.toastCenter.dismiss(id: permalinkFeedbackToastID)
             self.permalinkFeedbackToastID = nil
@@ -283,13 +290,13 @@ struct EnsembleApp: App {
     private func showPermalinkNotFound(_ permalink: EnsemblePermalink) {
         let toastID = UUID()
         permalinkFeedbackToastID = toastID
-        DependencyContainer.shared.toastCenter.show(
+        AppRoot.container.toastCenter.show(
             ToastPayload(
                 id: toastID,
                 style: .warning,
                 iconSystemName: "magnifyingglass",
                 title: "Couldn't find \(permalink.title)",
-                message: DependencyContainer.shared.syncCoordinator.isSyncing
+                message: AppRoot.container.syncCoordinator.isSyncing
                     ? "Your library is syncing. Try again after refreshing."
                     : "Refresh your library and try again.",
                 action: ToastAction(title: "Try Again") {
@@ -303,10 +310,10 @@ struct EnsembleApp: App {
     private func startPersistentLogSessionIfNeeded() {
         guard !hasStartedLogSession else { return }
         hasStartedLogSession = true
-        let handler = DependencyContainer.shared.persistentLogService.logHandler
+        let handler = AppRoot.container.persistentLogService.logHandler
         EnsembleUI.EnsembleLogger.fileLogHandler = handler
         AppLogger.fileLogHandler = handler
-        DependencyContainer.shared.persistentLogService.startSession()
+        AppRoot.container.persistentLogService.startSession()
     }
 
     @MainActor
@@ -318,7 +325,7 @@ struct EnsembleApp: App {
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "active"])
                 await EnsembleFocusFilter.refreshCurrent()
                 guard !Task.isCancelled else { return }
-                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
+                AppRoot.container.foregroundWorkScheduler.setForegroundActive(true)
                 let isInitialActivation = !hasHandledInitialIOSActivePhase
                 if isInitialActivation {
                     hasHandledInitialIOSActivePhase = true
@@ -342,66 +349,66 @@ struct EnsembleApp: App {
                     AppLogger.debug("📱 EnsembleApp: Initial active phase — launch pipeline owns monitor/WebSocket startup")
                 } else {
                     // Resume network monitoring and WebSocket connections
-                    DependencyContainer.shared.networkMonitor.startMonitoring()
-                    DependencyContainer.shared.webSocketCoordinator.start()
+                    AppRoot.container.networkMonitor.startMonitoring()
+                    AppRoot.container.webSocketCoordinator.start()
                 }
 
                 // Polling is foreground lifecycle work, independent of whether
                 // idle-budgeted startup sync has been able to run yet.
-                DependencyContainer.shared.syncCoordinator.startPeriodicSync()
+                AppRoot.container.syncCoordinator.startPeriodicSync()
 
                 // Resume persisted download work when entering the foreground.
-                await DependencyContainer.shared.offlineDownloadService.handleAppWillEnterForeground()
+                await AppRoot.container.offlineDownloadService.handleAppWillEnterForeground()
                 guard !Task.isCancelled else { return }
 
                 // Drain any pending offline mutations now that connectivity may have resumed.
-                await DependencyContainer.shared.mutationCoordinator.drainQueue()
+                await AppRoot.container.mutationCoordinator.drainQueue()
                 guard !Task.isCancelled else { return }
 
                 // Restart display timer if music was actively playing when backgrounded.
                 // Also resumes sidecar analysis so pending FFT jobs process in foreground.
-                DependencyContainer.shared.audioAnalyzer.exitBackground()
-                await DependencyContainer.shared.offlineDownloadService.resumeSidecarAnalysis()
+                AppRoot.container.audioAnalyzer.exitBackground()
+                await AppRoot.container.offlineDownloadService.resumeSidecarAnalysis()
                 WatchCompanionBridge.shared.refresh()
                 if !isInitialActivation {
-                    if DependencyContainer.shared.syncCoordinator.hasPendingBackgroundRefresh {
-                        await DependencyContainer.shared.syncCoordinator.resumePendingBackgroundRefresh()
+                    if AppRoot.container.syncCoordinator.hasPendingBackgroundRefresh {
+                        await AppRoot.container.syncCoordinator.resumePendingBackgroundRefresh()
                     }
                     // A successful background pass can leave Spotlight behind the
                     // shared Siri catalog even after the source handoff clears.
-                    await DependencyContainer.shared.systemMediaIntegrationService.refreshSpotlightIndex()
+                    await AppRoot.container.systemMediaIntegrationService.refreshSpotlightIndex()
                 }
 
             case .background:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "background"])
-                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
+                AppRoot.container.foregroundWorkScheduler.setForegroundActive(false)
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background audio playback.
-                DependencyContainer.shared.persistentLogService.flushSession()
-                DependencyContainer.shared.persistPlaybackStateSnapshot()
+                AppRoot.container.persistentLogService.flushSession()
+                AppRoot.container.persistPlaybackStateSnapshot()
 
                 // Stop the frequency display timer to prevent it from burning main thread
                 // CPU during background audio playback (~3ms/sec saved on main thread).
                 // Uses enterBackground() rather than pauseUpdates() so the music-pause
                 // flag is preserved — exitBackground() on foreground restarts correctly.
-                DependencyContainer.shared.audioAnalyzer.enterBackground()
+                AppRoot.container.audioAnalyzer.enterBackground()
 
                 // Stop foreground connectivity before suspending async work so a
                 // newer active phase cannot be overtaken by this background phase.
-                DependencyContainer.shared.networkMonitor.stopMonitoring()
-                DependencyContainer.shared.webSocketCoordinator.stop()
-                DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
+                AppRoot.container.networkMonitor.stopMonitoring()
+                AppRoot.container.webSocketCoordinator.stop()
+                AppRoot.container.syncCoordinator.stopPeriodicSync()
 
                 // Suspend sidecar FFT analysis. Without this, a 75-track batch download
                 // completing in background can sustain ~95% CPU (FFT at background priority
                 // outlasts iOS's background CPU budget), triggering a SIGKILL after ~2min.
-                await DependencyContainer.shared.offlineDownloadService.suspendSidecarAnalysis()
+                await AppRoot.container.offlineDownloadService.suspendSidecarAnalysis()
                 guard !Task.isCancelled else { return }
-                await DependencyContainer.shared.offlineDownloadService.handleAppDidEnterBackground()
+                await AppRoot.container.offlineDownloadService.handleAppDidEnterBackground()
 
             case .inactive:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "inactive"])
-                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
+                AppRoot.container.foregroundWorkScheduler.setForegroundActive(false)
                 break
             @unknown default:
                 break
@@ -412,23 +419,23 @@ struct EnsembleApp: App {
         switch phase {
             case .active:
                 let isInitialActivation = !hasStartedPlaybackRestore
-                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
+                AppRoot.container.foregroundWorkScheduler.setForegroundActive(true)
                 // Start persistent log session on first activation (macOS)
                 startPersistentLogSessionIfNeeded()
 
                 // Start monitoring when app becomes active (macOS)
-                DependencyContainer.shared.networkMonitor.startMonitoring()
-                DependencyContainer.shared.webSocketCoordinator.start()
-                DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
+                AppRoot.container.networkMonitor.startMonitoring()
+                AppRoot.container.webSocketCoordinator.start()
+                AppRoot.container.offlineBackgroundExecutionCoordinator.register()
                 if isInitialActivation {
                     AppLogger.debug("💻 EnsembleApp: Initial active phase — skipping foreground freshness before cold-launch health checks")
                 } else {
-                    await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
-                    await DependencyContainer.shared.reconcileSyncOnForeground()
+                    await AppRoot.container.syncCoordinator.handleAppWillEnterForeground()
+                    await AppRoot.container.reconcileSyncOnForeground()
                 }
 
                 // Start periodic sync timer
-                DependencyContainer.shared.syncCoordinator.startPeriodicSync()
+                AppRoot.container.syncCoordinator.startPeriodicSync()
 
                 // macOS does not go through UIApplication/AppDelegate startup,
                 // so we need to mirror the iPhone launch sequence here once:
@@ -444,7 +451,7 @@ struct EnsembleApp: App {
                             }
                         }
 
-                        let dependencyContainer = await MainActor.run { DependencyContainer.shared }
+                        let dependencyContainer = await MainActor.run { AppRoot.container }
 
                         await dependencyContainer.accountManager.loadAccountsAsync()
                         await MainActor.run {
@@ -488,8 +495,8 @@ struct EnsembleApp: App {
                         AppLogger.debug("💻 macOS: Starting startup sync...")
                         let (syncCoordinator, foregroundWorkScheduler) = await MainActor.run {
                             (
-                                DependencyContainer.shared.syncCoordinator,
-                                DependencyContainer.shared.foregroundWorkScheduler
+                                AppRoot.container.syncCoordinator,
+                                AppRoot.container.foregroundWorkScheduler
                             )
                         }
                         await MainActor.run {
@@ -502,24 +509,24 @@ struct EnsembleApp: App {
                         }
                         await syncCoordinator.performStartupSync()
                         AppLogger.debug("💻 macOS: Startup sync complete")
-                        let dependencyContainer = await MainActor.run { DependencyContainer.shared }
+                        let dependencyContainer = await MainActor.run { AppRoot.container }
                         await dependencyContainer.emitColdLaunchDiagnostics()
                     }
                 }
             case .background:
-                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
+                AppRoot.container.foregroundWorkScheduler.setForegroundActive(false)
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background activity.
-                DependencyContainer.shared.persistentLogService.flushSession()
+                AppRoot.container.persistentLogService.flushSession()
 
                 // Stop monitoring when app goes to background (macOS)
-                DependencyContainer.shared.networkMonitor.stopMonitoring()
-                DependencyContainer.shared.webSocketCoordinator.stop()
+                AppRoot.container.networkMonitor.stopMonitoring()
+                AppRoot.container.webSocketCoordinator.stop()
 
                 // Stop periodic sync timer
-                DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
+                AppRoot.container.syncCoordinator.stopPeriodicSync()
             case .inactive:
-                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
+                AppRoot.container.foregroundWorkScheduler.setForegroundActive(false)
                 break
             @unknown default:
                 break
@@ -616,7 +623,7 @@ struct EnsembleApp: App {
         executeSiriPlaybackInBackground(payload: payload, origin: "swiftUIContinue")
         #else
         Task { @MainActor in
-            try? await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
+            try? await AppRoot.container.siriPlaybackCoordinator.execute(payload: payload)
         }
         #endif
     }
@@ -624,14 +631,14 @@ struct EnsembleApp: App {
     private func handleSiriAffinityActivity(_ userActivity: NSUserActivity) {
         AppLogger.info("SIRI_APP: handleSiriAffinityActivity ENTRY - type=\(userActivity.activityType)")
         Task { @MainActor in
-            await DependencyContainer.shared.siriAffinityCoordinator.handle(userActivity: userActivity)
+            await AppRoot.container.siriAffinityCoordinator.handle(userActivity: userActivity)
         }
     }
 
     private func handleSiriAddToPlaylistActivity(_ userActivity: NSUserActivity) {
         AppLogger.info("SIRI_APP: handleSiriAddToPlaylistActivity ENTRY - type=\(userActivity.activityType)")
         Task { @MainActor in
-            await DependencyContainer.shared.siriAddToPlaylistCoordinator.handle(userActivity: userActivity)
+            await AppRoot.container.siriAddToPlaylistCoordinator.handle(userActivity: userActivity)
         }
     }
 }
@@ -697,7 +704,7 @@ private enum MacPlaybackShortcut {
     static func togglePlaybackIfAllowed() {
         guard !isTextInputActive else { return }
 
-        let service = DependencyContainer.shared.playbackService
+        let service = AppRoot.container.playbackService
         switch service.playbackState {
         case .playing:
             service.pause()
@@ -768,7 +775,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func addPinnedItems(to menu: NSMenu) {
-        let pins = Array(DependencyContainer.shared.pinManager.pinnedItems.prefix(maxPinnedItems))
+        let pins = Array(AppRoot.container.pinManager.pinnedItems.prefix(maxPinnedItems))
         guard !pins.isEmpty else { return }
 
         for pin in pins {
@@ -789,7 +796,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func addNowPlayingItems(to menu: NSMenu) {
-        let dependencies = DependencyContainer.shared
+        let dependencies = AppRoot.container
         let playbackService = dependencies.playbackService
         let currentTrack = playbackService.currentTrack
         let hasCurrentTrack = currentTrack != nil
@@ -880,7 +887,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func addRepeatItem(title: String, mode: RepeatMode, tag: Int, to menu: NSMenu) {
-        let playbackService = DependencyContainer.shared.playbackService
+        let playbackService = AppRoot.container.playbackService
         let item = NSMenuItem(
             title: title,
             action: #selector(setRepeatMode(_:)),
@@ -901,7 +908,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleFavorite(_: NSMenuItem) {
-        let dependencies = DependencyContainer.shared
+        let dependencies = AppRoot.container
         guard let track = dependencies.playbackService.currentTrack else { return }
         let viewModel = dependencies.activeNowPlayingViewModel ?? dependencies.makeNowPlayingViewModel()
 
@@ -911,7 +918,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleShuffle(_: NSMenuItem) {
-        DependencyContainer.shared.playbackService.toggleShuffle()
+        AppRoot.container.playbackService.toggleShuffle()
     }
 
     @objc private func setRepeatMode(_ sender: NSMenuItem) {
@@ -925,7 +932,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
             targetMode = .off
         }
 
-        let playbackService = DependencyContainer.shared.playbackService
+        let playbackService = AppRoot.container.playbackService
         var attempts = 0
         while playbackService.repeatMode != targetMode,
               attempts < RepeatMode.allCases.count {
@@ -935,11 +942,11 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleAutoplay(_: NSMenuItem) {
-        DependencyContainer.shared.playbackService.toggleAutoplay()
+        AppRoot.container.playbackService.toggleAutoplay()
     }
 
     @objc private func togglePlayPause(_: NSMenuItem) {
-        let dependencies = DependencyContainer.shared
+        let dependencies = AppRoot.container
         if let viewModel = dependencies.activeNowPlayingViewModel {
             viewModel.togglePlayPause()
             return
@@ -961,11 +968,11 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func previousTrack(_: NSMenuItem) {
-        DependencyContainer.shared.playbackService.previous()
+        AppRoot.container.playbackService.previous()
     }
 
     @objc private func nextTrack(_: NSMenuItem) {
-        DependencyContainer.shared.playbackService.next()
+        AppRoot.container.playbackService.next()
     }
 
     private func updateArtwork(for pin: PinnedItem, menuItem: NSMenuItem) {
@@ -978,7 +985,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func artworkImage(for pin: PinnedItem) async -> NSImage? {
-        let dependencies = DependencyContainer.shared
+        let dependencies = AppRoot.container
         let request: ArtworkRequest?
 
         switch pin.type {
@@ -1057,7 +1064,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func canSkipForward() -> Bool {
-        let playbackService = DependencyContainer.shared.playbackService
+        let playbackService = AppRoot.container.playbackService
         guard playbackService.currentTrack != nil else { return false }
         if playbackService.repeatMode == .all, playbackService.queue.count > 1 {
             return true
@@ -1132,11 +1139,11 @@ private func performBackgroundRefresh() async {
     }
 
     let refreshCoordinator = await MainActor.run {
-        DependencyContainer.shared.backgroundRefreshCoordinator
+        AppRoot.container.backgroundRefreshCoordinator
     }
     let result = await refreshCoordinator.performAppRefresh()
-    let pending = await MainActor.run { DependencyContainer.shared.syncCoordinator.pendingBackgroundRefreshSourceCount }
-    let needsRecovery = await MainActor.run { DependencyContainer.shared.syncCoordinator.hasPendingBackgroundRefresh }
+    let pending = await MainActor.run { AppRoot.container.syncCoordinator.pendingBackgroundRefreshSourceCount }
+    let needsRecovery = await MainActor.run { AppRoot.container.syncCoordinator.hasPendingBackgroundRefresh }
     AppLogger.info("Background refresh returned succeeded=\(result.succeeded && result.didRunIncrementalSync && !needsRecovery) pendingSources=\(pending) needsRecovery=\(needsRecovery) errors=\(result.errorDescriptions.count)")
 }
 #endif
@@ -1176,7 +1183,7 @@ private struct ToastInteractionFixture: View {
             Button("Outside button") { result = "Outside confirmed" }
             Button("Show toast") {
                 result = "No action"
-                DependencyContainer.shared.toastCenter.show(ToastPayload(
+                AppRoot.container.toastCenter.show(ToastPayload(
                     style: .info,
                     iconSystemName: "info.circle",
                     title: "Interaction test",

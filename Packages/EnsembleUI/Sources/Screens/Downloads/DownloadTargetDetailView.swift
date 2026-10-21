@@ -8,7 +8,7 @@ import SwiftUI
 public struct DownloadTargetDetailView: View {
     @StateObject private var viewModel: DownloadTargetDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @Environment(\.dismiss) private var dismiss
     @State private var artworkImage: PlatformImage?
     @State private var currentArtworkPath: String?

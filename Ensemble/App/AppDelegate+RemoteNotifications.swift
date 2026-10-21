@@ -23,7 +23,7 @@ extension AppDelegate {
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
         Task {
-            let didHandle = await DependencyContainer.shared.cloudSyncService.handleRemoteNotification(userInfo: userInfo)
+            let didHandle = await AppRoot.container.cloudSyncService.handleRemoteNotification(userInfo: userInfo)
             completionHandler(didHandle ? .newData : .noData)
         }
     }

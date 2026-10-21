@@ -27,7 +27,7 @@ final class EnsembleRelevantEntitiesPublisher {
         guard observationTask == nil else { return }
 
         observationTask = Task { @MainActor in
-            for await track in DependencyContainer.shared.playbackService.snapshotPublisher(\.currentTrack).values {
+            for await track in AppRoot.container.playbackService.snapshotPublisher(\.currentTrack).values {
                 guard !Task.isCancelled else { return }
                 await publish(track)
             }
@@ -349,7 +349,7 @@ private struct SiriShortcutPlaybackExecutor {
             displayName: displayName,
             shuffle: shuffle
         )
-        try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
+        try await AppRoot.container.siriPlaybackCoordinator.execute(payload: payload)
     }
 }
 
@@ -647,11 +647,11 @@ extension EnsembleMediaEntityQuery: IndexedEntityQuery {
         indexDescription _: CSSearchableIndexDescription
     ) async throws {
         guard !identifiers.isEmpty else { return }
-        await DependencyContainer.shared.systemMediaIntegrationService.refreshSpotlightIndex()
+        await AppRoot.container.systemMediaIntegrationService.refreshSpotlightIndex()
     }
 
     func reindexAllEntities(indexDescription _: CSSearchableIndexDescription) async throws {
-        await DependencyContainer.shared.systemMediaIntegrationService.refreshSpotlightIndex()
+        await AppRoot.container.systemMediaIntegrationService.refreshSpotlightIndex()
     }
 }
 
@@ -786,7 +786,7 @@ struct EnsembleLibraryEntityQuery: EntityQuery {
 
     @MainActor
     private static func availableLibraries() -> [EnsembleLibraryEntity] {
-        let accountManager = DependencyContainer.shared.accountManager
+        let accountManager = AppRoot.container.accountManager
         if accountManager.credentialLoadState == .loading, accountManager.plexAccounts.isEmpty {
             accountManager.loadAccounts()
         }
@@ -865,11 +865,11 @@ struct EnsembleFocusFilter: SetFocusFilterIntent {
     @MainActor
     private func apply(resetsLibraryBypass: Bool) {
         let visibleSourceKeys = visibleLibraries.map { Set($0.map(\.id)) }
-        DependencyContainer.shared.libraryVisibilityStore.setFocusVisibleSourceCompositeKeys(
+        AppRoot.container.libraryVisibilityStore.setFocusVisibleSourceCompositeKeys(
             visibleSourceKeys,
             resetsBypass: resetsLibraryBypass
         )
-        DependencyContainer.shared.settingsManager.setFocusScrobblingOverride(
+        AppRoot.container.settingsManager.setFocusScrobblingOverride(
             scrobbling.overrideValue
         )
         EnsembleFocusFilterLogger.logger.info(
@@ -879,8 +879,8 @@ struct EnsembleFocusFilter: SetFocusFilterIntent {
 
     @MainActor
     private static func clearOverrides() {
-        DependencyContainer.shared.libraryVisibilityStore.setFocusVisibleSourceCompositeKeys(nil)
-        DependencyContainer.shared.settingsManager.setFocusScrobblingOverride(nil)
+        AppRoot.container.libraryVisibilityStore.setFocusVisibleSourceCompositeKeys(nil)
+        AppRoot.container.settingsManager.setFocusScrobblingOverride(nil)
     }
 }
 

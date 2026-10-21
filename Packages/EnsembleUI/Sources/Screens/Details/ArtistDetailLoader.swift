@@ -10,7 +10,7 @@ struct ArtistDetailLoader: View {
     @State private var isLoading = true
     @State private var error: Error?
     
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
 
     init(
         request: ArtistDetailRequest,

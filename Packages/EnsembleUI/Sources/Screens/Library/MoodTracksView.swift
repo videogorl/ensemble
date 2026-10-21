@@ -5,7 +5,7 @@ import SwiftUI
 public struct MoodTracksView: View {
     let mood: Mood
     let nowPlayingVM: NowPlayingViewModel
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var viewModel: SearchViewModel
     @State private var moodTracks: [Track] = []

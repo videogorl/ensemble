@@ -8,7 +8,7 @@ extension AppDelegate {
         handleEventsForBackgroundURLSession identifier: String,
         completionHandler: @escaping () -> Void
     ) {
-        DependencyContainer.shared.offlineBackgroundExecutionCoordinator.handleBackgroundURLSessionEvents(
+        AppRoot.container.offlineBackgroundExecutionCoordinator.handleBackgroundURLSessionEvents(
             identifier: identifier,
             completionHandler: completionHandler
         )

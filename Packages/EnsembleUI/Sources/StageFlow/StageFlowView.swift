@@ -131,6 +131,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     let resolvePlaybackTracks: (Item) async -> [Track]
     @Binding var selectedItem: Item?
 
+    @Environment(DependencyContainer.self) private var dependencies
     @State private var isPanelPresented = false
     @State private var isPlaying = false
     @State private var isTransportLoading = false
@@ -225,7 +226,8 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
             items: items,
             selectedID: selectedItem?.id,
             hidesSelectedItem: isPanelPresented,
-            itemView: { itemView($0).id($0.id) },
+            // Carousel cells host separate SwiftUI roots that do not inherit the environment.
+            itemView: { itemView($0).id($0.id).environment(dependencies) },
             title: titleContent,
             onSelection: { selectedItem = $0 },
             onActivate: { item in

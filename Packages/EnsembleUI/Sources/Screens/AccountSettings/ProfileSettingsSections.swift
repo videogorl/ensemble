@@ -34,7 +34,7 @@ struct MusicSourceAccountRow: View {
 // MARK: - Audio Quality Settings
 
 struct AudioQualitySettingsView: View {
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @AppStorage(AudioQualityPreference.streamingQualityKey)
     private var streamingQuality = AudioQualityPreference.defaultStreamingQuality
     @AppStorage(AudioQualityPreference.allowStreamingOnCellularKey)

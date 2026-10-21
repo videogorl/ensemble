@@ -245,7 +245,7 @@ public struct QueueTableView: UIViewRepresentable {
     let onRemoveFromQueue: (Int) -> Void
     let onMoveItem: (String, Int, Int, QueueItemSource?) -> Void
 
-    @Environment(\.dependencies) private var dependencies
+    @Environment(DependencyContainer.self) private var dependencies
 
     public init(
         queueItems: [QueueItem],

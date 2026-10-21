@@ -69,7 +69,7 @@ struct StageFlowTrackPanel: View {
     let contentType: StageFlowContentType
     let nowPlayingVM: NowPlayingViewModel
 
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
 
     @State private var tracks: [Track] = []
     @State private var isLoading = true

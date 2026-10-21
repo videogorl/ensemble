@@ -7,13 +7,16 @@ import AppKit
 
 private struct LibraryItemInfoPresentationModifier: ViewModifier {
     @Binding var request: LibraryItemInfoRequest?
+    #if os(macOS)
+    @Environment(DependencyContainer.self) private var dependencies
+    #endif
 
     func body(content: Content) -> some View {
         #if os(macOS)
         content
             .onChange(of: request) { newRequest in
                 guard let newRequest else { return }
-                MacLibraryItemInfoWindowPresenter.shared.present(newRequest)
+                MacLibraryItemInfoWindowPresenter.shared.present(newRequest, dependencies: dependencies)
                 request = nil
             }
         #else
@@ -36,7 +39,7 @@ public extension View {
 private struct LibraryItemInfoSourcePicker: View {
     let request: LibraryItemInfoRequest
     @State private var selectedSourceID: String?
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
 
     var body: some View {
         if case .playlist(let primary, let sources) = request, sources.count > 1 {
@@ -77,7 +80,7 @@ private final class MacLibraryItemInfoWindowPresenter {
 
     private var window: NSWindow?
 
-    func present(_ request: LibraryItemInfoRequest) {
+    func present(_ request: LibraryItemInfoRequest, dependencies: DependencyContainer) {
         let rootView = MacAuxiliaryWindowScaffold(
             configuration: EnsembleScaffold.AuxiliaryWindow.Configuration(
                 minHeight: 460,
@@ -86,8 +89,8 @@ private final class MacLibraryItemInfoWindowPresenter {
         ) {
             LibraryItemInfoSourcePicker(request: request)
         }
-        .environment(\.dependencies, DependencyContainer.shared)
-        .accentColor(DependencyContainer.shared.settingsManager.accentColor.color)
+        .environment(dependencies)
+        .accentColor(dependencies.settingsManager.accentColor.color)
 
         if let window {
             window.contentViewController = NSHostingController(rootView: rootView)

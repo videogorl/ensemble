@@ -434,7 +434,7 @@ private struct DisplayArtistRow: View {
 private struct DisplayArtistGrid: View {
     let artists: [DisplayArtist]
     let nowPlayingVM: NowPlayingViewModel
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
@@ -618,7 +618,7 @@ public struct ArtistDetailView: View {
     private let includesHidden: Bool
     let nowPlayingVM: NowPlayingViewModel
 
-    @Environment(\.dependencies) private var dependencies
+    @Environment(DependencyContainer.self) private var dependencies
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     private let pinManager = DependencyContainer.shared.pinManager

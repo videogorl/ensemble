@@ -9,7 +9,7 @@ import SwiftUI
 #endif
 
 public struct SongsView: View {
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter

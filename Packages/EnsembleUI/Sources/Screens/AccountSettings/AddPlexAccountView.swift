@@ -12,7 +12,7 @@ public struct AddPlexAccountView: View {
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
 
     /// When true, the view is pushed inside an existing NavigationStack
     /// and should not wrap itself in another NavigationView.

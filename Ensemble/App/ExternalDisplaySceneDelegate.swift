@@ -65,7 +65,7 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         // Preserve the existing supplementary-display timing policy. Actual
         // AirPlay latency compensation still requires hardware verification.
-        DependencyContainer.shared.playbackService.isScreenMirroringActive = true
+        AppRoot.container.playbackService.isScreenMirroringActive = true
 
         // Use the shared NowPlayingViewModel from the main UI so playback state,
         // lyrics, queue, and panel selection stay in sync automatically.
@@ -73,15 +73,15 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
         // the new VM still shows correct playback state via PlaybackService publishers,
         // only currentPage won't sync (defaults to Queue).
         let viewModel: NowPlayingViewModel
-        if let shared = DependencyContainer.shared.activeNowPlayingViewModel {
+        if let shared = AppRoot.container.activeNowPlayingViewModel {
             viewModel = shared
         } else {
             EnsembleLogger.debug("[ExternalDisplay] activeNowPlayingViewModel not yet set, creating fallback instance")
-            viewModel = DependencyContainer.shared.makeNowPlayingViewModel()
+            viewModel = AppRoot.container.makeNowPlayingViewModel()
         }
 
         let externalView = ExternalDisplayNowPlayingView(viewModel: viewModel)
-            .environment(\.dependencies, DependencyContainer.shared)
+            .environment(AppRoot.container)
 
         let hostingController = UIHostingController(rootView: externalView)
         hostingController.view.backgroundColor = .black
@@ -101,7 +101,7 @@ class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneDidDisconnect(_ scene: UIScene) {
         EnsembleLogger.debug("[ExternalDisplay] scene disconnected — tearing down window")
-        DependencyContainer.shared.playbackService.isScreenMirroringActive = UIApplication.shared.connectedScenes.contains {
+        AppRoot.container.playbackService.isScreenMirroringActive = UIApplication.shared.connectedScenes.contains {
             $0 !== scene && $0.session.role == .windowExternalDisplayNonInteractive
         }
         window = nil

@@ -10,7 +10,7 @@ public struct InfoCard: View {
     @ObservedObject private var lyricsProjection: NowPlayingLyricsProjection
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Binding var currentPage: Int
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss

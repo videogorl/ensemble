@@ -70,7 +70,7 @@ struct TrackActionsContextMenu: View {
     var onEditMetadata: ((Track) -> Void)? = nil
     var onDelete: ((Track) -> Void)? = nil
 
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
@@ -279,7 +279,7 @@ struct AlbumActionsContextMenu: View {
     var customPinAction: ((Bool) -> Void)? = nil
     var customIsPinned: (() -> Bool)? = nil
 
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let pinManager = DependencyContainer.shared.pinManager
@@ -557,7 +557,7 @@ struct ArtistActionsContextMenu: View {
     var customPinAction: ((Bool) -> Void)? = nil
     var customIsPinned: (() -> Bool)? = nil
 
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     private let pinManager = DependencyContainer.shared.pinManager
 
@@ -721,7 +721,7 @@ struct ArtistActionsContextMenu: View {
 
 struct MergedArtistHiddenContextMenu: View {
     let displayArtist: DisplayArtist
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
     @ViewBuilder
@@ -893,7 +893,7 @@ struct PlaylistActionsContextMenu: View {
     var onDelete: ((Playlist) -> Void)? = nil
     var customPinAction: ((Bool) -> Void)? = nil
 
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     private let pinManager = DependencyContainer.shared.pinManager
 
@@ -1105,7 +1105,7 @@ struct MergedPlaylistActionsContextMenu: View {
     var onDelete: ((Playlist) -> Void)? = nil
     var onUnpinAll: (() -> Void)? = nil
 
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
     var body: some View {

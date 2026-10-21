@@ -83,7 +83,7 @@ public struct ControlsCard: View {
     @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
     @ObservedObject private var artworkProjection: NowPlayingArtworkProjection
     @ObservedObject private var ratingProjection: NowPlayingRatingProjection
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss

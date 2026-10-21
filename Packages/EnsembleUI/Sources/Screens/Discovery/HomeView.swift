@@ -394,7 +394,7 @@ struct HubItemCard: View {
     let includesHidden: Bool
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
     @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
 
     private let artworkDimension = EnsembleScaffold.MediaCard.hubArtworkDimension
 

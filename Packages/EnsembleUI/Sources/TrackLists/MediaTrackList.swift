@@ -588,7 +588,7 @@ public struct MediaTrackList: UIViewRepresentable {
     /// the header (chips + artwork + buttons) structurally identical across all states.
     let tableFooterContent: AnyView?
     let onRefresh: (() async -> Void)?
-    @Environment(\.dependencies) private var dependencies
+    @Environment(DependencyContainer.self) private var dependencies
     @Environment(\.trackListDisplayRatingsRevision) private var displayRatingsRevision
 
     public init(
@@ -925,9 +925,10 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.rowHeight = rowHeight
         context.coordinator.lastAvailabilityGeneration = availabilityGeneration
         context.coordinator.lastDisplayRatingsRevision = displayRatingsRevision
-        context.coordinator.tableHeaderContent = tableHeaderContent
+        // Hosted cells are separate SwiftUI roots and do not inherit the environment.
+        context.coordinator.tableHeaderContent = tableHeaderContent.map { AnyView($0.environment(dependencies)) }
         context.coordinator.tableHeaderRevision = tableHeaderRevision
-        context.coordinator.tableFooterContent = tableFooterContent
+        context.coordinator.tableFooterContent = tableFooterContent.map { AnyView($0.environment(dependencies)) }
         context.coordinator.onRefresh = onRefresh
 
         // Reload data immediately after updating groupedTracks to keep UIKit's geometry
@@ -943,7 +944,7 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
-        if let tableFooterContent,
+        if let tableFooterContent = context.coordinator.tableFooterContent,
            let footerCell = tableView.cellForRow(
                at: IndexPath(row: 0, section: context.coordinator.footerSection)
            ) as? HostedContentCell {
@@ -1047,9 +1048,9 @@ public struct MediaTrackList: UIViewRepresentable {
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             rowHeight: rowHeight,
             displayRatingsRevision: displayRatingsRevision,
-            tableHeaderContent: tableHeaderContent,
+            tableHeaderContent: tableHeaderContent.map { AnyView($0.environment(dependencies)) },
             tableHeaderRevision: tableHeaderRevision,
-            tableFooterContent: tableFooterContent,
+            tableFooterContent: tableFooterContent.map { AnyView($0.environment(dependencies)) },
             onRefresh: onRefresh
         )
         return coordinator

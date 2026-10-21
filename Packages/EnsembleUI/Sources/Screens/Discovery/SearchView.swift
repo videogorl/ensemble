@@ -40,7 +40,7 @@ public struct SearchView: View {
     @State private var wasSearchTabActive = false
     @State private var preservesSearchChromeDuringTabExit = false
     @Environment(\.dismissSearch) private var dismissSearch
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     private let resultSection: SearchSection?
 
     public init(

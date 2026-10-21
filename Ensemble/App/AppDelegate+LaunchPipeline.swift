@@ -36,7 +36,7 @@ extension AppDelegate {
         registerForSiriAddToPlaylistNotification()
         logLaunchPhase("siriNotifications.registered")
 
-        let dependencies = DependencyContainer.shared
+        let dependencies = AppRoot.container
         logLaunchPhase("dependencyContainer.ready")
 
         // CloudKit profile sync relies on silent push delivery for live updates.

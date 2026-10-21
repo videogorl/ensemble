@@ -5,7 +5,7 @@ import SwiftUI
 public struct AlbumsView: View {
     let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
@@ -294,7 +294,7 @@ public struct AlbumDetailView: View {
     @State private var favoriteOverrides: [String: Bool] = [:]
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?

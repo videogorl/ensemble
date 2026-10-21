@@ -205,7 +205,7 @@ public struct AlbumGrid: View {
     let includesHidden: Bool
 
     @Environment(\.tracksAlbumGridPosition) private var tracksPosition
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @ObservedObject private var settingsManager: SettingsManager
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?

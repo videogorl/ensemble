@@ -16,7 +16,7 @@ public struct MergedPlaylistDetailView: View {
     @State private var deleteTarget: Playlist?
     @State private var editTarget: Playlist?
     @State private var favoriteOverrides: [String: Bool] = [:]
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
     public init(displayPlaylist: DisplayPlaylist, nowPlayingVM: NowPlayingViewModel) {

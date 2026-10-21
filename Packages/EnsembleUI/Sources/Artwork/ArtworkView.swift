@@ -14,7 +14,7 @@ public struct ArtworkView: View {
     let cornerRadius: CGFloat
     let isResponsive: Bool
 
-    @Environment(\.dependencies) private var dependencies
+    @Environment(DependencyContainer.self) private var dependencies
     @State private var artworkURL: URL?
     /// Snapshot of the currently resolved image.
     @State private var resolvedImage: PlatformImage?

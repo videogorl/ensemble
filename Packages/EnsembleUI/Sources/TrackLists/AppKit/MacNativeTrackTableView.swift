@@ -28,7 +28,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     let sectionScrollRequest: TrackSectionScrollRequest?
     let onTrackTap: (Track, Int) -> Void
 
-    @Environment(\.dependencies) private var dependencies
+    @Environment(DependencyContainer.self) private var dependencies
 
     static func deterministicWideHeaderHeight(tableHeaderExtraHeight: CGFloat) -> CGFloat {
         ArtworkSize.medium.cgSize.height
@@ -106,8 +106,9 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         context.coordinator.showArtwork = showArtwork
         context.coordinator.showTrackNumbers = showTrackNumbers
         context.coordinator.showAlbumName = showAlbumName
-        context.coordinator.tableHeaderContent = tableHeaderContent
-        context.coordinator.tableFooterContent = tableFooterContent
+        // Hosted cells are separate SwiftUI roots and do not inherit the environment.
+        context.coordinator.tableHeaderContent = tableHeaderContent.map { AnyView($0.environment(dependencies)) }
+        context.coordinator.tableFooterContent = tableFooterContent.map { AnyView($0.environment(dependencies)) }
         context.coordinator.currentTrackId = currentTrackId
         context.coordinator.availabilityGeneration = availabilityGeneration
         context.coordinator.activeDownloadTrackIdentities = activeDownloadTrackIdentities
@@ -162,8 +163,8 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
             showAlbumName: showAlbumName,
-            tableHeaderContent: tableHeaderContent,
-            tableFooterContent: tableFooterContent,
+            tableHeaderContent: tableHeaderContent.map { AnyView($0.environment(dependencies)) },
+            tableFooterContent: tableFooterContent.map { AnyView($0.environment(dependencies)) },
             currentTrackId: currentTrackId,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,

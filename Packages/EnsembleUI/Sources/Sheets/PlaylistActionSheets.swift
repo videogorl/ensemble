@@ -9,7 +9,7 @@ public struct PlaylistPickerSheet: View {
     let createsPlaylistAcrossSources: Bool
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @State private var playlists: [Playlist] = []
     @State private var isLoading = true
     @State private var inferredServerSourceKey: String?

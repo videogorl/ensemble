@@ -80,7 +80,7 @@ extension AppDelegate {
             AppLogger.info("SIRI_APP: Executing affinity request: \(affinityTypeStr)")
 
             Task { @MainActor in
-                try? await DependencyContainer.shared.siriAffinityCoordinator.execute(payload: payload)
+                try? await AppRoot.container.siriAffinityCoordinator.execute(payload: payload)
             }
         } catch {
             AppLogger.error("SIRI_APP: Failed to read/process affinity file: \(error.localizedDescription)")
@@ -129,7 +129,7 @@ extension AppDelegate {
             AppLogger.info("SIRI_APP: Executing add-to-playlist playlistNameLength=\(payload.playlistDisplayName?.count ?? 0)")
 
             Task { @MainActor in
-                try? await DependencyContainer.shared.siriAddToPlaylistCoordinator.execute(payload: payload)
+                try? await AppRoot.container.siriAddToPlaylistCoordinator.execute(payload: payload)
             }
         } catch {
             AppLogger.error("SIRI_APP: Failed to read/process add-to-playlist file: \(error.localizedDescription)")
@@ -362,15 +362,15 @@ func executeSiriPlaybackInBackground(
         // Siri can launch us without the normal UI lifecycle warmup.
         // Load accounts synchronously (already done in didFinishLaunching,
         // but harmless and safe for the cold-launch race).
-        DependencyContainer.shared.accountManager.loadAccounts()
-        DependencyContainer.shared.serverHealthChecker.prepopulateUnknownStates()
-        let sc = DependencyContainer.shared.syncCoordinator
+        AppRoot.container.accountManager.loadAccounts()
+        AppRoot.container.serverHealthChecker.prepopulateUnknownStates()
+        let sc = AppRoot.container.syncCoordinator
 
         // Await the early health check task from didFinishLaunching instead of
         // running a separate set of health checks. This avoids redundant work
         // and means Siri can proceed as soon as the already-in-flight checks finish.
         let appDelegate = UIApplication.shared.delegate as? AppDelegate
-        let shc = DependencyContainer.shared.serverHealthChecker
+        let shc = AppRoot.container.serverHealthChecker
         if let earlyTask = appDelegate?.earlyHealthCheckTask {
             AppLogger.info("SIRI_APP: [origin=\(origin)] Awaiting early health checks from didFinishLaunching...")
             await earlyTask.value
@@ -387,7 +387,7 @@ func executeSiriPlaybackInBackground(
         let hasConnectedServers = shc.serverStates.values.contains { $0.isAvailable }
         if !hasConnectedServers {
             AppLogger.info("SIRI_APP: [origin=\(origin)] No connected servers — running fallback health checks")
-            let nm = DependencyContainer.shared.networkMonitor
+            let nm = AppRoot.container.networkMonitor
             for _ in 0..<10 {
                 if nm.networkState != .unknown { break }
                 try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
@@ -402,7 +402,7 @@ func executeSiriPlaybackInBackground(
         AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready")
 
         do {
-            let playbackService = DependencyContainer.shared.playbackService
+            let playbackService = AppRoot.container.playbackService
             var categoryConfigured = playbackService.ensureAudioSessionConfigured()
             if !categoryConfigured {
                 for attempt in 1...3 {
@@ -427,7 +427,7 @@ func executeSiriPlaybackInBackground(
             AppLogger.info("SIRI_APP: [origin=\(origin)] Audio session activated; initial route: \(initialRoute)")
 
             AppLogger.info("SIRI_APP: [origin=\(origin)] Calling coordinator.execute()")
-            try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
+            try await AppRoot.container.siriPlaybackCoordinator.execute(payload: payload)
 
             let routeAfter = playbackService.currentAudioRouteDescription()
             AppLogger.info("SIRI_APP: [origin=\(origin)] Coordinator execute SUCCESS; route: \(routeAfter)")
@@ -447,7 +447,7 @@ func executeSiriPlaybackInBackground(
             if switchedAfterExecute {
                 AppLogger.info("SIRI_APP: [origin=\(origin)] External route appeared post-execute; nudging playback in 500ms")
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                DependencyContainer.shared.playbackService.nudgeForAirPlayRoute()
+                AppRoot.container.playbackService.nudgeForAirPlayRoute()
             }
         } catch {
             if let siriError = error as? SiriPlaybackCoordinatorError {

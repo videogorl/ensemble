@@ -5,7 +5,7 @@ import SwiftUI
 @MainActor
 struct ExternalDisplayNowPlayingModifier: ViewModifier {
     let viewModel: NowPlayingViewModel
-    @Environment(\.dependencies) private var dependencies
+    @Environment(DependencyContainer.self) private var dependencies
 
     #if os(iOS)
     // Each main window owns a model. Keep the timing flag until its last
@@ -20,7 +20,7 @@ struct ExternalDisplayNowPlayingModifier: ViewModifier {
             content.sceneAccessory {
                 ExternalNonInteractiveAccessory {
                     ExternalDisplayNowPlayingView(viewModel: viewModel)
-                        .environment(\.dependencies, dependencies)
+                        .environment(dependencies)
                         .onAppear { updatePresentation(isPresented: true) }
                         .onDisappear { updatePresentation(isPresented: false) }
                 }

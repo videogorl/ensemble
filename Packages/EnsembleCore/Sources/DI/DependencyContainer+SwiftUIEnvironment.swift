@@ -1,14 +1,6 @@
-import SwiftUI
+import Observation
 
-// MARK: - Environment Key
-
-private struct DependencyContainerKey: EnvironmentKey {
-    static let defaultValue = DependencyContainer.shared
-}
-
-public extension EnvironmentValues {
-    var dependencies: DependencyContainer {
-        get { self[DependencyContainerKey.self] }
-        set { self[DependencyContainerKey.self] = newValue }
-    }
-}
+/// Scenes inject the app's one container with `.environment(container)`, and
+/// views read it with `@Environment(DependencyContainer.self)`. There is no
+/// default: a view outside an injected tree traps instead of reaching a global.
+extension DependencyContainer: Observable {}

@@ -7,7 +7,7 @@ struct SongPermalinkLoader: View {
     let songSourceKey: String?
     let nowPlayingVM: NowPlayingViewModel
 
-    @Environment(\.dependencies) private var deps
+    @Environment(DependencyContainer.self) private var deps
     @State private var albumId: String?
     @State private var selectedTrackId: String?
     @State private var isLoading = true
