@@ -17,7 +17,7 @@ public struct MergedPlaylistDetailView: View {
     @State private var editTarget: Playlist?
     @State private var favoriteOverrides: [String: Bool] = [:]
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
 
     public init(displayPlaylist: DisplayPlaylist, nowPlayingVM: NowPlayingViewModel, dependencies: DependencyContainer) {
         self._viewModel = State(initialValue: MergedPlaylistDetailViewModel(

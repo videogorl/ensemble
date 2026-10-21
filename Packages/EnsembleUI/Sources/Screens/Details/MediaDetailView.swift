@@ -271,7 +271,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var isPinnedForHeader: Bool
     @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     private var pinManager: PinManager { deps.pinManager }
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities

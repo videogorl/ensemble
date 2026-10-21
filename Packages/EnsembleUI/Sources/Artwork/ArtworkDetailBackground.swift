@@ -2,7 +2,7 @@ import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
-final class ArtworkDetailBackgroundContinuityStore: ObservableObject {
+final class ArtworkDetailBackgroundContinuityStore {
     var lastImage: PlatformImage?
     var lastBlurredImage: PlatformImage?
     var lastIdentity: String?

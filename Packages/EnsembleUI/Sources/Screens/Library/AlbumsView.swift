@@ -295,7 +295,7 @@ public struct AlbumDetailView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 

@@ -22,7 +22,7 @@ struct MacBrowseSplitView<Sidebar: View, Picker: View, Detail: View>: NSViewCont
     let showsPicker: Bool
     let sidebarFrameChanged: (CGRect?) -> Void
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     @Environment(DependencyContainer.self) private var dependencies
 
     func makeNSViewController(context: Context) -> Controller {
@@ -58,7 +58,7 @@ struct MacBrowseSplitView<Sidebar: View, Picker: View, Detail: View>: NSViewCont
         // and can feed the bridged window state back into itself.
         AnyView(content
             .environmentObject(navigationCoordinator)
-            .environmentObject(sourceActionPresenter)
+            .environment(sourceActionPresenter)
             .environment(dependencies)
             .environment(\.colorScheme, environment.colorScheme)
             .environment(\.locale, environment.locale)

@@ -17,7 +17,7 @@ public struct SearchView: View {
     @FocusState private var isSearchFieldFocused: Bool
     private let pinnedVM: PinnedViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     @State private var isPinnedExpanded = false
     @State private var collapsesPinsAfterDrag = false
     @State private var pinDragSource: ResolvedPin?

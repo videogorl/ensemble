@@ -31,7 +31,7 @@ public struct FavoritesView: View {
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
 
     init(nowPlayingVM: NowPlayingViewModel, viewModel: FavoritesViewModel) {
         _viewModel = State(initialValue: viewModel)

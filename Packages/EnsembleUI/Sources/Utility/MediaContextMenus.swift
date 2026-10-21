@@ -17,9 +17,10 @@ struct MediaSourceActionRequest: Identifiable {
 }
 
 @MainActor
-final class MediaSourceActionPresenter: ObservableObject {
-    @Published var pendingRequest: MediaSourceActionRequest?
-    private var selectedAction: (() -> Void)?
+@Observable
+final class MediaSourceActionPresenter {
+    var pendingRequest: MediaSourceActionRequest?
+    @ObservationIgnored private var selectedAction: (() -> Void)?
 
     func present(title: String, choices: [MediaSourceActionChoice]) {
         guard choices.contains(where: { $0.availability.isAvailable }) else { return }
@@ -71,7 +72,7 @@ struct TrackActionsContextMenu: View {
     var onDelete: ((Track) -> Void)? = nil
 
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     private var mutationTracks: [Track] {
@@ -280,7 +281,7 @@ struct AlbumActionsContextMenu: View {
     var customIsPinned: (() -> Bool)? = nil
 
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private var pinManager: PinManager { deps.pinManager }
 
@@ -558,7 +559,7 @@ struct ArtistActionsContextMenu: View {
     var customIsPinned: (() -> Bool)? = nil
 
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     private var pinManager: PinManager { deps.pinManager }
 
     private var mutationArtists: [Artist] {
@@ -722,7 +723,7 @@ struct ArtistActionsContextMenu: View {
 struct MergedArtistHiddenContextMenu: View {
     let displayArtist: DisplayArtist
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
 
     @ViewBuilder
     var body: some View {
@@ -827,7 +828,7 @@ struct HiddenMediaDetailMenuButton: View {
 
     @ObservedObject private var hiddenMediaStore = DependencyContainer.shared.hiddenMediaStore
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     @State private var requestedHideIdentities: Set<HiddenMediaIdentity> = []
 
     @ViewBuilder
@@ -894,7 +895,7 @@ struct PlaylistActionsContextMenu: View {
     var customPinAction: ((Bool) -> Void)? = nil
 
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     private var pinManager: PinManager { deps.pinManager }
 
     private var mutationPlaylists: [Playlist] {
@@ -1106,7 +1107,7 @@ struct MergedPlaylistActionsContextMenu: View {
     var onUnpinAll: (() -> Void)? = nil
 
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
 
     var body: some View {
         let candidates = displayPlaylist.playlists.compactMap { $0.hiddenCandidate(deps: deps) }

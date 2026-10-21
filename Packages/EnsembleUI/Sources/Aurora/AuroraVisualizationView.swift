@@ -23,8 +23,8 @@ public struct AuroraVisualizationView: View {
     @State private var isMounted = false
     @State private var isSettlingToZero = false
     @State private var settleToZeroTask: Task<Void, Never>?
-    @StateObject private var renderModel = AuroraRenderModel()
-    @StateObject private var bandProcessor = AuroraBandShapeProcessor()
+    @State private var renderModel = AuroraRenderModel()
+    @State private var bandProcessor = AuroraBandShapeProcessor()
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -410,7 +410,7 @@ public struct AuroraVisualizationView: View {
 
 /// Coalesces raw FFT updates and shapes aurora bands off the SwiftUI receive path.
 @MainActor
-final class AuroraBandShapeProcessor: ObservableObject {
+final class AuroraBandShapeProcessor {
     private let bandCount = 24
     private let processingQueue = DispatchQueue(
         label: "com.felicity.Ensemble.aurora-band-shaper",
@@ -612,7 +612,7 @@ final class AuroraBandShapeProcessor: ObservableObject {
 
 /// Keeps live aurora band state off the SwiftUI observation path so analyzer ticks
 /// do not invalidate root-level view trees on every update.
-final class AuroraRenderModel: ObservableObject {
+final class AuroraRenderModel {
     private let bandCount = 24
     private var smoothedBands = AuroraRenderModel.idleBands
     private var lastUpdateTime: TimeInterval?

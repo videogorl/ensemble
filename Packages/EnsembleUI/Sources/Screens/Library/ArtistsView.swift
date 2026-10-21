@@ -13,7 +13,7 @@ private struct SendableArtistPlatformImage: @unchecked Sendable {
     }
 }
 
-final class ArtistDetailArtworkContinuityStore: ObservableObject {
+final class ArtistDetailArtworkContinuityStore {
     var lastImage: PlatformImage?
     var lastBlurredImage: PlatformImage?
     var lastIdentity: String?
@@ -621,7 +621,7 @@ public struct ArtistDetailView: View {
 
     @Environment(DependencyContainer.self) private var dependencies
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     private var pinManager: PinManager { dependencies.pinManager }
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities

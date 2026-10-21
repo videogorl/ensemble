@@ -10,12 +10,13 @@ import AppKit
 
 /// Owns the card's mounted route picker. Presentation happens only after an explicit action.
 @MainActor
-public final class AirPlayPresentationController: ObservableObject {
-    @Published public private(set) var showsFallbackButton = false
-    private var presentationTask: Task<Void, Never>?
+@Observable
+public final class AirPlayPresentationController {
+    public private(set) var showsFallbackButton = false
+    @ObservationIgnored private var presentationTask: Task<Void, Never>?
 
     #if canImport(UIKit) || os(macOS)
-    private weak var routePicker: AVRoutePickerView?
+    @ObservationIgnored private weak var routePicker: AVRoutePickerView?
 
     fileprivate func register(_ picker: AVRoutePickerView) {
         routePicker = picker

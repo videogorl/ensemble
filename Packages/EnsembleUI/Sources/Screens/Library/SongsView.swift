@@ -12,7 +12,7 @@ public struct SongsView: View {
     @Environment(DependencyContainer.self) private var deps
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var currentTrackId: String?

@@ -19,9 +19,9 @@ public struct RootView: View {
     private var powerStateMonitor: PowerStateMonitor { dependencies.powerStateMonitor }
     @StateObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var screenModels: RootScreenModels
-    @StateObject private var artworkDetailBackgroundContinuity = ArtworkDetailBackgroundContinuityStore()
-    @StateObject private var artistDetailArtworkContinuity = ArtistDetailArtworkContinuityStore()
-    @StateObject private var sourceActionPresenter = MediaSourceActionPresenter()
+    @State private var artworkDetailBackgroundContinuity = ArtworkDetailBackgroundContinuityStore()
+    @State private var artistDetailArtworkContinuity = ArtistDetailArtworkContinuityStore()
+    @State private var sourceActionPresenter = MediaSourceActionPresenter()
     @State private var isNowPlayingPresented = false
     @State private var sidebarSelection: SidebarSelection? = .library(.home)
     @State private var rootSidebarChromeRegistration: RootSidebarChromeRegistration = .absent
@@ -74,7 +74,7 @@ public struct RootView: View {
             mainContentView
         }
         .auxiliaryPresentationSheets()
-        .environmentObject(sourceActionPresenter)
+        .environment(sourceActionPresenter)
         .sheet(item: $sourceActionPresenter.pendingRequest, onDismiss: sourceActionPresenter.completeSelection) { request in
             MediaSourceActionPicker(request: request, presenter: sourceActionPresenter)
         }
@@ -426,7 +426,7 @@ public struct RootView: View {
 
 private struct MediaSourceActionPicker: View {
     let request: MediaSourceActionRequest
-    @ObservedObject var presenter: MediaSourceActionPresenter
+    let presenter: MediaSourceActionPresenter
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

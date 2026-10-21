@@ -10,7 +10,7 @@ public struct ScrollIndex: View {
     let onLetterTap: (String) -> Void
 
     #if os(iOS)
-    @StateObject private var scrollInterrupter = ScrollIndexScrollInterrupter()
+    @State private var scrollInterrupter = ScrollIndexScrollInterrupter()
     #endif
     
     @State private var dragLetter: String?
@@ -140,7 +140,7 @@ public struct ScrollIndex: View {
 
 #if os(iOS)
 @MainActor
-private final class ScrollIndexScrollInterrupter: ObservableObject {
+private final class ScrollIndexScrollInterrupter {
     weak var probeView: UIView?
 
     func stopDeceleration() {

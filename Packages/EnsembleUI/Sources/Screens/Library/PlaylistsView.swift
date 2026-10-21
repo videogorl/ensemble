@@ -105,7 +105,7 @@ public struct PlaylistsView: View {
     private var settingsManager: SettingsManager { deps.settingsManager }
     private var accountManager: AccountManager { deps.accountManager }
     private var syncCoordinator: SyncCoordinator { deps.syncCoordinator }
-    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
+    @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     @Environment(\.isStageFlowActive) private var rootStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private var isMacBrowsePicker: Bool {
