@@ -595,15 +595,6 @@ public struct SidebarView: View {
         isViewportNowPlayingPresented
     }
 
-    private var sidebarPlaylistCacheInvalidations: AnyPublisher<Void, Never> {
-        Publishers.MergeMany([
-            libraryVM.$hasEnabledLibraries.map { _ in () }.eraseToAnyPublisher(),
-            libraryVM.$isRestoringCloudSources.map { _ in () }.eraseToAnyPublisher()
-        ])
-        .receive(on: DispatchQueue.main)
-        .eraseToAnyPublisher()
-    }
-
     private func updateSettingsSnapshot() {
         let latestAccentColor = settingsManager.accentColor
         if latestAccentColor != accentColor {
@@ -894,10 +885,13 @@ public struct SidebarView: View {
             _ = await (libRefresh, pinsLoad, playlistsLoad)
             rebuildCachedSidebarPlaylists()
         }
-        .onReceive(sidebarPlaylistCacheInvalidations) { _ in
+        .onChange(of: playlistsVM.sortedDisplayPlaylists) { _, _ in
             rebuildCachedSidebarPlaylists()
         }
-        .onChange(of: playlistsVM.sortedDisplayPlaylists) { _, _ in
+        .onChange(of: libraryVM.hasEnabledLibraries) { _, _ in
+            rebuildCachedSidebarPlaylists()
+        }
+        .onChange(of: libraryVM.isRestoringCloudSources) { _, _ in
             rebuildCachedSidebarPlaylists()
         }
         .onReceive(NotificationCenter.default.publisher(for: CacheManager.libraryDataDidClear)) { _ in

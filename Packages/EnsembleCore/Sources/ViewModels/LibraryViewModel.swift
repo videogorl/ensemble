@@ -2,6 +2,7 @@ import Combine
 import EnsembleDomain
 import EnsemblePersistence
 import Foundation
+import Observation
 
 protocol LibraryRepositoryBackingStoreProviding: Sendable {
     var backingCoreDataStack: CoreDataStack { get }
@@ -10,7 +11,8 @@ protocol LibraryRepositoryBackingStoreProviding: Sendable {
 extension LibraryRepository: LibraryRepositoryBackingStoreProviding {}
 
 @MainActor
-public final class LibraryViewModel: ObservableObject {
+@Observable
+public final class LibraryViewModel {
     private struct TrackComputation: Equatable, Sendable {
         let rawCount: Int
         let tracks: [Track]
@@ -64,43 +66,79 @@ public final class LibraryViewModel: ObservableObject {
         hasPreparedInitialBrowse ? allArtists : nil
     }
 
-    @Published public private(set) var artists: [Artist] = []
-    @Published public private(set) var albums: [Album] = []
-    @Published public private(set) var tracks: [Track] = [] {
-        didSet { trackMutationIndex = nil }
+    public private(set) var artists: [Artist] = [] {
+        didSet { scheduleArtists() }
+    }
+    public private(set) var albums: [Album] = [] {
+        didSet { scheduleAlbumDerivedCollections() }
+    }
+    public private(set) var tracks: [Track] = [] {
+        didSet {
+            trackMutationIndex = nil
+            scheduleTracks()
+            scheduleTrackMutationIndex()
+            scheduleDownloadedMembership()
+        }
     }
     private var trackMutationIndex: MergingProjection.TrackMutationIndex?
-    @Published public private(set) var genres: [Genre] = []
-    @Published public private(set) var isLoading = false
-    @Published public private(set) var error: String?
-    @Published public private(set) var isSyncing = false
-    @Published public private(set) var hasAnySources = false
-    @Published public private(set) var hasEnabledLibraries = false
-    @Published public private(set) var isRestoringCloudSources = false
+    public private(set) var genres: [Genre] = [] {
+        didSet { scheduleGenres() }
+    }
+    public private(set) var isLoading = false
+    public private(set) var error: String?
+    public private(set) var isSyncing = false
+    public private(set) var hasAnySources = false
+    public private(set) var hasEnabledLibraries = false
+    public private(set) var isRestoringCloudSources = false
     
     // Sort preferences
-    @Published public var trackSortOption: TrackSortOption = .title {
+    public var trackSortOption: TrackSortOption = .title {
         didSet { tracksFilterOptions.sortBy = trackSortOption.rawValue }
     }
-    @Published public var artistSortOption: ArtistSortOption = .name {
+    public var artistSortOption: ArtistSortOption = .name {
         didSet { artistsFilterOptions.sortBy = artistSortOption.rawValue }
     }
-    @Published public var albumSortOption: AlbumSortOption = .title {
+    public var albumSortOption: AlbumSortOption = .title {
         didSet { albumsFilterOptions.sortBy = albumSortOption.rawValue }
     }
-    @Published public var genreSortOption: GenreSortOption = .title {
+    public var genreSortOption: GenreSortOption = .title {
         didSet { genresFilterOptions.sortBy = genreSortOption.rawValue }
     }
-    @Published public var genreDetailAlbumSortOption: AlbumSortOption = .title {
+    public var genreDetailAlbumSortOption: AlbumSortOption = .title {
         didSet { genreDetailAlbumFilterOptions.sortBy = genreDetailAlbumSortOption.rawValue }
     }
 
     // Filter options
-    @Published public var tracksFilterOptions: FilterOptions
-    @Published public var artistsFilterOptions: FilterOptions
-    @Published public var albumsFilterOptions: FilterOptions
-    @Published public var genresFilterOptions: FilterOptions
-    @Published public var genreDetailAlbumFilterOptions: FilterOptions
+    public var tracksFilterOptions: FilterOptions {
+        didSet {
+            FilterPersistence.save(tracksFilterOptions, for: "Songs")
+            scheduleTracks()
+        }
+    }
+    public var artistsFilterOptions: FilterOptions {
+        didSet {
+            FilterPersistence.save(artistsFilterOptions, for: "Artists")
+            scheduleArtists()
+            scheduleDownloadedMembership()
+        }
+    }
+    public var albumsFilterOptions: FilterOptions {
+        didSet {
+            FilterPersistence.save(albumsFilterOptions, for: "Albums")
+            scheduleAlbums()
+            scheduleAlbumAvailableGenres()
+            scheduleDownloadedMembership()
+        }
+    }
+    public var genresFilterOptions: FilterOptions {
+        didSet {
+            FilterPersistence.save(genresFilterOptions, for: "Genres")
+            scheduleGenres()
+        }
+    }
+    public var genreDetailAlbumFilterOptions: FilterOptions {
+        didSet { FilterPersistence.save(genreDetailAlbumFilterOptions, for: "GenreDetailAlbums") }
+    }
 
     // Each browse screen observes only its committed snapshot.
     public let trackBrowse = BrowseSnapshotCache(TrackBrowseSnapshot.empty)
@@ -182,6 +220,24 @@ public final class LibraryViewModel: ObservableObject {
     private let hiddenMediaStore: HiddenMediaStore
     private let appReadinessCoordinator: AppReadinessCoordinator?
     private var cancellables = Set<AnyCancellable>()
+    private var isStarted = false
+    // Scheduled browse computations, each debounced, computed off the main
+    // actor, and committed only when the result changed.
+    private var trackComputationTask: Task<Void, Never>?
+    private var trackMutationIndexTask: Task<Void, Never>?
+    private var membershipTask: Task<Void, Never>?
+    private var artistComputationTask: Task<Void, Never>?
+    private var albumComputationTask: Task<Void, Never>?
+    private var genreComputationTask: Task<Void, Never>?
+    private var albumGenresTask: Task<Void, Never>?
+    private var artistGenresTask: Task<Void, Never>?
+    private var lastTrackComputation: TrackComputation?
+    private var lastArtistComputation: ArtistComputation?
+    private var lastAlbumComputation: AlbumComputation?
+    private var lastGenreComputation: GenreComputation?
+    private var lastAlbumAvailableGenres: [String]?
+    private var lastArtistGenres: [String]?
+    private var downloadedMembership = DownloadedBrowseMembership()
     private var allArtists: [Artist] = []
     private var allAlbums: [Album] = []
     private var allTracks: [Track] = []
@@ -230,13 +286,27 @@ public final class LibraryViewModel: ObservableObject {
         if let saved = GenreSortOption(rawValue: savedGenres.sortBy) { self.genreSortOption = saved }
         if let saved = AlbumSortOption(rawValue: savedGenreDetailAlbums.sortBy) { self.genreDetailAlbumSortOption = saved }
 
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
+        self.isSyncing = syncCoordinator.isSyncing
+        self.hasAnySources = sourceConfiguration.hasAnySources
+        self.hasEnabledLibraries = !sourceConfiguration.enabledSources.isEmpty
+    }
+
+    /// Starts sync, source, visibility, merging, and reload observation, and
+    /// computes the browse collections. Safe to call on every appearance.
+    public func start() {
+        guard !isStarted else { return }
+        isStarted = true
         // Observe sync state
         syncCoordinator.$isSyncing
+            .dropFirst()
             .receive(on: DispatchQueue.main)
-            .assign(to: &$isSyncing)
+            .sink { [weak self] syncing in self?.isSyncing = syncing }
+            .store(in: &cancellables)
 
         // Observe provider-neutral source state.
         accountManager.sourceConfigurationPublisher
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] configuration in
                 guard let self else { return }
@@ -292,176 +362,196 @@ public final class LibraryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Save filter options when they change
-        setupFilterPersistence()
-
-        // Keep cached filtered collections in sync with their inputs
-        setupComputedPipelines()
+        // Recompute merge-aware collections when merging preferences change.
+        settingsManager.$mergingPreferences
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.scheduleTracks()
+                self.scheduleTrackMutationIndex()
+                self.scheduleArtists()
+                self.scheduleAlbums()
+            }
+            .store(in: &cancellables)
         setupVisibilityObservation()
 
         // Re-fetch library when download or metadata state changes so derived rows stay accurate.
         observeReloadTriggers()
+
+        scheduleDownloadedMembership()
+        scheduleTracks()
+        scheduleTrackMutationIndex()
+        scheduleArtists()
+        scheduleAlbumDerivedCollections()
+        scheduleGenres()
     }
 
-    /// Background queue for sort/filter computation so the main thread stays responsive
-    private static let computeQueue = DispatchQueue(label: "com.ensemble.library-compute", qos: .userInitiated)
+    /// Runs `compute` off the main actor 100 ms after the last request, so
+    /// filter typing and sync bursts coalesce without delaying tab switches
+    /// (heavy SwiftUI re-renders cause audio stutter with AUSoundIsolation).
+    private func scheduleComputation<Result: Sendable>(
+        _ task: inout Task<Void, Never>?,
+        delay: Duration = .milliseconds(100),
+        compute: @escaping @Sendable () -> Result,
+        commit: @escaping @MainActor (LibraryViewModel, Result) -> Void
+    ) {
+        guard isStarted else { return }
+        task?.cancel()
+        task = Task { [weak self] in
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+            }
+            guard !Task.isCancelled else { return }
+            let result = await Task.detached(priority: .userInitiated, operation: compute).value
+            guard !Task.isCancelled, let self else { return }
+            commit(self, result)
+        }
+    }
 
-    /// Wires Combine pipelines that keep the cached filtered collections up to date.
-    /// Each collection is recomputed only when its relevant inputs change (not on every SwiftUI render).
-    /// Sort/filter work runs on a background queue; results are delivered on main.
-    private func setupComputedPipelines() {
-        // Tracks: recompute when the raw list, sort option, or filter options change.
-        // Debounce by 100ms to coalesce search/filter typing without making tab switches feel delayed
-        // (heavy SwiftUI re-renders cause audio stutter with AUSoundIsolation).
-        // removeDuplicates prevents no-op publishes during sync.
-        Publishers.CombineLatest4($tracks, $trackSortOption, $tracksFilterOptions, settingsManager.$mergingPreferences)
-            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { tracks, sortOption, filterOptions, preferences -> TrackComputation in
-                Self.computeTracks(tracks, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
-            }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] result in
-                guard let self, self.tracks.count == result.rawCount else { return }
-                self.commitTrackSnapshot(
-                    tracks: result.tracks,
-                    sections: result.sections,
-                    rawTrackCount: result.rawCount,
-                    availableGenres: result.availableGenres
-                )
-            }
-            .store(in: &cancellables)
+    private func scheduleTracks() {
+        let tracks = tracks
+        let sortOption = trackSortOption
+        let filterOptions = tracksFilterOptions
+        let preferences = settingsManager.mergingPreferences
+        scheduleComputation(&trackComputationTask) {
+            Self.computeTracks(tracks, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
+        } commit: { model, result in
+            guard model.lastTrackComputation != result else { return }
+            model.lastTrackComputation = result
+            guard model.tracks.count == result.rawCount else { return }
+            model.commitTrackSnapshot(
+                tracks: result.tracks,
+                sections: result.sections,
+                rawTrackCount: result.rawCount,
+                availableGenres: result.availableGenres
+            )
+        }
+    }
 
-        Publishers.CombineLatest($tracks, settingsManager.$mergingPreferences)
-            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { MergingProjection.TrackMutationIndex(tracks: $0, preferences: $1) }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] index in
-                guard let self,
-                      index.matches(tracks: self.tracks, preferences: self.settingsManager.mergingPreferences) else { return }
-                self.trackMutationIndex = index
-            }
-            .store(in: &cancellables)
+    private func scheduleTrackMutationIndex() {
+        let tracks = tracks
+        let preferences = settingsManager.mergingPreferences
+        scheduleComputation(&trackMutationIndexTask) {
+            MergingProjection.TrackMutationIndex(tracks: tracks, preferences: preferences)
+        } commit: { model, index in
+            guard index.matches(tracks: model.tracks, preferences: model.settingsManager.mergingPreferences) else { return }
+            model.trackMutationIndex = index
+        }
+    }
 
-        // Track metadata only affects these collections through downloaded membership.
-        let downloadedMembership = Publishers.CombineLatest3(
-            $tracks,
-            $artistsFilterOptions.map(\.showDownloadedOnly).removeDuplicates(),
-            $albumsFilterOptions.map(\.showDownloadedOnly).removeDuplicates()
-        )
-            .receive(on: Self.computeQueue)
-            .map { Self.downloadedBrowseMembership(tracks: $0, includeArtists: $1, includeAlbums: $2) }
-            .removeDuplicates()
-            .multicast(subject: PassthroughSubject<DownloadedBrowseMembership, Never>())
-        let downloadedArtistIDs = downloadedMembership.map(\.artistIDs).removeDuplicates()
-        let downloadedAlbumIDs = downloadedMembership.map(\.albumIDs).removeDuplicates()
+    /// Track metadata only affects artists and albums through downloaded
+    /// membership, so those recompute only when membership changes.
+    private func scheduleDownloadedMembership() {
+        let tracks = tracks
+        let includeArtists = artistsFilterOptions.showDownloadedOnly
+        let includeAlbums = albumsFilterOptions.showDownloadedOnly
+        scheduleComputation(&membershipTask, delay: .zero) {
+            Self.downloadedBrowseMembership(tracks: tracks, includeArtists: includeArtists, includeAlbums: includeAlbums)
+        } commit: { model, membership in
+            let previous = model.downloadedMembership
+            model.downloadedMembership = membership
+            if membership.artistIDs != previous.artistIDs { model.scheduleArtists() }
+            if membership.albumIDs != previous.albumIDs {
+                model.scheduleAlbums()
+                model.scheduleAlbumAvailableGenres()
+            }
+        }
+    }
 
-        // Artists still depend on albums for genres and favorites.
-        Publishers.CombineLatest4(
-            Publishers.CombineLatest($artists, settingsManager.$mergingPreferences),
-            $artistSortOption,
-            $artistsFilterOptions,
-            Publishers.CombineLatest($albums, downloadedArtistIDs)
-        )
-            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { artistsAndPreferences, sortOption, filterOptions, albumsAndDownloads -> ArtistComputation in
-                let (artists, preferences) = artistsAndPreferences
-                let (albums, downloadedIDs) = albumsAndDownloads
-                return Self.computeArtists(artists, albums: albums, downloadedArtistIDs: downloadedIDs, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
-            }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] result in
-                guard let self, self.artists.count == result.rawCount else { return }
-                self.commitArtistSnapshot(
-                    artists: result.artists,
-                    displayArtists: result.displayArtists,
-                    sections: result.sections,
-                    rawArtistCount: result.rawCount
-                )
-            }
-            .store(in: &cancellables)
+    private func scheduleArtists() {
+        let artists = artists
+        let albums = albums
+        let downloadedIDs = downloadedMembership.artistIDs
+        let sortOption = artistSortOption
+        let filterOptions = artistsFilterOptions
+        let preferences = settingsManager.mergingPreferences
+        scheduleComputation(&artistComputationTask) {
+            Self.computeArtists(artists, albums: albums, downloadedArtistIDs: downloadedIDs, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
+        } commit: { model, result in
+            guard model.lastArtistComputation != result else { return }
+            model.lastArtistComputation = result
+            guard model.artists.count == result.rawCount else { return }
+            model.commitArtistSnapshot(
+                artists: result.artists,
+                displayArtists: result.displayArtists,
+                sections: result.sections,
+                rawArtistCount: result.rawCount
+            )
+        }
+    }
 
-        // Albums — debounce 100ms to coalesce search/filter typing without making tab switches feel delayed
-        // (heavy SwiftUI re-renders cause audio stutter with AUSoundIsolation).
-        // removeDuplicates prevents no-op publishes during sync.
-        Publishers.CombineLatest4(
-            Publishers.CombineLatest($albums, settingsManager.$mergingPreferences),
-            $albumSortOption,
-            $albumsFilterOptions,
-            downloadedAlbumIDs
-        )
-            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { albumsAndPreferences, sortOption, filterOptions, downloadedIDs -> AlbumComputation in
-                let (albums, preferences) = albumsAndPreferences
-                return Self.computeAlbums(albums, downloadedAlbumIDs: downloadedIDs, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
-            }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] result in
-                guard let self, self.albums.count == result.rawCount else { return }
-                self.commitAlbumSnapshot(
-                    albums: result.albums,
-                    sections: result.sections,
-                    rawAlbumCount: result.rawCount
-                )
-            }
-            .store(in: &cancellables)
+    private func scheduleAlbums() {
+        let albums = albums
+        let downloadedIDs = downloadedMembership.albumIDs
+        let sortOption = albumSortOption
+        let filterOptions = albumsFilterOptions
+        let preferences = settingsManager.mergingPreferences
+        scheduleComputation(&albumComputationTask) {
+            Self.computeAlbums(albums, downloadedAlbumIDs: downloadedIDs, sortOption: sortOption, filterOptions: filterOptions, preferences: preferences)
+        } commit: { model, result in
+            guard model.lastAlbumComputation != result else { return }
+            model.lastAlbumComputation = result
+            guard model.albums.count == result.rawCount else { return }
+            model.commitAlbumSnapshot(albums: result.albums, sections: result.sections, rawAlbumCount: result.rawCount)
+        }
+    }
 
-        // Genres (no sort option — always alphabetical) — removeDuplicates prevents no-op publishes during sync
-        Publishers.CombineLatest3($genres, $albums, $genresFilterOptions)
-            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { genres, albums, filterOptions -> GenreComputation in
-                GenreComputation(rawCount: genres.count, genres: Self.displayGenres(from: genres, albums: albums, with: filterOptions))
-            }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] result in
-                guard let self, self.genres.count == result.rawCount else { return }
-                self.commitGenreSnapshot(displayGenres: result.genres, rawGenreCount: result.rawCount)
-            }
-            .store(in: &cancellables)
+    private func scheduleGenres() {
+        let genres = genres
+        let albums = albums
+        let filterOptions = genresFilterOptions
+        scheduleComputation(&genreComputationTask) {
+            GenreComputation(rawCount: genres.count, genres: Self.displayGenres(from: genres, albums: albums, with: filterOptions))
+        } commit: { model, result in
+            guard model.lastGenreComputation != result else { return }
+            model.lastGenreComputation = result
+            guard model.genres.count == result.rawCount else { return }
+            model.commitGenreSnapshot(displayGenres: result.genres, rawGenreCount: result.rawCount)
+        }
+    }
 
-        // Available genres for chip bar filtering.
-        // Derived from items that pass all NON-genre filters, so only genres
-        // that will produce results are shown (e.g. singles excluded by hideSingles
-        // won't contribute their genres to the chip bar).
-        Publishers.CombineLatest3($albums, $albumsFilterOptions, downloadedAlbumIDs)
-            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { albums, filterOptions, downloadedIDs -> [String] in
-                var nonGenreOptions = filterOptions
-                nonGenreOptions.selectedGenres.removeAll()
-                nonGenreOptions.excludedGenres.removeAll()
-                let preFiltered = Self.filterAlbums(albums, with: nonGenreOptions, downloadedAlbumIDs: downloadedIDs)
-                return Self.extractUniqueGenres(from: preFiltered.flatMap(\.genres))
-            }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] genres in
-                guard let self else { return }
-                self.albumBrowse.update(self.albumBrowse.snapshot.updating(availableGenres: genres))
-            }
-            .store(in: &cancellables)
+    /// Available genres for chip bar filtering, derived from items that pass
+    /// all non-genre filters, so only genres that will produce results show.
+    private func scheduleAlbumAvailableGenres() {
+        let albums = albums
+        let filterOptions = albumsFilterOptions
+        let downloadedIDs = downloadedMembership.albumIDs
+        scheduleComputation(&albumGenresTask) {
+            var nonGenreOptions = filterOptions
+            nonGenreOptions.selectedGenres.removeAll()
+            nonGenreOptions.excludedGenres.removeAll()
+            let preFiltered = Self.filterAlbums(albums, with: nonGenreOptions, downloadedAlbumIDs: downloadedIDs)
+            return Self.extractUniqueGenres(from: preFiltered.flatMap(\.genres))
+        } commit: { model, genres in
+            guard model.lastAlbumAvailableGenres != genres else { return }
+            model.lastAlbumAvailableGenres = genres
+            model.albumBrowse.update(model.albumBrowse.snapshot.updating(availableGenres: genres))
+        }
+    }
 
-        downloadedMembership.connect().store(in: &cancellables)
+    /// Artist genres, derived from album genres.
+    private func scheduleArtistGenres() {
+        let albums = albums
+        scheduleComputation(&artistGenresTask) {
+            var allGenres = Set<String>()
+            for album in albums where !album.genres.isEmpty {
+                album.genres.forEach { allGenres.insert($0) }
+            }
+            return allGenres.sorted()
+        } commit: { model, genres in
+            guard model.lastArtistGenres != genres else { return }
+            model.lastArtistGenres = genres
+            model.artistBrowse.update(model.artistBrowse.snapshot.updating(availableGenres: genres))
+        }
+    }
 
-        // Artist genres: derived from albums that pass non-genre filters
-        $albums
-            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { albums -> [String] in
-                var allGenres = Set<String>()
-                for album in albums where !album.genres.isEmpty {
-                    album.genres.forEach { allGenres.insert($0) }
-                }
-                return allGenres.sorted()
-            }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] genres in
-                guard let self else { return }
-                self.artistBrowse.update(self.artistBrowse.snapshot.updating(availableGenres: genres))
-            }
-            .store(in: &cancellables)
+    private func scheduleAlbumDerivedCollections() {
+        scheduleArtists()
+        scheduleAlbums()
+        scheduleGenres()
+        scheduleAlbumAvailableGenres()
+        scheduleArtistGenres()
     }
 
     private nonisolated static func computeTrackSections(from tracks: [Track]) -> [TrackSection] {
@@ -498,14 +588,6 @@ public final class LibraryViewModel: ObservableObject {
         if left == "#" { return false }
         if right == "#" { return true }
         return left < right
-    }
-
-    private func setupFilterPersistence() {
-        FilterPersistence.observe($tracksFilterOptions, key: "Songs", storingIn: &cancellables)
-        FilterPersistence.observe($artistsFilterOptions, key: "Artists", storingIn: &cancellables)
-        FilterPersistence.observe($albumsFilterOptions, key: "Albums", storingIn: &cancellables)
-        FilterPersistence.observe($genresFilterOptions, key: "Genres", storingIn: &cancellables)
-        FilterPersistence.observe($genreDetailAlbumFilterOptions, key: "GenreDetailAlbums", storingIn: &cancellables)
     }
 
     private func observeReloadTriggers() {
@@ -881,8 +963,8 @@ public final class LibraryViewModel: ObservableObject {
         genres.sortedByCachedStringKey({ $0.title.sortingKey }, ascending: true)
     }
 
-    /// Applies visibility filtering and assigns to @Published properties.
-    /// Guards each assignment to avoid firing objectWillChange when content hasn't changed,
+    /// Applies visibility filtering and assigns to properties.
+    /// Guards each assignment to avoid notifying observers when content hasn't changed,
     /// which would cause spurious body re-evaluations in all subscribing views.
     private func applyVisibilityToPublishedCollections() {
         let sourceConfiguration = accountManager.sourceConfigurationSnapshot

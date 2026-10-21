@@ -50,10 +50,10 @@ struct EnsembleApp: App {
         if ProcessInfo.processInfo.arguments.contains("-EnsembleAutomationToast") {
             ToastInteractionFixture()
         } else {
-            RootView()
+            RootView(dependencies: AppRoot.container)
         }
         #else
-        RootView()
+        RootView(dependencies: AppRoot.container)
         #endif
     }
 

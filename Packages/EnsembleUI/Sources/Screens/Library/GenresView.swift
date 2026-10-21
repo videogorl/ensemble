@@ -13,7 +13,7 @@ public struct GenresView: View {
     private let presentationMode: PresentationMode
     private let externalSelectedGenre: Binding<DisplayGenre?>?
     @State private var localSelectedGenre: DisplayGenre?
-    @ObservedObject private var genreSnapshotCache: BrowseSnapshotCache<GenreBrowseSnapshot>
+    private let genreSnapshotCache: BrowseSnapshotCache<GenreBrowseSnapshot>
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private var isMacBrowsePicker: Bool {
         #if os(macOS)
@@ -31,7 +31,7 @@ public struct GenresView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        self._genreSnapshotCache = ObservedObject(wrappedValue: libraryVM.genreBrowse)
+        self.genreSnapshotCache = libraryVM.genreBrowse
         self.presentationMode = presentationMode
         self.externalSelectedGenre = selectedGenre
     }
@@ -239,7 +239,7 @@ struct GenreDetailContentView: View {
         case splitPane
     }
 
-    @ObservedObject var libraryVM: LibraryViewModel
+    @Bindable var libraryVM: LibraryViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     let genre: DisplayGenre
     let nowPlayingVM: NowPlayingViewModel

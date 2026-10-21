@@ -31,13 +31,13 @@ extension EnvironmentValues {
 }
 
 struct ArtistBrowseControls: View {
-    @ObservedObject var libraryVM: LibraryViewModel
-    @ObservedObject private var artistSnapshotCache: BrowseSnapshotCache<ArtistBrowseSnapshot>
+    @Bindable var libraryVM: LibraryViewModel
+    private let artistSnapshotCache: BrowseSnapshotCache<ArtistBrowseSnapshot>
     @State private var showsFilters = false
 
     init(libraryVM: LibraryViewModel) {
         self.libraryVM = libraryVM
-        self._artistSnapshotCache = ObservedObject(wrappedValue: libraryVM.artistBrowse)
+        self.artistSnapshotCache = libraryVM.artistBrowse
     }
 
     var body: some View {
@@ -80,7 +80,7 @@ public struct ArtistsView: View {
     private let externalSelectedArtist: Binding<DisplayArtist?>?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var localSelectedArtist: DisplayArtist?
-    @ObservedObject private var artistSnapshotCache: BrowseSnapshotCache<ArtistBrowseSnapshot>
+    private let artistSnapshotCache: BrowseSnapshotCache<ArtistBrowseSnapshot>
 
     private var artistFilterOptions: Binding<FilterOptions> {
         Binding(
@@ -97,7 +97,7 @@ public struct ArtistsView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        self._artistSnapshotCache = ObservedObject(wrappedValue: libraryVM.artistBrowse)
+        self.artistSnapshotCache = libraryVM.artistBrowse
         self.presentationMode = presentationMode
         self.externalSelectedArtist = selectedArtist
     }

@@ -6,7 +6,7 @@ import SwiftUI
 /// Hubs include Recently Added, Recently Played, Most Played, etc.
 public struct HomeView: View {
     @Environment(DependencyContainer.self) private var dependencies
-    @ObservedObject private var viewModel: HomeViewModel
+    @Bindable private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
     private let cacheManager: CacheManager

@@ -43,17 +43,17 @@ public struct RootView: View {
         #endif
     }
 
-    public init() {
+    public init(dependencies: DependencyContainer) {
         let navigationCoordinator = NavigationCoordinator(
-            foregroundWorkScheduler: DependencyContainer.shared.foregroundWorkScheduler
+            foregroundWorkScheduler: dependencies.foregroundWorkScheduler
         )
         _navigationCoordinator = StateObject(wrappedValue: navigationCoordinator)
         _nowPlayingVM = StateObject(
-            wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel(
+            wrappedValue: dependencies.makeNowPlayingViewModel(
                 navigationCoordinator: navigationCoordinator
             )
         )
-        _screenModels = StateObject(wrappedValue: RootScreenModels())
+        _screenModels = StateObject(wrappedValue: RootScreenModels(dependencies: dependencies))
     }
 
     public var body: some View {
@@ -162,6 +162,8 @@ public struct RootView: View {
             nowPlayingPresentationContent
         }
         .task {
+            screenModels.library.start()
+            screenModels.home.start()
             screenModels.pinned.start()
             let deps = dependencies
             logRootTaskStart()

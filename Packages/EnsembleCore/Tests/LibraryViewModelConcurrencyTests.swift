@@ -365,13 +365,15 @@ final class LibraryViewModelConcurrencyTests: XCTestCase {
         harness: Harness,
         libraryRepository: LibraryRepositoryProtocol
     ) -> LibraryViewModel {
-        LibraryViewModel(
+        let viewModel = LibraryViewModel(
             libraryRepository: libraryRepository,
             syncCoordinator: harness.syncCoordinator,
             accountManager: harness.accountManager,
             visibilityStore: LibraryVisibilityStore(),
             toastCenter: ToastCenter()
         )
+        viewModel.start()
+        return viewModel
     }
 
     private func makeAccount(libraryKey: String) -> PlexAccountConfig {

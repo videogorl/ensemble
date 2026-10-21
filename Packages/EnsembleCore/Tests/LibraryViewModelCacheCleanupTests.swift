@@ -1,3 +1,4 @@
+import Observation
 import XCTest
 import Combine
 import EnsembleAPI
@@ -233,23 +234,18 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
 
         // A newly mounted screen receives committed rows immediately, then only
         // its own section changes; unchanged values do not reload large lists.
-        let filtered = expectation(description: "track-only filter published")
-        var trackValues: [TrackBrowseSnapshot] = []
-        var artistPublications = 0
-        let trackSubscription = viewModel.trackBrowse.$snapshot.sink { snapshot in
-            trackValues.append(snapshot)
-            if snapshot.tracks.isEmpty { filtered.fulfill() }
-        }
-        let artistSubscription = viewModel.artistBrowse.$snapshot.sink { _ in artistPublications += 1 }
-        XCTAssertEqual(trackValues.count, 1)
-        XCTAssertEqual(trackValues.first?.tracks.compactMap(\.sourceCompositeKey), [sourceKey])
+        XCTAssertEqual(viewModel.trackBrowse.snapshot.tracks.compactMap(\.sourceCompositeKey), [sourceKey])
+        var trackChanged = false
+        withObservationTracking { _ = viewModel.trackBrowse.snapshot } onChange: { trackChanged = true }
         viewModel.trackBrowse.update(viewModel.trackBrowse.snapshot)
-        XCTAssertEqual(trackValues.count, 1)
+        XCTAssertFalse(trackChanged)
+
+        var artistChanged = false
+        withObservationTracking { _ = viewModel.artistBrowse.snapshot } onChange: { artistChanged = true }
         viewModel.tracksFilterOptions.searchText = "no matching track"
-        await fulfillment(of: [filtered], timeout: 2)
-        XCTAssertEqual(trackValues.count, 2)
-        XCTAssertEqual(artistPublications, 1)
-        withExtendedLifetime((trackSubscription, artistSubscription)) {}
+        await waitUntil(timeout: 2) { viewModel.trackBrowse.snapshot.tracks.isEmpty }
+        XCTAssertTrue(trackChanged)
+        XCTAssertFalse(artistChanged)
     }
 
     func testLoadLibraryPublishesArtistMetadataChangesWithStableIdentity() async throws {
@@ -1596,7 +1592,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         hiddenMediaStore: HiddenMediaStore? = nil,
         appReadinessCoordinator: AppReadinessCoordinator? = nil
     ) -> LibraryViewModel {
-        LibraryViewModel(
+        let viewModel = LibraryViewModel(
             libraryRepository: harness.libraryRepository,
             syncCoordinator: harness.syncCoordinator,
             accountManager: harness.accountManager,
@@ -1605,6 +1601,8 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             toastCenter: ToastCenter(),
             appReadinessCoordinator: appReadinessCoordinator
         )
+        viewModel.start()
+        return viewModel
     }
 
     private func makeAccount(

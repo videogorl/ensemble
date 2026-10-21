@@ -23,7 +23,7 @@ public struct SongsView: View {
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     @State private var cachedNativeTrackSections: [NativeTrackListSection] = []
-    @ObservedObject private var trackSnapshotCache: BrowseSnapshotCache<TrackBrowseSnapshot>
+    private let trackSnapshotCache: BrowseSnapshotCache<TrackBrowseSnapshot>
     @State private var trackContentRevision: UInt64 = 0
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
@@ -77,7 +77,7 @@ public struct SongsView: View {
         self.nowPlayingVM = nowPlayingVM
         self._currentTrackId = State(initialValue: nowPlayingVM.currentTrack?.playbackIdentity)
         self._recentPlaylistTitle = State(initialValue: nowPlayingVM.lastPlaylistTarget?.title)
-        self._trackSnapshotCache = ObservedObject(wrappedValue: libraryVM.trackBrowse)
+        self.trackSnapshotCache = libraryVM.trackBrowse
         #if os(macOS)
         // The first table already displays this snapshot; receiving it must not reload it.
         let snapshot = libraryVM.trackBrowse.snapshot
@@ -131,12 +131,12 @@ public struct SongsView: View {
             currentTrackId: $currentTrackId,
             recentPlaylistTitle: $recentPlaylistTitle
         )
-        .onReceive(trackSnapshotCache.$snapshot) { snapshot in
+        .onChange(of: trackSnapshotCache.snapshot, initial: true) { _, snapshot in
             updateNativeTrackSections(from: snapshot, sortOption: libraryVM.trackSortOption)
             guard isStageFlowActive else { return }
             rebuildCachedStageFlowAlbums(from: snapshot.tracks)
         }
-        .onReceive(libraryVM.$trackSortOption) { sortOption in
+        .onChange(of: libraryVM.trackSortOption, initial: true) { _, sortOption in
             updateNativeTrackSections(from: trackSnapshot, sortOption: sortOption)
         }
         .onChange(of: isStageFlowActive) { isActive in

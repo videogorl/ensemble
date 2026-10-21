@@ -2,30 +2,32 @@ import Combine
 import EnsembleAPI
 import EnsemblePersistence
 import Foundation
+import Observation
 
 /// ViewModel for the Home screen that displays dynamic content hubs from Plex servers
 @MainActor
-public final class HomeViewModel: ObservableObject {
+@Observable
+public final class HomeViewModel {
     enum AutoRefreshReason: String, Hashable {
         case accountChange
         case contentChange
         case periodicTimer
     }
 
-    @Published public private(set) var hubs: [Hub] = []
-    @Published public private(set) var isLoading = true
-    @Published public private(set) var error: String?
-    @Published public private(set) var hasConfiguredAccounts = false
-    @Published public private(set) var hasEnabledLibraries = false
-    @Published public private(set) var isRestoringCloudSources = false
-    @Published public private(set) var readinessSnapshot = AppReadinessSnapshot()
-    @Published public private(set) var isFeedCacheStale = false
-    @Published public private(set) var lastFeedCacheRefreshDate: Date?
+    public private(set) var hubs: [Hub] = []
+    public private(set) var isLoading = true
+    public private(set) var error: String?
+    public private(set) var hasConfiguredAccounts = false
+    public private(set) var hasEnabledLibraries = false
+    public private(set) var isRestoringCloudSources = false
+    public private(set) var readinessSnapshot = AppReadinessSnapshot()
+    public private(set) var isFeedCacheStale = false
+    public private(set) var lastFeedCacheRefreshDate: Date?
     
     // Edit mode state
-    @Published public var isEditingOrder = false
-    @Published public var editableHubs: [Hub] = []
-    @Published public private(set) var currentSourceName: String = ""
+    public var isEditingOrder = false
+    public var editableHubs: [Hub] = []
+    public private(set) var currentSourceName: String = ""
     
     private let accountManager: AccountManager
     private let syncCoordinator: SyncCoordinator
@@ -37,7 +39,7 @@ public final class HomeViewModel: ObservableObject {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let appReadinessCoordinator: AppReadinessCoordinator?
     private var cancellables = Set<AnyCancellable>()
-    private var refreshTriggerCancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var refreshTriggerCancellables = Set<AnyCancellable>()
     private var cachedSnapshotRestoreTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
     private var contentGeneration: UInt64 = 0
@@ -60,7 +62,7 @@ public final class HomeViewModel: ObservableObject {
     private var lastAutomaticHubRefreshAttemptTime: Date?
 
     // Automatic Feed refresh cadence. Manual pull-to-refresh bypasses this.
-    private var hubRefreshTimer: Timer?
+    @ObservationIgnored private var hubRefreshTimer: Timer?
     private let hubRefreshInterval: TimeInterval = 10 * 60  // 10 minutes
     
     // Debounce interval to prevent rapid successive loads
@@ -110,12 +112,24 @@ public final class HomeViewModel: ObservableObject {
         self.lastEnabledSourceKeys = initialSourceConfiguration.enabledSourceKeys
         self.lastSourceConfigurationHadSources = initialSourceConfiguration.hasAnySources
         updateSourceAvailability(initialSourceConfiguration)
+        if let snapshot = appReadinessCoordinator?.snapshot {
+            self.hasConfiguredAccounts = snapshot.hasConfiguredAccounts
+            self.hasEnabledLibraries = snapshot.hasEnabledLibraries
+        }
+        self.isRestoringCloudSources = accountManager.isAwaitingCloudSources
+    }
 
+    /// Starts readiness, source, offline, and visibility observation, restores
+    /// cached hubs, and arms the initial-load safety timeout. Safe to call on
+    /// every appearance.
+    public func start() {
+        guard cancellables.isEmpty else { return }
         self.hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.applyVisibilityToPublishedHubs()
         }.store(in: &cancellables)
 
         appReadinessCoordinator?.$snapshot
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] snapshot in
                 guard let self else { return }
@@ -127,8 +141,10 @@ public final class HomeViewModel: ObservableObject {
             .store(in: &cancellables)
 
         accountManager.$isAwaitingCloudSources
+            .dropFirst()
             .receive(on: DispatchQueue.main)
-            .assign(to: &$isRestoringCloudSources)
+            .sink { [weak self] awaiting in self?.isRestoringCloudSources = awaiting }
+            .store(in: &cancellables)
 
         accountManager.sourceConfigurationPublisher
             .dropFirst()

@@ -11,7 +11,7 @@ public struct AlbumsView: View {
     @State private var showFilterSheet = false
     @State private var visibleAlbumID: String?
     @State private var selectedAlbum: DisplayAlbum?
-    @ObservedObject private var albumSnapshotCache: BrowseSnapshotCache<AlbumBrowseSnapshot>
+    private let albumSnapshotCache: BrowseSnapshotCache<AlbumBrowseSnapshot>
 
     public init(
         libraryVM: LibraryViewModel,
@@ -19,7 +19,7 @@ public struct AlbumsView: View {
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        self._albumSnapshotCache = ObservedObject(wrappedValue: libraryVM.albumBrowse)
+        self.albumSnapshotCache = libraryVM.albumBrowse
     }
     
     // Get unique artist names for filter

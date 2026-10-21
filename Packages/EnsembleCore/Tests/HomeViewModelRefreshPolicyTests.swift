@@ -262,6 +262,8 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             playlistRepository: playlistRepository
         )
 
+        viewModel.start()
+
         return Harness(
             viewModel: viewModel,
             accountManager: accountManager,
@@ -341,6 +343,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             libraryRepository: EmptyLibraryRepository(),
             playlistRepository: EmptyPlaylistRepository()
         )
+        viewModel.start()
         return (viewModel, coordinator, accountManager)
     }
 
