@@ -1,6 +1,7 @@
 import Combine
 import EnsemblePersistence
 import Foundation
+import Observation
 
 public struct ArtistDetailDisplaySnapshot: Equatable, Sendable {
     public let filteredAlbums: [Album]
@@ -60,27 +61,31 @@ public struct ArtistDetailDisplaySnapshot: Equatable, Sendable {
 }
 
 @MainActor
-public final class ArtistDetailViewModel: ObservableObject {
-    @Published public private(set) var artist: Artist
-    @Published public private(set) var albums: [Album] = [] {
+@Observable
+public final class ArtistDetailViewModel {
+    public private(set) var artist: Artist
+    public private(set) var albums: [Album] = [] {
         didSet { rebuildDisplaySnapshot() }
     }
-    @Published public private(set) var tracks: [Track] = [] {
+    public private(set) var tracks: [Track] = [] {
         didSet { rebuildDisplaySnapshot() }
     }
-    @Published public private(set) var isLoading = false
-    @Published public private(set) var error: String?
-    @Published public var filterOptions: FilterOptions {
-        didSet { rebuildDisplaySnapshot() }
+    public private(set) var isLoading = false
+    public private(set) var error: String?
+    public var filterOptions: FilterOptions {
+        didSet {
+            rebuildDisplaySnapshot()
+            FilterPersistence.save(filterOptions, for: "ArtistDetail")
+        }
     }
-    @Published public private(set) var displaySnapshot: ArtistDetailDisplaySnapshot = .empty
+    public private(set) var displaySnapshot: ArtistDetailDisplaySnapshot = .empty
 
     /// Rich metadata loaded on-demand from the single-item metadata endpoint
-    @Published public private(set) var artistDetail: ArtistDetail?
+    public private(set) var artistDetail: ArtistDetail?
     /// Similar artists resolved to local library Artist objects (for navigation)
-    @Published public private(set) var resolvedSimilarArtists: [Artist] = []
+    public private(set) var resolvedSimilarArtists: [Artist] = []
     /// Whether detail metadata is still loading
-    @Published public private(set) var isLoadingDetail = false
+    public private(set) var isLoadingDetail = false
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
@@ -102,20 +107,19 @@ public final class ArtistDetailViewModel: ObservableObject {
         self.hiddenMediaStore = hiddenMediaStore
         self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "ArtistDetail")
+    }
+
+    /// Starts reloading on hidden-media, download, and metadata changes. Safe
+    /// to call on every appearance.
+    public func start() {
+        guard cancellables.isEmpty else { return }
         hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.rebuildDisplaySnapshot()
         }.store(in: &cancellables)
 
-        // Save filter options when they change
-        setupFilterPersistence()
-
         // Re-fetch tracks when download state changes so offline dimming is accurate
         observeDownloadChanges()
         observeMetadataChanges()
-    }
-
-    private func setupFilterPersistence() {
-        FilterPersistence.observe($filterOptions, key: "ArtistDetail", storingIn: &cancellables)
     }
 
     public func loadAlbums() async {

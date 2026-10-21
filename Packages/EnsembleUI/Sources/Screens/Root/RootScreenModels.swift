@@ -29,8 +29,15 @@ final class RootScreenModels: ObservableObject {
         self.dependencies = dependencies
         library = dependencies.makeLibraryViewModel()
         home = dependencies.makeHomeViewModel()
-        search = dependencies.makeSearchViewModel()
-        pinned = dependencies.makePinnedViewModel()
+        search = SearchViewModel(dependencies: dependencies)
+        pinned = PinnedViewModel(
+            pinManager: dependencies.pinManager,
+            libraryRepository: dependencies.libraryRepository,
+            playlistRepository: dependencies.playlistRepository,
+            accountManager: dependencies.accountManager,
+            visibilityStore: dependencies.libraryVisibilityStore,
+            hiddenMediaStore: dependencies.hiddenMediaStore
+        )
         playlists = PlaylistViewModel(dependencies: dependencies)
     }
 }

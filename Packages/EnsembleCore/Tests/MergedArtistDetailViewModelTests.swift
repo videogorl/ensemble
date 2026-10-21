@@ -200,6 +200,7 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
             syncCoordinator: makeSyncCoordinator(accountManager: accountManager, libraryRepository: repository),
             accountManager: accountManager
         )
+        viewModel.start()
 
         await viewModel.load()
 
@@ -265,6 +266,7 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
             syncCoordinator: makeSyncCoordinator(accountManager: accountManager, libraryRepository: repository),
             accountManager: accountManager
         )
+        viewModel.start()
 
         await viewModel.load()
 
@@ -317,6 +319,7 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
             accountManager: accountManager,
             hiddenMediaStore: hiddenMediaStore
         )
+        viewModel.start()
 
         await viewModel.load()
         XCTAssertEqual(viewModel.filteredAlbums.map(\.id), ["200", "300"])
@@ -378,6 +381,7 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
             syncCoordinator: makeSyncCoordinator(accountManager: accountManager, libraryRepository: repository),
             accountManager: accountManager
         )
+        viewModel.start()
 
         await viewModel.load()
 
@@ -420,6 +424,7 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
             syncCoordinator: coordinator,
             accountManager: accountManager
         )
+        viewModel.start()
 
         await viewModel.load()
 
@@ -468,6 +473,7 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
             syncCoordinator: coordinator,
             accountManager: accountManager
         )
+        viewModel.start()
 
         await viewModel.load()
 

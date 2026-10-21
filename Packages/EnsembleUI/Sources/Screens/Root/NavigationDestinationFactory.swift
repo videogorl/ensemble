@@ -152,7 +152,7 @@ struct NavigationDestinationFactory {
                 )
             }
         case .moodTracks(let mood):
-            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
+            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM, dependencies: viewModels.dependencies)
         case .hidden:
             HiddenMediaView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.hidden)
         case .searchResults(let section):
@@ -160,6 +160,7 @@ struct NavigationDestinationFactory {
                 nowPlayingVM: nowPlayingVM,
                 viewModel: viewModels.search,
                 pinnedVM: viewModels.pinned,
+                dependencies: viewModels.dependencies,
                 resultSection: section
             )
         case .view(let tab):
@@ -225,7 +226,7 @@ private struct NavigationTabContentView: View {
         case .favorites:
             FavoritesView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.favorites)
         case .search:
-            SearchView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.search, pinnedVM: viewModels.pinned)
+            SearchView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.search, pinnedVM: viewModels.pinned, dependencies: viewModels.dependencies)
         case .downloads:
             DownloadsView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.downloads)
         case .settings:

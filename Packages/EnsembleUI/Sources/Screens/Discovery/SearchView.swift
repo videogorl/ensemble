@@ -12,10 +12,10 @@ public struct SearchView: View {
             ProxyRepresentation(exporting: \.id)
         }
     }
-    @StateObject private var viewModel: SearchViewModel
+    @State private var viewModel: SearchViewModel
     let nowPlayingVM: NowPlayingViewModel
     @FocusState private var isSearchFieldFocused: Bool
-    @ObservedObject private var pinnedVM: PinnedViewModel
+    private let pinnedVM: PinnedViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @State private var isPinnedExpanded = false
@@ -45,16 +45,16 @@ public struct SearchView: View {
 
     public init(
         nowPlayingVM: NowPlayingViewModel,
-        viewModel: SearchViewModel? = nil,
-        pinnedVM: PinnedViewModel? = nil,
+        viewModel: SearchViewModel,
+        pinnedVM: PinnedViewModel,
+        dependencies container: DependencyContainer,
         resultSection: SearchSection? = nil
     ) {
-        let container = DependencyContainer.shared
         accountManager = container.accountManager
         syncCoordinator = container.syncCoordinator
-        _viewModel = StateObject(wrappedValue: viewModel ?? container.makeSearchViewModel())
+        _viewModel = State(initialValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
-        self.pinnedVM = pinnedVM ?? container.makePinnedViewModel()
+        self.pinnedVM = pinnedVM
         self.resultSection = resultSection
         _hasAnySources = State(initialValue: container.accountManager.hasAnySources)
         _hasAppleMusic = State(initialValue: container.accountManager.isAppleMusicEnabled)
@@ -108,6 +108,7 @@ public struct SearchView: View {
             isSearchFieldFocused = true
         }
         .task {
+            viewModel.start()
             await viewModel.loadExploreContentIfNeeded()
             await pinnedVM.loadPinnedItemsIfNeeded()
         }

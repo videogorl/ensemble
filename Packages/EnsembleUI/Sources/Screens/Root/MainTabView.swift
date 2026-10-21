@@ -522,7 +522,7 @@ public struct SidebarView: View {
 
     let viewModels: RootScreenModels
     private let nowPlayingVM: NowPlayingViewModel
-    @ObservedObject private var pinnedVM: PinnedViewModel
+    private let pinnedVM: PinnedViewModel
     @Namespace private var mediaNavigationNamespace
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
@@ -1288,7 +1288,7 @@ public struct SidebarView: View {
             case .artist(let artist, _):
                 ArtistDetailLoader(request: .artist(artist), libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .mergedArtist(let displayArtist, _):
-                ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
+                ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM, dependencies: deps)
             case .playlist(let playlist, _):
                 PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM, dependencies: deps)
             case .mergedPlaylist(let displayPlaylist, _):

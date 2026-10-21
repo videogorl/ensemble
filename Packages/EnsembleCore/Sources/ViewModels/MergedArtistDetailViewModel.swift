@@ -1,6 +1,7 @@
 import Combine
 import EnsemblePersistence
 import Foundation
+import Observation
 
 public struct MergedArtistSourceSection: Identifiable, Equatable, Sendable {
     public let id: String
@@ -27,17 +28,21 @@ public struct MergedArtistSourceSection: Identifiable, Equatable, Sendable {
 }
 
 @MainActor
-public final class MergedArtistDetailViewModel: ObservableObject {
-    @Published public private(set) var displayArtist: DisplayArtist
-    @Published public private(set) var sourceSections: [MergedArtistSourceSection] = [] {
+@Observable
+public final class MergedArtistDetailViewModel {
+    public private(set) var displayArtist: DisplayArtist
+    public private(set) var sourceSections: [MergedArtistSourceSection] = [] {
         didSet { rebuildDisplaySnapshots() }
     }
-    @Published public private(set) var isLoading = false
-    @Published public private(set) var error: String?
-    @Published public var filterOptions: FilterOptions {
-        didSet { rebuildDisplaySnapshots() }
+    public private(set) var isLoading = false
+    public private(set) var error: String?
+    public var filterOptions: FilterOptions {
+        didSet {
+            rebuildDisplaySnapshots()
+            FilterPersistence.save(filterOptions, for: "MergedArtistDetail-\(displayArtist.id)")
+        }
     }
-    @Published public private(set) var displaySnapshot: ArtistDetailDisplaySnapshot = .empty
+    public private(set) var displaySnapshot: ArtistDetailDisplaySnapshot = .empty
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
@@ -62,20 +67,16 @@ public final class MergedArtistDetailViewModel: ObservableObject {
         self.hiddenMediaStore = hiddenMediaStore
         self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "MergedArtistDetail-\(displayArtist.id)")
+    }
 
-        guard displayArtist.isMerged else { return }
-
+    /// Starts reloading on hidden-media, download, and metadata changes for a
+    /// merged artist. Safe to call on every appearance.
+    public func start() {
+        guard displayArtist.isMerged, cancellables.isEmpty else { return }
         hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.rebuildDisplaySnapshots()
         }.store(in: &cancellables)
-
-        setupFilterPersistence()
         observeReloadTriggers()
-    }
-
-    private func setupFilterPersistence() {
-        let key = displayArtist.id
-        FilterPersistence.observe($filterOptions, key: "MergedArtistDetail-\(key)", storingIn: &cancellables)
     }
 
     private func observeReloadTriggers() {

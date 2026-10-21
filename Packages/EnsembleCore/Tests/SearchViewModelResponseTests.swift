@@ -249,19 +249,12 @@ final class SearchViewModelResponseTests: XCTestCase {
         await harness.viewModel.search(query: "Ambient Electric")
         XCTAssertEqual(harness.viewModel.displayPlaylistResults.count, 1)
 
-        let resultsUpdated = expectation(description: "Retained playlist results reprojected")
-        let update = harness.viewModel.$displayPlaylistResults
-            .dropFirst()
-            .first(where: { $0.count == 2 })
-            .sink { _ in resultsUpdated.fulfill() }
-
         SettingsManager.setStoredMergingPreferences(
             EnsembleMergingPreferences(isEnabled: false),
             in: harness.defaults
         )
 
-        await fulfillment(of: [resultsUpdated], timeout: 1)
-        withExtendedLifetime(update) {}
+        await waitUntil { harness.viewModel.displayPlaylistResults.count == 2 }
         XCTAssertEqual(harness.viewModel.playlistResults.count, 2)
         XCTAssertTrue(harness.viewModel.displayPlaylistResults.allSatisfy { !$0.isMerged })
     }
@@ -681,6 +674,7 @@ final class SearchViewModelResponseTests: XCTestCase {
             playlistMergeDefaults: defaults,
             appleMusicCatalogSearch: appleMusicCatalogSearch
         )
+        viewModel.start()
         return SearchHarness(
             viewModel: viewModel,
             libraryRepository: libraryRepository,

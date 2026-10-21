@@ -533,9 +533,10 @@ private struct DisplayArtistGrid: View {
 private struct DisplayArtistDetailView: View {
     let displayArtist: DisplayArtist
     let nowPlayingVM: NowPlayingViewModel
+    @Environment(DependencyContainer.self) private var dependencies
 
     var body: some View {
-        ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
+        ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM, dependencies: dependencies)
     }
 }
 
@@ -611,8 +612,8 @@ private struct StableArtistArtworkImage<Fallback: View>: View {
 }
 
 public struct ArtistDetailView: View {
-    @StateObject private var viewModel: ArtistDetailViewModel
-    @StateObject private var mergedViewModel: MergedArtistDetailViewModel
+    @State private var viewModel: ArtistDetailViewModel
+    @State private var mergedViewModel: MergedArtistDetailViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let displayArtist: DisplayArtist
     private let includesHidden: Bool
@@ -646,33 +647,38 @@ public struct ArtistDetailView: View {
     public init(
         artist: Artist,
         nowPlayingVM: NowPlayingViewModel,
+        dependencies: DependencyContainer,
         includesHidden: Bool = false
     ) {
-        self.init(displayArtist: .single(artist), nowPlayingVM: nowPlayingVM, includesHidden: includesHidden)
+        self.init(displayArtist: .single(artist), nowPlayingVM: nowPlayingVM, dependencies: dependencies, includesHidden: includesHidden)
     }
 
     public init(
         displayArtist: DisplayArtist,
         nowPlayingVM: NowPlayingViewModel,
+        dependencies: DependencyContainer,
         includesHidden: Bool = false
     ) {
         let artist = displayArtist.primaryArtist
         self.displayArtist = displayArtist
         self.includesHidden = includesHidden
-        self._viewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makeArtistDetailViewModel(
-                artist: artist,
-                includesHidden: includesHidden
-            )
-        )
-        self._mergedViewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makeMergedArtistDetailViewModel(
-                displayArtist: displayArtist,
-                includesHidden: includesHidden
-            )
-        )
+        self._viewModel = State(initialValue: ArtistDetailViewModel(
+            artist: artist,
+            libraryRepository: dependencies.libraryRepository,
+            syncCoordinator: dependencies.syncCoordinator,
+            hiddenMediaStore: dependencies.hiddenMediaStore,
+            includesHidden: includesHidden
+        ))
+        self._mergedViewModel = State(initialValue: MergedArtistDetailViewModel(
+            displayArtist: displayArtist,
+            libraryRepository: dependencies.libraryRepository,
+            syncCoordinator: dependencies.syncCoordinator,
+            accountManager: dependencies.accountManager,
+            hiddenMediaStore: dependencies.hiddenMediaStore,
+            includesHidden: includesHidden
+        ))
         self.nowPlayingVM = nowPlayingVM
-        let pinnedIdentities = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.sourceScopedID))
+        let pinnedIdentities = Set(dependencies.pinManager.pinnedItems.map(\.sourceScopedID))
         self._isArtistPinned = State(
             initialValue: displayArtist.artists.allSatisfy { pinnedIdentities.contains($0.sourceScopedID) }
         )
@@ -724,6 +730,8 @@ public struct ArtistDetailView: View {
             updateArtistPinState(pinnedItems: pinnedItems)
         }
         .task(id: viewModel.artist.sourceScopedID) {
+            viewModel.start()
+            mergedViewModel.start()
             async let artworkLoad: () = loadArtworkImage()
             async let albumsLoad: () = viewModel.loadAlbums()
             async let tracksLoad: () = viewModel.loadTracks()

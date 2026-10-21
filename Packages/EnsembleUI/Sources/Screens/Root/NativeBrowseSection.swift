@@ -218,7 +218,7 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
         switch tab {
         case .artists:
             if let artist {
-                ArtistDetailView(displayArtist: artist, nowPlayingVM: nowPlayingVM).id(artist.id)
+                ArtistDetailView(displayArtist: artist, nowPlayingVM: nowPlayingVM, dependencies: dependencies).id(artist.id)
             } else {
                 LargeScreenPlaceholderView(systemImage: tab.systemImage, title: "Select an Artist")
             }

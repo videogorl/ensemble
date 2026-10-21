@@ -3,6 +3,7 @@ import EnsembleAPI
 import EnsembleDomain
 import EnsemblePersistence
 import Foundation
+import Observation
 
 /// Resolved pinned item ready for display, wrapping the domain object with its pin metadata
 public enum ResolvedPin: Identifiable {
@@ -96,11 +97,12 @@ enum PinnedReorderPlan {
 
 /// Resolves pin references into domain objects for display
 @MainActor
-public final class PinnedViewModel: ObservableObject {
-    @Published public private(set) var resolvedPins: [ResolvedPin] = []
-    @Published public private(set) var isLoading = false
-    @Published public var draggingPin: ResolvedPin?
-    @Published public var draggingPinId: String?
+@Observable
+public final class PinnedViewModel {
+    public private(set) var resolvedPins: [ResolvedPin] = []
+    public private(set) var isLoading = false
+    public var draggingPin: ResolvedPin?
+    public var draggingPinId: String?
 
     private let pinManager: PinManager
     private let libraryRepository: LibraryRepositoryProtocol
@@ -126,7 +128,12 @@ public final class PinnedViewModel: ObservableObject {
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
+    }
 
+    /// Starts refreshing on pin, merging, hidden-media, visibility, and source
+    /// changes. Safe to call on every appearance.
+    public func start() {
+        guard cancellables.isEmpty else { return }
         // Refresh when pins change (unless we are currently moving/reordering)
         pinManager.objectWillChange
             .receive(on: DispatchQueue.main)

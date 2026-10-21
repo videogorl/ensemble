@@ -72,3 +72,17 @@ extension PlaylistDetailViewModel {
         )
     }
 }
+
+extension SearchViewModel {
+    convenience init(dependencies: DependencyContainer) {
+        self.init(
+            libraryRepository: dependencies.libraryRepository,
+            playlistRepository: dependencies.playlistRepository,
+            hubRepository: dependencies.hubRepository,
+            moodRepository: dependencies.moodRepository,
+            accountManager: dependencies.accountManager,
+            visibilityStore: dependencies.libraryVisibilityStore,
+            hiddenMediaStore: dependencies.hiddenMediaStore
+        )
+    }
+}

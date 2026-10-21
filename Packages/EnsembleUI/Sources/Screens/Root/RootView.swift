@@ -162,6 +162,7 @@ public struct RootView: View {
             nowPlayingPresentationContent
         }
         .task {
+            screenModels.pinned.start()
             let deps = dependencies
             logRootTaskStart()
             #if os(macOS)

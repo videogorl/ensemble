@@ -3,6 +3,7 @@ import EnsembleAPI
 import EnsembleDomain
 import EnsemblePersistence
 import Foundation
+import Observation
 
 /// Search section types for intelligent ordering
 public enum SearchSection: String, CaseIterable, Hashable, Sendable {
@@ -37,34 +38,46 @@ public enum SearchScope: String, CaseIterable, Sendable {
 }
 
 @MainActor
-public final class SearchViewModel: ObservableObject {
+@Observable
+public final class SearchViewModel {
     // MARK: - Search Results
     
-    @Published public var searchQuery = ""
-    @Published public var scope: SearchScope = .library
-    @Published public private(set) var recentSearches: [String] = []
-    @Published public private(set) var trackResults: [Track] = []
-    @Published public private(set) var artistResults: [Artist] = []
-    @Published public private(set) var displayArtistResults: [DisplayArtist] = []
-    @Published public private(set) var albumResults: [Album] = []
-    @Published public private(set) var displayAlbumResults: [DisplayAlbum] = []
-    @Published public private(set) var playlistResults: [Playlist] = []
-    @Published public private(set) var displayPlaylistResults: [DisplayPlaylist] = []
-    @Published public private(set) var orderedSections: [SearchSection] = []
-    @Published public private(set) var isSearching = false
-    @Published public private(set) var searchError: String?
+    public var searchQuery = "" {
+        didSet {
+            guard searchQuery != oldValue else { return }
+            prepareForSearchQueryChange(searchQuery)
+            scheduleQueryDebounces()
+        }
+    }
+    public var scope: SearchScope = .library {
+        didSet {
+            prepareForSearchQueryChange(searchQuery)
+            performSearch(query: searchQuery, scope: scope)
+        }
+    }
+    public private(set) var recentSearches: [String] = []
+    public private(set) var trackResults: [Track] = []
+    public private(set) var artistResults: [Artist] = []
+    public private(set) var displayArtistResults: [DisplayArtist] = []
+    public private(set) var albumResults: [Album] = []
+    public private(set) var displayAlbumResults: [DisplayAlbum] = []
+    public private(set) var playlistResults: [Playlist] = []
+    public private(set) var displayPlaylistResults: [DisplayPlaylist] = []
+    public private(set) var orderedSections: [SearchSection] = []
+    public private(set) var isSearching = false
+    public private(set) var searchError: String?
     
     // MARK: - Explore Content
     
-    @Published public private(set) var recentlyPlayedAlbums: [Album] = []
-    @Published public private(set) var recentlyPlayedDisplayAlbums: [DisplayAlbum] = []
-    @Published public private(set) var recentlyPlayedArtists: [Artist] = []
-    @Published public private(set) var recentlyAddedAlbums: [Album] = []
-    @Published public private(set) var recentlyAddedDisplayAlbums: [DisplayAlbum] = []
-    @Published public private(set) var recommendedItems: [HubItem] = []
-    @Published public private(set) var allMoods: [Mood] = []
-    @Published public private(set) var isLoadingExplore = false
-    @Published public private(set) var exploreError: String?
+    public private(set) var recentlyPlayedAlbums: [Album] = []
+    public private(set) var recentlyPlayedDisplayAlbums: [DisplayAlbum] = []
+    public private(set) var recentlyPlayedArtists: [Artist] = []
+    public private(set) var recentlyAddedAlbums: [Album] = []
+    public private(set) var recentlyAddedDisplayAlbums: [DisplayAlbum] = []
+    public private(set) var recommendedItems: [HubItem] = []
+    public private(set) var allMoods: [Mood] = []
+    public private(set) var isLoadingExplore = false
+    public private(set) var exploreError: String?
     
     public let focusRequested = PassthroughSubject<Void, Never>()
 
@@ -83,6 +96,9 @@ public final class SearchViewModel: ObservableObject {
     private var searchGeneration: UInt64 = 0
     private var exploreGeneration: UInt64 = 0
     private var cancellables = Set<AnyCancellable>()
+    private var searchDebounceTask: Task<Void, Never>?
+    private var historyDebounceTask: Task<Void, Never>?
+    private var lastHistoryQuery: String?
     private var lastExploreLoadTime: Date?
     private let exploreDebounceInterval: TimeInterval = 2.0
     private let recentSearchesKey = "ensemble_recent_searches"
@@ -146,41 +162,16 @@ public final class SearchViewModel: ObservableObject {
         
         // Load recent searches
         self.recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
+    }
 
-        $searchQuery
-            .removeDuplicates()
-            .sink { [weak self] query in
-                self?.prepareForSearchQueryChange(query)
-            }
-            .store(in: &cancellables)
+    /// Starts source, visibility, hidden-media, merging, and metadata
+    /// observation, and prepares the current query. Safe to call on every
+    /// appearance.
+    public func start() {
+        guard cancellables.isEmpty else { return }
+        prepareForSearchQueryChange(searchQuery)
+        performSearch(query: searchQuery)
 
-        $scope
-            .dropFirst()
-            .sink { [weak self] requestedScope in
-                guard let self else { return }
-                self.prepareForSearchQueryChange(self.searchQuery)
-                self.performSearch(query: self.searchQuery, scope: requestedScope)
-            }
-            .store(in: &cancellables)
-
-        // Debounced search
-        $searchQuery
-            .removeDuplicates()
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
-            .sink { [weak self] query in
-                self?.performSearch(query: query)
-            }
-            .store(in: &cancellables)
-        
-        // Separate debouncer for committing to recent searches (longer delay)
-        $searchQuery
-            .debounce(for: .milliseconds(1500), scheduler: DispatchQueue.main)
-            .removeDuplicates()
-            .sink { [weak self] query in
-                self?.commitSearchToHistory(query: query)
-            }
-            .store(in: &cancellables)
-        
         // Reload search/explore content when any source configuration changes.
         accountManager.sourceConfigurationPublisher
             .dropFirst()
@@ -499,6 +490,25 @@ public final class SearchViewModel: ObservableObject {
             performSearch(query: query)
         } else if hasLoadedExploreContent {
             await loadExploreContent()
+        }
+    }
+
+    /// Runs the search 300 ms after typing pauses, and records the query in
+    /// recent searches after 1.5 s, once per distinct query.
+    private func scheduleQueryDebounces() {
+        let query = searchQuery
+        searchDebounceTask?.cancel()
+        searchDebounceTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            self?.performSearch(query: query)
+        }
+        historyDebounceTask?.cancel()
+        historyDebounceTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(1500))
+            guard !Task.isCancelled, let self, self.lastHistoryQuery != query else { return }
+            self.lastHistoryQuery = query
+            self.commitSearchToHistory(query: query)
         }
     }
 

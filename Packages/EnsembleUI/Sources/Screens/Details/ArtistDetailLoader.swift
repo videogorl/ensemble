@@ -27,7 +27,7 @@ struct ArtistDetailLoader: View {
     var body: some View {
         Group {
             if let displayArtist {
-                ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM, includesHidden: includesHidden)
+                ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM, dependencies: deps, includesHidden: includesHidden)
             } else if isLoading {
                 MediaDetailSurface<EmptyView>.LoadingState(title: "Loading artist…")
             } else if let error = error {
