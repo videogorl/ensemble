@@ -2,19 +2,21 @@ import Combine
 import CoreData
 import EnsemblePersistence
 import Foundation
+import Observation
 
 /// ViewModel for the library download detail view — shows ALL downloaded tracks for a
 /// sourceCompositeKey regardless of which target type (library, album, playlist, artist)
 /// triggered the download.
 @MainActor
-public final class LibraryDownloadDetailViewModel: ObservableObject {
-    @Published public private(set) var tracks: [TrackDownloadRow] = [] {
+@Observable
+public final class LibraryDownloadDetailViewModel {
+    public private(set) var tracks: [TrackDownloadRow] = [] {
         didSet { trackStats = TrackDownloadRowStats(rows: tracks) }
     }
-    @Published public private(set) var playableTracks: [Track] = []
-    @Published public private(set) var isLoading = false
+    public private(set) var playableTracks: [Track] = []
+    public private(set) var isLoading = false
     /// Why the download queue is currently paused
-    @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
+    public private(set) var queueStatusReason: QueueStatusReason = .idle
 
     public let sourceCompositeKey: String
     public let title: String
@@ -34,11 +36,18 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
         self.title = title
         self.downloadManager = downloadManager
         self.offlineDownloadService = offlineDownloadService
+        queueStatusReason = offlineDownloadService.queueStatusReason
+    }
 
-        // Observe queue status
+    /// Starts following queue status and download changes. Safe to call on
+    /// every appearance.
+    public func start() {
+        guard cancellables.isEmpty else { return }
         offlineDownloadService.$queueStatusReason
+            .dropFirst()
             .receive(on: DispatchQueue.main)
-            .assign(to: &$queueStatusReason)
+            .sink { [weak self] reason in self?.queueStatusReason = reason }
+            .store(in: &cancellables)
 
         // Re-load when CoreData view context merges background download changes
         NotificationCenter.default.publisher(

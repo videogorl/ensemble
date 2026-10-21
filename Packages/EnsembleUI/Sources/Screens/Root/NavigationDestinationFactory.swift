@@ -80,6 +80,7 @@ struct NavigationDestinationFactory {
             let detailView = AlbumDetailView(
                 displayAlbum: displayAlbum,
                 nowPlayingVM: nowPlayingVM,
+                dependencies: viewModels.dependencies,
                 selectedTrackId: selectedTrackId,
                 includesHidden: includesHidden
             )
@@ -103,6 +104,7 @@ struct NavigationDestinationFactory {
             let detailView = PlaylistDetailView(
                 playlist: playlist,
                 nowPlayingVM: nowPlayingVM,
+                dependencies: viewModels.dependencies,
                 includesHidden: includesHidden
             )
             .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
@@ -124,7 +126,8 @@ struct NavigationDestinationFactory {
             }) {
                 let detailView = MergedPlaylistDetailView(
                     displayPlaylist: displayPlaylist,
-                    nowPlayingVM: nowPlayingVM
+                    nowPlayingVM: nowPlayingVM,
+                    dependencies: viewModels.dependencies
                 )
                 #if os(iOS)
                 if #available(iOS 18.0, *), let mediaNavigationNamespace {

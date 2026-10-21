@@ -5,7 +5,7 @@ import SwiftUI
 /// Detail view for a merged playlist — shows interleaved tracks from all constituent
 /// playlists across sources, with source chips and exact-source mutation flows.
 public struct MergedPlaylistDetailView: View {
-    @StateObject private var viewModel: MergedPlaylistDetailViewModel
+    @State private var viewModel: MergedPlaylistDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
     private let displayPlaylist: DisplayPlaylist
 
@@ -19,10 +19,13 @@ public struct MergedPlaylistDetailView: View {
     @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
-    public init(displayPlaylist: DisplayPlaylist, nowPlayingVM: NowPlayingViewModel) {
-        self._viewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makeMergedPlaylistDetailViewModel(displayPlaylist: displayPlaylist)
-        )
+    public init(displayPlaylist: DisplayPlaylist, nowPlayingVM: NowPlayingViewModel, dependencies: DependencyContainer) {
+        self._viewModel = State(initialValue: MergedPlaylistDetailViewModel(
+            displayPlaylist: displayPlaylist,
+            playlistRepository: dependencies.playlistRepository,
+            syncCoordinator: dependencies.syncCoordinator,
+            mutationCoordinator: dependencies.mutationCoordinator
+        ))
         self.nowPlayingVM = nowPlayingVM
         self.displayPlaylist = displayPlaylist
     }
@@ -178,7 +181,7 @@ public struct MergedPlaylistDetailView: View {
         .sheet(item: $editTarget) { playlist in
             PlaylistDetailView(
                 playlist: playlist,
-                nowPlayingVM: nowPlayingVM,
+                nowPlayingVM: nowPlayingVM, dependencies: deps,
                 startInEditMode: true
             )
             .nativeSheetNavigationContainer()
@@ -315,11 +318,12 @@ public struct MergedPlaylistDetailView: View {
 /// then shows the MergedPlaylistDetailView. Falls back to a single playlist view
 /// if the merge state has changed since navigation.
 public struct MergedPlaylistDetailLoader: View {
+    @Environment(DependencyContainer.self) private var dependencies
     let title: String
     let isSmart: Bool
     let nowPlayingVM: NowPlayingViewModel
 
-    @ObservedObject private var playlistsVM: PlaylistViewModel
+    private let playlistsVM: PlaylistViewModel
 
     public init(
         title: String,
@@ -338,7 +342,7 @@ public struct MergedPlaylistDetailLoader: View {
             // Look up the matching DisplayPlaylist from the current ViewModel state
             if let dp = findDisplayPlaylist() {
                 if dp.isMerged {
-                    MergedPlaylistDetailView(displayPlaylist: dp, nowPlayingVM: nowPlayingVM)
+                    MergedPlaylistDetailView(displayPlaylist: dp, nowPlayingVM: nowPlayingVM, dependencies: dependencies)
                 } else {
                     // Merge was toggled off — fall back to the primary playlist's detail view
                     PlaylistDetailLoader(

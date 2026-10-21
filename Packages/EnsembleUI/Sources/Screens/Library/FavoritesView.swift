@@ -11,7 +11,7 @@ import SwiftUI
 /// View showing favorited/loved tracks (rated 4+ stars)
 /// Offline-first hub that displays tracks from CoreData across all servers and libraries
 public struct FavoritesView: View {
-    @StateObject private var viewModel: FavoritesViewModel
+    @State private var viewModel: FavoritesViewModel
     let nowPlayingVM: NowPlayingViewModel
     // Targeted singleton observation for empty state only
     @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
@@ -33,15 +33,8 @@ public struct FavoritesView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
-    public init(nowPlayingVM: NowPlayingViewModel) {
-        self.init(
-            nowPlayingVM: nowPlayingVM,
-            viewModel: DependencyContainer.shared.makeFavoritesViewModel()
-        )
-    }
-
     init(nowPlayingVM: NowPlayingViewModel, viewModel: FavoritesViewModel) {
-        _viewModel = StateObject(wrappedValue: viewModel)
+        _viewModel = State(initialValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
     }
 
@@ -63,6 +56,7 @@ public struct FavoritesView: View {
             }
         }
         .ensembleBrowseToolbarMinimization()
+        .task { viewModel.start() }
         .onReceive(nowPlayingVM.$currentTrack) { track in
             let id = track?.playbackIdentity
             if id != currentTrackId { currentTrackId = id }
@@ -86,7 +80,7 @@ public struct FavoritesView: View {
             activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
             availabilityGeneration: $availabilityGeneration
         )
-        .onReceive(viewModel.$isLoading) { isLoading in
+        .onChange(of: viewModel.isLoading, initial: true) { _, isLoading in
             if !isLoading && !hasCompletedInitialLoad {
                 hasCompletedInitialLoad = true
             }

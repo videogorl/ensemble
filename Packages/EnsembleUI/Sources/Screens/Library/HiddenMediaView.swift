@@ -4,7 +4,7 @@ import SwiftUI
 
 struct HiddenMediaView: View {
     let nowPlayingVM: NowPlayingViewModel
-    @StateObject private var viewModel: HiddenMediaViewModel
+    @State private var viewModel: HiddenMediaViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var expandedSections = Set<HiddenMediaKind>()
     @State private var isEditingOrder = false
@@ -24,7 +24,7 @@ struct HiddenMediaView: View {
 
     init(nowPlayingVM: NowPlayingViewModel, viewModel: HiddenMediaViewModel) {
         self.nowPlayingVM = nowPlayingVM
-        _viewModel = StateObject(wrappedValue: viewModel)
+        _viewModel = State(initialValue: viewModel)
     }
 
     var body: some View {
@@ -65,7 +65,10 @@ struct HiddenMediaView: View {
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         .onAppear { nowPlayingVM.beginHiddenPlaybackScope() }
         .onDisappear { nowPlayingVM.endHiddenPlaybackScope() }
-        .task { await viewModel.load() }
+        .task {
+            viewModel.start()
+            await viewModel.load()
+        }
     }
 
     @ViewBuilder

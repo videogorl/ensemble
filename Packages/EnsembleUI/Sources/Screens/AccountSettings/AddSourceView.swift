@@ -5,6 +5,7 @@ import MusicKit
 #endif
 
 public struct AddSourceView: View {
+    @Environment(DependencyContainer.self) private var dependencies
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dismiss) private var dismiss
@@ -33,7 +34,7 @@ public struct AddSourceView: View {
         List {
             Section {
                 NavigationLink {
-                    AddPlexAccountView(embedded: true) {
+                    AddPlexAccountView(embedded: true, dependencies: dependencies) {
                         completeSourceAddition()
                     }
                 } label: {

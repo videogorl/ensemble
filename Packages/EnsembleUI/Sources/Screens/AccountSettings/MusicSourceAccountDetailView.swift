@@ -4,15 +4,22 @@ import SwiftUI
 
 /// Account-level source detail screen for managing server libraries and sync operations.
 public struct MusicSourceAccountDetailView: View {
-    @StateObject private var viewModel: MusicSourceAccountDetailViewModel
+    @Environment(DependencyContainer.self) private var dependencies
+    @State private var viewModel: MusicSourceAccountDetailViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Environment(\.dismiss) private var dismiss
     @State private var showingRemoveSourceAlert = false
 
-    public init(accountId: String) {
-        self._viewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makeMusicSourceAccountDetailViewModel(accountId: accountId)
-        )
+    public init(accountId: String, dependencies: DependencyContainer) {
+        self._viewModel = State(initialValue: MusicSourceAccountDetailViewModel(
+            accountId: accountId,
+            accountManager: dependencies.accountManager,
+            accountDiscoveryService: dependencies.accountDiscoveryService,
+            syncCoordinator: dependencies.syncCoordinator,
+            mutationCoordinator: dependencies.mutationCoordinator,
+            webSocketCoordinator: dependencies.webSocketCoordinator,
+            libraryRepository: dependencies.libraryRepository
+        ))
     }
 
     public var body: some View {
@@ -38,6 +45,7 @@ public struct MusicSourceAccountDetailView: View {
             Text("This removes the source account and clears synced library data from this source.")
         }
         .task {
+            viewModel.start()
             await viewModel.performInitialRefreshIfNeeded()
         }
     }
@@ -166,7 +174,7 @@ public struct MusicSourceAccountDetailView: View {
 
     private var pendingChangesLink: some View {
         NavigationLink {
-            PendingMutationsView()
+            PendingMutationsView(dependencies: dependencies)
         } label: {
             PendingChangesRow(count: viewModel.pendingMutationCount)
         }

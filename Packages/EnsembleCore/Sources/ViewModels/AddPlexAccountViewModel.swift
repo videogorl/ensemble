@@ -1,6 +1,7 @@
 import Combine
 import EnsembleAPI
 import Foundation
+import Observation
 
 public enum AddAccountState: Equatable {
     case ready
@@ -11,16 +12,17 @@ public enum AddAccountState: Equatable {
 }
 
 @MainActor
-public final class AddPlexAccountViewModel: ObservableObject {
-    @Published public private(set) var state: AddAccountState = .ready
-    @Published public private(set) var servers: [Server] = []
-    @Published public private(set) var selectedServer: Server?
-    @Published public private(set) var libraries: [Library] = []
-    @Published public private(set) var serverLibraryErrors: [String: String] = [:]
-    @Published public var selectedLibraryKeys: Set<String> = []
-    @Published public var selectedLibraryCompositeKeys: Set<String> = []
-    @Published public private(set) var error: String?
-    @Published public private(set) var isLoading = false
+@Observable
+public final class AddPlexAccountViewModel {
+    public private(set) var state: AddAccountState = .ready
+    public private(set) var servers: [Server] = []
+    public private(set) var selectedServer: Server?
+    public private(set) var libraries: [Library] = []
+    public private(set) var serverLibraryErrors: [String: String] = [:]
+    public var selectedLibraryKeys: Set<String> = []
+    public var selectedLibraryCompositeKeys: Set<String> = []
+    public private(set) var error: String?
+    public private(set) var isLoading = false
 
     private let authService: PlexAuthService
     private let accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol

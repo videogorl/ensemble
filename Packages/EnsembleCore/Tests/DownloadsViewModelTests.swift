@@ -101,6 +101,7 @@ final class DownloadsViewModelTests: XCTestCase {
             accountManager: accountManager,
             downloadManager: downloadManager
         )
+        viewModel.start()
 
         XCTAssertEqual(viewModel.librarySummaries.map { $0.sourceCompositeKey }, [
             "plex:free:server:3",
@@ -121,12 +122,6 @@ final class DownloadsViewModelTests: XCTestCase {
         XCTAssertEqual(Set(demoLabels).count, 2)
         XCTAssertTrue(demoLabels.allSatisfy { $0.hasPrefix("Plex Account ") })
 
-        let summariesUpdated = expectation(description: "Duplicate library summary published")
-        let summaryObservation = viewModel.$librarySummaries
-            .first { $0.count == 4 }
-            .sink { _ in summariesUpdated.fulfill() }
-        defer { summaryObservation.cancel() }
-
         let duplicateAccount: (String?) -> PlexAccountConfig = { email in
             PlexAccountConfig(
                 id: "duplicate",
@@ -146,7 +141,7 @@ final class DownloadsViewModelTests: XCTestCase {
             )
         }
         accountManager.addPlexAccount(duplicateAccount("other@nysics.com"))
-        await fulfillment(of: [summariesUpdated], timeout: 1)
+        await waitUntil { viewModel.librarySummaries.count == 4 }
 
         let collidingLibraries = viewModel.librarySummaries.filter {
             $0.serverName == "Free Server" && $0.libraryName == "Music"
@@ -159,18 +154,11 @@ final class DownloadsViewModelTests: XCTestCase {
             ["felicity+test@nysics.com", "other@nysics.com"]
         )
 
-        let accountUpdated = expectation(description: "Account label updated")
-        let accountObservation = viewModel.$librarySummaries
-            .dropFirst()
-            .first { summaries in
-                summaries.first(where: { $0.sourceCompositeKey == "plex:duplicate:other-server:3" })?.accountName
-                    == "felicity+test@nysics.com"
-            }
-            .sink { _ in accountUpdated.fulfill() }
-        defer { accountObservation.cancel() }
-
         accountManager.addPlexAccount(duplicateAccount("felicity+test@nysics.com"))
-        await fulfillment(of: [accountUpdated], timeout: 1)
+        await waitUntil {
+            viewModel.librarySummaries.first(where: { $0.sourceCompositeKey == "plex:duplicate:other-server:3" })?.accountName
+                == "felicity+test@nysics.com"
+        }
 
         let repeatedAccountLabels = viewModel.librarySummaries
             .filter { $0.serverName == "Free Server" && $0.libraryName == "Music" }

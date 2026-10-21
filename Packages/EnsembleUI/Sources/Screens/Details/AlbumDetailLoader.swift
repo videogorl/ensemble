@@ -30,7 +30,7 @@ struct AlbumDetailLoader: View {
             if let displayAlbum {
                 AlbumDetailView(
                     displayAlbum: displayAlbum,
-                    nowPlayingVM: nowPlayingVM,
+                    nowPlayingVM: nowPlayingVM, dependencies: deps,
                     initialTracks: initialTracks,
                     selectedTrackId: selectedTrackId
                 )

@@ -2,32 +2,41 @@ import Combine
 import EnsembleDomain
 import EnsemblePersistence
 import Foundation
+import Observation
 
 /// ViewModel for Favorites view - displays tracks rated 4/5 or 5/5 stars
 /// This is an offline-first hub that pulls data directly from CoreData without server requests
 /// Spans visible configured servers and libraries
 @MainActor
-public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelProtocol {
+@Observable
+public final class FavoritesViewModel: MediaDetailViewModelProtocol {
     private static var lastGoodTracksSnapshot: [Track] = []
 
     static func resetLastGoodSnapshotForTesting() {
         lastGoodTracksSnapshot = []
     }
 
-    @Published public private(set) var tracks: [Track] = []
-    @Published public var filterOptions: FilterOptions
-    @Published public var favoritesSortOption: FavoritesSortOption = .dateFavorited {
+    public private(set) var tracks: [Track] = [] {
+        didSet { scheduleFilteredTracks() }
+    }
+    public var filterOptions: FilterOptions {
+        didSet {
+            FilterPersistence.save(filterOptions, for: "Favorites")
+            scheduleFilteredTracks()
+        }
+    }
+    public var favoritesSortOption: FavoritesSortOption = .dateFavorited {
         didSet {
             filterOptions.sortBy = favoritesSortOption.rawValue
         }
     }
-    @Published public private(set) var isLoading: Bool = true
-    @Published public private(set) var hasLoadedTracks: Bool = false
-    @Published public private(set) var error: String?
+    public private(set) var isLoading: Bool = true
+    public private(set) var hasLoadedTracks: Bool = false
+    public private(set) var error: String?
     // Pre-computed filtered+sorted tracks (avoids O(n log n) sort per body evaluation)
-    @Published public private(set) var filteredTracks: [Track] = []
+    public private(set) var filteredTracks: [Track] = []
     // Pre-computed total duration derived from filteredTracks
-    @Published public private(set) var totalDuration: String = "0 min"
+    public private(set) var totalDuration: String = "0 min"
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let accountManager: AccountManager
@@ -36,6 +45,8 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     private let settingsManager: SettingsManager
     private var cancellables = Set<AnyCancellable>()
     private var allTracks: [Track] = []
+    private var isStarted = false
+    private var filterTask: Task<Void, Never>?
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
@@ -60,39 +71,47 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
 
         seedFromLastGoodSnapshotIfAvailable()
         seedFromPersistentCacheIfAvailable()
-        setupFilterPersistence()
-        setupFilteredTracksPipeline()
-        observeReloadTriggers()
-        setupVisibilityObservation()
-
-        // Initial load
-        Task {
-            await loadTracks()
-        }
     }
 
-    private func setupFilterPersistence() {
-        FilterPersistence.observe($filterOptions, key: "Favorites", storingIn: &cancellables)
+    /// Starts filtering, change observation, and the initial load. Safe to
+    /// call on every appearance.
+    public func start() {
+        guard !isStarted else { return }
+        isStarted = true
+        observeReloadTriggers()
+        setupVisibilityObservation()
+        settingsManager.$mergingPreferences
+            .dropFirst()
+            .sink { [weak self] _ in self?.scheduleFilteredTracks() }
+            .store(in: &cancellables)
+        scheduleFilteredTracks()
+        Task { await loadTracks() }
     }
 
     /// Reactive pipeline: recompute filteredTracks whenever inputs change.
     /// Runs filter+sort on a background queue with debouncing.
-    private func setupFilteredTracksPipeline() {
-        Publishers.CombineLatest4($tracks, $favoritesSortOption, $filterOptions, settingsManager.$mergingPreferences)
-            .debounce(for: .milliseconds(100), scheduler: DispatchQueue.global(qos: .userInitiated))
-            .map { [weak self] tracks, sortOption, filterOptions, preferences -> [Track] in
-                guard self != nil else { return tracks }
-                return MergingProjection.tracks(
+    /// Recomputes the filtered, sorted, merged tracks off the main actor,
+    /// coalescing changes that arrive within 100 ms.
+    private func scheduleFilteredTracks() {
+        guard isStarted else { return }
+        filterTask?.cancel()
+        let tracks = tracks
+        let sortOption = favoritesSortOption
+        let filterOptions = filterOptions
+        let preferences = settingsManager.mergingPreferences
+        filterTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            let filtered = await Task.detached(priority: .userInitiated) {
+                MergingProjection.tracks(
                     FavoritesViewModel.filterAndSort(tracks, sortOption: sortOption, filterOptions: filterOptions),
                     preferences: preferences
                 )
-            }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] filtered in
-                self?.filteredTracks = filtered
-                self?.totalDuration = MediaFormatters.trackCollectionDuration(filtered)
-            }
-            .store(in: &cancellables)
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            self.filteredTracks = filtered
+            self.totalDuration = MediaFormatters.trackCollectionDuration(filtered)
+        }
     }
 
     /// Loads favorite tracks directly from CoreData (offline-first)
@@ -157,12 +176,12 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
 
     // MARK: - Filter + Sort (static for background pipeline)
 
-    private static func filterAndSort(_ tracks: [Track], sortOption: FavoritesSortOption, filterOptions: FilterOptions) -> [Track] {
+    nonisolated private static func filterAndSort(_ tracks: [Track], sortOption: FavoritesSortOption, filterOptions: FilterOptions) -> [Track] {
         let filtered = MediaFilterEngine.filterTracks(tracks, with: filterOptions, configuration: .favorites)
         return sortTracks(filtered, by: sortOption, direction: filterOptions.sortDirection)
     }
 
-    private static func sortTracks(_ tracks: [Track], by sortOption: FavoritesSortOption, direction: SortDirection) -> [Track] {
+    nonisolated private static func sortTracks(_ tracks: [Track], by sortOption: FavoritesSortOption, direction: SortDirection) -> [Track] {
         let ascending = direction == .ascending
         switch sortOption {
         case .title:
@@ -189,7 +208,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     }
 
     /// Compares optional dates with nils sorting last regardless of direction
-    private static func compareOptionalDates(_ a: Date?, _ b: Date?, ascending: Bool) -> Bool {
+    nonisolated private static func compareOptionalDates(_ a: Date?, _ b: Date?, ascending: Bool) -> Bool {
         switch (a, b) {
         case (.some(let aDate), .some(let bDate)):
             return ascending ? aDate < bDate : aDate > bDate

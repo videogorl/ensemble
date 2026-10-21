@@ -225,7 +225,7 @@ func makePlaylistHeaderFallbackArtworkRequest(
 // MARK: - Media Detail View
 
 public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
-    @ObservedObject var viewModel: ViewModel
+    @Bindable var viewModel: ViewModel
     let nowPlayingVM: NowPlayingViewModel
 
     let headerData: MediaHeaderData
@@ -359,6 +359,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     public var body: some View {
         searchableContent
+        .task { viewModel.start() }
         .toolbar {
             EnsembleDetailToolbarActions {
                 if shouldShowStandaloneFilterButton {

@@ -678,6 +678,8 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             libraryRepository: harness.libraryRepository
         )
 
+        viewModel.start()
+
         let refreshTask = Task { await viewModel.performInitialRefreshIfNeeded() }
         await gatedDiscovery.waitForStart()
 
@@ -742,7 +744,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
     }
 
     private func makeViewModel(accountId: String, harness: Harness) -> MusicSourceAccountDetailViewModel {
-        MusicSourceAccountDetailViewModel(
+        let viewModel = MusicSourceAccountDetailViewModel(
             accountId: accountId,
             accountManager: harness.accountManager,
             accountDiscoveryService: harness.discoveryService,
@@ -751,6 +753,8 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             webSocketCoordinator: harness.webSocketCoordinator,
             libraryRepository: harness.libraryRepository
         )
+        viewModel.start()
+        return viewModel
     }
 
     private func makeAccount(

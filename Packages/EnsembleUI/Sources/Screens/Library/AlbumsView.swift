@@ -287,7 +287,7 @@ public struct AlbumsView: View {
 // MARK: - Album Detail View
 
 public struct AlbumDetailView: View {
-    @StateObject private var viewModel: AlbumDetailViewModel
+    @State private var viewModel: AlbumDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var isBioExpanded = false
     @State private var albumPendingDeletion: Album?
@@ -307,6 +307,7 @@ public struct AlbumDetailView: View {
     public init(
         album: Album,
         nowPlayingVM: NowPlayingViewModel,
+        dependencies: DependencyContainer,
         initialTracks: [Track]? = nil,
         selectedTrackId: String? = nil,
         includesHidden: Bool = false
@@ -314,6 +315,7 @@ public struct AlbumDetailView: View {
         self.init(
             displayAlbum: .single(album),
             nowPlayingVM: nowPlayingVM,
+            dependencies: dependencies,
             initialTracks: initialTracks,
             selectedTrackId: selectedTrackId,
             includesHidden: includesHidden
@@ -323,6 +325,7 @@ public struct AlbumDetailView: View {
     public init(
         displayAlbum: DisplayAlbum,
         nowPlayingVM: NowPlayingViewModel,
+        dependencies: DependencyContainer,
         initialTracks: [Track]? = nil,
         selectedTrackId: String? = nil,
         includesHidden: Bool = false
@@ -331,13 +334,12 @@ public struct AlbumDetailView: View {
         self.album = displayAlbum.primaryAlbum
         self.selectedTrackId = selectedTrackId
         self.includesHidden = includesHidden
-        self._viewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makeAlbumDetailViewModel(
-                displayAlbum: displayAlbum,
-                initialTracks: initialTracks,
-                includesHidden: includesHidden
-            )
-        )
+        self._viewModel = State(initialValue: AlbumDetailViewModel(
+            displayAlbum: displayAlbum,
+            dependencies: dependencies,
+            initialTracks: initialTracks,
+            includesHidden: includesHidden
+        ))
         self.nowPlayingVM = nowPlayingVM
     }
 
@@ -346,7 +348,7 @@ public struct AlbumDetailView: View {
         self.album = viewModel.album
         self.selectedTrackId = nil
         self.includesHidden = false
-        self._viewModel = StateObject(wrappedValue: viewModel)
+        self._viewModel = State(initialValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
     }
 

@@ -597,7 +597,6 @@ public struct SidebarView: View {
 
     private var sidebarPlaylistCacheInvalidations: AnyPublisher<Void, Never> {
         Publishers.MergeMany([
-            playlistsVM.$sortedDisplayPlaylists.map { _ in () }.eraseToAnyPublisher(),
             libraryVM.$hasEnabledLibraries.map { _ in () }.eraseToAnyPublisher(),
             libraryVM.$isRestoringCloudSources.map { _ in () }.eraseToAnyPublisher()
         ])
@@ -846,7 +845,7 @@ public struct SidebarView: View {
         .sheet(item: $playlistForEditSheet) { playlist in
             PlaylistDetailView(
                 playlist: playlist,
-                nowPlayingVM: nowPlayingVM,
+                nowPlayingVM: nowPlayingVM, dependencies: deps,
                 startInEditMode: true
             )
             .nativeSheetNavigationContainer()
@@ -896,6 +895,9 @@ public struct SidebarView: View {
             rebuildCachedSidebarPlaylists()
         }
         .onReceive(sidebarPlaylistCacheInvalidations) { _ in
+            rebuildCachedSidebarPlaylists()
+        }
+        .onChange(of: playlistsVM.sortedDisplayPlaylists) { _, _ in
             rebuildCachedSidebarPlaylists()
         }
         .onReceive(NotificationCenter.default.publisher(for: CacheManager.libraryDataDidClear)) { _ in
@@ -1280,17 +1282,17 @@ public struct SidebarView: View {
         if let resolvedPin = resolvedPin(id: id, sourceKey: sourceKey, type: type) {
             switch resolvedPin {
             case .album(let album, _):
-                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM, dependencies: deps)
             case .mergedAlbum(let displayAlbum, _):
-                AlbumDetailView(displayAlbum: displayAlbum, nowPlayingVM: nowPlayingVM)
+                AlbumDetailView(displayAlbum: displayAlbum, nowPlayingVM: nowPlayingVM, dependencies: deps)
             case .artist(let artist, _):
                 ArtistDetailLoader(request: .artist(artist), libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .mergedArtist(let displayArtist, _):
                 ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
             case .playlist(let playlist, _):
-                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM, dependencies: deps)
             case .mergedPlaylist(let displayPlaylist, _):
-                MergedPlaylistDetailView(displayPlaylist: displayPlaylist, nowPlayingVM: nowPlayingVM)
+                MergedPlaylistDetailView(displayPlaylist: displayPlaylist, nowPlayingVM: nowPlayingVM, dependencies: deps)
             }
         } else {
             switch type {
@@ -2008,12 +2010,12 @@ public struct SidebarView: View {
                     albums: libraryVM.albums,
                     playlists: playlistsVM.playlists,
                     loadAlbumTracks: { album in
-                        let detailVM = deps.makeAlbumDetailViewModel(album: album)
+                        let detailVM = AlbumDetailViewModel(displayAlbum: .single(album), dependencies: deps)
                         await detailVM.loadTracks()
                         return detailVM.tracks
                     },
                     loadPlaylistTracks: { playlist in
-                        let detailVM = deps.makePlaylistDetailViewModel(playlist: playlist)
+                        let detailVM = PlaylistDetailViewModel(playlist: playlist, dependencies: deps)
                         await detailVM.loadTracks()
                         return detailVM.tracks
                     }

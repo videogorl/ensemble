@@ -225,7 +225,7 @@ public struct ProfileView: View {
         Section {
             ForEach(accountManager.plexAccounts) { account in
                 NavigationLink {
-                    MusicSourceAccountDetailView(accountId: account.id)
+                    MusicSourceAccountDetailView(accountId: account.id, dependencies: dependencies)
                 } label: {
                     MusicSourceAccountRow(
                         sourceType: .plex,
@@ -630,7 +630,7 @@ public struct ProfileView: View {
                 EnsembleUtilityCardRow {
                     HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                         NavigationLink {
-                            MusicSourceAccountDetailView(accountId: account.id)
+                            MusicSourceAccountDetailView(accountId: account.id, dependencies: dependencies)
                         } label: {
                             HStack {
                                 MusicSourceAccountRow(

@@ -12,8 +12,8 @@ extension ArtistSortOption: EnsembleBrowseSortOption {}
 extension PlaylistSortOption: EnsembleBrowseSortOption {}
 extension FavoritesSortOption: EnsembleBrowseSortOption {}
 
-struct EnsembleBrowseSortMenu<Option: EnsembleBrowseSortOption, Model: ObservableObject>: View {
-    @ObservedObject var model: Model
+struct EnsembleBrowseSortMenu<Option: EnsembleBrowseSortOption, Model: AnyObject>: View {
+    let model: Model
     let options: [Option]
     let selection: (Model) -> Option
     let direction: (Model) -> SortDirection

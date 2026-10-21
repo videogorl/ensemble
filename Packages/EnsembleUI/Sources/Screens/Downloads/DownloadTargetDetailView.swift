@@ -6,7 +6,7 @@ import SwiftUI
 /// Detail view for a single offline download target showing per-track download status.
 /// Styled after MediaDetailView with blurred artwork background, Play/Shuffle buttons.
 public struct DownloadTargetDetailView: View {
-    @StateObject private var viewModel: DownloadTargetDetailViewModel
+    @State private var viewModel: DownloadTargetDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
     @Environment(DependencyContainer.self) private var deps
     @Environment(\.dismiss) private var dismiss
@@ -18,10 +18,15 @@ public struct DownloadTargetDetailView: View {
     @AppStorage(AudioQualityPreference.downloadQualityKey)
     private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
 
-    public init(summary: DownloadedItemSummary, nowPlayingVM: NowPlayingViewModel) {
-        _viewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makeDownloadTargetDetailViewModel(summary: summary)
-        )
+    public init(summary: DownloadedItemSummary, nowPlayingVM: NowPlayingViewModel, dependencies: DependencyContainer) {
+        _viewModel = State(initialValue: DownloadTargetDetailViewModel(
+            summary: summary,
+            offlineDownloadTargetRepository: dependencies.offlineDownloadTargetRepository,
+            downloadManager: dependencies.downloadManager,
+            libraryRepository: dependencies.libraryRepository,
+            playlistRepository: dependencies.playlistRepository,
+            offlineDownloadService: dependencies.offlineDownloadService
+        ))
         self.nowPlayingVM = nowPlayingVM
     }
 
@@ -51,6 +56,7 @@ public struct DownloadTargetDetailView: View {
                 #endif
             }
             .task {
+                viewModel.start()
                 await viewModel.refresh()
                 if let path = viewModel.thumbPath {
                     await loadArtworkImage(path: path)

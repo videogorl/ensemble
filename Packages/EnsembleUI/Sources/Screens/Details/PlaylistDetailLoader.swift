@@ -25,7 +25,7 @@ struct PlaylistDetailLoader: View {
             if let playlist = playlist {
                 PlaylistDetailView(
                     playlist: playlist,
-                    nowPlayingVM: nowPlayingVM,
+                    nowPlayingVM: nowPlayingVM, dependencies: deps,
                     initialTracks: initialTracks,
                     initialItems: initialItems,
                     initialArtworkImage: initialArtworkImage

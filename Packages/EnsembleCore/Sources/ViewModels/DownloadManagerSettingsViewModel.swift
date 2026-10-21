@@ -1,6 +1,7 @@
 import Combine
 import EnsemblePersistence
 import Foundation
+import Observation
 
 public struct DownloadManagerItem: Identifiable {
     public let id: String
@@ -36,10 +37,11 @@ public struct QualitySizeEstimates {
 }
 
 @MainActor
-public final class DownloadManagerSettingsViewModel: ObservableObject {
-    @Published public private(set) var items: [DownloadManagerItem] = []
-    @Published public private(set) var replacementCount = 0
-    @Published public private(set) var sizeEstimates: QualitySizeEstimates?
+@Observable
+public final class DownloadManagerSettingsViewModel {
+    public private(set) var items: [DownloadManagerItem] = []
+    public private(set) var replacementCount = 0
+    public private(set) var sizeEstimates: QualitySizeEstimates?
 
     private let offlineDownloadService: OfflineDownloadService
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
@@ -54,20 +56,31 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
         self.offlineDownloadService = offlineDownloadService
         self.targetRepository = targetRepository
         self.downloadManager = downloadManager
+        // Read the current targets synchronously so the first frame has them.
+        self.items = Self.items(from: offlineDownloadService.targets)
+    }
 
+    /// Starts following target changes. Safe to call on every appearance.
+    public func start() {
+        guard cancellables.isEmpty else { return }
         offlineDownloadService.$targets
+            .dropFirst()
             .sink { [weak self] snapshots in
-                self?.items = snapshots
-                    .filter { $0.kind != .library && $0.kind != .favorites }
-                    .map(Self.mapItem(from:))
-                    .sorted { lhs, rhs in
-                        if lhs.progress != rhs.progress {
-                            return lhs.progress < rhs.progress
-                        }
-                        return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-                    }
+                self?.items = Self.items(from: snapshots)
             }
             .store(in: &cancellables)
+    }
+
+    private static func items(from snapshots: [OfflineDownloadTargetSnapshot]) -> [DownloadManagerItem] {
+        snapshots
+            .filter { $0.kind != .library && $0.kind != .favorites }
+            .map(mapItem(from:))
+            .sorted { lhs, rhs in
+                if lhs.progress != rhs.progress {
+                    return lhs.progress < rhs.progress
+                }
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
     }
 
     public func refresh() async {

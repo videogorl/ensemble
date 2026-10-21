@@ -1,11 +1,12 @@
 import Combine
 import EnsemblePersistence
 import Foundation
+import Observation
 
 // MARK: - Protocol
 
 @MainActor
-public protocol MediaDetailViewModelProtocol: ObservableObject {
+public protocol MediaDetailViewModelProtocol: AnyObject, Observable {
     var tracks: [Track] { get }
     var filteredTracks: [Track] { get }
     var isLoading: Bool { get }
@@ -15,6 +16,8 @@ public protocol MediaDetailViewModelProtocol: ObservableObject {
     var filterOptions: FilterOptions { get set }
     
     func loadTracks() async
+    /// Starts the model's change observation. Safe to call on every appearance.
+    func start()
     var playableTracks: [Track] { get }
     func mutationCandidates(for track: Track) -> [Track]
 }
@@ -39,23 +42,26 @@ public extension MediaDetailViewModelProtocol {
 // MARK: - Album Detail ViewModel
 
 @MainActor
-public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelProtocol {
+@Observable
+public final class AlbumDetailViewModel: MediaDetailViewModelProtocol {
     public let displayAlbum: DisplayAlbum
-    @Published public private(set) var album: Album
-    @Published public private(set) var tracks: [Track] = []
-    @Published public private(set) var isLoading = false
-    @Published public private(set) var hasLoadedTracks = false
-    @Published public private(set) var error: String?
-    @Published public var filterOptions: FilterOptions
+    public private(set) var album: Album
+    public private(set) var tracks: [Track] = []
+    public private(set) var isLoading = false
+    public private(set) var hasLoadedTracks = false
+    public private(set) var error: String?
+    public var filterOptions: FilterOptions {
+        didSet { FilterPersistence.save(filterOptions, for: "AlbumDetail") }
+    }
 
     /// Rich metadata loaded on-demand from the single-item metadata endpoint
-    @Published public private(set) var albumDetail: AlbumDetail?
+    public private(set) var albumDetail: AlbumDetail?
     /// Albums by the same artist, excluding the current album
-    @Published public private(set) var relatedAlbums: [Album] = []
+    public private(set) var relatedAlbums: [Album] = []
     /// Similar/related albums from Plex's recommendation engine
-    @Published public private(set) var similarAlbums: [Album] = []
+    public private(set) var similarAlbums: [Album] = []
     /// Whether detail metadata is still loading
-    @Published public private(set) var isLoadingDetail = false
+    public private(set) var isLoadingDetail = false
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
@@ -89,10 +95,12 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         self.hiddenMediaStore = hiddenMediaStore
         self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "AlbumDetail")
-        
-        // Save filter options when they change
-        setupFilterPersistence()
+    }
 
+    /// Starts reloading on download, metadata, hidden-media, and merging
+    /// changes. Safe to call on every appearance.
+    public func start() {
+        guard cancellables.isEmpty else { return }
         // Re-fetch tracks when download state changes so offline dimming is accurate
         observeDownloadChanges()
         observeMetadataChanges()
@@ -126,10 +134,6 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         )
     }
     
-    private func setupFilterPersistence() {
-        FilterPersistence.observe($filterOptions, key: "AlbumDetail", storingIn: &cancellables)
-    }
-
     public func loadTracks() async {
         isLoading = true
         error = nil

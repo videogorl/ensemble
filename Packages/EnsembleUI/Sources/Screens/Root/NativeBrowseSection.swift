@@ -3,6 +3,7 @@ import SwiftUI
 
 @available(iOS 18.0, macOS 15.0, *)
 struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls: View>: View {
+    @Environment(DependencyContainer.self) private var dependencies
     let tab: TabItem?
     let sidebar: Sidebar
     let fallbackDetail: FallbackDetail
@@ -231,9 +232,9 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
         case .playlists:
             if let playlist {
                 if playlist.isMerged {
-                    MergedPlaylistDetailView(displayPlaylist: playlist, nowPlayingVM: nowPlayingVM).id(playlist.id)
+                    MergedPlaylistDetailView(displayPlaylist: playlist, nowPlayingVM: nowPlayingVM, dependencies: dependencies).id(playlist.id)
                 } else {
-                    PlaylistDetailView(playlist: playlist.primaryPlaylist, nowPlayingVM: nowPlayingVM).id(playlist.id)
+                    PlaylistDetailView(playlist: playlist.primaryPlaylist, nowPlayingVM: nowPlayingVM, dependencies: dependencies).id(playlist.id)
                 }
             } else {
                 LargeScreenPlaceholderView(systemImage: tab.systemImage, title: "Select a Playlist")

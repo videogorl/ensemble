@@ -3,6 +3,7 @@ import CoreData
 import EnsembleAPI
 import EnsemblePersistence
 import Foundation
+import Observation
 
 /// Per-track row model for the download target detail view
 public struct TrackDownloadRow: Identifiable {
@@ -138,16 +139,17 @@ extension OfflineDownloadService {
 
 /// ViewModel for the per-track download detail view of a single offline target
 @MainActor
-public final class DownloadTargetDetailViewModel: ObservableObject {
-    @Published public private(set) var tracks: [TrackDownloadRow] = [] {
+@Observable
+public final class DownloadTargetDetailViewModel {
+    public private(set) var tracks: [TrackDownloadRow] = [] {
         didSet { trackStats = TrackDownloadRowStats(rows: tracks) }
     }
-    @Published public private(set) var playableTracks: [Track] = []
-    @Published public private(set) var isLoading = false
+    public private(set) var playableTracks: [Track] = []
+    public private(set) var isLoading = false
     /// Resolved thumb path for the target entity (album/artist/playlist artwork)
-    @Published public private(set) var thumbPath: String?
+    public private(set) var thumbPath: String?
     /// Why the download queue is currently paused (observed from OfflineDownloadService)
-    @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
+    public private(set) var queueStatusReason: QueueStatusReason = .idle
 
     public let summary: DownloadedItemSummary
 
@@ -173,11 +175,20 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.offlineDownloadService = offlineDownloadService
+        queueStatusReason = offlineDownloadService.queueStatusReason
+    }
+
+    /// Starts following queue status and download changes. Safe to call on
+    /// every appearance.
+    public func start() {
+        guard cancellables.isEmpty else { return }
 
         // Observe queue status reason from the download service
         offlineDownloadService.$queueStatusReason
+            .dropFirst()
             .receive(on: DispatchQueue.main)
-            .assign(to: &$queueStatusReason)
+            .sink { [weak self] reason in self?.queueStatusReason = reason }
+            .store(in: &cancellables)
 
         // Re-load track rows when the view context merges background download changes.
         // This fires AFTER CoreData merges background saves to the view context, ensuring

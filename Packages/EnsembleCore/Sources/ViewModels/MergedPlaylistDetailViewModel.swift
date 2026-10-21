@@ -1,6 +1,7 @@
 import Combine
 import EnsemblePersistence
 import Foundation
+import Observation
 
 private struct MergedPlaylistTrackSnapshot {
     let trackSets: [[Track]]
@@ -13,20 +14,24 @@ private struct MergedPlaylistTrackSnapshot {
 /// ViewModel for displaying a merged playlist — multiple same-named playlists from
 /// different sources shown as a single unified view with round-robin interleaved tracks.
 @MainActor
-public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailViewModelProtocol {
-    @Published public private(set) var displayPlaylist: DisplayPlaylist
-    @Published public private(set) var tracks: [Track] = [] {
+@Observable
+public final class MergedPlaylistDetailViewModel: MediaDetailViewModelProtocol {
+    public private(set) var displayPlaylist: DisplayPlaylist
+    public private(set) var tracks: [Track] = [] {
         didSet { updateDerivedTrackState(refreshGenres: true) }
     }
-    @Published public private(set) var availableGenres: [String] = []
-    @Published public private(set) var filteredTracks: [Track] = []
-    @Published public private(set) var totalDuration: String = "0 min"
-    @Published public private(set) var isLoading = false
-    @Published public private(set) var hasLoadedTracks = false
-    @Published public private(set) var hasUnavailableTracks = false
-    @Published public private(set) var error: String?
-    @Published public var filterOptions: FilterOptions {
-        didSet { updateDerivedTrackState() }
+    public private(set) var availableGenres: [String] = []
+    public private(set) var filteredTracks: [Track] = []
+    public private(set) var totalDuration: String = "0 min"
+    public private(set) var isLoading = false
+    public private(set) var hasLoadedTracks = false
+    public private(set) var hasUnavailableTracks = false
+    public private(set) var error: String?
+    public var filterOptions: FilterOptions {
+        didSet {
+            updateDerivedTrackState()
+            FilterPersistence.save(filterOptions, for: "MergedPlaylistDetail-\(displayPlaylist.title)")
+        }
     }
 
     private let playlistRepository: PlaylistRepositoryProtocol
@@ -53,18 +58,17 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         self.mutationCoordinator = mutationCoordinator
         self.filterOptions = FilterPersistence.load(for: "MergedPlaylistDetail-\(displayPlaylist.title)")
         updateDerivedTrackState(refreshGenres: true)
+    }
 
-        setupFilterPersistence()
+    /// Starts reloading on playlist, download, and metadata changes. Safe to
+    /// call on every appearance.
+    public func start() {
+        guard cancellables.isEmpty else { return }
         observeReloadTriggers()
         observePlaylistRefresh()
     }
 
     // MARK: - Setup
-
-    private func setupFilterPersistence() {
-        let title = displayPlaylist.title
-        FilterPersistence.observe($filterOptions, key: "MergedPlaylistDetail-\(title)", storingIn: &cancellables)
-    }
 
     private func observePlaylistRefresh() {
         ViewModelNotificationObserver.observePlaylistRefresh(

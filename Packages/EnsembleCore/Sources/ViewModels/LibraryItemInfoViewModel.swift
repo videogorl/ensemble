@@ -1,21 +1,23 @@
 import Foundation
+import Observation
 
 /// View model for the library Get Info panel.
 @MainActor
-public final class LibraryItemInfoViewModel: ObservableObject {
+@Observable
+public final class LibraryItemInfoViewModel {
     public struct SourceContext: Equatable, Sendable {
         public let serverName: String?
         public let libraryName: String?
     }
 
-    @Published public private(set) var sourceContext = SourceContext(serverName: nil, libraryName: nil)
-    @Published public private(set) var originalFileInfo: AudioFileInfo?
-    @Published public private(set) var originalFolderPath: String?
-    @Published public private(set) var aggregateDuration: TimeInterval?
-    @Published public private(set) var aggregateTrackCount: Int?
-    @Published public private(set) var aggregateArtworkPath: String?
-    @Published public private(set) var aggregateArtworkRatingKey: String?
-    @Published public private(set) var isLoading = false
+    public private(set) var sourceContext = SourceContext(serverName: nil, libraryName: nil)
+    public private(set) var originalFileInfo: AudioFileInfo?
+    public private(set) var originalFolderPath: String?
+    public private(set) var aggregateDuration: TimeInterval?
+    public private(set) var aggregateTrackCount: Int?
+    public private(set) var aggregateArtworkPath: String?
+    public private(set) var aggregateArtworkRatingKey: String?
+    public private(set) var isLoading = false
 
     public let request: LibraryItemInfoRequest
 

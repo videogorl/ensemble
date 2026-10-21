@@ -8,7 +8,7 @@ import AppKit
 #endif
 
 public struct AddPlexAccountView: View {
-    @StateObject private var viewModel: AddPlexAccountViewModel
+    @State private var viewModel: AddPlexAccountViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -19,8 +19,13 @@ public struct AddPlexAccountView: View {
     private let isEmbedded: Bool
     private let onCompletion: () -> Void
 
-    public init(embedded: Bool = false, onCompletion: @escaping () -> Void) {
-        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeAddPlexAccountViewModel())
+    public init(embedded: Bool = false, dependencies: DependencyContainer, onCompletion: @escaping () -> Void) {
+        self._viewModel = State(initialValue: AddPlexAccountViewModel(
+            authService: dependencies.authService,
+            accountDiscoveryService: dependencies.accountDiscoveryService,
+            accountManager: dependencies.accountManager,
+            syncCoordinator: dependencies.syncCoordinator
+        ))
         self.isEmbedded = embedded
         self.onCompletion = onCompletion
     }

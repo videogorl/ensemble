@@ -3,7 +3,7 @@ import EnsembleCore
 import SwiftUI
 
 public struct DownloadManagerSettingsView: View {
-    @StateObject private var viewModel: DownloadManagerSettingsViewModel
+    @State private var viewModel: DownloadManagerSettingsViewModel
     @Environment(DependencyContainer.self) private var deps
     @AppStorage(AudioQualityPreference.downloadQualityKey)
     private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
@@ -11,10 +11,12 @@ public struct DownloadManagerSettingsView: View {
     private var allowCellularDownloads = DownloadSettingsPreference.defaultAllowCellularDownloads
     @State private var showRemoveAllConfirmation = false
 
-    public init() {
-        self._viewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makeDownloadManagerSettingsViewModel()
-        )
+    public init(dependencies: DependencyContainer) {
+        self._viewModel = State(initialValue: DownloadManagerSettingsViewModel(
+            offlineDownloadService: dependencies.offlineDownloadService,
+            targetRepository: dependencies.offlineDownloadTargetRepository,
+            downloadManager: dependencies.downloadManager
+        ))
     }
 
     public var body: some View {
@@ -108,6 +110,7 @@ public struct DownloadManagerSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .task {
+            viewModel.start()
             await viewModel.refresh()
         }
         .onChange(of: allowCellularDownloads) { _ in

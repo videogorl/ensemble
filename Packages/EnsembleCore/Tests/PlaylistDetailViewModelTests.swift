@@ -1,3 +1,4 @@
+import Observation
 import XCTest
 @testable import EnsembleCore
 import Combine
@@ -636,6 +637,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
 
+        viewModel.start()
+
         let didDelete = await viewModel.deletePlaylist()
         XCTAssertTrue(didDelete)
         XCTAssertNil(viewModel.error)
@@ -653,6 +656,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
+
+        viewModel.start()
 
         let didDelete = await viewModel.deletePlaylist()
         XCTAssertFalse(didDelete)
@@ -717,6 +722,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter()
         )
 
+        viewModel.start()
+
         await viewModel.loadPlaylists()
         XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
 
@@ -759,6 +766,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter(),
             observesExternalChanges: false
         )
+
+        unfilteredViewModel.start()
         XCTAssertEqual(unfilteredViewModel.playlists.map(\.id).sorted(), ["apple", "plex"])
 
         let viewModel = PlaylistViewModel(
@@ -769,6 +778,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             accountManager: accountManager,
             observesExternalChanges: false
         )
+
+        viewModel.start()
 
         XCTAssertFalse(accountManager.sourceConfigurationSnapshot.isAuthoritative)
         XCTAssertEqual(accountManager.sourceConfigurationSnapshot.authoritativeSourceTypes, [.appleMusic])
@@ -783,6 +794,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             accountManager: accountManager,
             observesExternalChanges: false
         )
+        settledEmptyViewModel.start()
         XCTAssertEqual(settledEmptyViewModel.playlists.map(\.id), ["plex"])
     }
 
@@ -817,6 +829,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             accountManager: accountManager
         )
 
+        viewModel.start()
+
         await viewModel.loadPlaylists()
         XCTAssertEqual(viewModel.playlists.map(\.id).sorted(), ["enabled", "unconfigured"])
 
@@ -842,6 +856,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
             toastCenter: ToastCenter()
         )
+
+        firstViewModel.start()
         await firstViewModel.loadPlaylists()
         playlistRepository.playlists.removeAll()
 
@@ -859,6 +875,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter(),
             accountManager: accountManager
         )
+        secondViewModel.start()
 
         XCTAssertTrue(accountManager.sourceConfigurationSnapshot.isAuthoritative)
         XCTAssertFalse(accountManager.sourceConfigurationSnapshot.hasAnySources)
@@ -880,6 +897,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter(),
             observesExternalChanges: false
         )
+        viewModel.start()
 
         NotificationCenter.default.post(name: SyncCoordinator.playlistsDidRefresh, object: nil)
         try await Task.sleep(for: .milliseconds(600))
@@ -898,6 +916,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter(),
             observesExternalChanges: false
         )
+        viewModel.start()
 
         await viewModel.loadPlaylistsIfNeeded()
         await viewModel.loadPlaylistsIfNeeded()
@@ -925,6 +944,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter(),
             accountManager: accountManager
         )
+
+        viewModel.start()
 
         await viewModel.loadPlaylists()
         XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
@@ -963,6 +984,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter(),
             accountManager: accountManager
         )
+        viewModel.start()
         await viewModel.loadPlaylists()
         XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
         accountManager.updatePlexAccount(makePlaylistAccount(libraryEnabled: false))
@@ -999,6 +1021,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter(),
             observesExternalChanges: false
         )
+        viewModel.start()
         let successfulSource = "plex:account-1:server-1"
         let failedSource = "plex:account-2:server-2"
 
@@ -1056,6 +1079,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter()
         )
 
+        viewModel.start()
+
         await viewModel.loadPlaylists()
         XCTAssertEqual(
             Set(viewModel.playlists.map(\.sourceScopedID)),
@@ -1110,6 +1135,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
             toastCenter: ToastCenter()
         )
+        viewModel.start()
 
         await viewModel.loadPlaylists()
         viewModel.applyOptimisticRename(for: plexPlaylist, newTitle: "Plex Renamed")
@@ -1146,6 +1172,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter(),
             accountManager: accountManager
         )
+
+        viewModel.start()
 
         await viewModel.loadPlaylists()
         XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
@@ -1195,6 +1223,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter(),
             visibilityStore: visibilityStore
         )
+        viewModel.start()
         await viewModel.loadPlaylists()
         XCTAssertEqual(Set(viewModel.playlists.map(\.id)), ["apple", "plex"])
         XCTAssertEqual(viewModel.displayPlaylists.first?.playlists.count, 2)
@@ -1264,6 +1293,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
             toastCenter: ToastCenter()
         )
+
+        firstViewModel.start()
         await firstViewModel.loadPlaylists()
         XCTAssertEqual(firstViewModel.displayPlaylists.map(\.primaryPlaylist.id), ["playlist-a"])
 
@@ -1273,6 +1304,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
             toastCenter: ToastCenter()
         )
+
+        secondViewModel.start()
 
         XCTAssertEqual(secondViewModel.playlists.map(\.id), ["playlist-a"])
         XCTAssertEqual(secondViewModel.displayPlaylists.map(\.primaryPlaylist.id), ["playlist-a"])
@@ -1297,6 +1330,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter()
         )
 
+        viewModel.start()
+
         XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
         XCTAssertEqual(viewModel.displayPlaylists.map(\.primaryPlaylist.id), ["playlist-a"])
     }
@@ -1318,6 +1353,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
             toastCenter: ToastCenter()
         )
+
+        firstViewModel.start()
         await firstViewModel.loadPlaylists()
         playlistRepository.playlists.removeAll()
 
@@ -1327,6 +1364,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
             toastCenter: ToastCenter()
         )
+
+        secondViewModel.start()
         XCTAssertEqual(secondViewModel.playlists.map(\.id), ["playlist-a"])
 
         await secondViewModel.loadPlaylists()
@@ -1347,6 +1386,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             libraryRepository: libraryRepository,
             accountManager: AccountManager(keychain: TestKeychain())
         )
+
+        firstViewModel.start()
         await firstViewModel.loadTracks()
 
         XCTAssertEqual(firstViewModel.tracks.map(\.id), ["track-a"])
@@ -1357,6 +1398,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             libraryRepository: libraryRepository,
             accountManager: AccountManager(keychain: TestKeychain())
         )
+        secondViewModel.start()
 
         XCTAssertEqual(secondViewModel.tracks.map(\.id), ["track-a"])
         XCTAssertEqual(secondViewModel.filteredTracks.map(\.id), ["track-a"])
@@ -1377,6 +1419,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             libraryRepository: libraryRepository,
             accountManager: AccountManager(keychain: TestKeychain())
         )
+
+        viewModel.start()
 
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-a"])
         XCTAssertEqual(viewModel.filteredTracks.map(\.id), ["track-a"])
@@ -1420,26 +1464,19 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             visibilityStore: visibilityStore,
             hiddenMediaStore: hiddenMediaStore
         )
+        viewModel.start()
 
         XCTAssertEqual(viewModel.tracks.map(\.id), [visibleTrack.ratingKey])
 
-        let sourceShown = expectation(description: "Source visibility updates Favorites")
-        let sourceObservation = viewModel.$tracks
-            .filter { Set($0.map(\.id)) == [visibleTrack.ratingKey, hiddenSourceTrack.ratingKey] }
-            .first()
-            .sink { _ in sourceShown.fulfill() }
         visibilityStore.setSourceVisibility(sourceCompositeKey: hiddenSource, isVisible: true)
-        await fulfillment(of: [sourceShown], timeout: 1)
+        await waitUntil {
+            Set(viewModel.tracks.map(\.id)) == [visibleTrack.ratingKey, hiddenSourceTrack.ratingKey]
+        }
 
-        let itemShown = expectation(description: "Hidden item updates Favorites")
-        let itemObservation = viewModel.$tracks
-            .filter { Set($0.map(\.id)) == [visibleTrack.ratingKey, hiddenItemTrack.ratingKey, hiddenSourceTrack.ratingKey] }
-            .first()
-            .sink { _ in itemShown.fulfill() }
         hiddenMediaStore.setHidden(false, identity: hiddenIdentity)
-        await fulfillment(of: [itemShown], timeout: 1)
-
-        withExtendedLifetime((sourceObservation, itemObservation)) {}
+        await waitUntil {
+            Set(viewModel.tracks.map(\.id)) == [visibleTrack.ratingKey, hiddenItemTrack.ratingKey, hiddenSourceTrack.ratingKey]
+        }
     }
 
     func testFavoritesViewModelRefreshesBeforeMappingFavoriteMetadata() async {
@@ -1457,6 +1494,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             libraryRepository: libraryRepository,
             accountManager: AccountManager(keychain: TestKeychain())
         )
+
+        viewModel.start()
         await viewModel.loadTracks()
 
         XCTAssertGreaterThanOrEqual(libraryRepository.refreshContextCallCount, 1)
@@ -1483,6 +1522,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
+
+        viewModel.start()
 
         await viewModel.loadTracks()
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-1", "track-2"])
@@ -1518,6 +1559,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
 
+        viewModel.start()
+
         XCTAssertEqual(viewModel.playlist.title, "Road")
         XCTAssertTrue(viewModel.isLoading)
         XCTAssertFalse(viewModel.hasLoadedTracks)
@@ -1552,14 +1595,14 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
             observesExternalChanges: false
         )
+        viewModel.start()
         await viewModel.loadTracks()
 
-        var publications = 0
-        let cancellable = viewModel.$tracks.dropFirst().sink { _ in publications += 1 }
+        var tracksChanged = false
+        withObservationTracking { _ = viewModel.tracks } onChange: { tracksChanged = true }
         await viewModel.loadTracks()
 
-        XCTAssertEqual(publications, 0)
-        withExtendedLifetime(cancellable) {}
+        XCTAssertFalse(tracksChanged)
     }
 
     func testPlaylistDetailCanOptOutOfExternalReloads() async throws {
@@ -1572,6 +1615,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
             observesExternalChanges: false
         )
+        viewModel.start()
 
         NotificationCenter.default.post(name: SyncCoordinator.playlistsDidRefresh, object: nil)
         try await Task.sleep(for: .milliseconds(600))
@@ -1600,6 +1644,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
             initialItems: items
         )
+        viewModel.start()
 
         let didRemove = await viewModel.removeTrackFromPlaylist(tracks[0], displayIndex: 0)
 
@@ -1642,6 +1687,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             ],
             observesExternalChanges: false
         )
+        viewModel.start()
 
         let didRemove = await viewModel.removeTrackFromPlaylist(incompleteTrack)
 
@@ -1676,6 +1722,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
                 makePlaylistItem(testLibraryTrack, itemID: "item-test")
             ]
         )
+        viewModel.start()
 
         let didRemove = await viewModel.removeTrackFromPlaylist(testLibraryTrack)
 
@@ -1702,6 +1749,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
             initialTracks: [makeTrack(id: "track-1")]
         )
+
+        viewModel.start()
 
         let didRemove = await viewModel.removeTrackFromPlaylist(makeTrack(id: "track-1"), displayIndex: 0)
 
@@ -1741,6 +1790,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             settingsManager: settings,
             includesHidden: true
         )
+        viewModel.start()
         viewModel.filterOptions = FilterOptions()
         let detail: any MediaDetailViewModelProtocol = viewModel
 
@@ -1788,6 +1838,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
+        viewModel.start()
         viewModel.filterOptions = FilterOptions()
         await viewModel.loadTracks()
         XCTAssertEqual(viewModel.filteredTracks.map(\.id), ["a"])
@@ -1876,6 +1927,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
+
+        viewModel.start()
         await viewModel.loadTracks()
 
         XCTAssertEqual(playlistRepository.fetchPlaylistBodiesCallCount, 1)
@@ -1940,6 +1993,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
+
+        viewModel.start()
 
         let didRemove = await viewModel.removeTrackFromPlaylist(
             Track(id: "unknown", key: "/library/metadata/unknown", title: "Unknown")

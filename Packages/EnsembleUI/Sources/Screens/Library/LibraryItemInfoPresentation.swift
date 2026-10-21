@@ -56,11 +56,11 @@ private struct LibraryItemInfoSourcePicker: View {
                 .pickerStyle(.segmented)
                 .padding()
                 .accessibilityIdentifier("info.sources")
-                LibraryItemInfoView(request: .playlist(selected))
+                LibraryItemInfoView(request: .playlist(selected), dependencies: deps)
                     .id(selected.sourceScopedID)
             }
         } else {
-            LibraryItemInfoView(request: request)
+            LibraryItemInfoView(request: request, dependencies: deps)
         }
     }
 

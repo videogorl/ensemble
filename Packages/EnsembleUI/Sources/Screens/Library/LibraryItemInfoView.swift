@@ -6,17 +6,21 @@ import SwiftUI
 public struct LibraryItemInfoView: View {
     private static let headerArtworkSide: CGFloat = 124
 
-    @StateObject private var viewModel: LibraryItemInfoViewModel
+    @State private var viewModel: LibraryItemInfoViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @State private var isLyricsExpanded = false
     @State private var lyrics: LyricsState = .loading
     @Environment(DependencyContainer.self) private var deps
     @Environment(\.dismiss) private var dismiss
 
-    public init(request: LibraryItemInfoRequest) {
-        _viewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makeLibraryItemInfoViewModel(request: request)
-        )
+    public init(request: LibraryItemInfoRequest, dependencies: DependencyContainer) {
+        _viewModel = State(initialValue: LibraryItemInfoViewModel(
+            request: request,
+            libraryRepository: dependencies.libraryRepository,
+            playlistRepository: dependencies.playlistRepository,
+            syncCoordinator: dependencies.syncCoordinator,
+            accountManager: dependencies.accountManager
+        ))
     }
 
     public var body: some View {

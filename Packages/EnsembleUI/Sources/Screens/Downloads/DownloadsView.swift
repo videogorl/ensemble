@@ -3,21 +3,19 @@ import EnsembleCore
 import SwiftUI
 
 public struct DownloadsView: View {
-    @StateObject private var viewModel: DownloadsViewModel
+    @Environment(DependencyContainer.self) private var dependencies
+    @State private var viewModel: DownloadsViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @State private var showTemporaryResumeConfirmation = false
     @State private var temporaryResumeReason: QueueStatusReason = .idle
     let nowPlayingVM: NowPlayingViewModel
 
-    public init(nowPlayingVM: NowPlayingViewModel) {
-        self.init(
-            nowPlayingVM: nowPlayingVM,
-            viewModel: DependencyContainer.shared.makeDownloadsViewModel()
-        )
+    public init(nowPlayingVM: NowPlayingViewModel, dependencies: DependencyContainer) {
+        self.init(nowPlayingVM: nowPlayingVM, viewModel: DownloadsViewModel(dependencies: dependencies))
     }
 
     init(nowPlayingVM: NowPlayingViewModel, viewModel: DownloadsViewModel) {
-        self._viewModel = StateObject(wrappedValue: viewModel)
+        self._viewModel = State(initialValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
     }
 
@@ -34,7 +32,7 @@ public struct DownloadsView: View {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
                 NavigationLink {
-                    DownloadManagerSettingsView()
+                    DownloadManagerSettingsView(dependencies: dependencies)
                 } label: {
                     Image(systemName: EnsembleDesign.Icon.editPlaylist)
                 }
@@ -47,7 +45,7 @@ public struct DownloadsView: View {
             EnsembleToolbarLeadingSpacer()
             ToolbarItem(placement: .primaryActionIfAvailable) {
                 NavigationLink {
-                    DownloadManagerSettingsView()
+                    DownloadManagerSettingsView(dependencies: dependencies)
                 } label: {
                     Label("Settings", systemImage: EnsembleDesign.Icon.editPlaylist)
                 }
@@ -59,6 +57,7 @@ public struct DownloadsView: View {
             #endif
         }
         .task {
+            viewModel.start()
             await viewModel.refresh()
         }
         .refreshable {
@@ -108,7 +107,7 @@ public struct DownloadsView: View {
             if viewModel.pendingMutationCount > 0 {
                 Section {
                     NavigationLink {
-                        PendingMutationsView()
+                        PendingMutationsView(dependencies: dependencies)
                     } label: {
                         PendingChangesRow(count: viewModel.pendingMutationCount)
                     }
@@ -170,7 +169,7 @@ public struct DownloadsView: View {
             if viewModel.pendingMutationCount > 0 {
                 EnsembleUtilityCardSection {
                     macNavigationRow {
-                        PendingMutationsView()
+                        PendingMutationsView(dependencies: dependencies)
                     } label: {
                         PendingChangesRow(count: viewModel.pendingMutationCount)
                     }
@@ -209,7 +208,8 @@ public struct DownloadsView: View {
                     LibraryDownloadDetailView(
                         sourceCompositeKey: library.sourceCompositeKey,
                         title: displayLibraryTitle(for: library),
-                        nowPlayingVM: nowPlayingVM
+                        nowPlayingVM: nowPlayingVM,
+                        dependencies: dependencies
                     )
                 } label: {
                     HStack {
@@ -316,7 +316,8 @@ public struct DownloadsView: View {
                 LibraryDownloadDetailView(
                     sourceCompositeKey: library.sourceCompositeKey,
                     title: displayLibraryTitle(for: library),
-                    nowPlayingVM: nowPlayingVM
+                    nowPlayingVM: nowPlayingVM,
+                    dependencies: dependencies
                 )
             } label: {
                 EmptyView()
@@ -495,7 +496,7 @@ public struct DownloadsView: View {
 
     @ViewBuilder
     private func destinationView(for item: DownloadedItemSummary) -> some View {
-        DownloadTargetDetailView(summary: item, nowPlayingVM: nowPlayingVM)
+        DownloadTargetDetailView(summary: item, nowPlayingVM: nowPlayingVM, dependencies: dependencies)
     }
 
     private var hasDownloadTargets: Bool {

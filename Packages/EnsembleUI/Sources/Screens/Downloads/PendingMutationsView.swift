@@ -5,12 +5,15 @@ import SwiftUI
 
 /// Shows pending and failed offline mutations with retry/delete actions
 public struct PendingMutationsView: View {
-    @StateObject private var viewModel: PendingMutationsViewModel
+    @State private var viewModel: PendingMutationsViewModel
 
-    public init() {
-        self._viewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makePendingMutationsViewModel()
-        )
+    public init(dependencies: DependencyContainer) {
+        self._viewModel = State(initialValue: PendingMutationsViewModel(
+            mutationCoordinator: dependencies.mutationCoordinator,
+            repository: PendingMutationRepository(coreDataStack: dependencies.coreDataStack),
+            libraryRepository: dependencies.libraryRepository,
+            playlistRepository: dependencies.playlistRepository
+        ))
     }
 
     public var body: some View {
@@ -46,6 +49,7 @@ public struct PendingMutationsView: View {
             #endif
         }
         .task {
+            viewModel.start()
             await viewModel.loadMutations()
         }
         .refreshable {

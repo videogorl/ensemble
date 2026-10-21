@@ -1,6 +1,7 @@
 import Combine
 import EnsemblePersistence
 import Foundation
+import Observation
 
 /// Display model for a single pending or failed mutation
 public struct PendingMutationRow: Identifiable {
@@ -14,9 +15,10 @@ public struct PendingMutationRow: Identifiable {
 
 /// ViewModel for the Pending Mutations screen showing offline-queued changes
 @MainActor
-public final class PendingMutationsViewModel: ObservableObject {
-    @Published public private(set) var rows: [PendingMutationRow] = []
-    @Published public private(set) var isLoading = false
+@Observable
+public final class PendingMutationsViewModel {
+    public private(set) var rows: [PendingMutationRow] = []
+    public private(set) var isLoading = false
 
     private let mutationCoordinator: MutationCoordinator
     private let repository: PendingMutationRepositoryProtocol
@@ -34,8 +36,12 @@ public final class PendingMutationsViewModel: ObservableObject {
         self.repository = repository
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
+    }
 
-        // Refresh rows whenever the queue count changes (drain/enqueue events)
+    /// Starts refreshing rows whenever the queue count changes (drain and
+    /// enqueue events). Safe to call on every appearance.
+    public func start() {
+        guard cancellables.isEmpty else { return }
         mutationCoordinator.$pendingCount
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in

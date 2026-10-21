@@ -1,6 +1,7 @@
 import Combine
 import EnsemblePersistence
 import Foundation
+import Observation
 
 // MARK: - Library Download Summary
 
@@ -41,28 +42,30 @@ public struct DownloadedItemSummary: Identifiable, Equatable {
 }
 
 @MainActor
-public final class DownloadsViewModel: ObservableObject {
-    @Published public private(set) var items: [DownloadedItemSummary] = []
-    @Published public private(set) var isLoading = false
-    @Published public private(set) var error: String?
+@Observable
+public final class DownloadsViewModel {
+    public private(set) var items: [DownloadedItemSummary] = []
+    public private(set) var isLoading = false
+    public private(set) var error: String?
     /// Per-target removal progress — mirrors OfflineDownloadService state
-    @Published public private(set) var removalInProgress: [String: RemovalProgress] = [:]
+    public private(set) var removalInProgress: [String: RemovalProgress] = [:]
     /// Number of pending offline mutations (favorites, playlist adds) awaiting sync
-    @Published public private(set) var pendingMutationCount: Int = 0
+    public private(set) var pendingMutationCount: Int = 0
     /// Whether the download queue is actively processing tracks
-    @Published public private(set) var isQueueRunning = false
+    public private(set) var isQueueRunning = false
     /// Current queue policy state used by the Downloads toolbar.
-    @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
+    public private(set) var queueStatusReason: QueueStatusReason = .idle
     /// Aggregated download stats for each sync-enabled library
-    @Published public private(set) var librarySummaries: [LibraryDownloadSummary] = []
+    public private(set) var librarySummaries: [LibraryDownloadSummary] = []
     /// Library sourceCompositeKeys currently toggling (for spinner feedback)
-    @Published public private(set) var libraryTogglesInProgress: Set<String> = []
+    public private(set) var libraryTogglesInProgress: Set<String> = []
 
     private let offlineDownloadService: OfflineDownloadService
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let accountManager: AccountManager
     private let downloadManager: DownloadManagerProtocol
+    private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
 
     public init(
@@ -78,12 +81,29 @@ public final class DownloadsViewModel: ObservableObject {
         self.playlistRepository = playlistRepository
         self.accountManager = accountManager
         self.downloadManager = downloadManager
+        self.mutationCoordinator = mutationCoordinator
+
+        // Read current values synchronously so the first frame is complete.
+        items = Self.mapItems(from: offlineDownloadService.targets, accountManager: accountManager)
+        removalInProgress = offlineDownloadService.removalInProgress
+        pendingMutationCount = mutationCoordinator.pendingCount
+        isQueueRunning = offlineDownloadService.isQueueRunning
+        queueStatusReason = offlineDownloadService.queueStatusReason
+        publishLibrarySummaryShells()
+    }
+
+    /// Starts following download, account, and mutation changes, and fills in
+    /// thumbnails and library summaries. Safe to call on every appearance.
+    public func start() {
+        guard cancellables.isEmpty else { return }
+        let targetsAndAccounts = offlineDownloadService.$targets
+            .combineLatest(accountManager.$plexAccounts)
+            .dropFirst()
 
         // Map snapshots to summaries, preserving previously resolved thumbPaths.
         // Without this, every publish creates items with thumbPath=nil which always
         // differs from existing items that have resolved paths, causing artwork flashing.
-        offlineDownloadService.$targets
-            .combineLatest(accountManager.$plexAccounts)
+        targetsAndAccounts
             .sink { [weak self] snapshots, _ in
                 guard let self else { return }
                 var mapped = Self.mapItems(from: snapshots, accountManager: self.accountManager)
@@ -111,37 +131,38 @@ public final class DownloadsViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Mirror removal progress from the service
+        // Mirror removal progress, pending mutations, queue state, and status reason
         offlineDownloadService.$removalInProgress
+            .dropFirst()
             .receive(on: DispatchQueue.main)
-            .assign(to: &$removalInProgress)
-
-        // Track pending mutation count for the "Pending Changes" entry point
+            .sink { [weak self] value in self?.removalInProgress = value }
+            .store(in: &cancellables)
         mutationCoordinator.$pendingCount
+            .dropFirst()
             .receive(on: DispatchQueue.main)
-            .assign(to: &$pendingMutationCount)
-
-        // Mirror queue running state for pause/resume UI
+            .sink { [weak self] value in self?.pendingMutationCount = value }
+            .store(in: &cancellables)
         offlineDownloadService.$isQueueRunning
+            .dropFirst()
             .receive(on: DispatchQueue.main)
-            .assign(to: &$isQueueRunning)
-
+            .sink { [weak self] value in self?.isQueueRunning = value }
+            .store(in: &cancellables)
         offlineDownloadService.$queueStatusReason
+            .dropFirst()
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .assign(to: &$queueStatusReason)
+            .sink { [weak self] value in self?.queueStatusReason = value }
+            .store(in: &cancellables)
 
         // Rebuild library summaries when targets or accounts change
-        offlineDownloadService.$targets
-            .combineLatest(accountManager.$plexAccounts)
+        targetsAndAccounts
             .sink { [weak self] _, _ in
                 self?.publishLibrarySummaryShells()
             }
             .store(in: &cancellables)
 
         // Fill in heavier counts and size estimates after the stable shell rows exist.
-        offlineDownloadService.$targets
-            .combineLatest(accountManager.$plexAccounts)
+        targetsAndAccounts
             .debounce(for: .milliseconds(200), scheduler: DispatchQueue.main)
             .sink { [weak self] _, _ in
                 Task { [weak self] in
@@ -149,6 +170,11 @@ public final class DownloadsViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        Task { [weak self] in
+            await self?.resolveThumbPaths()
+            await self?.rebuildLibrarySummaries()
+        }
     }
 
     public func refresh() async {

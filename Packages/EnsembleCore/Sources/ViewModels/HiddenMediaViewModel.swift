@@ -1,6 +1,7 @@
 import Combine
 import EnsemblePersistence
 import Foundation
+import Observation
 
 public enum ResolvedHiddenMediaItem: Identifiable, Equatable {
     case playlist(Playlist)
@@ -28,9 +29,10 @@ public enum ResolvedHiddenMediaItem: Identifiable, Equatable {
 }
 
 @MainActor
-public final class HiddenMediaViewModel: ObservableObject {
-    @Published public private(set) var items: [ResolvedHiddenMediaItem] = []
-    @Published public private(set) var isLoading = false
+@Observable
+public final class HiddenMediaViewModel {
+    public private(set) var items: [ResolvedHiddenMediaItem] = []
+    public private(set) var isLoading = false
 
     public let store: HiddenMediaStore
     private let libraryRepository: LibraryRepositoryProtocol
@@ -48,7 +50,11 @@ public final class HiddenMediaViewModel: ObservableObject {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.accountManager = accountManager
+    }
 
+    /// Starts observing hidden-media changes. Safe to call on every appearance.
+    public func start() {
+        guard cancellables.isEmpty else { return }
         store.$snapshot.dropFirst().sink { [weak self] _ in
             Task { await self?.load() }
         }.store(in: &cancellables)

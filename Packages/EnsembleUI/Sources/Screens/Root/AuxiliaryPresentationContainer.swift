@@ -47,6 +47,7 @@ public struct ProfilePresentationContainer: View {
 }
 
 public struct DownloadsPresentationContainer: View {
+    @Environment(DependencyContainer.self) private var dependencies
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
 
@@ -59,7 +60,7 @@ public struct DownloadsPresentationContainer: View {
         MacAuxiliaryWindowScaffold(
             configuration: .downloads
         ) {
-            DownloadsView(nowPlayingVM: nowPlayingVM)
+            DownloadsView(nowPlayingVM: nowPlayingVM, dependencies: dependencies)
                 .nativeSheetNavigationContainer()
         }
         .accentColor(settingsManager.accentColor.color)
@@ -74,7 +75,7 @@ public struct DownloadsPresentationContainer: View {
             Text("This will replace the songs you added to the current queue.")
         }
         #else
-        DownloadsView(nowPlayingVM: nowPlayingVM)
+        DownloadsView(nowPlayingVM: nowPlayingVM, dependencies: dependencies)
             .modifier(AuxiliaryDismissToolbarModifier())
             .nativeSheetNavigationContainer()
             .accentColor(settingsManager.accentColor.color)

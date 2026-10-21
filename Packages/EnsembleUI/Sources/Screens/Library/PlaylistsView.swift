@@ -25,7 +25,7 @@ private enum PlaylistMutationEvent {
 }
 
 struct PlaylistBrowseControls: View {
-    @ObservedObject var viewModel: PlaylistViewModel
+    @Bindable var viewModel: PlaylistViewModel
     let nowPlayingVM: NowPlayingViewModel
     @Environment(DependencyContainer.self) private var deps
     @State private var showsCreatePlaylist = false
@@ -86,7 +86,7 @@ public struct PlaylistsView: View {
         case selectionColumn
     }
 
-    @StateObject private var viewModel: PlaylistViewModel
+    @State private var viewModel: PlaylistViewModel
     let nowPlayingVM: NowPlayingViewModel
     private let presentationMode: PresentationMode
     private let externalSelectedPlaylist: Binding<DisplayPlaylist?>?
@@ -196,13 +196,11 @@ public struct PlaylistsView: View {
 
     public init(
         nowPlayingVM: NowPlayingViewModel,
-        viewModel: PlaylistViewModel? = nil,
+        viewModel: PlaylistViewModel,
         presentationMode: PresentationMode = .compactRoot,
         selectedPlaylist: Binding<DisplayPlaylist?>? = nil
     ) {
-        self._viewModel = StateObject(
-            wrappedValue: viewModel ?? DependencyContainer.shared.makePlaylistViewModel()
-        )
+        self._viewModel = State(initialValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
         self.presentationMode = presentationMode
         self.externalSelectedPlaylist = selectedPlaylist
@@ -249,7 +247,7 @@ public struct PlaylistsView: View {
             .sheet(item: $playlistForEditSheet) { playlist in
                 PlaylistDetailView(
                     playlist: playlist,
-                    nowPlayingVM: nowPlayingVM,
+                    nowPlayingVM: nowPlayingVM, dependencies: deps,
                     startInEditMode: true
                 )
                 .nativeSheetNavigationContainer()
@@ -267,10 +265,11 @@ public struct PlaylistsView: View {
                 view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
             }
             .task {
+                viewModel.start()
                 await viewModel.loadPlaylistsIfNeeded()
             }
             // Keep cached displayed playlists in sync (avoids recomputing grouping on every body eval)
-            .onReceive(viewModel.$displayPlaylists) { displayPlaylists in
+            .onChange(of: viewModel.displayPlaylists, initial: true) { _, displayPlaylists in
                 // During pull-to-refresh, freeze the cached list so intermediate
                 // CoreData states (partial data while sync rebuilds records) can't
                 // clobber the display. The ViewModel does its own loadPlaylists()
@@ -282,7 +281,7 @@ public struct PlaylistsView: View {
             }
             // When refresh completes, catch up immediately rather than waiting for the
             // Combine pipeline's 150ms debounce to produce the next displayPlaylists emission.
-            .onReceive(viewModel.$isRefreshingFromServer) { isRefreshing in
+            .onChange(of: viewModel.isRefreshingFromServer, initial: true) { _, isRefreshing in
                 guard !isRefreshing else { return }
                 refreshCachedDisplayedPlaylists()
             }
@@ -414,10 +413,10 @@ public struct PlaylistsView: View {
             },
             detail: { displayPlaylist in
                 if displayPlaylist.isMerged {
-                    MergedPlaylistDetailView(displayPlaylist: displayPlaylist, nowPlayingVM: nowPlayingVM)
+                    MergedPlaylistDetailView(displayPlaylist: displayPlaylist, nowPlayingVM: nowPlayingVM, dependencies: deps)
                     .id(displayPlaylist.id)
                 } else {
-                    PlaylistDetailView(playlist: displayPlaylist.primaryPlaylist, nowPlayingVM: nowPlayingVM)
+                    PlaylistDetailView(playlist: displayPlaylist.primaryPlaylist, nowPlayingVM: nowPlayingVM, dependencies: deps)
                     .id(displayPlaylist.id)
                 }
             },
@@ -745,7 +744,7 @@ private struct PlaylistLoadingRow: View {
 // MARK: - Playlist Detail View
 
 public struct PlaylistDetailView: View {
-    @StateObject private var viewModel: PlaylistDetailViewModel
+    @State private var viewModel: PlaylistDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
 
     @State private var showRenamePrompt = false
@@ -765,21 +764,21 @@ public struct PlaylistDetailView: View {
     public init(
         playlist: Playlist,
         nowPlayingVM: NowPlayingViewModel,
+        dependencies: DependencyContainer,
         startInEditMode: Bool = false,
         initialTracks: [Track]? = nil,
         initialItems: [PlaylistItem]? = nil,
         initialArtworkImage: PlatformImage? = nil,
         includesHidden: Bool = false
     ) {
-        self._viewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makePlaylistDetailViewModel(
-                playlist: playlist,
-                initialTracks: initialTracks,
-                initialItems: initialItems,
-                observesExternalChanges: !startInEditMode,
-                includesHidden: includesHidden
-            )
-        )
+        self._viewModel = State(initialValue: PlaylistDetailViewModel(
+            playlist: playlist,
+            dependencies: dependencies,
+            initialTracks: initialTracks,
+            initialItems: initialItems,
+            observesExternalChanges: !startInEditMode,
+            includesHidden: includesHidden
+        ))
         self.nowPlayingVM = nowPlayingVM
         self._isEditingPlaylist = State(initialValue: startInEditMode)
         self.startedInEditMode = startInEditMode
@@ -791,7 +790,7 @@ public struct PlaylistDetailView: View {
         nowPlayingVM: NowPlayingViewModel,
         startInEditMode: Bool = false
     ) {
-        self._viewModel = StateObject(wrappedValue: viewModel)
+        self._viewModel = State(initialValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
         self._isEditingPlaylist = State(initialValue: startInEditMode)
         self.startedInEditMode = startInEditMode

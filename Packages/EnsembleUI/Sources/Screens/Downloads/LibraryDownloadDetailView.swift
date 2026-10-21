@@ -6,7 +6,7 @@ import SwiftUI
 /// Detail view showing all downloaded tracks for a library (sourceCompositeKey),
 /// regardless of which target type triggered the download.
 struct LibraryDownloadDetailView: View {
-    @StateObject private var viewModel: LibraryDownloadDetailViewModel
+    @State private var viewModel: LibraryDownloadDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
     @AppStorage(AudioQualityPreference.downloadQualityKey)
     private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
@@ -14,14 +14,15 @@ struct LibraryDownloadDetailView: View {
     init(
         sourceCompositeKey: String,
         title: String,
-        nowPlayingVM: NowPlayingViewModel
+        nowPlayingVM: NowPlayingViewModel,
+        dependencies: DependencyContainer
     ) {
-        self._viewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makeLibraryDownloadDetailViewModel(
-                sourceCompositeKey: sourceCompositeKey,
-                title: title
-            )
-        )
+        self._viewModel = State(initialValue: LibraryDownloadDetailViewModel(
+            sourceCompositeKey: sourceCompositeKey,
+            title: title,
+            downloadManager: dependencies.downloadManager,
+            offlineDownloadService: dependencies.offlineDownloadService
+        ))
         self.nowPlayingVM = nowPlayingVM
     }
 
@@ -56,6 +57,7 @@ struct LibraryDownloadDetailView: View {
             #endif
         }
         .task {
+            viewModel.start()
             await viewModel.refresh()
         }
         .refreshable {
