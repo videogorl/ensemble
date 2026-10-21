@@ -14,6 +14,7 @@ var supportsCustomMiniPlayerSwipeGestures: Bool {
 }
 
 struct MiniPlayerVerticalSwipeModifier: ViewModifier {
+    @Environment(DependencyContainer.self) private var dependencies
     let isEnabled: Bool
     @Binding var verticalOffset: CGFloat
     let onOpen: () -> Void
@@ -23,7 +24,7 @@ struct MiniPlayerVerticalSwipeModifier: ViewModifier {
             content.gesture(
                 DragGesture()
                     .onChanged { value in
-                        DependencyContainer.shared.foregroundWorkScheduler.beginInteraction(.nowPlayingInteractive)
+                        dependencies.foregroundWorkScheduler.beginInteraction(.nowPlayingInteractive)
                         if value.translation.height < 0 {
                             verticalOffset = value.translation.height * EnsembleScaffold.MiniPlayer.verticalSwipeRubberBandFactor
                         }
@@ -35,7 +36,7 @@ struct MiniPlayerVerticalSwipeModifier: ViewModifier {
                         withAnimation(.spring()) {
                             verticalOffset = 0
                         }
-                        endNowPlayingInteractionAfterGesture()
+                        endNowPlayingInteractionAfterGesture(dependencies.foregroundWorkScheduler)
                     }
             )
         } else {
@@ -45,6 +46,7 @@ struct MiniPlayerVerticalSwipeModifier: ViewModifier {
 }
 
 struct MiniPlayerHorizontalSwipeModifier: ViewModifier {
+    @Environment(DependencyContainer.self) private var dependencies
     let isEnabled: Bool
     @Binding var dragOffset: CGFloat
     @Binding var opacity: Double
@@ -56,7 +58,7 @@ struct MiniPlayerHorizontalSwipeModifier: ViewModifier {
             content.gesture(
                 DragGesture()
                     .onChanged { value in
-                        DependencyContainer.shared.foregroundWorkScheduler.beginInteraction(.nowPlayingInteractive)
+                        dependencies.foregroundWorkScheduler.beginInteraction(.nowPlayingInteractive)
                         if abs(value.translation.width) > abs(value.translation.height) {
                             dragOffset = value.translation.width
                             opacity = 1.0 - min(
@@ -74,7 +76,7 @@ struct MiniPlayerHorizontalSwipeModifier: ViewModifier {
                         } else {
                         }
                         reset()
-                        endNowPlayingInteractionAfterGesture()
+                        endNowPlayingInteractionAfterGesture(dependencies.foregroundWorkScheduler)
                     }
             )
         } else {
@@ -90,8 +92,7 @@ struct MiniPlayerHorizontalSwipeModifier: ViewModifier {
     }
 }
 
-private func endNowPlayingInteractionAfterGesture() {
-    let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+private func endNowPlayingInteractionAfterGesture(_ scheduler: ForegroundWorkScheduler) {
     Task { @MainActor in
         try? await Task.sleep(nanoseconds: 700_000_000)
         scheduler.endInteraction(.nowPlayingInteractive)

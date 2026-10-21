@@ -81,6 +81,7 @@ public final class AirPlayPresentationController: ObservableObject {
 #if canImport(UIKit)
 /// SwiftUI wrapper for the native AirPlay button.
 public struct AirPlayButton: UIViewRepresentable {
+    @Environment(DependencyContainer.self) private var dependencies
     private let presentation: AirPlayPresentationController?
 
     /// Pass a controller only to the card's persistent picker, not to additional visible buttons.
@@ -122,7 +123,7 @@ public struct AirPlayButton: UIViewRepresentable {
 
     private func updateLook(_ view: AVRoutePickerView) {
         view.tintColor = UIColor.label.withAlphaComponent(0.7)
-        let accentColor = DependencyContainer.shared.settingsManager.accentColor.color
+        let accentColor = dependencies.settingsManager.accentColor.color
         view.activeTintColor = UIColor(accentColor)
     }
 }

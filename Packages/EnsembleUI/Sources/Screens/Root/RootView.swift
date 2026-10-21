@@ -12,10 +12,11 @@ import AppKit
 
 /// Root view that renders the main content directly (no auth gate)
 public struct RootView: View {
+    @Environment(DependencyContainer.self) private var dependencies
     @Environment(\.scenePhase) private var scenePhase
     @State private var usesExpandedPhoneBrowse = false
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    private var powerStateMonitor: PowerStateMonitor { dependencies.powerStateMonitor }
     @StateObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @StateObject private var screenModels: RootScreenModels
@@ -110,7 +111,7 @@ public struct RootView: View {
         .onAppear {
             NavigationCoordinator.setActiveSceneCoordinator(navigationCoordinator)
             NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
-            DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
+            dependencies.activeNowPlayingViewModel = nowPlayingVM
             logAutomationLaunchOptionsIfNeeded()
             applyAutomationNetworkStateIfNeeded()
             applyAutomationLaunchRouteIfNeeded()
@@ -161,7 +162,7 @@ public struct RootView: View {
             nowPlayingPresentationContent
         }
         .task {
-            let deps = DependencyContainer.shared
+            let deps = dependencies
             logRootTaskStart()
             #if os(macOS)
             await deps.accountManager.loadAccountsAsync()
@@ -198,7 +199,7 @@ public struct RootView: View {
         guard options.simulateOffline else { return }
 
         #if DEBUG
-        DependencyContainer.shared.networkMonitor.simulateOffline(true)
+        dependencies.networkMonitor.simulateOffline(true)
         #else
         EnsembleLogger.info("Automation offline simulation requested in a non-debug build; ignoring")
         #endif
@@ -232,7 +233,7 @@ public struct RootView: View {
                 event: "playlistRefreshRequested",
                 details: ["source": "launchArgument"]
             )
-            await DependencyContainer.shared.syncCoordinator.syncPlaylistsOnly()
+            await dependencies.syncCoordinator.syncPlaylistsOnly()
             UserJourneyLogger.log(
                 context: "automation",
                 event: "playlistRefreshCompleted",
@@ -349,7 +350,7 @@ public struct RootView: View {
     }
 
     private func presentNowPlayingFromMiniPlayer() {
-        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        let scheduler = dependencies.foregroundWorkScheduler
         scheduler.beginInteraction(.nowPlayingInteractive)
         withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
             isNowPlayingPresented = true
@@ -361,7 +362,7 @@ public struct RootView: View {
     }
 
     private func dismissNowPlaying() {
-        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        let scheduler = dependencies.foregroundWorkScheduler
         scheduler.beginInteraction(.nowPlayingInteractive)
         withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
             isNowPlayingPresented = false

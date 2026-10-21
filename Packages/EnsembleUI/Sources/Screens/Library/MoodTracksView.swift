@@ -238,7 +238,7 @@ public struct MoodTracksView: View {
 
         // Plex mood keys are library-local. Prefer the key captured while building
         // the merged mood list, then fall back to title resolution for older caches.
-        let accountManager = DependencyContainer.shared.accountManager
+        let accountManager = deps.accountManager
         let targetMoodTitleKey = Mood.normalizedTitleKey(mood.title)
         let targetReferences = Mood.sourceReferences(from: mood.sourceCompositeKey)
         let targetSourceKeys = Set(targetReferences.map(\.sourceCompositeKey))

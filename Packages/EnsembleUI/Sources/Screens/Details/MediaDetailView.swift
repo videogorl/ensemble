@@ -272,7 +272,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
-    private let pinManager = DependencyContainer.shared.pinManager
+    private var pinManager: PinManager { deps.pinManager }
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration

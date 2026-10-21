@@ -31,6 +31,7 @@ enum NowPlayingPanelPage: Int, CaseIterable {
 /// Horizontal paging carousel managing four cards: Queue, Controls, Lyrics, Info
 /// Opens to Controls by default
 public struct NowPlayingCarousel: View {
+    @Environment(DependencyContainer.self) private var dependencies
     let viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     @ObservedObject private var lyricsProjection: NowPlayingLyricsProjection
@@ -73,7 +74,7 @@ public struct NowPlayingCarousel: View {
     }
 
     private func markNowPlayingInteraction() {
-        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        let scheduler = dependencies.foregroundWorkScheduler
         scheduler.beginInteraction(.nowPlayingInteractive)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_500_000_000)

@@ -5,6 +5,7 @@ import SwiftUI
 /// Home screen displaying dynamic content hubs from Plex servers
 /// Hubs include Recently Added, Recently Played, Most Played, etc.
 public struct HomeView: View {
+    @Environment(DependencyContainer.self) private var dependencies
     @ObservedObject private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
@@ -312,7 +313,7 @@ public struct HomeView: View {
         }
 
         guard let image else { return }
-        let blurredImage = await DependencyContainer.shared.artworkLoader.blurredImage(
+        let blurredImage = await dependencies.artworkLoader.blurredImage(
             for: image,
             cacheKey: cacheKey
         )

@@ -7,6 +7,7 @@ import SwiftUI
 /// earlier content on demand. File I/O happens off the main thread
 /// to avoid freezing the UI on large logs.
 public struct LogDetailView: View {
+    @Environment(DependencyContainer.self) private var dependencies
     let session: LogSession
 
     /// How many lines to show per chunk when loading earlier content.
@@ -20,7 +21,7 @@ public struct LogDetailView: View {
     @State private var loadError: String?
     @State private var isPreparingShare = false
 
-    private let logService = DependencyContainer.shared.persistentLogService
+    private var logService: PersistentLogService { dependencies.persistentLogService }
 
     public init(session: LogSession) {
         self.session = session
@@ -161,7 +162,7 @@ public struct LogDetailView: View {
     private func shareLogFile() {
         guard !isPreparingShare else { return }
         isPreparingShare = true
-        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        let scheduler = dependencies.foregroundWorkScheduler
         scheduler.beginInteraction(.shareSheetPresenting)
 
         Task { @MainActor in

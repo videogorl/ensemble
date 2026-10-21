@@ -13,12 +13,12 @@ public struct MainTabView: View {
     let viewModels: RootScreenModels
     private let nowPlayingVM: NowPlayingViewModel
     @Namespace private var mediaNavigationNamespace
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    private var settingsManager: SettingsManager { deps.settingsManager }
     // Observation-extracted: networkMonitor publishes on every network state change,
     // which would invalidate the entire root view. We only need networkState, so we
     // listen to just that property and store it in @State.
-    private let networkMonitor = DependencyContainer.shared.networkMonitor
-    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    private var networkMonitor: NetworkMonitor { deps.networkMonitor }
+    private var powerStateMonitor: PowerStateMonitor { deps.powerStateMonitor }
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(DependencyContainer.self) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
@@ -328,7 +328,7 @@ public struct MainTabView: View {
                 !rootChromeSuppressed &&
                 navigationCoordinator.activeAuxiliaryPresentation == nil {
                 AuroraVisualizationView(
-                    playbackService: DependencyContainer.shared.playbackService,
+                    playbackService: deps.playbackService,
                     consumer: .phoneOverlay,
                     accentColor: accentColor.color,
                     isPaused: isShowingNowPlaying,
@@ -525,9 +525,9 @@ public struct SidebarView: View {
     @ObservedObject private var pinnedVM: PinnedViewModel
     @Namespace private var mediaNavigationNamespace
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    private let settingsManager = DependencyContainer.shared.settingsManager
     private let rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
     @Environment(DependencyContainer.self) private var deps
+    private var settingsManager: SettingsManager { deps.settingsManager }
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @Environment(\.isSoftwareKeyboardVisible) private var isSoftwareKeyboardVisible
     #if os(macOS)
@@ -2008,12 +2008,12 @@ public struct SidebarView: View {
                     albums: libraryVM.albums,
                     playlists: playlistsVM.playlists,
                     loadAlbumTracks: { album in
-                        let detailVM = DependencyContainer.shared.makeAlbumDetailViewModel(album: album)
+                        let detailVM = deps.makeAlbumDetailViewModel(album: album)
                         await detailVM.loadTracks()
                         return detailVM.tracks
                     },
                     loadPlaylistTracks: { playlist in
-                        let detailVM = DependencyContainer.shared.makePlaylistDetailViewModel(playlist: playlist)
+                        let detailVM = deps.makePlaylistDetailViewModel(playlist: playlist)
                         await detailVM.loadTracks()
                         return detailVM.tracks
                     }

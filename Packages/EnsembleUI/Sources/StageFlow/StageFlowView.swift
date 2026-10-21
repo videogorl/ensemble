@@ -207,7 +207,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
 
         if settingsManager.auroraVisualizationEnabled && nowPlayingVM.currentTrack?.sourceCapabilities.supportsWaveform != false {
             AuroraVisualizationView(
-                playbackService: DependencyContainer.shared.playbackService,
+                playbackService: dependencies.playbackService,
                 consumer: .stageFlow,
                 accentColor: settingsManager.accentColor.color,
                 isPaused: false,

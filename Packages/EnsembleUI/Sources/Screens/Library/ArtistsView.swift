@@ -621,7 +621,7 @@ public struct ArtistDetailView: View {
     @Environment(DependencyContainer.self) private var dependencies
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
-    private let pinManager = DependencyContainer.shared.pinManager
+    private var pinManager: PinManager { dependencies.pinManager }
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration

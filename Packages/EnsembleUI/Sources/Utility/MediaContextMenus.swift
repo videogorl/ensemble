@@ -282,7 +282,7 @@ struct AlbumActionsContextMenu: View {
     @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    private let pinManager = DependencyContainer.shared.pinManager
+    private var pinManager: PinManager { deps.pinManager }
 
     private var backingAlbums: [Album] {
         sourceAlbums.isEmpty ? [album] : sourceAlbums
@@ -559,7 +559,7 @@ struct ArtistActionsContextMenu: View {
 
     @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
-    private let pinManager = DependencyContainer.shared.pinManager
+    private var pinManager: PinManager { deps.pinManager }
 
     private var mutationArtists: [Artist] {
         sourceArtists.isEmpty ? [artist] : sourceArtists
@@ -895,7 +895,7 @@ struct PlaylistActionsContextMenu: View {
 
     @Environment(DependencyContainer.self) private var deps
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
-    private let pinManager = DependencyContainer.shared.pinManager
+    private var pinManager: PinManager { deps.pinManager }
 
     private var mutationPlaylists: [Playlist] {
         sourcePlaylists.isEmpty ? [playlist] : sourcePlaylists

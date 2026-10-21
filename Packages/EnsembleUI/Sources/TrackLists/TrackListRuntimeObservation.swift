@@ -17,11 +17,12 @@ extension EnvironmentValues {
 /// redraw visible rows for download and availability changes.
 @MainActor
 struct TrackListRuntimeObservationModifier: ViewModifier {
+    @Environment(DependencyContainer.self) private var dependencies
     @Binding var activeDownloadTrackIdentities: Set<String>
     @Binding var availabilityGeneration: UInt64
 
-    private let offlineDownloadService = DependencyContainer.shared.offlineDownloadService
-    private let trackAvailabilityResolver = DependencyContainer.shared.trackAvailabilityResolver
+    private var offlineDownloadService: OfflineDownloadService { dependencies.offlineDownloadService }
+    private var trackAvailabilityResolver: TrackAvailabilityResolver { dependencies.trackAvailabilityResolver }
 
     func body(content: Content) -> some View {
         content

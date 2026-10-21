@@ -156,7 +156,8 @@ struct AudioQualitySettingsView: View {
 // MARK: - SmartMix Settings
 
 struct SmartMixSettingsView: View {
-    private let playbackService = DependencyContainer.shared.playbackService
+    @Environment(DependencyContainer.self) private var dependencies
+    private var playbackService: PlaybackService { dependencies.playbackService }
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     @State private var isSmartMixEnabled = DependencyContainer.shared.playbackService.isSmartMixEnabled
     @State private var isSmartMixDisabledForAlbums = DependencyContainer.shared.playbackService.isSmartMixDisabledForAlbums

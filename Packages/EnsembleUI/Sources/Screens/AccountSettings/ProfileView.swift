@@ -6,12 +6,13 @@ import SwiftUI
 /// Shows profile header (image + name) followed by all settings sections.
 /// Modeled after Apple's iCloud Settings panel aesthetic.
 public struct ProfileView: View {
+    @Environment(DependencyContainer.self) private var dependencies
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
-    private let playbackService = DependencyContainer.shared.playbackService
-    private let cacheManager = DependencyContainer.shared.cacheManager
+    private var playbackService: PlaybackService { dependencies.playbackService }
+    private var cacheManager: CacheManager { dependencies.cacheManager }
 
     @State private var showingDeleteAlert = false
     @State private var showingClearArtworkCacheAlert = false
@@ -77,7 +78,7 @@ public struct ProfileView: View {
                                 await syncCoordinator.cleanupServerPlaylists(accountId: account.id, serverId: serverId)
                             }
                             if !cleanupSucceeded {
-                                DependencyContainer.shared.toastCenter.show(
+                                dependencies.toastCenter.show(
                                     ToastPayload(
                                         style: .error,
                                         iconSystemName: EnsembleDesign.Icon.error,
@@ -517,11 +518,11 @@ public struct ProfileView: View {
                 )
             }
             .onChange(of: debugSimulateOffline) { simulating in
-                DependencyContainer.shared.networkMonitor.simulateOffline(simulating)
+                dependencies.networkMonitor.simulateOffline(simulating)
             }
 
             Button {
-                DependencyContainer.shared.toastCenter.show(
+                dependencies.toastCenter.show(
                     ToastPayload(
                         style: .info,
                         iconSystemName: EnsembleDesign.Icon.notification,
@@ -915,14 +916,14 @@ public struct ProfileView: View {
                     )
                 }
                 .onChange(of: debugSimulateOffline) { simulating in
-                    DependencyContainer.shared.networkMonitor.simulateOffline(simulating)
+                    dependencies.networkMonitor.simulateOffline(simulating)
                 }
             }
 
             EnsembleUtilityCardDivider()
 
             macButtonRow {
-                DependencyContainer.shared.toastCenter.show(
+                dependencies.toastCenter.show(
                     ToastPayload(
                         style: .info,
                         iconSystemName: EnsembleDesign.Icon.notification,
@@ -1078,7 +1079,7 @@ public struct ProfileView: View {
             do {
                 try await cacheManager.clearArtworkCaches()
                 await MainActor.run {
-                    DependencyContainer.shared.toastCenter.show(
+                    dependencies.toastCenter.show(
                         ToastPayload(
                             style: .success,
                             iconSystemName: EnsembleDesign.Icon.paintPalette,
@@ -1090,7 +1091,7 @@ public struct ProfileView: View {
             } catch {
                 EnsembleLogger.debug("ProfileView: failed to clear artwork cache: \(error.localizedDescription)")
                 await MainActor.run {
-                    DependencyContainer.shared.toastCenter.show(
+                    dependencies.toastCenter.show(
                         ToastPayload(
                             style: .error,
                             iconSystemName: EnsembleDesign.Icon.error,

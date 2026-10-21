@@ -101,10 +101,10 @@ public struct PlaylistsView: View {
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist]?
     @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
     @State private var demoModeEnabled = DependencyContainer.shared.settingsManager.demoModeEnabled
-    private let settingsManager = DependencyContainer.shared.settingsManager
-    private let accountManager = DependencyContainer.shared.accountManager
-    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(DependencyContainer.self) private var deps
+    private var settingsManager: SettingsManager { deps.settingsManager }
+    private var accountManager: AccountManager { deps.accountManager }
+    private var syncCoordinator: SyncCoordinator { deps.syncCoordinator }
     @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @Environment(\.isStageFlowActive) private var rootStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -697,8 +697,9 @@ public struct PlaylistsView: View {
 /// Scopes syncCoordinator observation so only this button re-renders on sync state changes,
 /// not the entire PlaylistsView list.
 private struct PlaylistsNewButton: View {
+    @Environment(DependencyContainer.self) private var dependencies
     let action: () -> Void
-    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
+    private var syncCoordinator: SyncCoordinator { dependencies.syncCoordinator }
     @State private var isOffline = DependencyContainer.shared.syncCoordinator.isOffline
 
     var body: some View {

@@ -257,7 +257,7 @@ public struct PlaylistPickerSheet: View {
 
     private var shouldShowCreateAction: Bool {
         // Don't show the create option when offline — playlist creation requires a server round-trip
-        guard !DependencyContainer.shared.syncCoordinator.isOffline else { return false }
+        guard !deps.syncCoordinator.isOffline else { return false }
         return !newPlaylistName.isEmpty && !hasExactNameMatch
     }
 

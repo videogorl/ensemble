@@ -123,6 +123,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         context.coordinator.shareService = dependencies.shareService
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
+        context.coordinator.settingsManager = dependencies.settingsManager
         context.coordinator.onRemoveFromPlaylist = onRemoveFromPlaylist
         if structureChanged {
             coordinator.rebuildRows()
@@ -179,6 +180,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
+            settingsManager: dependencies.settingsManager,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
             onTrackTap: onTrackTap
         )
@@ -207,6 +209,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         var shareService: ShareService
         var toastCenter: ToastCenter
         var trackAvailabilityResolver: TrackAvailabilityResolver
+        var settingsManager: SettingsManager
         var onRemoveFromPlaylist: ((Track, Int) -> Void)?
         let onTrackTap: (Track, Int) -> Void
         weak var tableView: NSTableView?
@@ -241,6 +244,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             shareService: ShareService,
             toastCenter: ToastCenter,
             trackAvailabilityResolver: TrackAvailabilityResolver,
+            settingsManager: SettingsManager,
             onRemoveFromPlaylist: ((Track, Int) -> Void)?,
             onTrackTap: @escaping (Track, Int) -> Void
         ) {
@@ -264,6 +268,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             self.artworkLoader = artworkLoader
             self.shareService = shareService
             self.toastCenter = toastCenter
+            self.settingsManager = settingsManager
             self.trackAvailabilityResolver = trackAvailabilityResolver
             self.onRemoveFromPlaylist = onRemoveFromPlaylist
             self.onTrackTap = onTrackTap
@@ -522,7 +527,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         ) -> [NSTableViewRowAction] {
             guard row < rows.count,
                   case let .track(track, _) = rows[row] else { return [] }
-            let layout = DependencyContainer.shared.settingsManager.trackSwipeLayout
+            let layout = settingsManager.trackSwipeLayout
             let configured = edge == .leading ? layout.leading : layout.trailing
             let slots = MacNativeTrackTableView.appKitRowActionSlots(for: configured, edge: edge)
             guard slots.contains(where: { $0 != nil }) else { return [] }

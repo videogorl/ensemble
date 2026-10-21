@@ -7,6 +7,7 @@ private final class ForegroundScrollActivityState {
 }
 
 private struct ForegroundScrollActivityModifier: ViewModifier {
+    @Environment(DependencyContainer.self) private var dependencies
     @State private var state = ForegroundScrollActivityState()
 
     func body(content: Content) -> some View {
@@ -34,7 +35,7 @@ private struct ForegroundScrollActivityModifier: ViewModifier {
         state.endTask = nil
         guard !state.isScrolling else { return }
         state.isScrolling = true
-        DependencyContainer.shared.foregroundWorkScheduler.beginInteraction(.scrolling)
+        dependencies.foregroundWorkScheduler.beginInteraction(.scrolling)
     }
 
     private func scheduleScrollingEnd() {
@@ -51,7 +52,7 @@ private struct ForegroundScrollActivityModifier: ViewModifier {
         state.endTask = nil
         guard state.isScrolling else { return }
         state.isScrolling = false
-        DependencyContainer.shared.foregroundWorkScheduler.endInteraction(.scrolling)
+        dependencies.foregroundWorkScheduler.endInteraction(.scrolling)
     }
 }
 

@@ -555,6 +555,7 @@ public struct DownloadsView: View {
 // MARK: - Supporting Row Views
 
 private struct DownloadedItemRow: View {
+    @Environment(DependencyContainer.self) private var dependencies
     let item: DownloadedItemSummary
     let demoModeEnabled: Bool
 
@@ -611,7 +612,7 @@ private struct DownloadedItemRow: View {
     }
 
     private var sourceDisplayText: String? {
-        guard let context = DependencyContainer.shared.accountManager.sourceLibraryContext(for: item.sourceCompositeKey) else {
+        guard let context = dependencies.accountManager.sourceLibraryContext(for: item.sourceCompositeKey) else {
             return item.sourceDisplayText
         }
         return DemoModeRedaction.sourceDisplaySubtitle(

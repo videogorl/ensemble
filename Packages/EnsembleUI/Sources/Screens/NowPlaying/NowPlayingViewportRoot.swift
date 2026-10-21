@@ -4,6 +4,7 @@ import SwiftUI
 
 /// Shared artwork/aurora backdrop for large Now Playing surfaces.
 struct NowPlayingBackdrop: View {
+    @Environment(DependencyContainer.self) private var dependencies
     let viewModel: NowPlayingViewModel
     @ObservedObject private var artworkProjection: NowPlayingArtworkProjection
     @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
@@ -45,7 +46,7 @@ struct NowPlayingBackdrop: View {
 
             if settingsManager.auroraVisualizationEnabled && playbackProjection.currentTrack?.sourceCapabilities.supportsWaveform != false {
                 AuroraVisualizationView(
-                    playbackService: DependencyContainer.shared.playbackService,
+                    playbackService: dependencies.playbackService,
                     consumer: consumer,
                     accentColor: settingsManager.accentColor.color,
                     isLowPowerMode: powerStateMonitor.isLowPowerMode,
