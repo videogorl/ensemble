@@ -1,7 +1,9 @@
+import AsyncAlgorithms
 import Combine
 import EnsembleAPI
 import EnsembleDomain
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -110,7 +112,9 @@ public final class PinnedViewModel {
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
     private let hiddenMediaStore: HiddenMediaStore
+    private let settingsManager: SettingsManager
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     private var isMoving = false
     private var hasLoadedPinnedItems = false
 
@@ -120,8 +124,10 @@ public final class PinnedViewModel {
         playlistRepository: PlaylistRepositoryProtocol,
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore,
-        hiddenMediaStore: HiddenMediaStore? = nil
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        settingsManager: SettingsManager? = nil
     ) {
+        self.settingsManager = settingsManager ?? SettingsManager()
         self.pinManager = pinManager
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
@@ -145,18 +151,10 @@ public final class PinnedViewModel {
             }
             .store(in: &cancellables)
 
-        NotificationCenter.default.publisher(
-            for: SettingsManager.mergingPreferencesDidChange,
-            object: UserDefaults.standard
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] _ in
-            guard let self, !self.isMoving else { return }
-            Task { @MainActor in
-                await self.loadPinnedItems()
-            }
-        }
-        .store(in: &cancellables)
+        subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().dropFirst().observe(self) { model, _ in
+            guard !model.isMoving else { return }
+            Task { await model.loadPinnedItems() }
+        })
 
         self.hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             Task { await self?.loadPinnedItems() }
@@ -237,7 +235,7 @@ public final class PinnedViewModel {
             hiddenMedia: hiddenMediaStore.snapshot
         )
 
-        let preferences = SettingsManager.storedMergingPreferences()
+        let preferences = settingsManager.mergingPreferences
         if preferences.isEnabled && preferences.mergeAlbums {
             resolved = mergeAlbumPins(resolved, preferences: preferences)
         }

@@ -46,6 +46,7 @@ extension PlaylistViewModel {
             accountManager: dependencies.accountManager,
             visibilityStore: dependencies.libraryVisibilityStore,
             hiddenMediaStore: dependencies.hiddenMediaStore,
+            settingsManager: dependencies.settingsManager,
             observesExternalChanges: observesExternalChanges
         )
     }
@@ -102,7 +103,8 @@ extension SearchViewModel {
             moodRepository: dependencies.moodRepository,
             accountManager: dependencies.accountManager,
             visibilityStore: dependencies.libraryVisibilityStore,
-            hiddenMediaStore: dependencies.hiddenMediaStore
+            hiddenMediaStore: dependencies.hiddenMediaStore,
+            settingsManager: dependencies.settingsManager
         )
     }
 }

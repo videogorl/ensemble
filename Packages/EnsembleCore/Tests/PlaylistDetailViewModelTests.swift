@@ -1191,11 +1191,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let suiteName = "PlaylistVisibility.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let previousPreferences = SettingsManager.storedMergingPreferences()
-        defer {
-            SettingsManager.setStoredMergingPreferences(previousPreferences)
-        }
-        SettingsManager.setStoredMergingPreferences(.default)
+        let settings = SettingsManager(defaults: defaults)
         let visibilityStore = LibraryVisibilityStore(userDefaults: defaults)
         let syncCoordinator = makeSyncCoordinator()
         let playlistRepository = MockPlaylistRepository()
@@ -1221,7 +1217,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
             toastCenter: ToastCenter(),
-            visibilityStore: visibilityStore
+            visibilityStore: visibilityStore,
+            settingsManager: settings
         )
         viewModel.start()
         await viewModel.loadPlaylists()
@@ -1229,14 +1226,14 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.displayPlaylists.first?.playlists.count, 2)
         XCTAssertTrue(viewModel.hasNameCollision("Road"))
 
-        SettingsManager.setStoredMergingPreferences(EnsembleMergingPreferences(isEnabled: false))
+        settings.setMergingPreferences(EnsembleMergingPreferences(isEnabled: false))
         let unmergedDeadline = Date().addingTimeInterval(2)
         while viewModel.displayPlaylists.count != 2, Date() < unmergedDeadline {
             try await Task.sleep(for: .milliseconds(25))
         }
         XCTAssertTrue(viewModel.displayPlaylists.allSatisfy { !$0.isMerged })
 
-        SettingsManager.setStoredMergingPreferences(.default)
+        settings.setMergingPreferences(.default)
         let mergedDeadline = Date().addingTimeInterval(2)
         while viewModel.displayPlaylists.first?.playlists.count != 2, Date() < mergedDeadline {
             try await Task.sleep(for: .milliseconds(25))
@@ -1798,6 +1795,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             for preferredSources in [sources, Array(sources.reversed())] {
                 let preferences = EnsembleMergingPreferences(mergeTracks: mergeTracks, preferredSourceKeys: preferredSources)
                 settings.setMergingPreferences(preferences)
+                await waitUntil {
+                    detail.playableTracks.count == (mergeTracks ? 3 : 5)
+                        && detail.playableTracks.first?.sourceCompositeKey == preferredSources[0]
+                }
                 let queue = detail.playableTracks
                 for sourceTrack in tracks {
                     let displayed = try XCTUnwrap(queue.first {

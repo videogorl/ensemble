@@ -338,10 +338,6 @@ public final class SettingsManager {
     public static let mergingPreferencesKey = "mergingPreferences"
     nonisolated private static let focusScrobblingOverrideKey = "focusScrobblingOverride"
     nonisolated private static let noFocusScrobblingOverride = -1
-    /// Posted when the persisted merge preferences change.
-    public static let mergingPreferencesDidChange = Notification.Name(
-        "SettingsManager.mergingPreferencesDidChange"
-    )
 
     public static func storedMergingPreferences(
         in defaults: UserDefaults = .standard
@@ -359,10 +355,6 @@ public final class SettingsManager {
         guard storedMergingPreferences(in: defaults) != preferences,
               let data = try? JSONEncoder().encode(preferences) else { return }
         defaults.set(data, forKey: mergingPreferencesKey)
-        NotificationCenter.default.post(
-            name: mergingPreferencesDidChange,
-            object: defaults
-        )
     }
 
     nonisolated public static func effectiveScrobblingEnabled(in defaults: UserDefaults = .standard) -> Bool {
@@ -388,7 +380,7 @@ public final class SettingsManager {
     public private(set) var settings: AppSettings {
         didSet {
             guard settings != oldValue else { return }
-            Self.persist(settings, changedFrom: oldValue, in: .standard)
+            Self.persist(settings, changedFrom: oldValue, in: defaults)
             if settings.allowInsecureConnectionsPolicy != oldValue.allowInsecureConnectionsPolicy {
                 onConnectionPolicyChanged?()
             }
@@ -396,23 +388,25 @@ public final class SettingsManager {
         }
     }
     @ObservationIgnored private let broadcast = Broadcast<AppSettings>(latestOnly: true)
+    @ObservationIgnored private let defaults: UserDefaults
 
     /// The current settings, then each change.
     public func snapshots() -> AsyncStream<AppSettings> {
         broadcast.stream(startingWith: settings)
     }
 
-    public init() {
-        UserDefaults.standard.register(defaults: [
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        defaults.register(defaults: [
             AuroraVisualizationPreference.enabledKey: AuroraVisualizationPreference.defaultEnabled,
             Self.scrobblingEnabledKey: true,
             Self.demoModeKey: false
         ])
-        if UserDefaults.standard.data(forKey: Self.enabledTabsKey)?.isEmpty ?? true,
+        if defaults.data(forKey: Self.enabledTabsKey)?.isEmpty ?? true,
            let encoded = try? JSONEncoder().encode([TabItem.home, .artists, .playlists, .search]) {
-            UserDefaults.standard.set(encoded, forKey: Self.enabledTabsKey)
+            defaults.set(encoded, forKey: Self.enabledTabsKey)
         }
-        settings = Self.loadSettings(from: .standard)
+        settings = Self.loadSettings(from: defaults)
     }
 
     public var accentColorName: String {

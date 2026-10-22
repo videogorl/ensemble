@@ -61,7 +61,8 @@ final class RootScreenModels: ObservableObject {
             playlistRepository: dependencies.playlistRepository,
             accountManager: dependencies.accountManager,
             visibilityStore: dependencies.libraryVisibilityStore,
-            hiddenMediaStore: dependencies.hiddenMediaStore
+            hiddenMediaStore: dependencies.hiddenMediaStore,
+            settingsManager: dependencies.settingsManager
         )
         playlists = PlaylistViewModel(dependencies: dependencies)
     }

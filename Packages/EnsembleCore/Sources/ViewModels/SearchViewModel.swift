@@ -1,7 +1,9 @@
+import AsyncAlgorithms
 import Combine
 import EnsembleAPI
 import EnsembleDomain
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -88,7 +90,7 @@ public final class SearchViewModel {
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
     private let hiddenMediaStore: HiddenMediaStore
-    private let playlistMergeDefaults: UserDefaults
+    private let settingsManager: SettingsManager
     private let appleMusicCatalogSearch: AppleMusicCatalogSearchClient
     private var searchTask: Task<Void, Never>?
     private var searchProjectionTask: Task<Void, Never>?
@@ -96,6 +98,7 @@ public final class SearchViewModel {
     private var searchGeneration: UInt64 = 0
     private var exploreGeneration: UInt64 = 0
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     private var searchDebounceTask: Task<Void, Never>?
     private var historyDebounceTask: Task<Void, Never>?
     private var lastHistoryQuery: String?
@@ -123,7 +126,7 @@ public final class SearchViewModel {
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
-        playlistMergeDefaults: UserDefaults = .standard
+        settingsManager: SettingsManager? = nil
     ) {
         self.init(
             libraryRepository: libraryRepository,
@@ -133,7 +136,7 @@ public final class SearchViewModel {
             accountManager: accountManager,
             visibilityStore: visibilityStore,
             hiddenMediaStore: hiddenMediaStore,
-            playlistMergeDefaults: playlistMergeDefaults,
+            settingsManager: settingsManager,
             appleMusicCatalogSearch: .live
         )
     }
@@ -146,7 +149,7 @@ public final class SearchViewModel {
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
-        playlistMergeDefaults: UserDefaults = .standard,
+        settingsManager: SettingsManager? = nil,
         appleMusicCatalogSearch: AppleMusicCatalogSearchClient
     ) {
         self.libraryRepository = libraryRepository
@@ -156,9 +159,10 @@ public final class SearchViewModel {
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
-        self.playlistMergeDefaults = playlistMergeDefaults
+        let settingsManager = settingsManager ?? SettingsManager()
+        self.settingsManager = settingsManager
         self.appleMusicCatalogSearch = appleMusicCatalogSearch
-        self.mergingPreferences = SettingsManager.storedMergingPreferences(in: playlistMergeDefaults)
+        self.mergingPreferences = settingsManager.mergingPreferences
         
         // Load recent searches
         self.recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
@@ -206,15 +210,9 @@ public final class SearchViewModel {
             }
             .store(in: &cancellables)
 
-        NotificationCenter.default.publisher(
-            for: SettingsManager.mergingPreferencesDidChange,
-            object: playlistMergeDefaults
-        )
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.refreshMergingPreferences()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().dropFirst().observe(self) { model, preferences in
+            model.applyMergingPreferences(preferences)
+        })
 
         observeMetadataChanges()
         ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
@@ -666,8 +664,7 @@ public final class SearchViewModel {
         )
     }
 
-    private func refreshMergingPreferences() {
-        let nextValue = SettingsManager.storedMergingPreferences(in: playlistMergeDefaults)
+    private func applyMergingPreferences(_ nextValue: EnsembleMergingPreferences) {
         guard nextValue != mergingPreferences else { return }
         mergingPreferences = nextValue
         applyVisibilityToSearchResults()

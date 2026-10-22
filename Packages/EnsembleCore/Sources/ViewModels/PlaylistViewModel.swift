@@ -1,6 +1,8 @@
+import AsyncAlgorithms
 import Combine
 import EnsembleDomain
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -91,7 +93,9 @@ public final class PlaylistViewModel {
     private let accountManager: AccountManager?
     private let visibilityStore: LibraryVisibilityStore
     private let hiddenMediaStore: HiddenMediaStore
+    private let settingsManager: SettingsManager
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     private let observesExternalChanges: Bool
     private var allPlaylists: [Playlist] = []
     private var playlistPresentationGeneration: UInt64 = 0
@@ -120,8 +124,11 @@ public final class PlaylistViewModel {
         accountManager: AccountManager? = nil,
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
+        settingsManager: SettingsManager? = nil,
         observesExternalChanges: Bool = true
     ) {
+        let settingsManager = settingsManager ?? SettingsManager()
+        self.settingsManager = settingsManager
         self.playlistRepository = playlistRepository
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
@@ -131,7 +138,7 @@ public final class PlaylistViewModel {
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
         self.lastObservedSourceConfiguration = accountManager?.sourceConfigurationSnapshot
         self.observesExternalChanges = observesExternalChanges
-        let mergingPreferences = SettingsManager.storedMergingPreferences()
+        let mergingPreferences = settingsManager.mergingPreferences
         self.mergingPreferences = mergingPreferences
         self.isMergeEnabled = mergingPreferences.isEnabled && mergingPreferences.mergePlaylists
         let savedFilters = FilterPersistence.load(for: "Playlists")
@@ -220,19 +227,11 @@ public final class PlaylistViewModel {
     }
 
     private func setupPlaylistMergePreferenceObservation() {
-        NotificationCenter.default.publisher(
-            for: SettingsManager.mergingPreferencesDidChange,
-            object: UserDefaults.standard
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] _ in
-            guard let self else { return }
-            let preferences = SettingsManager.storedMergingPreferences()
-            if self.mergingPreferences != preferences { self.mergingPreferences = preferences }
+        subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().dropFirst().observe(self) { model, preferences in
+            if model.mergingPreferences != preferences { model.mergingPreferences = preferences }
             let isEnabled = preferences.isEnabled && preferences.mergePlaylists
-            if self.isMergeEnabled != isEnabled { self.isMergeEnabled = isEnabled }
-        }
-        .store(in: &cancellables)
+            if model.isMergeEnabled != isEnabled { model.isMergeEnabled = isEnabled }
+        })
     }
 
     public func loadPlaylistsIfNeeded() async {

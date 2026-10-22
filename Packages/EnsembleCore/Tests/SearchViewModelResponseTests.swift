@@ -249,10 +249,7 @@ final class SearchViewModelResponseTests: XCTestCase {
         await harness.viewModel.search(query: "Ambient Electric")
         XCTAssertEqual(harness.viewModel.displayPlaylistResults.count, 1)
 
-        SettingsManager.setStoredMergingPreferences(
-            EnsembleMergingPreferences(isEnabled: false),
-            in: harness.defaults
-        )
+        harness.settings.setMergingPreferences(EnsembleMergingPreferences(isEnabled: false))
 
         await waitUntil { harness.viewModel.displayPlaylistResults.count == 2 }
         XCTAssertEqual(harness.viewModel.playlistResults.count, 2)
@@ -664,6 +661,7 @@ final class SearchViewModelResponseTests: XCTestCase {
         let hubRepository = HubRepository(coreDataStack: stack)
         let moodRepository = MoodRepository(coreDataStack: stack)
         let visibilityStore = LibraryVisibilityStore(userDefaults: defaults)
+        let settings = SettingsManager(defaults: defaults)
         let viewModel = SearchViewModel(
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
@@ -671,7 +669,7 @@ final class SearchViewModelResponseTests: XCTestCase {
             moodRepository: moodRepository,
             accountManager: accountManager,
             visibilityStore: visibilityStore,
-            playlistMergeDefaults: defaults,
+            settingsManager: settings,
             appleMusicCatalogSearch: appleMusicCatalogSearch
         )
         viewModel.start()
@@ -682,7 +680,8 @@ final class SearchViewModelResponseTests: XCTestCase {
             hubRepository: hubRepository,
             moodRepository: moodRepository,
             visibilityStore: visibilityStore,
-            defaults: defaults
+            defaults: defaults,
+            settings: settings
         )
     }
 
@@ -771,6 +770,7 @@ final class SearchViewModelResponseTests: XCTestCase {
         let moodRepository: MoodRepository
         let visibilityStore: LibraryVisibilityStore
         let defaults: UserDefaults
+        let settings: SettingsManager
     }
 
     private static let plexSourceOne = "plex:account:server-one"
