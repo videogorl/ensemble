@@ -106,3 +106,32 @@ extension SearchViewModel {
         )
     }
 }
+
+extension ArtistDetailResolver {
+    @MainActor
+    init(dependencies: DependencyContainer, includesHidden: Bool = false) {
+        let syncCoordinator = dependencies.syncCoordinator
+        let accountManager = dependencies.accountManager
+        let visibilityStore = dependencies.libraryVisibilityStore
+        let hiddenMediaStore = dependencies.hiddenMediaStore
+        let settingsManager = dependencies.settingsManager
+        self.init(
+            libraryRepository: dependencies.libraryRepository,
+            remoteArtist: { id, name, sourceKey in
+                try await syncCoordinator.getArtist(artistId: id, name: name, sourceKey: sourceKey)
+            },
+            visibleArtists: { artists in
+                let source = accountManager.sourceConfigurationSnapshot
+                return LibraryVisibilityFiltering.visibleArtists(
+                    artists,
+                    hiddenSourceCompositeKeys: visibilityStore.effectiveHiddenSourceCompositeKeys(
+                        enabledSourceCompositeKeys: source.enabledSourceKeys
+                    ),
+                    sourceConfiguration: source.hasAnySources || !source.isAuthoritative ? source : nil,
+                    hiddenMedia: includesHidden ? .empty : hiddenMediaStore.snapshot
+                )
+            },
+            mergingPreferences: { settingsManager.mergingPreferences }
+        )
+    }
+}

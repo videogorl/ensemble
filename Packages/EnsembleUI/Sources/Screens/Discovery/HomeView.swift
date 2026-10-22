@@ -24,11 +24,11 @@ public struct HomeView: View {
 
     public init(
         nowPlayingVM: NowPlayingViewModel,
-        viewModel: HomeViewModel? = nil,
+        viewModel: HomeViewModel,
         isSelectedRoot: Bool = true
     ) {
         let container = DependencyContainer.shared
-        self.viewModel = viewModel ?? container.makeHomeViewModel()
+        self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
         self.cacheManager = container.cacheManager
         self.isSelectedRoot = isSelectedRoot

@@ -69,7 +69,9 @@ public final class DependencyContainer: @unchecked Sendable {
     public let powerStateMonitor: PowerStateMonitor
     public let persistentLogService: PersistentLogService
     internal let appBootstrapDiagnostics: AppBootstrapDiagnostics
-    @MainActor internal var activeNowPlayingViewModelStorage: NowPlayingViewModel?
+    /// The main scene's Now Playing model, so the external display and Mac
+    /// dock menu act on the same instance.
+    @MainActor public var activeNowPlayingViewModel: NowPlayingViewModel?
 
     // MARK: - Profile & Cloud Sync
 

@@ -385,7 +385,7 @@ struct EnsembleApp: App {
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background audio playback.
                 AppRoot.container.persistentLogService.flushSession()
-                AppRoot.container.persistPlaybackStateSnapshot()
+                AppRoot.container.playbackService.persistPlaybackStateSnapshot()
 
                 // Stop the frequency display timer to prevent it from burning main thread
                 // CPU during background audio playback (~3ms/sec saved on main thread).

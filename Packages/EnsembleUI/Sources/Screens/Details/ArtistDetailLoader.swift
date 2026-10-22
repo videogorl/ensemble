@@ -48,7 +48,7 @@ struct ArtistDetailLoader: View {
     @MainActor
     private func loadArtist() async {
         do {
-            let artist = try await deps.makeArtistDetailResolver(includesHidden: includesHidden).resolve(
+            let artist = try await ArtistDetailResolver(dependencies: deps, includesHidden: includesHidden).resolve(
                 request,
                 cachedArtists: libraryVM?.cachedArtistsForDetailResolution,
                 cachedDisplayArtists: libraryVM?.artistBrowse.snapshot.displayArtists ?? []
