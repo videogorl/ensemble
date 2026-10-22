@@ -169,7 +169,7 @@ public struct MainTabView: View {
             }
             // Observation-extracted receivers — update @State only when specific values change,
             // avoiding full root view invalidation from singleton objectWillChange.
-            .onReceive(networkMonitor.$networkState) { newValue in
+            .onChange(of: networkMonitor.networkState, initial: true) { _, newValue in
                 if networkState != newValue { networkState = newValue }
             }
             .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in

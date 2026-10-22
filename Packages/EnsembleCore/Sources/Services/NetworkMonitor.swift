@@ -1,4 +1,4 @@
-import Combine
+import EnsembleSupport
 import Foundation
 import Network
 import EnsembleAPI
@@ -26,22 +26,46 @@ final class SystemNetworkPathMonitor: NetworkPathMonitoring {
     }
 }
 
+/// What `NetworkMonitor` knows about connectivity.
+public struct NetworkSnapshot: Equatable, Sendable {
+    public var state: NetworkState
+    public var isConstrained: Bool
+    public var isConnected: Bool { state.isConnected }
+
+    public init(state: NetworkState = .unknown, isConstrained: Bool = false) {
+        self.state = state
+        self.isConstrained = isConstrained
+    }
+}
+
 /// Monitors network connectivity state using NWPathMonitor
 @MainActor
-public final class NetworkMonitor: ObservableObject {
-    @Published public private(set) var networkState: NetworkState = .unknown
-    @Published public private(set) var isConnected: Bool = false
-    @Published public private(set) var isConstrained: Bool = false
+@Observable
+public final class NetworkMonitor {
+    public private(set) var snapshot = NetworkSnapshot() {
+        didSet {
+            if snapshot != oldValue { broadcast.send(snapshot) }
+        }
+    }
+    public var networkState: NetworkState { snapshot.state }
+    public var isConnected: Bool { snapshot.isConnected }
+    public var isConstrained: Bool { snapshot.isConstrained }
+    @ObservationIgnored private let broadcast = Broadcast<NetworkSnapshot>(latestOnly: true)
+
+    /// The current snapshot, then each change.
+    public func snapshots() -> AsyncStream<NetworkSnapshot> {
+        broadcast.stream(startingWith: snapshot)
+    }
 
     private let monitorFactory: () -> any NetworkPathMonitoring
     private let monitorQueue: DispatchQueue
     private let debounceNanoseconds: UInt64
 
-    private var monitor: (any NetworkPathMonitoring)?
+    @ObservationIgnored private var monitor: (any NetworkPathMonitoring)?
     private var isMonitoring = false
     /// When true, NWPathMonitor updates are ignored so the simulated state sticks
     private var isSimulatingOffline = false
-    private var debounceTask: Task<Void, Never>?
+    @ObservationIgnored private var debounceTask: Task<Void, Never>?
 
     // UserDefaults key for persisting last-known network state across launches
     private static let cachedStateKey = "lastKnownNetworkState"
@@ -49,6 +73,9 @@ public final class NetworkMonitor: ObservableObject {
 
     internal private(set) var monitorGeneration = 0
     public private(set) var routingGeneration: UInt64 = 0
+    /// Runs synchronously on every routing change, before stream listeners,
+    /// so `AccountManager` re-resolves server connections before sync or
+    /// playback react to the new network.
     var onRoutingChanged: (() -> Void)?
     var reachabilityContext: NetworkReachabilityContext {
         switch networkState {
@@ -81,9 +108,10 @@ public final class NetworkMonitor: ObservableObject {
         // this if the real state differs.
         let cached = Self.loadCachedState()
         if cached != .unknown {
-            networkState = cached
-            isConnected = cached.isConnected
-            isConstrained = UserDefaults.standard.bool(forKey: Self.cachedConstrainedKey)
+            snapshot = NetworkSnapshot(
+                state: cached,
+                isConstrained: UserDefaults.standard.bool(forKey: Self.cachedConstrainedKey)
+            )
             EnsembleLogger.debug("📡 NetworkMonitor: Restored cached state: \(cached.description)")
         }
     }
@@ -227,14 +255,12 @@ public final class NetworkMonitor: ObservableObject {
 
     /// Update the published state and persist for optimistic startup.
     private func updateState(to newState: NetworkState, isConstrained newIsConstrained: Bool) {
-        let newIsConnected = newState.isConnected
-        guard newState != networkState || newIsConnected != isConnected || newIsConstrained != isConstrained else { return }
+        let newSnapshot = NetworkSnapshot(state: newState, isConstrained: newIsConstrained)
+        guard newSnapshot != snapshot else { return }
 
         EnsembleLogger.debug("📡 NetworkMonitor: State changed to \(newState.description)")
 
-        networkState = newState
-        isConnected = newIsConnected
-        isConstrained = newIsConstrained
+        snapshot = newSnapshot
         persistState(newState, isConstrained: newIsConstrained)
         routingGeneration &+= 1
         onRoutingChanged?()

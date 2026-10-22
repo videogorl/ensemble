@@ -1,6 +1,8 @@
+import AsyncAlgorithms
 import Combine
 import EnsembleAPI
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 
 // MARK: - Mutation Outcome
@@ -127,6 +129,7 @@ public final class MutationCoordinator: ObservableObject {
     private let networkMonitor: NetworkMonitor
     private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
+    private var subscriptions: [StreamSubscription] = []
     private var isDraining = false
     private var recoveryTask: Task<Void, Never>?
     private var recoveryDelay: TimeInterval = 30
@@ -159,16 +162,10 @@ public final class MutationCoordinator: ObservableObject {
         self.playlistRepository = playlistRepository
 
         // Drain queue when connectivity is restored
-        networkMonitor.$isConnected
-            .receive(on: DispatchQueue.main)
-            .removeDuplicates()
-            .sink { [weak self] isConnected in
-                guard isConnected else { return }
-                Task { @MainActor [weak self] in
-                    await self?.drainQueue()
-                }
-            }
-            .store(in: &cancellables)
+        subscriptions.append(networkMonitor.snapshots().map(\.isConnected).removeDuplicates().observe(self) { coordinator, isConnected in
+            guard isConnected else { return }
+            Task { await coordinator.drainQueue() }
+        })
 
         NotificationCenter.default.publisher(
             for: SourceCacheCleanupService.pendingMutationsDidChange

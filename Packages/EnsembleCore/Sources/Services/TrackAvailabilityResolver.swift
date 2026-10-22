@@ -1,5 +1,7 @@
+import AsyncAlgorithms
 import Combine
 import EnsembleAPI
+import EnsembleSupport
 import Foundation
 
 /// Availability state for a single track.
@@ -64,6 +66,7 @@ public final class TrackAvailabilityResolver: ObservableObject {
     private let serverHealthChecker: ServerHealthChecker
     private let artifactCache: PlaybackArtifactCache
     private var cancellables = Set<AnyCancellable>()
+    private var subscriptions: [StreamSubscription] = []
 
     public init(
         networkMonitor: NetworkMonitor,
@@ -132,12 +135,9 @@ public final class TrackAvailabilityResolver: ObservableObject {
     /// Observe network state, server health, and download changes to bump the generation counter.
     private func setupObservers() {
         // Network state changes
-        networkMonitor.$networkState
-            .removeDuplicates()
-            .sink { [weak self] _ in
-                self?.bumpGeneration()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(networkMonitor.snapshots().map(\.state).removeDuplicates().observe(self) { resolver, _ in
+            resolver.bumpGeneration()
+        })
 
         NotificationCenter.default.publisher(for: AudioQualityPreference.cellularStreamingPolicyDidChange)
             .sink { [weak self] _ in

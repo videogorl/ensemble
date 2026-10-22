@@ -107,4 +107,36 @@ final class NetworkMonitorTests: XCTestCase {
         XCTAssertTrue(sut.isConnected)
         XCTAssertTrue(sut.isConstrained)
     }
+
+    func testSnapshotStreamTransitions() async {
+        let base = NetworkSnapshot(state: .online(.wifi))
+        let sentinel = NetworkSnapshot(state: .limited, isConstrained: true)
+        let rows: [(name: String, change: NetworkSnapshot, emits: Bool)] = [
+            ("connectivity lost", NetworkSnapshot(state: .offline), true),
+            ("network type changes", NetworkSnapshot(state: .online(.cellular)), true),
+            ("only Low Data Mode changes", NetworkSnapshot(state: .online(.wifi), isConstrained: true), true),
+            ("nothing changes", base, false),
+        ]
+
+        for row in rows {
+            let sut = NetworkMonitor(
+                debounceNanoseconds: 0,
+                monitorQueue: DispatchQueue(label: "test.network.snapshots"),
+                monitorFactory: { FakePathMonitor() }
+            )
+            func apply(_ snapshot: NetworkSnapshot) {
+                sut.injectNetworkStateForTesting(snapshot.state, isConstrained: snapshot.isConstrained, debounced: false)
+            }
+            apply(base)
+            var iterator = sut.snapshots().makeAsyncIterator()
+            var received = [await iterator.next()]
+            apply(row.change)
+            if row.emits { received.append(await iterator.next()) }
+            apply(sentinel)
+            received.append(await iterator.next())
+
+            let expected = row.emits ? [base, row.change, sentinel] : [base, sentinel]
+            XCTAssertEqual(received, expected, row.name)
+        }
+    }
 }

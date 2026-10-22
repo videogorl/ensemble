@@ -3,6 +3,7 @@ import Combine
 import EnsembleAPI
 import EnsemblePersistence
 import EnsembleSiriShared
+import EnsembleSupport
 import Foundation
 import EnsembleDomain
 import MediaPlayer
@@ -395,7 +396,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     var failureSkipItemID: String?
     /// The item whose TLS failure already had its one connection refresh.
     var tlsRefreshedItemID: String?
-    var networkStateObservation: AnyCancellable?
+    var networkStateObservation: StreamSubscription?
     var accountSourcesObservation: AnyCancellable?
     var healthCheckCompletionObservation: AnyCancellable?
     /// Set during queue restoration; cleared after pre-buffer completes or user taps play.
@@ -747,17 +748,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard let self = self else { return }
             self.lastObservedNetworkState = self.networkMonitor.networkState
             // Adaptive buffering removed — engine plays from local files
-            self.networkStateObservation = self.networkMonitor.$networkState
-                .dropFirst() // Ignore initial value
-                .sink { [weak self] newState in
-                    // No [weak self] here — the outer sink closure already captures self weakly
-                    Task { @MainActor in
-                        guard let self = self else { return }
-                        let previousState = self.lastObservedNetworkState
-                        self.lastObservedNetworkState = newState
-                        await self.handleNetworkStateTransition(from: previousState, to: newState)
-                    }
-                }
+            self.networkStateObservation = self.networkMonitor.snapshots().dropFirst().observe(self) { service, snapshot in
+                let previousState = service.lastObservedNetworkState
+                service.lastObservedNetworkState = snapshot.state
+                Task { await service.handleNetworkStateTransition(from: previousState, to: snapshot.state) }
+            }
         }
     }
 

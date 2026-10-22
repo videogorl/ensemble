@@ -1,6 +1,8 @@
+import AsyncAlgorithms
 import Combine
 import EnsembleAPI
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 
 /// The user-visible result of syncing one configured music source.
@@ -341,6 +343,7 @@ public final class SyncCoordinator: ObservableObject {
         SyncProviderResolver(providers: syncProviders)
     }
     private var cancellables = Set<AnyCancellable>()
+    private var subscriptions: [StreamSubscription] = []
     private var isCheckingHealth = false
     private var enabledServerKeysSnapshot = Set<String>()
     /// Timestamp of last sourceStatuses progress update per source — used to throttle
@@ -2522,14 +2525,9 @@ public final class SyncCoordinator: ObservableObject {
     
     /// Set up observation of network state changes
     private func setupNetworkMonitoring() {
-        networkMonitor.$networkState
-            .dropFirst()
-            .sink { [weak self] state in
-                Task { @MainActor [weak self] in
-                    await self?.handleObservedNetworkState(state)
-                }
-            }
-            .store(in: &cancellables)
+        subscriptions.append(networkMonitor.snapshots().dropFirst().observe(self) { coordinator, snapshot in
+            Task { await coordinator.handleObservedNetworkState(snapshot.state) }
+        })
     }
 
     private func setupSourceConfigurationMonitoring() {

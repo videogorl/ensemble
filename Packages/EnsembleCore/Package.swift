@@ -21,6 +21,7 @@ let package = Package(
         .package(path: "../EnsemblePersistence"),
         .package(path: "../EnsembleSiriShared"),
         .package(url: "https://github.com/kean/Nuke.git", from: "12.0.0"),
+        .package(url: "https://github.com/apple/swift-async-algorithms.git", from: "1.1.7"),
     ],
     targets: [
         .target(
@@ -32,6 +33,7 @@ let package = Package(
                 "EnsemblePersistence",
                 "EnsembleSiriShared",
                 "Nuke",
+                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
             ],
             path: "Sources"
         ),

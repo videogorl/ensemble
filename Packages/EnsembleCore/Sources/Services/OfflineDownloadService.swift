@@ -3,6 +3,7 @@ import Combine
 import CoreData
 import EnsembleAPI
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 
 public struct OfflineDownloadTargetSnapshot: Identifiable {
@@ -161,6 +162,7 @@ public final class OfflineDownloadService: ObservableObject {
     private let playbackArtifactCache = PlaybackArtifactCache.shared
 
     private var cancellables = Set<AnyCancellable>()
+    private var subscriptions: [StreamSubscription] = []
     private var lastObservedSyncBySource: [String: Date] = [:]
 
     /// Coalesces expensive target progress refreshes so queue/network churn
@@ -2095,26 +2097,22 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func observeNetworkState() {
-        Publishers.Merge(
-            networkMonitor.$networkState.map { _ in () },
-            networkMonitor.$isConstrained.dropFirst().map { _ in () }
-        )
-            .sink { [weak self] in
-                Task { @MainActor in
-                    guard let self else { return }
-                    do {
-                        if !self.canExecuteDownloads {
-                            await self.stopQueueForSuspension()
-                        }
-                        try await self.applyNetworkPolicy()
-                        self.scheduleFullProgressRefresh()
-                        self.startQueueIfNeeded()
-                    } catch {
-                        EnsembleLogger.debug("❌ Failed applying offline network policy: \(error.localizedDescription)")
-                    }
-                }
+        subscriptions.append(networkMonitor.snapshots().observe(self) { service, _ in
+            Task { await service.applyNetworkChange() }
+        })
+    }
+
+    private func applyNetworkChange() async {
+        do {
+            if !canExecuteDownloads {
+                await stopQueueForSuspension()
             }
-            .store(in: &cancellables)
+            try await applyNetworkPolicy()
+            scheduleFullProgressRefresh()
+            startQueueIfNeeded()
+        } catch {
+            EnsembleLogger.debug("❌ Failed applying offline network policy: \(error.localizedDescription)")
+        }
     }
 
     private func stopQueueForSuspension(finishBackgroundTask: Bool = true) async {

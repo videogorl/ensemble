@@ -1,5 +1,7 @@
+import AsyncAlgorithms
 import Combine
 import EnsembleAPI
+import EnsembleSupport
 import Foundation
 
 struct PlexLibraryChange: Hashable, Sendable {
@@ -85,7 +87,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
     private var slots: [String: ConnectionSlot] = [:]
     private var accountObserver: AnyCancellable?
-    private var networkObserver: AnyCancellable?
+    private var networkObserver: StreamSubscription?
     private var isActive = false
 
     // Debounce library/playlist update triggers to avoid spamming sync for batch updates
@@ -488,18 +490,15 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
     private func subscribeToNetworkChanges() {
         networkObserver?.cancel()
-        networkObserver = networkMonitor.$networkState
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                guard let self, self.isActive else { return }
-                if state != .offline {
-                    EnsembleLogger.debug("🔌 WebSocketCoordinator: Network restored — refreshing connections")
-                    self.refreshConnections()
-                } else {
-                    self.disconnectManagersForOffline()
-                }
+        networkObserver = networkMonitor.snapshots().map(\.state).removeDuplicates().observe(self) { coordinator, state in
+            guard coordinator.isActive else { return }
+            if state != .offline {
+                EnsembleLogger.debug("🔌 WebSocketCoordinator: Network restored — refreshing connections")
+                coordinator.refreshConnections()
+            } else {
+                coordinator.disconnectManagersForOffline()
             }
+        }
     }
 
     /// Trigger incremental sync for all enabled libraries on a server.

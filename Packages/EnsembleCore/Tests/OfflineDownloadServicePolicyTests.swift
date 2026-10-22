@@ -284,8 +284,8 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             debounced: false
         )
         await fulfillment(of: [paused], timeout: 1)
+        await waitUntil { service.queueStatusReason == .lowDataMode }
 
-        XCTAssertEqual(service.queueStatusReason, .lowDataMode)
         XCTAssertTrue(downloadManager.statusUpdates.contains { statuses, status in
             statuses == [.downloading] && status == .paused
         })
