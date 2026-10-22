@@ -98,6 +98,7 @@ public final class SearchViewModel {
     private var searchGeneration: UInt64 = 0
     private var exploreGeneration: UInt64 = 0
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
     @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     private var searchDebounceTask: Task<Void, Never>?
     private var historyDebounceTask: Task<Void, Never>?
@@ -172,7 +173,8 @@ public final class SearchViewModel {
     /// observation, and prepares the current query. Safe to call on every
     /// appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         prepareForSearchQueryChange(searchQuery)
         performSearch(query: searchQuery)
 

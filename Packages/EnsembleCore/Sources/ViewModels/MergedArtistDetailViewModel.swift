@@ -50,6 +50,7 @@ public final class MergedArtistDetailViewModel {
     private let hiddenMediaStore: HiddenMediaStore
     private let includesHidden: Bool
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
 
     public init(
         displayArtist: DisplayArtist,
@@ -72,7 +73,8 @@ public final class MergedArtistDetailViewModel {
     /// Starts reloading on hidden-media, download, and metadata changes for a
     /// merged artist. Safe to call on every appearance.
     public func start() {
-        guard displayArtist.isMerged, cancellables.isEmpty else { return }
+        guard displayArtist.isMerged, !isStarted else { return }
+        isStarted = true
         hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.rebuildDisplaySnapshots()
         }.store(in: &cancellables)

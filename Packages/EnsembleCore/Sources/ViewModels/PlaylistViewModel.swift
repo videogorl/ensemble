@@ -95,6 +95,7 @@ public final class PlaylistViewModel {
     private let hiddenMediaStore: HiddenMediaStore
     private let settingsManager: SettingsManager
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
     @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     private let observesExternalChanges: Bool
     private var allPlaylists: [Playlist] = []
@@ -156,7 +157,8 @@ public final class PlaylistViewModel {
     /// Starts visibility, merge-preference, and external-change observation.
     /// Safe to call on every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         setupVisibilityObservation()
         setupPlaylistMergePreferenceObservation()
 
@@ -176,15 +178,11 @@ public final class PlaylistViewModel {
 
     private func observeExternalChanges() {
         // Auto-reload when sync completes (skip during pull-to-refresh — it does its own reload)
-        syncCoordinator.$isSyncing
-            .receive(on: DispatchQueue.main)
-            .removeDuplicates()
-            .sink { [weak self] syncing in
-                if !syncing, self?.isRefreshingFromServer != true {
-                    self?.scheduleCoalescedPlaylistReload(reason: "sync-complete")
-                }
+        subscriptions.append(syncCoordinator.snapshots().map(\.isSyncing).removeDuplicates().observe(self) { model, syncing in
+            if !syncing, !model.isRefreshingFromServer {
+                model.scheduleCoalescedPlaylistReload(reason: "sync-complete")
             }
-            .store(in: &cancellables)
+        })
 
         hiddenMediaStore.$snapshot
             .dropFirst()
@@ -895,6 +893,7 @@ public final class PlaylistDetailViewModel: MediaDetailViewModelProtocol {
     private let hiddenMediaStore: HiddenMediaStore
     private let includesHidden: Bool
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
     private let observesExternalChanges: Bool
     private var shouldSkipNextLoadAfterLocalEdit = false
     private var hasPendingTrackLoad = false
@@ -938,7 +937,8 @@ public final class PlaylistDetailViewModel: MediaDetailViewModelProtocol {
     /// Starts hidden-media and external-change observation. Safe to call on
     /// every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             guard let self, !self.includesHidden else { return }
             self.updateDerivedTrackState(refreshGenres: true)

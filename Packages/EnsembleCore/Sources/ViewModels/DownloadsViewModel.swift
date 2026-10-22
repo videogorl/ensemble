@@ -69,6 +69,7 @@ public final class DownloadsViewModel {
     private let downloadManager: DownloadManagerProtocol
     private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
     @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     @ObservationIgnored private var summaryRebuildTask: Task<Void, Never>?
 
@@ -99,7 +100,8 @@ public final class DownloadsViewModel {
     /// Starts following download, account, and mutation changes, and fills in
     /// thumbnails and library summaries. Safe to call on every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         offlineDownloadService.$targets
             .dropFirst()
             .sink { [weak self] snapshots in self?.targetsOrAccountsChanged(snapshots) }

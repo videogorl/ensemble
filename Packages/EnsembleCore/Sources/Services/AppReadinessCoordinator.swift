@@ -100,29 +100,12 @@ public final class AppReadinessCoordinator: ObservableObject {
             isHealthCheckComplete = syncCoordinator.lastHealthCheckCompletion != nil
             isStartupSyncComplete = syncCoordinator.lastStartupSyncCompletion != nil
 
-            syncCoordinator.$isOffline
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] offline in
-                    self?.isOfflineMode = offline
-                    self?.recomputeSnapshot()
-                }
-                .store(in: &cancellables)
-
-            syncCoordinator.$lastHealthCheckCompletion
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] completion in
-                    self?.isHealthCheckComplete = completion != nil
-                    self?.recomputeSnapshot()
-                }
-                .store(in: &cancellables)
-
-            syncCoordinator.$lastStartupSyncCompletion
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] completion in
-                    self?.isStartupSyncComplete = completion != nil
-                    self?.recomputeSnapshot()
-                }
-                .store(in: &cancellables)
+            subscriptions.append(syncCoordinator.snapshots().observe(self) { coordinator, sync in
+                coordinator.isOfflineMode = sync.isOffline
+                coordinator.isHealthCheckComplete = sync.lastHealthCheckCompletion != nil
+                coordinator.isStartupSyncComplete = sync.lastStartupSyncCompletion != nil
+                coordinator.recomputeSnapshot()
+            })
         }
 
         recomputeSnapshot()

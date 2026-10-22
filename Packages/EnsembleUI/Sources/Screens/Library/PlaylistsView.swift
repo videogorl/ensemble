@@ -708,7 +708,7 @@ private struct PlaylistsNewButton: View {
             Label("New Playlist", systemImage: EnsembleDesign.Icon.add)
         }
         .disabled(isOffline)
-        .onReceive(syncCoordinator.$isOffline) { newValue in
+        .onChange(of: syncCoordinator.isOffline, initial: true) { _, newValue in
             if newValue != isOffline {
                 isOffline = newValue
             }

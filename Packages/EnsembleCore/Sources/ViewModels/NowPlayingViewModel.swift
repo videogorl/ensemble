@@ -1,4 +1,6 @@
+import AsyncAlgorithms
 import Combine
+import EnsembleSupport
 import Foundation
 import SwiftUI
 
@@ -218,6 +220,7 @@ public final class NowPlayingViewModel {
     private let foregroundWorkScheduler: ForegroundWorkScheduling
     private let hiddenMediaStore: HiddenMediaStore
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     private var isStarted = false
     private var currentQueueIdentity: [String]?
     private var hiddenPlaybackScopeDepth = 0
@@ -315,12 +318,9 @@ public final class NowPlayingViewModel {
             }
             .store(in: &cancellables)
 
-        syncCoordinator.$lastPlaylistTarget
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] target in
-                self?.setIfChanged(\.lastPlaylistTarget, target)
-            }
-            .store(in: &cancellables)
+        subscriptions.append(syncCoordinator.snapshots().map(\.lastPlaylistTarget).removeDuplicates().observe(self) { model, target in
+            model.setIfChanged(\.lastPlaylistTarget, target)
+        })
 
         NotificationCenter.default.publisher(for: CacheManager.artworkCachesDidClear)
             .receive(on: DispatchQueue.main)

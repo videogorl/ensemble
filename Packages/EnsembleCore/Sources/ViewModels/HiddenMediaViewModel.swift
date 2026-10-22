@@ -39,6 +39,7 @@ public final class HiddenMediaViewModel {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let accountManager: AccountManager
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
 
     public init(
         store: HiddenMediaStore,
@@ -54,7 +55,8 @@ public final class HiddenMediaViewModel {
 
     /// Starts observing hidden-media changes. Safe to call on every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         store.$snapshot.dropFirst().sink { [weak self] _ in
             Task { await self?.load() }
         }.store(in: &cancellables)

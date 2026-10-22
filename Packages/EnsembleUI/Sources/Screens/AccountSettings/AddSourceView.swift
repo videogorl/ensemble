@@ -7,7 +7,7 @@ import MusicKit
 public struct AddSourceView: View {
     @Environment(DependencyContainer.self) private var dependencies
     private let accountManager = DependencyContainer.shared.accountManager
-    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dismiss) private var dismiss
     @State private var errorMessage: String?
     @State private var isAddingAppleMusic = false
@@ -115,7 +115,7 @@ public struct AddSourceView: View {
             guard #available(iOS 18, *) else { return }
             await addAppleMusic()
         }
-        .onReceive(syncCoordinator.$sourceStatuses) { statuses in
+        .onChange(of: syncCoordinator.sourceStatuses, initial: true) { _, statuses in
             guard case .lastSynced = statuses[.appleMusic]?.syncStatus else { return }
             errorMessage = nil
         }

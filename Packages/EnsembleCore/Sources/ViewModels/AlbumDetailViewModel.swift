@@ -72,6 +72,7 @@ public final class AlbumDetailViewModel: MediaDetailViewModelProtocol {
     private let includesHidden: Bool
     private var sourceTracks: [Track] = []
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
     @ObservationIgnored private var subscriptions: [StreamSubscription] = []
 
     public init(
@@ -103,7 +104,8 @@ public final class AlbumDetailViewModel: MediaDetailViewModelProtocol {
     /// Starts reloading on download, metadata, hidden-media, and merging
     /// changes. Safe to call on every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         // Re-fetch tracks when download state changes so offline dimming is accurate
         observeDownloadChanges()
         observeMetadataChanges()

@@ -114,6 +114,7 @@ public final class PinnedViewModel {
     private let hiddenMediaStore: HiddenMediaStore
     private let settingsManager: SettingsManager
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
     @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     private var isMoving = false
     private var hasLoadedPinnedItems = false
@@ -139,7 +140,8 @@ public final class PinnedViewModel {
     /// Starts refreshing on pin, merging, hidden-media, visibility, and source
     /// changes. Safe to call on every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         // Refresh when pins change (unless we are currently moving/reordering)
         pinManager.objectWillChange
             .receive(on: DispatchQueue.main)

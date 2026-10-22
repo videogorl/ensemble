@@ -301,11 +301,9 @@ public final class LibraryViewModel {
         guard !isStarted else { return }
         isStarted = true
         // Observe sync state
-        syncCoordinator.$isSyncing
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] syncing in self?.isSyncing = syncing }
-            .store(in: &cancellables)
+        subscriptions.append(syncCoordinator.snapshots().map(\.isSyncing).removeDuplicates().dropFirst().observe(self) { model, syncing in
+            model.isSyncing = syncing
+        })
 
         // Observe provider-neutral source state.
         subscriptions.append(accountManager.sourceConfigurations().dropFirst().observe(self) { model, configuration in
@@ -330,18 +328,13 @@ public final class LibraryViewModel {
 
         // Auto-reload only when sync reports a material library change.
         // Connection/progress churn stays on sourceStatuses and should not trigger full browse reloads.
-        syncCoordinator.$lastContentChange
-            .receive(on: DispatchQueue.main)
-            .compactMap { $0 }
+        subscriptions.append(syncCoordinator.contentChanges()
             .filter(\.affectsLibraryBrowse)
-            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
-            .sink { [weak self] change in
+            .debounce(for: .seconds(1))
+            .observe(self) { model, change in
                 EnsembleLogger.debug("📚 LibraryViewModel: reloading after content change for \(change.source.compositeKey)")
-                Task { @MainActor in
-                    await self?.loadLibrary()
-                }
-            }
-            .store(in: &cancellables)
+                Task { await model.loadLibrary() }
+            })
 
         // Recompute merge-aware collections when merging preferences change.
         subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().dropFirst().observe(self) { model, _ in

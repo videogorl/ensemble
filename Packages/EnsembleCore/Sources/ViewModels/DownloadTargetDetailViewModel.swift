@@ -159,6 +159,7 @@ public final class DownloadTargetDetailViewModel {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let offlineDownloadService: OfflineDownloadService
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
     private var trackStats = TrackDownloadRowStats()
 
     public init(
@@ -181,7 +182,8 @@ public final class DownloadTargetDetailViewModel {
     /// Starts following queue status and download changes. Safe to call on
     /// every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
 
         // Observe queue status reason from the download service
         offlineDownloadService.$queueStatusReason

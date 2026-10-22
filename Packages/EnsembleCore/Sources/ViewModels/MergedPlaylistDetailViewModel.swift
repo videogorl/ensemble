@@ -38,6 +38,7 @@ public final class MergedPlaylistDetailViewModel: MediaDetailViewModelProtocol {
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
     private var shouldSkipNextLoadAfterLocalEdit = false
     private var hasPendingTrackLoad = false
     private var trackLoadTask: Task<Void, Never>?
@@ -63,7 +64,8 @@ public final class MergedPlaylistDetailViewModel: MediaDetailViewModelProtocol {
     /// Starts reloading on playlist, download, and metadata changes. Safe to
     /// call on every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         observeReloadTriggers()
         observePlaylistRefresh()
     }

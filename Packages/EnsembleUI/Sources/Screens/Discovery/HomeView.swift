@@ -88,7 +88,7 @@ public struct HomeView: View {
         #else
         .artworkBackedToolbarBleed()
         #endif
-        .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
+        .onChange(of: DependencyContainer.shared.syncCoordinator.isSyncing, initial: true) { _, syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
         .onReceive(cacheManager.$artworkCacheInvalidationGeneration) { generation in

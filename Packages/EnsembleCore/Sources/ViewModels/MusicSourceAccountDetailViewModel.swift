@@ -97,6 +97,7 @@ public final class MusicSourceAccountDetailViewModel {
     private var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     private var syncedTrackCounts: [MusicSourceIdentifier: Int] = [:]
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
     @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     private var hasPerformedInitialRefresh = false
     private var activeLibraryOperations = Set<String>()
@@ -135,7 +136,8 @@ public final class MusicSourceAccountDetailViewModel {
     /// Starts following scan progress, pending mutations, accounts, and source
     /// status, and loads synced track counts. Safe to call on every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         let accountId = accountId
         webSocketCoordinator.$serverScanProgress
             .dropFirst()
@@ -159,19 +161,14 @@ public final class MusicSourceAccountDetailViewModel {
             model.refreshSyncedTrackCounts()
         })
 
-        syncCoordinator.$sourceStatuses
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] statuses in
-                guard let self else { return }
-                let previousStatuses = self.sourceStatuses
-                self.sourceStatuses = statuses
-                self.rebuildSections()
+        subscriptions.append(syncCoordinator.snapshots().map(\.sourceStatuses).removeDuplicates().dropFirst().observe(self) { model, statuses in
+                let previousStatuses = model.sourceStatuses
+                model.sourceStatuses = statuses
+                model.rebuildSections()
                 if Self.shouldRefreshSyncedTrackCounts(previous: previousStatuses, next: statuses) {
-                    self.refreshSyncedTrackCounts()
+                    model.refreshSyncedTrackCounts()
                 }
-            }
-            .store(in: &cancellables)
+        })
 
         refreshSyncedTrackCounts()
     }

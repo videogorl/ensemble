@@ -10,7 +10,7 @@ public struct ProfileView: View {
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
     @Bindable private var settingsManager = DependencyContainer.shared.settingsManager
     private let accountManager = DependencyContainer.shared.accountManager
-    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     private var playbackService: PlaybackService { dependencies.playbackService }
     private var cacheManager: CacheManager { dependencies.cacheManager }
 
@@ -1183,7 +1183,7 @@ private extension View {
 #if os(iOS)
 private struct AppleMusicSourceDetailView: View {
     private let accountManager = DependencyContainer.shared.accountManager
-    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
+    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dismiss) private var dismiss
     @State private var showingRemoveAlert = false
     @State private var isRemoving = false

@@ -83,7 +83,8 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
 
 /// Coordinates syncing across all configured music sources
 @MainActor
-public final class SyncCoordinator: ObservableObject {
+@Observable
+public final class SyncCoordinator {
     public static let sourceCleanupDidComplete = Notification.Name("SyncCoordinatorSourceCleanupDidComplete")
     private struct ActiveSourceSync {
         let id: UUID
@@ -114,17 +115,87 @@ public final class SyncCoordinator: ObservableObject {
     /// The notification's `userInfo` contains `["serverSourceKey": String]`.
     public static let playlistsDidRefresh = Notification.Name("SyncCoordinatorPlaylistsDidRefresh")
 
-    @Published public private(set) var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
-    @Published public private(set) var isSyncing = false
+    public private(set) var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:] {
+        didSet { publishSnapshot() }
+    }
+    public private(set) var isSyncing = false {
+        didSet { publishSnapshot() }
+    }
     public var isPlaybackBufferLow = false
-    @Published public private(set) var isOffline = false
-    @Published public private(set) var lastPlaylistTarget: LastPlaylistTarget?
-    /// Published when health checks complete so dependent services can react.
-    @Published public private(set) var lastHealthCheckCompletion: Date?
+    public private(set) var isOffline = false {
+        didSet { publishSnapshot() }
+    }
+    public private(set) var lastPlaylistTarget: LastPlaylistTarget? {
+        didSet { publishSnapshot() }
+    }
+    /// Set when health checks complete so dependent services can react.
+    public private(set) var lastHealthCheckCompletion: Date? {
+        didSet { publishSnapshot() }
+    }
     /// Narrow sync output for consumers that care about actual data changes, not transport churn.
-    @Published public private(set) var lastContentChange: SyncContentChange?
-    /// Published after the launch-triggered sync finishes so browse surfaces can do a one-shot refresh.
-    @Published public private(set) var lastStartupSyncCompletion: Date?
+    public private(set) var lastContentChange: SyncContentChange? {
+        didSet {
+            if let lastContentChange { eventBroadcast.send(.contentChanged(lastContentChange)) }
+        }
+    }
+    /// Set after the launch-triggered sync finishes so browse surfaces can do a one-shot refresh.
+    public private(set) var lastStartupSyncCompletion: Date? {
+        didSet { publishSnapshot() }
+    }
+
+    /// Sync state other services and views watch.
+    public struct Snapshot: Equatable, Sendable {
+        public var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus]
+        public var isSyncing: Bool
+        public var isOffline: Bool
+        public var lastPlaylistTarget: LastPlaylistTarget?
+        public var lastHealthCheckCompletion: Date?
+        public var lastStartupSyncCompletion: Date?
+    }
+
+    /// Things that happen during sync, as opposed to state that holds.
+    public enum Event: Sendable {
+        case contentChanged(SyncContentChange)
+    }
+
+    public var snapshot: Snapshot {
+        Snapshot(
+            sourceStatuses: sourceStatuses,
+            isSyncing: isSyncing,
+            isOffline: isOffline,
+            lastPlaylistTarget: lastPlaylistTarget,
+            lastHealthCheckCompletion: lastHealthCheckCompletion,
+            lastStartupSyncCompletion: lastStartupSyncCompletion
+        )
+    }
+    @ObservationIgnored private let snapshotBroadcast = Broadcast<Snapshot>()
+    @ObservationIgnored private let eventBroadcast = Broadcast<Event>()
+    @ObservationIgnored private var publishedSnapshot: Snapshot?
+
+    /// The current snapshot, then each change.
+    public func snapshots() -> AsyncStream<Snapshot> {
+        snapshotBroadcast.stream(startingWith: snapshot)
+    }
+
+    /// Events from now on.
+    public func events() -> AsyncStream<Event> {
+        eventBroadcast.stream()
+    }
+
+    /// Content changes from now on.
+    public func contentChanges() -> AsyncCompactMapSequence<AsyncStream<Event>, SyncContentChange> {
+        events().compactMap { event in
+            guard case let .contentChanged(change) = event else { return nil }
+            return change
+        }
+    }
+
+    private func publishSnapshot() {
+        let current = snapshot
+        guard current != publishedSnapshot else { return }
+        publishedSnapshot = current
+        snapshotBroadcast.send(current)
+    }
 
     public let accountManager: AccountManager
     public let networkMonitor: NetworkMonitor

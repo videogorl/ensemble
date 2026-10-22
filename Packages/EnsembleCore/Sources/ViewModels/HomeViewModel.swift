@@ -41,8 +41,9 @@ public final class HomeViewModel {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let appReadinessCoordinator: AppReadinessCoordinator?
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
     @ObservationIgnored private var subscriptions: [StreamSubscription] = []
-    @ObservationIgnored private var refreshTriggerCancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var refreshTriggerSubscription: StreamSubscription?
     private var cachedSnapshotRestoreTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
     private var contentGeneration: UInt64 = 0
@@ -126,7 +127,8 @@ public final class HomeViewModel {
     /// cached hubs, and arms the initial-load safety timeout. Safe to call on
     /// every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         self.hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.applyVisibilityToPublishedHubs()
         }.store(in: &cancellables)
@@ -150,15 +152,9 @@ public final class HomeViewModel {
             model.handleSourceConfigurationChange(configuration)
         })
 
-        syncCoordinator.$isOffline
-            .removeDuplicates()
-            .dropFirst()
-            .filter { !$0 }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.flushDeferredAutoRefreshIfVisible()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(syncCoordinator.snapshots().map(\.isOffline).removeDuplicates().dropFirst().filter { !$0 }.observe(self) { model, _ in
+            model.flushDeferredAutoRefreshIfVisible()
+        })
         
         // Load cached hubs immediately for offline-first experience.
         let cacheRestoreGeneration = contentGeneration
@@ -199,7 +195,6 @@ public final class HomeViewModel {
     deinit {
         // Invalidate timer directly without calling @MainActor method from nonisolated deinit
         hubRefreshTimer?.invalidate()
-        refreshTriggerCancellables.removeAll()
     }
     
     /// Load the Feed when the current app session has no fresh network snapshot.
@@ -590,25 +585,21 @@ public final class HomeViewModel {
     }
 
     private func startRefreshTriggerObservation() {
-        guard refreshTriggerCancellables.isEmpty else { return }
+        guard refreshTriggerSubscription == nil else { return }
 
         // Feed reloads only follow actual library/playlist mutations.
         // Transport, health, and progress churn stays on sourceStatuses.
-        syncCoordinator.$lastContentChange
-            .receive(on: DispatchQueue.main)
-            .compactMap { $0 }
+        refreshTriggerSubscription = syncCoordinator.contentChanges()
             .filter(\.hasMaterialChanges)
-            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
-            .sink { [weak self] change in
+            .debounce(for: .seconds(1))
+            .observe(self) { model, change in
                 EnsembleLogger.debug("🏠 Home auto-refresh content change source=\(change.source.compositeKey)")
-                self?.requestAutoRefresh(reason: .contentChange)
+                model.requestAutoRefresh(reason: .contentChange)
             }
-            .store(in: &refreshTriggerCancellables)
     }
 
     private func stopRefreshTriggerObservation() {
-        guard !refreshTriggerCancellables.isEmpty else { return }
-        refreshTriggerCancellables.removeAll()
+        refreshTriggerSubscription = nil
     }
 
     internal static func filterHubsForVisibility(

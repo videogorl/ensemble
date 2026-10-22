@@ -92,6 +92,7 @@ public final class ArtistDetailViewModel {
     private let hiddenMediaStore: HiddenMediaStore
     private let includesHidden: Bool
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
 
     public init(
         artist: Artist,
@@ -112,7 +113,8 @@ public final class ArtistDetailViewModel {
     /// Starts reloading on hidden-media, download, and metadata changes. Safe
     /// to call on every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.rebuildDisplaySnapshot()
         }.store(in: &cancellables)

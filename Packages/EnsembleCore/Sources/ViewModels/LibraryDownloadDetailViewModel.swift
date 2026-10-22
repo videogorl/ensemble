@@ -24,6 +24,7 @@ public final class LibraryDownloadDetailViewModel {
     private let downloadManager: DownloadManagerProtocol
     private let offlineDownloadService: OfflineDownloadService
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
     private var trackStats = TrackDownloadRowStats()
 
     public init(
@@ -42,7 +43,8 @@ public final class LibraryDownloadDetailViewModel {
     /// Starts following queue status and download changes. Safe to call on
     /// every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         offlineDownloadService.$queueStatusReason
             .dropFirst()
             .receive(on: DispatchQueue.main)

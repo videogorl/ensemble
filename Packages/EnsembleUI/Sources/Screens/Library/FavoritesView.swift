@@ -68,7 +68,7 @@ public struct FavoritesView: View {
             let enabledLibs = !snapshot.enabledSources.isEmpty
             if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
         }
-        .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
+        .onChange(of: DependencyContainer.shared.syncCoordinator.isSyncing, initial: true) { _, syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
         .onChange(of: DependencyContainer.shared.accountManager.isAwaitingCloudSources, initial: true) { _, awaiting in

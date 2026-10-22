@@ -25,6 +25,7 @@ public final class PendingMutationsViewModel {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
 
     public init(
         mutationCoordinator: MutationCoordinator,
@@ -41,7 +42,8 @@ public final class PendingMutationsViewModel {
     /// Starts refreshing rows whenever the queue count changes (drain and
     /// enqueue events). Safe to call on every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         mutationCoordinator.$pendingCount
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in

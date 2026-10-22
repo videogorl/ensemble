@@ -1,4 +1,5 @@
 import AVFoundation
+import AsyncAlgorithms
 import Combine
 import CoreData
 import EnsembleAPI
@@ -2270,22 +2271,12 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func observeSyncCompletions() {
-        syncCoordinator.$sourceStatuses
-            .sink { [weak self] statuses in
-                Task { @MainActor in
-                    await self?.handleSourceSyncUpdate(statuses)
-                }
-            }
-            .store(in: &cancellables)
-
-        syncCoordinator.$lastContentChange
-            .compactMap { $0 }
-            .sink { [weak self] change in
-                Task { @MainActor in
-                    await self?.handleContentChange(change)
-                }
-            }
-            .store(in: &cancellables)
+        subscriptions.append(syncCoordinator.snapshots().map(\.sourceStatuses).removeDuplicates().observe(self) { service, statuses in
+            Task { await service.handleSourceSyncUpdate(statuses) }
+        })
+        subscriptions.append(syncCoordinator.contentChanges().observe(self) { service, change in
+            Task { await service.handleContentChange(change) }
+        })
     }
 
     func handleContentChange(_ change: SyncContentChange) async {

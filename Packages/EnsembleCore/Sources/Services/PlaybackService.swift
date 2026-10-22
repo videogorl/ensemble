@@ -1,4 +1,5 @@
 import AVFoundation
+import AsyncAlgorithms
 import Combine
 import EnsembleAPI
 import EnsemblePersistence
@@ -398,7 +399,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     var tlsRefreshedItemID: String?
     var networkStateObservation: StreamSubscription?
     var accountSourcesObservation: StreamSubscription?
-    var healthCheckCompletionObservation: AnyCancellable?
+    var healthCheckCompletionObservation: StreamSubscription?
     /// Set during queue restoration; cleared after pre-buffer completes or user taps play.
     var pendingPreBufferTime: TimeInterval?
     /// Tracks the in-progress pre-buffer task so resume() can await it instead of
@@ -761,13 +762,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     func setupHealthCheckObservation() {
         Task { @MainActor [weak self] in
             guard let self = self else { return }
-            self.healthCheckCompletionObservation = self.syncCoordinator.$lastHealthCheckCompletion
-                .compactMap { $0 } // Ignore nil values
-                .dropFirst() // Ignore initial value
-                .sink { [weak self] _ in
-                    Task { @MainActor in
-                        await self?.handleHealthCheckCompletion()
-                    }
+            // The first completion seen is the one in place (or the launch check); skip it.
+            self.healthCheckCompletionObservation = self.syncCoordinator.snapshots()
+                .map(\.lastHealthCheckCompletion)
+                .removeDuplicates()
+                .compactMap { $0 }
+                .dropFirst()
+                .observe(self) { service, _ in
+                    Task { await service.handleHealthCheckCompletion() }
                 }
         }
     }

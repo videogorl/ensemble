@@ -130,7 +130,7 @@ public struct SearchView: View {
                 viewModel.scope = .library
             }
         }
-        .onReceive(syncCoordinator.$isSyncing) { syncing in
+        .onChange(of: syncCoordinator.isSyncing, initial: true) { _, syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
         .onChange(of: accountManager.isAwaitingCloudSources, initial: true) { _, awaiting in

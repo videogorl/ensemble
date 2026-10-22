@@ -47,6 +47,7 @@ public final class DownloadManagerSettingsViewModel {
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
     private let downloadManager: DownloadManagerProtocol
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var isStarted = false
 
     public init(
         offlineDownloadService: OfflineDownloadService,
@@ -62,7 +63,8 @@ public final class DownloadManagerSettingsViewModel {
 
     /// Starts following target changes. Safe to call on every appearance.
     public func start() {
-        guard cancellables.isEmpty else { return }
+        guard !isStarted else { return }
+        isStarted = true
         offlineDownloadService.$targets
             .dropFirst()
             .sink { [weak self] snapshots in
