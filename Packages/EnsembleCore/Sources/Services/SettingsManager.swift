@@ -381,9 +381,6 @@ public final class SettingsManager {
         didSet {
             guard settings != oldValue else { return }
             Self.persist(settings, changedFrom: oldValue, in: defaults)
-            if settings.allowInsecureConnectionsPolicy != oldValue.allowInsecureConnectionsPolicy {
-                onConnectionPolicyChanged?()
-            }
             broadcast.send(settings)
         }
     }
@@ -467,7 +464,6 @@ public final class SettingsManager {
         AppAccentColor(rawValue: accentColorName) ?? .blue
     }
 
-    var onConnectionPolicyChanged: (() -> Void)?
 
     public var allowInsecureConnectionsPolicy: AllowInsecureConnectionsPolicy {
         get { settings.allowInsecureConnectionsPolicy }

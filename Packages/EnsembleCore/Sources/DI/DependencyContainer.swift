@@ -428,7 +428,8 @@ public final class DependencyContainer: @unchecked Sendable {
             AccountManager(
                 keychain: core.keychain,
                 networkMonitor: networkMonitor,
-                libraryChanges: core.libraryChanges
+                libraryChanges: core.libraryChanges,
+                settingsManager: core.settingsManager
             )
         }
         let accountDiscoveryService = PlexAccountDiscoveryService()
@@ -914,9 +915,6 @@ public final class DependencyContainer: @unchecked Sendable {
 
     @MainActor
     private func wireArtworkCallbacks() {
-        settingsManager.onConnectionPolicyChanged = { [weak accountManager] in
-            accountManager?.connectionPolicyDidChange()
-        }
         syncCoordinator.onConnectionsRefreshed = { [weak self] in
             await self?.artworkLoader.invalidateURLCache()
         }

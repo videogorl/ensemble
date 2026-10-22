@@ -222,12 +222,14 @@ public final class AccountManager {
     private static let appleMusicInitialSyncPendingKey = "sources.appleMusic.initialSyncPending"
 
     @ObservationIgnored private let libraryChanges: LibraryChanges?
+    @ObservationIgnored private var policySubscription: StreamSubscription?
 
     public init(
         keychain: KeychainServiceProtocol,
         networkMonitor: NetworkMonitor? = nil,
         urlSession: URLSession? = nil,
-        libraryChanges: LibraryChanges? = nil
+        libraryChanges: LibraryChanges? = nil,
+        settingsManager: SettingsManager? = nil
     ) {
         self.libraryChanges = libraryChanges
         self.keychain = keychain
@@ -242,6 +244,13 @@ public final class AccountManager {
         self.isAppleMusicEnabled = false
         self.isAppleMusicInitialSyncPending = false
         #endif
+        // Re-resolve existing clients as soon as the connection policy setting changes;
+        // client reads also pick the policy up lazily.
+        policySubscription = settingsManager?.snapshots()
+            .map(\.allowInsecureConnectionsPolicy)
+            .removeDuplicates()
+            .dropFirst()
+            .observe(self) { manager, _ in manager.connectionPolicyDidChange() }
         networkMonitor?.onRoutingChanged = { [weak self] in
             self?.networkConditionsDidChange()
         }
