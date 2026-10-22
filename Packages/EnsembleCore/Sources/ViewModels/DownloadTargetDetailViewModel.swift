@@ -1,7 +1,9 @@
+import AsyncAlgorithms
 import Combine
 import CoreData
 import EnsembleAPI
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -159,6 +161,7 @@ public final class DownloadTargetDetailViewModel {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let offlineDownloadService: OfflineDownloadService
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     @ObservationIgnored private var isStarted = false
     private var trackStats = TrackDownloadRowStats()
 
@@ -186,11 +189,9 @@ public final class DownloadTargetDetailViewModel {
         isStarted = true
 
         // Observe queue status reason from the download service
-        offlineDownloadService.$queueStatusReason
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] reason in self?.queueStatusReason = reason }
-            .store(in: &cancellables)
+        subscriptions.append(offlineDownloadService.snapshots().map(\.queueStatusReason).removeDuplicates().dropFirst().observe(self) { model, reason in
+            model.queueStatusReason = reason
+        })
 
         // Re-load track rows when the view context merges background download changes.
         // This fires AFTER CoreData merges background saves to the view context, ensuring

@@ -57,10 +57,19 @@ public enum TrackAvailability: Sendable, Equatable {
 /// counter that increments on any state change. Views observe this counter
 /// via `.onChange` and re-evaluate visibility for on-screen tracks.
 @MainActor
-public final class TrackAvailabilityResolver: ObservableObject {
+@Observable
+public final class TrackAvailabilityResolver {
     /// Incremented whenever connectivity, server state, or download state changes.
     /// Views should observe this and re-evaluate track availability for visible rows.
-    @Published public private(set) var availabilityGeneration: UInt64 = 0
+    public private(set) var availabilityGeneration: UInt64 = 0 {
+        didSet { generationBroadcast.send(availabilityGeneration) }
+    }
+    @ObservationIgnored private let generationBroadcast = Broadcast<UInt64>()
+
+    /// The current generation, then each increment.
+    public func availabilityGenerations() -> AsyncStream<UInt64> {
+        generationBroadcast.stream(startingWith: availabilityGeneration)
+    }
 
     private let networkMonitor: NetworkMonitor
     private let serverHealthChecker: ServerHealthChecker

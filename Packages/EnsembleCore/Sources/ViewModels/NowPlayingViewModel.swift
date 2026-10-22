@@ -368,10 +368,9 @@ public final class NowPlayingViewModel {
 
         // Forward availability generation so isCurrentTrackPlayable re-evaluates
         // when server connectivity changes (e.g. health check completes after restore)
-        trackAvailabilityResolver.$availabilityGeneration
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] value in self?.availabilityGeneration = value }
-            .store(in: &cancellables)
+        subscriptions.append(trackAvailabilityResolver.availabilityGenerations().observe(self) { model, value in
+            model.availabilityGeneration = value
+        })
 
         // Pipe lyrics state from service to view model
         lyricsService.$currentLyrics

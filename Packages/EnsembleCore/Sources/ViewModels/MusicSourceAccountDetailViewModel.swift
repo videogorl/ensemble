@@ -148,13 +148,9 @@ public final class MusicSourceAccountDetailViewModel {
             .store(in: &cancellables)
 
         // Mirror the global pending mutation count so the view can show sync status
-        mutationCoordinator.$pendingCount
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] count in
-                self?.pendingMutationCount = count
-            }
-            .store(in: &cancellables)
+        subscriptions.append(mutationCoordinator.pendingCounts().dropFirst().observe(self) { model, count in
+            model.pendingMutationCount = count
+        })
 
         subscriptions.append(accountManager.snapshots().map(\.plexAccounts).removeDuplicates().dropFirst().observe(self) { model, _ in
             model.rebuildSections()

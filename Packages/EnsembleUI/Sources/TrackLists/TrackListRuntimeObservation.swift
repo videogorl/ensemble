@@ -26,12 +26,12 @@ struct TrackListRuntimeObservationModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onReceive(offlineDownloadService.$activeDownloadTrackIdentities) { keys in
+            .onChange(of: offlineDownloadService.activeDownloadTrackIdentities, initial: true) { _, keys in
                 if keys != activeDownloadTrackIdentities {
                     activeDownloadTrackIdentities = keys
                 }
             }
-            .onReceive(trackAvailabilityResolver.$availabilityGeneration) { generation in
+            .onChange(of: trackAvailabilityResolver.availabilityGeneration, initial: true) { _, generation in
                 if generation != availabilityGeneration {
                     availabilityGeneration = generation
                 }

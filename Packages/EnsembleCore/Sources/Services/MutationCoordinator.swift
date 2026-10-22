@@ -116,9 +116,19 @@ public struct ScrobbleMutationPayload: Codable, Sendable {
 /// Mutations are persisted in CoreData and survive app restarts. The queue drains automatically
 /// when connectivity resumes.
 @MainActor
-public final class MutationCoordinator: ObservableObject {
-    /// How many pending (non-failed) mutations are queued
-    @Published public private(set) var pendingCount: Int = 0
+@Observable
+public final class MutationCoordinator {
+    /// How many pending (non-failed) mutations are queued. Every refresh is
+    /// broadcast, even an unchanged count, since the queue's contents may differ.
+    public private(set) var pendingCount: Int = 0 {
+        didSet { pendingCountBroadcast.send(pendingCount) }
+    }
+    @ObservationIgnored private let pendingCountBroadcast = Broadcast<Int>()
+
+    /// The current pending count, then each refresh.
+    public func pendingCounts() -> AsyncStream<Int> {
+        pendingCountBroadcast.stream(startingWith: pendingCount)
+    }
 
     private static let maxRetries: Int16 = 3
 

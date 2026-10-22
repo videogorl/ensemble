@@ -1,5 +1,7 @@
+import AsyncAlgorithms
 import Combine
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -47,6 +49,7 @@ public final class DownloadManagerSettingsViewModel {
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
     private let downloadManager: DownloadManagerProtocol
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     @ObservationIgnored private var isStarted = false
 
     public init(
@@ -65,12 +68,9 @@ public final class DownloadManagerSettingsViewModel {
     public func start() {
         guard !isStarted else { return }
         isStarted = true
-        offlineDownloadService.$targets
-            .dropFirst()
-            .sink { [weak self] snapshots in
-                self?.items = Self.items(from: snapshots)
-            }
-            .store(in: &cancellables)
+        subscriptions.append(offlineDownloadService.snapshots().map(\.targets).removeDuplicates().dropFirst().observe(self) { model, targets in
+            model.items = Self.items(from: targets)
+        })
     }
 
     private static func items(from snapshots: [OfflineDownloadTargetSnapshot]) -> [DownloadManagerItem] {

@@ -7,7 +7,7 @@ import EnsemblePersistence
 import EnsembleSupport
 import Foundation
 
-public struct OfflineDownloadTargetSnapshot: Identifiable {
+public struct OfflineDownloadTargetSnapshot: Identifiable, Equatable, Sendable {
     public let id: String
     public let key: String
     public let kind: CDOfflineDownloadTarget.Kind
@@ -87,7 +87,7 @@ public enum QueueStatusReason: Equatable, Sendable {
 }
 
 /// Tracks progress of a target removal operation (per-track file deletion)
-public struct RemovalProgress: Equatable {
+public struct RemovalProgress: Equatable, Sendable {
     public let targetTitle: String
     public let completed: Int
     public let total: Int
@@ -126,11 +126,14 @@ enum OfflineDownloadRecoveryReason: Equatable, Sendable {
 }
 
 @MainActor
-public final class OfflineDownloadService: ObservableObject {
+@Observable
+public final class OfflineDownloadService {
     /// Posted when download targets change (enable/disable/quality refresh) so track-displaying VMs can re-fetch
     nonisolated public static let downloadsDidChange = Notification.Name("OfflineDownloadsDidChange")
-    @Published public private(set) var targets: [OfflineDownloadTargetSnapshot] = []
-    @Published public private(set) var isQueueRunning = false {
+    public private(set) var targets: [OfflineDownloadTargetSnapshot] = [] {
+        didSet { publishSnapshot() }
+    }
+    public private(set) var isQueueRunning = false {
         didSet {
             guard isQueueRunning != oldValue else { return }
             if isQueueRunning {
@@ -138,14 +141,54 @@ public final class OfflineDownloadService: ObservableObject {
             } else {
                 foregroundWorkScheduler?.endInteraction(.downloadTransfer)
             }
+            publishSnapshot()
         }
     }
     /// Current reason the queue is idle/paused — observed by detail views for status banners
-    @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
+    public private(set) var queueStatusReason: QueueStatusReason = .idle {
+        didSet { publishSnapshot() }
+    }
     /// Per-target removal progress — keyed by target key, shown in DownloadsView during cleanup
-    @Published public private(set) var removalInProgress: [String: RemovalProgress] = [:]
+    public private(set) var removalInProgress: [String: RemovalProgress] = [:] {
+        didSet { publishSnapshot() }
+    }
     /// Track source-scoped identities currently pending or actively downloading, used by track-list rows to show spinners.
-    @Published public private(set) var activeDownloadTrackIdentities: Set<String> = []
+    public private(set) var activeDownloadTrackIdentities: Set<String> = [] {
+        didSet { publishSnapshot() }
+    }
+
+    /// Download state other services and views watch.
+    public struct Snapshot: Equatable, Sendable {
+        public var targets: [OfflineDownloadTargetSnapshot]
+        public var isQueueRunning: Bool
+        public var queueStatusReason: QueueStatusReason
+        public var removalInProgress: [String: RemovalProgress]
+        public var activeDownloadTrackIdentities: Set<String>
+    }
+
+    public var snapshot: Snapshot {
+        Snapshot(
+            targets: targets,
+            isQueueRunning: isQueueRunning,
+            queueStatusReason: queueStatusReason,
+            removalInProgress: removalInProgress,
+            activeDownloadTrackIdentities: activeDownloadTrackIdentities
+        )
+    }
+    @ObservationIgnored private let snapshotBroadcast = Broadcast<Snapshot>()
+    @ObservationIgnored private var publishedSnapshot: Snapshot?
+
+    /// The current snapshot, then each change.
+    public func snapshots() -> AsyncStream<Snapshot> {
+        snapshotBroadcast.stream(startingWith: snapshot)
+    }
+
+    private func publishSnapshot() {
+        let current = snapshot
+        guard current != publishedSnapshot else { return }
+        publishedSnapshot = current
+        snapshotBroadcast.send(current)
+    }
     internal private(set) var lastHealingSummary: OfflineDownloadHealingSummary = .notRun
 
     private let downloadManager: DownloadManagerProtocol
@@ -191,7 +234,7 @@ public final class OfflineDownloadService: ObservableObject {
     private var networkPolicyOverrideTask: Task<Void, Never>?
     internal var networkPolicyOverrideDuration: TimeInterval = 60 * 60
     private let retryPolicy = DownloadRetryPolicy()
-    private lazy var targetReconciler = DownloadTargetReconciler(
+    @ObservationIgnored private lazy var targetReconciler = DownloadTargetReconciler(
         dependencies: .init(
             targetRepository: targetRepository,
             libraryRepository: libraryRepository,
@@ -203,7 +246,7 @@ public final class OfflineDownloadService: ObservableObject {
             }
         )
     )
-    private lazy var cleanupCoordinator = OfflineDownloadCleanupCoordinator(
+    @ObservationIgnored private lazy var cleanupCoordinator = OfflineDownloadCleanupCoordinator(
         dependencies: .init(
             downloadManager: downloadManager,
             targetRepository: targetRepository,
@@ -212,7 +255,7 @@ public final class OfflineDownloadService: ObservableObject {
             }
         )
     )
-    private lazy var notificationBridge = OfflineDownloadNotificationBridge(
+    @ObservationIgnored private lazy var notificationBridge = OfflineDownloadNotificationBridge(
         dependencies: .init(
             fetchPendingDownloadCount: { [weak self] in
                 guard let self else { return 0 }
@@ -238,7 +281,7 @@ public final class OfflineDownloadService: ObservableObject {
             }
         )
     )
-    private lazy var targetProgressController = OfflineDownloadTargetProgressController(
+    @ObservationIgnored private lazy var targetProgressController = OfflineDownloadTargetProgressController(
         dependencies: .init(
             downloadManager: downloadManager,
             targetRepository: targetRepository,
@@ -254,7 +297,7 @@ public final class OfflineDownloadService: ObservableObject {
     private var isInstallingNativeReceipts = false
     private var backgroundHandoff: Task<Void, Never>?
     private let backgroundDownloads: BackgroundDownload
-    private lazy var transferExecutor = DownloadTransferExecutor(
+    @ObservationIgnored private lazy var transferExecutor = DownloadTransferExecutor(
         dependencies: .init(
             downloadManager: downloadManager,
             fetchDirectDownloadURL: { [weak self] track, quality in
@@ -332,7 +375,7 @@ public final class OfflineDownloadService: ObservableObject {
             }
         )
     )
-    private lazy var queueCoordinator = DownloadQueueCoordinator(
+    @ObservationIgnored private lazy var queueCoordinator = DownloadQueueCoordinator(
         dependencies: .init(
             canRunAutomatically: { [weak self] in self?.canRunQueueAutomatically ?? false },
             setQueueRunning: { [weak self] value in self?.isQueueRunning = value },

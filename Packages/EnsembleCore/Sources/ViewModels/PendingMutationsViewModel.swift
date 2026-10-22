@@ -1,5 +1,7 @@
+import AsyncAlgorithms
 import Combine
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -25,6 +27,7 @@ public final class PendingMutationsViewModel {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     @ObservationIgnored private var isStarted = false
 
     public init(
@@ -44,14 +47,9 @@ public final class PendingMutationsViewModel {
     public func start() {
         guard !isStarted else { return }
         isStarted = true
-        mutationCoordinator.$pendingCount
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadMutations()
-                }
-            }
-            .store(in: &cancellables)
+        subscriptions.append(mutationCoordinator.pendingCounts().observe(self) { model, _ in
+            Task { await model.loadMutations() }
+        })
     }
 
     // MARK: - Public

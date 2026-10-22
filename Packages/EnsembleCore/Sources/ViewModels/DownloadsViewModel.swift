@@ -102,10 +102,9 @@ public final class DownloadsViewModel {
     public func start() {
         guard !isStarted else { return }
         isStarted = true
-        offlineDownloadService.$targets
-            .dropFirst()
-            .sink { [weak self] snapshots in self?.targetsOrAccountsChanged(snapshots) }
-            .store(in: &cancellables)
+        subscriptions.append(offlineDownloadService.snapshots().map(\.targets).removeDuplicates().dropFirst().observe(self) { model, targets in
+            model.targetsOrAccountsChanged(targets)
+        })
         subscriptions.append(accountManager.snapshots().map(\.plexAccounts).removeDuplicates().dropFirst().observe(self) { model, _ in
             model.targetsOrAccountsChanged(model.offlineDownloadService.targets)
         })
@@ -154,27 +153,14 @@ public final class DownloadsViewModel {
 
     private func startMirroring() {
         // Mirror removal progress, pending mutations, queue state, and status reason
-        offlineDownloadService.$removalInProgress
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] value in self?.removalInProgress = value }
-            .store(in: &cancellables)
-        mutationCoordinator.$pendingCount
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] value in self?.pendingMutationCount = value }
-            .store(in: &cancellables)
-        offlineDownloadService.$isQueueRunning
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] value in self?.isQueueRunning = value }
-            .store(in: &cancellables)
-        offlineDownloadService.$queueStatusReason
-            .dropFirst()
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] value in self?.queueStatusReason = value }
-            .store(in: &cancellables)
+        subscriptions.append(offlineDownloadService.snapshots().dropFirst().observe(self) { model, downloads in
+            if model.removalInProgress != downloads.removalInProgress { model.removalInProgress = downloads.removalInProgress }
+            if model.isQueueRunning != downloads.isQueueRunning { model.isQueueRunning = downloads.isQueueRunning }
+            if model.queueStatusReason != downloads.queueStatusReason { model.queueStatusReason = downloads.queueStatusReason }
+        })
+        subscriptions.append(mutationCoordinator.pendingCounts().dropFirst().observe(self) { model, count in
+            model.pendingMutationCount = count
+        })
 
         Task { [weak self] in
             await self?.resolveThumbPaths()

@@ -1,6 +1,8 @@
+import AsyncAlgorithms
 import Combine
 import CoreData
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -24,6 +26,7 @@ public final class LibraryDownloadDetailViewModel {
     private let downloadManager: DownloadManagerProtocol
     private let offlineDownloadService: OfflineDownloadService
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     @ObservationIgnored private var isStarted = false
     private var trackStats = TrackDownloadRowStats()
 
@@ -45,11 +48,9 @@ public final class LibraryDownloadDetailViewModel {
     public func start() {
         guard !isStarted else { return }
         isStarted = true
-        offlineDownloadService.$queueStatusReason
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] reason in self?.queueStatusReason = reason }
-            .store(in: &cancellables)
+        subscriptions.append(offlineDownloadService.snapshots().map(\.queueStatusReason).removeDuplicates().dropFirst().observe(self) { model, reason in
+            model.queueStatusReason = reason
+        })
 
         // Re-load when CoreData view context merges background download changes
         NotificationCenter.default.publisher(

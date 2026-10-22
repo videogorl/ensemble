@@ -546,13 +546,19 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             downloadManager: downloadManager,
             targetRepository: targetRepository
         )
-        var progressUpdates: [RemovalProgress] = []
-        let progressCancellable = service.$removalInProgress
-            .compactMap { $0[targetKey] }
-            .sink { progressUpdates.append($0) }
-        defer { progressCancellable.cancel() }
+        var snapshots = service.snapshots().makeAsyncIterator()
 
         await service.removeTarget(key: targetKey)
+
+        // Every snapshot is buffered in order; read until the removal entry clears.
+        var progressUpdates: [RemovalProgress] = []
+        while let snapshot = await snapshots.next() {
+            if let progress = snapshot.removalInProgress[targetKey] {
+                progressUpdates.append(progress)
+            } else if !progressUpdates.isEmpty {
+                break
+            }
+        }
 
         XCTAssertEqual(targetRepository.deletedTargetKeys, [targetKey])
         XCTAssertEqual(downloadManager.deletedReferences, [orphaned])
