@@ -1,9 +1,10 @@
 # Step 2 design: composition root and Observation
 
-Status: draft for Felicity's review, 2026-10-19, against `50445322` on
-`develop`. Re-architecture plan step 2
-([`rearchitecture-plan.md`](rearchitecture-plan.md), sections 4.1, 4.6 and
-step 2). Nothing here is implemented yet.
+Status: written 2026-10-19 against `50445322` on `develop`; Felicity approved
+all five recommendations in section 4 on 2026-10-21. Re-architecture plan
+step 2 ([`rearchitecture-plan.md`](rearchitecture-plan.md), sections 4.1, 4.6
+and step 2). Progress is in the
+[step note](../investigations/2026-10-21-step-2-composition-observation.md).
 
 Step 2 asks for four things: remove global container access from the UI, then
 from Core; build every scene from one root; move view models to Observation;

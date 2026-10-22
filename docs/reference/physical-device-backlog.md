@@ -44,6 +44,20 @@ Both the pinned native button and overflow item opened the route picker.
   is unavailable; normal runtime used an intact native picker hierarchy.
 
 
+### Step 2, at `31f8e27c` or later
+
+See [the step note](../investigations/2026-10-21-step-2-composition-observation.md).
+
+- External display: with the main scene open, start Screen Mirroring; the TV
+  shows the same Now Playing model (lyrics, queue page, pause and skip stay in
+  sync). The scene now receives the container from the app root (2b) and the
+  model from `RootScreenModels` (2e).
+- AirPlay: the pinned native button and the overflow AirPlay item both open
+  the route picker. The overflow item's controller became `@Observable` in
+  2e; the native picker did not open on the simulator.
+- App Shortcuts and Siri: play a playlist and an artist by voice; services
+  now come from the app root (2b).
+
 ### Step 1f split, at `302a5d78` or later
 
 See [the step note](../investigations/2026-10-17-step-1f-split.md). The split
