@@ -6,7 +6,7 @@ public struct MoodTracksView: View {
     let mood: Mood
     let nowPlayingVM: NowPlayingViewModel
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @State private var viewModel: SearchViewModel
     @State private var moodTracks: [Track] = []
     @State private var isLoading = true

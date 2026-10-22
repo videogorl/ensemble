@@ -18,7 +18,7 @@ public struct HomeView: View {
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @Environment(\.scenePhase) private var scenePhase
     private let isSelectedRoot: Bool
 
@@ -332,7 +332,7 @@ struct HubSection: View {
     let nowPlayingVM: NowPlayingViewModel
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
     @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     private let settingsManager = DependencyContainer.shared.settingsManager
 
     private var displayItems: [DisplayHubItem] {

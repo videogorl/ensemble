@@ -78,7 +78,7 @@ public struct ArtistsView: View {
     let nowPlayingVM: NowPlayingViewModel
     private let presentationMode: PresentationMode
     private let externalSelectedArtist: Binding<DisplayArtist?>?
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @State private var localSelectedArtist: DisplayArtist?
     private let artistSnapshotCache: BrowseSnapshotCache<ArtistBrowseSnapshot>
 
@@ -435,7 +435,7 @@ private struct DisplayArtistGrid: View {
     let artists: [DisplayArtist]
     let nowPlayingVM: NowPlayingViewModel
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let columns = EnsembleScaffold.MediaCard.personGridColumns
@@ -620,7 +620,7 @@ public struct ArtistDetailView: View {
     let nowPlayingVM: NowPlayingViewModel
 
     @Environment(DependencyContainer.self) private var dependencies
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     private var pinManager: PinManager { dependencies.pinManager }
     // Targeted observation: only re-evaluate when these specific values change

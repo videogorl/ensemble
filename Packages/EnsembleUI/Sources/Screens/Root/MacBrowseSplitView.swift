@@ -21,7 +21,7 @@ struct MacBrowseSplitView<Sidebar: View, Picker: View, Detail: View>: NSViewCont
     let detail: Detail
     let showsPicker: Bool
     let sidebarFrameChanged: (CGRect?) -> Void
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     @Environment(DependencyContainer.self) private var dependencies
 
@@ -57,7 +57,7 @@ struct MacBrowseSplitView<Sidebar: View, Picker: View, Detail: View>: NSViewCont
         // the parent's whole environment also copies private toolbar/search state
         // and can feed the bridged window state back into itself.
         AnyView(content
-            .environmentObject(navigationCoordinator)
+            .environment(navigationCoordinator)
             .environment(sourceActionPresenter)
             .environment(dependencies)
             .environment(\.colorScheme, environment.colorScheme)

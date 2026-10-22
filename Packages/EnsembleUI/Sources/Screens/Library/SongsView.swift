@@ -11,7 +11,7 @@ import SwiftUI
 public struct SongsView: View {
     @Environment(DependencyContainer.self) private var deps
     @Environment(\.isStageFlowActive) private var isStageFlowActive
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel

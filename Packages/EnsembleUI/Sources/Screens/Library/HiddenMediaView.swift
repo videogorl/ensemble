@@ -5,7 +5,7 @@ import SwiftUI
 struct HiddenMediaView: View {
     let nowPlayingVM: NowPlayingViewModel
     @State private var viewModel: HiddenMediaViewModel
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @State private var expandedSections = Set<HiddenMediaKind>()
     @State private var isEditingOrder = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?

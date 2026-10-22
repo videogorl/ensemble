@@ -7,7 +7,7 @@ public struct AlbumsView: View {
     let nowPlayingVM: NowPlayingViewModel
     @Environment(DependencyContainer.self) private var deps
     @Environment(\.isStageFlowActive) private var isStageFlowActive
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @State private var showFilterSheet = false
     @State private var visibleAlbumID: String?
     @State private var selectedAlbum: DisplayAlbum?
@@ -296,7 +296,7 @@ public struct AlbumDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(DependencyContainer.self) private var deps
     @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let album: Album

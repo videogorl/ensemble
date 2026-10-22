@@ -107,7 +107,7 @@ public struct PlaylistsView: View {
     private var syncCoordinator: SyncCoordinator { deps.syncCoordinator }
     @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     @Environment(\.isStageFlowActive) private var rootStageFlowActive
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     private var isMacBrowsePicker: Bool {
         #if os(macOS)
         presentationMode == .selectionColumn

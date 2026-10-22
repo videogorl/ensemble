@@ -184,7 +184,7 @@ struct EnsembleApp: App {
         Window("Profile", id: NavigationCoordinator.AuxiliaryPresentation.profile.windowID) {
             ProfilePresentationContainer()
                 .environment(AppRoot.container)
-                .environmentObject(AppRoot.container.navigationCoordinator)
+                .environment(AppRoot.container.navigationCoordinator)
                 .ensembleAuxiliaryWindowFrame(.profile)
         }
         .defaultSize(
@@ -196,7 +196,7 @@ struct EnsembleApp: App {
         Window("Downloads", id: NavigationCoordinator.AuxiliaryPresentation.downloads.windowID) {
             DownloadsPresentationContainer()
                 .environment(AppRoot.container)
-                .environmentObject(AppRoot.container.navigationCoordinator)
+                .environment(AppRoot.container.navigationCoordinator)
                 .ensembleAuxiliaryWindowFrame(.downloads)
         }
         .defaultSize(

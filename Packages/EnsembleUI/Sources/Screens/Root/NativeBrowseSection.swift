@@ -11,7 +11,7 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
     var sidebarChromeChanged: ((RootSidebarChromeRegistration) -> Void)? = nil
     let nowPlayingVM: NowPlayingViewModel
     let viewModels: RootScreenModels
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @Binding var rootSelection: SidebarSelection?
     @Binding var artist: DisplayArtist?
     @Binding var genre: DisplayGenre?

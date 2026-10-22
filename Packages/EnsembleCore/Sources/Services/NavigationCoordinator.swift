@@ -4,7 +4,8 @@ import Combine
 
 /// Centralized navigation coordinator for handling deep links and cross-tab navigation
 @MainActor
-public final class NavigationCoordinator: ObservableObject {
+@Observable
+public final class NavigationCoordinator {
     private static weak var activeAuxiliaryCommandCoordinator: NavigationCoordinator?
     private static weak var activeSceneCoordinator: NavigationCoordinator?
     private static var pendingExternalSearchDestination: Destination?
@@ -82,7 +83,7 @@ public final class NavigationCoordinator: ObservableObject {
     }
     
     /// The currently selected tab
-    @Published public var selectedTab: TabItem = .home {
+    public var selectedTab: TabItem = .home {
         didSet {
             guard oldValue != selectedTab else { return }
             logJourney(
@@ -99,24 +100,24 @@ public final class NavigationCoordinator: ObservableObject {
     public var routesHiddenTabsThroughMore = false
 
     // Per-tab navigation paths (strictly typed as [Destination] for iOS 15+ compatibility)
-    @Published public var homePath: [Destination] = []
-    @Published public var songsPath: [Destination] = []
-    @Published public var artistsPath: [Destination] = []
-    @Published public var albumsPath: [Destination] = []
-    @Published public var genresPath: [Destination] = []
-    @Published public var playlistsPath: [Destination] = []
-    @Published public var favoritesPath: [Destination] = []
-    @Published public var searchPath: [Destination] = []
-    @Published public var downloadsPath: [Destination] = []
-    @Published public var settingsPath: [Destination] = []
+    public var homePath: [Destination] = []
+    public var songsPath: [Destination] = []
+    public var artistsPath: [Destination] = []
+    public var albumsPath: [Destination] = []
+    public var genresPath: [Destination] = []
+    public var playlistsPath: [Destination] = []
+    public var favoritesPath: [Destination] = []
+    public var searchPath: [Destination] = []
+    public var downloadsPath: [Destination] = []
+    public var settingsPath: [Destination] = []
     
     /// Drives the "Add Plex Account" sheet from a stable root-level view
     /// (MainTabView / SidebarView) so it survives TabView content recreation.
-    @Published public var showingAddAccount = false
-    @Published public var activeAuxiliaryPresentation: AuxiliaryPresentation?
-    @Published public var auxiliaryWindowRequest: AuxiliaryWindowRequest?
-    @Published public private(set) var routeTransitionTabs: Set<TabItem> = []
-    @Published public private(set) var externalRouteSequence: UInt64 = 0
+    public var showingAddAccount = false
+    public var activeAuxiliaryPresentation: AuxiliaryPresentation?
+    public var auxiliaryWindowRequest: AuxiliaryWindowRequest?
+    public private(set) var routeTransitionTabs: Set<TabItem> = []
+    public private(set) var externalRouteSequence: UInt64 = 0
 
     /// For NowPlaying flow: pending navigation to execute after sheet dismissal
     public struct PendingNavigation {
@@ -129,7 +130,7 @@ public final class NavigationCoordinator: ObservableObject {
         }
     }
     
-    @Published public var pendingNavigation: PendingNavigation?
+    public var pendingNavigation: PendingNavigation?
 
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var navigationInteractionGeneration = 0

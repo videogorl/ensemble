@@ -17,7 +17,7 @@ public struct MiniPlayer: View {
     let viewModel: NowPlayingViewModel
     let onTap: () -> Void
 
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @State private var verticalOffset: CGFloat = 0
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
 

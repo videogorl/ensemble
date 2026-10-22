@@ -16,7 +16,7 @@ public struct SearchView: View {
     let nowPlayingVM: NowPlayingViewModel
     @FocusState private var isSearchFieldFocused: Bool
     private let pinnedVM: PinnedViewModel
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     @State private var isPinnedExpanded = false
     @State private var collapsesPinsAfterDrag = false
@@ -140,7 +140,7 @@ public struct SearchView: View {
             activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
             availabilityGeneration: $availabilityGeneration
         )
-        .onReceive(navigationCoordinator.$selectedTab) { tab in
+        .onChange(of: navigationCoordinator.selectedTab, initial: true) { _, tab in
             let isActive = tab == .search
             if wasSearchTabActive && !isActive {
                 preservesSearchChromeDuringTabExit = true

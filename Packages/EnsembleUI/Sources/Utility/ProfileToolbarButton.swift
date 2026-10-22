@@ -12,7 +12,7 @@ public struct ProfileToolbarButton: View {
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
     private let settingsManager = DependencyContainer.shared.settingsManager
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
 
     public init(
         profileStore: UserProfileStore = DependencyContainer.shared.userProfileStore,

@@ -19,7 +19,7 @@ public struct MainTabView: View {
     // listen to just that property and store it in @State.
     private var networkMonitor: NetworkMonitor { deps.networkMonitor }
     private var powerStateMonitor: PowerStateMonitor { deps.powerStateMonitor }
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @Environment(DependencyContainer.self) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @Environment(\.isSoftwareKeyboardVisible) private var isSoftwareKeyboardVisible
@@ -524,7 +524,7 @@ public struct SidebarView: View {
     private let nowPlayingVM: NowPlayingViewModel
     private let pinnedVM: PinnedViewModel
     @Namespace private var mediaNavigationNamespace
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     private let rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
     @Environment(DependencyContainer.self) private var deps
     private var settingsManager: SettingsManager { deps.settingsManager }

@@ -11,7 +11,7 @@ struct MiniPlayerActionsMenuButton: View {
     let ratingProjection: NowPlayingRatingProjection
     let viewModel: NowPlayingViewModel
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @State private var showingActionsPopover = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
 

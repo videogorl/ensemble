@@ -73,7 +73,7 @@ struct TrackActionsContextMenu: View {
 
     @Environment(DependencyContainer.self) private var deps
     @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
 
     private var mutationTracks: [Track] {
         sourceTracks.isEmpty ? [track] : sourceTracks
@@ -282,7 +282,7 @@ struct AlbumActionsContextMenu: View {
 
     @Environment(DependencyContainer.self) private var deps
     @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     private var pinManager: PinManager { deps.pinManager }
 
     private var backingAlbums: [Album] {

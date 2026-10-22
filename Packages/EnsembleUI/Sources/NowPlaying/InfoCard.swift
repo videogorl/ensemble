@@ -11,7 +11,7 @@ public struct InfoCard: View {
     private let settingsManager = DependencyContainer.shared.settingsManager
     @Binding var currentPage: Int
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
     // Metadata fetched asynchronously when the card becomes renderable.

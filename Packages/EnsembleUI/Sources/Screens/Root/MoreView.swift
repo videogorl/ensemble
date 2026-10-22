@@ -5,7 +5,7 @@ import SwiftUI
 /// The "More" tab containing additional sections not in the main tab bar
 public struct MoreView: View {
     private let settingsManager = DependencyContainer.shared.settingsManager
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
 
     @State private var isEditing = false
 

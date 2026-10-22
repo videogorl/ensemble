@@ -270,7 +270,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var nvmLastPlaylistTargetId: String?
     @State private var isPinnedForHeader: Bool
     @Environment(DependencyContainer.self) private var deps
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     private var pinManager: PinManager { deps.pinManager }
     // Targeted observation: only re-evaluate when these specific values change

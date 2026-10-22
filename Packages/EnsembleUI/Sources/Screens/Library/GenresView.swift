@@ -14,7 +14,7 @@ public struct GenresView: View {
     private let externalSelectedGenre: Binding<DisplayGenre?>?
     @State private var localSelectedGenre: DisplayGenre?
     private let genreSnapshotCache: BrowseSnapshotCache<GenreBrowseSnapshot>
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     private var isMacBrowsePicker: Bool {
         #if os(macOS)
         presentationMode == .selectionColumn
@@ -244,7 +244,7 @@ struct GenreDetailContentView: View {
     let genre: DisplayGenre
     let nowPlayingVM: NowPlayingViewModel
     let presentationStyle: PresentationStyle
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @State private var showFilterSheet = false
     @State private var shuffleRequested: Bool?
 

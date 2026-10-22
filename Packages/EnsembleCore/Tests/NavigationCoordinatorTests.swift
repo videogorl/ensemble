@@ -1,5 +1,5 @@
 import XCTest
-import Combine
+import Observation
 @testable import EnsembleCore
 
 final class NavigationCoordinatorTests: XCTestCase {
@@ -112,18 +112,24 @@ final class NavigationCoordinatorTests: XCTestCase {
             .album(id: "album", sourceKey: nil)
         ]
         var publishCount = 0
-        let cancellable = coordinator.objectWillChange.sink {
-            publishCount += 1
+        func track() {
+            withObservationTracking {
+                _ = coordinator.albumsPath
+                _ = coordinator.songsPath
+            } onChange: {
+                publishCount += 1
+            }
         }
 
+        track()
         coordinator.setPath(path, for: .albums)
+        track()
         coordinator.setPath(path, for: .albums)
         coordinator.popToRoot(tab: .songs)
 
         XCTAssertEqual(publishCount, 1)
         XCTAssertEqual(coordinator.pathSnapshot(for: .albums), path)
 
-        cancellable.cancel()
     }
 
     @MainActor

@@ -17,7 +17,7 @@ public struct RootView: View {
     @State private var usesExpandedPhoneBrowse = false
     private let settingsManager = DependencyContainer.shared.settingsManager
     private var powerStateMonitor: PowerStateMonitor { dependencies.powerStateMonitor }
-    @StateObject private var navigationCoordinator: NavigationCoordinator
+    @State private var navigationCoordinator: NavigationCoordinator
     @StateObject private var screenModels: RootScreenModels
     @State private var artworkDetailBackgroundContinuity = ArtworkDetailBackgroundContinuityStore()
     @State private var artistDetailArtworkContinuity = ArtistDetailArtworkContinuityStore()
@@ -46,7 +46,7 @@ public struct RootView: View {
         let navigationCoordinator = NavigationCoordinator(
             foregroundWorkScheduler: dependencies.foregroundWorkScheduler
         )
-        _navigationCoordinator = StateObject(wrappedValue: navigationCoordinator)
+        _navigationCoordinator = State(initialValue: navigationCoordinator)
         _screenModels = StateObject(wrappedValue: RootScreenModels(
             dependencies: dependencies,
             navigationCoordinator: navigationCoordinator
@@ -100,7 +100,7 @@ public struct RootView: View {
         .environment(\.isSoftwareKeyboardVisible, isSoftwareKeyboardVisible)
         .environment(\.artworkDetailBackgroundContinuity, artworkDetailBackgroundContinuity)
         .environment(\.artistDetailArtworkContinuity, artistDetailArtworkContinuity)
-        .environmentObject(navigationCoordinator)
+        .environment(navigationCoordinator)
         .accentColor(settingsManager.accentColor.color)
         .transaction { transaction in
             guard AutomationLaunchOptions.current.disableAnimations else { return }
@@ -131,10 +131,10 @@ public struct RootView: View {
         .onChange(of: powerStateMonitor.isLowPowerMode, initial: true) { _, newValue in
             isLowPowerMode = newValue
         }
-        .onReceive(navigationCoordinator.$selectedTab) { tab in
+        .onChange(of: navigationCoordinator.selectedTab, initial: true) { _, tab in
             syncSidebarSelection(to: tab)
         }
-        .onReceive(navigationCoordinator.$externalRouteSequence.dropFirst()) { _ in
+        .onChange(of: navigationCoordinator.externalRouteSequence) {
             if usesNativeBrowse {
                 // External routes target a library stack, never a transient Pin tab.
                 sidebarSelection = .library(navigationCoordinator.selectedTab)
@@ -348,7 +348,7 @@ public struct RootView: View {
         )
         .accentColor(settingsManager.accentColor.color)
         .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
-        .environmentObject(navigationCoordinator)
+        .environment(navigationCoordinator)
     }
 
     private func presentNowPlayingFromMiniPlayer() {

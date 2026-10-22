@@ -2,7 +2,7 @@ import EnsembleCore
 import SwiftUI
 
 private struct AuxiliaryDismissToolbarModifier: ViewModifier {
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
 
     func body(content: Content) -> some View {
         #if os(iOS)
@@ -105,7 +105,7 @@ public struct DownloadsPresentationContainer: View {
 }
 
 private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
 
     private var presentationBinding: Binding<NavigationCoordinator.AuxiliaryPresentation?> {
         Binding(
@@ -145,9 +145,10 @@ public extension View {
 }
 
 private struct AddAccountPresentationSheetModifier: ViewModifier {
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @Environment(NavigationCoordinator.self) private var navigationCoordinator
 
     func body(content: Content) -> some View {
+        @Bindable var navigationCoordinator = navigationCoordinator
         content
             .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
                 AddSourceView()
