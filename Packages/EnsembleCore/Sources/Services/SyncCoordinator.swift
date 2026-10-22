@@ -420,7 +420,7 @@ public final class SyncCoordinator {
     private var isCheckingHealth = false
     private var enabledServerKeysSnapshot = Set<String>()
     /// Timestamp of last sourceStatuses progress update per source — used to throttle
-    /// @Published updates during sync so SwiftUI doesn't re-render on every item.
+    /// snapshot updates during sync so SwiftUI doesn't re-render on every item.
     private var lastProgressUpdateTime: [MusicSourceIdentifier: CFAbsoluteTime] = [:]
     private let progressThrottleInterval: CFAbsoluteTime = 0.2  // 200ms
     private static let lastPlaylistIdKey = "NowPlaying.LastPlaylist.ID"
@@ -909,7 +909,7 @@ public final class SyncCoordinator {
     }
 
     /// Throttles sourceStatuses progress updates to avoid flooding SwiftUI with per-item
-    /// @Published changes during sync. Always publishes near-completion updates (≥99%).
+    /// changes during sync. Always publishes near-completion updates (≥99%).
     private func throttledProgressUpdate(for sourceId: MusicSourceIdentifier, mappedProgress: Double) {
         let now = CFAbsoluteTimeGetCurrent()
         let lastUpdate = lastProgressUpdateTime[sourceId] ?? 0

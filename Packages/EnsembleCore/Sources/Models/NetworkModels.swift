@@ -22,7 +22,7 @@ import Foundation
 /// - ConnectionFailoverManager uses these states to choose optimal connection URLs
 ///
 /// Usage:
-/// - NetworkMonitor publishes NetworkState changes via @Published
+/// - NetworkMonitor publishes NetworkState changes in its snapshot stream
 /// - ServerHealthChecker maintains dictionary of ServerConnectionState per server
 /// - UI components use StatusColor for consistent visual feedback
 

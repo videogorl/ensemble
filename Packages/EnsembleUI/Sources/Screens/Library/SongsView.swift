@@ -26,7 +26,7 @@ public struct SongsView: View {
     private let trackSnapshotCache: BrowseSnapshotCache<TrackBrowseSnapshot>
     @State private var trackContentRevision: UInt64 = 0
     // Targeted observation: only re-evaluate when these specific values change,
-    // not when any of offlineDownloadService's 5+ @Published props update
+    // not on every other download-state change
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     private var canShowLargeScreenSongBrowser: Bool {
