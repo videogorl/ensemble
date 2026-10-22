@@ -160,19 +160,12 @@ public final class FavoritesViewModel: MediaDetailViewModelProtocol {
     }
 
     private func setupVisibilityObservation() {
-        Publishers.CombineLatest3(
-            visibilityStore.$profiles,
-            visibilityStore.$activeProfileID,
-            visibilityStore.$focusFilter
-        )
-            .dropFirst()
-            .map { _ in () }
-            .merge(with: hiddenMediaStore.$snapshot.dropFirst().map { _ in () })
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.applyVisibilityToPublishedTracks()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(visibilityStore.snapshots().dropFirst().observe(self) { model, _ in
+            model.applyVisibilityToPublishedTracks()
+        })
+        subscriptions.append(hiddenMediaStore.snapshots().dropFirst().observe(self) { model, _ in
+            model.applyVisibilityToPublishedTracks()
+        })
         subscriptions.append(accountManager.sourceConfigurations().dropFirst().observe(self) { model, _ in
             model.applyVisibilityToPublishedTracks()
         })

@@ -117,11 +117,8 @@ final class CloudSyncCoordinator {
             await cloudSyncService?.subscribeToChanges()
         }
 
-        hiddenMediaStore.$snapshot
-            .dropFirst()
-            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            .sink { [weak hiddenMediaStore, weak cloudSyncService, weak syncSettingsManager] _ in
-                guard let hiddenMediaStore, let cloudSyncService, let syncSettingsManager else { return }
+        kvsSyncSubscriptions.append(hiddenMediaStore.snapshots().dropFirst().debounce(for: .milliseconds(500)).observe(hiddenMediaStore) { [weak cloudSyncService, weak syncSettingsManager] hiddenMediaStore, _ in
+                guard let cloudSyncService, let syncSettingsManager else { return }
                 guard syncSettingsManager.isFeatureEnabled(.hiddenItems) else { return }
                 if let lastApply = hiddenMediaStore.lastRemoteApplyTime,
                    Date().timeIntervalSince(lastApply) < 2 { return }
@@ -138,8 +135,7 @@ final class CloudSyncCoordinator {
                         )
                     }
                 }
-            }
-            .store(in: &kvsSyncCancellables)
+        })
     }
 
     func wireKVSSyncCallbacks() {

@@ -158,23 +158,15 @@ public final class PinnedViewModel {
             Task { await model.loadPinnedItems() }
         })
 
-        self.hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
-            Task { await self?.loadPinnedItems() }
-        }.store(in: &cancellables)
+        subscriptions.append(hiddenMediaStore.snapshots().dropFirst().observe(self) { model, _ in
+            Task { await model.loadPinnedItems() }
+        })
 
-        Publishers.CombineLatest3(
-            visibilityStore.$profiles,
-            visibilityStore.$activeProfileID,
-            visibilityStore.$focusFilter
-        )
-        .dropFirst()
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] _ in
-            Task { @MainActor in
-                await self?.loadPinnedItems()
+        subscriptions.append(visibilityStore.snapshots().dropFirst().observe(self) { model, _ in
+            Task {
+                await model.loadPinnedItems()
             }
-        }
-        .store(in: &cancellables)
+        })
         subscriptions.append(accountManager.sourceConfigurations().dropFirst().observe(self) { model, _ in
             Task { await model.loadPinnedItems() }
         })

@@ -183,11 +183,9 @@ public final class PlaylistViewModel {
             }
         })
 
-        hiddenMediaStore.$snapshot
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.applyVisibilityToPublishedPlaylists() }
-            .store(in: &cancellables)
+        subscriptions.append(hiddenMediaStore.snapshots().dropFirst().observe(self) { model, _ in
+            model.applyVisibilityToPublishedPlaylists()
+        })
 
         // Auto-reload when playlists are refreshed after a mutation (e.g. track counts changed)
         subscriptions.append(ViewModelNotificationObserver.observePlaylistRefresh(
@@ -208,17 +206,9 @@ public final class PlaylistViewModel {
     }
     
     private func setupVisibilityObservation() {
-        Publishers.CombineLatest3(
-            visibilityStore.$profiles,
-            visibilityStore.$activeProfileID,
-            visibilityStore.$focusFilter
-        )
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.applyVisibilityToPublishedPlaylists()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(visibilityStore.snapshots().dropFirst().observe(self) { model, _ in
+            model.applyVisibilityToPublishedPlaylists()
+        })
     }
 
     private func setupPlaylistMergePreferenceObservation() {
@@ -939,10 +929,10 @@ public final class PlaylistDetailViewModel: MediaDetailViewModelProtocol {
     public func start() {
         guard !isStarted else { return }
         isStarted = true
-        hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
-            guard let self, !self.includesHidden else { return }
-            self.updateDerivedTrackState(refreshGenres: true)
-        }.store(in: &cancellables)
+        subscriptions.append(hiddenMediaStore.snapshots().dropFirst().observe(self) { model, _ in
+            guard !model.includesHidden else { return }
+            model.updateDerivedTrackState(refreshGenres: true)
+        })
 
         if observesExternalChanges {
             // Re-fetch tracks when download, metadata, or playlist state changes.

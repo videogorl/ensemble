@@ -189,27 +189,15 @@ public final class SearchViewModel {
             Task { await model.reloadAfterExternalLibraryChange(forceExploreReload: false) }
         })
 
-        Publishers.CombineLatest3(
-            self.visibilityStore.$profiles,
-            self.visibilityStore.$activeProfileID,
-            self.visibilityStore.$focusFilter
-        )
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.applyVisibilityToSearchResults()
-                self?.applyVisibilityToExploreContent()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(visibilityStore.snapshots().dropFirst().observe(self) { model, _ in
+            model.applyVisibilityToSearchResults()
+            model.applyVisibilityToExploreContent()
+        })
 
-        self.hiddenMediaStore.$snapshot
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.applyVisibilityToSearchResults()
-                self?.applyVisibilityToExploreContent()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(hiddenMediaStore.snapshots().dropFirst().observe(self) { model, _ in
+            model.applyVisibilityToSearchResults()
+            model.applyVisibilityToExploreContent()
+        })
 
         subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().dropFirst().observe(self) { model, preferences in
             model.applyMergingPreferences(preferences)

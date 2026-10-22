@@ -129,9 +129,9 @@ public final class HomeViewModel {
     public func start() {
         guard !isStarted else { return }
         isStarted = true
-        self.hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
-            self?.applyVisibilityToPublishedHubs()
-        }.store(in: &cancellables)
+        subscriptions.append(hiddenMediaStore.snapshots().dropFirst().observe(self) { model, _ in
+            model.applyVisibilityToPublishedHubs()
+        })
 
         appReadinessCoordinator?.$snapshot
             .dropFirst()
@@ -162,17 +162,9 @@ public final class HomeViewModel {
             await self?.restoreCachedHubs(generation: cacheRestoreGeneration)
         }
         
-        Publishers.CombineLatest3(
-            self.visibilityStore.$profiles,
-            self.visibilityStore.$activeProfileID,
-            self.visibilityStore.$focusFilter
-        )
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.applyVisibilityToPublishedHubs()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(visibilityStore.snapshots().dropFirst().observe(self) { model, _ in
+            model.applyVisibilityToPublishedHubs()
+        })
 
         // Safety timeout: if the initial .task load never completes (e.g. no
         // configured accounts), unblock auto-refresh after 15 seconds.

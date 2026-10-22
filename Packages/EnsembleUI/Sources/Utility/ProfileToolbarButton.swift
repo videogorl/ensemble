@@ -10,7 +10,7 @@ import AppKit
 public struct ProfileToolbarButton: View {
     @ObservedObject private var profileStore: UserProfileStore
     private let accountManager: AccountManager
-    @ObservedObject private var visibilityStore: LibraryVisibilityStore
+    private let visibilityStore: LibraryVisibilityStore
     private let settingsManager = DependencyContainer.shared.settingsManager
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 

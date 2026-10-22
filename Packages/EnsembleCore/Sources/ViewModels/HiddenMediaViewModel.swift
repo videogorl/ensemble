@@ -1,5 +1,6 @@
 import Combine
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -39,6 +40,7 @@ public final class HiddenMediaViewModel {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let accountManager: AccountManager
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     @ObservationIgnored private var isStarted = false
 
     public init(
@@ -57,9 +59,9 @@ public final class HiddenMediaViewModel {
     public func start() {
         guard !isStarted else { return }
         isStarted = true
-        store.$snapshot.dropFirst().sink { [weak self] _ in
-            Task { await self?.load() }
-        }.store(in: &cancellables)
+        subscriptions.append(store.snapshots().dropFirst().observe(self) { model, _ in
+            Task { await model.load() }
+        })
     }
 
     public func items(for kind: HiddenMediaKind) -> [ResolvedHiddenMediaItem] {

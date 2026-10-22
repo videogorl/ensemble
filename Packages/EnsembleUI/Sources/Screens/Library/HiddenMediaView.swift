@@ -164,7 +164,7 @@ private extension ResolvedHiddenMediaItem {
 }
 
 private struct HiddenSectionOrderView: View {
-    @ObservedObject var store: HiddenMediaStore
+    let store: HiddenMediaStore
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

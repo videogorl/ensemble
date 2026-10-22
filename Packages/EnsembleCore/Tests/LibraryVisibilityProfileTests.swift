@@ -3,6 +3,38 @@ import XCTest
 
 @MainActor
 final class LibraryVisibilityProfileTests: XCTestCase {
+    /// Each row makes one change, then a sentinel (hiding another source), so
+    /// a change that must not emit is caught when the sentinel arrives instead.
+    func testSnapshotStreamTransitions() async {
+        let suiteName = "LibraryVisibilityProfileTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = LibraryVisibilityStore(userDefaults: defaults)
+        let rows: [(name: String, change: () -> Void, emits: Bool)] = [
+            ("hide a source", { store.setSourceVisibility(sourceCompositeKey: "plex:a:s:music", isVisible: false) }, true),
+            ("Focus allowlist", { store.setFocusVisibleSourceCompositeKeys(["plex:a:s:music"]) }, true),
+            ("same allowlist, keep bypass", {
+                store.setFocusVisibleSourceCompositeKeys(["plex:a:s:music"], resetsBypass: false)
+            }, false),
+            ("bypass Focus", { store.setFocusFilterEnabled(false) }, true),
+            ("bypass again", { store.setFocusFilterEnabled(false) }, false),
+            ("unknown profile", { store.setActiveProfile(id: "missing") }, false),
+            ("new profile", { _ = store.createProfile(name: "Car") }, true),
+        ]
+        var iterator = store.snapshots().makeAsyncIterator()
+        _ = await iterator.next()
+        for (index, row) in rows.enumerated() {
+            row.change()
+            if row.emits {
+                let received = await iterator.next()
+                XCTAssertEqual(received, store.snapshot, row.name)
+            }
+            store.setSourceVisibility(sourceCompositeKey: "sentinel-\(index)", isVisible: false)
+            let sentinel = await iterator.next()
+            XCTAssertEqual(sentinel, store.snapshot, "\(row.name) emitted unexpectedly")
+        }
+    }
+
     func testServerIsolationPreservesOtherPreferencesAndFocus() {
         let suiteName = "LibraryVisibilityProfileTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

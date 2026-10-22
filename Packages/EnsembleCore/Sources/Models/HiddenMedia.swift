@@ -1,5 +1,6 @@
 import Combine
 import EnsembleDomain
+import EnsembleSupport
 import Foundation
 
 public struct HiddenMediaSnapshot: Equatable, Sendable {
@@ -68,11 +69,22 @@ public struct HiddenMediaCandidate: Identifiable, Equatable, Sendable {
 }
 
 @MainActor
-public final class HiddenMediaStore: ObservableObject {
+@Observable
+public final class HiddenMediaStore {
     public static let shared = HiddenMediaStore()
 
-    @Published public private(set) var snapshot: HiddenMediaSnapshot = .empty
-    @Published public private(set) var sectionOrder: [HiddenMediaKind]
+    public private(set) var snapshot: HiddenMediaSnapshot = .empty {
+        didSet {
+            if snapshot != oldValue { broadcast.send(snapshot) }
+        }
+    }
+    public private(set) var sectionOrder: [HiddenMediaKind]
+    @ObservationIgnored private let broadcast = Broadcast<HiddenMediaSnapshot>()
+
+    /// The current snapshot, then each change.
+    public func snapshots() -> AsyncStream<HiddenMediaSnapshot> {
+        broadcast.stream(startingWith: snapshot)
+    }
 
     public private(set) var lastRemoteApplyTime: Date?
 

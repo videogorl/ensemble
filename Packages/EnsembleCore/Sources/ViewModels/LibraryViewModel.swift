@@ -314,11 +314,9 @@ public final class LibraryViewModel {
             Task { await model.loadLibrary() }
         })
 
-        self.hiddenMediaStore.$snapshot
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.applyVisibilityToPublishedCollections() }
-            .store(in: &cancellables)
+        subscriptions.append(hiddenMediaStore.snapshots().dropFirst().observe(self) { model, _ in
+            model.applyVisibilityToPublishedCollections()
+        })
 
         subscriptions.append(accountManager.snapshots().map(\.isAwaitingCloudSources).removeDuplicates().dropFirst().observe(self) { model, awaiting in
             model.isRestoringCloudSources = awaiting
@@ -572,17 +570,9 @@ public final class LibraryViewModel {
     }
 
     private func setupVisibilityObservation() {
-        Publishers.CombineLatest3(
-            self.visibilityStore.$profiles,
-            self.visibilityStore.$activeProfileID,
-            self.visibilityStore.$focusFilter
-        )
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.applyVisibilityToPublishedCollections()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(visibilityStore.snapshots().dropFirst().observe(self) { model, _ in
+            model.applyVisibilityToPublishedCollections()
+        })
     }
 
     public func loadLibrary() async {

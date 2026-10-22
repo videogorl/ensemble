@@ -1,4 +1,4 @@
-import Combine
+import EnsembleSupport
 import Foundation
 
 /// The library allowlist supplied by the active system Focus filter.
@@ -14,12 +14,44 @@ public struct LibraryVisibilityFocusFilter: Equatable, Sendable {
 
 /// Persists library visibility profiles and tracks the active profile used by UI filtering surfaces.
 @MainActor
-public final class LibraryVisibilityStore: ObservableObject {
+@Observable
+public final class LibraryVisibilityStore {
     public static let shared = LibraryVisibilityStore()
 
-    @Published public private(set) var profiles: [LibraryVisibilityProfile]
-    @Published public private(set) var activeProfileID: String
-    @Published public private(set) var focusFilter: LibraryVisibilityFocusFilter?
+    public private(set) var profiles: [LibraryVisibilityProfile] {
+        didSet { publishSnapshot() }
+    }
+    public private(set) var activeProfileID: String {
+        didSet { publishSnapshot() }
+    }
+    public private(set) var focusFilter: LibraryVisibilityFocusFilter? {
+        didSet { publishSnapshot() }
+    }
+
+    /// The profiles, active profile, and Focus filter that decide what is visible.
+    public struct Snapshot: Equatable, Sendable {
+        public var profiles: [LibraryVisibilityProfile]
+        public var activeProfileID: String
+        public var focusFilter: LibraryVisibilityFocusFilter?
+    }
+
+    public var snapshot: Snapshot {
+        Snapshot(profiles: profiles, activeProfileID: activeProfileID, focusFilter: focusFilter)
+    }
+    @ObservationIgnored private let broadcast = Broadcast<Snapshot>()
+    @ObservationIgnored private var publishedSnapshot: Snapshot?
+
+    /// The current snapshot, then each change.
+    public func snapshots() -> AsyncStream<Snapshot> {
+        broadcast.stream(startingWith: snapshot)
+    }
+
+    private func publishSnapshot() {
+        let current = snapshot
+        guard current != publishedSnapshot else { return }
+        publishedSnapshot = current
+        broadcast.send(current)
+    }
 
     public var activeProfile: LibraryVisibilityProfile {
         profile(id: activeProfileID) ?? .default
@@ -119,13 +151,14 @@ public final class LibraryVisibilityStore: ObservableObject {
     }
 
     public func upsertProfile(_ profile: LibraryVisibilityProfile) {
-        if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
-            profiles[index] = profile
+        var updated = profiles
+        if let index = updated.firstIndex(where: { $0.id == profile.id }) {
+            updated[index] = profile
         } else {
-            profiles.append(profile)
+            updated.append(profile)
         }
 
-        profiles = Self.normalizedProfiles(from: profiles)
+        profiles = Self.normalizedProfiles(from: updated)
 
         if !profiles.contains(where: { $0.id == activeProfileID }) {
             activeProfileID = LibraryVisibilityProfile.defaultProfileID
@@ -141,8 +174,10 @@ public final class LibraryVisibilityStore: ObservableObject {
         let resolvedProfileID = profileID ?? activeProfileID
         guard let index = profiles.firstIndex(where: { $0.id == resolvedProfileID }) else { return }
 
-        profiles[index].hiddenSourceCompositeKeys = keys
-        profiles[index].updatedAt = Date()
+        var profile = profiles[index]
+        profile.hiddenSourceCompositeKeys = keys
+        profile.updatedAt = Date()
+        profiles[index] = profile
         persist()
     }
 
@@ -154,14 +189,14 @@ public final class LibraryVisibilityStore: ObservableObject {
         let resolvedProfileID = profileID ?? activeProfileID
         guard let index = profiles.firstIndex(where: { $0.id == resolvedProfileID }) else { return }
 
-        var hidden = profiles[index].hiddenSourceCompositeKeys
+        var profile = profiles[index]
         if isVisible {
-            hidden.remove(sourceCompositeKey)
+            profile.hiddenSourceCompositeKeys.remove(sourceCompositeKey)
         } else {
-            hidden.insert(sourceCompositeKey)
+            profile.hiddenSourceCompositeKeys.insert(sourceCompositeKey)
         }
-        profiles[index].hiddenSourceCompositeKeys = hidden
-        profiles[index].updatedAt = Date()
+        profile.updatedAt = Date()
+        profiles[index] = profile
         persist()
     }
 

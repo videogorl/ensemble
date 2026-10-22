@@ -1,5 +1,6 @@
 import Combine
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -92,6 +93,7 @@ public final class ArtistDetailViewModel {
     private let hiddenMediaStore: HiddenMediaStore
     private let includesHidden: Bool
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     @ObservationIgnored private var isStarted = false
 
     public init(
@@ -115,9 +117,9 @@ public final class ArtistDetailViewModel {
     public func start() {
         guard !isStarted else { return }
         isStarted = true
-        hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
-            self?.rebuildDisplaySnapshot()
-        }.store(in: &cancellables)
+        subscriptions.append(hiddenMediaStore.snapshots().dropFirst().observe(self) { model, _ in
+            model.rebuildDisplaySnapshot()
+        })
 
         // Re-fetch tracks when download state changes so offline dimming is accurate
         observeDownloadChanges()

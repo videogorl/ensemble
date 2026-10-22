@@ -152,6 +152,8 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             (.online(.cellular), false),
             (.online(.wifi), nil),
             (.limited, true),
+            // End online: NetworkMonitor persists its last state for the next launch.
+            (.online(.wifi), false),
         ]
         for row in rows {
             networkMonitor.injectNetworkStateForTesting(row.state, debounced: false)

@@ -137,6 +137,8 @@ final class NetworkMonitorTests: XCTestCase {
 
             let expected = row.emits ? [base, row.change, sentinel] : [base, sentinel]
             XCTAssertEqual(received, expected, row.name)
+            // NetworkMonitor persists its last state for the next launch; leave it online.
+            apply(base)
         }
     }
 }

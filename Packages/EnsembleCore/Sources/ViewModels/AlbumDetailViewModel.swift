@@ -109,9 +109,9 @@ public final class AlbumDetailViewModel: MediaDetailViewModelProtocol {
         // Re-fetch tracks when download state changes so offline dimming is accurate
         observeDownloadChanges()
         observeMetadataChanges()
-        hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
-            Task { await self?.loadTracks() }
-        }.store(in: &cancellables)
+        subscriptions.append(hiddenMediaStore.snapshots().dropFirst().observe(self) { model, _ in
+            Task { await model.loadTracks() }
+        })
         subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().dropFirst().observe(self) { model, preferences in
             let projected = MergingProjection.albumTracks(model.sourceTracks, preferences: preferences)
             if model.tracks != projected { model.tracks = projected }

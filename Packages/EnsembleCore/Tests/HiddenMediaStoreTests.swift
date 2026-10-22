@@ -1,4 +1,3 @@
-import Combine
 import XCTest
 @testable import EnsembleCore
 
@@ -44,7 +43,9 @@ final class HiddenMediaStoreTests: XCTestCase {
         XCTAssertFalse(store.snapshot.isHidden(track))
     }
 
-    func testBatchPublishesOnceAndPersistsUnhideTombstones() throws {
+    /// Each row makes one change; a hide on another source follows as a
+    /// sentinel, so a row that emits more (or less) than expected is caught.
+    func testSnapshotStreamTransitionsAndPersistence() async throws {
         let suiteName = "HiddenMediaStoreTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -56,21 +57,36 @@ final class HiddenMediaStoreTests: XCTestCase {
                 title: "Track", source: source, relatedCatalogID: "catalog-\(index)"
             )
         }
-        var publications = 0
-        let observation = store.$snapshot.dropFirst().sink { _ in publications += 1 }
-        defer { observation.cancel() }
         let start = Date(timeIntervalSince1970: 100)
-        store.setHidden(true, candidates: candidates, at: start)
-        XCTAssertEqual(publications, 1)
-        XCTAssertEqual(store.snapshot.identities, Set(candidates.map(\.identity)))
-        store.setHidden(false, candidates: candidates, at: start.addingTimeInterval(-1))
-        XCTAssertEqual(publications, 1, "Older changes must not overwrite the batch")
-        store.removeMissing(kind: .track, sourceKey: source, survivingItemIDs: ["0"])
-        XCTAssertEqual(publications, 2, "Cleanup is also a single batch")
+        let rows: [(name: String, change: () -> Void, emits: Bool)] = [
+            ("batch hide", { store.setHidden(true, candidates: candidates, at: start) }, true),
+            ("older unhide", { store.setHidden(false, candidates: candidates, at: start.addingTimeInterval(-1)) }, false),
+            ("cleanup", { store.removeMissing(kind: .track, sourceKey: source, survivingItemIDs: ["0"]) }, true),
+        ]
+        var iterator = store.snapshots().makeAsyncIterator()
+        _ = await iterator.next()
+        for (index, row) in rows.enumerated() {
+            row.change()
+            let changed = store.snapshot
+            if row.emits {
+                let received = await iterator.next()
+                XCTAssertEqual(received, changed, row.name)
+            }
+            store.setHidden(
+                true,
+                identity: HiddenMediaIdentity(kind: .album, itemID: "sentinel-\(index)", sourceCompositeKey: "other"),
+                at: start
+            )
+            let sentinel = await iterator.next()
+            XCTAssertEqual(sentinel, store.snapshot, "\(row.name) emitted unexpectedly")
+        }
+
+        XCTAssertEqual(store.snapshot.identities.filter { $0.sourceCompositeKey == source }, [candidates[0].identity])
         let reloaded = HiddenMediaStore(defaults: defaults)
-        XCTAssertEqual(reloaded.snapshot.identities, [candidates[0].identity])
-        XCTAssertEqual(reloaded.exportMutations().count, 100, "Unhide tombstones must survive persistence")
-        XCTAssertTrue(reloaded.exportMutations().allSatisfy { $0.relatedCatalogID != nil })
+        XCTAssertEqual(reloaded.snapshot.identities.filter { $0.sourceCompositeKey == source }, [candidates[0].identity])
+        let tombstones = reloaded.exportMutations().filter { $0.identity.sourceCompositeKey == source }
+        XCTAssertEqual(tombstones.count, 100, "Unhide tombstones must survive persistence")
+        XCTAssertTrue(tombstones.allSatisfy { $0.relatedCatalogID != nil })
     }
 
     func testMediaIdentitiesRejectEmptySourceKeys() {
