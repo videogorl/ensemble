@@ -13,7 +13,7 @@ struct NowPlayingBackdrop: View {
     let forceDarkPresentation: Bool
 
     private let settingsManager = DependencyContainer.shared.settingsManager
-    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.colorScheme) private var colorScheme
 
     init(
@@ -99,7 +99,7 @@ struct NowPlayingViewportRoot: View {
     }
 
     @Bindable var viewModel: NowPlayingViewModel
-    @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     private let queueProjection: NowPlayingQueueProjection
 
     private let dismissAction: () -> Void

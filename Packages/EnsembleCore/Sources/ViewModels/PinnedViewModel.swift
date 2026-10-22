@@ -143,15 +143,10 @@ public final class PinnedViewModel {
         guard !isStarted else { return }
         isStarted = true
         // Refresh when pins change (unless we are currently moving/reordering)
-        pinManager.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                guard let self = self, !self.isMoving else { return }
-                Task { @MainActor in
-                    await self.loadPinnedItems()
-                }
-            }
-            .store(in: &cancellables)
+        subscriptions.append(pinManager.pinnedItemUpdates().dropFirst().observe(self) { model, _ in
+                guard !model.isMoving else { return }
+                Task { await model.loadPinnedItems() }
+        })
 
         subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().dropFirst().observe(self) { model, _ in
             guard !model.isMoving else { return }

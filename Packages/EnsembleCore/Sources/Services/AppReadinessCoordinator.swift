@@ -57,8 +57,19 @@ public struct AppReadinessSnapshot: Equatable, Sendable {
 /// Owns UI-safe launch/source readiness so browse views do not infer empty states
 /// from transient account, sync, or cache restoration churn.
 @MainActor
-public final class AppReadinessCoordinator: ObservableObject {
-    @Published public private(set) var snapshot: AppReadinessSnapshot
+@Observable
+public final class AppReadinessCoordinator {
+    public private(set) var snapshot: AppReadinessSnapshot {
+        didSet {
+            if snapshot != oldValue { broadcast.send(snapshot) }
+        }
+    }
+    @ObservationIgnored private let broadcast = Broadcast<AppReadinessSnapshot>()
+
+    /// The current snapshot, then each change.
+    public func snapshots() -> AsyncStream<AppReadinessSnapshot> {
+        broadcast.stream(startingWith: snapshot)
+    }
 
     private var hasConfiguredAccounts = false
     private var hasEnabledLibraries = false

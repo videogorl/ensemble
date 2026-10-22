@@ -373,55 +373,42 @@ public final class NowPlayingViewModel {
         })
 
         // Pipe lyrics state from service to view model
-        lyricsService.$currentLyrics
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                guard let self else { return }
-                self.lyricsState = state
+        subscriptions.append(lyricsService.snapshots().map(\.currentLyrics).removeDuplicates().observe(self) { model, state in
+                model.lyricsState = state
                 // Reset line index when lyrics change
-                self.currentLyricsLineIndex = nil
-                self.lyricsScrollTargetIndex = nil
-                self.instrumentalProgress = nil
+                model.currentLyricsLineIndex = nil
+                model.lyricsScrollTargetIndex = nil
+                model.instrumentalProgress = nil
                 // Pre-compute gap positions for persistent instrumental indicators
                 if case let .available(lyrics) = state {
                     EnsembleLogger.debug("Lyrics: typicalVocalDuration=\(String(format: "%.2f", lyrics.typicalVocalDuration))s, instrumentalGapThreshold=\(String(format: "%.1f", lyrics.instrumentalGapThreshold))s")
-                    self.computeInstrumentalGapPositions(lyrics: lyrics)
+                    model.computeInstrumentalGapPositions(lyrics: lyrics)
 
                     // If we're already mid-track (e.g. app restored from background),
                     // immediately compute the active line so lyrics start at the right position.
                     // Uses a short delay to let the player report real time after startup.
                     if lyrics.isTimed {
-                        self.applyLyricsPosition(lyrics: lyrics, time: self.playbackService.presentationTimeValue)
+                        model.applyLyricsPosition(lyrics: lyrics, time: model.playbackService.presentationTimeValue)
                         // Retry shortly after in case the player hasn't reported real time yet
-                        Task { @MainActor [weak self] in
+                        Task { [weak model] in
                             try? await Task.sleep(nanoseconds: 500_000_000)
-                            guard let self, case let .available(lyrics) = self.lyricsState else { return }
-                            self.applyLyricsPosition(lyrics: lyrics, time: self.playbackService.presentationTimeValue)
+                            guard let model, case let .available(lyrics) = model.lyricsState else { return }
+                            model.applyLyricsPosition(lyrics: lyrics, time: model.playbackService.presentationTimeValue)
                         }
                     }
                 } else {
-                    self.instrumentalGapAfterIndices = []
-                    self.hasIntroInstrumentalGap = false
-                    self.hasOutroInstrumentalGap = false
+                    model.instrumentalGapAfterIndices = []
+                    model.hasIntroInstrumentalGap = false
+                    model.hasOutroInstrumentalGap = false
                 }
-            }
-            .store(in: &cancellables)
+        })
 
-        // Pipe lyrics source from service to view model
-        lyricsService.$currentLyricsSource
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] value in self?.lyricsSource = value }
-            .store(in: &cancellables)
-
-        lyricsService.$hasChordLyricsForCurrentTrack
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] value in self?.hasChordLyrics = value }
-            .store(in: &cancellables)
-
-        lyricsService.$isDisplayingChordLyrics
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] value in self?.isDisplayingChordLyrics = value }
-            .store(in: &cancellables)
+        // Pipe lyrics source and chord state from service to view model
+        subscriptions.append(lyricsService.snapshots().observe(self) { model, lyrics in
+            model.setIfChanged(\.lyricsSource, lyrics.currentLyricsSource)
+            model.setIfChanged(\.hasChordLyrics, lyrics.hasChordLyricsForCurrentTrack)
+            model.setIfChanged(\.isDisplayingChordLyrics, lyrics.isDisplayingChordLyrics)
+        })
 
         // Track active lyrics line based on playback time.
         // Uses slight anticipation so lyrics appear just before the vocal.

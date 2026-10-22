@@ -162,12 +162,9 @@ public final class TrackAvailabilityResolver {
             .store(in: &cancellables)
 
         // Server health state changes
-        serverHealthChecker.$serverStates
-            .removeDuplicates()
-            .sink { [weak self] _ in
-                self?.bumpGeneration()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(serverHealthChecker.snapshots().map(\.serverStates).removeDuplicates().observe(self) { resolver, _ in
+            resolver.bumpGeneration()
+        })
 
         // Download state changes — use deferred bump (5s) since download completions
         // don't affect playability of other tracks, only download icons/offline availability.

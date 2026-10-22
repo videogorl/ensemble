@@ -128,7 +128,7 @@ public struct RootView: View {
                 applyAutomationPlaylistRefreshIfNeeded()
             }
         }
-        .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
+        .onChange(of: powerStateMonitor.isLowPowerMode, initial: true) { _, newValue in
             isLowPowerMode = newValue
         }
         .onReceive(navigationCoordinator.$selectedTab) { tab in

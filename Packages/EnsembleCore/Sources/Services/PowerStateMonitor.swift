@@ -1,15 +1,37 @@
 import Combine
+import EnsembleSupport
 import Foundation
 
 /// Monitors device power and thermal state and publishes changes.
 /// Consumers (Aurora, LyricsCard, OfflineDownloadService) observe `isLowPowerMode`
 /// to reduce GPU work and network activity when the device is conserving energy.
 @MainActor
-public final class PowerStateMonitor: ObservableObject {
-    @Published public private(set) var isLowPowerMode: Bool
-    @Published public private(set) var thermalState: ProcessInfo.ThermalState
+@Observable
+public final class PowerStateMonitor {
+    public private(set) var isLowPowerMode: Bool {
+        didSet { if isLowPowerMode != oldValue { broadcast.send(snapshot) } }
+    }
+    public private(set) var thermalState: ProcessInfo.ThermalState {
+        didSet { if thermalState != oldValue { broadcast.send(snapshot) } }
+    }
 
-    private var cancellables = Set<AnyCancellable>()
+    public struct Snapshot: Equatable, Sendable {
+        public var isLowPowerMode: Bool
+        public var thermalState: ProcessInfo.ThermalState
+    }
+
+    public var snapshot: Snapshot {
+        Snapshot(isLowPowerMode: isLowPowerMode, thermalState: thermalState)
+    }
+    @ObservationIgnored private let broadcast = Broadcast<Snapshot>()
+
+    /// The current snapshot, then each change.
+    public func snapshots() -> AsyncStream<Snapshot> {
+        broadcast.stream(startingWith: snapshot)
+    }
+
+    // NotificationCenter publishers are Apple's transport for these system signals.
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
     public init() {
         isLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled

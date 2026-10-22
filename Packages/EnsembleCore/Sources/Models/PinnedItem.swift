@@ -1,4 +1,5 @@
 import Combine
+import EnsembleSupport
 import Foundation
 import SwiftUI
 
@@ -52,10 +53,21 @@ public struct PinnedItem: Codable, Identifiable, Equatable, Sendable {
 
 /// Manages pinned items, persisted to UserDefaults as JSON
 @MainActor
-public final class PinManager: ObservableObject {
-    @AppStorage("pinnedItems") private var pinnedItemsData: Data = Data()
+@Observable
+public final class PinManager {
+    private static let storageKey = "pinnedItems"
 
-    @Published public private(set) var pinnedItems: [PinnedItem] = []
+    public private(set) var pinnedItems: [PinnedItem] = [] {
+        didSet {
+            if pinnedItems != oldValue { broadcast.send(pinnedItems) }
+        }
+    }
+    @ObservationIgnored private let broadcast = Broadcast<[PinnedItem]>()
+
+    /// The current pins, then each change.
+    public func pinnedItemUpdates() -> AsyncStream<[PinnedItem]> {
+        broadcast.stream(startingWith: pinnedItems)
+    }
 
     /// Set during remote sync application to suppress re-pushing to KVS.
     /// Uses a timestamp so the debounced push (500ms later) still sees the flag.
@@ -166,8 +178,8 @@ public final class PinManager: ObservableObject {
     // MARK: - Persistence
 
     private func loadPins() {
-        guard !pinnedItemsData.isEmpty,
-              let decoded = try? JSONDecoder().decode([PinnedItem].self, from: pinnedItemsData) else {
+        guard let data = UserDefaults.standard.data(forKey: Self.storageKey), !data.isEmpty,
+              let decoded = try? JSONDecoder().decode([PinnedItem].self, from: data) else {
             return
         }
         pinnedItems = decoded
@@ -175,9 +187,8 @@ public final class PinManager: ObservableObject {
 
     private func savePins() {
         if let encoded = try? JSONEncoder().encode(pinnedItems) {
-            pinnedItemsData = encoded
+            UserDefaults.standard.set(encoded, forKey: Self.storageKey)
         }
-        objectWillChange.send()
     }
 
     // MARK: - Sync Support

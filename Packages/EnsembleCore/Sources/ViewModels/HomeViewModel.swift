@@ -133,17 +133,14 @@ public final class HomeViewModel {
             model.applyVisibilityToPublishedHubs()
         })
 
-        appReadinessCoordinator?.$snapshot
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] snapshot in
-                guard let self else { return }
-                self.readinessSnapshot = snapshot
-                self.hasConfiguredAccounts = snapshot.hasConfiguredAccounts
-                self.hasEnabledLibraries = snapshot.hasEnabledLibraries
-                self.isRestoringCloudSources = snapshot.isRestoringCloudSources
-            }
-            .store(in: &cancellables)
+        if let appReadinessCoordinator {
+            subscriptions.append(appReadinessCoordinator.snapshots().dropFirst().observe(self) { model, snapshot in
+                model.readinessSnapshot = snapshot
+                model.hasConfiguredAccounts = snapshot.hasConfiguredAccounts
+                model.hasEnabledLibraries = snapshot.hasEnabledLibraries
+                model.isRestoringCloudSources = snapshot.isRestoringCloudSources
+            })
+        }
 
         subscriptions.append(accountManager.snapshots().map(\.isAwaitingCloudSources).removeDuplicates().dropFirst().observe(self) { model, awaiting in
             model.isRestoringCloudSources = awaiting

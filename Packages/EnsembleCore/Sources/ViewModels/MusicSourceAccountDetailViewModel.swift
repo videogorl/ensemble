@@ -139,13 +139,9 @@ public final class MusicSourceAccountDetailViewModel {
         guard !isStarted else { return }
         isStarted = true
         let accountId = accountId
-        webSocketCoordinator.$serverScanProgress
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] progressMap in
-                self?.scanProgressByServer = Self.scanProgress(progressMap, accountId: accountId)
-            }
-            .store(in: &cancellables)
+        subscriptions.append(webSocketCoordinator.scanProgressUpdates().dropFirst().observe(self) { model, progressMap in
+            model.scanProgressByServer = Self.scanProgress(progressMap, accountId: accountId)
+        })
 
         // Mirror the global pending mutation count so the view can show sync status
         subscriptions.append(mutationCoordinator.pendingCounts().dropFirst().observe(self) { model, count in

@@ -726,7 +726,7 @@ public struct ArtistDetailView: View {
             currentTrackId: $currentTrackId,
             recentPlaylistTitle: $nvmRecentPlaylistTitle
         )
-        .onReceive(pinManager.$pinnedItems) { pinnedItems in
+        .onChange(of: pinManager.pinnedItems, initial: true) { _, pinnedItems in
             updateArtistPinState(pinnedItems: pinnedItems)
         }
         .task(id: viewModel.artist.sourceScopedID) {

@@ -562,7 +562,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 artworkDownloadManager: core.artworkDownloadManager,
                 toastCenter: core.toastCenter,
                 lyricsService: playback.lyricsService,
-                foregroundWorkScheduler: foregroundWorkScheduler
+                foregroundWorkScheduler: foregroundWorkScheduler,
+                powerStateMonitor: core.powerStateMonitor
             )
         }
         let mutationCoordinator = MainActor.assumeIsolated {
@@ -883,16 +884,6 @@ public final class DependencyContainer: @unchecked Sendable {
         syncCoordinator.shouldDeferForegroundHealthRefresh = { [weak offlineDownloadService] in
             offlineDownloadService?.shouldDeferForegroundHealthRefresh ?? false
         }
-
-        var powerCancellable: AnyCancellable?
-        powerCancellable = powerStateMonitor.$isLowPowerMode
-            .dropFirst()
-            .sink { [weak offlineDownloadService] isLowPower in
-                _ = powerCancellable
-                Task { @MainActor in
-                    await offlineDownloadService?.setLowPowerModePaused(isLowPower)
-                }
-            }
     }
 
     @MainActor

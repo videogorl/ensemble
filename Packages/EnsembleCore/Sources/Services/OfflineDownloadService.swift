@@ -429,6 +429,7 @@ public final class OfflineDownloadService {
         toastCenter: ToastCenter,
         lyricsService: LyricsService,
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil,
+        powerStateMonitor: PowerStateMonitor? = nil,
         launchRecoveryStartedAt: Date = Date(),
         backgroundDownloads: BackgroundDownload = .shared
     ) {
@@ -480,6 +481,11 @@ public final class OfflineDownloadService {
         }
 
         observeNetworkState()
+        if let powerStateMonitor {
+            subscriptions.append(powerStateMonitor.snapshots().map(\.isLowPowerMode).removeDuplicates().dropFirst().observe(self) { service, isLowPower in
+                Task { await service.setLowPowerModePaused(isLowPower) }
+            })
+        }
         observeSyncCompletions()
 
         Task {

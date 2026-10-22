@@ -389,7 +389,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
             availabilityGeneration: $availabilityGeneration
         )
-        .onReceive(pinManager.$pinnedItems) { pinnedItems in
+        .onChange(of: pinManager.pinnedItems, initial: true) { _, pinnedItems in
             updatePinStateForHeader(pinnedItems: pinnedItems)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)

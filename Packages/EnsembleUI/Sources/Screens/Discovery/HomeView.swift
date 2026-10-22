@@ -91,7 +91,7 @@ public struct HomeView: View {
         .onChange(of: DependencyContainer.shared.syncCoordinator.isSyncing, initial: true) { _, syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
-        .onReceive(cacheManager.$artworkCacheInvalidationGeneration) { generation in
+        .onChange(of: cacheManager.artworkCacheInvalidationGeneration, initial: true) { _, generation in
             if generation != artworkCacheInvalidationGeneration {
                 artworkCacheInvalidationGeneration = generation
             }

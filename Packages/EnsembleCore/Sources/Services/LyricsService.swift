@@ -1,5 +1,6 @@
 import Combine
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 
 // MARK: - Domain Models
@@ -361,11 +362,51 @@ enum LRCParser {
 /// Uses a two-tier cache: in-memory (session) + persistent file cache (survives restarts
 /// and PMS LyricFind cache expiration).
 @MainActor
-public final class LyricsService: ObservableObject {
-    @Published public private(set) var currentLyrics: LyricsState = .notAvailable
-    @Published public private(set) var currentLyricsSource: LyricsSource = .none
-    @Published public private(set) var hasChordLyricsForCurrentTrack = false
-    @Published public private(set) var isDisplayingChordLyrics = false
+@Observable
+public final class LyricsService {
+    public private(set) var currentLyrics: LyricsState = .notAvailable {
+        didSet { publishSnapshot() }
+    }
+    public private(set) var currentLyricsSource: LyricsSource = .none {
+        didSet { publishSnapshot() }
+    }
+    public private(set) var hasChordLyricsForCurrentTrack = false {
+        didSet { publishSnapshot() }
+    }
+    public private(set) var isDisplayingChordLyrics = false {
+        didSet { publishSnapshot() }
+    }
+
+    /// The current track's lyrics and how they are shown.
+    public struct Snapshot: Equatable, Sendable {
+        public var currentLyrics: LyricsState
+        public var currentLyricsSource: LyricsSource
+        public var hasChordLyricsForCurrentTrack: Bool
+        public var isDisplayingChordLyrics: Bool
+    }
+
+    public var snapshot: Snapshot {
+        Snapshot(
+            currentLyrics: currentLyrics,
+            currentLyricsSource: currentLyricsSource,
+            hasChordLyricsForCurrentTrack: hasChordLyricsForCurrentTrack,
+            isDisplayingChordLyrics: isDisplayingChordLyrics
+        )
+    }
+    @ObservationIgnored private let broadcast = Broadcast<Snapshot>()
+    @ObservationIgnored private var publishedSnapshot: Snapshot?
+
+    /// The current snapshot, then each change.
+    public func snapshots() -> AsyncStream<Snapshot> {
+        broadcast.stream(startingWith: snapshot)
+    }
+
+    private func publishSnapshot() {
+        let current = snapshot
+        guard current != publishedSnapshot else { return }
+        publishedSnapshot = current
+        broadcast.send(current)
+    }
 
     // In-memory cache keyed by source, track, mode, and stream signature (max ~20 entries).
     private var cache: [String: LyricsState] = [:]

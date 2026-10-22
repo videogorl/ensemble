@@ -172,7 +172,7 @@ public struct MainTabView: View {
             .onChange(of: networkMonitor.networkState, initial: true) { _, newValue in
                 if networkState != newValue { networkState = newValue }
             }
-            .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
+            .onChange(of: powerStateMonitor.isLowPowerMode, initial: true) { _, newValue in
                 if isLowPowerMode != newValue { isLowPowerMode = newValue }
             }
             .onChange(of: settingsManager.settings) {

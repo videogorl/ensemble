@@ -287,10 +287,8 @@ final class CloudSyncCoordinator {
             }
         }
 
-        pins.objectWillChange
-            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            .sink { [weak self, weak pins, weak kvs, weak syncToggles] _ in
-                guard let self, let pins, let kvs, let syncToggles else { return }
+        kvsSyncSubscriptions.append(pins.pinnedItemUpdates().dropFirst().debounce(for: .milliseconds(500)).observe(pins) { [weak self, weak kvs, weak syncToggles] pins, _ in
+                guard let self, let kvs, let syncToggles else { return }
                 guard syncToggles.isFeatureEnabled(.pins) else { return }
                 if let lastApply = pins.lastRemoteApplyTime,
                    Date().timeIntervalSince(lastApply) < 2.0 {
@@ -305,8 +303,7 @@ final class CloudSyncCoordinator {
                     detail: "Pushed pins from this device."
                 )
                 kvs.pushData(data, forKey: KVSSyncService.KVSKey.pins)
-            }
-            .store(in: &kvsSyncCancellables)
+        })
 
         acctMgr.onNewAccountsFromSync = { [weak self, weak acctMgr, weak syncToggles] newCredentials in
             guard let self, let acctMgr, let syncToggles else { return }

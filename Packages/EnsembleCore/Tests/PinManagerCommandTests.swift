@@ -21,6 +21,33 @@ final class PinManagerCommandTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Each row makes one change, then a sentinel pin, so a no-op that emits
+    /// is caught when the sentinel does not arrive next.
+    func testPinStreamTransitions() async {
+        let manager = makeEmptyManager()
+        let source = "plex:account:server:library"
+        let rows: [(name: String, change: () -> Void, emits: Bool)] = [
+            ("pin", { manager.pin(id: "a", sourceKey: source, type: .album, title: "A") }, true),
+            ("pin again", { manager.pin(id: "a", sourceKey: source, type: .album, title: "A") }, false),
+            ("rename", { manager.updateTitle(id: "a", sourceKey: source, title: "A2") }, true),
+            ("same title", { manager.updateTitle(id: "a", sourceKey: source, title: "A2") }, false),
+            ("unpin", { manager.unpin(id: "a", sourceKey: source) }, true),
+            ("unpin missing", { manager.unpin(id: "a", sourceKey: source) }, false),
+        ]
+        var iterator = manager.pinnedItemUpdates().makeAsyncIterator()
+        _ = await iterator.next()
+        for (index, row) in rows.enumerated() {
+            row.change()
+            if row.emits {
+                let received = await iterator.next()
+                XCTAssertEqual(received, manager.pinnedItems, row.name)
+            }
+            manager.pin(id: "sentinel-\(index)", sourceKey: "other", type: .artist, title: "S")
+            let sentinel = await iterator.next()
+            XCTAssertEqual(sentinel, manager.pinnedItems, "\(row.name) emitted unexpectedly")
+        }
+    }
+
     func testTogglePinPinsAndUnpinsWithNoOpProtection() {
         let manager = makeEmptyManager()
 

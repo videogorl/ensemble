@@ -1,30 +1,59 @@
-import Combine
 import EnsembleAPI
+import EnsembleSupport
 import Foundation
 
 /// Focused UI projection and refresh scheduling for canonical server clients.
 @MainActor
-public final class ServerHealthChecker: ObservableObject {
+@Observable
+public final class ServerHealthChecker {
     struct CheckSummary: Equatable {
         let checkedCount: Int
         let skippedCount: Int
     }
 
-    private struct Observation {
+    private struct ClientObservation {
         let client: PlexAPIClient
         var task: Task<Void, Never>?
         var snapshot: PlexConnectionSnapshot?
         var checkedAt: Date?
     }
 
-    @Published public private(set) var serverStates: [String: ServerConnectionState] = [:]
-    @Published public private(set) var serverFailureReasons: [String: ServerConnectionFailureReason] = [:]
+    public private(set) var serverStates: [String: ServerConnectionState] = [:] {
+        didSet { publishSnapshot() }
+    }
+    public private(set) var serverFailureReasons: [String: ServerConnectionFailureReason] = [:] {
+        didSet { publishSnapshot() }
+    }
+
+    /// Each server's connection state and, when unreachable, why.
+    public struct Snapshot: Equatable, Sendable {
+        public var serverStates: [String: ServerConnectionState]
+        public var serverFailureReasons: [String: ServerConnectionFailureReason]
+    }
+
+    public var snapshot: Snapshot {
+        Snapshot(serverStates: serverStates, serverFailureReasons: serverFailureReasons)
+    }
+    @ObservationIgnored private let broadcast = Broadcast<Snapshot>()
+    @ObservationIgnored private var publishedSnapshot: Snapshot?
+
+    /// The current snapshot, then each change.
+    public func snapshots() -> AsyncStream<Snapshot> {
+        broadcast.stream(startingWith: snapshot)
+    }
+
+    private func publishSnapshot() {
+        let current = snapshot
+        guard current != publishedSnapshot else { return }
+        publishedSnapshot = current
+        broadcast.send(current)
+    }
     var onConnectionsChanged: (() async -> Void)?
     private let accountManager: AccountManager
     private let cacheTTL: TimeInterval
     private let unavailableCacheTTL: TimeInterval
     private let nowProvider: () -> Date
-    private var observations: [String: Observation] = [:]
+    @ObservationIgnored private var observations: [String: ClientObservation] = [:]
 
     public convenience init(accountManager: AccountManager, networkMonitor: NetworkMonitor) {
         self.init(accountManager: accountManager)
@@ -61,7 +90,7 @@ public final class ServerHealthChecker: ObservableObject {
                 guard let client = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else { continue }
                 if observations[key]?.client !== client {
                     observations[key]?.task?.cancel()
-                    observations[key] = Observation(client: client)
+                    observations[key] = ClientObservation(client: client)
                     observations[key]?.task = Task { [weak self] in
                         let stream = await client.connectionSnapshots()
                         for await snapshot in stream {

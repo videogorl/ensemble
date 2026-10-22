@@ -1,5 +1,6 @@
 import EnsemblePersistence
 import Foundation
+import Observation
 
 /// Types of cache that can be managed
 public enum CacheType: String, CaseIterable {
@@ -54,14 +55,15 @@ public struct CacheCleanupSnapshot: Sendable, Equatable {
 
 /// Coordinates all cache management across the app
 @MainActor
-public final class CacheManager: ObservableObject {
+@Observable
+public final class CacheManager {
     public nonisolated static let libraryDataDidClear = Notification.Name("CacheManagerLibraryDataDidClear")
     public nonisolated static let artworkCachesDidClear = Notification.Name("CacheManagerArtworkCachesDidClear")
 
-    @Published public private(set) var cacheInfos: [CacheType: CacheInfo] = [:]
-    @Published public private(set) var isRefreshing = false
-    @Published public private(set) var totalCacheSize: Int64 = 0
-    @Published public private(set) var artworkCacheInvalidationGeneration: UInt64 = 0
+    public private(set) var cacheInfos: [CacheType: CacheInfo] = [:]
+    public private(set) var isRefreshing = false
+    public private(set) var totalCacheSize: Int64 = 0
+    public private(set) var artworkCacheInvalidationGeneration: UInt64 = 0
     
     private let libraryRepository: LibraryRepositoryProtocol
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol

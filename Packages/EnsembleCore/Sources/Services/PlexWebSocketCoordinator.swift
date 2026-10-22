@@ -28,13 +28,24 @@ struct PlexLibraryChange: Hashable, Sendable {
 ///
 /// Lifecycle: start on foreground, stop on background.
 @MainActor
-public final class PlexWebSocketCoordinator: ObservableObject {
-    /// Published so UI can show real-time connection status if desired.
-    @Published public private(set) var connectedServerKeys: Set<String> = []
+@Observable
+public final class PlexWebSocketCoordinator {
+    /// Observable so UI can show real-time connection status if desired.
+    public private(set) var connectedServerKeys: Set<String> = []
 
     /// Per-server library scan progress (0-100). Key is serverKey (accountId:serverId).
     /// Populated on scan "started"/"updated" activity events, cleared on "ended".
-    @Published public private(set) var serverScanProgress: [String: Int] = [:]
+    public private(set) var serverScanProgress: [String: Int] = [:] {
+        didSet {
+            if serverScanProgress != oldValue { scanProgressBroadcast.send(serverScanProgress) }
+        }
+    }
+    @ObservationIgnored private let scanProgressBroadcast = Broadcast<[String: Int]>()
+
+    /// The current scan progress, then each change.
+    public func scanProgressUpdates() -> AsyncStream<[String: Int]> {
+        scanProgressBroadcast.stream(startingWith: serverScanProgress)
+    }
 
     private let accountManager: AccountManager
     private let networkMonitor: NetworkMonitor
