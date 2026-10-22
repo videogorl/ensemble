@@ -5,9 +5,6 @@ public enum AudioQualityPreference {
     public static let defaultStreamingQuality = "high"
     public static let allowStreamingOnCellularKey = "allowStreamingOnCellular"
     public static let defaultAllowStreamingOnCellular = true
-    public static let cellularStreamingPolicyDidChange = Notification.Name(
-        "AudioQualityPreference.cellularStreamingPolicyDidChange"
-    )
     public static let downloadQualityKey = "downloadQuality"
     public static let defaultDownloadQuality = "high"
     public static let sharingQualityKey = "sharingQuality"

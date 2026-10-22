@@ -255,17 +255,13 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         for incremental in [false, true] {
             let stack = CoreDataStack.inMemory()
             let source = makeSourceIdentifier()
-            let coordinator = makeCoordinator(stack: stack, sources: [source])
+            let libraryChanges = LibraryChanges()
+            let coordinator = makeCoordinator(stack: stack, sources: [source], libraryChanges: libraryChanges)
             try await recordPreviousSync(stack: stack, source: source)
             let counter = NotificationCounter()
-            let token = NotificationCenter.default.addObserver(
-                forName: SiriMediaIndexNotifications.rebuildRequested, object: nil, queue: nil
-            ) { notification in
-                if notification.userInfo?[SiriMediaIndexNotifications.reasonKey] as? String == "sync_completed" {
-                    counter.increment()
-                }
-            }
-            defer { NotificationCenter.default.removeObserver(token) }
+            let catalogChanges = libraryChanges.events([.catalogChanged])
+            let listener = Task { for await _ in catalogChanges { counter.increment() } }
+            defer { listener.cancel() }
             let recorder = EventRecorder()
             let noOp = RecordingProvider(
                 sourceIdentifier: source, recorder: recorder,
@@ -275,6 +271,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
             coordinator.setSyncProvidersForTesting([source.compositeKey: noOp])
             if incremental { await coordinator.syncIncremental(source: source) }
             else { _ = await coordinator.sync(source: source) }
+            await waitUntil { counter.count == 0 }
             XCTAssertEqual(counter.count, 0)
             XCTAssertNil(coordinator.lastContentChange)
 
@@ -286,6 +283,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
             coordinator.setSyncProvidersForTesting([source.compositeKey: changed])
             if incremental { await coordinator.syncIncremental(source: source) }
             else { _ = await coordinator.sync(source: source) }
+            await waitUntil { counter.count == 1 }
             XCTAssertEqual(counter.count, 1)
             XCTAssertEqual(coordinator.lastContentChange?.source, source)
             XCTAssertEqual(coordinator.lastContentChange?.libraryResult?.changedTracks, 1)
@@ -299,7 +297,8 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
                 let source = makeSourceIdentifier()
                 let previousDate = Date(timeIntervalSince1970: 1000)
                 let previousStatus = MusicSourceStatus(syncStatus: .lastSynced(previousDate), connectionState: .connected(url: "https://example.com"))
-                let coordinator = makeCoordinator(stack: stack, sources: [source])
+                let libraryChanges = LibraryChanges()
+                let coordinator = makeCoordinator(stack: stack, sources: [source], libraryChanges: libraryChanges)
                 try await recordPreviousSync(stack: stack, source: source)
                 let libraryCommit: @Sendable (LibraryRepositoryProtocol) async throws -> LibrarySyncResult = { repository in
                     try await self.upsertAlbums(in: repository, source: source, thumb: "/album/committed")
@@ -320,12 +319,9 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
                 )
                 coordinator.installSyncProviderForTesting(provider, status: previousStatus)
                 let counter = NotificationCounter()
-                let token = NotificationCenter.default.addObserver(
-                    forName: SiriMediaIndexNotifications.rebuildRequested, object: nil, queue: nil
-                ) { notification in
-                    if notification.userInfo?[SiriMediaIndexNotifications.reasonKey] as? String == "sync_completed" { counter.increment() }
-                }
-                defer { NotificationCenter.default.removeObserver(token) }
+                let catalogChanges = libraryChanges.events([.catalogChanged])
+                let listener = Task { for await _ in catalogChanges { counter.increment() } }
+                defer { listener.cancel() }
                 if incremental { await coordinator.syncIncremental(source: source) }
                 else {
                     let outcome = await coordinator.sync(source: source)
@@ -333,6 +329,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
                 }
                 XCTAssertEqual(coordinator.lastContentChange?.libraryResult?.changedAlbums, 2)
                 XCTAssertNil(coordinator.lastContentChange?.playlistResult)
+                await waitUntil { counter.count == 1 }
                 XCTAssertEqual(counter.count, 1)
                 let albums = try await LibraryRepository(coreDataStack: stack).fetchAlbums(forSource: source.compositeKey)
                 XCTAssertEqual(Set(albums.map(\.ratingKey)), ["album-old", "album-new"])
@@ -523,7 +520,8 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         library: LibraryRepositoryProtocol? = nil,
         playlists: PlaylistRepositoryProtocol? = nil,
         artwork: ArtworkDownloadManagerProtocol = EmptyArtworkDownloadManager(),
-        cursors: SyncCursorRepositoryProtocol? = nil
+        cursors: SyncCursorRepositoryProtocol? = nil,
+        libraryChanges: LibraryChanges? = nil
     ) -> SyncCoordinator {
         let network = NetworkMonitor()
         let accounts = AccountManager(keychain: TestKeychain(), networkMonitor: network)
@@ -545,7 +543,8 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
             playlistRepository: playlists ?? PlaylistRepository(coreDataStack: stack),
             syncCursorRepository: cursors,
             artworkDownloadManager: artwork, networkMonitor: network,
-            serverHealthChecker: ServerHealthChecker(accountManager: accounts, networkMonitor: network)
+            serverHealthChecker: ServerHealthChecker(accountManager: accounts, networkMonitor: network),
+            libraryChanges: libraryChanges
         )
         coordinator.healthCheckRunnerForTesting = { _, _ in ServerHealthChecker.CheckSummary(checkedCount: 0, skippedCount: 0) }
         return coordinator

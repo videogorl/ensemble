@@ -293,6 +293,12 @@ public final class DependencyContainer: @unchecked Sendable {
             },
             clearSharedArtworkCaches: { [weak artworkLoader = playback.artworkLoader as? ArtworkLoader] in
                 try await artworkLoader?.resetTransientCaches()
+            },
+            onDownloadsRemoved: { [weak service = mutation.offlineDownloadService] in
+                await service?.reconcileNativeTransfers()
+            },
+            onPendingMutationsRemoved: { [weak coordinator = mutation.mutationCoordinator] in
+                Task { @MainActor in await coordinator?.refreshCount() }
             }
         )
         sourceCacheCleanupService = builtSourceCacheCleanupService
@@ -309,9 +315,6 @@ public final class DependencyContainer: @unchecked Sendable {
 
         offlineBackgroundExecutionCoordinator = mutation.offlineBackgroundExecutionCoordinator
         offlineDownloadService = mutation.offlineDownloadService
-        builtSourceCacheCleanupService.onDownloadsRemoved = { [weak service = mutation.offlineDownloadService] in
-            await service?.reconcileNativeTransfers()
-        }
         MainActor.assumeIsolated {
             playback.cacheManager.onDownloadsRemoved = { [weak service = mutation.offlineDownloadService] in
                 await service?.reconcileNativeTransfers()
@@ -424,7 +427,8 @@ public final class DependencyContainer: @unchecked Sendable {
         let accountManager = MainActor.assumeIsolated {
             AccountManager(
                 keychain: core.keychain,
-                networkMonitor: networkMonitor
+                networkMonitor: networkMonitor,
+                libraryChanges: core.libraryChanges
             )
         }
         let accountDiscoveryService = PlexAccountDiscoveryService()
@@ -474,7 +478,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 syncCursorRepository: core.syncCursorRepository,
                 artworkDownloadManager: core.artworkDownloadManager,
                 networkMonitor: network.networkMonitor,
-                serverHealthChecker: network.serverHealthChecker
+                serverHealthChecker: network.serverHealthChecker,
+                libraryChanges: core.libraryChanges
             )
         }
 
@@ -492,7 +497,8 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         let artworkLoader = ArtworkLoader(
             syncCoordinator: sync.syncCoordinator,
-            artworkDownloadManager: core.artworkDownloadManager
+            artworkDownloadManager: core.artworkDownloadManager,
+            libraryChanges: core.libraryChanges
         )
         let audioAnalyzer = MainActor.assumeIsolated {
             FrequencyAnalysisService()
@@ -677,6 +683,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 siriMediaIndexStore: siriMediaIndexStore,
                 mediaUserContextManager: siriMediaUserContextManager,
                 artworkLoader: playback.artworkLoader,
+                libraryChanges: core.libraryChanges,
                 foregroundWorkScheduler: foregroundWorkScheduler
             )
         }

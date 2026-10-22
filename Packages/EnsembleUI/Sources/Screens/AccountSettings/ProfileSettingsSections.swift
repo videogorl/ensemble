@@ -116,7 +116,7 @@ struct AudioQualitySettingsView: View {
             }
         }
         .onChange(of: allowStreamingOnCellular) { _ in
-            NotificationCenter.default.post(name: AudioQualityPreference.cellularStreamingPolicyDidChange, object: nil)
+            deps.trackAvailabilityResolver.cellularStreamingPolicyDidChange()
         }
         .onChange(of: allowCellularDownloads) { _ in
             Task {

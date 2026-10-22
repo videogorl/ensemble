@@ -142,6 +142,11 @@ public final class TrackAvailabilityResolver {
         return .available
     }
 
+    /// The "stream on cellular" setting changed; playability on cellular follows it.
+    public func cellularStreamingPolicyDidChange() {
+        bumpGeneration()
+    }
+
     // MARK: - Private
 
     /// Observe network state, server health, and download changes to bump the generation counter.
@@ -151,18 +156,9 @@ public final class TrackAvailabilityResolver {
             resolver.bumpGeneration()
         })
 
-        NotificationCenter.default.publisher(for: AudioQualityPreference.cellularStreamingPolicyDidChange)
-            .sink { [weak self] _ in
-                self?.bumpGeneration()
-            }
-            .store(in: &cancellables)
-
-        NotificationCenter.default.publisher(for: PlaybackArtifactCache.didChange)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.bumpGeneration()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(PlaybackArtifactCache.changes.stream().observe(self) { resolver, _ in
+            resolver.bumpGeneration()
+        })
 
         // Server health state changes
         subscriptions.append(serverHealthChecker.snapshots().map(\.serverStates).removeDuplicates().observe(self) { resolver, _ in

@@ -4,25 +4,6 @@ import Foundation
 
 public typealias SystemMediaEnabledSourceKeysProvider = @MainActor () -> Set<String>
 
-/// Notification contract for requesting Siri media index rebuilds.
-public enum SiriMediaIndexNotifications {
-    public static let rebuildRequested = Notification.Name(
-        "com.videogorl.ensemble.siriMediaIndex.rebuildRequested"
-    )
-    public static let reasonKey = "reason"
-
-    public static func postRebuildRequest(
-        reason: String,
-        notificationCenter: NotificationCenter = .default
-    ) {
-        notificationCenter.post(
-            name: rebuildRequested,
-            object: nil,
-            userInfo: [reasonKey: reason]
-        )
-    }
-}
-
 enum SystemMediaSourceScope {
     static func enabledLibraryKeys(for sources: [MusicSourceIdentifier]) -> Set<String> {
         Set(sources.map(\.compositeKey))

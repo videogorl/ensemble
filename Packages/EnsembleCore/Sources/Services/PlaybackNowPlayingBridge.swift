@@ -181,7 +181,7 @@ final class PlaybackNowPlayingBridge {
     private var artworkTask: Task<Void, Never>?
     private var artworkRequestKey: String?
     private var artwork: MPMediaItemArtwork?
-    private var artworkRecoveryObserver: NSObjectProtocol?
+    private var artworkRecoveryObserver: StreamSubscription?
     private var artworkCacheResetObserver: StreamSubscription?
     var currentState: (() -> PlaybackNowPlayingState?)?
     private var lastPublishedState: PlaybackNowPlayingState?
@@ -196,12 +196,8 @@ final class PlaybackNowPlayingBridge {
         self.artworkLoader = artworkLoader
         self.nowPlayingCenter = nowPlayingCenter ?? MPNowPlayingInfoCenter.default()
         self.commandCenter = commandCenter ?? LivePlaybackRemoteCommandCenter()
-        self.artworkRecoveryObserver = NotificationCenter.default.addObserver(
-            forName: ArtworkLoader.serversBecameAvailable,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.prepareArtworkRetry()
+        artworkRecoveryObserver = libraryChanges?.events([.artworkServersAvailable]).observe(self) { bridge, _ in
+            bridge.prepareArtworkRetry()
         }
         artworkCacheResetObserver = libraryChanges?.events([.artworkCachesCleared]).observe(self) { bridge, _ in
             bridge.reloadArtworkAfterCacheClear()
@@ -209,9 +205,6 @@ final class PlaybackNowPlayingBridge {
     }
 
     deinit {
-        if let artworkRecoveryObserver {
-            NotificationCenter.default.removeObserver(artworkRecoveryObserver)
-        }
         removeRemoteCommandHandlers()
         cancelArtworkLoad(clearArtwork: true)
     }

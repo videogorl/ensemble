@@ -8,40 +8,18 @@ import Intents
 public final class SiriMediaUserContextManager {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
-    private let notificationCenter: NotificationCenter
     private let enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider?
-    private var observerToken: NSObjectProtocol?
     // Track last published count to skip duplicate updates
     private var lastPublishedItemCount: Int?
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
-        notificationCenter: NotificationCenter = .default,
         enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
-        self.notificationCenter = notificationCenter
         self.enabledSourceKeysProvider = enabledSourceKeysProvider
-        
-        // Listen for sync completion notifications to update context automatically
-        observerToken = notificationCenter.addObserver(
-            forName: SiriMediaIndexNotifications.rebuildRequested,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                await self.updateMediaUserContext()
-            }
-        }
-    }
-    
-    deinit {
-        if let observerToken {
-            notificationCenter.removeObserver(observerToken)
-        }
     }
     
     public func updateMediaUserContext() async {
@@ -93,7 +71,6 @@ public final class SiriMediaUserContextManager {
     public init(
         libraryRepository _: LibraryRepositoryProtocol,
         playlistRepository _: PlaylistRepositoryProtocol,
-        notificationCenter _: NotificationCenter = .default,
         enabledSourceKeysProvider _: SystemMediaEnabledSourceKeysProvider? = nil
     ) {}
     

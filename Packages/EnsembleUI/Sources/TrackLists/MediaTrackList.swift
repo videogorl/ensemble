@@ -1,5 +1,6 @@
 import EnsembleDesignTokens
 import EnsembleCore
+import EnsembleSupport
 import SwiftUI
 
 func compareTrackListState(_ lhs: [Track], _ rhs: [Track]) -> (identityOrderMatches: Bool, downloadStateChanged: Bool) {
@@ -1053,6 +1054,7 @@ public struct MediaTrackList: UIViewRepresentable {
             tableFooterContent: tableFooterContent.map { AnyView($0.environment(dependencies)) },
             onRefresh: onRefresh
         )
+        coordinator.observeArtworkRecovery(dependencies.libraryChanges)
         return coordinator
     }
     
@@ -1146,7 +1148,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var onRefresh: (() async -> Void)?
         weak var contentScrollViewOwner: UIViewController?
         weak var tableView: UITableView?
-        private var artworkRecoveryObserver: NSObjectProtocol?
+        private var artworkRecoveryObserver: StreamSubscription?
 
         fileprivate init(
             tracks: [Track],
@@ -1233,18 +1235,11 @@ public struct MediaTrackList: UIViewRepresentable {
             self.tableFooterContent = tableFooterContent
             self.onRefresh = onRefresh
             super.init()
-            artworkRecoveryObserver = NotificationCenter.default.addObserver(
-                forName: ArtworkLoader.serversBecameAvailable,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                self?.retryFailedArtwork()
-            }
         }
 
-        deinit {
-            if let artworkRecoveryObserver {
-                NotificationCenter.default.removeObserver(artworkRecoveryObserver)
+        func observeArtworkRecovery(_ libraryChanges: LibraryChanges) {
+            artworkRecoveryObserver = libraryChanges.events([.artworkServersAvailable]).observe(self) { coordinator, _ in
+                coordinator.retryFailedArtwork()
             }
         }
 

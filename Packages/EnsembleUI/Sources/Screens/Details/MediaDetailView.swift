@@ -425,11 +425,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .task(id: headerArtworkLoadKey) {
             await loadHeaderArtworkIfNeeded()
         }
-        .onReceive(
-            NotificationCenter.default.publisher(for: ArtworkLoader.serversBecameAvailable)
-        ) { _ in
-            guard headerArtworkContentIdentity != nil else { return }
-            headerArtworkRetryToken &+= 1
+        .task {
+            for await _ in deps.libraryChanges.events([.artworkServersAvailable])
+            where headerArtworkContentIdentity != nil {
+                headerArtworkRetryToken &+= 1
+            }
         }
         .nowPlayingTrackListObservation(
             nowPlayingVM: nowPlayingVM,

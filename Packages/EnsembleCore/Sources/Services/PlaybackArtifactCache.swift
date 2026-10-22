@@ -1,4 +1,5 @@
 import AVFoundation
+import EnsembleSupport
 import Foundation
 
 enum PlaybackArtifactDelivery: String, Codable, Sendable {
@@ -38,7 +39,9 @@ final class PlaybackArtifactCache: @unchecked Sendable {
     static let defaultByteBudget: Int64 = 1_073_741_824
     private static let fileLock = NSLock()
     private static var activePartialURLs: Set<URL> = []
-    static let didChange = Notification.Name("PlaybackArtifactCacheDidChange")
+    /// Signals that cached playback artifacts changed. The cache is a
+    /// process-wide worker, so its change stream lives on the type.
+    @MainActor static let changes = Broadcast<Void>()
 
     let directory: URL
     let byteBudget: Int64
@@ -287,8 +290,6 @@ final class PlaybackArtifactCache: @unchecked Sendable {
     }
 
     private func notifyChange() {
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: Self.didChange, object: nil)
-        }
+        Task { @MainActor in Self.changes.send(()) }
     }
 }

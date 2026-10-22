@@ -180,17 +180,6 @@ public final class MutationCoordinator {
             Task { await coordinator.drainQueue() }
         })
 
-        NotificationCenter.default.publisher(
-            for: SourceCacheCleanupService.pendingMutationsDidChange
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] _ in
-            Task { @MainActor [weak self] in
-                await self?.refreshCount()
-            }
-        }
-        .store(in: &cancellables)
-
         // Load the initial pending count so the published value is correct from the start
         Task { @MainActor [weak self] in
             await self?.refreshCount()

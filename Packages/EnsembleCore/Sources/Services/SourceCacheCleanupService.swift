@@ -49,8 +49,8 @@ public protocol SourceCacheCleaning: Sendable {
 
 /// Removes source-owned cached data without routing heavy work through UI view models.
 public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Sendable {
-    public var onDownloadsRemoved: @Sendable () async -> Void = {}
-    static let pendingMutationsDidChange = Notification.Name("SourceCacheCleanupPendingMutationsDidChange")
+    private let onDownloadsRemoved: @Sendable () async -> Void
+    private let onPendingMutationsRemoved: @Sendable () -> Void
     public typealias LyricsCacheCleanup = @Sendable (String) async -> Int
     public typealias AllLyricsCacheCleanup = @Sendable () async -> Int
     public typealias ArtworkKeyLookup = @Sendable (String) async throws -> Set<String>
@@ -93,8 +93,12 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         countArtworkItems: @escaping ArtworkItemCounter,
         clearLyricsCache: @escaping LyricsCacheCleanup,
         clearAllLyricsCaches: @escaping AllLyricsCacheCleanup,
-        clearSharedArtworkCaches: @escaping SharedArtworkCacheCleanup
+        clearSharedArtworkCaches: @escaping SharedArtworkCacheCleanup,
+        onDownloadsRemoved: @escaping @Sendable () async -> Void = {},
+        onPendingMutationsRemoved: @escaping @Sendable () -> Void = {}
     ) {
+        self.onDownloadsRemoved = onDownloadsRemoved
+        self.onPendingMutationsRemoved = onPendingMutationsRemoved
         self.libraryRepository = libraryRepository
         self.hubRepository = hubRepository
         self.downloadManager = downloadManager
@@ -145,7 +149,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         try await downloadManager.deleteAllDownloads()
         await onDownloadsRemoved()
         try await pendingMutationRepository.deleteAllMutations()
-        NotificationCenter.default.post(name: Self.pendingMutationsDidChange, object: nil)
+        onPendingMutationsRemoved()
         try await libraryRepository.deleteAllLibraryData()
         try await hubRepository.deleteAllHubs()
         try await artworkDownloadManager.clearArtworkCache()
@@ -197,7 +201,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
             await onDownloadsRemoved()
             try await pendingMutationRepository.deleteMutations(forSourceCompositeKey: sourceKey)
             try await deletePlaylistMutations(referencingSourceCompositeKey: sourceKey)
-            NotificationCenter.default.post(name: Self.pendingMutationsDidChange, object: nil)
+            onPendingMutationsRemoved()
             _ = try await downloadManager.removeOrphanedDownloadFiles()
 
             try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceKey)

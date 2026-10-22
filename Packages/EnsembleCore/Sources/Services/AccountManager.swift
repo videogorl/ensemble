@@ -221,11 +221,15 @@ public final class AccountManager {
     private static let appleMusicEnabledKey = "sources.appleMusic.enabled"
     private static let appleMusicInitialSyncPendingKey = "sources.appleMusic.initialSyncPending"
 
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
+
     public init(
         keychain: KeychainServiceProtocol,
         networkMonitor: NetworkMonitor? = nil,
-        urlSession: URLSession? = nil
+        urlSession: URLSession? = nil,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.keychain = keychain
         self.networkMonitor = networkMonitor
         self.urlSession = urlSession
@@ -375,7 +379,7 @@ public final class AccountManager {
         guard let data = try? JSONEncoder().encode(plexAccounts),
               let json = String(data: data, encoding: .utf8) else { return }
         try? keychain.save(json, forKey: KeychainKey.plexAccounts)
-        SiriMediaIndexNotifications.postRebuildRequest(reason: "account_configuration_changed")
+        libraryChanges?.send(.catalogChanged)
 
         // Push stripped credentials to iCloud Keychain for cross-device sync
         pushSyncCredentials()
@@ -868,7 +872,7 @@ public final class AccountManager {
         Self.persistAppleMusicEnabled(isEnabled)
         isAppleMusicInitialSyncPending = isEnabled
         isAppleMusicEnabled = isEnabled
-        SiriMediaIndexNotifications.postRebuildRequest(reason: "account_configuration_changed")
+        libraryChanges?.send(.catalogChanged)
         #endif
     }
 

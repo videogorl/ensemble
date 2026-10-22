@@ -1,6 +1,7 @@
 import CoreSpotlight
 import EnsemblePersistence
 import EnsembleSiriShared
+import EnsembleSupport
 import Foundation
 import UniformTypeIdentifiers
 
@@ -290,9 +291,8 @@ public final class SystemMediaIntegrationService {
     private let siriMediaIndexStore: SiriMediaIndexStore
     private let mediaUserContextManager: SiriMediaUserContextManager
     private let spotlightIndex: SystemSpotlightIndexing
-    private let notificationCenter: NotificationCenter
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
-    private var rebuildObserverToken: NSObjectProtocol?
+    private var catalogSubscription: StreamSubscription?
     private var spotlightRefreshTask: Task<Void, Never>?
     private var siriCatalogRefreshTask: Task<Bool, Never>?
     private var registeredSiriVocabulary: ([String], [String])?
@@ -307,6 +307,7 @@ public final class SystemMediaIntegrationService {
         siriMediaIndexStore: SiriMediaIndexStore,
         mediaUserContextManager: SiriMediaUserContextManager,
         artworkLoader: ArtworkLoaderProtocol? = nil,
+        libraryChanges: LibraryChanges? = nil,
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         #if os(macOS)
@@ -314,6 +315,7 @@ public final class SystemMediaIntegrationService {
             siriMediaIndexStore: siriMediaIndexStore,
             mediaUserContextManager: mediaUserContextManager,
             spotlightIndex: CoreSpotlightSystemIndex(),
+            libraryChanges: libraryChanges,
             foregroundWorkScheduler: foregroundWorkScheduler
         )
         #else
@@ -325,6 +327,7 @@ public final class SystemMediaIntegrationService {
             artworkProvider: artworkLoader.map { LiveSystemMediaArtworkProvider(artworkLoader: $0) }
                 ?? LocalSystemMediaArtworkProvider(),
             vocabularyRegistrar: LiveSystemMediaVocabularyRegistrar(),
+            libraryChanges: libraryChanges,
             foregroundWorkScheduler: foregroundWorkScheduler
         )
         #endif
@@ -335,15 +338,14 @@ public final class SystemMediaIntegrationService {
         siriMediaIndexStore: SiriMediaIndexStore,
         mediaUserContextManager: SiriMediaUserContextManager,
         spotlightIndex: SystemSpotlightIndexing,
-        notificationCenter: NotificationCenter = .default,
+        libraryChanges: LibraryChanges? = nil,
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         self.siriMediaIndexStore = siriMediaIndexStore
         self.mediaUserContextManager = mediaUserContextManager
         self.spotlightIndex = spotlightIndex
-        self.notificationCenter = notificationCenter
         self.foregroundWorkScheduler = foregroundWorkScheduler
-        installRebuildObserver()
+        observeCatalogChanges(libraryChanges)
     }
     #else
     init(
@@ -353,7 +355,7 @@ public final class SystemMediaIntegrationService {
         intentDonor: SystemMediaIntentDonating,
         artworkProvider: SystemMediaArtworkProviding,
         vocabularyRegistrar: SystemMediaVocabularyRegistering,
-        notificationCenter: NotificationCenter = .default,
+        libraryChanges: LibraryChanges? = nil,
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         self.siriMediaIndexStore = siriMediaIndexStore
@@ -362,27 +364,17 @@ public final class SystemMediaIntegrationService {
         self.intentDonor = intentDonor
         self.artworkProvider = artworkProvider
         self.vocabularyRegistrar = vocabularyRegistrar
-        self.notificationCenter = notificationCenter
         self.foregroundWorkScheduler = foregroundWorkScheduler
-        installRebuildObserver()
+        observeCatalogChanges(libraryChanges)
     }
     #endif
 
-    deinit {
-        if let rebuildObserverToken {
-            notificationCenter.removeObserver(rebuildObserverToken)
-        }
-    }
-
-    private func installRebuildObserver() {
-        rebuildObserverToken = notificationCenter.addObserver(
-            forName: SiriMediaIndexNotifications.rebuildRequested,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                await self.refreshSpotlightIndex()
+    /// Rebuilds the Spotlight index and Siri's media context when the shown catalog changes.
+    private func observeCatalogChanges(_ libraryChanges: LibraryChanges?) {
+        catalogSubscription = libraryChanges?.events([.catalogChanged]).observe(self) { service, _ in
+            Task {
+                await service.mediaUserContextManager.updateMediaUserContext()
+                await service.refreshSpotlightIndex()
             }
         }
     }

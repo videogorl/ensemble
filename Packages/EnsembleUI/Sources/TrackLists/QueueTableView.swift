@@ -1,5 +1,6 @@
 import EnsembleDesignTokens
 import EnsembleCore
+import EnsembleSupport
 import SwiftUI
 
 #if canImport(UIKit)
@@ -353,7 +354,7 @@ public struct QueueTableView: UIViewRepresentable {
     }
     
     public func makeCoordinator() -> Coordinator {
-        Coordinator(
+        let coordinator = Coordinator(
             queueItems: queueItems,
             hiddenQueueItemCount: hiddenQueueItemCount,
             history: history,
@@ -367,6 +368,8 @@ public struct QueueTableView: UIViewRepresentable {
             artworkLoader: dependencies.artworkLoader,
             shareService: dependencies.shareService
         )
+        coordinator.observeArtworkRecovery(dependencies.libraryChanges)
+        return coordinator
     }
 
     // MARK: - Coordinator
@@ -389,7 +392,7 @@ public struct QueueTableView: UIViewRepresentable {
         weak var tableView: UITableView?
         private let reorderFeedback = UISelectionFeedbackGenerator()
         private var lastReorderFeedbackIndexPath: IndexPath?
-        private var artworkRecoveryObserver: NSObjectProtocol?
+        private var artworkRecoveryObserver: StreamSubscription?
 
         struct QueueSection {
             let type: SectionType
@@ -442,18 +445,11 @@ public struct QueueTableView: UIViewRepresentable {
             self.shareService = shareService
             super.init()
             rebuildSections()
-            artworkRecoveryObserver = NotificationCenter.default.addObserver(
-                forName: ArtworkLoader.serversBecameAvailable,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                self?.retryFailedArtwork()
-            }
         }
 
-        deinit {
-            if let artworkRecoveryObserver {
-                NotificationCenter.default.removeObserver(artworkRecoveryObserver)
+        func observeArtworkRecovery(_ libraryChanges: LibraryChanges) {
+            artworkRecoveryObserver = libraryChanges.events([.artworkServersAvailable]).observe(self) { coordinator, _ in
+                coordinator.retryFailedArtwork()
             }
         }
 

@@ -11,6 +11,13 @@ public final class LibraryChanges {
         case metadataChanged
         case libraryDataCleared
         case artworkCachesCleared
+        /// The shown catalog changed: a sync with material changes, or an
+        /// account or source change. Siri and Spotlight indexes rebuild.
+        case catalogChanged
+        /// Artwork for these rating keys is stale and should be fetched again.
+        case artworkInvalidated(ratingKeys: Set<String>)
+        /// Servers that were unreachable are available; failed artwork can retry.
+        case artworkServersAvailable
     }
 
     private let broadcast = Broadcast<Event>()
@@ -24,6 +31,14 @@ public final class LibraryChanges {
     /// Events from now on.
     public func events() -> AsyncStream<Event> {
         broadcast.stream()
+    }
+
+    /// Rating keys of invalidated artwork, from now on.
+    public func artworkInvalidations() -> AsyncCompactMapSequence<AsyncStream<Event>, Set<String>> {
+        events().compactMap { event in
+            guard case let .artworkInvalidated(ratingKeys) = event else { return nil }
+            return ratingKeys
+        }
     }
 
     /// Only the given events, from now on.

@@ -109,22 +109,18 @@ public struct ArtworkView: View {
             guard resolvedImage == nil || currentArtworkIdentity != loadID else { return }
             await loadArtwork()
         }
-        .onReceive(
-            NotificationCenter.default.publisher(for: ArtworkLoader.artworkDidInvalidate)
-        ) { notification in
-            let invalidatedKeys = notification.userInfo?["ratingKeys"] as? Set<String>
-                ?? (notification.userInfo?["ratingKey"] as? String).map { Set([$0]) }
-                ?? []
-            if !invalidatedKeys.isDisjoint(with: request.ratingKeys) {
+        .task {
+            for await invalidatedKeys in dependencies.libraryChanges.artworkInvalidations()
+            where !invalidatedKeys.isDisjoint(with: request.ratingKeys) {
                 artworkURL = nil
                 resolvedImage = nil
                 invalidationToken += 1
             }
         }
-        .onReceive(
-            NotificationCenter.default.publisher(for: ArtworkLoader.serversBecameAvailable)
-        ) { _ in
-            scheduleServerAvailabilityRetry()
+        .task {
+            for await _ in dependencies.libraryChanges.events([.artworkServersAvailable]) {
+                scheduleServerAvailabilityRetry()
+            }
         }
         .task {
             for await _ in dependencies.libraryChanges.events([.artworkCachesCleared]) {

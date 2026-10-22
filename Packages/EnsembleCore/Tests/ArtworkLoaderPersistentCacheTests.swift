@@ -336,22 +336,20 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         syncCoordinator.networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
         await syncCoordinator.handleAppWillEnterForeground()
         defer { syncCoordinator.networkMonitor.injectNetworkStateForTesting(.offline, debounced: false) }
+        let libraryChanges = LibraryChanges()
         let artworkLoader = ArtworkLoader(
             syncCoordinator: syncCoordinator,
-            artworkDownloadManager: artworkManager
+            artworkDownloadManager: artworkManager,
+            libraryChanges: libraryChanges
         )
         let retryNotifications = expectation(description: "visible artwork retry")
         retryNotifications.expectedFulfillmentCount = 2
         retryNotifications.assertForOverFulfill = true
-        let observer = NotificationCenter.default.addObserver(
-            forName: ArtworkLoader.serversBecameAvailable,
-            object: artworkLoader,
-            queue: nil
-        ) { _ in
-            XCTAssertTrue(Thread.isMainThread)
-            retryNotifications.fulfill()
+        let retries = libraryChanges.events([.artworkServersAvailable])
+        let listener = Task { @MainActor in
+            for await _ in retries { retryNotifications.fulfill() }
         }
-        defer { NotificationCenter.default.removeObserver(observer) }
+        defer { listener.cancel() }
 
         var changeStartedAt: Date?
         for token in ["token-1", "token-2", "token-3"] {

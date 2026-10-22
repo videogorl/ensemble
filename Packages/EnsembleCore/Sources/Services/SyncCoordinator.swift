@@ -484,6 +484,8 @@ public final class SyncCoordinator {
         }
     }
 
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
+
     public init(
         accountManager: AccountManager,
         libraryRepository: LibraryRepositoryProtocol,
@@ -491,8 +493,10 @@ public final class SyncCoordinator {
         syncCursorRepository: SyncCursorRepositoryProtocol? = nil,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         networkMonitor: NetworkMonitor,
-        serverHealthChecker: ServerHealthChecker
+        serverHealthChecker: ServerHealthChecker,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.accountManager = accountManager
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
@@ -3098,7 +3102,7 @@ public final class SyncCoordinator {
                 }
                 publishContentChangeIfNeeded(for: resolution.sourceId, libraryResult: result, syncedAt: Date())
                 if result.hasMaterialChanges {
-                    SiriMediaIndexNotifications.postRebuildRequest(reason: "plex_targeted_reconciliation")
+                    libraryChanges?.send(.catalogChanged)
                 }
                 return .success
             } catch {
@@ -3222,7 +3226,7 @@ public final class SyncCoordinator {
             return postCheckStates[key]?.isAvailable == true
         }
         if anyBecameAvailable {
-            NotificationCenter.default.post(name: ArtworkLoader.serversBecameAvailable, object: nil)
+            libraryChanges?.send(.artworkServersAvailable)
         }
 
         let duration = nowProviderForTesting().timeIntervalSince(startedAt)
@@ -3611,7 +3615,7 @@ private extension SyncCoordinator {
         sourceStatuses[source] = MusicSourceStatus(syncStatus: .lastSynced(syncedAt), connectionState: resolvedConnectionState)
         publishContentChangeIfNeeded(for: source, libraryResult: libraryResult, playlistResult: playlistResult, syncedAt: syncedAt)
         if libraryResult?.hasMaterialChanges == true || playlistResult?.hasMaterialChanges == true {
-            SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
+            libraryChanges?.send(.catalogChanged)
         }
         return .success
     }
@@ -3647,7 +3651,7 @@ private extension SyncCoordinator {
     ) {
         guard libraryResult?.hasMaterialChanges == true else { return }
         publishContentChangeIfNeeded(for: source, libraryResult: libraryResult, syncedAt: Date())
-        SiriMediaIndexNotifications.postRebuildRequest(reason: "sync_completed")
+        libraryChanges?.send(.catalogChanged)
     }
 
     private func syncIncrementalSource(

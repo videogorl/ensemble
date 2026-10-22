@@ -58,11 +58,8 @@ public extension ArtworkLoaderProtocol {
 }
 
 public final class ArtworkLoader: ArtworkLoaderProtocol {
-    /// Posted when a specific artwork is invalidated. `userInfo` contains `"ratingKey"`.
-    public static let artworkDidInvalidate = Notification.Name("ArtworkLoaderArtworkDidInvalidate")
-    /// Posted when servers transition from unknown/connecting to connected after health checks.
-    /// ArtworkView listens for this to re-trigger loads that got local-file fallback during startup.
-    public static let serversBecameAvailable = Notification.Name("ArtworkLoaderServersBecameAvailable")
+    /// Receives artwork invalidation and server-availability events.
+    private let libraryChanges: LibraryChanges?
 
     private let syncCoordinator: SyncCoordinator
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
@@ -261,10 +258,12 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 
     public init(
         syncCoordinator: SyncCoordinator,
-        artworkDownloadManager: ArtworkDownloadManagerProtocol = ArtworkDownloadManager()
+        artworkDownloadManager: ArtworkDownloadManagerProtocol = ArtworkDownloadManager(),
+        libraryChanges: LibraryChanges? = nil
     ) {
         self.syncCoordinator = syncCoordinator
         self.artworkDownloadManager = artworkDownloadManager
+        self.libraryChanges = libraryChanges
         resolvedImageCache.countLimit = 40
         configurePipeline()
         installMemoryWarningObserver()
@@ -484,8 +483,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // Connection changed — all tracked URLs are stale
         await artworkURLTracker.clearAll()
         EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated URL cache after connection change")
-        await MainActor.run {
-            NotificationCenter.default.post(name: Self.serversBecameAvailable, object: self)
+        await MainActor.run { [libraryChanges] in
+            libraryChanges?.send(.artworkServersAvailable)
         }
     }
 
@@ -541,12 +540,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             }
         }
 
-        await MainActor.run {
-            NotificationCenter.default.post(
-                name: Self.artworkDidInvalidate,
-                object: nil,
-                userInfo: ["ratingKeys": ratingKeys]
-            )
+        await MainActor.run { [libraryChanges] in
+            libraryChanges?.send(.artworkInvalidated(ratingKeys: ratingKeys))
         }
         EnsembleLogger.debug("🎨 ArtworkLoader: Marked \(invalidations.count) artwork item(s) stale")
     }
