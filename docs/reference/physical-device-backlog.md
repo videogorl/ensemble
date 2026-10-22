@@ -57,6 +57,11 @@ See [the step note](../investigations/2026-10-21-step-2-composition-observation.
   2e; the native picker did not open on the simulator.
 - App Shortcuts and Siri: play a playlist and an artist by voice; services
   now come from the app root (2b).
+- Step 2f, at `15d9b8ab` or later: Low Power Mode pauses and resumes offline
+  downloads; turning off "stream on cellular" makes non-downloaded tracks
+  unavailable on cellular; artwork that failed while a server was unreachable
+  reloads when it comes back; after a sync that changes the library, Siri
+  finds the new items.
 
 ### Step 1f split, at `302a5d78` or later
 

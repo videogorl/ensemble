@@ -11,10 +11,10 @@ init plus `start()`. Simulator-checked, not verified.
 | Step | State |
 |---|---|
 | 2b One root | Done, `dfbd8ce8` |
-| 2c UI off the global | Part 1, `a1757f07`: view bodies read the container from the environment. Remaining `.shared` uses wait for 2f |
+| 2c UI off the global | Part 1, `a1757f07`: view bodies read the container from the environment. Remaining `.shared` uses are next |
 | 2d Core off the global | Not started |
 | 2e View models to Observation | Done, `2e35047c` to `31f8e27c` |
-| 2f Services to snapshot plus events | Not started |
+| 2f Services to snapshot plus events | Done, `4fcb7dc5` to `15d9b8ab`, with three agreed exceptions (below) |
 
 ## What changed
 
@@ -27,8 +27,7 @@ init plus `start()`. Simulator-checked, not verified.
 | `5f4700ed` | UI-local models. The source-action presenter and AirPlay controller become `@Observable`; the aurora models, artwork continuity stores, and scroll-index interrupter published nothing and become plain classes. |
 | `31f8e27c` | The view model factory file (327 lines) and the Combine filter-persistence helper are deleted. |
 
-Container files: 1,317 lines before step 2, 984 now. 2f removes the callback
-wiring.
+Container files: 1,317 lines before step 2, 982 after 2f.
 
 ### Rules the conversion settled
 
@@ -86,3 +85,109 @@ seeked the Plex track "REDLIGHTS" (rating key 16558) to 3:33 of 3:42. It
 played to its end before it could be paused; timeline reports reached 99%,
 so Plex has probably counted one play. Later runs use the page dots instead
 of swipes in Now Playing.
+
+## Step 2f: services publish one snapshot plus events
+
+Felicity approved the transport on 2026-10-21 (design decision 2) and three
+choices during the work on 2026-10-22, recorded below.
+
+### The pattern
+
+`Broadcast` and `StreamSubscription` (in `EnsembleSupport`) carry every
+service stream. A service keeps its state in stored `@Observable` properties,
+which views read directly, and broadcasts one `Snapshot` value when it
+changes; `snapshots()` returns the current snapshot, then each change. Things
+that happen rather than hold go on an event stream. A listener calls
+`observe(owner)`, which runs on the main actor while the owner lives;
+dropping the returned subscription cancels it, as `AnyCancellable` did.
+
+Every listener receives every value in order. A first version kept only the
+latest value, and a change made right after subscribing then replaced the
+starting value, so `dropFirst()` discarded the change. Three Home tests caught
+it in part 4; the fix covered parts 1 to 3.
+
+### Commits
+
+| Commit | Change |
+|---|---|
+| `4fcb7dc5` | `Broadcast`, `StreamSubscription`, swift-async-algorithms; `NetworkMonitor` |
+| `405c65f5` | `SettingsManager`: one `AppSettings` value replaces `@AppStorage`, persisted per changed field |
+| `ccf48e68` | Search, playlist, and pinned models take the settings manager; the merge-preference notification goes |
+| `23d5cb3c` | `AccountManager` snapshot and `sourceConfigurations()`; the `Broadcast` ordering fix |
+| `d56a275b` | `SyncCoordinator` snapshot plus events; content changes become events; `start()` guards move to an `isStarted` flag |
+| `81522f3f` | Playlist refresh, local rename, and source cleanup become sync events |
+| `3c8b1ab4` | Visibility and hidden-media stores |
+| `8b09fb39` | Offline downloads, mutation count, track availability |
+| `e602c9c2` | Toasts, logs, foreground work, profile, and sync settings, which only views watched |
+| `db315eed` | Power state, server health, WebSocket, readiness, lyrics, pins, cache manager |
+| `5813d7f4` | `NavigationCoordinator` |
+| `e84de275` | Playback snapshot stream (`snapshots()` on `PlaybackServiceProtocol`) |
+| `aff030b7` | `LibraryChanges` replaces the downloads, metadata, library-cleared, and artwork-cleared notifications |
+| `c30ccf4e` | Siri rebuild, artwork, cellular, artifact-cache, and pending-mutation notifications |
+| `8413acaf` | `AccountManager` follows the connection policy setting itself |
+
+Each service that others listen to has a transition table test: network,
+settings, account source configuration, sync, visibility, hidden media, and
+pins. They read the stream between changes and use a sentinel change to catch
+an emission that should not happen.
+
+### Decisions and exceptions
+
+- **Library changes.** Downloads, metadata edits, cleared caches, artwork
+  invalidation, and catalog changes reach view models through one
+  `LibraryChanges` stream the container builds (Felicity, 2026-10-22). The
+  step 5 store's change feed is expected to replace it.
+- **Playback sample feeds stay on Combine.** Position, presentation time,
+  buffering, waveform, and frequency bands run at 30 to 60 Hz and views read
+  them with `onReceive` (Felicity, 2026-10-22). The playback snapshot moved.
+- **Awaited and query hooks stay as container wiring.** Callers await the
+  WebSocket handlers, sync's artwork and connection hooks, and the refresh
+  reconcile hooks, or read their results, and several break construction
+  cycles (Felicity, 2026-10-22). Signals moved where their listener could
+  subscribe: low power to offline downloads, the connection policy to
+  accounts, the cache cleanup worker's callbacks to construction. Playback's
+  network-pressure signal stays wired, since its listeners are built first.
+  Step 4's module split is expected to resolve these edges.
+- **The account routing hook stays synchronous.** `NetworkMonitor` calls
+  `AccountManager` before any stream listener so connections are re-resolved
+  before sync or playback react.
+- **Remaining app notifications are local.** The Stage Flow rotation signal
+  (views to the app delegate) and the Playlists view's private mutation event
+  are not between services.
+
+### Checks
+
+- Builds through `scripts/build_serial.py`: iOS Simulator and macOS at every
+  part; watchOS at parts 1, 12, 13, and 14.
+- EnsembleCore: 1,159 tests; failures only in the two playlist feedback tests
+  that failed before step 2.
+
+Simulator `C01A1C06-F40B-4B39-93A7-7D1D9C89D9A1`, identity checked by
+`scripts/prepare_runtime.py`.
+
+| Build | Part | Checks | Result |
+|---|---|---|---|
+| `202610212204.3476` | 1 | Simulated offline then online: WebSocket disconnect and reconnect, playback transition, sync journey, availability bump | pass |
+| `202610212217.4757` | 2 | Accent color recolours live, persists across relaunch, restored | pass |
+| `202610212224.4056` | 3 | Playlist merging off splits merged rows live; on re-merges them | pass |
+| `202610212236.4868` | 4 | Launch readiness and Feed; account detail sections and sync status | pass |
+| `202610212246.2353` | 5 | Playlists reload on sync state; offline disables New Playlist; online restores it | pass |
+| `202610212300.5627` | 6 | Disposable playlist "Ensemble QA 2f" on Minibar: create triggers a refresh event, rename updates the list, delete confirmed by the server's WebSocket (item 17351, state 9) | pass |
+| `202610212316.8152` | 7 | Hiding a library re-filters Artists live; restored | pass |
+| `202610212325.3814` | 8 | Download and remove a three-track playlist; library summary and removal progress | pass |
+| `202610212333.8093` | 9 | Test toast, Logs list, iCloud Sync screen | pass |
+| `202610212344.6029` | 10 | Pin a playlist, shown under Pinned; unpin | pass |
+| `202610212351.3152` | 11 | Detail push and back, tab switch, external route; Mac main, Profile, and Downloads windows open | pass |
+| `202610220622.5813` | 12 | Play, pause, resume, Next; queue page; Aurora settles on pause | pass |
+| `202610220638.8427` | 13 | Download from playlist detail shows badges; removal clears them | pass |
+| `202610220656.0307` | 14 | Artwork across the Artists grid; Siri context and Spotlight refresh after launch | pass |
+
+Not covered on the simulator: the Low Power Mode pause of downloads, the
+cellular streaming toggle's effect, and artwork retry when a server comes
+back; they are in the device backlog. Part 14's Siri and Spotlight refresh ran
+after launch, but the log does not show whether `catalogChanged` or the launch
+path started it; the sync rebuild tests cover the trigger.
+
+Found along the way and logged as a P3 bug in AI Tasks: the availability
+resolver's deferred bump after downloads never runs once any fast bump has
+run, because the finished fast-bump task is never cleared.
