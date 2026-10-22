@@ -1,4 +1,5 @@
 import EnsembleSiriShared
+import EnsembleSupport
 import Foundation
 import MediaPlayer
 
@@ -181,12 +182,14 @@ final class PlaybackNowPlayingBridge {
     private var artworkRequestKey: String?
     private var artwork: MPMediaItemArtwork?
     private var artworkRecoveryObserver: NSObjectProtocol?
-    private var artworkCacheResetObserver: NSObjectProtocol?
+    private var artworkCacheResetObserver: StreamSubscription?
     var currentState: (() -> PlaybackNowPlayingState?)?
     private var lastPublishedState: PlaybackNowPlayingState?
 
+    @MainActor
     init(
         artworkLoader: ArtworkLoaderProtocol,
+        libraryChanges: LibraryChanges? = nil,
         nowPlayingCenter: PlaybackNowPlayingInfoCenter? = nil,
         commandCenter: PlaybackRemoteCommandCenter? = nil
     ) {
@@ -200,21 +203,14 @@ final class PlaybackNowPlayingBridge {
         ) { [weak self] _ in
             self?.prepareArtworkRetry()
         }
-        self.artworkCacheResetObserver = NotificationCenter.default.addObserver(
-            forName: CacheManager.artworkCachesDidClear,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.reloadArtworkAfterCacheClear()
+        artworkCacheResetObserver = libraryChanges?.events([.artworkCachesCleared]).observe(self) { bridge, _ in
+            bridge.reloadArtworkAfterCacheClear()
         }
     }
 
     deinit {
         if let artworkRecoveryObserver {
             NotificationCenter.default.removeObserver(artworkRecoveryObserver)
-        }
-        if let artworkCacheResetObserver {
-            NotificationCenter.default.removeObserver(artworkCacheResetObserver)
         }
         removeRemoteCommandHandlers()
         cancelArtworkLoad(clearArtwork: true)

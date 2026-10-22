@@ -118,6 +118,7 @@ public struct ScrobbleMutationPayload: Codable, Sendable {
 @MainActor
 @Observable
 public final class MutationCoordinator {
+    @ObservationIgnored let libraryChanges: LibraryChanges?
     /// How many pending (non-failed) mutations are queued. Every refresh is
     /// broadcast, even an unchanged count, since the queue's contents may differ.
     public private(set) var pendingCount: Int = 0 {
@@ -162,8 +163,10 @@ public final class MutationCoordinator {
         toastCenter: ToastCenter,
         networkMonitor: NetworkMonitor,
         syncCoordinator: SyncCoordinator,
-        playlistRepository: PlaylistRepositoryProtocol? = nil
+        playlistRepository: PlaylistRepositoryProtocol? = nil,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.repository = repository
         self.coreDataStack = coreDataStack
         self.toastCenter = toastCenter

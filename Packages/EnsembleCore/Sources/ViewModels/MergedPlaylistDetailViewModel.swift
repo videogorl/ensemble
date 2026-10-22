@@ -49,12 +49,16 @@ public final class MergedPlaylistDetailViewModel: MediaDetailViewModelProtocol {
     private var loadedTrackCountsByPlaylistID: [String: Int] = [:]
     private var loadedItemsByPlaylistID: [String: [PlaylistItem]] = [:]
 
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
+
     public init(
         displayPlaylist: DisplayPlaylist,
         playlistRepository: PlaylistRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
-        mutationCoordinator: MutationCoordinator
+        mutationCoordinator: MutationCoordinator,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.displayPlaylist = displayPlaylist
         self.playlistRepository = playlistRepository
         self.syncCoordinator = syncCoordinator
@@ -75,7 +79,7 @@ public final class MergedPlaylistDetailViewModel: MediaDetailViewModelProtocol {
     // MARK: - Setup
 
     private func observePlaylistRefresh() {
-        subscriptions.append(ViewModelNotificationObserver.observePlaylistRefresh(
+        subscriptions.append(ViewModelChangeObserver.observePlaylistRefresh(
             from: syncCoordinator,
             for: self,
             matchingSourceKeys: { model in
@@ -89,8 +93,8 @@ public final class MergedPlaylistDetailViewModel: MediaDetailViewModelProtocol {
     }
 
     private func observeReloadTriggers() {
-        ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
-            await self?.loadTracks()
+        subscriptions += ViewModelChangeObserver.observeDownloadAndMetadataChanges(from: libraryChanges, for: self) { model in
+            await model.loadTracks()
         }
     }
 

@@ -57,8 +57,7 @@ public struct CacheCleanupSnapshot: Sendable, Equatable {
 @MainActor
 @Observable
 public final class CacheManager {
-    public nonisolated static let libraryDataDidClear = Notification.Name("CacheManagerLibraryDataDidClear")
-    public nonisolated static let artworkCachesDidClear = Notification.Name("CacheManagerArtworkCachesDidClear")
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
 
     public private(set) var cacheInfos: [CacheType: CacheInfo] = [:]
     public private(set) var isRefreshing = false
@@ -79,8 +78,10 @@ public final class CacheManager {
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         downloadManager: DownloadManagerProtocol,
         lyricsService: LyricsService,
-        artworkCacheClear: (@MainActor () async throws -> Void)? = nil
+        artworkCacheClear: (@MainActor () async throws -> Void)? = nil,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.libraryRepository = libraryRepository
         self.artworkDownloadManager = artworkDownloadManager
         self.downloadManager = downloadManager
@@ -233,11 +234,11 @@ public final class CacheManager {
         // Reset generations first so late requests cannot refill storage after deletion.
         try await artworkCacheClear()
         invalidateArtworkCacheConsumers()
-        NotificationCenter.default.post(name: Self.artworkCachesDidClear, object: self)
+        libraryChanges?.send(.artworkCachesCleared)
     }
 
     private func notifyLibraryDataDidClear() {
-        NotificationCenter.default.post(name: Self.libraryDataDidClear, object: self)
+        libraryChanges?.send(.libraryDataCleared)
     }
     
     private func getLibraryItemCount() async throws -> Int {

@@ -667,7 +667,8 @@ public struct ArtistDetailView: View {
             libraryRepository: dependencies.libraryRepository,
             syncCoordinator: dependencies.syncCoordinator,
             hiddenMediaStore: dependencies.hiddenMediaStore,
-            includesHidden: includesHidden
+            includesHidden: includesHidden,
+            libraryChanges: dependencies.libraryChanges
         ))
         self._mergedViewModel = State(initialValue: MergedArtistDetailViewModel(
             displayArtist: displayArtist,
@@ -675,7 +676,8 @@ public struct ArtistDetailView: View {
             syncCoordinator: dependencies.syncCoordinator,
             accountManager: dependencies.accountManager,
             hiddenMediaStore: dependencies.hiddenMediaStore,
-            includesHidden: includesHidden
+            includesHidden: includesHidden,
+            libraryChanges: dependencies.libraryChanges
         ))
         self.nowPlayingVM = nowPlayingVM
         let pinnedIdentities = Set(dependencies.pinManager.pinnedItems.map(\.sourceScopedID))

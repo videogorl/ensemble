@@ -298,7 +298,8 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     }
 
     private func makeViewModel(
-        hubLoader: HomeHubLoaderProtocol
+        hubLoader: HomeHubLoaderProtocol,
+        libraryChanges: LibraryChanges? = nil
     ) -> (viewModel: HomeViewModel, coordinator: SyncCoordinator, accountManager: AccountManager) {
         let enabledAccount = PlexAccountConfig(
             id: "account-enabled",
@@ -341,7 +342,8 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             syncCoordinator: coordinator,
             hubLoader: hubLoader,
             libraryRepository: EmptyLibraryRepository(),
-            playlistRepository: EmptyPlaylistRepository()
+            playlistRepository: EmptyPlaylistRepository(),
+            libraryChanges: libraryChanges
         )
         viewModel.start()
         return (viewModel, coordinator, accountManager)
@@ -1223,11 +1225,12 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             await fulfillment(of: [releaseRestore], timeout: 1.0)
             return cachedSnapshot
         }
-        let (sut, _, _) = makeViewModel(hubLoader: loader)
+        let libraryChanges = LibraryChanges()
+        let (sut, _, _) = makeViewModel(hubLoader: loader, libraryChanges: libraryChanges)
         await fulfillment(of: [restoreStarted], timeout: 1.0)
         sut.seedHubsForTesting([makeHub(id: "visible-before-clear")])
 
-        NotificationCenter.default.post(name: CacheManager.libraryDataDidClear, object: nil)
+        libraryChanges.send(.libraryDataCleared)
         try? await Task.sleep(nanoseconds: 180_000_000)
         XCTAssertTrue(sut.hubs.isEmpty)
 

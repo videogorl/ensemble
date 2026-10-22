@@ -129,7 +129,8 @@ public final class SearchViewModel {
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
         settingsManager: SettingsManager? = nil,
-        syncCoordinator: SyncCoordinator? = nil
+        syncCoordinator: SyncCoordinator? = nil,
+        libraryChanges: LibraryChanges? = nil
     ) {
         self.init(
             libraryRepository: libraryRepository,
@@ -141,9 +142,12 @@ public final class SearchViewModel {
             hiddenMediaStore: hiddenMediaStore,
             settingsManager: settingsManager,
             syncCoordinator: syncCoordinator,
-            appleMusicCatalogSearch: .live
+            appleMusicCatalogSearch: .live,
+            libraryChanges: libraryChanges
         )
     }
+
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
 
     init(
         libraryRepository: LibraryRepositoryProtocol,
@@ -155,8 +159,10 @@ public final class SearchViewModel {
         hiddenMediaStore: HiddenMediaStore? = nil,
         settingsManager: SettingsManager? = nil,
         syncCoordinator: SyncCoordinator? = nil,
-        appleMusicCatalogSearch: AppleMusicCatalogSearchClient
+        appleMusicCatalogSearch: AppleMusicCatalogSearchClient,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.hubRepository = hubRepository
@@ -204,14 +210,13 @@ public final class SearchViewModel {
         })
 
         observeMetadataChanges()
-        ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
-            guard let self else { return }
-            self.invalidateExploreLoad(resetCadence: true)
-            try? await self.moodRepository.deleteAllMoods()
-            await self.reloadAfterExternalLibraryChange(forceExploreReload: false)
+        subscriptions += ViewModelChangeObserver.observeLibraryDataCleared(from: libraryChanges, for: self) { model in
+            model.invalidateExploreLoad(resetCadence: true)
+            try? await model.moodRepository.deleteAllMoods()
+            await model.reloadAfterExternalLibraryChange(forceExploreReload: false)
         }
         if let syncCoordinator {
-            subscriptions.append(ViewModelNotificationObserver.observeSourceCleanupCompleted(from: syncCoordinator, for: self) { model in
+            subscriptions.append(ViewModelChangeObserver.observeSourceCleanupCompleted(from: syncCoordinator, for: self) { model in
                 await model.reloadAfterExternalLibraryChange(forceExploreReload: true)
             })
         }
@@ -459,8 +464,8 @@ public final class SearchViewModel {
     }
 
     private func observeMetadataChanges() {
-        ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
-            await self?.reloadAfterExternalLibraryChange(forceExploreReload: false)
+        subscriptions += ViewModelChangeObserver.observeMetadataChanges(from: libraryChanges, for: self) { model in
+            await model.reloadAfterExternalLibraryChange(forceExploreReload: false)
         }
     }
 

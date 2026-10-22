@@ -438,8 +438,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     var audioCriticalInteractionEndTask: Task<Void, Never>?
     var postPlaybackAutoplayRefreshTask: Task<Void, Never>?
-    var downloadChangeObserver: AnyCancellable?
-    var artworkCacheResetObserver: AnyCancellable?
+    let libraryChanges: LibraryChanges?
+    var downloadChangeObserver: StreamSubscription?
+    var artworkCacheResetObserver: StreamSubscription?
     var artworkPrefetchTask: Task<Void, Never>?
     var lastObservedNetworkState: NetworkState?
     var stallRecoveryTask: Task<Void, Never>?
@@ -628,7 +629,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         audioAnalyzer: AudioAnalyzerProtocol,
         downloadManager: DownloadManagerProtocol,
         trackRatingLocalStore: TrackRatingLocalStoring = TrackRatingLocalStore(coreDataStack: .shared),
-        foregroundWorkScheduler: ForegroundWorkScheduling? = nil
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil,
+        libraryChanges: LibraryChanges? = nil
     ) {
         self.init(
             syncCoordinator: syncCoordinator,
@@ -638,7 +640,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             downloadManager: downloadManager,
             queueStore: PlaybackQueueStore(),
             trackRatingLocalStore: trackRatingLocalStore,
-            foregroundWorkScheduler: foregroundWorkScheduler
+            foregroundWorkScheduler: foregroundWorkScheduler,
+            libraryChanges: libraryChanges
         )
     }
 
@@ -650,8 +653,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         downloadManager: DownloadManagerProtocol,
         queueStore: PlaybackQueueStore,
         trackRatingLocalStore: TrackRatingLocalStoring = TrackRatingLocalStore(coreDataStack: .shared),
-        foregroundWorkScheduler: ForegroundWorkScheduling? = nil
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
         self.artworkLoader = artworkLoader
@@ -664,7 +669,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         artifactCache = .shared
         prefetchController = PlaybackPrefetchController(artifactCache: artifactCache)
         smartMixAnalysisService = SmartMixAnalysisService(foregroundWorkScheduler: foregroundWorkScheduler)
-        nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
+        nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader, libraryChanges: libraryChanges)
         audioSessionCoordinator = PlaybackAudioSessionCoordinator()
         startupCoordinator = PlaybackStartupCoordinator()
         resolvedFileCache = PlaybackResolvedFileCache(maxCachedFileURLs: maxCachedFileURLs)
@@ -848,26 +853,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// When a download completes (or is removed), update matching queue items
     /// so they reflect the current localFilePath (downloaded vs streaming).
     func setupDownloadChangeObservation() {
-        downloadChangeObserver = NotificationCenter.default.publisher(
-            for: OfflineDownloadService.downloadsDidChange
-        )
-        .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-        .sink { [weak self] _ in
-            guard let self = self else { return }
-            Task {
-                await self.refreshQueueDownloadState()
+        downloadChangeObserver = libraryChanges?.events([.downloadsChanged])
+            .debounce(for: .milliseconds(500))
+            .observe(self) { service, _ in
+                Task { await service.refreshQueueDownloadState() }
             }
-        }
     }
 
     func setupArtworkCacheResetObservation() {
-        artworkCacheResetObserver = NotificationCenter.default.publisher(
-            for: CacheManager.artworkCachesDidClear
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] _ in
-            self?.artworkPrefetchTask?.cancel()
-            self?.artworkPrefetchTask = nil
+        artworkCacheResetObserver = libraryChanges?.events([.artworkCachesCleared]).observe(self) { service, _ in
+            service.artworkPrefetchTask?.cancel()
+            service.artworkPrefetchTask = nil
         }
     }
 

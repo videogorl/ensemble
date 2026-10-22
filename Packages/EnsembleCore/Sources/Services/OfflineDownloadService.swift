@@ -128,8 +128,7 @@ enum OfflineDownloadRecoveryReason: Equatable, Sendable {
 @MainActor
 @Observable
 public final class OfflineDownloadService {
-    /// Posted when download targets change (enable/disable/quality refresh) so track-displaying VMs can re-fetch
-    nonisolated public static let downloadsDidChange = Notification.Name("OfflineDownloadsDidChange")
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
     public private(set) var targets: [OfflineDownloadTargetSnapshot] = [] {
         didSet { publishSnapshot() }
     }
@@ -269,8 +268,8 @@ public final class OfflineDownloadService {
             refreshViewContext: {
                 CoreDataStack.shared.refreshViewContext()
             },
-            postDownloadsDidChange: {
-                NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
+            postDownloadsDidChange: { [weak self] in
+                self?.libraryChanges?.send(.downloadsChanged)
             },
             showCompletionToast: { [weak self] in
                 self?.toastCenter.show(
@@ -433,8 +432,10 @@ public final class OfflineDownloadService {
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil,
         powerStateMonitor: PowerStateMonitor? = nil,
         launchRecoveryStartedAt: Date = Date(),
-        backgroundDownloads: BackgroundDownload = .shared
+        backgroundDownloads: BackgroundDownload = .shared,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.backgroundDownloads = backgroundDownloads
         self.downloadManager = downloadManager
         self.targetRepository = targetRepository

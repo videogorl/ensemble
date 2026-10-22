@@ -119,7 +119,7 @@ extension MutationCoordinator {
     }
 
     private func notifyCollectionFavoriteChange() {
-        NotificationCenter.default.post(name: MetadataMutationService.metadataDidChange, object: nil)
+        libraryChanges?.send(.metadataChanged)
     }
 
     private func collectionFavoriteSuccessToast(

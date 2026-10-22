@@ -4,6 +4,7 @@ import Nuke
 import XCTest
 @testable import EnsembleCore
 
+@MainActor
 final class PlaybackNowPlayingBridgeTests: XCTestCase {
     func testMetadataBuilderIncludesSourceScopedIdentityAndQueueFields() {
         let track = makeTrack()

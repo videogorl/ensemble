@@ -18,7 +18,8 @@ public extension NowPlayingViewModel {
             lyricsService: dependencies.lyricsService,
             artworkLoader: dependencies.artworkLoader,
             foregroundWorkScheduler: dependencies.foregroundWorkScheduler,
-            hiddenMediaStore: dependencies.hiddenMediaStore
+            hiddenMediaStore: dependencies.hiddenMediaStore,
+            libraryChanges: dependencies.libraryChanges
         )
     }
 }
@@ -47,7 +48,8 @@ extension PlaylistViewModel {
             visibilityStore: dependencies.libraryVisibilityStore,
             hiddenMediaStore: dependencies.hiddenMediaStore,
             settingsManager: dependencies.settingsManager,
-            observesExternalChanges: observesExternalChanges
+            observesExternalChanges: observesExternalChanges,
+            libraryChanges: dependencies.libraryChanges
         )
     }
 }
@@ -66,7 +68,8 @@ extension AlbumDetailViewModel {
             initialTracks: initialTracks,
             hiddenMediaStore: dependencies.hiddenMediaStore,
             settingsManager: dependencies.settingsManager,
-            includesHidden: includesHidden
+            includesHidden: includesHidden,
+            libraryChanges: dependencies.libraryChanges
         )
     }
 }
@@ -89,7 +92,8 @@ extension PlaylistDetailViewModel {
             initialItems: initialItems,
             observesExternalChanges: observesExternalChanges,
             hiddenMediaStore: dependencies.hiddenMediaStore,
-            includesHidden: includesHidden
+            includesHidden: includesHidden,
+            libraryChanges: dependencies.libraryChanges
         )
     }
 }
@@ -105,7 +109,8 @@ extension SearchViewModel {
             visibilityStore: dependencies.libraryVisibilityStore,
             hiddenMediaStore: dependencies.hiddenMediaStore,
             settingsManager: dependencies.settingsManager,
-            syncCoordinator: dependencies.syncCoordinator
+            syncCoordinator: dependencies.syncCoordinator,
+            libraryChanges: dependencies.libraryChanges
         )
     }
 }

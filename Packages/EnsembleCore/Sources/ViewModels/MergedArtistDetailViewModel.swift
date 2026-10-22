@@ -54,14 +54,18 @@ public final class MergedArtistDetailViewModel {
     @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     @ObservationIgnored private var isStarted = false
 
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
+
     public init(
         displayArtist: DisplayArtist,
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         accountManager: AccountManager,
         hiddenMediaStore: HiddenMediaStore? = nil,
-        includesHidden: Bool = false
+        includesHidden: Bool = false,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         let hiddenMediaStore = hiddenMediaStore ?? .shared
         self.displayArtist = displayArtist
         self.libraryRepository = libraryRepository
@@ -84,8 +88,8 @@ public final class MergedArtistDetailViewModel {
     }
 
     private func observeReloadTriggers() {
-        ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
-            await self?.load()
+        subscriptions += ViewModelChangeObserver.observeDownloadAndMetadataChanges(from: libraryChanges, for: self) { model in
+            await model.load()
         }
     }
 

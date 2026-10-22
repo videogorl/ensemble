@@ -117,6 +117,8 @@ public final class PlaylistViewModel {
     /// Published so the view can freeze its cached list during refresh.
     public private(set) var isRefreshingFromServer = false
 
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
+
     public init(
         playlistRepository: PlaylistRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
@@ -126,8 +128,10 @@ public final class PlaylistViewModel {
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
         settingsManager: SettingsManager? = nil,
-        observesExternalChanges: Bool = true
+        observesExternalChanges: Bool = true,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         let settingsManager = settingsManager ?? SettingsManager()
         self.settingsManager = settingsManager
         self.playlistRepository = playlistRepository
@@ -166,10 +170,10 @@ public final class PlaylistViewModel {
             observeExternalChanges()
         }
 
-        ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
-            self?.handleLibraryDataCleared()
+        subscriptions += ViewModelChangeObserver.observeLibraryDataCleared(from: libraryChanges, for: self) { model in
+            model.handleLibraryDataCleared()
         }
-        subscriptions.append(ViewModelNotificationObserver.observeSourceCleanupCompleted(from: syncCoordinator, for: self) { model in
+        subscriptions.append(ViewModelChangeObserver.observeSourceCleanupCompleted(from: syncCoordinator, for: self) { model in
             model.sourceCleanupReloadCountForTesting += 1
             await model.reloadPlaylists(showLoading: false)
         })
@@ -188,7 +192,7 @@ public final class PlaylistViewModel {
         })
 
         // Auto-reload when playlists are refreshed after a mutation (e.g. track counts changed)
-        subscriptions.append(ViewModelNotificationObserver.observePlaylistRefresh(
+        subscriptions.append(ViewModelChangeObserver.observePlaylistRefresh(
             from: syncCoordinator,
             for: self,
             matchingSourceKeys: { _ in [] }
@@ -890,6 +894,8 @@ public final class PlaylistDetailViewModel: MediaDetailViewModelProtocol {
     private var trackLoadTask: Task<Void, Never>?
     private var trackSnapshotRevision: UInt64 = 0
 
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
+
     public init(
         playlist: Playlist,
         playlistRepository: PlaylistRepositoryProtocol,
@@ -899,8 +905,10 @@ public final class PlaylistDetailViewModel: MediaDetailViewModelProtocol {
         initialItems: [PlaylistItem]? = nil,
         observesExternalChanges: Bool = true,
         hiddenMediaStore: HiddenMediaStore? = nil,
-        includesHidden: Bool = false
+        includesHidden: Bool = false,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         let hiddenMediaStore = hiddenMediaStore ?? .shared
         self.playlist = playlist
         if let initialItems {
@@ -943,7 +951,7 @@ public final class PlaylistDetailViewModel: MediaDetailViewModelProtocol {
 
     /// Reload tracks when playlists are refreshed (e.g. after adding/removing tracks via mutation).
     private func observePlaylistRefresh() {
-        subscriptions.append(ViewModelNotificationObserver.observePlaylistRefresh(
+        subscriptions.append(ViewModelChangeObserver.observePlaylistRefresh(
             from: syncCoordinator,
             for: self,
             matchingSourceKeys: { model in
@@ -959,8 +967,8 @@ public final class PlaylistDetailViewModel: MediaDetailViewModelProtocol {
     }
 
     private func observeReloadTriggers() {
-        ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
-            await self?.loadTracks()
+        subscriptions += ViewModelChangeObserver.observeDownloadAndMetadataChanges(from: libraryChanges, for: self) { model in
+            await model.loadTracks()
         }
     }
 

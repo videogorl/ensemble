@@ -245,6 +245,8 @@ public final class NowPlayingViewModel {
     var trackRatingMutationHandlerForTesting: ((Track, Int?) async throws -> Void)?
     var trackRatingStoreHandlerForTesting: ((Track, Int) async throws -> Void)?
 
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
+
     public init(
         playbackService: PlaybackServiceProtocol,
         syncCoordinator: SyncCoordinator,
@@ -257,8 +259,10 @@ public final class NowPlayingViewModel {
         lyricsService: LyricsService,
         artworkLoader: ArtworkLoaderProtocol,
         foregroundWorkScheduler: ForegroundWorkScheduling,
-        hiddenMediaStore: HiddenMediaStore? = nil
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.playbackService = playbackService
         self.syncCoordinator = syncCoordinator
         self.libraryRepository = libraryRepository
@@ -318,19 +322,16 @@ public final class NowPlayingViewModel {
             model.setIfChanged(\.lastPlaylistTarget, target)
         })
 
-        NotificationCenter.default.publisher(for: CacheManager.artworkCachesDidClear)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                guard let self else { return }
-                self.artworkLoadTask?.cancel()
-                self.blurGenerationTask?.cancel()
-                self.artworkProjection.clear(track: self.currentTrack)
-                if let currentTrack = self.currentTrack,
-                   self.isArtworkLoadingEnabledForTesting {
-                    self.loadArtworkImage(for: currentTrack)
+        if let libraryChanges {
+            subscriptions.append(libraryChanges.events([.artworkCachesCleared]).observe(self) { model, _ in
+                model.artworkLoadTask?.cancel()
+                model.blurGenerationTask?.cancel()
+                model.artworkProjection.clear(track: model.currentTrack)
+                if let currentTrack = model.currentTrack, model.isArtworkLoadingEnabledForTesting {
+                    model.loadArtworkImage(for: currentTrack)
                 }
-            }
-            .store(in: &cancellables)
+            })
+        }
 
         // Keep duration synchronized with AVPlayer's effective item duration as playback advances.
         playbackService.currentTimePublisher

@@ -24,7 +24,8 @@ public struct MergedPlaylistDetailView: View {
             displayPlaylist: displayPlaylist,
             playlistRepository: dependencies.playlistRepository,
             syncCoordinator: dependencies.syncCoordinator,
-            mutationCoordinator: dependencies.mutationCoordinator
+            mutationCoordinator: dependencies.mutationCoordinator,
+            libraryChanges: dependencies.libraryChanges
         ))
         self.nowPlayingVM = nowPlayingVM
         self.displayPlaylist = displayPlaylist

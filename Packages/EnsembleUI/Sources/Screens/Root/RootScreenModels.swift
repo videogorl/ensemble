@@ -18,7 +18,8 @@ final class RootScreenModels: ObservableObject {
         accountManager: dependencies.accountManager,
         visibilityStore: dependencies.libraryVisibilityStore,
         hiddenMediaStore: dependencies.hiddenMediaStore,
-        settingsManager: dependencies.settingsManager
+        settingsManager: dependencies.settingsManager,
+        libraryChanges: dependencies.libraryChanges
     )
     lazy var hidden = HiddenMediaViewModel(
         store: dependencies.hiddenMediaStore,
@@ -41,7 +42,8 @@ final class RootScreenModels: ObservableObject {
             visibilityStore: dependencies.libraryVisibilityStore,
             hiddenMediaStore: dependencies.hiddenMediaStore,
             toastCenter: dependencies.toastCenter,
-            appReadinessCoordinator: dependencies.appReadinessCoordinator
+            appReadinessCoordinator: dependencies.appReadinessCoordinator,
+            libraryChanges: dependencies.libraryChanges
         )
         home = HomeViewModel(
             accountManager: dependencies.accountManager,
@@ -52,7 +54,8 @@ final class RootScreenModels: ObservableObject {
             hubOrderManager: dependencies.hubOrderManager,
             visibilityStore: dependencies.libraryVisibilityStore,
             hiddenMediaStore: dependencies.hiddenMediaStore,
-            appReadinessCoordinator: dependencies.appReadinessCoordinator
+            appReadinessCoordinator: dependencies.appReadinessCoordinator,
+            libraryChanges: dependencies.libraryChanges
         )
         search = SearchViewModel(dependencies: dependencies)
         pinned = PinnedViewModel(

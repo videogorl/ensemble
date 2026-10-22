@@ -894,10 +894,12 @@ public struct SidebarView: View {
         .onChange(of: libraryVM.isRestoringCloudSources) { _, _ in
             rebuildCachedSidebarPlaylists()
         }
-        .onReceive(NotificationCenter.default.publisher(for: CacheManager.libraryDataDidClear)) { _ in
-            isApplyingAuthoritativePlaylistClear = true
-            cachedSmartPlaylists = []
-            cachedRegularPlaylists = []
+        .task {
+            for await _ in deps.libraryChanges.events([.libraryDataCleared]) {
+                isApplyingAuthoritativePlaylistClear = true
+                cachedSmartPlaylists = []
+                cachedRegularPlaylists = []
+            }
         }
     }
 

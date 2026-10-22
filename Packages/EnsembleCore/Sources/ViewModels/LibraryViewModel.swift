@@ -249,6 +249,8 @@ public final class LibraryViewModel {
     private var libraryLoadTask: Task<Void, Never>?
     private var libraryLoadRequestedAgain = false
 
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
+
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
@@ -257,8 +259,10 @@ public final class LibraryViewModel {
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
         toastCenter: ToastCenter,
-        appReadinessCoordinator: AppReadinessCoordinator? = nil
+        appReadinessCoordinator: AppReadinessCoordinator? = nil,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.accountManager = accountManager
@@ -558,13 +562,13 @@ public final class LibraryViewModel {
     }
 
     private func observeReloadTriggers() {
-        ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
-            await self?.loadLibrary()
+        subscriptions += ViewModelChangeObserver.observeDownloadAndMetadataChanges(from: libraryChanges, for: self) { model in
+            await model.loadLibrary()
         }
-        ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
-            self?.handleLibraryDataCleared()
+        subscriptions += ViewModelChangeObserver.observeLibraryDataCleared(from: libraryChanges, for: self) { model in
+            model.handleLibraryDataCleared()
         }
-        subscriptions.append(ViewModelNotificationObserver.observeSourceCleanupCompleted(from: syncCoordinator, for: self) { model in
+        subscriptions.append(ViewModelChangeObserver.observeSourceCleanupCompleted(from: syncCoordinator, for: self) { model in
             await model.loadLibrary()
         })
     }

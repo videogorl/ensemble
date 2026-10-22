@@ -51,13 +51,17 @@ public final class FavoritesViewModel: MediaDetailViewModelProtocol {
     private var isStarted = false
     private var filterTask: Task<Void, Never>?
 
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
+
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
-        settingsManager: SettingsManager? = nil
+        settingsManager: SettingsManager? = nil,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.libraryRepository = libraryRepository
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
@@ -154,8 +158,8 @@ public final class FavoritesViewModel: MediaDetailViewModelProtocol {
     // MARK: - Change Observation
 
     private func observeReloadTriggers() {
-        ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
-            await self?.loadTracks()
+        subscriptions += ViewModelChangeObserver.observeDownloadAndMetadataChanges(from: libraryChanges, for: self) { model in
+            await model.loadTracks()
         }
     }
 

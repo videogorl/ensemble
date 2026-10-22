@@ -75,6 +75,8 @@ public final class AlbumDetailViewModel: MediaDetailViewModelProtocol {
     @ObservationIgnored private var isStarted = false
     @ObservationIgnored private var subscriptions: [StreamSubscription] = []
 
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
+
     public init(
         displayAlbum: DisplayAlbum,
         libraryRepository: LibraryRepositoryProtocol,
@@ -82,8 +84,10 @@ public final class AlbumDetailViewModel: MediaDetailViewModelProtocol {
         initialTracks: [Track]? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
         settingsManager: SettingsManager? = nil,
-        includesHidden: Bool = false
+        includesHidden: Bool = false,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         let hiddenMediaStore = hiddenMediaStore ?? .shared
         self.displayAlbum = displayAlbum
         self.album = displayAlbum.primaryAlbum
@@ -256,15 +260,15 @@ public final class AlbumDetailViewModel: MediaDetailViewModelProtocol {
     // MARK: - Download Change Observation
 
     private func observeDownloadChanges() {
-        ViewModelNotificationObserver.observeDownloadChanges(storingIn: &cancellables) { [weak self] in
-            await self?.loadTracks()
+        subscriptions += ViewModelChangeObserver.observeDownloadChanges(from: libraryChanges, for: self) { model in
+            await model.loadTracks()
         }
     }
 
     private func observeMetadataChanges() {
-        ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
-            await self?.loadTracks()
-            await self?.loadRelatedAlbums()
+        subscriptions += ViewModelChangeObserver.observeMetadataChanges(from: libraryChanges, for: self) { model in
+            await model.loadTracks()
+            await model.loadRelatedAlbums()
         }
     }
 

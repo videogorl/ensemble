@@ -126,13 +126,13 @@ public struct ArtworkView: View {
         ) { _ in
             scheduleServerAvailabilityRetry()
         }
-        .onReceive(
-            NotificationCenter.default.publisher(for: CacheManager.artworkCachesDidClear)
-        ) { _ in
-            artworkURL = nil
-            resolvedImage = nil
-            previousImage = nil
-            invalidationToken += 1
+        .task {
+            for await _ in dependencies.libraryChanges.events([.artworkCachesCleared]) {
+                artworkURL = nil
+                resolvedImage = nil
+                previousImage = nil
+                invalidationToken += 1
+            }
         }
         .onDisappear {
             serverRetryTask?.cancel()

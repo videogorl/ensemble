@@ -52,6 +52,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let pinManager: PinManager
     public let hiddenMediaStore: HiddenMediaStore
     public let toastCenter: ToastCenter
+    public let libraryChanges: LibraryChanges
     public let libraryVisibilityStore: LibraryVisibilityStore
     public let siriMediaIndexStore: SiriMediaIndexStore
     public let siriPlaybackCoordinator: SiriPlaybackCoordinator
@@ -117,6 +118,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let pinManager: PinManager
         let hiddenMediaStore: HiddenMediaStore
         let toastCenter: ToastCenter
+        let libraryChanges: LibraryChanges
         let libraryVisibilityStore: LibraryVisibilityStore
         let powerStateMonitor: PowerStateMonitor
         let persistentLogService: PersistentLogService
@@ -227,6 +229,7 @@ public final class DependencyContainer: @unchecked Sendable {
         pinManager = core.pinManager
         hiddenMediaStore = core.hiddenMediaStore
         toastCenter = core.toastCenter
+        libraryChanges = core.libraryChanges
         libraryVisibilityStore = core.libraryVisibilityStore
         powerStateMonitor = core.powerStateMonitor
         persistentLogService = core.persistentLogService
@@ -405,6 +408,7 @@ public final class DependencyContainer: @unchecked Sendable {
             pinManager: pinManager,
             hiddenMediaStore: MainActor.assumeIsolated { .shared },
             toastCenter: MainActor.assumeIsolated { ToastCenter() },
+            libraryChanges: MainActor.assumeIsolated { LibraryChanges() },
             libraryVisibilityStore: MainActor.assumeIsolated { LibraryVisibilityStore() },
             powerStateMonitor: MainActor.assumeIsolated { PowerStateMonitor() },
             persistentLogService: MainActor.assumeIsolated { PersistentLogService() },
@@ -443,7 +447,8 @@ public final class DependencyContainer: @unchecked Sendable {
         let trackAvailabilityResolver = MainActor.assumeIsolated {
             TrackAvailabilityResolver(
                 networkMonitor: networkMonitor,
-                serverHealthChecker: serverHealthChecker
+                serverHealthChecker: serverHealthChecker,
+                libraryChanges: core.libraryChanges
             )
         }
 
@@ -501,7 +506,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 audioAnalyzer: audioAnalyzer,
                 downloadManager: core.downloadManager,
                 trackRatingLocalStore: trackRatingLocalStore,
-                foregroundWorkScheduler: foregroundWorkScheduler
+                foregroundWorkScheduler: foregroundWorkScheduler,
+                libraryChanges: core.libraryChanges
             )
         }
         let cacheManager = MainActor.assumeIsolated {
@@ -512,7 +518,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 lyricsService: lyricsService,
                 artworkCacheClear: {
                     try await artworkLoader.clearCaches()
-                }
+                },
+                libraryChanges: core.libraryChanges
             )
         }
 
@@ -563,7 +570,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 toastCenter: core.toastCenter,
                 lyricsService: playback.lyricsService,
                 foregroundWorkScheduler: foregroundWorkScheduler,
-                powerStateMonitor: core.powerStateMonitor
+                powerStateMonitor: core.powerStateMonitor,
+                libraryChanges: core.libraryChanges
             )
         }
         let mutationCoordinator = MainActor.assumeIsolated {
@@ -573,7 +581,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 toastCenter: core.toastCenter,
                 networkMonitor: network.networkMonitor,
                 syncCoordinator: sync.syncCoordinator,
-                playlistRepository: core.playlistRepository
+                playlistRepository: core.playlistRepository,
+                libraryChanges: core.libraryChanges
             )
         }
         let metadataMutationService = MainActor.assumeIsolated {
@@ -601,7 +610,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 },
                 removeDeletedTracksFromPlayback: { trackIDs in
                     playback.playbackService.removeDeletedTracks(trackIDs)
-                }
+                },
+                libraryChanges: core.libraryChanges
             )
         }
 

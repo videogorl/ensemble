@@ -96,13 +96,17 @@ public final class ArtistDetailViewModel {
     @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     @ObservationIgnored private var isStarted = false
 
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
+
     public init(
         artist: Artist,
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         hiddenMediaStore: HiddenMediaStore? = nil,
-        includesHidden: Bool = false
+        includesHidden: Bool = false,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         let hiddenMediaStore = hiddenMediaStore ?? .shared
         self.artist = artist
         self.libraryRepository = libraryRepository
@@ -219,15 +223,15 @@ public final class ArtistDetailViewModel {
     // MARK: - Download Change Observation
 
     private func observeDownloadChanges() {
-        ViewModelNotificationObserver.observeDownloadChanges(storingIn: &cancellables) { [weak self] in
-            await self?.loadTracks()
+        subscriptions += ViewModelChangeObserver.observeDownloadChanges(from: libraryChanges, for: self) { model in
+            await model.loadTracks()
         }
     }
 
     private func observeMetadataChanges() {
-        ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
-            await self?.loadAlbums()
-            await self?.loadTracks()
+        subscriptions += ViewModelChangeObserver.observeMetadataChanges(from: libraryChanges, for: self) { model in
+            await model.loadAlbums()
+            await model.loadTracks()
         }
     }
 

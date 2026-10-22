@@ -78,7 +78,7 @@ public struct MetadataEditRequest: Sendable, Equatable {
 
 @MainActor
 public final class MetadataMutationService {
-    public static let metadataDidChange = Notification.Name("MetadataMutationService.metadataDidChange")
+    private let libraryChanges: LibraryChanges?
 
     private struct SourceContext {
         let accountId: String
@@ -105,8 +105,10 @@ public final class MetadataMutationService {
         canManageServer: @escaping (_ accountId: String, _ serverId: String) -> Bool,
         makeClient: @escaping (_ accountId: String, _ serverId: String) -> MetadataMutationClient?,
         clearLyricsCache: @escaping (_ ratingKey: String, _ sourceCompositeKey: String) async -> Void,
-        removeDeletedTracksFromPlayback: @escaping @MainActor (Set<String>) -> Void
+        removeDeletedTracksFromPlayback: @escaping @MainActor (Set<String>) -> Void,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.libraryRepository = libraryRepository
         self.downloadManager = downloadManager
         self.targetRepository = targetRepository
@@ -338,7 +340,7 @@ public final class MetadataMutationService {
     }
 
     private func postMetadataDidChange() {
-        NotificationCenter.default.post(name: Self.metadataDidChange, object: nil)
+        libraryChanges?.send(.metadataChanged)
     }
 
     private func sourceContext(for sourceCompositeKey: String?) throws -> SourceContext {

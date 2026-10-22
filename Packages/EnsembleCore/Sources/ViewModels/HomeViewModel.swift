@@ -90,6 +90,8 @@ public final class HomeViewModel {
     internal var loadHubsRunnerForTesting: ((Bool) async -> Void)?
     internal var waitForStartupHealthChecksRunnerForTesting: (() async -> Void)?
     
+    @ObservationIgnored private let libraryChanges: LibraryChanges?
+
     public init(
         accountManager: AccountManager,
         syncCoordinator: SyncCoordinator,
@@ -99,8 +101,10 @@ public final class HomeViewModel {
         hubOrderManager: HubOrderManager = HubOrderManager(),
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
-        appReadinessCoordinator: AppReadinessCoordinator? = nil
+        appReadinessCoordinator: AppReadinessCoordinator? = nil,
+        libraryChanges: LibraryChanges? = nil
     ) {
+        self.libraryChanges = libraryChanges
         self.accountManager = accountManager
         self.syncCoordinator = syncCoordinator
         self.hubLoader = hubLoader
@@ -173,10 +177,10 @@ public final class HomeViewModel {
             EnsembleLogger.debug("🏠 Home initial load safety timeout — unblocking auto-refresh")
         }
 
-        ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
-            self?.handleLibraryDataCleared()
+        subscriptions += ViewModelChangeObserver.observeLibraryDataCleared(from: libraryChanges, for: self) { model in
+            model.handleLibraryDataCleared()
         }
-        subscriptions.append(ViewModelNotificationObserver.observeSourceCleanupCompleted(from: syncCoordinator, for: self) { model in
+        subscriptions.append(ViewModelChangeObserver.observeSourceCleanupCompleted(from: syncCoordinator, for: self) { model in
             model.handleSourceCleanupCompleted()
         })
     }

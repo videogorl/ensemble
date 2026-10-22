@@ -936,13 +936,15 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             ratingKey: playlist.id,
             sourceCompositeKey: playlist.sourceCompositeKey
         )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+        let libraryChanges = LibraryChanges()
 
         let viewModel = PlaylistViewModel(
             playlistRepository: playlistRepository,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
             toastCenter: ToastCenter(),
-            accountManager: accountManager
+            accountManager: accountManager,
+            libraryChanges: libraryChanges
         )
 
         viewModel.start()
@@ -954,7 +956,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         await viewModel.loadPlaylists()
         XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
 
-        NotificationCenter.default.post(name: CacheManager.libraryDataDidClear, object: nil)
+        libraryChanges.send(.libraryDataCleared)
         try await waitForPlaylistIDs(viewModel: viewModel, expectedIDs: [])
 
         XCTAssertTrue(viewModel.displayPlaylists.isEmpty)
