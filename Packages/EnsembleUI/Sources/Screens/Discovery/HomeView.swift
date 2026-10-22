@@ -333,7 +333,7 @@ struct HubSection: View {
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
     @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
 
     private var displayItems: [DisplayHubItem] {
         DisplayHubItem.group(hub.items, preferences: settingsManager.mergingPreferences)

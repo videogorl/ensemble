@@ -1,7 +1,9 @@
 import CloudKit
+import AsyncAlgorithms
 import Combine
 import EnsembleAPI
 import EnsembleDomain
+import EnsembleSupport
 import Foundation
 
 /// Owns profile and feature reconciliation, bounded bootstrap retries, and cloud callbacks.
@@ -18,6 +20,7 @@ final class CloudSyncCoordinator {
     private let accountDiscoveryService: PlexAccountDiscoveryService
     private let syncCoordinator: SyncCoordinator
     private var kvsSyncCancellables = Set<AnyCancellable>()
+    private var kvsSyncSubscriptions: [StreamSubscription] = []
     private var lastSyncedAccentColor: String = AppAccentColor.blue.rawValue
     private var lastSyncedNowPlayingLayout: NowPlayingSecondaryLayout = .default
     private var lastSyncedSwipeLayout: TrackSwipeLayout = .default
@@ -213,13 +216,11 @@ final class CloudSyncCoordinator {
             settings.setMergingPreferences(preferences)
         }
 
-        settings.objectWillChange
-            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            .sink { [weak self, weak settings, weak kvs, weak syncToggles] _ in
-                guard let self, let settings, let kvs, let syncToggles else { return }
+        kvsSyncSubscriptions.append(settings.snapshots().dropFirst().debounce(for: .milliseconds(500)).observe(self) { [weak kvs, weak syncToggles] coordinator, settings in
+                guard let kvs, let syncToggles else { return }
                 if syncToggles.isFeatureEnabled(.accentColor),
-                   settings.accentColorName != self.lastSyncedAccentColor {
-                    self.lastSyncedAccentColor = settings.accentColorName
+                   settings.accentColorName != coordinator.lastSyncedAccentColor {
+                    coordinator.lastSyncedAccentColor = settings.accentColorName
                     syncToggles.recordFeatureActivity(
                         for: .accentColor,
                         state: .seededLocal,
@@ -231,8 +232,8 @@ final class CloudSyncCoordinator {
 
                 if syncToggles.isFeatureEnabled(.swipeActions) {
                     let currentLayout = settings.trackSwipeLayout
-                    if currentLayout != self.lastSyncedSwipeLayout {
-                        self.lastSyncedSwipeLayout = currentLayout
+                    if currentLayout != coordinator.lastSyncedSwipeLayout {
+                        coordinator.lastSyncedSwipeLayout = currentLayout
                         syncToggles.recordFeatureActivity(
                             for: .swipeActions,
                             state: .seededLocal,
@@ -247,8 +248,8 @@ final class CloudSyncCoordinator {
 
                 if syncToggles.isFeatureEnabled(.nowPlayingActions) {
                     let currentLayout = settings.nowPlayingSecondaryLayout
-                    if currentLayout != self.lastSyncedNowPlayingLayout {
-                        self.lastSyncedNowPlayingLayout = currentLayout
+                    if currentLayout != coordinator.lastSyncedNowPlayingLayout {
+                        coordinator.lastSyncedNowPlayingLayout = currentLayout
                         syncToggles.recordFeatureActivity(
                             for: .nowPlayingActions,
                             state: .seededLocal,
@@ -263,9 +264,9 @@ final class CloudSyncCoordinator {
 
                 guard syncToggles.isFeatureEnabled(.merging) else { return }
                 let preferences = settings.mergingPreferences
-                guard preferences != self.lastSyncedMergingPreferences,
+                guard preferences != coordinator.lastSyncedMergingPreferences,
                       let data = try? JSONEncoder().encode(preferences) else { return }
-                self.lastSyncedMergingPreferences = preferences
+                coordinator.lastSyncedMergingPreferences = preferences
                 syncToggles.recordFeatureActivity(
                     for: .merging,
                     state: .seededLocal,
@@ -273,8 +274,7 @@ final class CloudSyncCoordinator {
                     detail: "Pushed merging preferences from this device."
                 )
                 kvs.pushData(data, forKey: KVSSyncService.KVSKey.mergingPreferences)
-                }
-            .store(in: &kvsSyncCancellables)
+        })
 
         kvsSyncService.onRemotePinsChanged = { [weak self, weak pins] data in
             guard let self, let pins else { return }

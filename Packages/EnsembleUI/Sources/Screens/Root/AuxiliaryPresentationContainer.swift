@@ -24,7 +24,7 @@ private struct AuxiliaryDismissToolbarModifier: ViewModifier {
 }
 
 public struct ProfilePresentationContainer: View {
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
 
     public init() {}
 
@@ -49,7 +49,7 @@ public struct ProfilePresentationContainer: View {
 public struct DownloadsPresentationContainer: View {
     @Environment(DependencyContainer.self) private var dependencies
     @StateObject private var holder = NowPlayingHolder(dependencies: DependencyContainer.shared)
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
 
     public init() {}
 

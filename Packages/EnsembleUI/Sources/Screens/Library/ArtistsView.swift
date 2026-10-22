@@ -614,7 +614,7 @@ private struct StableArtistArtworkImage<Fallback: View>: View {
 public struct ArtistDetailView: View {
     @State private var viewModel: ArtistDetailViewModel
     @State private var mergedViewModel: MergedArtistDetailViewModel
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     private let displayArtist: DisplayArtist
     private let includesHidden: Bool
     let nowPlayingVM: NowPlayingViewModel

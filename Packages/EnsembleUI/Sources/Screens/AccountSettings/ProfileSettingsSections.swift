@@ -245,7 +245,7 @@ struct SmartMixSettingsView: View {
 // MARK: - Merging Settings
 
 struct MergingSettingsView: View {
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
 
     var body: some View {
         EnsembleAdaptiveUtilityScaffold(title: "Merging") {
@@ -316,7 +316,7 @@ struct MergingSettingsView: View {
 // MARK: - Connection Policy Settings
 
 struct ConnectionPolicySettingsView: View {
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
 
     var body: some View {
         EnsembleAdaptiveUtilityScaffold(title: "Connection Security") {

@@ -1,6 +1,8 @@
+import AsyncAlgorithms
 import Combine
 import EnsembleDomain
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -44,6 +46,7 @@ public final class FavoritesViewModel: MediaDetailViewModelProtocol {
     private let hiddenMediaStore: HiddenMediaStore
     private let settingsManager: SettingsManager
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     private var allTracks: [Track] = []
     private var isStarted = false
     private var filterTask: Task<Void, Never>?
@@ -80,10 +83,9 @@ public final class FavoritesViewModel: MediaDetailViewModelProtocol {
         isStarted = true
         observeReloadTriggers()
         setupVisibilityObservation()
-        settingsManager.$mergingPreferences
-            .dropFirst()
-            .sink { [weak self] _ in self?.scheduleFilteredTracks() }
-            .store(in: &cancellables)
+        subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().dropFirst().observe(self) { model, _ in
+            model.scheduleFilteredTracks()
+        })
         scheduleFilteredTracks()
         Task { await loadTracks() }
     }

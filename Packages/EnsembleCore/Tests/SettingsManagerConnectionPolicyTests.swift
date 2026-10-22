@@ -1,4 +1,3 @@
-import Combine
 import EnsembleDomain
 import XCTest
 @testable import EnsembleCore
@@ -13,32 +12,24 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
     private let mergingPreferencesKey = SettingsManager.mergingPreferencesKey
     private let songsTableColumnsKey = "songsTableColumns"
     private let trackSwipeLayoutKey = "trackSwipeLayout"
-    private var cancellables: Set<AnyCancellable> = []
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: accentColorKey)
-        UserDefaults.standard.removeObject(forKey: auroraVisualizationKey)
-        UserDefaults.standard.removeObject(forKey: demoModeKey)
-        UserDefaults.standard.removeObject(forKey: defaultsKey)
-        UserDefaults.standard.removeObject(forKey: enabledTabsKey)
-        UserDefaults.standard.removeObject(forKey: mergingPreferencesKey)
-        UserDefaults.standard.removeObject(forKey: songsTableColumnsKey)
-        UserDefaults.standard.removeObject(forKey: trackSwipeLayoutKey)
-        cancellables.removeAll()
+        clearDefaults()
     }
 
     override func tearDown() {
-        cancellables.removeAll()
-        UserDefaults.standard.removeObject(forKey: accentColorKey)
-        UserDefaults.standard.removeObject(forKey: auroraVisualizationKey)
-        UserDefaults.standard.removeObject(forKey: demoModeKey)
-        UserDefaults.standard.removeObject(forKey: defaultsKey)
-        UserDefaults.standard.removeObject(forKey: enabledTabsKey)
-        UserDefaults.standard.removeObject(forKey: mergingPreferencesKey)
-        UserDefaults.standard.removeObject(forKey: songsTableColumnsKey)
-        UserDefaults.standard.removeObject(forKey: trackSwipeLayoutKey)
+        clearDefaults()
         super.tearDown()
+    }
+
+    private func clearDefaults() {
+        for key in [
+            accentColorKey, auroraVisualizationKey, demoModeKey, defaultsKey, enabledTabsKey,
+            mergingPreferencesKey, songsTableColumnsKey, trackSwipeLayoutKey, "focusScrobblingOverride",
+        ] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     func testDefaultPolicyIsPreferredLocalFallback() {
@@ -162,26 +153,42 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
         XCTAssertEqual(manager.trackSwipeLayout.trailing, [.favoriteToggle, .addToPlaylist])
     }
 
-    func testObjectWillChangeCanReadUpdatedSettingsSynchronously() {
-        let manager = SettingsManager()
-        var observedAccentColors: [AppAccentColor] = []
-        var observedAuroraSettings: [Bool] = []
-        var observedTabs: [[TabItem]] = []
+    func testSnapshotStreamTransitions() async {
+        let rows: [(name: String, change: (SettingsManager) -> Void, emits: Bool, persisted: (UserDefaults) -> Bool)] = [
+            ("accent color", { $0.setAccentColor(.green) }, true,
+             { $0.string(forKey: "accentColor") == "green" }),
+            ("same accent color", { $0.setAccentColor($0.accentColor) }, false, { _ in true }),
+            ("aurora off", { $0.auroraVisualizationEnabled = false }, true,
+             { $0.object(forKey: AuroraVisualizationPreference.enabledKey) as? Bool == false }),
+            ("tabs", { $0.enabledTabs = [.albums, .playlists] }, true,
+             { $0.data(forKey: "enabledTabs") == (try? JSONEncoder().encode([TabItem.albums, .playlists])) }),
+            ("connection policy", { $0.allowInsecureConnectionsPolicy = .never }, true,
+             { $0.string(forKey: AllowInsecureConnectionsPolicy.defaultsKey) == "never" }),
+            ("merging off", { $0.updateMergingPreferences { $0.isEnabled = false } }, true,
+             { SettingsManager.storedMergingPreferences(in: $0).isEnabled == false }),
+            ("Focus override", { $0.setFocusScrobblingOverride(false) }, true,
+             { $0.integer(forKey: "focusScrobblingOverride") == 0 }),
+        ]
 
-        manager.objectWillChange
-            .sink { _ in
-                observedAccentColors.append(manager.accentColor)
-                observedAuroraSettings.append(manager.auroraVisualizationEnabled)
-                observedTabs.append(manager.enabledTabs)
-            }
-            .store(in: &cancellables)
+        for row in rows {
+            clearDefaults()
+            let manager = SettingsManager()
+            let before = manager.settings
+            var iterator = manager.snapshots().makeAsyncIterator()
+            let first = await iterator.next()
+            row.change(manager)
+            let after = manager.settings
+            var received = [first]
+            if row.emits { received.append(await iterator.next()) }
+            manager.setSongsTableColumn(.album, isVisible: !manager.songsTableColumns.contains(.album))
+            let sentinel = manager.settings
+            received.append(await iterator.next())
 
-        manager.setAccentColor(.green)
-        manager.auroraVisualizationEnabled = false
-        manager.enabledTabs = [.albums, .playlists, .search]
-
-        XCTAssertTrue(observedAccentColors.contains(.green))
-        XCTAssertTrue(observedAuroraSettings.contains(false))
-        XCTAssertTrue(observedTabs.contains([.albums, .playlists, .search]))
+            let expected = row.emits ? [before, after, sentinel] : [before, sentinel]
+            XCTAssertEqual(received, expected, row.name)
+            XCTAssertNotEqual(after == before, row.emits, row.name)
+            XCTAssertTrue(row.persisted(.standard), row.name)
+            XCTAssertEqual(SettingsManager().settings, sentinel, "\(row.name) reloads from defaults")
+        }
     }
 }

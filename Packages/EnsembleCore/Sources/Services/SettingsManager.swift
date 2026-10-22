@@ -1,5 +1,5 @@
-import Combine
 import EnsembleDomain
+import EnsembleSupport
 import SwiftUI
 
 public enum TrackSwipeAction: String, CaseIterable, Codable, Sendable, Identifiable {
@@ -256,7 +256,7 @@ public struct TrackSwipeLayout: Codable, Equatable, Sendable {
     }
 }
 
-public enum TabItem: String, CaseIterable, Identifiable, Codable {
+public enum TabItem: String, CaseIterable, Identifiable, Codable, Sendable {
     case home = "Home"
     case songs = "Songs"
     case artists = "Artists"
@@ -332,7 +332,8 @@ public enum DemoModeRedaction {
 }
 
 @MainActor
-public final class SettingsManager: ObservableObject {
+@Observable
+public final class SettingsManager {
     nonisolated public static let scrobblingEnabledKey = "scrobblingEnabled"
     public static let mergingPreferencesKey = "mergingPreferences"
     nonisolated private static let focusScrobblingOverrideKey = "focusScrobblingOverride"
@@ -376,57 +377,78 @@ public final class SettingsManager: ObservableObject {
         return defaults.bool(forKey: scrobblingEnabledKey)
     }
 
-    @AppStorage("accentColor") public var accentColorName: String = "blue"
-    @AppStorage("enabledTabs") private var enabledTabsData: Data = Data()
-    @AppStorage("nowPlayingSecondaryLayout") private var nowPlayingSecondaryLayoutData: Data = Data()
-    @AppStorage("trackSwipeLayout") private var trackSwipeLayoutData: Data = Data()
-    @AppStorage("songsTableColumns") private var songsTableColumnsData: Data = Data()
-    @AppStorage(AllowInsecureConnectionsPolicy.defaultsKey) private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
-    @AppStorage(AuroraVisualizationPreference.enabledKey) public var auroraVisualizationEnabled: Bool = AuroraVisualizationPreference.defaultEnabled
-    @AppStorage(scrobblingEnabledKey) public var scrobblingEnabled: Bool = true
-    @AppStorage(focusScrobblingOverrideKey) private var focusScrobblingOverrideRawValue = noFocusScrobblingOverride
-    @Published public private(set) var mergingPreferences = EnsembleMergingPreferences.default
-    #if DEBUG
-    @AppStorage("demoModeEnabled") public var demoModeEnabled: Bool = false
-    #else
-    public var demoModeEnabled: Bool {
-        get { false }
-        set {}
+    private static let accentColorKey = "accentColor"
+    private static let enabledTabsKey = "enabledTabs"
+    private static let nowPlayingSecondaryLayoutKey = "nowPlayingSecondaryLayout"
+    private static let trackSwipeLayoutKey = "trackSwipeLayout"
+    private static let songsTableColumnsKey = "songsTableColumns"
+    private static let demoModeKey = "demoModeEnabled"
+
+    /// Every setting, persisted field by field as it changes.
+    public private(set) var settings: AppSettings {
+        didSet {
+            guard settings != oldValue else { return }
+            Self.persist(settings, changedFrom: oldValue, in: .standard)
+            if settings.allowInsecureConnectionsPolicy != oldValue.allowInsecureConnectionsPolicy {
+                onConnectionPolicyChanged?()
+            }
+            broadcast.send(settings)
+        }
     }
-    #endif
+    @ObservationIgnored private let broadcast = Broadcast<AppSettings>(latestOnly: true)
+
+    /// The current settings, then each change.
+    public func snapshots() -> AsyncStream<AppSettings> {
+        broadcast.stream(startingWith: settings)
+    }
 
     public init() {
         UserDefaults.standard.register(defaults: [
             AuroraVisualizationPreference.enabledKey: AuroraVisualizationPreference.defaultEnabled,
             Self.scrobblingEnabledKey: true,
-            "demoModeEnabled": false
+            Self.demoModeKey: false
         ])
-        mergingPreferences = Self.storedMergingPreferences()
-        if enabledTabsData.isEmpty {
-            // Default tabs
-            let defaultTabs: [TabItem] = [.home, .artists, .playlists, .search]
-            if let encoded = try? JSONEncoder().encode(defaultTabs) {
-                enabledTabsData = encoded
-            }
+        if UserDefaults.standard.data(forKey: Self.enabledTabsKey)?.isEmpty ?? true,
+           let encoded = try? JSONEncoder().encode([TabItem.home, .artists, .playlists, .search]) {
+            UserDefaults.standard.set(encoded, forKey: Self.enabledTabsKey)
+        }
+        settings = Self.loadSettings(from: .standard)
+    }
+
+    public var accentColorName: String {
+        get { settings.accentColorName }
+        set { settings.accentColorName = newValue }
+    }
+
+    public var auroraVisualizationEnabled: Bool {
+        get { settings.auroraVisualizationEnabled }
+        set { settings.auroraVisualizationEnabled = newValue }
+    }
+
+    public var scrobblingEnabled: Bool {
+        get { settings.scrobblingEnabled }
+        set { settings.scrobblingEnabled = newValue }
+    }
+
+    public var demoModeEnabled: Bool {
+        get { settings.demoModeEnabled }
+        set {
+            #if DEBUG
+            settings.demoModeEnabled = newValue
+            #endif
         }
     }
 
-    public var focusScrobblingOverride: Bool? {
-        switch focusScrobblingOverrideRawValue {
-        case 0: return false
-        case 1: return true
-        default: return nil
-        }
-    }
+    public var mergingPreferences: EnsembleMergingPreferences { settings.mergingPreferences }
+
+    public var focusScrobblingOverride: Bool? { settings.focusScrobblingOverride }
 
     public var effectiveScrobblingEnabled: Bool {
         focusScrobblingOverride ?? scrobblingEnabled
     }
 
     public func setMergingPreferences(_ preferences: EnsembleMergingPreferences) {
-        guard mergingPreferences != preferences else { return }
-        Self.setStoredMergingPreferences(preferences)
-        mergingPreferences = preferences
+        settings.mergingPreferences = preferences
     }
 
     public func updateMergingPreferences(
@@ -439,26 +461,14 @@ public final class SettingsManager: ObservableObject {
 
     /// Applies or clears the temporary scrobbling value supplied by the active system Focus.
     public func setFocusScrobblingOverride(_ isEnabled: Bool?) {
-        let nextValue = isEnabled.map { $0 ? 1 : 0 } ?? Self.noFocusScrobblingOverride
-        guard focusScrobblingOverrideRawValue != nextValue else { return }
-        focusScrobblingOverrideRawValue = nextValue
+        settings.focusScrobblingOverride = isEnabled
     }
-    
+
     public var enabledTabs: [TabItem] {
-        get {
-            if let decoded = try? JSONDecoder().decode([TabItem].self, from: enabledTabsData) {
-                return decoded
-            }
-            return [.home, .songs, .artists, .playlists]
-        }
-        set {
-            if let encoded = try? JSONEncoder().encode(newValue) {
-                enabledTabsData = encoded
-                objectWillChange.send()
-            }
-        }
+        get { settings.enabledTabs }
+        set { settings.enabledTabs = newValue }
     }
-    
+
     public var accentColor: AppAccentColor {
         AppAccentColor(rawValue: accentColorName) ?? .blue
     }
@@ -466,31 +476,16 @@ public final class SettingsManager: ObservableObject {
     var onConnectionPolicyChanged: (() -> Void)?
 
     public var allowInsecureConnectionsPolicy: AllowInsecureConnectionsPolicy {
-        get {
-            AllowInsecureConnectionsPolicy(rawValue: allowInsecureConnectionsPolicyRawValue) ?? .defaultForEnsemble
-        }
-        set {
-            guard newValue != allowInsecureConnectionsPolicy else { return }
-            allowInsecureConnectionsPolicyRawValue = newValue.rawValue
-            onConnectionPolicyChanged?()
-            objectWillChange.send()
-        }
+        get { settings.allowInsecureConnectionsPolicy }
+        set { settings.allowInsecureConnectionsPolicy = newValue }
     }
 
     public var nowPlayingSecondaryLayout: NowPlayingSecondaryLayout {
-        get {
-            guard let layout = try? JSONDecoder().decode(
-                NowPlayingSecondaryLayout.self, from: nowPlayingSecondaryLayoutData
-            ) else { return .default }
-            return layout
-        }
+        get { settings.nowPlayingSecondaryLayout }
         set {
             var layout = newValue
             layout.sanitize()
-            guard let data = try? JSONEncoder().encode(layout),
-                  data != nowPlayingSecondaryLayoutData else { return }
-            nowPlayingSecondaryLayoutData = data
-            objectWillChange.send()
+            settings.nowPlayingSecondaryLayout = layout
         }
     }
 
@@ -505,54 +500,28 @@ public final class SettingsManager: ObservableObject {
     }
 
     public var trackSwipeLayout: TrackSwipeLayout {
-        get {
-            guard !trackSwipeLayoutData.isEmpty,
-                  let decoded = try? JSONDecoder().decode(TrackSwipeLayout.self, from: trackSwipeLayoutData) else {
-                return .default
-            }
-            var sanitized = decoded
-            sanitized.sanitize()
-            return sanitized
-        }
+        get { settings.trackSwipeLayout }
         set {
             var sanitized = newValue
             sanitized.sanitize()
-            if let encoded = try? JSONEncoder().encode(sanitized) {
-                trackSwipeLayoutData = encoded
-            } else if let encodedDefault = try? JSONEncoder().encode(TrackSwipeLayout.default) {
-                trackSwipeLayoutData = encodedDefault
-            }
-            objectWillChange.send()
+            settings.trackSwipeLayout = sanitized
         }
     }
 
     public var songsTableColumns: [SongsTableColumn] {
-        get {
-            guard !songsTableColumnsData.isEmpty,
-                  let decoded = try? JSONDecoder().decode([SongsTableColumn].self, from: songsTableColumnsData) else {
-                return SongsTableColumn.defaultVisibleColumns
-            }
-
-            let validColumns = decoded.filter { SongsTableColumn.allCases.contains($0) }
-            return validColumns.isEmpty ? SongsTableColumn.defaultVisibleColumns : validColumns
-        }
+        get { settings.songsTableColumns }
         set {
             let deduplicated = newValue.reduce(into: [SongsTableColumn]()) { result, column in
                 if !result.contains(column) {
                     result.append(column)
                 }
             }
-            let columns = deduplicated.isEmpty ? SongsTableColumn.defaultVisibleColumns : deduplicated
-            if let encoded = try? JSONEncoder().encode(columns) {
-                songsTableColumnsData = encoded
-                objectWillChange.send()
-            }
+            settings.songsTableColumns = deduplicated.isEmpty ? SongsTableColumn.defaultVisibleColumns : deduplicated
         }
     }
 
     public func setAccentColor(_ color: AppAccentColor) {
         accentColorName = color.rawValue
-        objectWillChange.send()
     }
 
     public func setAllowInsecureConnectionsPolicy(_ policy: AllowInsecureConnectionsPolicy) {
@@ -666,5 +635,85 @@ public final class SettingsManager: ObservableObject {
             }
         }
         return false
+    }
+}
+
+/// Every persisted setting `SettingsManager` owns.
+public struct AppSettings: Equatable, Sendable {
+    public var accentColorName: String
+    public var enabledTabs: [TabItem]
+    public var nowPlayingSecondaryLayout: NowPlayingSecondaryLayout
+    public var trackSwipeLayout: TrackSwipeLayout
+    public var songsTableColumns: [SongsTableColumn]
+    public var allowInsecureConnectionsPolicy: AllowInsecureConnectionsPolicy
+    public var auroraVisualizationEnabled: Bool
+    public var scrobblingEnabled: Bool
+    public var focusScrobblingOverride: Bool?
+    public var mergingPreferences: EnsembleMergingPreferences
+    public var demoModeEnabled: Bool
+}
+
+extension SettingsManager {
+    static func loadSettings(from defaults: UserDefaults) -> AppSettings {
+        /// A payload that no longer decodes is replaced with `fallback`.
+        func decoded<T: Codable>(_ key: String, fallback: T) -> T {
+            guard let data = defaults.data(forKey: key), !data.isEmpty else { return fallback }
+            if let value = try? JSONDecoder().decode(T.self, from: data) { return value }
+            defaults.set(try? JSONEncoder().encode(fallback), forKey: key)
+            return fallback
+        }
+        var trackSwipeLayout = decoded(trackSwipeLayoutKey, fallback: TrackSwipeLayout.default)
+        trackSwipeLayout.sanitize()
+        let columns = decoded(songsTableColumnsKey, fallback: [SongsTableColumn]())
+        let focusOverride: Bool? = switch defaults.object(forKey: focusScrobblingOverrideKey) as? Int {
+        case 0: false
+        case 1: true
+        default: nil
+        }
+        #if DEBUG
+        let demoModeEnabled = defaults.bool(forKey: demoModeKey)
+        #else
+        let demoModeEnabled = false
+        #endif
+        return AppSettings(
+            accentColorName: defaults.string(forKey: accentColorKey) ?? "blue",
+            enabledTabs: decoded(enabledTabsKey, fallback: [TabItem.home, .songs, .artists, .playlists]),
+            nowPlayingSecondaryLayout: decoded(nowPlayingSecondaryLayoutKey, fallback: NowPlayingSecondaryLayout.default),
+            trackSwipeLayout: trackSwipeLayout,
+            songsTableColumns: columns.isEmpty ? SongsTableColumn.defaultVisibleColumns : columns,
+            allowInsecureConnectionsPolicy: defaults.string(forKey: AllowInsecureConnectionsPolicy.defaultsKey)
+                .flatMap(AllowInsecureConnectionsPolicy.init(rawValue:)) ?? .defaultForEnsemble,
+            auroraVisualizationEnabled: defaults.object(forKey: AuroraVisualizationPreference.enabledKey) as? Bool
+                ?? AuroraVisualizationPreference.defaultEnabled,
+            scrobblingEnabled: defaults.object(forKey: scrobblingEnabledKey) as? Bool ?? true,
+            focusScrobblingOverride: focusOverride,
+            mergingPreferences: storedMergingPreferences(in: defaults),
+            demoModeEnabled: demoModeEnabled
+        )
+    }
+
+    static func persist(_ settings: AppSettings, changedFrom old: AppSettings, in defaults: UserDefaults) {
+        func store<T: Encodable & Equatable>(_ keyPath: KeyPath<AppSettings, T>, _ key: String) {
+            guard settings[keyPath: keyPath] != old[keyPath: keyPath],
+                  let data = try? JSONEncoder().encode(settings[keyPath: keyPath]) else { return }
+            defaults.set(data, forKey: key)
+        }
+        func set<T: Equatable>(_ keyPath: KeyPath<AppSettings, T>, _ key: String, _ value: (T) -> Any) {
+            guard settings[keyPath: keyPath] != old[keyPath: keyPath] else { return }
+            defaults.set(value(settings[keyPath: keyPath]), forKey: key)
+        }
+        set(\.accentColorName, accentColorKey) { $0 }
+        store(\.enabledTabs, enabledTabsKey)
+        store(\.nowPlayingSecondaryLayout, nowPlayingSecondaryLayoutKey)
+        store(\.trackSwipeLayout, trackSwipeLayoutKey)
+        store(\.songsTableColumns, songsTableColumnsKey)
+        set(\.allowInsecureConnectionsPolicy, AllowInsecureConnectionsPolicy.defaultsKey) { $0.rawValue }
+        set(\.auroraVisualizationEnabled, AuroraVisualizationPreference.enabledKey) { $0 }
+        set(\.scrobblingEnabled, scrobblingEnabledKey) { $0 }
+        set(\.focusScrobblingOverride, focusScrobblingOverrideKey) { $0.map { $0 ? 1 : 0 } ?? noFocusScrobblingOverride }
+        set(\.demoModeEnabled, demoModeKey) { $0 }
+        if settings.mergingPreferences != old.mergingPreferences {
+            setStoredMergingPreferences(settings.mergingPreferences, in: defaults)
+        }
     }
 }

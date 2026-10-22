@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The "More" tab containing additional sections not in the main tab bar
 public struct MoreView: View {
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     @State private var isEditing = false
@@ -119,7 +119,7 @@ public struct MoreView: View {
 /// Native tab editor with reorder support for visible tab-bar items and
 /// tap-to-add/remove actions for the remaining destinations.
 private struct EditTabsView: View {
-    @ObservedObject var settingsManager: SettingsManager
+    let settingsManager: SettingsManager
 
     // Available tabs exclude settings (always in tab bar area as a fixed item)
     private var availableTabs: [TabItem] {

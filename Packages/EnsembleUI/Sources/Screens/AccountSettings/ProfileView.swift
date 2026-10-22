@@ -8,7 +8,7 @@ import SwiftUI
 public struct ProfileView: View {
     @Environment(DependencyContainer.self) private var dependencies
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @Bindable private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     private var playbackService: PlaybackService { dependencies.playbackService }
@@ -1128,7 +1128,7 @@ public struct ProfileView: View {
 
 private struct PreferredLibrariesView: View {
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @Bindable private var settingsManager = DependencyContainer.shared.settingsManager
     @State private var sourceKeys: [String] = []
 
     var body: some View {

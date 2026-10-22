@@ -11,7 +11,7 @@ public struct ProfileToolbarButton: View {
     @ObservedObject private var profileStore: UserProfileStore
     @ObservedObject private var accountManager: AccountManager
     @ObservedObject private var visibilityStore: LibraryVisibilityStore
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(

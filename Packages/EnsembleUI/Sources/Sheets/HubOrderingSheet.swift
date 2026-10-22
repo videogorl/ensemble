@@ -8,7 +8,7 @@ import SwiftUI
 /// rather than specific instances that will change.
 public struct HubOrderingSheet: View {
     let viewModel: HomeViewModel
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     @State private var reorderedHubs: [Hub] = []
     @State private var isConfirmingReset = false
 

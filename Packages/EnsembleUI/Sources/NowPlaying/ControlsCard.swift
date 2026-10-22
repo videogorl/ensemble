@@ -88,7 +88,7 @@ public struct ControlsCard: View {
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
 
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     @State private var airPlayPresentation = AirPlayPresentationController()
 
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?

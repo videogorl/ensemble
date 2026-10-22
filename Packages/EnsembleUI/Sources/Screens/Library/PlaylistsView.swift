@@ -240,7 +240,7 @@ public struct PlaylistsView: View {
             .onReceive(accountManager.$isAwaitingCloudSources) { awaiting in
                 if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
             }
-            .onReceive(settingsManager.objectWillChange) { _ in
+            .onChange(of: settingsManager.settings) {
                 let latest = settingsManager.demoModeEnabled
                 if latest != demoModeEnabled { demoModeEnabled = latest }
             }

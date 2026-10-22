@@ -15,7 +15,7 @@ public struct RootView: View {
     @Environment(DependencyContainer.self) private var dependencies
     @Environment(\.scenePhase) private var scenePhase
     @State private var usesExpandedPhoneBrowse = false
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     private var powerStateMonitor: PowerStateMonitor { dependencies.powerStateMonitor }
     @StateObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var screenModels: RootScreenModels

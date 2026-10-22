@@ -1,6 +1,8 @@
+import AsyncAlgorithms
 import Combine
 import EnsembleDomain
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -220,6 +222,7 @@ public final class LibraryViewModel {
     private let hiddenMediaStore: HiddenMediaStore
     private let appReadinessCoordinator: AppReadinessCoordinator?
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     private var isStarted = false
     // Scheduled browse computations, each debounced, computed off the main
     // actor, and committed only when the result changed.
@@ -363,17 +366,12 @@ public final class LibraryViewModel {
             .store(in: &cancellables)
 
         // Recompute merge-aware collections when merging preferences change.
-        settingsManager.$mergingPreferences
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                guard let self else { return }
-                self.scheduleTracks()
-                self.scheduleTrackMutationIndex()
-                self.scheduleArtists()
-                self.scheduleAlbums()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().dropFirst().observe(self) { model, _ in
+            model.scheduleTracks()
+            model.scheduleTrackMutationIndex()
+            model.scheduleArtists()
+            model.scheduleAlbums()
+        })
         setupVisibilityObservation()
 
         // Re-fetch library when download or metadata state changes so derived rows stay accurate.

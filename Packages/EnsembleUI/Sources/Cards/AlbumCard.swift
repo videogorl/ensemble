@@ -206,7 +206,7 @@ public struct AlbumGrid: View {
 
     @Environment(\.tracksAlbumGridPosition) private var tracksPosition
     @Environment(DependencyContainer.self) private var deps
-    @ObservedObject private var settingsManager: SettingsManager
+    private let settingsManager: SettingsManager
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?

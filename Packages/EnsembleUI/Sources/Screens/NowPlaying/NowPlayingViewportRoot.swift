@@ -12,7 +12,7 @@ struct NowPlayingBackdrop: View {
     let activeContentMaxWidth: CGFloat?
     let forceDarkPresentation: Bool
 
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.colorScheme) private var colorScheme
 

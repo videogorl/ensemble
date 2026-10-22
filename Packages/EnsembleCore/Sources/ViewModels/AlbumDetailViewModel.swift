@@ -1,5 +1,7 @@
+import AsyncAlgorithms
 import Combine
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -70,6 +72,7 @@ public final class AlbumDetailViewModel: MediaDetailViewModelProtocol {
     private let includesHidden: Bool
     private var sourceTracks: [Track] = []
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
 
     public init(
         displayAlbum: DisplayAlbum,
@@ -107,11 +110,10 @@ public final class AlbumDetailViewModel: MediaDetailViewModelProtocol {
         hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             Task { await self?.loadTracks() }
         }.store(in: &cancellables)
-        self.settingsManager.$mergingPreferences.dropFirst().sink { [weak self] preferences in
-            guard let self else { return }
-            let projected = MergingProjection.albumTracks(self.sourceTracks, preferences: preferences)
-            if self.tracks != projected { self.tracks = projected }
-        }.store(in: &cancellables)
+        subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().dropFirst().observe(self) { model, preferences in
+            let projected = MergingProjection.albumTracks(model.sourceTracks, preferences: preferences)
+            if model.tracks != projected { model.tracks = projected }
+        })
     }
 
     public convenience init(

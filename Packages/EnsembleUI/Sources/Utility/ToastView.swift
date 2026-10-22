@@ -483,7 +483,7 @@ private struct MacToastOverlayRootView: View {
 public struct ToastBannerView: View {
     let toast: ToastPayload
     let toastCenter: ToastCenter
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
 
     public var body: some View {
         HStack(alignment: .center, spacing: EnsembleScaffold.Toast.iconTextSpacing) {

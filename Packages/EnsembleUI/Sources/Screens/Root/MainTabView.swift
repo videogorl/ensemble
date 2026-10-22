@@ -175,7 +175,7 @@ public struct MainTabView: View {
             .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
                 if isLowPowerMode != newValue { isLowPowerMode = newValue }
             }
-            .onReceive(settingsManager.objectWillChange) { _ in
+            .onChange(of: settingsManager.settings) {
                 updateSettingsSnapshot()
             }
             .addAccountPresentationSheet()
@@ -810,7 +810,7 @@ public struct SidebarView: View {
             updatePhoneLayout(wantsTabs: wantsTabs)
         }
         .onAppear { updatePhoneLayout(wantsTabs: wantsPhoneTabs) }
-        .onReceive(settingsManager.objectWillChange) { _ in
+        .onChange(of: settingsManager.settings) {
             updateSettingsSnapshot()
         }
         #if os(macOS)

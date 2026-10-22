@@ -240,7 +240,7 @@ struct GenreDetailContentView: View {
     }
 
     @Bindable var libraryVM: LibraryViewModel
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     let genre: DisplayGenre
     let nowPlayingVM: NowPlayingViewModel
     let presentationStyle: PresentationStyle

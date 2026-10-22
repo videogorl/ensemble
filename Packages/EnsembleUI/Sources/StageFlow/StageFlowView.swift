@@ -136,7 +136,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     @State private var isPlaying = false
     @State private var isTransportLoading = false
     @State private var hasPlaybackContext = false
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
 
     private let layoutMetrics = StageFlowLayoutMetrics.default

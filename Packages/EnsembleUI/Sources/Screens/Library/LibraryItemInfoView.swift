@@ -7,7 +7,7 @@ public struct LibraryItemInfoView: View {
     private static let headerArtworkSide: CGFloat = 124
 
     @State private var viewModel: LibraryItemInfoViewModel
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let settingsManager = DependencyContainer.shared.settingsManager
     @State private var isLyricsExpanded = false
     @State private var lyrics: LyricsState = .loading
     @Environment(DependencyContainer.self) private var deps
