@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Observation
 
 public enum ToastStyle: String, Sendable {
     case success
@@ -56,8 +57,9 @@ public struct ToastPayload: Identifiable {
 }
 
 @MainActor
-public final class ToastCenter: ObservableObject {
-    @Published public private(set) var currentToast: ToastPayload?
+@Observable
+public final class ToastCenter {
+    public private(set) var currentToast: ToastPayload?
 
     private var queue: [ToastPayload] = []
     private var autoDismissTask: Task<Void, Never>?

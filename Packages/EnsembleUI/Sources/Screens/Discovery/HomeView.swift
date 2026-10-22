@@ -8,7 +8,7 @@ public struct HomeView: View {
     @Environment(DependencyContainer.self) private var dependencies
     @Bindable private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
+    private let profileStore = DependencyContainer.shared.userProfileStore
     private let cacheManager: CacheManager
     @State private var profileBackgroundImage: PlatformImage?
     @State private var profileBackgroundBlurredImage: PlatformImage?

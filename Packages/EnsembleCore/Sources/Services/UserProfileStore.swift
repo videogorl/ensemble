@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Combine
 #if canImport(UIKit)
 import UIKit
@@ -9,10 +10,11 @@ import AppKit
 /// Manages local persistence of the user profile (name + avatar image).
 /// Profile data is stored as JSON + image file in App Support/Ensemble/Profile/.
 @MainActor
-public final class UserProfileStore: ObservableObject {
+@Observable
+public final class UserProfileStore {
     // MARK: - Published State
 
-    @Published public private(set) var profile: UserProfile
+    public private(set) var profile: UserProfile
 
     // MARK: - File Paths
 

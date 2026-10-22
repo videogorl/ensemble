@@ -7,7 +7,7 @@ import SwiftUI
 /// Modeled after Apple's iCloud Settings panel aesthetic.
 public struct ProfileView: View {
     @Environment(DependencyContainer.self) private var dependencies
-    @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
+    private let profileStore = DependencyContainer.shared.userProfileStore
     @Bindable private var settingsManager = DependencyContainer.shared.settingsManager
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator

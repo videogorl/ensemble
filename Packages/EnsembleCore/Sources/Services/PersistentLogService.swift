@@ -1,6 +1,7 @@
 import EnsembleAPI
 import EnsemblePersistence
 import Foundation
+import Observation
 import OSLog
 
 // MARK: - Log Session Model
@@ -25,11 +26,12 @@ public struct LogSession: Identifiable, Equatable {
 /// on a private DispatchQueue. Force-quit safe: writes go through the OS write
 /// buffer and are flushed periodically via synchronizeFile().
 @MainActor
-public final class PersistentLogService: ObservableObject {
+@Observable
+public final class PersistentLogService {
 
     // MARK: - Published State
 
-    @Published public private(set) var sessions: [LogSession] = []
+    public private(set) var sessions: [LogSession] = []
 
     // MARK: - Configuration
 
@@ -388,8 +390,9 @@ private final class LogFileWriter: @unchecked Sendable {
 
 /// No-op stub for watchOS where persistent logging is not supported.
 @MainActor
-public final class PersistentLogService: ObservableObject {
-    @Published public private(set) var sessions: [LogSession] = []
+@Observable
+public final class PersistentLogService {
+    public private(set) var sessions: [LogSession] = []
     public var isEnabled: Bool {
         get { false }
         set { }

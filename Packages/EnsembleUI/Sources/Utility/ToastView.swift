@@ -28,7 +28,7 @@ struct ToastLayoutPreference: PreferenceKey {
 }
 
 public struct ToastHostView: View {
-    @ObservedObject var toastCenter: ToastCenter
+    let toastCenter: ToastCenter
     let horizontalPadding: CGFloat
     let bottomPadding: CGFloat
 
@@ -220,7 +220,7 @@ private struct ToastFramePreference: PreferenceKey {
 }
 
 private struct GlobalToastOverlayRootView: View {
-    @ObservedObject var toastCenter: ToastCenter
+    let toastCenter: ToastCenter
     let bottomLimit: CGFloat?
     let isSheetPresented: () -> Bool
     let onToastFrameChange: (CGRect) -> Void
@@ -248,12 +248,12 @@ private struct GlobalToastOverlayRootView: View {
 #if os(macOS)
 /// Installs a banner-sized overlay in the scene window, or its active sheet.
 public struct GlobalToastWindowHost: NSViewRepresentable {
-    @ObservedObject private var toastCenter: ToastCenter
+    private let toastCenter: ToastCenter
     private let bottomInset: CGFloat
     private let miniPlayerFrame: CGRect?
 
     public init(toastCenter: ToastCenter, bottomInset: CGFloat = 0, miniPlayerFrame: CGRect? = nil) {
-        self._toastCenter = ObservedObject(wrappedValue: toastCenter)
+        self.toastCenter = toastCenter
         self.bottomInset = bottomInset
         self.miniPlayerFrame = miniPlayerFrame
     }
@@ -469,7 +469,7 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
 }
 
 private struct MacToastOverlayRootView: View {
-    @ObservedObject var toastCenter: ToastCenter
+    let toastCenter: ToastCenter
     let width: CGFloat
 
     var body: some View {

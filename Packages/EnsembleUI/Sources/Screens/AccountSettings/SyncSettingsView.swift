@@ -6,7 +6,7 @@ import SwiftUI
 /// Navigated to from ProfileView. Master toggle at top,
 /// individual feature toggles below with dependency dimming.
 public struct SyncSettingsView: View {
-    @ObservedObject private var syncSettings: SyncSettingsManager
+    @Bindable private var syncSettings: SyncSettingsManager
     private let dependencies = DependencyContainer.shared
 
     public init(syncSettings: SyncSettingsManager = DependencyContainer.shared.syncSettingsManager) {

@@ -6,7 +6,7 @@ import Foundation
 /// Handles push (local → iCloud), pull (iCloud → local), and remote change observation.
 /// Used for accent color, track swipe layout, pins, and library enabled flags.
 @MainActor
-public final class KVSSyncService: ObservableObject {
+public final class KVSSyncService {
 
     public enum InitialSyncState: Equatable {
         case pending

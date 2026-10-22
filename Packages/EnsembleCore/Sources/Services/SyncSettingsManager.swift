@@ -1,11 +1,13 @@
 import Foundation
+import Observation
 import Combine
 
 /// Manages per-device sync toggle state for iCloud sync features.
 /// Each toggle controls whether a specific data category syncs to/from iCloud.
 /// Settings are stored in UserDefaults (per-device, NOT synced).
 @MainActor
-public final class SyncSettingsManager: ObservableObject {
+@Observable
+public final class SyncSettingsManager {
     public enum SyncDirection: Equatable {
         case pulledFromICloud
         case pushedFromThisDevice
@@ -124,7 +126,7 @@ public final class SyncSettingsManager: ObservableObject {
     // MARK: - Published State
 
     /// Master sync toggle — when off, no features sync
-    @Published public var isMasterSyncEnabled: Bool {
+    public var isMasterSyncEnabled: Bool {
         didSet {
             guard oldValue != isMasterSyncEnabled else { return }
             UserDefaults.standard.set(isMasterSyncEnabled, forKey: Keys.masterSync)
@@ -133,28 +135,25 @@ public final class SyncSettingsManager: ObservableObject {
                 // Turning master ON triggers first-connect or re-sync
                 onMasterSyncEnabled?()
             }
-
-            // Notify that feature availability changed
-            objectWillChange.send()
         }
     }
 
     /// Whether the device has completed first iCloud connect
-    @Published public private(set) var hasCompletedFirstConnect: Bool
+    public private(set) var hasCompletedFirstConnect: Bool
 
     /// Tracks bootstrap state per feature so transports can degrade independently.
-    @Published private var featureStates: [SyncFeature: SyncFeatureState]
+    private var featureStates: [SyncFeature: SyncFeatureState]
 
     /// Stores the last observed direction/result for each feature so the UI can
     /// explain whether a value was pulled or pushed successfully.
-    @Published private var featureActivities: [SyncFeature: SyncFeatureActivity]
+    private var featureActivities: [SyncFeature: SyncFeatureActivity]
 
     /// Profile sync uses CloudKit rather than KVS, so it gets a separate status surface.
-    @Published public private(set) var profileStatus: ProfileSyncStatus
+    public private(set) var profileStatus: ProfileSyncStatus
 
     /// Manual refresh state for the iCloud Sync screen.
-    @Published public private(set) var isManualSyncInProgress = false
-    @Published public private(set) var lastManualSyncDate: Date?
+    public private(set) var isManualSyncInProgress = false
+    public private(set) var lastManualSyncDate: Date?
 
     // MARK: - Callbacks
 
@@ -224,7 +223,6 @@ public final class SyncSettingsManager: ObservableObject {
             onFeatureReEnabled?(feature)
         }
 
-        objectWillChange.send()
     }
 
     /// Binding-friendly getter for the raw toggle state (ignoring dependencies/master)

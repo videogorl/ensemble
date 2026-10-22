@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Observation
 
 public enum ForegroundWorkKind: String, CaseIterable, Sendable {
     case smartMixAnalysis
@@ -70,10 +71,11 @@ public protocol ForegroundWorkScheduling: AnyObject, Sendable {
 
 /// Gates nonessential foreground work behind explicit user-interaction and playback state.
 @MainActor
-public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkScheduling {
-    @Published public private(set) var activeStates: Set<ForegroundInteractionState> = [.launching]
-    @Published public private(set) var startupSyncInFlight = false
-    @Published public private(set) var isForegroundActive = true
+@Observable
+public final class ForegroundWorkScheduler: ForegroundWorkScheduling {
+    public private(set) var activeStates: Set<ForegroundInteractionState> = [.launching]
+    public private(set) var startupSyncInFlight = false
+    public private(set) var isForegroundActive = true
 
     private let configuration: ForegroundWorkSchedulerConfiguration
     private let now: () -> Date

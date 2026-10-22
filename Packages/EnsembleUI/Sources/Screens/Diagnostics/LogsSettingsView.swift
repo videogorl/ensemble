@@ -6,7 +6,7 @@ import SwiftUI
 /// Shows a toggle to enable/disable logging, a list of saved session files
 /// with swipe-to-delete, and navigation to view individual log contents.
 public struct LogsSettingsView: View {
-    @ObservedObject private var logService = DependencyContainer.shared.persistentLogService
+    private let logService = DependencyContainer.shared.persistentLogService
     @State private var isLoggingEnabled: Bool = DependencyContainer.shared.persistentLogService.isEnabled
     @State private var showingDeleteAllSessionsAlert = false
 

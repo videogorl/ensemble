@@ -8,7 +8,7 @@ import AppKit
 /// Compact profile menu for toolbar placement.
 /// Provides device-local library visibility controls and opens Settings.
 public struct ProfileToolbarButton: View {
-    @ObservedObject private var profileStore: UserProfileStore
+    private let profileStore: UserProfileStore
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
     private let settingsManager = DependencyContainer.shared.settingsManager

@@ -5,7 +5,7 @@ import SwiftUI
 /// Circular profile image + name header, modeled after Apple's iCloud Settings panel.
 /// Tappable image opens photo picker; tappable name pushes to an edit view.
 public struct ProfileHeaderView: View {
-    @ObservedObject var profileStore: UserProfileStore
+    let profileStore: UserProfileStore
     @State private var showingImageSourcePicker = false
     @State private var showingImagePicker = false
     let onEditName: () -> Void

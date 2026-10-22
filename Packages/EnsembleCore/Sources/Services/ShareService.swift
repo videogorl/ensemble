@@ -105,7 +105,7 @@ public enum SharePayload {
 /// Assembles share payloads for tracks and albums.
 /// Coordinates between SongLinkService (link resolution) and SyncCoordinator (stream access).
 @MainActor
-public final class ShareService: ObservableObject {
+public final class ShareService {
     private let songLinkService: SongLinkService
     private let syncCoordinator: SyncCoordinator
     private let logger = Logger(subsystem: "com.videogorl.ensemble", category: "ShareService")
