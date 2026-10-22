@@ -104,7 +104,8 @@ extension SearchViewModel {
             accountManager: dependencies.accountManager,
             visibilityStore: dependencies.libraryVisibilityStore,
             hiddenMediaStore: dependencies.hiddenMediaStore,
-            settingsManager: dependencies.settingsManager
+            settingsManager: dependencies.settingsManager,
+            syncCoordinator: dependencies.syncCoordinator
         )
     }
 }

@@ -85,7 +85,6 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
 @MainActor
 @Observable
 public final class SyncCoordinator {
-    public static let sourceCleanupDidComplete = Notification.Name("SyncCoordinatorSourceCleanupDidComplete")
     private struct ActiveSourceSync {
         let id: UUID
         let task: Task<MusicSourceSyncOutcome, Never>
@@ -111,9 +110,6 @@ public final class SyncCoordinator {
         }
     }
 
-    /// Posted after server playlists are refreshed (e.g. after a mutation).
-    /// The notification's `userInfo` contains `["serverSourceKey": String]`.
-    public static let playlistsDidRefresh = Notification.Name("SyncCoordinatorPlaylistsDidRefresh")
 
     public private(set) var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:] {
         didSet { publishSnapshot() }
@@ -135,7 +131,7 @@ public final class SyncCoordinator {
     /// Narrow sync output for consumers that care about actual data changes, not transport churn.
     public private(set) var lastContentChange: SyncContentChange? {
         didSet {
-            if let lastContentChange { eventBroadcast.send(.contentChanged(lastContentChange)) }
+            if let lastContentChange { emit(.contentChanged(lastContentChange)) }
         }
     }
     /// Set after the launch-triggered sync finishes so browse surfaces can do a one-shot refresh.
@@ -156,6 +152,12 @@ public final class SyncCoordinator {
     /// Things that happen during sync, as opposed to state that holds.
     public enum Event: Sendable {
         case contentChanged(SyncContentChange)
+        /// A server's playlists were refreshed from the server.
+        case playlistsRefreshed(serverSourceKey: String)
+        /// A playlist was renamed in the local cache after a mutation.
+        case playlistRenamedLocally(sourceKey: String)
+        /// A removed source's cached data was cleaned up.
+        case sourceCleanedUp(sourceKey: String)
     }
 
     public var snapshot: Snapshot {
@@ -435,8 +437,6 @@ public final class SyncCoordinator {
     public var onConnectionsRefreshed: (() async -> Void)? {
         didSet { serverHealthChecker.onConnectionsChanged = onConnectionsRefreshed }
     }
-    /// Signal fired when a server-level playlist refresh completes.
-    public var onPlaylistRefreshCompleted: ((String) -> Void)?
     /// Supplies Plex servers that currently own at least one downloaded playlist.
     public var downloadedPlaylistServerSourceKeys: (() -> Set<String>)?
     /// Signal fired after a rating change so the favorites download target can reconcile.
@@ -2064,11 +2064,7 @@ public final class SyncCoordinator {
             // Remove from status tracking
             sourceStatuses.removeValue(forKey: sourceId)
 
-            NotificationCenter.default.post(
-                name: Self.sourceCleanupDidComplete,
-                object: self,
-                userInfo: ["sourceCompositeKey": sourceId.compositeKey]
-            )
+            emit(.sourceCleanedUp(sourceKey: sourceId.compositeKey))
 
             EnsembleLogger.debug("✅ Successfully cleaned up source: \(sourceId.compositeKey)")
             return true
@@ -3163,12 +3159,12 @@ public final class SyncCoordinator {
     }
 
     private func notifyPlaylistRefreshCompleted(serverSourceKey: String) {
-        onPlaylistRefreshCompleted?(serverSourceKey)
-        NotificationCenter.default.post(
-            name: Self.playlistsDidRefresh,
-            object: nil,
-            userInfo: ["serverSourceKey": serverSourceKey]
-        )
+        emit(.playlistsRefreshed(serverSourceKey: serverSourceKey))
+    }
+
+    /// Sends an event to everything listening on `events()`.
+    func emit(_ event: Event) {
+        eventBroadcast.send(event)
     }
 
     private func runStartupHealthChecksIfNeeded(

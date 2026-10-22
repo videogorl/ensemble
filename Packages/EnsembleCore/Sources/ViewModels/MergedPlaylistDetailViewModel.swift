@@ -1,5 +1,6 @@
 import Combine
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -38,6 +39,7 @@ public final class MergedPlaylistDetailViewModel: MediaDetailViewModelProtocol {
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     @ObservationIgnored private var isStarted = false
     private var shouldSkipNextLoadAfterLocalEdit = false
     private var hasPendingTrackLoad = false
@@ -73,16 +75,17 @@ public final class MergedPlaylistDetailViewModel: MediaDetailViewModelProtocol {
     // MARK: - Setup
 
     private func observePlaylistRefresh() {
-        ViewModelNotificationObserver.observePlaylistRefresh(
-            storingIn: &cancellables,
-            matchingSourceKeys: { [weak self] in
-                Set(self?.displayPlaylist.playlists.compactMap {
+        subscriptions.append(ViewModelNotificationObserver.observePlaylistRefresh(
+            from: syncCoordinator,
+            for: self,
+            matchingSourceKeys: { model in
+                Set(model.displayPlaylist.playlists.compactMap {
                     MediaSourceIdentity.serverSourceKey(from: $0.sourceCompositeKey)
-                } ?? [])
+                })
             }
-        ) { [weak self] _ in
-            await self?.loadTracks()
-        }
+        ) { model, _ in
+            await model.loadTracks()
+        })
     }
 
     private func observeReloadTriggers() {

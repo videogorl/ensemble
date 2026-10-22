@@ -187,9 +187,9 @@ public final class HomeViewModel {
         ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
             self?.handleLibraryDataCleared()
         }
-        ViewModelNotificationObserver.observeSourceCleanupCompleted(storingIn: &cancellables) { [weak self] in
-            self?.handleSourceCleanupCompleted()
-        }
+        subscriptions.append(ViewModelNotificationObserver.observeSourceCleanupCompleted(from: syncCoordinator, for: self) { model in
+            model.handleSourceCleanupCompleted()
+        })
     }
     
     deinit {

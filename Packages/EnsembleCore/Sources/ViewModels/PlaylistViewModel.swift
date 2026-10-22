@@ -169,11 +169,10 @@ public final class PlaylistViewModel {
         ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
             self?.handleLibraryDataCleared()
         }
-        ViewModelNotificationObserver.observeSourceCleanupCompleted(storingIn: &cancellables) { [weak self] in
-            guard let self else { return }
-            self.sourceCleanupReloadCountForTesting += 1
-            await self.reloadPlaylists(showLoading: false)
-        }
+        subscriptions.append(ViewModelNotificationObserver.observeSourceCleanupCompleted(from: syncCoordinator, for: self) { model in
+            model.sourceCleanupReloadCountForTesting += 1
+            await model.reloadPlaylists(showLoading: false)
+        })
     }
 
     private func observeExternalChanges() {
@@ -191,15 +190,15 @@ public final class PlaylistViewModel {
             .store(in: &cancellables)
 
         // Auto-reload when playlists are refreshed after a mutation (e.g. track counts changed)
-        NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
-            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { [weak self] notification in
-                guard self?.isRefreshingFromServer != true else { return }
-                let serverKey = notification.userInfo?["serverSourceKey"] as? String ?? "unknown"
-                EnsembleLogger.debug("📋 PlaylistViewModel: playlistsDidRefresh notification from \(serverKey)")
-                self?.scheduleCoalescedPlaylistReload(reason: "playlistsDidRefresh")
-            }
-            .store(in: &cancellables)
+        subscriptions.append(ViewModelNotificationObserver.observePlaylistRefresh(
+            from: syncCoordinator,
+            for: self,
+            matchingSourceKeys: { _ in [] }
+        ) { model, serverKey in
+            guard !model.isRefreshingFromServer else { return }
+            EnsembleLogger.debug("📋 PlaylistViewModel: playlists refreshed from \(serverKey)")
+            model.scheduleCoalescedPlaylistReload(reason: "playlistsDidRefresh")
+        })
 
         if let accountManager {
             subscriptions.append(accountManager.sourceConfigurations().dropFirst().observe(self) { model, configuration in
@@ -894,6 +893,7 @@ public final class PlaylistDetailViewModel: MediaDetailViewModelProtocol {
     private let includesHidden: Bool
     private var cancellables = Set<AnyCancellable>()
     @ObservationIgnored private var isStarted = false
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     private let observesExternalChanges: Bool
     private var shouldSkipNextLoadAfterLocalEdit = false
     private var hasPendingTrackLoad = false
@@ -953,22 +953,19 @@ public final class PlaylistDetailViewModel: MediaDetailViewModelProtocol {
 
     /// Reload tracks when playlists are refreshed (e.g. after adding/removing tracks via mutation).
     private func observePlaylistRefresh() {
-        ViewModelNotificationObserver.observePlaylistRefresh(
-            storingIn: &cancellables,
-            matchingSourceKeys: { [weak self] in
-                guard let sourceKey = self?.playlist.sourceCompositeKey,
-                      let serverKey = MediaSourceIdentity.serverSourceKey(from: sourceKey) else {
+        subscriptions.append(ViewModelNotificationObserver.observePlaylistRefresh(
+            from: syncCoordinator,
+            for: self,
+            matchingSourceKeys: { model in
+                guard let serverKey = MediaSourceIdentity.serverSourceKey(from: model.playlist.sourceCompositeKey) else {
                     return []
                 }
                 return [serverKey]
             }
-        ) { [weak self] serverSourceKey in
-            guard let self else { return }
-            if let serverSourceKey {
-                EnsembleLogger.debug("📋 PlaylistDetailViewModel: playlistsDidRefresh from \(serverSourceKey)")
-            }
-            await self.loadTracks()
-        }
+        ) { model, serverSourceKey in
+            EnsembleLogger.debug("📋 PlaylistDetailViewModel: playlists refreshed from \(serverSourceKey)")
+            await model.loadTracks()
+        })
     }
 
     private func observeReloadTriggers() {

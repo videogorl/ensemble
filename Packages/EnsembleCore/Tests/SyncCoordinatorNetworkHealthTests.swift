@@ -1,3 +1,4 @@
+import AsyncAlgorithms
 import XCTest
 @testable import EnsembleCore
 @testable import EnsembleAPI
@@ -138,6 +139,37 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         return (coordinator, networkMonitor)
     }
 
+    /// Network states drive the offline flag in the snapshot stream; states
+    /// that do not change it emit nothing. Events reach every listener in order.
+    func testSnapshotAndEventStreams() async {
+        let (coordinator, networkMonitor) = makeCoordinator(initialState: .online(.wifi))
+        var offline = coordinator.snapshots().map(\.isOffline).removeDuplicates().makeAsyncIterator()
+        let initial = await offline.next()
+        XCTAssertEqual(initial, false)
+        let rows: [(state: NetworkState, isOffline: Bool?)] = [
+            (.offline, true),
+            (.limited, nil),
+            (.online(.cellular), false),
+            (.online(.wifi), nil),
+            (.limited, true),
+        ]
+        for row in rows {
+            networkMonitor.injectNetworkStateForTesting(row.state, debounced: false)
+            guard let expected = row.isOffline else { continue }
+            let received = await offline.next()
+            XCTAssertEqual(received, expected, "\(row.state)")
+        }
+
+        let events = [SyncCoordinator.Event.sourceCleanedUp(sourceKey: "a"), .playlistsRefreshed(serverSourceKey: "b")]
+        var first = coordinator.events().makeAsyncIterator()
+        var second = coordinator.events().makeAsyncIterator()
+        events.forEach(coordinator.emit)
+        for _ in events {
+            let a = await first.next(), b = await second.next()
+            XCTAssertEqual(a.map(String.init(describing:)), b.map(String.init(describing:)))
+        }
+    }
+
     func testInitialUnknownConnectionSkipsOnceButOfflineReconnectRefreshes() async {
         for startsOffline in [false, true] {
             let (coordinator, _) = makeCoordinator(initialState: .unknown)
@@ -190,10 +222,15 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             )
         ])
         coordinator.downloadedPlaylistServerSourceKeys = { ["plex:account-1:server-1"] }
-        coordinator.onPlaylistRefreshCompleted = { serverKey in
-            XCTAssertEqual(serverKey, "plex:account-1:server-1")
-            refreshed.fulfill()
+        let events = coordinator.events()
+        let listener = Task {
+            for await event in events {
+                guard case let .playlistsRefreshed(serverKey) = event else { continue }
+                XCTAssertEqual(serverKey, "plex:account-1:server-1")
+                refreshed.fulfill()
+            }
         }
+        defer { listener.cancel() }
         coordinator.startPeriodicSync()
         defer { coordinator.stopPeriodicSync() }
         coordinator.adjustTimersForWebSocket(hasActiveWebSocket: true)

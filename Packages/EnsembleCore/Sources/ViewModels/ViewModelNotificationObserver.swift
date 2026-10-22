@@ -1,4 +1,6 @@
+import AsyncAlgorithms
 import Combine
+import EnsembleSupport
 import Foundation
 
 @MainActor
@@ -35,26 +37,30 @@ enum ViewModelNotificationObserver {
         observeMetadataChanges(storingIn: &cancellables, action: action)
     }
 
-    static func observePlaylistRefresh(
-        storingIn cancellables: inout Set<AnyCancellable>,
-        matchingSourceKeys: @escaping () -> Set<String>,
-        action: @escaping @MainActor (String?) async -> Void
-    ) {
-        NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
-            .map { $0.userInfo?["serverSourceKey"] as? String }
-            .receive(on: DispatchQueue.main)
-            .filter { serverSourceKey in
-                guard let serverSourceKey else { return true }
-                let sourceKeys = matchingSourceKeys()
-                return sourceKeys.isEmpty || sourceKeys.contains(serverSourceKey)
-            }
-            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { serverSourceKey in
-                Task { @MainActor in
-                    await action(serverSourceKey)
+    /// Runs `action` after a playlist refresh or local rename for one of
+    /// `matchingSourceKeys` (all keys when empty), coalescing bursts.
+    static func observePlaylistRefresh<Owner: AnyObject>(
+        from syncCoordinator: SyncCoordinator,
+        for owner: Owner,
+        matchingSourceKeys: @escaping @MainActor (Owner) -> Set<String>,
+        action: @escaping @MainActor (Owner, String) async -> Void
+    ) -> StreamSubscription {
+        syncCoordinator.events()
+            .compactMap { event -> String? in
+                switch event {
+                case let .playlistsRefreshed(key), let .playlistRenamedLocally(key): key
+                default: nil
                 }
             }
-            .store(in: &cancellables)
+            .filter { [weak owner] key in
+                guard let owner else { return false }
+                let sourceKeys = await matchingSourceKeys(owner)
+                return sourceKeys.isEmpty || sourceKeys.contains(key)
+            }
+            .debounce(for: .milliseconds(500))
+            .observe(owner) { owner, key in
+                Task { await action(owner, key) }
+            }
     }
 
     static func observeLibraryDataCleared(
@@ -69,16 +75,19 @@ enum ViewModelNotificationObserver {
         )
     }
 
-    static func observeSourceCleanupCompleted(
-        storingIn cancellables: inout Set<AnyCancellable>,
-        action: @escaping @MainActor () async -> Void
-    ) {
-        observe(
-            SyncCoordinator.sourceCleanupDidComplete,
-            debounce: .milliseconds(50),
-            storingIn: &cancellables,
-            action: action
-        )
+    static func observeSourceCleanupCompleted<Owner: AnyObject>(
+        from syncCoordinator: SyncCoordinator,
+        for owner: Owner,
+        action: @escaping @MainActor (Owner) async -> Void
+    ) -> StreamSubscription {
+        syncCoordinator.events()
+            .filter { event in
+                if case .sourceCleanedUp = event { true } else { false }
+            }
+            .debounce(for: .milliseconds(50))
+            .observe(owner) { owner, _ in
+                Task { await action(owner) }
+            }
     }
 
     static func observe(

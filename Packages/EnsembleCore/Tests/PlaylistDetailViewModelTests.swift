@@ -899,7 +899,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         )
         viewModel.start()
 
-        NotificationCenter.default.post(name: SyncCoordinator.playlistsDidRefresh, object: nil)
+        syncCoordinator.emit(.playlistsRefreshed(serverSourceKey: "plex:account-1:server-1"))
         try await Task.sleep(for: .milliseconds(600))
 
         XCTAssertEqual(playlistRepository.fetchPlaylistsCallCount, 0)
@@ -992,11 +992,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let reloadCountBeforeCleanup = viewModel.sourceCleanupReloadCountForTesting
 
         playlistRepository.playlists.removeAll()
-        NotificationCenter.default.post(
-            name: SyncCoordinator.sourceCleanupDidComplete,
-            object: syncCoordinator,
-            userInfo: ["sourceCompositeKey": "plex:account-1:server-1:music"]
-        )
+        syncCoordinator.emit(.sourceCleanedUp(sourceKey: "plex:account-1:server-1:music"))
 
         let deadline = Date().addingTimeInterval(2)
         while viewModel.sourceCleanupReloadCountForTesting == reloadCountBeforeCleanup,
@@ -1614,7 +1610,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         )
         viewModel.start()
 
-        NotificationCenter.default.post(name: SyncCoordinator.playlistsDidRefresh, object: nil)
+        syncCoordinator.emit(.playlistsRefreshed(serverSourceKey: "plex:account-1:server-1"))
         try await Task.sleep(for: .milliseconds(600))
 
         XCTAssertEqual(playlistRepository.fetchPlaylistCallCount, 0)

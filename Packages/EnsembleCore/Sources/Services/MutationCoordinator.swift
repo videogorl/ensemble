@@ -472,11 +472,7 @@ public final class MutationCoordinator: ObservableObject {
                 title: title,
                 dateModified: Date()
             )
-            NotificationCenter.default.post(
-                name: SyncCoordinator.playlistsDidRefresh,
-                object: nil,
-                userInfo: ["serverSourceKey": sourceKey]
-            )
+            syncCoordinator.emit(.playlistRenamedLocally(sourceKey: sourceKey))
         } catch {
             EnsembleLogger.debug("Playlist rename succeeded but local cache update failed: \(error.localizedDescription)")
         }

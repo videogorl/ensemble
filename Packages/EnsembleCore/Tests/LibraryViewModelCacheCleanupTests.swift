@@ -833,14 +833,13 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         harness.syncCoordinator.sourceCacheCleanupService = FailingSourceCacheCleanup()
         let notification = expectation(description: "source cleanup completion")
         notification.isInverted = true
-        let observer = NotificationCenter.default.addObserver(
-            forName: SyncCoordinator.sourceCleanupDidComplete,
-            object: harness.syncCoordinator,
-            queue: nil
-        ) { _ in
-            notification.fulfill()
+        let events = harness.syncCoordinator.events()
+        let listener = Task {
+            for await event in events {
+                if case .sourceCleanedUp = event { notification.fulfill() }
+            }
         }
-        defer { NotificationCenter.default.removeObserver(observer) }
+        defer { listener.cancel() }
 
         let succeeded = await harness.syncCoordinator.cleanupRemovedSource(
             MusicSourceIdentifier(

@@ -401,11 +401,7 @@ final class SearchViewModelResponseTests: XCTestCase {
         XCTAssertEqual(harness.viewModel.trackResults.map(\.id), ["espresso"])
 
         try await harness.libraryRepository.deleteAllData(forSourceCompositeKey: sourceKey)
-        NotificationCenter.default.post(
-            name: SyncCoordinator.sourceCleanupDidComplete,
-            object: nil,
-            userInfo: ["sourceCompositeKey": sourceKey]
-        )
+        harness.syncCoordinator.emit(.sourceCleanedUp(sourceKey: sourceKey))
 
         let deadline = Date().addingTimeInterval(2)
         while !harness.viewModel.trackResults.isEmpty && Date() < deadline {
@@ -662,6 +658,15 @@ final class SearchViewModelResponseTests: XCTestCase {
         let moodRepository = MoodRepository(coreDataStack: stack)
         let visibilityStore = LibraryVisibilityStore(userDefaults: defaults)
         let settings = SettingsManager(defaults: defaults)
+        let networkMonitor = NetworkMonitor()
+        let syncCoordinator = SyncCoordinator(
+            accountManager: accountManager,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            artworkDownloadManager: EmptyArtworkDownloadManager(),
+            networkMonitor: networkMonitor,
+            serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
+        )
         let viewModel = SearchViewModel(
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
@@ -670,6 +675,7 @@ final class SearchViewModelResponseTests: XCTestCase {
             accountManager: accountManager,
             visibilityStore: visibilityStore,
             settingsManager: settings,
+            syncCoordinator: syncCoordinator,
             appleMusicCatalogSearch: appleMusicCatalogSearch
         )
         viewModel.start()
@@ -681,7 +687,8 @@ final class SearchViewModelResponseTests: XCTestCase {
             moodRepository: moodRepository,
             visibilityStore: visibilityStore,
             defaults: defaults,
-            settings: settings
+            settings: settings,
+            syncCoordinator: syncCoordinator
         )
     }
 
@@ -771,6 +778,7 @@ final class SearchViewModelResponseTests: XCTestCase {
         let visibilityStore: LibraryVisibilityStore
         let defaults: UserDefaults
         let settings: SettingsManager
+        let syncCoordinator: SyncCoordinator
     }
 
     private static let plexSourceOne = "plex:account:server-one"

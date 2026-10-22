@@ -91,6 +91,7 @@ public final class SearchViewModel {
     private let visibilityStore: LibraryVisibilityStore
     private let hiddenMediaStore: HiddenMediaStore
     private let settingsManager: SettingsManager
+    private let syncCoordinator: SyncCoordinator?
     private let appleMusicCatalogSearch: AppleMusicCatalogSearchClient
     private var searchTask: Task<Void, Never>?
     private var searchProjectionTask: Task<Void, Never>?
@@ -127,7 +128,8 @@ public final class SearchViewModel {
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
-        settingsManager: SettingsManager? = nil
+        settingsManager: SettingsManager? = nil,
+        syncCoordinator: SyncCoordinator? = nil
     ) {
         self.init(
             libraryRepository: libraryRepository,
@@ -138,6 +140,7 @@ public final class SearchViewModel {
             visibilityStore: visibilityStore,
             hiddenMediaStore: hiddenMediaStore,
             settingsManager: settingsManager,
+            syncCoordinator: syncCoordinator,
             appleMusicCatalogSearch: .live
         )
     }
@@ -151,6 +154,7 @@ public final class SearchViewModel {
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
         settingsManager: SettingsManager? = nil,
+        syncCoordinator: SyncCoordinator? = nil,
         appleMusicCatalogSearch: AppleMusicCatalogSearchClient
     ) {
         self.libraryRepository = libraryRepository
@@ -162,6 +166,7 @@ public final class SearchViewModel {
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
         let settingsManager = settingsManager ?? SettingsManager()
         self.settingsManager = settingsManager
+        self.syncCoordinator = syncCoordinator
         self.appleMusicCatalogSearch = appleMusicCatalogSearch
         self.mergingPreferences = settingsManager.mergingPreferences
         
@@ -217,8 +222,10 @@ public final class SearchViewModel {
             try? await self.moodRepository.deleteAllMoods()
             await self.reloadAfterExternalLibraryChange(forceExploreReload: false)
         }
-        ViewModelNotificationObserver.observeSourceCleanupCompleted(storingIn: &cancellables) { [weak self] in
-            await self?.reloadAfterExternalLibraryChange(forceExploreReload: true)
+        if let syncCoordinator {
+            subscriptions.append(ViewModelNotificationObserver.observeSourceCleanupCompleted(from: syncCoordinator, for: self) { model in
+                await model.reloadAfterExternalLibraryChange(forceExploreReload: true)
+            })
         }
     }
 

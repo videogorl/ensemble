@@ -870,11 +870,6 @@ public final class DependencyContainer: @unchecked Sendable {
             }
             return offline
         }
-        syncCoordinator.onPlaylistRefreshCompleted = { [weak offlineDownloadService] serverSourceKey in
-            Task { @MainActor in
-                await offlineDownloadService?.handlePlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
-            }
-        }
         syncCoordinator.downloadedPlaylistServerSourceKeys = { [weak offlineDownloadService] in
             offlineDownloadService?.downloadedPlexPlaylistServerSourceKeys ?? []
         }

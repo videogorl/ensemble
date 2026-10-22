@@ -2274,8 +2274,15 @@ public final class OfflineDownloadService: ObservableObject {
         subscriptions.append(syncCoordinator.snapshots().map(\.sourceStatuses).removeDuplicates().observe(self) { service, statuses in
             Task { await service.handleSourceSyncUpdate(statuses) }
         })
-        subscriptions.append(syncCoordinator.contentChanges().observe(self) { service, change in
-            Task { await service.handleContentChange(change) }
+        subscriptions.append(syncCoordinator.events().observe(self) { service, event in
+            switch event {
+            case let .contentChanged(change):
+                Task { await service.handleContentChange(change) }
+            case let .playlistsRefreshed(serverSourceKey):
+                Task { await service.handlePlaylistRefreshCompleted(serverSourceKey: serverSourceKey) }
+            case .playlistRenamedLocally, .sourceCleanedUp:
+                break
+            }
         })
     }
 

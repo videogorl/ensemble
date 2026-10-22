@@ -566,9 +566,9 @@ public final class LibraryViewModel {
         ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
             self?.handleLibraryDataCleared()
         }
-        ViewModelNotificationObserver.observeSourceCleanupCompleted(storingIn: &cancellables) { [weak self] in
-            await self?.loadLibrary()
-        }
+        subscriptions.append(ViewModelNotificationObserver.observeSourceCleanupCompleted(from: syncCoordinator, for: self) { model in
+            await model.loadLibrary()
+        })
     }
 
     private func setupVisibilityObservation() {
