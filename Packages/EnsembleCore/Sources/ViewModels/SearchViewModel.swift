@@ -177,16 +177,10 @@ public final class SearchViewModel {
         performSearch(query: searchQuery)
 
         // Reload search/explore content when any source configuration changes.
-        accountManager.sourceConfigurationPublisher
-            .dropFirst()
-            .sink { [weak self] _ in
-                guard let self else { return }
-                self.invalidateExploreLoad(resetCadence: true)
-                Task { @MainActor in
-                    await self.reloadAfterExternalLibraryChange(forceExploreReload: false)
-                }
-            }
-            .store(in: &cancellables)
+        subscriptions.append(accountManager.sourceConfigurations().dropFirst().observe(self) { model, _ in
+            model.invalidateExploreLoad(resetCadence: true)
+            Task { await model.reloadAfterExternalLibraryChange(forceExploreReload: false) }
+        })
 
         Publishers.CombineLatest3(
             self.visibilityStore.$profiles,

@@ -86,7 +86,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     }
 
     private var slots: [String: ConnectionSlot] = [:]
-    private var accountObserver: AnyCancellable?
+    private var accountObserver: StreamSubscription?
     private var networkObserver: StreamSubscription?
     private var isActive = false
 
@@ -135,11 +135,9 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         }
 
         // Observe account changes to add/remove connections
-        accountObserver = accountManager.$plexAccounts
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.refreshConnections()
-            }
+        accountObserver = accountManager.snapshots().map(\.plexAccounts).removeDuplicates().observe(self) { coordinator, _ in
+            coordinator.refreshConnections()
+        }
     }
 
     /// Stop all WebSocket connections. Call on background.

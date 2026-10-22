@@ -1,6 +1,8 @@
+import AsyncAlgorithms
 import Combine
 import EnsembleAPI
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -39,6 +41,7 @@ public final class HomeViewModel {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let appReadinessCoordinator: AppReadinessCoordinator?
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     @ObservationIgnored private var refreshTriggerCancellables = Set<AnyCancellable>()
     private var cachedSnapshotRestoreTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
@@ -140,19 +143,12 @@ public final class HomeViewModel {
             }
             .store(in: &cancellables)
 
-        accountManager.$isAwaitingCloudSources
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] awaiting in self?.isRestoringCloudSources = awaiting }
-            .store(in: &cancellables)
-
-        accountManager.sourceConfigurationPublisher
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] configuration in
-                self?.handleSourceConfigurationChange(configuration)
-            }
-            .store(in: &cancellables)
+        subscriptions.append(accountManager.snapshots().map(\.isAwaitingCloudSources).removeDuplicates().dropFirst().observe(self) { model, awaiting in
+            model.isRestoringCloudSources = awaiting
+        })
+        subscriptions.append(accountManager.sourceConfigurations().dropFirst().observe(self) { model, configuration in
+            model.handleSourceConfigurationChange(configuration)
+        })
 
         syncCoordinator.$isOffline
             .removeDuplicates()

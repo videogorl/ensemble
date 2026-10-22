@@ -6,7 +6,7 @@ import MusicKit
 
 public struct AddSourceView: View {
     @Environment(DependencyContainer.self) private var dependencies
-    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    private let accountManager = DependencyContainer.shared.accountManager
     @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dismiss) private var dismiss
     @State private var errorMessage: String?

@@ -420,10 +420,8 @@ final class CloudSyncCoordinator {
             }
         }
 
-        acctMgr.objectWillChange
-            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            .sink { [weak acctMgr, weak kvs, weak syncToggles] _ in
-                guard let acctMgr, let kvs, let syncToggles else { return }
+        kvsSyncSubscriptions.append(acctMgr.snapshots().dropFirst().debounce(for: .milliseconds(500)).observe(acctMgr) { [weak kvs, weak syncToggles] acctMgr, _ in
+                guard let kvs, let syncToggles else { return }
                 guard syncToggles.isFeatureEnabled(.libraries) else { return }
                 if let data = acctMgr.exportLibraryFlags() {
                     syncToggles.recordFeatureActivity(
@@ -434,8 +432,7 @@ final class CloudSyncCoordinator {
                     )
                     kvs.pushData(data, forKey: KVSSyncService.KVSKey.libraryFlags)
                 }
-            }
-            .store(in: &kvsSyncCancellables)
+        })
 
         kvsSyncService.onInitialSyncCompleted = { [weak self, weak syncToggles] in
             guard let self, let syncToggles else { return }

@@ -168,12 +168,14 @@ public final class FavoritesViewModel: MediaDetailViewModelProtocol {
             .dropFirst()
             .map { _ in () }
             .merge(with: hiddenMediaStore.$snapshot.dropFirst().map { _ in () })
-            .merge(with: accountManager.sourceConfigurationPublisher.dropFirst().map { _ in () })
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.applyVisibilityToPublishedTracks()
             }
             .store(in: &cancellables)
+        subscriptions.append(accountManager.sourceConfigurations().dropFirst().observe(self) { model, _ in
+            model.applyVisibilityToPublishedTracks()
+        })
     }
 
     // MARK: - Filter + Sort (static for background pipeline)

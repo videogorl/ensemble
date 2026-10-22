@@ -1,5 +1,7 @@
+import AsyncAlgorithms
 import Combine
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -67,6 +69,8 @@ public final class DownloadsViewModel {
     private let downloadManager: DownloadManagerProtocol
     private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
+    @ObservationIgnored private var summaryRebuildTask: Task<Void, Never>?
 
     public init(
         offlineDownloadService: OfflineDownloadService,
@@ -96,41 +100,57 @@ public final class DownloadsViewModel {
     /// thumbnails and library summaries. Safe to call on every appearance.
     public func start() {
         guard cancellables.isEmpty else { return }
-        let targetsAndAccounts = offlineDownloadService.$targets
-            .combineLatest(accountManager.$plexAccounts)
+        offlineDownloadService.$targets
             .dropFirst()
-
-        // Map snapshots to summaries, preserving previously resolved thumbPaths.
-        // Without this, every publish creates items with thumbPath=nil which always
-        // differs from existing items that have resolved paths, causing artwork flashing.
-        targetsAndAccounts
-            .sink { [weak self] snapshots, _ in
-                guard let self else { return }
-                var mapped = Self.mapItems(from: snapshots, accountManager: self.accountManager)
-
-                // Carry forward thumbPaths from existing items to avoid nil→resolved flicker
-                let existingThumbs = Dictionary(
-                    self.items.compactMap { item in
-                        item.thumbPath.map { (item.id, $0) }
-                    },
-                    uniquingKeysWith: { first, _ in first }
-                )
-                for i in mapped.indices {
-                    if mapped[i].thumbPath == nil, let existing = existingThumbs[mapped[i].id] {
-                        mapped[i].thumbPath = existing
-                    }
-                }
-
-                if mapped != self.items {
-                    self.items = mapped
-                    // Still resolve thumbs for any new items that don't have paths yet
-                    Task { [weak self] in
-                        await self?.resolveThumbPaths()
-                    }
-                }
-            }
+            .sink { [weak self] snapshots in self?.targetsOrAccountsChanged(snapshots) }
             .store(in: &cancellables)
+        subscriptions.append(accountManager.snapshots().map(\.plexAccounts).removeDuplicates().dropFirst().observe(self) { model, _ in
+            model.targetsOrAccountsChanged(model.offlineDownloadService.targets)
+        })
+        startMirroring()
+    }
 
+    private func targetsOrAccountsChanged(_ snapshots: [OfflineDownloadTargetSnapshot]) {
+        applyTargets(snapshots)
+        publishLibrarySummaryShells()
+        // Fill in heavier counts and size estimates after the stable shell rows exist.
+        summaryRebuildTask?.cancel()
+        summaryRebuildTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            await self?.rebuildLibrarySummaries()
+        }
+    }
+
+    /// Maps snapshots to summaries, preserving previously resolved thumbPaths.
+    /// Without this, every publish creates items with thumbPath=nil which always
+    /// differs from existing items that have resolved paths, causing artwork flashing.
+    private func applyTargets(_ snapshots: [OfflineDownloadTargetSnapshot]) {
+        var mapped = Self.mapItems(from: snapshots, accountManager: accountManager)
+
+        // Carry forward thumbPaths from existing items to avoid nil→resolved flicker
+        let existingThumbs = Dictionary(
+            self.items.compactMap { item in
+                item.thumbPath.map { (item.id, $0) }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for i in mapped.indices {
+            if mapped[i].thumbPath == nil, let existing = existingThumbs[mapped[i].id] {
+                mapped[i].thumbPath = existing
+            }
+        }
+
+        if mapped != self.items {
+            self.items = mapped
+            // Still resolve thumbs for any new items that don't have paths yet
+            Task { [weak self] in
+                await self?.resolveThumbPaths()
+            }
+        }
+    }
+
+    private func startMirroring() {
         // Mirror removal progress, pending mutations, queue state, and status reason
         offlineDownloadService.$removalInProgress
             .dropFirst()
@@ -152,23 +172,6 @@ public final class DownloadsViewModel {
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] value in self?.queueStatusReason = value }
-            .store(in: &cancellables)
-
-        // Rebuild library summaries when targets or accounts change
-        targetsAndAccounts
-            .sink { [weak self] _, _ in
-                self?.publishLibrarySummaryShells()
-            }
-            .store(in: &cancellables)
-
-        // Fill in heavier counts and size estimates after the stable shell rows exist.
-        targetsAndAccounts
-            .debounce(for: .milliseconds(200), scheduler: DispatchQueue.main)
-            .sink { [weak self] _, _ in
-                Task { [weak self] in
-                    await self?.rebuildLibrarySummaries()
-                }
-            }
             .store(in: &cancellables)
 
         Task { [weak self] in

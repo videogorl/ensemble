@@ -397,7 +397,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// The item whose TLS failure already had its one connection refresh.
     var tlsRefreshedItemID: String?
     var networkStateObservation: StreamSubscription?
-    var accountSourcesObservation: AnyCancellable?
+    var accountSourcesObservation: StreamSubscription?
     var healthCheckCompletionObservation: AnyCancellable?
     /// Set during queue restoration; cleared after pre-buffer completes or user taps play.
     var pendingPreBufferTime: TimeInterval?
@@ -814,13 +814,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     func setupAccountSourcesObservation() {
         Task { @MainActor [weak self] in
             guard let self = self else { return }
-            self.accountSourcesObservation = self.syncCoordinator.accountManager.sourceConfigurationPublisher
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] configuration in
-                    Task { @MainActor in
-                        await self?.handleAccountSourcesChanged(configuration: configuration)
-                    }
-                }
+            self.accountSourcesObservation = self.syncCoordinator.accountManager.sourceConfigurations().observe(self) { service, configuration in
+                Task { await service.handleAccountSourcesChanged(configuration: configuration) }
+            }
         }
     }
 

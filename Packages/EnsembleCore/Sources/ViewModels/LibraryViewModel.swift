@@ -308,15 +308,13 @@ public final class LibraryViewModel {
             .store(in: &cancellables)
 
         // Observe provider-neutral source state.
-        accountManager.sourceConfigurationPublisher
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] configuration in
-                guard let self else { return }
-                self.hasAnySources = configuration.hasAnySources
-                self.hasEnabledLibraries = !configuration.enabledSources.isEmpty
-            }
-            .store(in: &cancellables)
+        subscriptions.append(accountManager.sourceConfigurations().dropFirst().observe(self) { model, configuration in
+            model.hasAnySources = configuration.hasAnySources
+            model.hasEnabledLibraries = !configuration.enabledSources.isEmpty
+            // Reflect account/library enablement changes immediately in cached browse surfaces.
+            model.applyVisibilityToPublishedCollections()
+            Task { await model.loadLibrary() }
+        })
 
         self.hiddenMediaStore.$snapshot
             .dropFirst()
@@ -324,31 +322,11 @@ public final class LibraryViewModel {
             .sink { [weak self] _ in self?.applyVisibilityToPublishedCollections() }
             .store(in: &cancellables)
 
-        accountManager.$isAwaitingCloudSources
-            .receive(on: DispatchQueue.main)
-            .dropFirst()
-            .sink { [weak self] awaiting in
-                guard let self else { return }
-                self.isRestoringCloudSources = awaiting
-                guard !awaiting else { return }
-
-                Task { @MainActor in
-                    await self.loadLibrary()
-                }
-            }
-            .store(in: &cancellables)
-
-        // Reflect account/library enablement changes immediately in cached browse surfaces.
-        accountManager.sourceConfigurationPublisher
-            .receive(on: DispatchQueue.main)
-            .dropFirst()
-            .sink { [weak self] _ in
-                self?.applyVisibilityToPublishedCollections()
-                Task { @MainActor in
-                    await self?.loadLibrary()
-                }
-            }
-            .store(in: &cancellables)
+        subscriptions.append(accountManager.snapshots().map(\.isAwaitingCloudSources).removeDuplicates().dropFirst().observe(self) { model, awaiting in
+            model.isRestoringCloudSources = awaiting
+            guard !awaiting else { return }
+            Task { await model.loadLibrary() }
+        })
 
         // Auto-reload only when sync reports a material library change.
         // Connection/progress churn stays on sourceStatuses and should not trigger full browse reloads.

@@ -2,21 +2,17 @@
 ///
 /// A service keeps its state in one snapshot value and sends each change here;
 /// listeners call `stream(startingWith:)` to get the current snapshot first, as
-/// `@Published` did. Snapshot listeners that fall behind see only the latest
-/// value. Event broadcasts deliver every value.
+/// `@Published` did. Every listener receives every value in order, so
+/// `dropFirst()` always skips exactly the starting value.
 @MainActor
 public final class Broadcast<Value: Sendable> {
     private var continuations: [Int: AsyncStream<Value>.Continuation] = [:]
     private var nextID = 0
-    private let bufferingPolicy: AsyncStream<Value>.Continuation.BufferingPolicy
 
-    /// `latestOnly` suits snapshots; events need every value.
-    public init(latestOnly: Bool) {
-        bufferingPolicy = latestOnly ? .bufferingNewest(1) : .unbounded
-    }
+    public init() {}
 
     public func stream(startingWith first: Value? = nil) -> AsyncStream<Value> {
-        let (stream, continuation) = AsyncStream.makeStream(of: Value.self, bufferingPolicy: bufferingPolicy)
+        let (stream, continuation) = AsyncStream.makeStream(of: Value.self)
         let id = nextID
         nextID += 1
         continuations[id] = continuation

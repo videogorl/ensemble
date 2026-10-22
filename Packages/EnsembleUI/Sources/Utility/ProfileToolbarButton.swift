@@ -9,7 +9,7 @@ import AppKit
 /// Provides device-local library visibility controls and opens Settings.
 public struct ProfileToolbarButton: View {
     @ObservedObject private var profileStore: UserProfileStore
-    @ObservedObject private var accountManager: AccountManager
+    private let accountManager: AccountManager
     @ObservedObject private var visibilityStore: LibraryVisibilityStore
     private let settingsManager = DependencyContainer.shared.settingsManager
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator

@@ -166,8 +166,6 @@ public final class PinnedViewModel {
             visibilityStore.$focusFilter
         )
         .dropFirst()
-        .map { _ in () }
-        .merge(with: accountManager.sourceConfigurationPublisher.dropFirst().map { _ in () })
         .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in
             Task { @MainActor in
@@ -175,6 +173,9 @@ public final class PinnedViewModel {
             }
         }
         .store(in: &cancellables)
+        subscriptions.append(accountManager.sourceConfigurations().dropFirst().observe(self) { model, _ in
+            Task { await model.loadPinnedItems() }
+        })
     }
 
     /// Fetch pinned items from Core Data by ratingKey, preserving pin order.

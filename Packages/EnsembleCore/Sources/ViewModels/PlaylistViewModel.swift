@@ -203,13 +203,11 @@ public final class PlaylistViewModel {
             }
             .store(in: &cancellables)
 
-        accountManager?.sourceConfigurationPublisher
-            .receive(on: DispatchQueue.main)
-            .dropFirst()
-            .sink { [weak self] configuration in
-                self?.handleSourceConfigurationChange(configuration)
-            }
-            .store(in: &cancellables)
+        if let accountManager {
+            subscriptions.append(accountManager.sourceConfigurations().dropFirst().observe(self) { model, configuration in
+                model.handleSourceConfigurationChange(configuration)
+            })
+        }
     }
     
     private func setupVisibilityObservation() {

@@ -237,7 +237,7 @@ public struct PlaylistsView: View {
             } message: {
                 Text("This will permanently delete \"\(playlistPendingSwipeDelete?.title ?? "this playlist")\" from its source.")
             }
-            .onReceive(accountManager.$isAwaitingCloudSources) { awaiting in
+            .onChange(of: accountManager.isAwaitingCloudSources, initial: true) { _, awaiting in
                 if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
             }
             .onChange(of: settingsManager.settings) {

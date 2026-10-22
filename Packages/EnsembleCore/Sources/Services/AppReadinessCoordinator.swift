@@ -1,4 +1,5 @@
 import Combine
+import EnsembleSupport
 import Foundation
 
 public struct AppReadinessSnapshot: Equatable, Sendable {
@@ -70,6 +71,7 @@ public final class AppReadinessCoordinator: ObservableObject {
     private var isStartupSyncComplete = false
     private var forcedBootstrapSettled = false
     private var cancellables = Set<AnyCancellable>()
+    private var subscriptions: [StreamSubscription] = []
 
     public init(
         accountManager: AccountManager? = nil,
@@ -83,31 +85,14 @@ public final class AppReadinessCoordinator: ObservableObject {
             credentialLoadState = accountManager.credentialLoadState
             isRestoringCloudSources = accountManager.isAwaitingCloudSources
 
-            accountManager.sourceConfigurationPublisher
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] configuration in
-                    guard let self else { return }
-                    self.hasConfiguredAccounts = configuration.hasAnySources
-                    self.hasEnabledLibraries = !configuration.enabledSources.isEmpty
-                    self.recomputeSnapshot()
-                }
-                .store(in: &cancellables)
-
-            accountManager.$credentialLoadState
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] state in
-                    self?.credentialLoadState = state
-                    self?.recomputeSnapshot()
-                }
-                .store(in: &cancellables)
-
-            accountManager.$isAwaitingCloudSources
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] awaiting in
-                    self?.isRestoringCloudSources = awaiting
-                    self?.recomputeSnapshot()
-                }
-                .store(in: &cancellables)
+            subscriptions.append(accountManager.snapshots().observe(self) { coordinator, accounts in
+                let configuration = accounts.sourceConfiguration
+                coordinator.hasConfiguredAccounts = configuration.hasAnySources
+                coordinator.hasEnabledLibraries = !configuration.enabledSources.isEmpty
+                coordinator.credentialLoadState = accounts.credentialLoadState
+                coordinator.isRestoringCloudSources = accounts.isAwaitingCloudSources
+                coordinator.recomputeSnapshot()
+            })
         }
 
         if let syncCoordinator {

@@ -118,12 +118,12 @@ public struct SearchView: View {
             currentTrackId: $currentTrackId,
             recentPlaylistTitle: $nvmRecentPlaylistTitle
         )
-        .onReceive(accountManager.sourceConfigurationPublisher) { snapshot in
+        .onChange(of: accountManager.sourceConfigurationSnapshot, initial: true) { _, snapshot in
             if snapshot.hasAnySources != hasAnySources { hasAnySources = snapshot.hasAnySources }
             let enabledLibs = !snapshot.enabledSources.isEmpty
             if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
         }
-        .onReceive(accountManager.$isAppleMusicEnabled) { enabled in
+        .onChange(of: accountManager.isAppleMusicEnabled, initial: true) { _, enabled in
             hasAppleMusic = enabled
             hasAnySources = accountManager.hasAnySources
             if !enabled, viewModel.scope == .appleMusic {
@@ -133,7 +133,7 @@ public struct SearchView: View {
         .onReceive(syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
-        .onReceive(accountManager.$isAwaitingCloudSources) { awaiting in
+        .onChange(of: accountManager.isAwaitingCloudSources, initial: true) { _, awaiting in
             if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
         }
         .trackListRuntimeObservation(

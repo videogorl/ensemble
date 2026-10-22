@@ -1,5 +1,7 @@
+import AsyncAlgorithms
 import Combine
 import EnsemblePersistence
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -95,6 +97,7 @@ public final class MusicSourceAccountDetailViewModel {
     private var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     private var syncedTrackCounts: [MusicSourceIdentifier: Int] = [:]
     private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var subscriptions: [StreamSubscription] = []
     private var hasPerformedInitialRefresh = false
     private var activeLibraryOperations = Set<String>()
     internal var syncSourcesHandlerForTesting: (([MusicSourceIdentifier]) async -> Void)?
@@ -151,14 +154,10 @@ public final class MusicSourceAccountDetailViewModel {
             }
             .store(in: &cancellables)
 
-        accountManager.$plexAccounts
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.rebuildSections()
-                self?.refreshSyncedTrackCounts()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(accountManager.snapshots().map(\.plexAccounts).removeDuplicates().dropFirst().observe(self) { model, _ in
+            model.rebuildSections()
+            model.refreshSyncedTrackCounts()
+        })
 
         syncCoordinator.$sourceStatuses
             .dropFirst()

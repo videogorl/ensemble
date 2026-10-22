@@ -387,7 +387,7 @@ public final class SettingsManager {
             broadcast.send(settings)
         }
     }
-    @ObservationIgnored private let broadcast = Broadcast<AppSettings>(latestOnly: true)
+    @ObservationIgnored private let broadcast = Broadcast<AppSettings>()
     @ObservationIgnored private let defaults: UserDefaults
 
     /// The current settings, then each change.

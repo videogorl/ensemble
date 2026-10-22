@@ -50,7 +50,7 @@ public final class NetworkMonitor {
     public var networkState: NetworkState { snapshot.state }
     public var isConnected: Bool { snapshot.isConnected }
     public var isConstrained: Bool { snapshot.isConstrained }
-    @ObservationIgnored private let broadcast = Broadcast<NetworkSnapshot>(latestOnly: true)
+    @ObservationIgnored private let broadcast = Broadcast<NetworkSnapshot>()
 
     /// The current snapshot, then each change.
     public func snapshots() -> AsyncStream<NetworkSnapshot> {

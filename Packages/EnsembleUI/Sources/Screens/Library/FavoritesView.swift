@@ -63,7 +63,7 @@ public struct FavoritesView: View {
         .onChange(of: nowPlayingVM.lastPlaylistTarget?.title, initial: true) { _, title in
             if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
-        .onReceive(DependencyContainer.shared.accountManager.sourceConfigurationPublisher) { snapshot in
+        .onChange(of: DependencyContainer.shared.accountManager.sourceConfigurationSnapshot, initial: true) { _, snapshot in
             if snapshot.hasAnySources != hasAnySources { hasAnySources = snapshot.hasAnySources }
             let enabledLibs = !snapshot.enabledSources.isEmpty
             if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
@@ -71,7 +71,7 @@ public struct FavoritesView: View {
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
-        .onReceive(DependencyContainer.shared.accountManager.$isAwaitingCloudSources) { awaiting in
+        .onChange(of: DependencyContainer.shared.accountManager.isAwaitingCloudSources, initial: true) { _, awaiting in
             if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
         }
         .trackListRuntimeObservation(

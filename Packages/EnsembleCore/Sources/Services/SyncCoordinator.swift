@@ -2531,14 +2531,9 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     private func setupSourceConfigurationMonitoring() {
-        accountManager.sourceConfigurationPublisher
-            .dropFirst()
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.refreshHealthForNewlyEnabledServers()
-                }
-            }
-            .store(in: &cancellables)
+        subscriptions.append(accountManager.sourceConfigurations().dropFirst().observe(self) { coordinator, _ in
+            coordinator.refreshHealthForNewlyEnabledServers()
+        })
     }
 
     private func refreshHealthForNewlyEnabledServers() {

@@ -1,6 +1,7 @@
-import Combine
+import AsyncAlgorithms
 import EnsembleAPI
 import EnsembleDomain
+import EnsembleSupport
 import Foundation
 
 /// Whether the persisted source configuration was read authoritatively.
@@ -54,7 +55,8 @@ public struct SourceConfigurationSnapshot: Equatable, Sendable {
 
 /// Manages connected music source accounts (Plex, future Apple Music, etc.)
 @MainActor
-public final class AccountManager: ObservableObject {
+@Observable
+public final class AccountManager {
     struct AppleMusicSetupState: Equatable {
         let isEnabled: Bool
         let isInitialSyncPending: Bool
@@ -99,42 +101,77 @@ public final class AccountManager: ObservableObject {
         }
     }
 
-    @Published public private(set) var plexAccounts: [PlexAccountConfig] = [] {
+    public private(set) var plexAccounts: [PlexAccountConfig] = [] {
         didSet {
             recordPlexSourceConfigurationChanges(from: oldValue, to: plexAccounts)
             reconcileAPIClients(previousAccounts: oldValue, previousPolicy: connectionPolicy)
             connectionPolicy = AllowInsecureConnectionsPolicy.storedPreference()
+            publishSnapshot()
         }
     }
-    @Published public private(set) var isAppleMusicEnabled: Bool {
+    public private(set) var isAppleMusicEnabled: Bool {
         didSet {
             guard isAppleMusicEnabled != oldValue else { return }
             advanceSourceConfigurationRevision(forSourceKey: MusicSourceIdentifier.appleMusic.compositeKey)
+            publishSnapshot()
         }
     }
-    @Published public private(set) var isAppleMusicInitialSyncPending: Bool
-    @Published public private(set) var isAwaitingCloudSources = false
+    public private(set) var isAppleMusicInitialSyncPending: Bool {
+        didSet { publishSnapshot() }
+    }
+    public private(set) var isAwaitingCloudSources = false {
+        didSet { publishSnapshot() }
+    }
     /// Distinguishes a valid empty Keychain from a Keychain access failure.
-    @Published public private(set) var credentialLoadState: AccountCredentialLoadState = .loading
+    public private(set) var credentialLoadState: AccountCredentialLoadState = .loading {
+        didSet { publishSnapshot() }
+    }
 
     /// Emits once initially and when configured or enabled source identities change.
-    public var sourceConfigurationPublisher: AnyPublisher<SourceConfigurationSnapshot, Never> {
-        Publishers.CombineLatest4(
-            $plexAccounts,
-            $isAppleMusicEnabled,
-            $credentialLoadState,
-            $isAwaitingCloudSources
+    /// The accounts and source state other services and views watch.
+    public struct Snapshot: Equatable, Sendable {
+        public var plexAccounts: [PlexAccountConfig]
+        public var isAppleMusicEnabled: Bool
+        public var isAppleMusicInitialSyncPending: Bool
+        public var isAwaitingCloudSources: Bool
+        public var credentialLoadState: AccountCredentialLoadState
+        public var sourceConfiguration: SourceConfigurationSnapshot {
+            AccountManager.makeSourceConfigurationSnapshot(
+                plexAccounts: plexAccounts,
+                isAppleMusicEnabled: isAppleMusicEnabled,
+                credentialLoadState: credentialLoadState,
+                isAwaitingCloudSources: isAwaitingCloudSources
+            )
+        }
+    }
+
+    public var snapshot: Snapshot {
+        Snapshot(
+            plexAccounts: plexAccounts,
+            isAppleMusicEnabled: isAppleMusicEnabled,
+            isAppleMusicInitialSyncPending: isAppleMusicInitialSyncPending,
+            isAwaitingCloudSources: isAwaitingCloudSources,
+            credentialLoadState: credentialLoadState
         )
-            .map { accounts, appleMusicEnabled, credentialState, isAwaitingCloudSources in
-                Self.makeSourceConfigurationSnapshot(
-                    plexAccounts: accounts,
-                    isAppleMusicEnabled: appleMusicEnabled,
-                    credentialLoadState: credentialState,
-                    isAwaitingCloudSources: isAwaitingCloudSources
-                )
-            }
-            .removeDuplicates()
-            .eraseToAnyPublisher()
+    }
+    @ObservationIgnored private let broadcast = Broadcast<Snapshot>()
+    @ObservationIgnored private var publishedSnapshot: Snapshot?
+
+    /// The current snapshot, then each change.
+    public func snapshots() -> AsyncStream<Snapshot> {
+        broadcast.stream(startingWith: snapshot)
+    }
+
+    /// The current source configuration, then each change.
+    public func sourceConfigurations() -> AsyncRemoveDuplicatesSequence<AsyncMapSequence<AsyncStream<Snapshot>, SourceConfigurationSnapshot>> {
+        snapshots().map(\.sourceConfiguration).removeDuplicates()
+    }
+
+    private func publishSnapshot() {
+        let current = snapshot
+        guard current != publishedSnapshot else { return }
+        publishedSnapshot = current
+        broadcast.send(current)
     }
 
     public var sourceConfigurationSnapshot: SourceConfigurationSnapshot {
