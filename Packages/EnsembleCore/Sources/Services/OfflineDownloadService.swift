@@ -177,6 +177,8 @@ public final class OfflineDownloadService {
     }
     @ObservationIgnored private let snapshotBroadcast = Broadcast<Snapshot>()
     @ObservationIgnored private var publishedSnapshot: Snapshot?
+    @ObservationIgnored private var lastPrioritizedLocalPath: String?
+    @ObservationIgnored private var lastPlaybackSensitivity: Bool?
 
     /// The current snapshot, then each change.
     public func snapshots() -> AsyncStream<Snapshot> {
@@ -1104,43 +1106,24 @@ public final class OfflineDownloadService {
         EnsembleLogger.info("Derived download artifacts resumed — app foregrounded")
     }
 
-    /// Subscribe to playback publishers so download work can protect active listening.
-    /// Track changes still prioritize sidecar generation, while playback-state changes
-    /// switch the queue into a lower-impact mode during active playback.
-    public func observePlayback(
-        trackPublisher: AnyPublisher<Track?, Never>,
-        playbackStatePublisher: AnyPublisher<PlaybackState, Never>
-    ) {
-        observePlayback(trackPublisher)
-
-        playbackStatePublisher
-            .map(Self.isPlaybackSensitiveState)
-            .removeDuplicates()
-            .sink { [weak self] isSensitive in
-                Task { @MainActor in
-                    await self?.handlePlaybackSensitivityChange(isSensitive)
-                }
-            }
-            .store(in: &cancellables)
-    }
-
-    /// Subscribe to a playback track publisher and prioritize sidecar generation for the
-    /// playing track. If the track has a local file but no sidecar yet, it moves to the
-    /// front of the queue so the visualizer is ready quickly.
-    /// Call once after init, passing PlaybackService.currentTrackPublisher.
-    public func observePlayback(_ publisher: AnyPublisher<Track?, Never>) {
-        publisher
-            .compactMap { $0?.localFilePath }
-            .removeDuplicates()
-            .sink { [weak self] localPath in
-                guard let self else { return }
+    /// Follows playback so download work protects active listening: the playing
+    /// track's sidecar is generated first, and playback switches the queue into a
+    /// lower-impact mode.
+    public func observePlayback(_ snapshots: AsyncStream<PlaybackSnapshot>) {
+        subscriptions.append(snapshots.observe(self) { service, snapshot in
+            if let localPath = snapshot.currentTrack?.localFilePath,
+               localPath != service.lastPrioritizedLocalPath {
+                service.lastPrioritizedLocalPath = localPath
                 let sourceURL = URL(fileURLWithPath: localPath)
                 let sidecarURL = sourceURL.appendingPathExtension("freq")
-                Task {
-                    await self.sidecarAnalysisQueue.prioritize(sourceURL: sourceURL, sidecarURL: sidecarURL)
-                }
+                Task { await service.sidecarAnalysisQueue.prioritize(sourceURL: sourceURL, sidecarURL: sidecarURL) }
             }
-            .store(in: &cancellables)
+            let isSensitive = Self.isPlaybackSensitiveState(snapshot.playbackState)
+            if isSensitive != service.lastPlaybackSensitivity {
+                service.lastPlaybackSensitivity = isSensitive
+                Task { await service.handlePlaybackSensitivityChange(isSensitive) }
+            }
+        })
     }
 
     /// Cancels replacement work without removing the last completed audio file.

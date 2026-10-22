@@ -843,10 +843,6 @@ extension PlaybackService {
             originalQueue = queueController.unshuffledOrder(originalQueue, carryingMove: result.item, in: queue)
         }
 
-        // Force @Published update by reassigning the queue array
-        // (Required because in-place mutations don't trigger Combine notifications)
-        queue = queue
-
         setQueueProtection(true, reason: "reorder")
         commitQueueMutation(refreshAutoplay: false)
     }

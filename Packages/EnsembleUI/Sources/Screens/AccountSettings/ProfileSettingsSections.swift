@@ -202,13 +202,15 @@ struct SmartMixSettingsView: View {
                 }
             }
         }
-        .onReceive(playbackService.snapshotPublisher(\.isSmartMixEnabled)) { isEnabled in
-            guard isSmartMixEnabled != isEnabled else { return }
-            isSmartMixEnabled = isEnabled
-        }
-        .onReceive(playbackService.snapshotPublisher(\.isSmartMixDisabledForAlbums)) { isDisabled in
-            guard isSmartMixDisabledForAlbums != isDisabled else { return }
-            isSmartMixDisabledForAlbums = isDisabled
+        .task {
+            for await snapshot in playbackService.snapshots() {
+                if isSmartMixEnabled != snapshot.isSmartMixEnabled {
+                    isSmartMixEnabled = snapshot.isSmartMixEnabled
+                }
+                if isSmartMixDisabledForAlbums != snapshot.isSmartMixDisabledForAlbums {
+                    isSmartMixDisabledForAlbums = snapshot.isSmartMixDisabledForAlbums
+                }
+            }
         }
     }
 

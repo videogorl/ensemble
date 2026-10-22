@@ -1,7 +1,9 @@
 #if os(iOS)
+import AsyncAlgorithms
 import Combine
 import EnsembleCore
 import EnsembleDomain
+import EnsembleSupport
 import Foundation
 import MediaPlayer
 import UIKit
@@ -15,6 +17,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
     private let decoder = JSONDecoder()
     private var deps: DependencyContainer?
     private var cancellables = Set<AnyCancellable>()
+    private var subscriptions: [StreamSubscription] = []
     private var lastPublishedSnapshot: WatchCompanionSessionSnapshot?
     private var hasActivatedSession = false
     private var cachedArtwork: (trackID: String, source: MPMediaItemArtwork, data: Data)?
@@ -56,7 +59,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
 
     private func bindPlayback(_ playbackService: PlaybackService) {
         // The watch mirrors the current item, state, queue, and modes.
-        let playbackChanged = playbackService.snapshotPublisher
+        let playbackChanged = playbackService.snapshots()
             .removeDuplicates { old, new in
                 old.currentTrack == new.currentTrack
                     && old.playbackState == new.playbackState
@@ -66,12 +69,9 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
                     && old.repeatMode == new.repeatMode
             }
 
-        playbackChanged
-            .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.publishSnapshot()
-            }
-            .store(in: &cancellables)
+        subscriptions.append(playbackChanged.debounce(for: .milliseconds(100)).observe(self) { bridge, _ in
+            bridge.publishSnapshot()
+        })
 
         playbackService.currentTimePublisher
             .throttle(for: .seconds(1), scheduler: RunLoop.main, latest: true)

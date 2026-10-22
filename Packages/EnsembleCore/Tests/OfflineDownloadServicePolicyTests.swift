@@ -703,23 +703,17 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
     func testPlaybackStateSwitchesWorkMode() async {
         let service = await makeService()
-        let trackPublisher = CurrentValueSubject<Track?, Never>(nil)
-        let playbackStatePublisher = CurrentValueSubject<PlaybackState, Never>(.stopped)
-
-        service.observePlayback(
-            trackPublisher: trackPublisher.eraseToAnyPublisher(),
-            playbackStatePublisher: playbackStatePublisher.eraseToAnyPublisher()
-        )
+        let (snapshots, playback) = AsyncStream.makeStream(of: PlaybackSnapshot.self)
+        service.observePlayback(snapshots)
+        playback.yield(PlaybackSnapshot(playbackState: .stopped))
 
         XCTAssertEqual(service.currentDownloadWorkMode, .foregroundIdle)
 
-        playbackStatePublisher.send(.playing)
-        await Task.yield()
-        XCTAssertEqual(service.currentDownloadWorkMode, .interactivePlayback)
+        playback.yield(PlaybackSnapshot(playbackState: .playing))
+        await waitUntil { service.currentDownloadWorkMode == .interactivePlayback }
 
-        playbackStatePublisher.send(.paused)
-        await Task.yield()
-        XCTAssertEqual(service.currentDownloadWorkMode, .foregroundIdle)
+        playback.yield(PlaybackSnapshot(playbackState: .paused))
+        await waitUntil { service.currentDownloadWorkMode == .foregroundIdle }
     }
 
     func testLaunchRecoveryDoesNotRunHeavyDownloadHealingBeforeFirstInteraction() async {
@@ -759,15 +753,10 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
     func testBackgroundLifecycleOverridesPlaybackWorkMode() async {
         let service = await makeService()
-        let trackPublisher = CurrentValueSubject<Track?, Never>(nil)
-        let playbackStatePublisher = CurrentValueSubject<PlaybackState, Never>(.playing)
-
-        service.observePlayback(
-            trackPublisher: trackPublisher.eraseToAnyPublisher(),
-            playbackStatePublisher: playbackStatePublisher.eraseToAnyPublisher()
-        )
-        await Task.yield()
-        XCTAssertEqual(service.currentDownloadWorkMode, .interactivePlayback)
+        let (snapshots, playback) = AsyncStream.makeStream(of: PlaybackSnapshot.self)
+        service.observePlayback(snapshots)
+        playback.yield(PlaybackSnapshot(playbackState: .playing))
+        await waitUntil { service.currentDownloadWorkMode == .interactivePlayback }
 
         await service.handleAppDidEnterBackground()
         XCTAssertEqual(service.currentDownloadWorkMode, .background)

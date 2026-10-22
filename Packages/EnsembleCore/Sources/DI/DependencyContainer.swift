@@ -877,10 +877,7 @@ public final class DependencyContainer: @unchecked Sendable {
         syncCoordinator.onFavoritesRatingChanged = { [weak offlineDownloadService] in
             await offlineDownloadService?.reconcileFavoritesTargetIfEnabled()
         }
-        offlineDownloadService.observePlayback(
-            trackPublisher: playbackService.snapshotPublisher(\.currentTrack),
-            playbackStatePublisher: playbackService.snapshotPublisher(\.playbackState)
-        )
+        offlineDownloadService.observePlayback(playbackService.snapshots())
         syncCoordinator.shouldDeferForegroundHealthRefresh = { [weak offlineDownloadService] in
             offlineDownloadService?.shouldDeferForegroundHealthRefresh ?? false
         }

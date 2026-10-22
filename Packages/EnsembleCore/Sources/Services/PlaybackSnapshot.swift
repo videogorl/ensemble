@@ -1,3 +1,4 @@
+import AsyncAlgorithms
 import Combine
 import Foundation
 
@@ -63,10 +64,11 @@ public struct PlaybackSnapshot: Equatable, Sendable {
 }
 
 public extension PlaybackServiceProtocol {
-    /// One field of the snapshot, emitted when it changes.
-    func snapshotPublisher<Value: Equatable>(
+    /// One field of the snapshot: its current value, then each change.
+    @MainActor
+    func snapshots<Value: Equatable & Sendable>(
         _ keyPath: KeyPath<PlaybackSnapshot, Value>
-    ) -> AnyPublisher<Value, Never> {
-        snapshotPublisher.map(keyPath).removeDuplicates().eraseToAnyPublisher()
+    ) -> AsyncRemoveDuplicatesSequence<AsyncMapSequence<AsyncStream<PlaybackSnapshot>, Value>> {
+        snapshots().map { $0[keyPath: keyPath] }.removeDuplicates()
     }
 }

@@ -286,26 +286,22 @@ public final class NowPlayingViewModel {
         handleCurrentTrackSet()
 
         // One subscription to the playback snapshot; each field updates only when it changes.
-        playbackService.snapshotPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] snapshot in
-                guard let self else { return }
-                self.setIfChanged(\.currentTrack, snapshot.currentTrack)
-                self.setIfChanged(\.playbackState, snapshot.playbackState)
+        subscriptions.append(playbackService.snapshots().observe(self) { model, snapshot in
+                model.setIfChanged(\.currentTrack, snapshot.currentTrack)
+                model.setIfChanged(\.playbackState, snapshot.playbackState)
                 // Queue changes also reset chord presentation after the active queue is replaced.
                 // The queue projection independently owns the UI-facing values.
-                self.resetChordModeIfQueueRebuilt(snapshot.queue)
-                self.setIfChanged(\.isShuffleEnabled, snapshot.isShuffleEnabled)
-                self.setIfChanged(\.repeatMode, snapshot.repeatMode)
-                self.setIfChanged(\.isAutoplayEnabled, snapshot.isAutoplayEnabled)
-                self.setIfChanged(\.isSmartMixEnabled, snapshot.isSmartMixEnabled)
-                self.playbackProjection.updateSmartMixTransitionActive(snapshot.isSmartMixTransitionActive)
-                self.setIfChanged(\.autoplayTracks, snapshot.autoplayTracks)
-                self.setIfChanged(\.radioMode, snapshot.radioMode)
-                self.setIfChanged(\.recommendationsExhausted, snapshot.recommendationsExhausted)
-                self.setIfChanged(\.isInstrumentalModeActive, snapshot.isInstrumentalModeActive)
-            }
-            .store(in: &cancellables)
+                model.resetChordModeIfQueueRebuilt(snapshot.queue)
+                model.setIfChanged(\.isShuffleEnabled, snapshot.isShuffleEnabled)
+                model.setIfChanged(\.repeatMode, snapshot.repeatMode)
+                model.setIfChanged(\.isAutoplayEnabled, snapshot.isAutoplayEnabled)
+                model.setIfChanged(\.isSmartMixEnabled, snapshot.isSmartMixEnabled)
+                model.playbackProjection.updateSmartMixTransitionActive(snapshot.isSmartMixTransitionActive)
+                model.setIfChanged(\.autoplayTracks, snapshot.autoplayTracks)
+                model.setIfChanged(\.radioMode, snapshot.radioMode)
+                model.setIfChanged(\.recommendationsExhausted, snapshot.recommendationsExhausted)
+                model.setIfChanged(\.isInstrumentalModeActive, snapshot.isInstrumentalModeActive)
+        })
 
         playbackService.waveformPublisher
             .receive(on: DispatchQueue.main)

@@ -116,8 +116,8 @@ public struct QueueItem: Identifiable, Equatable, Sendable, Codable {
 // MARK: - Playback Service Protocol
 
 public protocol PlaybackServiceProtocol: AnyObject {
-    /// The one published playback value; views and view models render from it.
-    var snapshotPublisher: AnyPublisher<PlaybackSnapshot, Never> { get }
+    /// The current playback snapshot, then each change; views and view models render from it.
+    @MainActor func snapshots() -> AsyncStream<PlaybackSnapshot>
     var currentTrack: Track? { get }
     var playbackState: PlaybackState { get }
     var duration: TimeInterval { get }
@@ -231,8 +231,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Publishers
 
-    /// The one published playback value. The properties below read and write it.
-    @Published public internal(set) var snapshot = PlaybackSnapshot(
+    /// The one playback value. The properties below read and write it.
+    public internal(set) var snapshot = PlaybackSnapshot(
         isShuffleEnabled: UserDefaults.standard.bool(forKey: PlaybackPreferenceKey.shuffleEnabled),
         repeatMode: RepeatMode(rawValue: UserDefaults.standard.integer(forKey: PlaybackPreferenceKey.repeatMode)) ?? .off,
         isAutoplayEnabled: UserDefaults.standard.bool(forKey: PlaybackPreferenceKey.autoplayEnabled),
@@ -240,11 +240,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         isSmartMixDisabledForAlbums: UserDefaults.standard.object(
             forKey: PlaybackPreferenceKey.smartMixDisabledForAlbums
         ) as? Bool ?? true
-    )
-
-    public var snapshotPublisher: AnyPublisher<PlaybackSnapshot, Never> {
-        $snapshot.eraseToAnyPublisher()
+    ) {
+        didSet {
+            if snapshot != oldValue { snapshotBroadcast.send(snapshot) }
+        }
     }
+    private let snapshotBroadcast = Broadcast<PlaybackSnapshot>()
+
+    public func snapshots() -> AsyncStream<PlaybackSnapshot> {
+        snapshotBroadcast.stream(startingWith: snapshot)
+    }
+
+    // The sample feeds below (time, buffering, waveform, frequency bands) stay
+    // on Combine: they run at 30-60 Hz and views read them with onReceive.
 
     public internal(set) var currentTrack: Track? {
         get { snapshot.currentTrack }

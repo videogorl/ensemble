@@ -140,18 +140,20 @@ public struct AuroraVisualizationView: View {
             cancelSettleToZero()
             ingestBands(bands)
         }
-        .onReceive(playbackService.snapshotPublisher(\.playbackState)) { state in
-            // Deduplicate: skip repeated state values to avoid redundant visibility checks
-            guard state != playbackState else { return }
-            playbackState = state
-            if state == .paused {
-                startSettleToZero()
-            } else if state == .playing || state == .buffering || state == .loading {
-                cancelSettleToZero()
+        .task {
+            for await state in playbackService.snapshots(\.playbackState) {
+                // Deduplicate: skip repeated state values to avoid redundant visibility checks
+                guard state != playbackState else { continue }
+                playbackState = state
+                if state == .paused {
+                    startSettleToZero()
+                } else if state == .playing || state == .buffering || state == .loading {
+                    cancelSettleToZero()
+                }
+                // Animate visibility only when the playback state actively changes.
+                // This produces the desired fade-in when the user first presses play.
+                updateVisibility(for: state, animated: true)
             }
-            // Animate visibility only when the playback state actively changes.
-            // This produces the desired fade-in when the user first presses play.
-            updateVisibility(for: state, animated: true)
         }
         .onAppear {
             isMounted = true

@@ -223,8 +223,15 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             )
         }
 
+        func snapshots() -> AsyncStream<PlaybackSnapshot> {
+            AsyncStream { continuation in
+                let subscription = snapshotPublisher.sink { continuation.yield($0) }
+                continuation.onTermination = { _ in subscription.cancel() }
+            }
+        }
+
         /// Re-emits the snapshot whenever any field subject changes.
-        var snapshotPublisher: AnyPublisher<PlaybackSnapshot, Never> {
+        private var snapshotPublisher: AnyPublisher<PlaybackSnapshot, Never> {
             let changes: [AnyPublisher<Void, Never>] = [
                 currentTrackSubject.map { _ in () }.eraseToAnyPublisher(),
                 playbackStateSubject.map { _ in () }.eraseToAnyPublisher(),

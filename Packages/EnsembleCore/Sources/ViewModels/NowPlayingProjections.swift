@@ -1,4 +1,5 @@
 import Combine
+import EnsembleSupport
 import Foundation
 import Observation
 
@@ -139,7 +140,7 @@ public final class NowPlayingQueueProjection {
     public private(set) var isAutoplayEnabled = false
     public private(set) var isSmartMixEnabled = false
     public private(set) var recommendationsExhausted = false
-    private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var snapshotSubscription: StreamSubscription?
 
     public var currentQueueItem: QueueItem? {
         guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return nil }
@@ -147,15 +148,11 @@ public final class NowPlayingQueueProjection {
     }
 
     func bind(to playbackService: PlaybackServiceProtocol) {
-        playbackService.snapshotPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] snapshot in
-                guard let self else { return }
-                self.updateQueue(snapshot.queue)
-                self.updateCurrentQueueIndex(snapshot.currentQueueIndex)
-                self.updatePlaybackHistory(snapshot.history)
-            }
-            .store(in: &cancellables)
+        snapshotSubscription = playbackService.snapshots().observe(self) { projection, snapshot in
+            projection.updateQueue(snapshot.queue)
+            projection.updateCurrentQueueIndex(snapshot.currentQueueIndex)
+            projection.updatePlaybackHistory(snapshot.history)
+        }
     }
 
     func updateQueue(_ newQueue: [QueueItem]) {
