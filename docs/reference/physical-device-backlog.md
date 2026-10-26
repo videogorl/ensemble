@@ -52,11 +52,10 @@ See [the step note](../investigations/2026-10-21-step-2-composition-observation.
   shows the same Now Playing model (lyrics, queue page, pause and skip stay in
   sync). The scene now receives the container from the app root (2b) and the
   model from `RootScreenModels` (2e).
-- AirPlay: the pinned native button and the overflow AirPlay item both open
-  the route picker. The overflow item's controller became `@Observable` in
-  2e; the native picker did not open on the simulator.
 - App Shortcuts and Siri: play a playlist and an artist by voice; services
-  now come from the app root (2b).
+  now come from the app root (2b). On 2026-10-26 an existing Play Track
+  shortcut stayed loading at 0:00 (step note, 2f device run); rerun it after
+  that is triaged. Play Album was not offered.
 - Step 2f, at `15d9b8ab` or later: Low Power Mode pauses and resumes offline
   downloads; turning off "stream on cellular" makes non-downloaded tracks
   unavailable on cellular; artwork that failed while a server was unreachable
@@ -109,15 +108,13 @@ See [the step note](../investigations/2026-10-17-step-1d-session-lifecycle.md).
 See [the step note](../investigations/2026-10-16-step-1c-engine-contract.md).
 Everything on Apple Music runs through the new adapter and is unproven:
 
-- Plex to Apple Music, Apple Music to Apple Music, and Apple Music to Plex,
-  with Next and with natural completion, locked and unlocked.
+- Plex to Apple Music, Apple Music to Apple Music, and Apple Music to Plex
+  by natural completion, locked and unlocked. (With Next, passed 2026-10-26.)
 - System Previous on an Apple Music item: the first restarts, a second within
-  three seconds goes back (inferred by the adapter).
-- Pause and resume from Control Center on an Apple Music item: the app follows.
+  three seconds goes back (inferred by the adapter). The restart passed on
+  2026-10-26; two quick presses restarted twice (step note, 2f device run).
 - Apple Music autoplay station: items advance, the queue mirrors upcoming
   items, and a station Previous does not add a duplicate (D5).
-- A track that follows a skip scrobbles in Plex once past 90 percent (D3),
-  with scrobbling enabled.
 - Lock Screen progress for native and Apple Music items.
 
 ### Step 1b queue policy, at `3e063453` or later
@@ -143,7 +140,8 @@ Rows from [`surface-checklist.md`](surface-checklist.md). Results so far are in
 
 Impossible on a simulator:
 
-- Lock Screen: artwork, title, pause, play, next, scrub.
+- Lock Screen: play and scrub. (Artwork, title, pause, and Next passed on
+  2026-10-26.)
 - Control Center: media tile, pause, play, next.
 - Background playback: natural track change while locked.
 - Offline playback: downloaded track in Airplane Mode; blocked track toasts.

@@ -191,3 +191,29 @@ path started it; the sync rebuild tests cover the trigger.
 Found along the way and logged as a P3 bug in AI Tasks: the availability
 resolver's deferred bump after downloads never runs once any fast bump has
 run, because the finished fast-bump task is never cleared.
+
+### iPhone run, 2026-10-26
+
+Build `202610261118.4092` from `409c26d7` on the iPhone 16 Pro (iOS 27.0.1),
+identity checked by `scripts/prepare_runtime.py`, run through Device Hub by a
+Codex agent under Felicity's rules: no calls, messages, or account changes,
+and one allowed Plex play. Items are the 27 owed checks from 2026-10-22.
+
+| # | Check | Result |
+|---|---|---|
+| 1–3 | Plex queue end, Repeat One wrap, repeat change while locked | not run: the queue page and repeat controls could not be reached through Device Hub |
+| 6 | Lock Screen during a load | partial: artwork, title, progress, pause, and Next pass; load-timed commands and scrub not run |
+| 8 | Plex ↔ Apple Music with Next, locked and unlocked | pass |
+| 9 | Apple Music Previous | **fail**: one press restarts; two presses 256 ms apart restart "Blinding Lights (Remix)" twice (11:39:14.900 and 11:39:15.156) instead of going back. The song had been added with Play Next and the log shows queue index 0, so it may have been first in the queue; not yet triaged |
+| 10 | Control Center pause and resume of Apple Music | pass |
+| 11–13 | Shuffle, station advance, Apple Music queue end | not run: controls not reachable |
+| 21 | Low Power Mode and downloads | not run: no download created |
+| 22 | Scrobble after a skip | pass: "Overcompensate" skipped, "Next Semester" (13852) scrobbled once at 211 of 234 s, paused before the end. The only Plex play of the run |
+| 23 | AirPlay button and overflow item | pass: both open the route picker; no route chosen |
+| 25 | App Shortcuts, Spotlight | **fail**: the existing Play Track shortcut for "Backslide" (13853) started at 11:27:55 and stayed loading at 0:00 until the app was restarted at 11:33. Its transcode decision request began during the foreground transition, as connections were refreshed, and never completed or failed. Hypothesis, unproven: the request was lost in that refresh with no timeout. Play Album was not offered; Spotlight was not shown a media result |
+| 4, 5, 7, 14–20, 24, 26, 27 | Calls, Bluetooth, failing songs, SmartMix boundary, Apple Music start failure, uploaded and stale-match songs, offline and cellular, server outage, TV, new album, Watch | need Felicity: physical actions, account or server changes, or Wi-Fi changes that would cut the Device Hub connection. The Watch was intermittently unavailable |
+
+No settings were left changed and nothing was created. The test queue
+replaced the earlier queue, and a "Backslide" recent search remains. Playback
+ended paused and the phone locked (`devicectl` lock state). Logs and
+screenshots: `/tmp/ensemble-2f-device/acceptance/`.
