@@ -42,7 +42,7 @@ Dependency flow is one-way:
 
 ## Core Ownership Rules
 
-- `DependencyContainer` wires services and ViewModel factories. Keep construction grouped by subsystem bootstrap helpers and cross-subsystem callback wiring in explicit post-construction helpers.
+- `DependencyContainer` constructs and wires services. The app creates the one instance in `AppRoot` and injects it into every scene and hosted SwiftUI root; there is no `shared`. Keep construction grouped by subsystem bootstrap helpers and cross-subsystem callback wiring in explicit post-construction helpers.
 - `CloudSyncCoordinator` owns profile/feature reconciliation, CloudKit/KVS callbacks, and bounded bootstrap retries. The container constructs it and delegates launch, foreground, and manual sync entry points.
 - `AppReadinessCoordinator` owns UI-safe launch/source/cache readiness snapshots. Browse ViewModels consume those snapshots instead of independently deriving add-source or empty states from transient account arrays, and library browse screens consume committed `LibraryBrowseSnapshot` values instead of raw arrays that may be empty mid-refresh.
 - Plex credentials remain Keychain-owned, but macOS startup hydration must use `AccountManager.loadAccountsAsync()` so Keychain Services cannot block SwiftUI scene construction. The non-secret Plex client identifier is `PlexAuthService`-owned and persisted in `UserDefaults`, not Keychain.

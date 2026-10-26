@@ -89,6 +89,7 @@ public extension View {
 #if os(iOS)
 /// Installs a dedicated top-level toast window so toasts appear above sheets and app chrome.
 public struct GlobalToastWindowHost: UIViewControllerRepresentable {
+    @Environment(DependencyContainer.self) private var dependencies
     private let toastCenter: ToastCenter
     private let bottomLimit: CGFloat?
 
@@ -98,7 +99,7 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
     }
 
     public func makeCoordinator() -> Coordinator {
-        Coordinator(toastCenter: toastCenter)
+        Coordinator(toastCenter: toastCenter, dependencies: dependencies)
     }
 
     public func makeUIViewController(context: Context) -> UIViewController {
@@ -141,13 +142,15 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
 
     public final class Coordinator {
         fileprivate var toastCenter: ToastCenter
+        private let dependencies: DependencyContainer
         fileprivate var bottomLimit: CGFloat?
         fileprivate weak var contentWindow: UIWindow?
         private var overlayWindow: PassthroughWindow?
         private weak var attachedScene: UIWindowScene?
 
-        fileprivate init(toastCenter: ToastCenter) {
+        fileprivate init(toastCenter: ToastCenter, dependencies: DependencyContainer) {
             self.toastCenter = toastCenter
+            self.dependencies = dependencies
         }
 
         fileprivate func attach(to scene: UIWindowScene?) {
@@ -168,7 +171,7 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
             window.backgroundColor = .clear
             window.windowLevel = .alert + 1
 
-            let host = UIHostingController(rootView: GlobalToastOverlayRootView(toastCenter: toastCenter, bottomLimit: bottomLimit, isSheetPresented: { [weak self] in
+            let host = UIHostingController(rootView: GlobalToastOverlayRootView(toastCenter: toastCenter, dependencies: dependencies, bottomLimit: bottomLimit, isSheetPresented: { [weak self] in
                 self?.contentWindow?.rootViewController?.presentedViewController != nil
             }) { [weak window] frame in
                 window?.toastFrame = frame
@@ -183,7 +186,7 @@ public struct GlobalToastWindowHost: UIViewControllerRepresentable {
         fileprivate func refreshRootView() {
             guard let window = overlayWindow,
                   let host = window.rootViewController as? UIHostingController<GlobalToastOverlayRootView> else { return }
-            host.rootView = GlobalToastOverlayRootView(toastCenter: toastCenter, bottomLimit: bottomLimit, isSheetPresented: { [weak self] in
+            host.rootView = GlobalToastOverlayRootView(toastCenter: toastCenter, dependencies: dependencies, bottomLimit: bottomLimit, isSheetPresented: { [weak self] in
                 self?.contentWindow?.rootViewController?.presentedViewController != nil
             }) { [weak window] frame in
                 window?.toastFrame = frame
@@ -219,8 +222,10 @@ private struct ToastFramePreference: PreferenceKey {
     }
 }
 
+/// Hosted in its own window, so it injects the container itself.
 private struct GlobalToastOverlayRootView: View {
     let toastCenter: ToastCenter
+    let dependencies: DependencyContainer
     let bottomLimit: CGFloat?
     let isSheetPresented: () -> Bool
     let onToastFrameChange: (CGRect) -> Void
@@ -240,6 +245,7 @@ private struct GlobalToastOverlayRootView: View {
                 }
         }
         .onPreferenceChange(ToastFramePreference.self, perform: onToastFrameChange)
+        .environment(dependencies)
     }
 
 }
@@ -248,6 +254,7 @@ private struct GlobalToastOverlayRootView: View {
 #if os(macOS)
 /// Installs a banner-sized overlay in the scene window, or its active sheet.
 public struct GlobalToastWindowHost: NSViewRepresentable {
+    @Environment(DependencyContainer.self) private var dependencies
     private let toastCenter: ToastCenter
     private let bottomInset: CGFloat
     private let miniPlayerFrame: CGRect?
@@ -259,7 +266,7 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
     }
 
     public func makeCoordinator() -> Coordinator {
-        Coordinator(toastCenter: toastCenter)
+        Coordinator(toastCenter: toastCenter, dependencies: dependencies)
     }
 
     public func makeNSView(context: Context) -> NSView {
@@ -291,6 +298,7 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
     @MainActor
     public final class Coordinator {
         fileprivate var toastCenter: ToastCenter
+        private let dependencies: DependencyContainer
         fileprivate var bottomInset: CGFloat = 0
         fileprivate var miniPlayerFrame: CGRect?
         private weak var contentWindow: NSWindow?
@@ -298,8 +306,9 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
         private var hostingView: NSHostingView<MacToastOverlayRootView>?
         private var observerTokens: [NSObjectProtocol] = []
 
-        fileprivate init(toastCenter: ToastCenter) {
+        fileprivate init(toastCenter: ToastCenter, dependencies: DependencyContainer) {
             self.toastCenter = toastCenter
+            self.dependencies = dependencies
         }
 
         fileprivate func update(toastCenter: ToastCenter, bottomInset: CGFloat) {
@@ -387,7 +396,7 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
         }
 
         private func toastRootView(width: CGFloat) -> MacToastOverlayRootView {
-            MacToastOverlayRootView(toastCenter: toastCenter, width: width)
+            MacToastOverlayRootView(toastCenter: toastCenter, dependencies: dependencies, width: width)
         }
 
         private func toastWidth(in contentView: NSView, window: NSWindow) -> CGFloat {
@@ -468,14 +477,17 @@ public struct GlobalToastWindowHost: NSViewRepresentable {
     }
 }
 
+/// Hosted outside the SwiftUI tree, so it injects the container itself.
 private struct MacToastOverlayRootView: View {
     let toastCenter: ToastCenter
+    let dependencies: DependencyContainer
     let width: CGFloat
 
     var body: some View {
         ToastHostView(toastCenter: toastCenter, horizontalPadding: 0, bottomPadding: 0)
             .frame(width: width)
             .fixedSize(horizontal: false, vertical: true)
+            .environment(dependencies)
     }
 }
 #endif
@@ -483,7 +495,8 @@ private struct MacToastOverlayRootView: View {
 public struct ToastBannerView: View {
     let toast: ToastPayload
     let toastCenter: ToastCenter
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    @Environment(DependencyContainer.self) private var dependencies
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
 
     public var body: some View {
         HStack(alignment: .center, spacing: EnsembleScaffold.Toast.iconTextSpacing) {

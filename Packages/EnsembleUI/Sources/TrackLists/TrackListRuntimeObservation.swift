@@ -13,32 +13,6 @@ extension EnvironmentValues {
     }
 }
 
-/// Centralizes the lightweight runtime values every native track list needs to
-/// redraw visible rows for download and availability changes.
-@MainActor
-struct TrackListRuntimeObservationModifier: ViewModifier {
-    @Environment(DependencyContainer.self) private var dependencies
-    @Binding var activeDownloadTrackIdentities: Set<String>
-    @Binding var availabilityGeneration: UInt64
-
-    private var offlineDownloadService: OfflineDownloadService { dependencies.offlineDownloadService }
-    private var trackAvailabilityResolver: TrackAvailabilityResolver { dependencies.trackAvailabilityResolver }
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: offlineDownloadService.activeDownloadTrackIdentities, initial: true) { _, keys in
-                if keys != activeDownloadTrackIdentities {
-                    activeDownloadTrackIdentities = keys
-                }
-            }
-            .onChange(of: trackAvailabilityResolver.availabilityGeneration, initial: true) { _, generation in
-                if generation != availabilityGeneration {
-                    availabilityGeneration = generation
-                }
-            }
-    }
-}
-
 /// Centralizes Now Playing projections used by persistent track-list surfaces.
 /// The modifier subscribes to narrow publishers without observing the whole
 /// view model, so high-churn Now Playing state does not invalidate the caller.
@@ -94,19 +68,6 @@ private enum LastPlaylistProjection {
 }
 
 extension View {
-    @MainActor
-    func trackListRuntimeObservation(
-        activeDownloadTrackIdentities: Binding<Set<String>>,
-        availabilityGeneration: Binding<UInt64>
-    ) -> some View {
-        modifier(
-            TrackListRuntimeObservationModifier(
-                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                availabilityGeneration: availabilityGeneration
-            )
-        )
-    }
-
     @MainActor
     func nowPlayingTrackListObservation(
         nowPlayingVM: NowPlayingViewModel,

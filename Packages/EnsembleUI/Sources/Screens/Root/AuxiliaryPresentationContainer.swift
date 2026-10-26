@@ -24,7 +24,8 @@ private struct AuxiliaryDismissToolbarModifier: ViewModifier {
 }
 
 public struct ProfilePresentationContainer: View {
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    @Environment(DependencyContainer.self) private var dependencies
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
 
     public init() {}
 
@@ -48,10 +49,12 @@ public struct ProfilePresentationContainer: View {
 
 public struct DownloadsPresentationContainer: View {
     @Environment(DependencyContainer.self) private var dependencies
-    @StateObject private var holder = NowPlayingHolder(dependencies: DependencyContainer.shared)
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    @StateObject private var holder: NowPlayingHolder
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
 
-    public init() {}
+    public init(dependencies: DependencyContainer) {
+        _holder = StateObject(wrappedValue: NowPlayingHolder(dependencies: dependencies))
+    }
 
     private var nowPlayingVM: NowPlayingViewModel { holder.nowPlaying }
 
@@ -106,6 +109,7 @@ public struct DownloadsPresentationContainer: View {
 
 private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
     @Environment(NavigationCoordinator.self) private var navigationCoordinator
+    @Environment(DependencyContainer.self) private var dependencies
 
     private var presentationBinding: Binding<NavigationCoordinator.AuxiliaryPresentation?> {
         Binding(
@@ -128,7 +132,7 @@ private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
                 case .profile:
                     ProfilePresentationContainer()
                 case .downloads:
-                    DownloadsPresentationContainer()
+                    DownloadsPresentationContainer(dependencies: dependencies)
                 }
             }
         #else

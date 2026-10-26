@@ -17,7 +17,7 @@ import BackgroundTasks
 /// delegates, and intents receive it from here, and nothing in Core or UI can
 /// reach it.
 enum AppRoot {
-    static let container = DependencyContainer.shared
+    static let container = DependencyContainer()
 }
 
 @main
@@ -60,8 +60,9 @@ struct EnsembleApp: App {
     var body: some Scene {
         WindowGroup {
             rootContent
-                .environment(AppRoot.container)
                 .installGlobalToastWindow(toastCenter: AppRoot.container.toastCenter)
+                // After the toast installer, so its window host also gets the container.
+                .environment(AppRoot.container)
                 .onAppear {
                     #if DEBUG && os(iOS)
                     if ProcessInfo.processInfo.arguments.contains("-EnsembleAutomationToastOverlay") {
@@ -194,7 +195,7 @@ struct EnsembleApp: App {
         .windowResizability(.contentSize)
 
         Window("Downloads", id: NavigationCoordinator.AuxiliaryPresentation.downloads.windowID) {
-            DownloadsPresentationContainer()
+            DownloadsPresentationContainer(dependencies: AppRoot.container)
                 .environment(AppRoot.container)
                 .environment(AppRoot.container.navigationCoordinator)
                 .ensembleAuxiliaryWindowFrame(.downloads)

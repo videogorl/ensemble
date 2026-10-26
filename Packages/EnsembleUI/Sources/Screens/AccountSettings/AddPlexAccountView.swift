@@ -9,7 +9,7 @@ import AppKit
 
 public struct AddPlexAccountView: View {
     @State private var viewModel: AddPlexAccountViewModel
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    private var settingsManager: SettingsManager { deps.settingsManager }
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(DependencyContainer.self) private var deps

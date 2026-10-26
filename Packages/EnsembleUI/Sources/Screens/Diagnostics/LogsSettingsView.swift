@@ -6,8 +6,8 @@ import SwiftUI
 /// Shows a toggle to enable/disable logging, a list of saved session files
 /// with swipe-to-delete, and navigation to view individual log contents.
 public struct LogsSettingsView: View {
-    private let logService = DependencyContainer.shared.persistentLogService
-    @State private var isLoggingEnabled: Bool = DependencyContainer.shared.persistentLogService.isEnabled
+    @Environment(DependencyContainer.self) private var dependencies
+    private var logService: PersistentLogService { dependencies.persistentLogService }
     @State private var showingDeleteAllSessionsAlert = false
 
     public init() {}
@@ -140,7 +140,7 @@ public struct LogsSettingsView: View {
     }
 
     private var persistentLoggingToggle: some View {
-        Toggle(isOn: $isLoggingEnabled) {
+        Toggle(isOn: Bindable(logService).isEnabled) {
             HStack {
                 Image(systemName: EnsembleDesign.Icon.logsVerified)
                     .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
@@ -151,9 +151,6 @@ public struct LogsSettingsView: View {
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
-        }
-        .onChange(of: isLoggingEnabled) { newValue in
-            logService.isEnabled = newValue
         }
     }
 

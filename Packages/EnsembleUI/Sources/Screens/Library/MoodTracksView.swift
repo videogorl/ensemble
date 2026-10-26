@@ -15,8 +15,8 @@ public struct MoodTracksView: View {
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
 
     // Targeted observation state (pattern from MediaDetailView)
-    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
-    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    private var activeDownloadTrackIdentities: Set<String> { deps.offlineDownloadService.activeDownloadTrackIdentities }
+    private var availabilityGeneration: UInt64 { deps.trackAvailabilityResolver.availabilityGeneration }
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
@@ -87,10 +87,6 @@ public struct MoodTracksView: View {
                 viewModel.start()
                 await loadTracks()
             }
-            .trackListRuntimeObservation(
-                activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
-                availabilityGeneration: $availabilityGeneration
-            )
             .nowPlayingTrackListObservation(
                 nowPlayingVM: nowPlayingVM,
                 currentTrackId: $currentTrackId,

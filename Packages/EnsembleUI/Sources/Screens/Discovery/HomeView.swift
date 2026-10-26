@@ -8,14 +8,12 @@ public struct HomeView: View {
     @Environment(DependencyContainer.self) private var dependencies
     @Bindable private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
-    private let profileStore = DependencyContainer.shared.userProfileStore
-    private let cacheManager: CacheManager
+    private var profileStore: UserProfileStore { dependencies.userProfileStore }
     @State private var profileBackgroundImage: PlatformImage?
     @State private var profileBackgroundBlurredImage: PlatformImage?
     @State private var profileBackgroundCacheKey: String?
-    @State private var artworkCacheInvalidationGeneration: UInt64
-    // Targeted singleton observation: only fires when sync state changes (for empty state)
-    @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
+    private var artworkCacheInvalidationGeneration: UInt64 { dependencies.cacheManager.artworkCacheInvalidationGeneration }
+    private var isSyncing: Bool { dependencies.syncCoordinator.isSyncing }
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @Environment(NavigationCoordinator.self) private var navigationCoordinator
@@ -27,14 +25,9 @@ public struct HomeView: View {
         viewModel: HomeViewModel,
         isSelectedRoot: Bool = true
     ) {
-        let container = DependencyContainer.shared
         self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
-        self.cacheManager = container.cacheManager
         self.isSelectedRoot = isSelectedRoot
-        _artworkCacheInvalidationGeneration = State(
-            initialValue: container.cacheManager.artworkCacheInvalidationGeneration
-        )
     }
 
     public var body: some View {
@@ -88,14 +81,6 @@ public struct HomeView: View {
         #else
         .artworkBackedToolbarBleed()
         #endif
-        .onChange(of: DependencyContainer.shared.syncCoordinator.isSyncing, initial: true) { _, syncing in
-            if syncing != isSyncing { isSyncing = syncing }
-        }
-        .onChange(of: cacheManager.artworkCacheInvalidationGeneration, initial: true) { _, generation in
-            if generation != artworkCacheInvalidationGeneration {
-                artworkCacheInvalidationGeneration = generation
-            }
-        }
         .task(id: viewModel.hasEnabledLibraries) {
             await viewModel.loadHubsIfNeeded()
         }
@@ -315,7 +300,8 @@ public struct HomeView: View {
         guard let image else { return }
         let blurredImage = await dependencies.artworkLoader.blurredImage(
             for: image,
-            cacheKey: cacheKey
+            cacheKey: cacheKey,
+            scheduler: dependencies.foregroundWorkScheduler
         )
 
         guard reloadKey == profileBackgroundReloadKey else { return }
@@ -333,7 +319,8 @@ struct HubSection: View {
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
     @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
     @Environment(NavigationCoordinator.self) private var navigationCoordinator
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    @Environment(DependencyContainer.self) private var dependencies
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
 
     private var displayItems: [DisplayHubItem] {
         DisplayHubItem.group(hub.items, preferences: settingsManager.mergingPreferences)

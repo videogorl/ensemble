@@ -2,7 +2,8 @@ import EnsembleCore
 import SwiftUI
 
 public struct TrackSwipeActionsSettingsView: View {
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    @Environment(DependencyContainer.self) private var dependencies
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
     @State private var leadingSlots: [TrackSwipeAction?] = []
     @State private var trailingSlots: [TrackSwipeAction?] = []
 

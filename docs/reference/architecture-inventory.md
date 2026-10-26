@@ -452,7 +452,7 @@ Dynamic home screen powered by Plex's hub system:
   - Match quality: exact normalized > prefix > contains
   - Tie-breaks: last played > play count > track count > deterministic name/id
 - Extension returns `.handleInApp` with serialized `SiriPlaybackRequestPayload` in `NSUserActivity.userInfo`.
-- `AppDelegate+Siri.application(_:continue:restorationHandler:)` routes payloads to `DependencyContainer.shared.siriPlaybackCoordinator`.
+- `AppDelegate+Siri.application(_:continue:restorationHandler:)` routes payloads to `AppRoot.container.siriPlaybackCoordinator`.
 - `SiriPlaybackCoordinator` resolves media against enabled sources and executes:
   - Track: direct playback from resolved track
   - Album: queue album tracks from first track

@@ -158,9 +158,14 @@ struct AudioQualitySettingsView: View {
 struct SmartMixSettingsView: View {
     @Environment(DependencyContainer.self) private var dependencies
     private var playbackService: PlaybackService { dependencies.playbackService }
-    private let accountManager = DependencyContainer.shared.accountManager
-    @State private var isSmartMixEnabled = DependencyContainer.shared.playbackService.isSmartMixEnabled
-    @State private var isSmartMixDisabledForAlbums = DependencyContainer.shared.playbackService.isSmartMixDisabledForAlbums
+    private var accountManager: AccountManager { dependencies.accountManager }
+    // Playback is not observable: read it directly until the snapshot stream reports.
+    @State private var streamedSmartMixEnabled: Bool?
+    @State private var streamedSmartMixDisabledForAlbums: Bool?
+    private var isSmartMixEnabled: Bool { streamedSmartMixEnabled ?? playbackService.isSmartMixEnabled }
+    private var isSmartMixDisabledForAlbums: Bool {
+        streamedSmartMixDisabledForAlbums ?? playbackService.isSmartMixDisabledForAlbums
+    }
 
     var body: some View {
         EnsembleAdaptiveUtilityScaffold(title: "SmartMix") {
@@ -204,11 +209,11 @@ struct SmartMixSettingsView: View {
         }
         .task {
             for await snapshot in playbackService.snapshots() {
-                if isSmartMixEnabled != snapshot.isSmartMixEnabled {
-                    isSmartMixEnabled = snapshot.isSmartMixEnabled
+                if streamedSmartMixEnabled != snapshot.isSmartMixEnabled {
+                    streamedSmartMixEnabled = snapshot.isSmartMixEnabled
                 }
-                if isSmartMixDisabledForAlbums != snapshot.isSmartMixDisabledForAlbums {
-                    isSmartMixDisabledForAlbums = snapshot.isSmartMixDisabledForAlbums
+                if streamedSmartMixDisabledForAlbums != snapshot.isSmartMixDisabledForAlbums {
+                    streamedSmartMixDisabledForAlbums = snapshot.isSmartMixDisabledForAlbums
                 }
             }
         }
@@ -247,7 +252,8 @@ struct SmartMixSettingsView: View {
 // MARK: - Merging Settings
 
 struct MergingSettingsView: View {
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    @Environment(DependencyContainer.self) private var dependencies
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
 
     var body: some View {
         EnsembleAdaptiveUtilityScaffold(title: "Merging") {
@@ -318,7 +324,8 @@ struct MergingSettingsView: View {
 // MARK: - Connection Policy Settings
 
 struct ConnectionPolicySettingsView: View {
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    @Environment(DependencyContainer.self) private var dependencies
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
 
     var body: some View {
         EnsembleAdaptiveUtilityScaffold(title: "Connection Security") {

@@ -619,7 +619,7 @@ final class EnsembleUITests: XCTestCase {
             sourceCompositeKey: "plex:account:server:library"
         )
         var candidateLookups = 0
-        let dependencies = DependencyContainer.shared
+        let dependencies = DependencyContainer()
         let coordinator = MacNativeTrackTableView.Coordinator(
             sections: [NativeTrackListSection(id: "all", title: "", tracks: [track])],
             showArtwork: false,
@@ -647,6 +647,7 @@ final class EnsembleUITests: XCTestCase {
             shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
+            settingsManager: dependencies.settingsManager,
             onRemoveFromPlaylist: nil,
             onTrackTap: { _, _ in }
         )

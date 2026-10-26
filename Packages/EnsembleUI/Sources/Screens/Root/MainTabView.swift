@@ -14,9 +14,6 @@ public struct MainTabView: View {
     private let nowPlayingVM: NowPlayingViewModel
     @Namespace private var mediaNavigationNamespace
     private var settingsManager: SettingsManager { deps.settingsManager }
-    // Observation-extracted: networkMonitor publishes on every network state change,
-    // which would invalidate the entire root view. We only need networkState, so we
-    // listen to just that property and store it in @State.
     private var networkMonitor: NetworkMonitor { deps.networkMonitor }
     private var powerStateMonitor: PowerStateMonitor { deps.powerStateMonitor }
     @Environment(NavigationCoordinator.self) private var navigationCoordinator
@@ -25,12 +22,11 @@ public struct MainTabView: View {
     @Environment(\.isSoftwareKeyboardVisible) private var isSoftwareKeyboardVisible
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var didSetInitialTab = false
-    // Extracted observation state — avoids full root invalidation from singleton publishers
-    @State private var networkState: NetworkState = DependencyContainer.shared.networkMonitor.networkState
-    @State private var isLowPowerMode: Bool = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
-    @State private var enabledTabs: [TabItem] = DependencyContainer.shared.settingsManager.enabledTabs
-    @State private var accentColor: AppAccentColor = DependencyContainer.shared.settingsManager.accentColor
-    @State private var auroraVisualizationEnabled: Bool = DependencyContainer.shared.settingsManager.auroraVisualizationEnabled
+    // Settings fields copied out of the one `AppSettings` value, so an unrelated
+    // settings change does not re-render the root.
+    @State private var enabledTabs: [TabItem]
+    @State private var accentColor: AppAccentColor
+    @State private var auroraVisualizationEnabled: Bool
     @State private var tabInteractionGeneration = 0
     @State private var tabBarBottomClearance: CGFloat = 0
     // Get the tabs to show in the bar (limit to 4, then More)
@@ -57,6 +53,10 @@ public struct MainTabView: View {
         self.isAdaptivePhoneRoot = isAdaptivePhoneRoot
         self.nowPlayingVM = nowPlayingVM
         self.viewModels = viewModels
+        let settings = viewModels.dependencies.settingsManager
+        _enabledTabs = State(initialValue: settings.enabledTabs)
+        _accentColor = State(initialValue: settings.accentColor)
+        _auroraVisualizationEnabled = State(initialValue: settings.auroraVisualizationEnabled)
     }
 
     private var libraryVM: LibraryViewModel {
@@ -167,14 +167,6 @@ public struct MainTabView: View {
                 async let pinsLoad: () = pinnedVM.loadPinnedItemsIfNeeded()
                 _ = await (libraryRefresh, pinsLoad)
             }
-            // Observation-extracted receivers — update @State only when specific values change,
-            // avoiding full root view invalidation from singleton objectWillChange.
-            .onChange(of: networkMonitor.networkState, initial: true) { _, newValue in
-                if networkState != newValue { networkState = newValue }
-            }
-            .onChange(of: powerStateMonitor.isLowPowerMode, initial: true) { _, newValue in
-                if isLowPowerMode != newValue { isLowPowerMode = newValue }
-            }
             .onChange(of: settingsManager.settings) {
                 updateSettingsSnapshot()
             }
@@ -193,7 +185,7 @@ public struct MainTabView: View {
                 .overlay(alignment: .top) {
                     if !rootChromeSuppressed {
                         OfflineIndicatorOverlay(
-                            networkState: networkState,
+                            networkState: networkMonitor.networkState,
                             topInset: geometry.safeAreaInsets.top
                         )
                     }
@@ -332,7 +324,7 @@ public struct MainTabView: View {
                     consumer: .phoneOverlay,
                     accentColor: accentColor.color,
                     isPaused: isShowingNowPlaying,
-                    isLowPowerMode: isLowPowerMode
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode
                 )
                 .ignoresSafeArea(.all)
                 .allowsHitTesting(false)
@@ -554,7 +546,7 @@ public struct SidebarView: View {
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
-    @State private var accentColor: AppAccentColor = DependencyContainer.shared.settingsManager.accentColor
+    @State private var accentColor: AppAccentColor
 
     // Cached sidebar playlist items driven by .onReceive — avoids computed property
     // re-evaluation issues on macOS where NavigationSplitView can swallow updates.
@@ -581,6 +573,7 @@ public struct SidebarView: View {
         self.wantsPhoneTabs = wantsPhoneTabs
         self._columnVisibility = State(initialValue: usesNativeBrowse ? .all : .automatic)
         self.rootSidebarChromeRegistrationHandler = rootSidebarChromeRegistrationHandler
+        _accentColor = State(initialValue: viewModels.dependencies.settingsManager.accentColor)
     }
 
     private var libraryVM: LibraryViewModel {

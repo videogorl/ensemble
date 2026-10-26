@@ -15,7 +15,7 @@ public struct RootView: View {
     @Environment(DependencyContainer.self) private var dependencies
     @Environment(\.scenePhase) private var scenePhase
     @State private var usesExpandedPhoneBrowse = false
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
     private var powerStateMonitor: PowerStateMonitor { dependencies.powerStateMonitor }
     @State private var navigationCoordinator: NavigationCoordinator
     @StateObject private var screenModels: RootScreenModels
@@ -25,7 +25,6 @@ public struct RootView: View {
     @State private var isNowPlayingPresented = false
     @State private var sidebarSelection: SidebarSelection? = .library(.home)
     @State private var rootSidebarChromeRegistration: RootSidebarChromeRegistration = .absent
-    @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @State private var isSoftwareKeyboardVisible = false
     @State private var hasLoggedAutomationLaunchOptions = false
     @State private var hasAppliedAutomationNetworkState = false
@@ -58,10 +57,10 @@ public struct RootView: View {
     public var body: some View {
         RootSceneLayerHost(
             nowPlayingVM: nowPlayingVM,
-            playbackService: DependencyContainer.shared.playbackService,
+            playbackService: dependencies.playbackService,
             accentColor: settingsManager.accentColor.color,
             isAuroraEnabled: settingsManager.auroraVisualizationEnabled && showsRootAurora && nowPlayingVM.currentTrack?.sourceCapabilities.supportsWaveform != false,
-            isLowPowerMode: isLowPowerMode,
+            isLowPowerMode: powerStateMonitor.isLowPowerMode,
             isNowPlayingPresented: isNowPlayingPresented,
             isSoftwareKeyboardVisible: isSoftwareKeyboardVisible,
             sidebarChromeRegistration: rootSidebarChromeRegistration,
@@ -127,9 +126,6 @@ public struct RootView: View {
                 applyAutomationLaunchRouteIfNeeded()
                 applyAutomationPlaylistRefreshIfNeeded()
             }
-        }
-        .onChange(of: powerStateMonitor.isLowPowerMode, initial: true) { _, newValue in
-            isLowPowerMode = newValue
         }
         .onChange(of: navigationCoordinator.selectedTab, initial: true) { _, tab in
             syncSidebarSelection(to: tab)

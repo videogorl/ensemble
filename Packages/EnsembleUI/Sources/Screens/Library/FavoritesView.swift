@@ -13,19 +13,18 @@ import SwiftUI
 public struct FavoritesView: View {
     @State private var viewModel: FavoritesViewModel
     let nowPlayingVM: NowPlayingViewModel
-    // Targeted singleton observation for empty state only
-    @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
-    @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
-    @State private var hasEnabledLibrariesState = !DependencyContainer.shared.accountManager.enabledSources().isEmpty
-    @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
+    private var hasAnySources: Bool { deps.accountManager.hasAnySources }
+    private var isSyncing: Bool { deps.syncCoordinator.isSyncing }
+    private var hasEnabledLibrariesState: Bool { !deps.accountManager.enabledSources().isEmpty }
+    private var isRestoringCloudSources: Bool { deps.accountManager.isAwaitingCloudSources }
     @State private var showFilterSheet = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     // Targeted NVM observation: only re-evaluate when track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
     // Targeted observation: only re-evaluate when these specific values change
-    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
-    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    private var activeDownloadTrackIdentities: Set<String> { deps.offlineDownloadService.activeDownloadTrackIdentities }
+    private var availabilityGeneration: UInt64 { deps.trackAvailabilityResolver.availabilityGeneration }
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     @State private var hasCompletedInitialLoad = false
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
@@ -63,21 +62,6 @@ public struct FavoritesView: View {
         .onChange(of: nowPlayingVM.lastPlaylistTarget?.title, initial: true) { _, title in
             if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
-        .onChange(of: DependencyContainer.shared.accountManager.sourceConfigurationSnapshot, initial: true) { _, snapshot in
-            if snapshot.hasAnySources != hasAnySources { hasAnySources = snapshot.hasAnySources }
-            let enabledLibs = !snapshot.enabledSources.isEmpty
-            if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
-        }
-        .onChange(of: DependencyContainer.shared.syncCoordinator.isSyncing, initial: true) { _, syncing in
-            if syncing != isSyncing { isSyncing = syncing }
-        }
-        .onChange(of: DependencyContainer.shared.accountManager.isAwaitingCloudSources, initial: true) { _, awaiting in
-            if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
-        }
-        .trackListRuntimeObservation(
-            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
-            availabilityGeneration: $availabilityGeneration
-        )
         .onChange(of: viewModel.isLoading, initial: true) { _, isLoading in
             if !isLoading && !hasCompletedInitialLoad {
                 hasCompletedInitialLoad = true

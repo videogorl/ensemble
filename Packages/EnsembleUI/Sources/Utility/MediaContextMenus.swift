@@ -826,7 +826,8 @@ struct HiddenMediaDetailMenuButton: View {
     let candidates: [HiddenMediaCandidate]
     let identity: HiddenMediaIdentity?
 
-    private let hiddenMediaStore = DependencyContainer.shared.hiddenMediaStore
+    @Environment(DependencyContainer.self) private var dependencies
+    private var hiddenMediaStore: HiddenMediaStore { dependencies.hiddenMediaStore }
     @Environment(\.dismiss) private var dismiss
     @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     @State private var requestedHideIdentities: Set<HiddenMediaIdentity> = []

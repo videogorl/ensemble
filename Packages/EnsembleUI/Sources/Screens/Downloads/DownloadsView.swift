@@ -5,7 +5,7 @@ import SwiftUI
 public struct DownloadsView: View {
     @Environment(DependencyContainer.self) private var dependencies
     @State private var viewModel: DownloadsViewModel
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
     @State private var showTemporaryResumeConfirmation = false
     @State private var temporaryResumeReason: QueueStatusReason = .idle
     let nowPlayingVM: NowPlayingViewModel

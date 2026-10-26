@@ -11,8 +11,8 @@ init plus `start()`. Simulator-checked, not verified.
 | Step | State |
 |---|---|
 | 2b One root | Done, `dfbd8ce8` |
-| 2c UI off the global | Part 1, `a1757f07`: view bodies read the container from the environment. Remaining `.shared` uses are next |
-| 2d Core off the global | Not started |
+| 2c UI off the global | Done, `a1757f07` and 2c/2d commit below |
+| 2d Core off the global | Done; `DependencyContainer.shared` no longer exists |
 | 2e View models to Observation | Done, `2e35047c` to `31f8e27c` |
 | 2f Services to snapshot plus events | Done, `4fcb7dc5` to `15d9b8ab`, with three agreed exceptions (below) |
 
@@ -232,3 +232,43 @@ rest dropped. Siri was opened from Spotlight, as iOS 27 allows.
 Three Plex songs started and were paused below 8%; no Plex play was counted.
 Low Power Mode is back off and recent searches are cleared. Playback ended
 paused and the phone locked. Evidence: `/tmp/ensemble-2f-device/acceptance-2/`.
+
+## Steps 2c and 2d: no global container
+
+Felicity approved finishing 2c and 2d on 2026-10-26.
+
+| Change | Detail |
+|---|---|
+| Stored references | Views that kept `private let x = DependencyContainer.shared.x` read the environment instead; views without one gained `@Environment(DependencyContainer.self)` |
+| Copied service state | Services have been `@Observable` since 2f, so `@State` copies of download identities, availability generation, sync, offline, cloud-restore, low power, network state, and the header pin state became direct reads. The track-list sync modifier that fed them is deleted. Root settings fields (`MainTabView`'s tabs, accent, aurora) stay copied, because `SettingsManager` holds one `AppSettings` value and a direct read would re-render the root on any setting; they now start from the container passed through `RootScreenModels` |
+| Playback toggles | `PlaybackService` is not `@Observable`. The Autoplay and SmartMix toggles read it directly until its snapshot stream reports, and set it through its methods |
+| Hosted roots | The toast window's UIKit and AppKit roots inject the container; `EnsembleApp` applies `.environment` after installing the toast window so its host is inside the injected tree. The Downloads window's Now Playing holder takes the container in its init |
+| Core | `ArtworkLoader.blurredImage` requires its scheduler; callers pass the container's. `static let shared` is deleted, the init is public, and `AppRoot` creates the one container |
+
+Also fixed: the EnsembleUI test that builds a Mac track table coordinator had
+not been updated for its `settingsManager` parameter in part 1 and did not
+compile.
+
+### Checks
+
+- Builds through `scripts/build_serial.py`: iOS Simulator, macOS, watchOS.
+- EnsembleUI: 126 tests pass. EnsembleCore: the full suite hung in
+  `AudioAnalyzerTests`, blocked inside `AVAudioEngine.mainMixerNode` on the
+  same host audio problem as below; the artwork loader, navigation, Now
+  Playing artwork and bridge, automation, and stream suites (63 tests) pass.
+  The full suite is owed once host audio is back.
+- Simulator `C01A1C06-F40B-4B39-93A7-7D1D9C89D9A1`, build `202610261353.5523`
+  (2c): Home, all tabs, artist and album detail, pin and unpin, New Playlist
+  enabled online, Autoplay, SmartMix, and Persistent Logging toggles (each
+  flipped and restored), iCloud Sync, Downloads from More and as a sheet,
+  test toast, Now Playing controls and queue pages, live accent colour change
+  — pass. The first 2c build crashed at launch because the toast window host
+  sat outside the injected container; the order fix above came from that run.
+- 2d build `202610261409.5523`: Home and the artist hero blur render. The
+  album backdrop, Now Playing, and toast checks were cut short: the
+  simulator's audio unit times out (`AURemoteIO::Initialize` RPC) about 20 s
+  after launch and aborts the app. The last commit before 2c, built and run
+  as a control, crashes the same way, so this is the host environment (the
+  Mac's default output was a virtual Jump Desktop device), not this change.
+- The Mac app built at 2d, launched from `/tmp` with its PID path checked,
+  stayed up; its windows were not exercised.

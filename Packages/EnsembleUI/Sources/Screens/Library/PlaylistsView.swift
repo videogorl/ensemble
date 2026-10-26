@@ -99,8 +99,8 @@ public struct PlaylistsView: View {
     @State private var renamePushPlaylistTitle = ""
     // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist]?
-    @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
-    @State private var demoModeEnabled = DependencyContainer.shared.settingsManager.demoModeEnabled
+    private var isRestoringCloudSources: Bool { deps.accountManager.isAwaitingCloudSources }
+    private var demoModeEnabled: Bool { deps.settingsManager.demoModeEnabled }
     @Environment(DependencyContainer.self) private var deps
     private var settingsManager: SettingsManager { deps.settingsManager }
     private var accountManager: AccountManager { deps.accountManager }
@@ -236,13 +236,6 @@ public struct PlaylistsView: View {
                 }
             } message: {
                 Text("This will permanently delete \"\(playlistPendingSwipeDelete?.title ?? "this playlist")\" from its source.")
-            }
-            .onChange(of: accountManager.isAwaitingCloudSources, initial: true) { _, awaiting in
-                if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
-            }
-            .onChange(of: settingsManager.settings) {
-                let latest = settingsManager.demoModeEnabled
-                if latest != demoModeEnabled { demoModeEnabled = latest }
             }
             .sheet(item: $playlistForEditSheet) { playlist in
                 PlaylistDetailView(
@@ -699,7 +692,6 @@ private struct PlaylistsNewButton: View {
     @Environment(DependencyContainer.self) private var dependencies
     let action: () -> Void
     private var syncCoordinator: SyncCoordinator { dependencies.syncCoordinator }
-    @State private var isOffline = DependencyContainer.shared.syncCoordinator.isOffline
 
     var body: some View {
         Button {
@@ -707,12 +699,7 @@ private struct PlaylistsNewButton: View {
         } label: {
             Label("New Playlist", systemImage: EnsembleDesign.Icon.add)
         }
-        .disabled(isOffline)
-        .onChange(of: syncCoordinator.isOffline, initial: true) { _, newValue in
-            if newValue != isOffline {
-                isOffline = newValue
-            }
-        }
+        .disabled(syncCoordinator.isOffline)
     }
 }
 

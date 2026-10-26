@@ -6,12 +6,10 @@ import SwiftUI
 /// Navigated to from ProfileView. Master toggle at top,
 /// individual feature toggles below with dependency dimming.
 public struct SyncSettingsView: View {
-    @Bindable private var syncSettings: SyncSettingsManager
-    private let dependencies = DependencyContainer.shared
+    @Environment(DependencyContainer.self) private var dependencies
+    private var syncSettings: SyncSettingsManager { dependencies.syncSettingsManager }
 
-    public init(syncSettings: SyncSettingsManager = DependencyContainer.shared.syncSettingsManager) {
-        self.syncSettings = syncSettings
-    }
+    public init() {}
 
     public var body: some View {
         List {
@@ -86,7 +84,7 @@ public struct SyncSettingsView: View {
 
     private var masterToggleRow: some View {
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs + EnsembleDesign.Spacing.xxs) {
-            Toggle(isOn: $syncSettings.isMasterSyncEnabled) {
+            Toggle(isOn: Bindable(syncSettings).isMasterSyncEnabled) {
                 Label {
                     VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xxs) {
                         Text("Sync This Device")

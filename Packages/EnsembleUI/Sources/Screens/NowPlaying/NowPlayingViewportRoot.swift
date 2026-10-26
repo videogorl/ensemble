@@ -12,8 +12,8 @@ struct NowPlayingBackdrop: View {
     let activeContentMaxWidth: CGFloat?
     let forceDarkPresentation: Bool
 
-    private let settingsManager = DependencyContainer.shared.settingsManager
-    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
+    private var powerStateMonitor: PowerStateMonitor { dependencies.powerStateMonitor }
     @Environment(\.colorScheme) private var colorScheme
 
     init(
@@ -99,7 +99,8 @@ struct NowPlayingViewportRoot: View {
     }
 
     @Bindable var viewModel: NowPlayingViewModel
-    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    @Environment(DependencyContainer.self) private var dependencies
+    private var powerStateMonitor: PowerStateMonitor { dependencies.powerStateMonitor }
     private let queueProjection: NowPlayingQueueProjection
 
     private let dismissAction: () -> Void

@@ -8,21 +8,14 @@ import AppKit
 /// Compact profile menu for toolbar placement.
 /// Provides device-local library visibility controls and opens Settings.
 public struct ProfileToolbarButton: View {
-    private let profileStore: UserProfileStore
-    private let accountManager: AccountManager
-    private let visibilityStore: LibraryVisibilityStore
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    @Environment(DependencyContainer.self) private var dependencies
+    private var profileStore: UserProfileStore { dependencies.userProfileStore }
+    private var accountManager: AccountManager { dependencies.accountManager }
+    private var visibilityStore: LibraryVisibilityStore { dependencies.libraryVisibilityStore }
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
     @Environment(NavigationCoordinator.self) private var navigationCoordinator
 
-    public init(
-        profileStore: UserProfileStore = DependencyContainer.shared.userProfileStore,
-        accountManager: AccountManager = DependencyContainer.shared.accountManager,
-        visibilityStore: LibraryVisibilityStore = DependencyContainer.shared.libraryVisibilityStore
-    ) {
-        self.profileStore = profileStore
-        self.accountManager = accountManager
-        self.visibilityStore = visibilityStore
-    }
+    public init() {}
 
     public var body: some View {
         let serverNames = accountManager.plexAccounts

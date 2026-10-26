@@ -16,7 +16,7 @@ public struct PlaylistPickerSheet: View {
     @State private var isSubmitting = false
     @State private var searchText = ""
     @State private var pendingMissingPlaylist: DisplayPlaylist?
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    private var settingsManager: SettingsManager { deps.settingsManager }
     @State private var playlistsContainingSelection = Set<String>()
 
     public init(

@@ -738,6 +738,7 @@ extension PlaybackService {
                   let index = self.upcomingQueueIndices(depth: 1).first else { return }
             let track = self.queue[index].track
             let artworkLoader = self.artworkLoader
+            let scheduler = self.foregroundWorkScheduler
 
             self.artworkPrefetchTask?.cancel()
             self.artworkPrefetchTask = Task(priority: .utility) {
@@ -747,10 +748,12 @@ extension PlaybackService {
                     priority: .low
                 )
                 guard case .resolved(let resolved) = await artworkLoader.resolve(request),
-                      !Task.isCancelled else { return }
+                      !Task.isCancelled,
+                      let scheduler else { return }
                 _ = await artworkLoader.blurredImage(
                     for: resolved.image,
                     cacheKey: resolved.blurCacheKey,
+                    scheduler: scheduler,
                     requiresIdle: true
                 )
             }

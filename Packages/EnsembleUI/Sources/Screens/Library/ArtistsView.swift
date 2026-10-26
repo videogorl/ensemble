@@ -614,7 +614,7 @@ private struct StableArtistArtworkImage<Fallback: View>: View {
 public struct ArtistDetailView: View {
     @State private var viewModel: ArtistDetailViewModel
     @State private var mergedViewModel: MergedArtistDetailViewModel
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
     private let displayArtist: DisplayArtist
     private let includesHidden: Bool
     let nowPlayingVM: NowPlayingViewModel
@@ -624,8 +624,8 @@ public struct ArtistDetailView: View {
     @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     private var pinManager: PinManager { dependencies.pinManager }
     // Targeted observation: only re-evaluate when these specific values change
-    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
-    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    private var activeDownloadTrackIdentities: Set<String> { dependencies.offlineDownloadService.activeDownloadTrackIdentities }
+    private var availabilityGeneration: UInt64 { dependencies.trackAvailabilityResolver.availabilityGeneration }
     // Targeted NVM observation: only re-evaluate for track changes and playlist target
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
@@ -719,10 +719,6 @@ public struct ArtistDetailView: View {
         }
         .artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: !showToolbarTitle)
         .miniPlayerBottomSpacing()
-        .trackListRuntimeObservation(
-            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
-            availabilityGeneration: $availabilityGeneration
-        )
         .nowPlayingTrackListObservation(
             nowPlayingVM: nowPlayingVM,
             currentTrackId: $currentTrackId,
@@ -958,7 +954,8 @@ public struct ArtistDetailView: View {
 
         let blurredImage = await dependencies.artworkLoader.blurredImage(
             for: heroImage,
-            cacheKey: "\(resolved.blurCacheKey)|artist-hero"
+            cacheKey: "\(resolved.blurCacheKey)|artist-hero",
+            scheduler: dependencies.foregroundWorkScheduler
         )
         await MainActor.run {
             guard currentArtworkLoadIdentity == loadIdentity else { return }

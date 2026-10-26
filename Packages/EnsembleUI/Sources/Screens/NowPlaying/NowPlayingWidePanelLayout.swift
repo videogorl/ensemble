@@ -13,7 +13,8 @@ struct NowPlayingWidePanelLayout: View {
     private let headerLeadingPadding: CGFloat
     private let headerTrailingPadding: CGFloat
     private let centersContentInAvailableSpace: Bool
-    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    @Environment(DependencyContainer.self) private var dependencies
+    private var powerStateMonitor: PowerStateMonitor { dependencies.powerStateMonitor }
     private let queueProjection: NowPlayingQueueProjection
 
     init(

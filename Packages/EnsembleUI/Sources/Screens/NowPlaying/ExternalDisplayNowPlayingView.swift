@@ -12,7 +12,8 @@ import SwiftUI
 /// lyrics, queue, and panel selection stay in sync with zero duplicate work.
 public struct ExternalDisplayNowPlayingView: View {
     @Bindable var viewModel: NowPlayingViewModel
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    @Environment(DependencyContainer.self) private var dependencies
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
 
     public init(viewModel: NowPlayingViewModel) {
         self.viewModel = viewModel

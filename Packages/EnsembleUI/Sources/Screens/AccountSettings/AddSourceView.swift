@@ -6,8 +6,8 @@ import MusicKit
 
 public struct AddSourceView: View {
     @Environment(DependencyContainer.self) private var dependencies
-    private let accountManager = DependencyContainer.shared.accountManager
-    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
+    private var accountManager: AccountManager { dependencies.accountManager }
+    private var syncCoordinator: SyncCoordinator { dependencies.syncCoordinator }
     @Environment(\.dismiss) private var dismiss
     @State private var errorMessage: String?
     @State private var isAddingAppleMusic = false

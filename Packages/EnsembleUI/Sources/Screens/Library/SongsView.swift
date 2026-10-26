@@ -27,8 +27,8 @@ public struct SongsView: View {
     @State private var trackContentRevision: UInt64 = 0
     // Targeted observation: only re-evaluate when these specific values change,
     // not on every other download-state change
-    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
-    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    private var activeDownloadTrackIdentities: Set<String> { deps.offlineDownloadService.activeDownloadTrackIdentities }
+    private var availabilityGeneration: UInt64 { deps.trackAvailabilityResolver.availabilityGeneration }
     private var canShowLargeScreenSongBrowser: Bool {
         #if os(iOS)
             return UIDevice.current.userInterfaceIdiom != .phone
@@ -122,10 +122,6 @@ public struct SongsView: View {
         .if(!isStageFlowActive) { view in
             view.toolbarMaterialBackground()
         }
-        .trackListRuntimeObservation(
-            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
-            availabilityGeneration: $availabilityGeneration
-        )
         .nowPlayingTrackListObservation(
             nowPlayingVM: nowPlayingVM,
             currentTrackId: $currentTrackId,

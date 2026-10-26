@@ -268,14 +268,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     // Targeted NVM observation: only re-evaluate on track/playlist target changes
     @State private var currentTrackId: String?
     @State private var nvmLastPlaylistTargetId: String?
-    @State private var isPinnedForHeader: Bool
     @Environment(DependencyContainer.self) private var deps
     @Environment(NavigationCoordinator.self) private var navigationCoordinator
     @Environment(MediaSourceActionPresenter.self) private var sourceActionPresenter
     private var pinManager: PinManager { deps.pinManager }
     // Targeted observation: only re-evaluate when these specific values change
-    @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
-    @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
+    private var activeDownloadTrackIdentities: Set<String> { deps.offlineDownloadService.activeDownloadTrackIdentities }
+    private var availabilityGeneration: UInt64 { deps.trackAvailabilityResolver.availabilityGeneration }
 
     public init(
         viewModel: ViewModel,
@@ -343,18 +342,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self._currentArtworkLoadIdentity = State(
             initialValue: initialArtworkImage == nil ? nil : initialLoadIdentity
         )
-
-        let initialPinState: Bool
-        let initialPinnedIdentities = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.sourceScopedID))
-        if let customIsPinned {
-            initialPinState = customIsPinned(initialPinnedIdentities)
-        } else if let ratingKey = headerData.ratingKey {
-            let sourceScopedID = PinnedItem.sourceScopedID(id: ratingKey, sourceKey: headerData.sourceKey)
-            initialPinState = initialPinnedIdentities.contains(sourceScopedID)
-        } else {
-            initialPinState = false
-        }
-        self._isPinnedForHeader = State(initialValue: initialPinState)
     }
 
     public var body: some View {
@@ -385,13 +372,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .artworkBackedToolbarBleed()
         // Native track lists manage their own bottom inset so rows can scroll
         // behind the floating mini player without shrinking the table host.
-        .trackListRuntimeObservation(
-            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
-            availabilityGeneration: $availabilityGeneration
-        )
-        .onChange(of: pinManager.pinnedItems, initial: true) { _, pinnedItems in
-            updatePinStateForHeader(pinnedItems: pinnedItems)
-        }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         .sheet(isPresented: $showFilterSheet) {
@@ -502,19 +482,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         ].description
     }
 
-    private func updatePinStateForHeader(pinnedItems: [PinnedItem]) {
-        let pinnedIdentities = Set(pinnedItems.map(\.sourceScopedID))
-        guard let ratingKey = headerData.ratingKey else {
-            let latest = customIsPinned?(pinnedIdentities) ?? false
-            if latest != isPinnedForHeader { isPinnedForHeader = latest }
-            return
+    private var isPinnedForHeader: Bool {
+        let pinnedIdentities = Set(pinManager.pinnedItems.map(\.sourceScopedID))
+        if let customIsPinned {
+            return customIsPinned(pinnedIdentities)
         }
-
-        let sourceScopedID = PinnedItem.sourceScopedID(id: ratingKey, sourceKey: headerData.sourceKey)
-        let latest = customIsPinned?(pinnedIdentities) ?? pinnedIdentities.contains(sourceScopedID)
-        if latest != isPinnedForHeader {
-            isPinnedForHeader = latest
-        }
+        guard let ratingKey = headerData.ratingKey else { return false }
+        return pinnedIdentities.contains(PinnedItem.sourceScopedID(id: ratingKey, sourceKey: headerData.sourceKey))
     }
 
     /// Toolbar menu with Pin/Unpin action
@@ -1134,7 +1108,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             if !alreadyHasBlur, let blurCacheKey {
                 let blurredImage = await deps.artworkLoader.blurredImage(
                     for: existingImage,
-                    cacheKey: blurCacheKey
+                    cacheKey: blurCacheKey,
+                    scheduler: deps.foregroundWorkScheduler
                 )
                 guard !Task.isCancelled,
                       await isCurrentArtworkLoad(identity: loadIdentity) else {
@@ -1201,7 +1176,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
         let blurredImage = await deps.artworkLoader.blurredImage(
             for: resolved.image,
-            cacheKey: resolved.blurCacheKey
+            cacheKey: resolved.blurCacheKey,
+            scheduler: deps.foregroundWorkScheduler
         )
         guard !Task.isCancelled,
               await isCurrentArtworkLoad(identity: loadIdentity) else { return }

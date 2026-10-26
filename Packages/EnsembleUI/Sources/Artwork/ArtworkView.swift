@@ -189,10 +189,11 @@ public struct ArtworkView: View {
 
         serverRetryTask?.cancel()
         let jitter = UInt64(abs(loadID.hashValue % 700)) * 1_000_000
+        let scheduler = dependencies.foregroundWorkScheduler
         serverRetryTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000 + jitter)
             guard !Task.isCancelled else { return }
-            let canRetry = await DependencyContainer.shared.foregroundWorkScheduler.waitUntilAllowed(.visibleArtworkRetry, policy: .immediate)
+            let canRetry = await scheduler.waitUntilAllowed(.visibleArtworkRetry, policy: .immediate)
             guard canRetry else {
                 serverRetryTask = nil
                 return

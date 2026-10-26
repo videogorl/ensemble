@@ -7,10 +7,10 @@ import SwiftUI
 /// Modeled after Apple's iCloud Settings panel aesthetic.
 public struct ProfileView: View {
     @Environment(DependencyContainer.self) private var dependencies
-    private let profileStore = DependencyContainer.shared.userProfileStore
-    @Bindable private var settingsManager = DependencyContainer.shared.settingsManager
-    private let accountManager = DependencyContainer.shared.accountManager
-    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
+    private var profileStore: UserProfileStore { dependencies.userProfileStore }
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
+    private var accountManager: AccountManager { dependencies.accountManager }
+    private var syncCoordinator: SyncCoordinator { dependencies.syncCoordinator }
     private var playbackService: PlaybackService { dependencies.playbackService }
     private var cacheManager: CacheManager { dependencies.cacheManager }
 
@@ -21,7 +21,8 @@ public struct ProfileView: View {
     @State private var showingNameEditor = false
     @State private var accountToDelete: PlexAccountConfig?
     @State private var isAddingSource = false
-    @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
+    // Playback is not observable: read it directly until the snapshot stream reports.
+    @State private var streamedAutoplayEnabled: Bool?
     @State private var hasAppliedAutomationScroll = false
 
     #if DEBUG
@@ -39,6 +40,17 @@ public struct ProfileView: View {
     }
 
     public init() {}
+
+    private var autoplayBinding: Binding<Bool> {
+        Binding(
+            get: { streamedAutoplayEnabled ?? playbackService.isAutoplayEnabled },
+            set: { enabled in
+                if enabled != playbackService.isAutoplayEnabled {
+                    playbackService.toggleAutoplay()
+                }
+            }
+        )
+    }
 
     public var body: some View {
         profileContent
@@ -347,7 +359,7 @@ public struct ProfileView: View {
             }
             .padding(.vertical, EnsembleScaffold.UtilityRow.subtleVerticalPadding)
 
-            Toggle(isOn: $settingsManager.auroraVisualizationEnabled) {
+            Toggle(isOn: Bindable(settingsManager).auroraVisualizationEnabled) {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.aurora,
                     title: "Aurora Visualization",
@@ -364,7 +376,7 @@ public struct ProfileView: View {
 
     private var playbackSection: some View {
         Section(header: EnsembleUtilitySectionHeader("Playback")) {
-            Toggle(isOn: $isAutoplayEnabled) {
+            Toggle(isOn: autoplayBinding) {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.autoplay,
                     title: "Autoplay",
@@ -372,8 +384,10 @@ public struct ProfileView: View {
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }
-            .onChange(of: isAutoplayEnabled) { _ in
-                playbackService.toggleAutoplay()
+            .task {
+                for await enabled in playbackService.snapshots(\.isAutoplayEnabled) {
+                    streamedAutoplayEnabled = enabled
+                }
             }
 
             NavigationLink {
@@ -386,7 +400,7 @@ public struct ProfileView: View {
                 )
             }
 
-            Toggle(isOn: $settingsManager.scrobblingEnabled) {
+            Toggle(isOn: Bindable(settingsManager).scrobblingEnabled) {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.scrobble,
                     title: "Scrobbling",
@@ -500,7 +514,7 @@ public struct ProfileView: View {
             }
 
             #if DEBUG
-            Toggle(isOn: $settingsManager.demoModeEnabled) {
+            Toggle(isOn: Bindable(settingsManager).demoModeEnabled) {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.secureConnection,
                     title: "Demo mode",
@@ -743,7 +757,7 @@ public struct ProfileView: View {
             EnsembleUtilityCardDivider()
 
             EnsembleUtilityCardRow {
-                Toggle(isOn: $settingsManager.auroraVisualizationEnabled) {
+                Toggle(isOn: Bindable(settingsManager).auroraVisualizationEnabled) {
                     EnsembleUtilityRowLabel(
                         iconSystemName: EnsembleDesign.Icon.aurora,
                         title: "Aurora Visualization",
@@ -758,7 +772,7 @@ public struct ProfileView: View {
     private var macOSPlaybackSection: some View {
         EnsembleUtilityCardSection("Playback") {
             EnsembleUtilityCardRow {
-                Toggle(isOn: $isAutoplayEnabled) {
+                Toggle(isOn: autoplayBinding) {
                     EnsembleUtilityRowLabel(
                         iconSystemName: EnsembleDesign.Icon.autoplay,
                         title: "Autoplay",
@@ -766,15 +780,17 @@ public struct ProfileView: View {
                         iconColor: EnsembleDesign.Color.primaryText
                     )
                 }
-                .onChange(of: isAutoplayEnabled) { _ in
-                    playbackService.toggleAutoplay()
+                .task {
+                    for await enabled in playbackService.snapshots(\.isAutoplayEnabled) {
+                        streamedAutoplayEnabled = enabled
+                    }
                 }
             }
 
             EnsembleUtilityCardDivider()
 
             EnsembleUtilityCardRow {
-                Toggle(isOn: $settingsManager.scrobblingEnabled) {
+                Toggle(isOn: Bindable(settingsManager).scrobblingEnabled) {
                     EnsembleUtilityRowLabel(
                         iconSystemName: EnsembleDesign.Icon.scrobble,
                         title: "Scrobbling",
@@ -894,7 +910,7 @@ public struct ProfileView: View {
             EnsembleUtilityCardDivider()
 
             EnsembleUtilityCardRow {
-                Toggle(isOn: $settingsManager.demoModeEnabled) {
+                Toggle(isOn: Bindable(settingsManager).demoModeEnabled) {
                     EnsembleUtilityRowLabel(
                         iconSystemName: EnsembleDesign.Icon.secureConnection,
                         title: "Demo mode",
@@ -1127,8 +1143,9 @@ public struct ProfileView: View {
 }
 
 private struct PreferredLibrariesView: View {
-    private let accountManager = DependencyContainer.shared.accountManager
-    @Bindable private var settingsManager = DependencyContainer.shared.settingsManager
+    @Environment(DependencyContainer.self) private var dependencies
+    private var accountManager: AccountManager { dependencies.accountManager }
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
     @State private var sourceKeys: [String] = []
 
     var body: some View {
@@ -1182,8 +1199,9 @@ private extension View {
 
 #if os(iOS)
 private struct AppleMusicSourceDetailView: View {
-    private let accountManager = DependencyContainer.shared.accountManager
-    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
+    @Environment(DependencyContainer.self) private var dependencies
+    private var accountManager: AccountManager { dependencies.accountManager }
+    private var syncCoordinator: SyncCoordinator { dependencies.syncCoordinator }
     @Environment(\.dismiss) private var dismiss
     @State private var showingRemoveAlert = false
     @State private var isRemoving = false

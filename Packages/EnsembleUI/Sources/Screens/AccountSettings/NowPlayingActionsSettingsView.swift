@@ -2,7 +2,8 @@ import EnsembleCore
 import SwiftUI
 
 public struct NowPlayingActionsSettingsView: View {
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    @Environment(DependencyContainer.self) private var dependencies
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
 
     public init() {}
 

@@ -206,7 +206,7 @@ public struct AlbumGrid: View {
 
     @Environment(\.tracksAlbumGridPosition) private var tracksPosition
     @Environment(DependencyContainer.self) private var deps
-    private let settingsManager: SettingsManager
+    private var settingsManager: SettingsManager { deps.settingsManager }
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
@@ -223,7 +223,6 @@ public struct AlbumGrid: View {
     ) {
         self.albums = albums
         self.rawAlbums = nil
-        self.settingsManager = DependencyContainer.shared.settingsManager
         self.nowPlayingVM = nowPlayingVM
         self.navigationCoordinator = navigationCoordinator
         self.layout = layout
@@ -243,7 +242,6 @@ public struct AlbumGrid: View {
     ) {
         self.albums = []
         self.rawAlbums = albums
-        self.settingsManager = DependencyContainer.shared.settingsManager
         self.nowPlayingVM = nowPlayingVM
         self.navigationCoordinator = navigationCoordinator
         self.layout = layout

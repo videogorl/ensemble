@@ -6,7 +6,7 @@ import SwiftUI
 public struct MusicSourceAccountDetailView: View {
     @Environment(DependencyContainer.self) private var dependencies
     @State private var viewModel: MusicSourceAccountDetailViewModel
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    private var settingsManager: SettingsManager { dependencies.settingsManager }
     @Environment(\.dismiss) private var dismiss
     @State private var showingRemoveSourceAlert = false
 

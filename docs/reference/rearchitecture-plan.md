@@ -22,9 +22,9 @@ simulator-checked at `7d127734`. Its Apple Music one-at-a-time start
 2026-10-19; the playback stack is 17,287 lines
 against the 12,000 target ([note](../investigations/2026-10-17-step-1f-split.md)).
 Step 2 started on 2026-10-21 with the
-[design note](composition-observation-design.md) approved: 2b, 2e, and 2f
-are implemented and simulator-checked at `15d9b8ab` (2f with three agreed
-exceptions), 2c is partly done, and the rest of 2c and 2d follow
+[design note](composition-observation-design.md) approved: 2b to 2f are
+implemented and simulator-checked (2f with three agreed exceptions);
+`DependencyContainer.shared` no longer exists
 ([note](../investigations/2026-10-21-step-2-composition-observation.md)).
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.

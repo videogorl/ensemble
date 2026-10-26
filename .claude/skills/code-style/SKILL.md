@@ -29,8 +29,10 @@ native framework, or installed dependency before adding code.
 - Keep UI in `EnsembleUI`, orchestration/ViewModels in `EnsembleCore`, transport
   in API/provider owners, and persistence in `EnsemblePersistence`. Load
   `architecture` before changing those boundaries.
-- ViewModels are `@MainActor` `ObservableObject`s with injected dependencies.
-  Reuse `DependencyContainer` factories; do not hide business logic in views.
+- ViewModels are `@MainActor` `@Observable` classes with injected dependencies,
+  an effect-free init, and an idempotent `start()`; do not hide business logic
+  in views. Views read the container from the environment
+  (`@Environment(DependencyContainer.self)`); there is no global.
 - Guard high-frequency publications and expensive work. Keep I/O and CPU-heavy
   work off the main actor, but do not use detached work that escapes ownership
   or can write after cancellation/source removal.

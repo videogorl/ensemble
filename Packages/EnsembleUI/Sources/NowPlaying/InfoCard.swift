@@ -8,7 +8,7 @@ public struct InfoCard: View {
     private let viewModel: NowPlayingViewModel
     private let playbackProjection: NowPlayingPlaybackProjection
     private let lyricsProjection: NowPlayingLyricsProjection
-    private let settingsManager = DependencyContainer.shared.settingsManager
+    private var settingsManager: SettingsManager { deps.settingsManager }
     @Binding var currentPage: Int
     @Environment(DependencyContainer.self) private var deps
     @Environment(NavigationCoordinator.self) private var navigationCoordinator

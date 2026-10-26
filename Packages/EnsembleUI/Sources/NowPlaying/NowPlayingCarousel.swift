@@ -35,7 +35,7 @@ public struct NowPlayingCarousel: View {
     let viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     private let lyricsProjection: NowPlayingLyricsProjection
-    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    private var powerStateMonitor: PowerStateMonitor { dependencies.powerStateMonitor }
 
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
         self.viewModel = viewModel

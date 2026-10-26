@@ -6,10 +6,6 @@ import Foundation
 
 /// Central dependency container that creates and wires all services and view models
 public final class DependencyContainer: @unchecked Sendable {
-    // MARK: - Singleton
-
-    public static let shared = DependencyContainer()
-
     // MARK: - Core Services
 
     public let keychain: KeychainServiceProtocol
@@ -167,7 +163,8 @@ public final class DependencyContainer: @unchecked Sendable {
         let systemMediaIntegrationService: SystemMediaIntegrationService
     }
 
-    private init() {
+    /// Builds every service. The app creates one, in `AppRoot`.
+    public init() {
         let core = Self.buildCoreBootstrap()
         let network = Self.buildNetworkBootstrap(core: core)
         let sync = Self.buildSyncBootstrap(core: core, network: network)

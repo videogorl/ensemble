@@ -35,8 +35,8 @@ public struct SearchView: View {
     @State private var currentTrackId: String?
     @State private var nvmRecentPlaylistTitle: String?
     // Targeted observation: only re-evaluate when these specific values change
-    @State private var activeDownloadTrackIdentities: Set<String>
-    @State private var availabilityGeneration: UInt64
+    private var activeDownloadTrackIdentities: Set<String> { deps.offlineDownloadService.activeDownloadTrackIdentities }
+    private var availabilityGeneration: UInt64 { deps.trackAvailabilityResolver.availabilityGeneration }
     @State private var wasSearchTabActive = false
     @State private var preservesSearchChromeDuringTabExit = false
     @Environment(\.dismissSearch) private var dismissSearch
@@ -63,12 +63,6 @@ public struct SearchView: View {
             initialValue: !container.accountManager.enabledSources().isEmpty
         )
         _isRestoringCloudSources = State(initialValue: container.accountManager.isAwaitingCloudSources)
-        _activeDownloadTrackIdentities = State(
-            initialValue: container.offlineDownloadService.activeDownloadTrackIdentities
-        )
-        _availabilityGeneration = State(
-            initialValue: container.trackAvailabilityResolver.availabilityGeneration
-        )
     }
 
     public var body: some View {
@@ -136,10 +130,6 @@ public struct SearchView: View {
         .onChange(of: accountManager.isAwaitingCloudSources, initial: true) { _, awaiting in
             if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
         }
-        .trackListRuntimeObservation(
-            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
-            availabilityGeneration: $availabilityGeneration
-        )
         .onChange(of: navigationCoordinator.selectedTab, initial: true) { _, tab in
             let isActive = tab == .search
             if wasSearchTabActive && !isActive {

@@ -32,7 +32,7 @@ public extension ArtworkLoaderProtocol {
     func blurredImage(
         for image: PlatformImage?,
         cacheKey: String? = nil,
-        scheduler: ForegroundWorkScheduling = DependencyContainer.shared.foregroundWorkScheduler,
+        scheduler: ForegroundWorkScheduling,
         requiresIdle: Bool = false
     ) async -> PlatformImage? {
         guard let image else { return nil }
