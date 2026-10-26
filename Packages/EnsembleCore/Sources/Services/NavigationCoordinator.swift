@@ -131,6 +131,8 @@ public final class NavigationCoordinator {
     }
     
     public var pendingNavigation: PendingNavigation?
+    /// Set by the `debug/now-playing` route; the root view applies and clears it.
+    public var pendingNowPlayingRequest: NowPlayingAutomationRequest?
 
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var navigationInteractionGeneration = 0
@@ -522,6 +524,25 @@ public final class NavigationCoordinator {
                     "reason": "automationDisabled"
                 ]
             )
+            return true
+        }
+
+        if routeComponents.dropFirst().first == "now-playing" {
+            let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            guard let request = NowPlayingAutomationRequest(queryItems: queryItems) else {
+                UserJourneyLogger.log(
+                    context: "automation",
+                    event: "deepLinkRejected",
+                    details: ["route": Self.routeLogDescription(from: url), "reason": "unsupportedNowPlayingValue"]
+                )
+                return true
+            }
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "deepLinkAccepted",
+                details: request.logDetails.merging(["route": Self.routeLogDescription(from: url)]) { $1 }
+            )
+            pendingNowPlayingRequest = request
             return true
         }
 

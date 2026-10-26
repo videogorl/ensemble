@@ -262,6 +262,30 @@ final class NavigationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testNowPlayingAutomationDeepLinkParsesRequest() throws {
+        let cases: [(query: String, expected: NowPlayingAutomationRequest?)] = [
+            ("page=queue&shuffle=on&repeat=one&autoplay=off",
+             NowPlayingAutomationRequest(page: .queue, shuffle: true, repeatMode: .one, autoplay: false)),
+            ("repeat=all", NowPlayingAutomationRequest(repeatMode: .all)),
+            ("", NowPlayingAutomationRequest()),
+            ("page=queue&repeat=sometimes", nil),
+            ("shuffle=yes", nil),
+            ("volume=11", nil)
+        ]
+
+        for (query, expected) in cases {
+            let coordinator = NavigationCoordinator()
+            let url = try XCTUnwrap(URL(string: "ensemble://debug/now-playing?\(query)"))
+
+            XCTAssertTrue(
+                coordinator.handleDeepLink(url, automationOptions: AutomationLaunchOptions(isEnabled: true)),
+                query
+            )
+            XCTAssertEqual(coordinator.pendingNowPlayingRequest, expected, query)
+        }
+    }
+
+    @MainActor
     func testAutomationRoutePresentsAddSource() {
         let coordinator = NavigationCoordinator()
 

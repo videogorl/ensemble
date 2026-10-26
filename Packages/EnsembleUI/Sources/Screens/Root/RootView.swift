@@ -143,6 +143,9 @@ public struct RootView: View {
                 dismissNowPlaying()
             }
         }
+        .onChange(of: navigationCoordinator.pendingNowPlayingRequest) {
+            applyNowPlayingAutomationRequest()
+        }
         #if canImport(UIKit)
         .onReceive(Self.softwareKeyboardVisibilityPublisher) { newValue in
             if newValue != isSoftwareKeyboardVisible {
@@ -360,6 +363,28 @@ public struct RootView: View {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 700_000_000)
             scheduler.endInteraction(.nowPlayingInteractive)
+        }
+    }
+
+    /// Applies a `debug/now-playing` request through the same calls as the buttons.
+    private func applyNowPlayingAutomationRequest() {
+        guard let request = navigationCoordinator.pendingNowPlayingRequest else { return }
+        navigationCoordinator.pendingNowPlayingRequest = nil
+        let viewModel = nowPlayingVM
+        if let shuffle = request.shuffle, shuffle != viewModel.isShuffleEnabled {
+            viewModel.toggleShuffle()
+        }
+        if let repeatMode = request.repeatMode {
+            viewModel.setRepeatMode(repeatMode)
+        }
+        if let autoplay = request.autoplay, autoplay != viewModel.isAutoplayEnabled {
+            viewModel.toggleAutoplay()
+        }
+        if let page = request.page {
+            viewModel.currentPage = page.rawValue
+            if !isNowPlayingPresented {
+                presentNowPlayingFromMiniPlayer()
+            }
         }
     }
 

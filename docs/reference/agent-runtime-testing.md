@@ -90,6 +90,20 @@ xcrun simctl openurl "$ENSEMBLE_SIMULATOR_UDID" \
   'ensemble://debug/open?surface=playlists'
 ```
 
+Open Now Playing on a page and set its modes without swipes. Each parameter
+is optional; omitted state is left alone, and an unrecognised value rejects
+the whole link:
+
+```bash
+xcrun simctl openurl "$ENSEMBLE_SIMULATOR_UDID" \
+  'ensemble://debug/now-playing?page=queue&shuffle=off&repeat=one&autoplay=on'
+```
+
+`page` is `queue`, `controls`, `lyrics`, or `info`; `shuffle` and `autoplay`
+are `on` or `off`; `repeat` is `off`, `all`, or `one`. The modes go through
+the same calls as the queue page's buttons. On a device, open the link with
+`xcrun devicectl device process launch --payload-url` or from Safari.
+
 Use media deep links for known artist, album, and playlist identifiers. Confirm
 accepted commands through `USER_JOURNEY context=automation` logs and confirm
 rendering through a settled hierarchy or screenshot.

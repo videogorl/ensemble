@@ -83,6 +83,12 @@ xcrun simctl openurl "$ENSEMBLE_SIMULATOR_UDID" 'ensemble://debug/open?surface=p
 xcrun simctl openurl "$ENSEMBLE_SIMULATOR_UDID" 'ensemble://debug/open?surface=playlists'
 ```
 
+Now Playing page and modes (each parameter optional):
+
+```bash
+xcrun simctl openurl "$ENSEMBLE_SIMULATOR_UDID" 'ensemble://debug/now-playing?page=queue&shuffle=off&repeat=one&autoplay=on'
+```
+
 Media deep links:
 
 ```bash

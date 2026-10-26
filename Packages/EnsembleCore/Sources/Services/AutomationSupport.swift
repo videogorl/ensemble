@@ -237,6 +237,85 @@ public enum AutomationSurface: String, CaseIterable, Sendable {
     }
 }
 
+/// `ensemble://debug/now-playing?page=queue&shuffle=on&repeat=one&autoplay=off`
+/// opens Now Playing on a page and sets playback modes through the same calls
+/// as the buttons, so runners that cannot swipe can reach the queue controls.
+/// Omitted parameters leave that state unchanged.
+public struct NowPlayingAutomationRequest: Equatable, Sendable {
+    public enum Page: Int, Sendable {
+        case queue = 0
+        case controls = 1
+        case lyrics = 2
+        case info = 3
+
+        init?(name: String) {
+            switch name {
+            case "queue": self = .queue
+            case "controls": self = .controls
+            case "lyrics": self = .lyrics
+            case "info": self = .info
+            default: return nil
+            }
+        }
+    }
+
+    public var page: Page?
+    public var shuffle: Bool?
+    public var repeatMode: RepeatMode?
+    public var autoplay: Bool?
+
+    public init(page: Page? = nil, shuffle: Bool? = nil, repeatMode: RepeatMode? = nil, autoplay: Bool? = nil) {
+        self.page = page
+        self.shuffle = shuffle
+        self.repeatMode = repeatMode
+        self.autoplay = autoplay
+    }
+
+    /// Nil when any given value is unrecognised, so a typo never half-applies.
+    init?(queryItems: [URLQueryItem]) {
+        for item in queryItems {
+            guard let value = item.value?.lowercased() else { return nil }
+            switch item.name {
+            case "page":
+                guard let page = Page(name: value) else { return nil }
+                self.page = page
+            case "shuffle":
+                guard let shuffle = Self.toggle(value) else { return nil }
+                self.shuffle = shuffle
+            case "repeat":
+                switch value {
+                case "off": repeatMode = .off
+                case "all": repeatMode = .all
+                case "one": repeatMode = .one
+                default: return nil
+                }
+            case "autoplay":
+                guard let autoplay = Self.toggle(value) else { return nil }
+                self.autoplay = autoplay
+            default:
+                return nil
+            }
+        }
+    }
+
+    var logDetails: [String: String] {
+        [
+            "page": page.map { "\($0)" } ?? "unchanged",
+            "shuffle": shuffle.map { $0 ? "on" : "off" } ?? "unchanged",
+            "repeat": repeatMode.map { "\($0)" } ?? "unchanged",
+            "autoplay": autoplay.map { $0 ? "on" : "off" } ?? "unchanged"
+        ]
+    }
+
+    private static func toggle(_ value: String) -> Bool? {
+        switch value {
+        case "on": return true
+        case "off": return false
+        default: return nil
+        }
+    }
+}
+
 public enum AutomationIdentifiers {
     public enum Sidebar {
         public static let search = "sidebar.search"

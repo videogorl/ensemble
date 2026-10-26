@@ -51,6 +51,9 @@ public struct NowPlayingSheetView: View {
         .onAppear {
             currentPage = viewModel.currentPage
         }
+        .onChange(of: viewModel.currentPage) { _, page in
+            currentPage = page
+        }
     }
 
     private var currentPageBinding: Binding<Int> {
