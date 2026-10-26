@@ -217,3 +217,18 @@ No settings were left changed and nothing was created. The test queue
 replaced the earlier queue, and a "Backslide" recent search remains. Playback
 ended paused and the phone locked (`devicectl` lock state). Logs and
 screenshots: `/tmp/ensemble-2f-device/acceptance/`.
+
+Second pass the same afternoon, same build, with Felicity's scope: items 1–3,
+11–13, 21, 25, and 26; 9 goes to AI Tasks as a suspected bug, 27 later, the
+rest dropped. Siri was opened from Spotlight, as iOS 27 allows.
+
+| # | Check | Result |
+|---|---|---|
+| 1–3, 11–13 | Queue end, repeat, shuffle, station, Apple Music queue end | not run: swipes to the queue page failed after two Device Hub restarts, and the debug framework has no queue page route or shuffle, repeat, or Autoplay setter |
+| 21 | Low Power Mode and downloads | partial: an album queued with Low Power Mode on stayed at 0 of 10 and finished on its own once it was off. A download in progress was not caught, because the first one finished before Low Power Mode was on. Test download removed |
+| 25 | Shortcut, Siri, Spotlight | pass: the Play Track shortcut for "Backslide" started both with Ensemble open and in the background, so the first pass's stuck load did not reproduce; typed Siri played the "Ambient Electric" playlist and Chappell Roan; Spotlight's Chappell Roan result opened the artist. Not run: App Shortcuts' Play Album, which Device Hub could not scroll to |
+| 26 | Siri finds the newest album after a sync | **fail**: "Play the album 1000xRESIST Original Soundtrack in Ensemble" (Plex album 27785 on Hiigel-Server, added 2026-10-15) played the Apple Music album "Is" twice, at 13:00:06 and 13:08:47. Ensemble's in-app handler received `apple-album:l.gRU1Gy7`, so the wrong album was chosen before playback, at Siri resolution or the index match. The app had synced and rebuilt the Siri index (changed, saved) before the requests. Cause not investigated |
+
+Three Plex songs started and were paused below 8%; no Plex play was counted.
+Low Power Mode is back off and recent searches are cleared. Playback ended
+paused and the phone locked. Evidence: `/tmp/ensemble-2f-device/acceptance-2/`.

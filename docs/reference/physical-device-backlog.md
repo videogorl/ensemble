@@ -52,15 +52,17 @@ See [the step note](../investigations/2026-10-21-step-2-composition-observation.
   shows the same Now Playing model (lyrics, queue page, pause and skip stay in
   sync). The scene now receives the container from the app root (2b) and the
   model from `RootScreenModels` (2e).
-- App Shortcuts and Siri: play a playlist and an artist by voice; services
-  now come from the app root (2b). On 2026-10-26 an existing Play Track
-  shortcut stayed loading at 0:00 (step note, 2f device run); rerun it after
-  that is triaged. Play Album was not offered.
-- Step 2f, at `15d9b8ab` or later: Low Power Mode pauses and resumes offline
-  downloads; turning off "stream on cellular" makes non-downloaded tracks
-  unavailable on cellular; artwork that failed while a server was unreachable
-  reloads when it comes back; after a sync that changes the library, Siri
-  finds the new items.
+- App Shortcuts: run Play Album and one other from Ensemble's section of the
+  Shortcuts app; Device Hub could not scroll to it on 2026-10-26. Siri
+  playlist and artist requests and a Play Track shortcut passed that day.
+- Step 2f, at `15d9b8ab` or later: Low Power Mode pauses a download already
+  in progress (a download queued under Low Power Mode waits and resumes when
+  it turns off, 2026-10-26); turning off "stream on cellular" makes
+  non-downloaded tracks unavailable on cellular; artwork that failed while a
+  server was unreachable reloads when it comes back; after a sync that changes
+  the library, Siri finds the new items. That last check failed on 2026-10-26:
+  a request for the newest album played a different Apple Music album (step
+  note).
 
 ### Step 1f split, at `302a5d78` or later
 
@@ -145,10 +147,9 @@ Impossible on a simulator:
 - Control Center: media tile, pause, play, next.
 - Background playback: natural track change while locked.
 - Offline playback: downloaded track in Airplane Mode; blocked track toasts.
-- Siri media request, and Siri affinity and add.
+- Siri affinity and add. (Siri media requests passed on 2026-10-26.)
 - App Shortcuts: all five listed; Play Album runs.
 - Focus filter offered in Settings.
-- Spotlight result opens the item.
 
 Not run or only partly run on the simulator:
 
