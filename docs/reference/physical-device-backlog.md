@@ -64,6 +64,15 @@ See [the step note](../investigations/2026-10-21-step-2-composition-observation.
   a request for the newest album played a different Apple Music album (step
   note).
 
+- Steps 2c and 2d, at `cf4e8d19` or later: launch, a toast, the Downloads
+  sheet, the Autoplay and SmartMix toggles, and an album's blurred header
+  backdrop. The simulator could not finish the 2d pass because host audio
+  hung (step note).
+- Now Playing debug link, at `ebf55f2a` or later: run items 1–3 and 11–13 of
+  the 2026-10-26 list using
+  `ensemble://debug/now-playing?page=queue&shuffle=…&repeat=…&autoplay=…`
+  instead of swipes.
+
 ### Step 1f split, at `302a5d78` or later
 
 See [the step note](../investigations/2026-10-17-step-1f-split.md). The split
