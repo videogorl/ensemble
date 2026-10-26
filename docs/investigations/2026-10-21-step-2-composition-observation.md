@@ -256,7 +256,9 @@ compile.
   `AudioAnalyzerTests`, blocked inside `AVAudioEngine.mainMixerNode` on the
   same host audio problem as below; the artwork loader, navigation, Now
   Playing artwork and bridge, automation, and stream suites (63 tests) pass.
-  The full suite is owed once host audio is back.
+  With the Mac's output set back to its speakers, the full suite ran: 1,160
+  tests, failures only in the two playlist feedback tests that failed before
+  step 2.
 - Simulator `C01A1C06-F40B-4B39-93A7-7D1D9C89D9A1`, build `202610261353.5523`
   (2c): Home, all tabs, artist and album detail, pin and unpin, New Playlist
   enabled online, Autoplay, SmartMix, and Persistent Logging toggles (each
@@ -270,5 +272,8 @@ compile.
   after launch and aborts the app. The last commit before 2c, built and run
   as a control, crashes the same way, so this is the host environment (the
   Mac's default output was a virtual Jump Desktop device), not this change.
+- After the output change, build `202610261632.6871` (`687d1b56`) on the
+  same simulator: an album's blurred header backdrop, Now Playing controls
+  and queue pages, and the test toast — pass; same PID throughout, no crash.
 - The Mac app built at 2d, launched from `/tmp` with its PID path checked,
   stayed up; its windows were not exercised.
