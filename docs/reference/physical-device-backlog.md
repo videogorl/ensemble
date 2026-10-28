@@ -13,6 +13,21 @@ hardware. See [`rearchitecture-plan.md`](rearchitecture-plan.md) section 7.
 
 ## iPhone 16 Pro
 
+### Now Playing visualizer, `781bee41`
+
+Simulator (iPhone 17 Pro, iOS 26.5) passed: settings row and page, the Now
+Playing button and menu toggle, all three styles animating with a Plex track,
+freeze on pause, tap removal on hide, and recovery across engine route
+changes. Not yet run on hardware:
+
+- Sync: with the phone speaker and with Bluetooth headphones, beats in Bars
+  and Battery should land with the audio (expected lag is about one 100 ms tap
+  chunk). AirPlay will lag more.
+- Readability: title and time labels over Bars and Battery on loud tracks.
+- Cost: frame rate and battery drain at 60 fps over a few minutes, and 30 fps
+  in Low Power Mode.
+- Apple Music track: the button is disabled and the normal backdrop shows.
+
 ### TV Now Playing scene accessory, 2026-10-17 fix
 
 At `c273feb5`, Felicity confirmed on 2026-10-18 that the view looks good on her
