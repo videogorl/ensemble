@@ -53,6 +53,7 @@ public enum TrackSwipeAction: String, CaseIterable, Codable, Sendable, Identifia
 public enum NowPlayingSecondaryAction: String, CaseIterable, Codable, Sendable, Identifiable {
     case airPlay, favorite, addToPlaylist, addToRecentPlaylist, addToLibrary
     case goToAlbum, goToArtist, shareEnsembleLink, shareLink, shareAudioFile
+    case visualizer
 
     public var id: String { rawValue }
 
@@ -68,6 +69,7 @@ public enum NowPlayingSecondaryAction: String, CaseIterable, Codable, Sendable, 
         case .shareEnsembleLink: return "Share Ensemble Link…"
         case .shareLink: return "Share Link…"
         case .shareAudioFile: return "Share Audio File…"
+        case .visualizer: return "Visualizer"
         }
     }
 
@@ -81,6 +83,7 @@ public enum NowPlayingSecondaryAction: String, CaseIterable, Codable, Sendable, 
         case .goToArtist: return "music.mic"
         case .shareEnsembleLink, .shareLink: return "link"
         case .shareAudioFile: return "square.and.arrow.up"
+        case .visualizer: return "music.note.tv"
         }
     }
 
@@ -100,6 +103,8 @@ public enum NowPlayingSecondaryAction: String, CaseIterable, Codable, Sendable, 
         case .goToAlbum: return track.albumRatingKey != nil
         case .goToArtist: return track.artistRatingKey != nil
         case .shareAudioFile: return track.sourceCapabilities.supportsAudioFileSharing
+        // Same gate as the aurora: sources like Apple Music give the app no audio to read.
+        case .visualizer: return track.sourceCapabilities.supportsWaveform
         default: return true
         }
     }
@@ -115,7 +120,7 @@ public struct NowPlayingSecondaryLayout: Codable, Equatable, Sendable {
     }
 
     public static var `default`: Self {
-        Self(slots: [.airPlay, .favorite, .addToPlaylist, nil])
+        Self(slots: [.airPlay, .favorite, .addToPlaylist, .visualizer])
     }
 
     private enum CodingKeys: String, CodingKey { case slots }
@@ -383,6 +388,8 @@ public final class SettingsManager: ObservableObject {
     @AppStorage("songsTableColumns") private var songsTableColumnsData: Data = Data()
     @AppStorage(AllowInsecureConnectionsPolicy.defaultsKey) private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
     @AppStorage(AuroraVisualizationPreference.enabledKey) public var auroraVisualizationEnabled: Bool = AuroraVisualizationPreference.defaultEnabled
+    @AppStorage(VisualizerPreference.enabledKey) public var visualizerEnabled: Bool = false
+    @AppStorage(VisualizerPreference.styleKey) public var visualizerStyle: VisualizerStyle = VisualizerPreference.defaultStyle
     @AppStorage(scrobblingEnabledKey) public var scrobblingEnabled: Bool = true
     @AppStorage(focusScrobblingOverrideKey) private var focusScrobblingOverrideRawValue = noFocusScrobblingOverride
     @Published public private(set) var mergingPreferences = EnsembleMergingPreferences.default

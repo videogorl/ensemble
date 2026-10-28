@@ -354,9 +354,24 @@ public struct ProfileView: View {
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }
+
+            NavigationLink {
+                VisualizerSettingsView()
+            } label: {
+                visualizerRowLabel
+            }
         } header: {
             EnsembleUtilitySectionHeader("Accent Color: \(settingsManager.accentColor.rawValue.capitalized)")
         }
+    }
+
+    private var visualizerRowLabel: some View {
+        EnsembleUtilityRowLabel(
+            iconSystemName: EnsembleDesign.Icon.visualizer,
+            title: "Visualizer",
+            subtitle: settingsManager.visualizerEnabled ? "On · \(settingsManager.visualizerStyle.title)" : "Off",
+            iconColor: EnsembleDesign.Color.primaryText
+        )
     }
 
     // MARK: - Playback
@@ -750,6 +765,14 @@ public struct ProfileView: View {
                         iconColor: EnsembleDesign.Color.primaryText
                     )
                 }
+            }
+
+            EnsembleUtilityCardDivider()
+
+            macNavigationRow {
+                VisualizerSettingsView()
+            } label: {
+                visualizerRowLabel
             }
         }
     }

@@ -3,7 +3,7 @@ import XCTest
 
 final class NowPlayingSecondaryLayoutTests: XCTestCase {
     func testDefaultsAndSanitizationPreserveSlotPositions() {
-        XCTAssertEqual(NowPlayingSecondaryLayout.default.slots, [.airPlay, .favorite, .addToPlaylist, nil])
+        XCTAssertEqual(NowPlayingSecondaryLayout.default.slots, [.airPlay, .favorite, .addToPlaylist, .visualizer])
         let cases: [([NowPlayingSecondaryAction?], [NowPlayingSecondaryAction?])] = [
             ([], [nil, nil, nil, nil]),
             ([.favorite], [.favorite, nil, nil, nil]),
@@ -27,7 +27,7 @@ final class NowPlayingSecondaryLayoutTests: XCTestCase {
     }
 
     func testSelectingAssignedActionSwapsSlots() {
-        var layout = NowPlayingSecondaryLayout.default
+        var layout = NowPlayingSecondaryLayout(slots: [.airPlay, .favorite, .addToPlaylist, nil])
         layout.setAction(.favorite, at: 0)
         XCTAssertEqual(layout.slots, [.favorite, .airPlay, .addToPlaylist, nil])
         layout.setAction(.favorite, at: 3)

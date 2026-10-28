@@ -344,6 +344,28 @@ public final class AudioPlaybackEngine {
         playerNode(for: activePlaybackDeck)
     }
 
+    // MARK: - Live Audio Tap
+
+    /// Receives mixed output while a visualizer is on screen.
+    private var liveAudioFeed: LiveAudioFeed?
+
+    /// Taps the main mixer for `feed`, or removes the tap when nil.
+    func setLiveAudioFeed(_ feed: LiveAudioFeed?) {
+        if liveAudioFeed != nil {
+            engine.mainMixerNode.removeTap(onBus: 0)
+        }
+        liveAudioFeed = feed
+        guard let feed else { return }
+        #if os(macOS)
+        feed.setOutputLatency(engine.outputNode.presentationLatency)
+        #else
+        feed.setOutputLatency(AVAudioSession.sharedInstance().outputLatency)
+        #endif
+        engine.mainMixerNode.installTap(onBus: 0, bufferSize: 2048, format: nil) { buffer, time in
+            feed.ingest(buffer, at: time)
+        }
+    }
+
     private func timePitchNode(for deck: PlaybackDeck) -> AVAudioUnitTimePitch {
         switch deck {
         case .primary:
@@ -460,6 +482,8 @@ public final class AudioPlaybackEngine {
     /// The engine stops itself on route change. The fixed processing graph stays connected;
     /// file sources are rescheduled and streaming sources resume their existing pipeline.
     private func handleConfigurationChange() {
+        // The route's format and latency may have changed under the tap.
+        setLiveAudioFeed(liveAudioFeed)
         if smartMixTransition != nil {
             cancelSmartMixTransition(continueIncoming: hasPromotedSmartMixTransition)
         }

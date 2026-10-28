@@ -477,18 +477,35 @@ public struct ControlsCard: View {
                 .accessibilityLabel("AirPlay")
         } else {
             Button { performSecondaryAction(action) } label: {
-                Image(systemName: action == .favorite ? ratingProjection.currentRating.icon : action.systemImage)
+                Image(systemName: secondaryActionIcon(action))
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-                    .foregroundColor(action == .favorite && ratingProjection.currentRating != .none
+                    .foregroundColor(isSecondaryActionActive(action)
                         ? EnsembleDesign.Color.accent
                         : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .accessibilityLabel(action == .favorite && ratingProjection.currentRating != .none ? "Unfavorite" : action.title)
+            .accessibilityValue(action == .visualizer ? (settingsManager.visualizerEnabled ? "On" : "Off") : "")
             .accessibilityIdentifier("nowPlaying.secondary.\(action.rawValue)")
             .disabled(!isAvailable(action))
             .opacity(isAvailable(action) ? 1 : EnsembleScaffold.NowPlaying.unavailableControlOpacity)
+        }
+    }
+
+    private func secondaryActionIcon(_ action: NowPlayingSecondaryAction) -> String {
+        switch action {
+        case .favorite: return ratingProjection.currentRating.icon
+        case .visualizer where settingsManager.visualizerEnabled: return action.systemImage + ".fill"
+        default: return action.systemImage
+        }
+    }
+
+    private func isSecondaryActionActive(_ action: NowPlayingSecondaryAction) -> Bool {
+        switch action {
+        case .favorite: return ratingProjection.currentRating != .none
+        case .visualizer: return settingsManager.visualizerEnabled
+        default: return false
         }
     }
 
@@ -497,8 +514,14 @@ public struct ControlsCard: View {
             ForEach(Array(NowPlayingSecondaryMenu.sections.enumerated()), id: \.offset) { _, actions in
                 Section {
                     ForEach(actions.filter(isAvailable)) { action in
-                        Button { performSecondaryAction(action) } label: {
-                            secondaryActionLabel(action)
+                        if action == .visualizer {
+                            Toggle(isOn: $settingsManager.visualizerEnabled) {
+                                secondaryActionLabel(action)
+                            }
+                        } else {
+                            Button { performSecondaryAction(action) } label: {
+                                secondaryActionLabel(action)
+                            }
                         }
                     }
                 }
@@ -527,6 +550,7 @@ public struct ControlsCard: View {
         case .shareEnsembleLink: MediaActionLabel(kind: .shareEnsembleLink)
         case .shareLink: MediaActionLabel(kind: .shareLink)
         case .shareAudioFile: MediaActionLabel(kind: .shareAudioFile)
+        case .visualizer: Label(action.title, systemImage: action.systemImage)
         }
     }
 
@@ -550,6 +574,7 @@ public struct ControlsCard: View {
         case .shareEnsembleLink: ShareActions.shareEnsembleLink(track, deps: deps)
         case .shareLink: ShareActions.shareTrackLink(track, deps: deps)
         case .shareAudioFile: ShareActions.shareTrackFile(track, deps: deps)
+        case .visualizer: settingsManager.visualizerEnabled.toggle()
         }
     }
 

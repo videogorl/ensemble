@@ -408,6 +408,8 @@ public enum EnsembleScaffold {
         public static let offlineControlOpacity = 0.25
         public static let backgroundDarkOverlayOpacity = 0.45
         public static let backgroundLightOverlayOpacity = 0.7
+        /// Light dim over the visualizer so controls stay legible.
+        public static let visualizerDimOpacity = 0.3
         public static let smallIconSize: CGFloat = 14
         public static let menuIconSize: CGFloat = 16
         public static let routePickerSize: CGFloat = 24

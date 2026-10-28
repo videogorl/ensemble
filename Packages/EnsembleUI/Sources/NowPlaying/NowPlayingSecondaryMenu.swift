@@ -6,6 +6,7 @@ enum NowPlayingSecondaryMenu {
         [.airPlay, .favorite, .addToPlaylist, .addToLibrary],
         [.goToAlbum, .goToArtist],
         [.shareEnsembleLink, .shareLink, .shareAudioFile],
-        [.addToRecentPlaylist]
+        [.addToRecentPlaylist],
+        [.visualizer]
     ]
 }
