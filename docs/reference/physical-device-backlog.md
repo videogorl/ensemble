@@ -13,6 +13,12 @@ hardware. See [`rearchitecture-plan.md`](rearchitecture-plan.md) section 7.
 
 ## iPhone 16 Pro
 
+Every item below is owed for the steps 0 to 2 close-out (plan section 5).
+On 2026-11-01 none could run: Computer Use was not available to the agent,
+and the Xcode MCP listed only simulators, not the iPhone (paired, Wi-Fi
+tunnel connected). Running them needs Computer Use for Device Hub, or the
+phone on a cable so the Xcode MCP can reach it.
+
 ### TV Now Playing scene accessory, 2026-10-17 fix
 
 At `c273feb5`, Felicity confirmed on 2026-10-18 that the view looks good on her

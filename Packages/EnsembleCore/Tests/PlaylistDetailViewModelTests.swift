@@ -382,7 +382,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             )
         )
 
-        let networkMonitor = NetworkMonitor()
+        let networkMonitor = makeOnlineNetworkMonitor()
         let networkMonitorRef = networkMonitor
         let coordinator = SyncCoordinator(
             accountManager: accountManager,
@@ -416,8 +416,16 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         )
     }
 
+    /// A new monitor starts from the state the last monitor saved, which an earlier
+    /// offline test may have left behind. Start each test from a known online state.
+    private func makeOnlineNetworkMonitor() -> NetworkMonitor {
+        let monitor = NetworkMonitor()
+        monitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        return monitor
+    }
+
     private func makeMutationCoordinator(syncCoordinator: SyncCoordinator) -> MutationCoordinator {
-        let nm = NetworkMonitor()
+        let nm = makeOnlineNetworkMonitor()
         return MutationCoordinator(
             repository: MockPendingMutationRepository(),
             coreDataStack: .inMemory(),

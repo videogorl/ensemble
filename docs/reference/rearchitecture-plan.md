@@ -363,7 +363,10 @@ Revised order, chosen by Felicity on 2026-11-01:
    [`physical-device-backlog.md`](physical-device-backlog.md). Fix or delete
    the two order-dependent `PlaylistDetailViewModelTests` failures; per the
    test policy, deleting is fine if they only pin internals. Push `develop` to
-   GitHub once Felicity says yes.
+   GitHub once Felicity says yes. Done on 2026-11-01: the tests were fixed,
+   not deleted (their network monitors started from a state an earlier
+   offline test had saved), and `develop` was pushed. The iPhone checks
+   remain.
 2. **Step 6, browse, detail, and panes.** The highest-churn area. Line it up
    with the Penpot design system work. Needs its short design approved before
    it starts.
