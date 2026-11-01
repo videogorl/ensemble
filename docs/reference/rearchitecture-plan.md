@@ -26,6 +26,9 @@ Step 2 started on 2026-10-21 with the
 implemented and simulator-checked (2f with three agreed exceptions);
 `DependencyContainer.shared` no longer exists
 ([note](../investigations/2026-10-21-step-2-composition-observation.md)).
+On 2026-11-01 Felicity chose a shorter plan: close out steps 0 to 2, then
+step 6, then a slim step 3. Step 4 is parked and step 5 is dropped from this
+cleanup. The line target is replaced by a fix-commit measure. See section 5.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
@@ -43,12 +46,15 @@ it and without removing features. Concretely:
 - A change in one area cannot silently break another. The example that
   prompted this plan: the Screen Mirroring Now Playing view stopped working
   and nothing noticed.
-- A third music source such as Jellyfin can be added by writing an adapter,
-  not by editing shared code.
-- The watch reaches parity where parity makes sense on a watch.
-- Source lines outside tests drop by 25 to 30 percent while watch downloads
-  and watch playlist management are added. This figure is an estimate and a
-  target, not a measurement.
+- Plex and Apple Music share one library writer, so a sync fix lands once.
+  Groundwork for a third source such as Jellyfin waits until that source is
+  scheduled.
+- Fewer fix and recovery commits in the screens and sync code. Section 8
+  defines the count. Line counts are still reported per step, as information
+  only; the earlier 25 to 30 percent line target is dropped (2026-11-01).
+
+Watch playlist management and watch downloads are a separate feature project,
+outside this cleanup.
 
 ## 2. Settled decisions
 
@@ -59,12 +65,12 @@ Decided by Felicity on 2026-10-13. Do not reopen these without asking.
 | Approach | Incremental rebuild inside the existing app. No rewrite, no long-lived branch. Each step ships on `develop`. |
 | OS floors | iOS and iPadOS 17, macOS 15, watchOS 10. iOS 15 and 16 and macOS 12 to 14 support is removed. |
 | Sources | The app stays multi-source. Nothing in shared code may be hard-coded to Plex or Apple Music. Jellyfin is the expected third source. Design the interface for it now; do not build Jellyfin yet. |
-| Watch | Parity where it makes sense. Playlist management and downloads: yes. Track metadata editing: no. |
-| Store | SQLite through GRDB is allowed as a new dependency. A persisted-data migration is allowed. |
-| Migration | A one-time library resync after the store move is acceptable, provided downloads, offline selections, and pending edits carry over. |
+| Watch | Parity where it makes sense. Playlist management and downloads: yes, as a separate feature project after this cleanup (2026-11-01). Track metadata editing: no. |
+| Store | Core Data stays. Uniqueness constraints are added where duplicates have happened (slim step 3). SQLite through GRDB is parked unless Core Data causes a bug a constraint cannot fix (2026-11-01). |
+| Migration | Parked with the store move. If it returns: a one-time library resync is acceptable, provided downloads, offline selections, and pending edits carry over. |
 | Features | No feature is cut. StageFlow, song.link sharing, moods, cross-source merging, and the logs screen were each confirmed as important. |
 | Tests | The existing suite may be cut hard. Tests that pin internals of replaced code are deleted with that code. |
-| Freeze | A scoped feature freeze applies to the subsystem being rebuilt. See section 6. |
+| Freeze | A scoped feature freeze applies only while step 6 or the slim step 3 is in progress. See section 6. |
 | Verification | Steps proceed on simulator evidence. Nothing is called good or verified until it has been exercised on the physical iPhone 16 Pro through Device Hub; what the simulator could not prove accumulates in `physical-device-backlog.md`. Changed by Felicity on 2026-10-13. See section 7. |
 | Delegation | Subagents and the `codex` CLI may be used for implementation. |
 | TestFlight | No TestFlight builds during this work. They resume when the project is done. Per-step git tags are optional; the commit before a step is the rollback point. |
@@ -144,6 +150,12 @@ completion logic that disagree on Repeat All, and that only one path
 generation-checks progress events. That is the playback problem in miniature.
 
 ## 4. Target architecture
+
+This section is the long-term direction. After the 2026-11-01 revision only
+part of it is scheduled: 4.3 and 4.6 are delivered, 4.7 is step 6, and the
+shared reconciler from 4.4 is the slim step 3. The module split in 4.2,
+`EnsembleSourceKit` and the conformance kit in 4.4, and the store in 4.5 are
+parked. Do not build parked parts without asking Felicity.
 
 ### 4.1 Principles
 
@@ -322,7 +334,7 @@ Checked on GitHub on 2026-10-13. Re-check versions when a step adopts one.
 
 | Choice | Use for | Status |
 |---|---|---|
-| GRDB 7.11 | The store, step 5 | Adopt. MIT, active, supports iOS 13 and watchOS 7 upward. |
+| GRDB 7.11 | The store | Parked with the store move (2026-11-01). MIT, active, supports iOS 13 and watchOS 7 upward. |
 | swift-async-algorithms 1.1 | Debounce, throttle, and merge on async streams, replacing 81 Combine operator uses and the hand-written debounce registry | Adopt in step 2. Apple, Apache 2.0. |
 | Swift Testing | Table-driven reducer and conformance tests | Adopt. Ships with Xcode. |
 | Observation, `CKSyncEngine` | View model observation; possibly the hand-written CloudKit record handling | Native on iOS 17. Evaluate `CKSyncEngine` in step 2. |
@@ -345,8 +357,22 @@ Rejected:
 Order follows the pain and the churn. Each step ends with deletion of the old
 path. A step is not finished while the old path still compiles.
 
-Steps 0 and 1 are specified here. Steps 2 to 6 are outlines; each needs a
-short detailed design, added to this file and approved, before it starts.
+Revised order, chosen by Felicity on 2026-11-01:
+
+1. **Close out steps 0 to 2.** Run the owed iPhone checks in
+   [`physical-device-backlog.md`](physical-device-backlog.md). Fix or delete
+   the two order-dependent `PlaylistDetailViewModelTests` failures; per the
+   test policy, deleting is fine if they only pin internals. Push `develop` to
+   GitHub once Felicity says yes.
+2. **Step 6, browse, detail, and panes.** The highest-churn area. Line it up
+   with the Penpot design system work. Needs its short design approved before
+   it starts.
+3. **Step 3, slimmed.** See below.
+4. **Step 4, module split.** Parked.
+5. **Step 5, store and shared model.** Dropped from this cleanup.
+
+Steps 0 to 2 are specified or delivered below. Steps 6 and 3 each need a short
+detailed design, added to this file and approved, before they start.
 
 ### Step 0. Floors, safety net, and honest cleanup
 
@@ -480,22 +506,30 @@ one root. Move view models to Observation. Collapse the five state transports
 toward snapshot plus event stream. Expect the container file to shrink from
 about 1,300 lines to a few hundred.
 
-### Step 3. Source interface and shared reconciler
+### Step 3. Shared library writer (slimmed 2026-11-01)
 
-Introduce `EnsembleSourceKit`. Convert Plex, then Apple Music, to adapters.
-Move all database writes into one reconciler driven by sync intents. Rename
-Plex vocabulary out of shared code. Add the fake source and the conformance
-kit. Jellyfin is not built.
+Runs after step 6. One shared library writer and reconciler for Plex and
+Apple Music: both sources hand it normalized items, and it owns every write,
+the deletion-safety rule (delete only from a complete inventory), and the
+sync cursors. Add Core Data uniqueness constraints where duplicates have
+happened, such as playlist membership rows.
+
+Dropped for now: `EnsembleSourceKit`, the conformance kit, the fake source,
+and the `ratingKey` rename. Jellyfin groundwork waits until Jellyfin is
+scheduled.
 
 ### Step 4. Module split
 
-Split `EnsembleCore` along the seams steps 1 to 3 produced. Rewrite the
+Parked on 2026-11-01. The outline is kept for later: split `EnsembleCore` along the seams steps 1 to 3 produced. Rewrite the
 `architecture` skill as the short dependency table from section 4.2 and
 delete the prose rules the compiler now enforces.
 
 ### Step 5. Store and shared model
 
-Introduce `EnsembleStore` and `EnsembleModel`. Migrate device-only data,
+Dropped from this cleanup on 2026-11-01. SQLite and GRDB are parked unless
+Core Data causes a bug a constraint cannot fix. Watch playlists and downloads
+become a separate feature project. The downloads redesign is parked. The
+original outline, kept for reference: introduce `EnsembleStore` and `EnsembleModel`. Migrate device-only data,
 resync the library, delete Core Data. Move the watch onto the shared model,
 store, source interface, and playback and download modules. Add watch
 playlist management and watch downloads. Collapse `EnsemblePlex` and most of
@@ -504,12 +538,16 @@ store, with a line budget set in the step's detailed design.
 
 ### Step 6. Browse, detail, and panes
 
+Next after the close-out. Coordinate with the Penpot design system work.
 One browse screen, one detail screen, one pane container. Consolidate track
 tables behind one configuration. Revisit the Mac split choice with evidence.
 
 ## 6. Scoped feature freeze
 
-While a step is rebuilding a subsystem:
+The freeze applies only while step 6 or the slim step 3 is in progress: the
+screens for step 6, the sync and library-writing code for step 3. The
+close-out of steps 0 to 2 freezes nothing. While one of those steps is
+rebuilding its subsystem:
 
 - No new features and no behaviour changes land in that subsystem. Blocking
   bug fixes are allowed and must also land in the new path.
@@ -559,8 +597,8 @@ available; items leave it only with physical evidence.
    what was exercised, evidence, and what was not exercised.
 
 Standing approval exists for signed builds and installs to the iPhone 16 Pro
-for this work. The paired Apple Watch and iPad Pro are approved for steps 5
-and 6. Ask Felicity to connect them before those steps.
+for this work. The paired Apple Watch and iPad Pro are approved for step 6
+and the watch feature project. Ask Felicity to connect them before those steps.
 
 Destructive checks, meaning source removal, playlist deletion, queue
 destruction, and cache cleanup on real data, still need explicit approval
@@ -577,8 +615,20 @@ each time, and use disposable items.
 
 ## 8. Reporting
 
-After each step, report source and test lines per unit against the section 3
-baseline:
+Success is measured by fewer fix and recovery commits in the screens and
+sync code. After each step, count them over the previous 30 days and compare
+with the 30 days before the step started:
+
+```bash
+git log --oneline --no-merges --since=30.days -i -E \
+  --grep='^(fix|recover|restore|repair|revert)' -- \
+  Packages/EnsembleUI/Sources \
+  ':(glob)Packages/EnsembleCore/Sources/**/*Sync*' \
+  ':(glob)Packages/EnsemblePersistence/Sources/**/*Sync*' | wc -l
+```
+
+Also report source and test lines per unit against the section 3 baseline.
+These are information only, not a target:
 
 ```bash
 for p in Packages/*; do
@@ -619,10 +669,10 @@ contract changed.
   must mine `docs/investigations/` and the `known-issues` skill so the
   reducer tables cover them. Losing one silently is the main risk of this
   plan.
-- **GRDB on watchOS.** Platform support is confirmed, see section 4.8.
-  Check binary size at the start of step 5.
-- **Estimates.** Every line target in this file is an estimate. Report
-  actuals and revise the targets rather than bending the work to hit them.
+- **GRDB on watchOS.** Parked with the store. If the store returns, check
+  binary size first.
+- **Estimates.** Line counts are information, not targets. Report actuals;
+  do not bend the work to hit a number.
 - **Screen Mirroring.** The iOS 27 activation gap is fixed and the owner has
   confirmed the TV presentation. Step 2 must preserve the accessory's shared
   model, presentation timing flag, and older-system delegate path.
