@@ -50,6 +50,26 @@ Both the pinned native button and overflow item opened the route picker.
 - Exercise the guarded visible AirPlay fallback if the native internal button
   is unavailable; normal runtime used an intact native picker hierarchy.
 
+### Playback position fixes, branch `fix/playback-position-sync` at `9ee8cf42` or later
+
+Proven on macOS with a real AVAudioEngine (`AudioPlaybackEnginePositionTests`),
+not on the phone or AirPlay.
+
+- AirPlay then interruption (`9aaf9815`): switch to AirPlay, let several tracks
+  advance gaplessly, then trigger an interruption (call or Siri). The paused
+  scrubber and the resumed position match the current track, not the track
+  that was playing at the switch.
+- Pause and resume after gapless advances (`ae391278`): after a few gapless
+  tracks, pause and resume. The scrubber continues from the paused time, and a
+  later AirPlay switch logs a `render=` close to `observed=` and never
+  `Ignoring render clock`. Repeat once with the phone locked.
+- Relaunch and resume (`62e82bac`): force-quit while paused mid-queue,
+  relaunch, play, and let the track end into a gapless advance. The lock screen,
+  scrubber, and `ITEM_CHANGED ... via gapless` follow the new track, and no
+  `dropped native ... outside a session` line appears.
+- Early segment end (`9ee8cf42`, diagnostic only): keep AirPlay playing a
+  stream-cached queue. If a track ends early, read the `Segment ended early`
+  line for the playhead, duration, frame counts, and file size.
 
 ### Step 2, at `31f8e27c` or later
 
