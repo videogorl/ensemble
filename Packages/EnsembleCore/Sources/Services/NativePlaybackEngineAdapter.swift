@@ -26,7 +26,13 @@ final class NativePlaybackEngineAdapter {
     }
 
     private func deliver(_ event: PlaybackEngineEvent, generation: UInt64) {
-        guard generation != 0 else { return }
+        guard generation != 0 else {
+            // Session 0 means the item was loaded outside any session.
+            if case .buffered = event { return }
+            let name = String(describing: event).prefix { $0 != "(" }
+            EnsembleLogger.debug("[EngineEvent] dropped native \(name) outside a session")
+            return
+        }
         DispatchQueue.main.async { [weak self] in
             self?.onEvent?(PlaybackEngineEventEnvelope(
                 session: PlaybackSessionID(rawValue: generation),

@@ -37,6 +37,32 @@ final class AudioPlaybackEnginePositionTests: XCTestCase {
         XCTAssertEqual(engine.currentTimeSubject.value.time, 1.2, accuracy: 0.4)
     }
 
+    /// Relaunch restore loads the item paused, then resume plays it; the gapless
+    /// advance must still reach the service under the restored session.
+    func testRestoredPausedLoadReportsGaplessAdvanceAfterResume() async throws {
+        let engine = AudioPlaybackEngine()
+        try engine.setup()
+        defer { engine.stop() }
+        let adapter = NativePlaybackEngineAdapter(engine: engine)
+        let advanced = expectation(description: "item changed")
+        adapter.onEvent = { envelope in
+            if case let .itemChanged(trackID, via) = envelope.event {
+                XCTAssertEqual(trackID, "second")
+                XCTAssertEqual(via, .gapless)
+                XCTAssertEqual(envelope.session.rawValue, 7)
+                advanced.fulfill()
+            }
+        }
+
+        adapter.willLoad(trackID: "first")
+        try engine.load(fileURL: makeSilentFile(seconds: 0.4), trackId: "first", playbackGeneration: 7)
+        try engine.scheduleNext(fileURL: makeSilentFile(seconds: 2), trackId: "second")
+        engine.adoptPlaybackGeneration(7)
+        try engine.resume()
+
+        await fulfillment(of: [advanced], timeout: 3)
+    }
+
     func testRouteRecoverySnapshotAppliesOnlyToItsItemBriefly() {
         let snapshot = AudioPlaybackEngine.RouteRecoverySnapshot(position: 42, trackId: "a", capturedAt: 100)
         let lifetime = AudioPlaybackEngine.routeRecoverySnapshotLifetime
