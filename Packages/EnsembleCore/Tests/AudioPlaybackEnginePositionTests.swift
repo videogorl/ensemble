@@ -1,0 +1,77 @@
+import AVFoundation
+import Foundation
+@testable import EnsembleCore
+import XCTest
+
+/// File-backed playhead tests that drive a real AVAudioEngine.
+@MainActor
+final class AudioPlaybackEnginePositionTests: XCTestCase {
+    private var fileURLs: [URL] = []
+
+    override func tearDown() {
+        fileURLs.forEach { try? FileManager.default.removeItem(at: $0) }
+        fileURLs = []
+        super.tearDown()
+    }
+
+    func testPauseAfterRouteChangeAndGaplessAdvanceUsesCurrentItemPlayhead() async throws {
+        let engine = AudioPlaybackEngine()
+        try engine.setup()
+        defer { engine.stop() }
+        try engine.load(fileURL: makeSilentFile(seconds: 0.6), trackId: "first", playbackGeneration: 1)
+        try engine.scheduleNext(fileURL: makeSilentFile(seconds: 5), trackId: "second")
+        let advanced = expectation(description: "gapless advance")
+        engine.onTrackAdvance = { trackID, _ in
+            if trackID == "second" { advanced.fulfill() }
+        }
+
+        try engine.play()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        engine.prepareForRouteChange()
+        await fulfillment(of: [advanced], timeout: 3)
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        // An interruption pause long after the route change must not reuse its snapshot.
+        engine.pause()
+
+        XCTAssertEqual(engine.currentTrackId, "second")
+        XCTAssertEqual(engine.currentTimeSubject.value.time, 1.2, accuracy: 0.4)
+    }
+
+    func testRouteRecoverySnapshotAppliesOnlyToItsItemBriefly() {
+        let snapshot = AudioPlaybackEngine.RouteRecoverySnapshot(position: 42, trackId: "a", capturedAt: 100)
+        let lifetime = AudioPlaybackEngine.routeRecoverySnapshotLifetime
+        let cases: [(snapshot: AudioPlaybackEngine.RouteRecoverySnapshot?, trackId: String?, now: TimeInterval, expected: TimeInterval?)] = [
+            (snapshot, "a", 101, 42),
+            (snapshot, "a", 100 + lifetime, 42),
+            (snapshot, "a", 100 + lifetime + 0.1, nil),
+            (snapshot, "b", 101, nil),
+            (snapshot, nil, 101, nil),
+            (nil, "a", 101, nil),
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                AudioPlaybackEngine.usableRouteRecoveryPosition(
+                    testCase.snapshot,
+                    currentTrackId: testCase.trackId,
+                    now: testCase.now
+                ),
+                testCase.expected,
+                "track=\(testCase.trackId ?? "nil") now=\(testCase.now)"
+            )
+        }
+    }
+
+    private func makeSilentFile(seconds: Double) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("engine-position-\(UUID().uuidString)")
+            .appendingPathExtension("caf")
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        let frameCount = AVAudioFrameCount(seconds * format.sampleRate)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount))
+        buffer.frameLength = frameCount
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        try file.write(from: buffer)
+        fileURLs.append(url)
+        return url
+    }
+}
