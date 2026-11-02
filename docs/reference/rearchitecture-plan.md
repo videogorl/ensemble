@@ -29,6 +29,9 @@ implemented and simulator-checked (2f with three agreed exceptions);
 On 2026-11-01 Felicity chose a shorter plan: close out steps 0 to 2, then
 step 6, then a slim step 3. Step 4 is parked and step 5 is dropped from this
 cleanup. The line target is replaced by a fix-commit measure. See section 5.
+Steps 0 to 2 are closed out on simulator evidence as of 2026-11-02; their
+physical iPhone acceptance is deferred by Felicity's choice and stays owed in
+the device backlog, so they are not verified.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
@@ -365,8 +368,9 @@ Revised order, chosen by Felicity on 2026-11-01:
    test policy, deleting is fine if they only pin internals. Push `develop` to
    GitHub once Felicity says yes. Done on 2026-11-01: the tests were fixed,
    not deleted (their network monitors started from a state an earlier
-   offline test had saved), and `develop` was pushed. The iPhone checks
-   remain.
+   offline test had saved), and `develop` was pushed. On 2026-11-02
+   Felicity chose to defer the iPhone checks: steps 0 to 2 are closed out on
+   simulator evidence, not verified, and the checks stay in the backlog.
 2. **Step 6, browse, detail, and panes.** The highest-churn area. Line it up
    with the Penpot design system work. Needs its short design approved before
    it starts.
