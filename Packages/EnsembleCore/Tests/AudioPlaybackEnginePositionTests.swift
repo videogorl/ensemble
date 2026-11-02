@@ -21,20 +21,23 @@ final class AudioPlaybackEnginePositionTests: XCTestCase {
         try engine.load(fileURL: makeSilentFile(seconds: 0.6), trackId: "first", playbackGeneration: 1)
         try engine.scheduleNext(fileURL: makeSilentFile(seconds: 5), trackId: "second")
         let advanced = expectation(description: "gapless advance")
+        var advancedAt: CFTimeInterval = 0
         engine.onTrackAdvance = { trackID, _ in
-            if trackID == "second" { advanced.fulfill() }
+            guard trackID == "second" else { return }
+            advancedAt = CACurrentMediaTime()
+            advanced.fulfill()
         }
 
         try engine.play()
         try await Task.sleep(nanoseconds: 300_000_000)
         engine.prepareForRouteChange()
-        await fulfillment(of: [advanced], timeout: 3)
+        await fulfillment(of: [advanced], timeout: 5)
         try await Task.sleep(nanoseconds: 1_200_000_000)
         // An interruption pause long after the route change must not reuse its snapshot.
         engine.pause()
 
         XCTAssertEqual(engine.currentTrackId, "second")
-        XCTAssertEqual(engine.currentTimeSubject.value.time, 1.2, accuracy: 0.4)
+        XCTAssertEqual(engine.currentTimeSubject.value.time, CACurrentMediaTime() - advancedAt, accuracy: 0.3)
     }
 
     /// Relaunch restore loads the item paused, then resume plays it; the gapless
@@ -60,7 +63,51 @@ final class AudioPlaybackEnginePositionTests: XCTestCase {
         engine.adoptPlaybackGeneration(7)
         try engine.resume()
 
-        await fulfillment(of: [advanced], timeout: 3)
+        await fulfillment(of: [advanced], timeout: 5)
+    }
+
+    /// The player node's sample clock keeps counting across pause and gapless
+    /// segments, so resume must not count already-played audio twice.
+    func testResumeAfterGaplessAdvanceContinuesFromPausedPlayhead() async throws {
+        let engine = AudioPlaybackEngine()
+        try engine.setup()
+        defer { engine.stop() }
+        try engine.load(fileURL: makeSilentFile(seconds: 0.5), trackId: "first", playbackGeneration: 1)
+        try engine.scheduleNext(fileURL: makeSilentFile(seconds: 5), trackId: "second")
+        let advanced = expectation(description: "gapless advance")
+        engine.onTrackAdvance = { _, _ in advanced.fulfill() }
+
+        try engine.play()
+        await fulfillment(of: [advanced], timeout: 5)
+        try await Task.sleep(nanoseconds: 800_000_000)
+        engine.pause()
+        let pausedAt = engine.currentTimeSubject.value.time
+        try engine.resume()
+        let resumedAt = CACurrentMediaTime()
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        XCTAssertGreaterThan(pausedAt, 0.5)
+        XCTAssertEqual(engine.currentTime(), pausedAt + CACurrentMediaTime() - resumedAt, accuracy: 0.25)
+    }
+
+    func testRenderClockIsTrustedOnlyNearTheObservedPlayhead() {
+        let cases: [(render: TimeInterval?, observed: TimeInterval, expected: TimeInterval?)] = [
+            (nil, 10, nil),
+            (10.5, 10, 10.5),
+            (8.1, 10, 8.1),
+            (856.45, 305.47, nil),
+            (2.6, 0.3, nil),
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                AudioPlaybackEngine.trustedRenderClockPosition(
+                    testCase.render,
+                    observedPosition: testCase.observed
+                ),
+                testCase.expected,
+                "render=\(String(describing: testCase.render)) observed=\(testCase.observed)"
+            )
+        }
     }
 
     func testRouteRecoverySnapshotAppliesOnlyToItsItemBriefly() {

@@ -84,7 +84,10 @@ public final class AudioPlaybackEngine {
     /// During gapless transitions the playerNode keeps running, so sampleTime
     /// accumulates across segments. We capture it at each transition so
     /// currentTime() can subtract the prior segments' contribution.
-    private var playerTimeBaseOffset: AVAudioFramePosition = 0
+    /// Pausing does not reset sampleTime either, so pause captures it too.
+    /// Nil when the render clock cannot be tied to the current segment; the
+    /// tracked playhead is used until the next stop or gapless advance.
+    private var playerTimeBaseOffset: AVAudioFramePosition? = 0
     /// Sample rate of the currently loaded file
     private var sampleRate: Double = 44100
     /// Whether the engine was playing when last paused (for resume logic)
@@ -1634,12 +1637,7 @@ public final class AudioPlaybackEngine {
         scheduledFiles.removeAll()
         activePlaybackDeck = transition.incomingDeck
         seekFrameOffset = AVAudioFramePosition(clampedPosition * transition.sampleRate)
-        if let nodeTime = activePlayerNode.lastRenderTime,
-           let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) {
-            playerTimeBaseOffset = playerTime.sampleTime
-        } else {
-            playerTimeBaseOffset = 0
-        }
+        playerTimeBaseOffset = currentPlayerSampleTime()
         setVolume(0, for: transition.outgoingDeck)
         setVolume(1, for: transition.incomingDeck)
         playerNode(for: transition.outgoingDeck).stop()
@@ -2023,19 +2021,39 @@ public final class AudioPlaybackEngine {
     /// This becomes unavailable during route transitions before our fallback state
     /// has been updated, so callers must handle `nil` explicitly.
     private func currentRenderClockPosition() -> TimeInterval? {
-        guard streamingPipeline == nil else { return nil }
-        guard let nodeTime = activePlayerNode.lastRenderTime,
+        guard streamingPipeline == nil,
+              let playerTimeBaseOffset,
+              let nodeTime = activePlayerNode.lastRenderTime,
               let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) else {
             return nil
         }
 
-        return Self.resolvedPlaybackPosition(
+        let renderPosition = Self.resolvedPlaybackPosition(
             renderSampleTime: playerTime.sampleTime,
             playerTimeBaseOffset: playerTimeBaseOffset,
             seekFrameOffset: seekFrameOffset,
             renderSampleRate: playerTime.sampleRate,
             mediaSampleRate: sampleRate
         )
+        guard let trusted = Self.trustedRenderClockPosition(
+            renderPosition,
+            observedPosition: durablePlaybackPosition
+        ) else {
+            EnsembleLogger.debug(
+                "[AudioEngine] Ignoring render clock \(renderPosition)s; tracked playhead is \(durablePlaybackPosition)s"
+            )
+            return nil
+        }
+        return trusted
+    }
+
+    /// The player node's sample time as of its last render, if it is rendering.
+    private func currentPlayerSampleTime() -> AVAudioFramePosition? {
+        guard let nodeTime = activePlayerNode.lastRenderTime,
+              let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) else {
+            return nil
+        }
+        return playerTime.sampleTime
     }
 
     /// Start periodic time updates at ~10Hz using wall-clock estimation.
@@ -2156,7 +2174,7 @@ public final class AudioPlaybackEngine {
             duration: fileDuration
         )
         seekFrameOffset = AVAudioFramePosition(position * sampleRate)
-        playerTimeBaseOffset = 0
+        playerTimeBaseOffset = currentPlayerSampleTime()
         captureWallTimeBase(position: position)
         updateDurablePlaybackPosition(position)
         pendingRouteRecovery = nil
@@ -2238,6 +2256,19 @@ public final class AudioPlaybackEngine {
         return min(max(fallbackPosition, 0), upperBound)
     }
 
+    /// The wall-clock playhead tracks the render clock within a fraction of a
+    /// second; a larger gap means the render clock's base is wrong.
+    static let maximumRenderClockDrift: TimeInterval = 2
+
+    static func trustedRenderClockPosition(
+        _ renderPosition: TimeInterval?,
+        observedPosition: TimeInterval
+    ) -> TimeInterval? {
+        guard let renderPosition,
+              abs(renderPosition - observedPosition) <= maximumRenderClockDrift else { return nil }
+        return renderPosition
+    }
+
     private static func clampedPlaybackPosition(_ position: TimeInterval, duration: TimeInterval) -> TimeInterval {
         let lowerBounded = max(position, 0)
         guard duration > 0 else { return lowerBounded }
@@ -2304,10 +2335,7 @@ public final class AudioPlaybackEngine {
     /// earlier segment since the last stop(); the current value becomes the base.
     private func advanceToFirstScheduledFile() {
         let next = scheduledFiles.removeFirst()
-        if let nodeTime = activePlayerNode.lastRenderTime,
-           let pt = activePlayerNode.playerTime(forNodeTime: nodeTime) {
-            playerTimeBaseOffset = pt.sampleTime
-        }
+        playerTimeBaseOffset = currentPlayerSampleTime()
         currentFile = next.file
         currentTrackId = next.trackId
         currentContentStartFrame = next.contentStartFrame
@@ -2320,7 +2348,7 @@ public final class AudioPlaybackEngine {
         // Re-anchor wall-clock estimation for the new track (position ≈ 0)
         captureWallTimeBase(position: 0)
 
-        EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
+        EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset.map(String.init) ?? "nil")")
     }
 
     private func handleStreamingComplete(generation: UInt64) {
