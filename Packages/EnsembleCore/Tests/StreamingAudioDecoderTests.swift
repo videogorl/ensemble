@@ -85,6 +85,77 @@ final class StreamingAudioDecoderTests: XCTestCase {
         XCTAssertLessThan(decodedDuration, fixtureDuration + 0.5)
     }
 
+    /// PCM and constant-bitrate streams arrive without packet descriptions and
+    /// must not reach the variable-bitrate compressed buffer initializer, which raises.
+    func testDecoderDrainsPCMAndConstantBitrateFilesToExpectedDuration() throws {
+        let fixtureDuration: TimeInterval = 2
+        let pcm16: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false
+        ]
+        let cases: [(name: String, fileExtension: String, settings: [String: Any])] = [
+            ("WAV 16-bit PCM", "wav", pcm16.merging([AVLinearPCMIsBigEndianKey: false]) { $1 }),
+            ("WAV 24-bit PCM", "wav", pcm16.merging([AVLinearPCMBitDepthKey: 24, AVLinearPCMIsBigEndianKey: false]) { $1 }),
+            ("AIFF 16-bit PCM", "aiff", pcm16.merging([AVLinearPCMIsBigEndianKey: true]) { $1 }),
+            ("CAF 32-bit float PCM", "caf", [AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true]),
+            ("CAF µ-law", "caf", [AVFormatIDKey: kAudioFormatULaw]),
+            ("WAV A-law", "wav", [AVFormatIDKey: kAudioFormatALaw]),
+            ("CAF IMA4", "caf", [AVFormatIDKey: kAudioFormatAppleIMA4])
+        ]
+
+        for testCase in cases {
+            let fixtureURL = try makeSineFixture(
+                fileExtension: testCase.fileExtension,
+                settings: testCase.settings,
+                duration: fixtureDuration
+            )
+            defer { try? FileManager.default.removeItem(at: fixtureURL) }
+
+            let data = try Data(contentsOf: fixtureURL)
+            let decoder = try StreamingAudioDecoder(fileExtension: testCase.fileExtension)
+            var decodedFrames: AVAudioFrameCount = 0
+            var outputSampleRate: Double?
+            decoder.onFormatReady = { format in outputSampleRate = format.sampleRate }
+            decoder.onPCMBuffer = { buffer in decodedFrames += buffer.frameLength }
+
+            for chunkStart in stride(from: 0, to: data.count, by: 4096) {
+                try decoder.append(data[chunkStart ..< min(chunkStart + 4096, data.count)])
+            }
+
+            let sampleRate = try XCTUnwrap(outputSampleRate, testCase.name)
+            let decodedDuration = Double(decodedFrames) / sampleRate
+            XCTAssertEqual(decodedDuration, fixtureDuration, accuracy: 0.1, testCase.name)
+        }
+    }
+
+    private func makeSineFixture(
+        fileExtension: String,
+        settings: [String: Any],
+        duration: TimeInterval
+    ) throws -> URL {
+        let sampleRate = 44100.0
+        let fixtureURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("streaming-decoder-\(UUID().uuidString).\(fileExtension)")
+        let fileSettings = settings.merging([
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: 2
+        ]) { $1 }
+        let file = try AVAudioFile(forWriting: fixtureURL, settings: fileSettings)
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2))
+        let frameCount = AVAudioFrameCount(duration * sampleRate)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount))
+        buffer.frameLength = frameCount
+        for channel in 0 ..< 2 {
+            let samples = try XCTUnwrap(buffer.floatChannelData?[channel])
+            for frame in 0 ..< Int(frameCount) {
+                samples[frame] = 0.5 * sin(2 * .pi * 440 * Float(frame) / Float(sampleRate))
+            }
+        }
+        try file.write(from: buffer)
+        return fixtureURL
+    }
+
     private func findExecutable(named name: String) -> URL? {
         let paths = [
             "/opt/homebrew/bin/\(name)",
