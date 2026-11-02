@@ -35,6 +35,14 @@ running iOS 27.0.1 before that check. See the
   on hardware. The integration onto the later playback split is build/test
   checked separately; it has not been reinstalled for another physical run.
 
+### Streaming decoder PCM crash, at `d735bf26` or later
+
+The 2026-10-30 abort in `AVAudioCompressedBuffer` is fixed and covered by
+`StreamingAudioDecoderTests` on macOS only.
+
+- Direct-stream a WAV or AIFF track from Plex on the phone. Confirm it plays
+  to the end without a crash, and that MP3, AAC and FLAC tracks still stream.
+
 ### Customizable Now Playing secondary actions, 2026-10-13 feature commit
 
 Builds and SE/macOS/iPad evidence are in
