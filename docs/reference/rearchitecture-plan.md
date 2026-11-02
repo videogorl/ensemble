@@ -546,6 +546,8 @@ store, with a line budget set in the step's detailed design.
 ### Step 6. Browse, detail, and panes
 
 Next after the close-out. Coordinate with the Penpot design system work.
+Detailed design, awaiting Felicity's approval:
+[`browse-detail-panes-design.md`](browse-detail-panes-design.md).
 One browse screen, one detail screen, one pane container. Consolidate track
 tables behind one configuration. Revisit the Mac split choice with evidence.
 
