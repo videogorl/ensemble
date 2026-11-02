@@ -2307,6 +2307,7 @@ public final class AudioPlaybackEngine {
             EnsembleLogger.debug("[AudioEngine] Segment complete ignored — wasPlaying=false")
             return
         }
+        logIfSegmentEndedEarly()
 
         if let next = scheduledFiles.first {
             let previousTrackId = currentTrackId
@@ -2328,6 +2329,20 @@ public final class AudioPlaybackEngine {
             }
             onPlaybackComplete?(playbackRequestGeneration)
         }
+    }
+
+    /// Diagnoses file segments the player node finishes well before their
+    /// duration (seen on AirPlay with fully downloaded stream-cache files).
+    private func logIfSegmentEndedEarly() {
+        guard let file = currentFile, fileDuration - durablePlaybackPosition > 5 else { return }
+        let size = (try? file.url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        EnsembleLogger.info(
+            "[AudioEngine] Segment ended early trackId=\(currentTrackId ?? "nil")"
+                + " at=\(String(format: "%.1f", durablePlaybackPosition))s"
+                + " duration=\(String(format: "%.1f", fileDuration))s"
+                + " frames=\(currentContentFrameCount)/\(file.length)"
+                + " fileSize=\(size.map(String.init) ?? "missing")"
+        )
     }
 
     /// Make the first gapless-scheduled file current. The player node keeps
@@ -2377,6 +2392,7 @@ public final class AudioPlaybackEngine {
             EnsembleLogger.debug("[AudioEngine] Gapless completion ignored — wasPlaying=false, trackId=\(trackId)")
             return
         }
+        logIfSegmentEndedEarly()
 
         if let next = scheduledFiles.first {
             advanceToFirstScheduledFile()
