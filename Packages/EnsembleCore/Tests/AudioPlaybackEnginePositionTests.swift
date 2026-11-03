@@ -29,6 +29,45 @@ final class AudioPlaybackEnginePositionTests: XCTestCase {
         XCTAssertEqual(engine.fileDuration, 0)
     }
 
+    /// Cancelling a crossfade before its midpoint keeps the outgoing track: the
+    /// stopped incoming deck must not end it, and its own end must still count.
+    func testCancelledSmartMixKeepsOutgoingTrackUntilItsOwnEnd() async throws {
+        let engine = AudioPlaybackEngine()
+        try engine.setup()
+        defer { engine.stop() }
+        try engine.load(fileURL: makeSilentFile(seconds: 3), trackId: "outgoing", playbackGeneration: 1)
+        var completions: [CFTimeInterval] = []
+        engine.onPlaybackComplete = { _ in completions.append(CACurrentMediaTime()) }
+
+        try engine.play()
+        let startedAt = CACurrentMediaTime()
+        try await Task.sleep(nanoseconds: 200_000_000)
+        try engine.scheduleSmartMixNext(
+            fileURL: makeSilentFile(seconds: 5),
+            trackId: "incoming",
+            plan: SmartMixPlan(
+                transitionDuration: 4,
+                outgoingStartTime: 0,
+                incomingStartTime: 0,
+                metadataPromotionTime: 2,
+                skipToIncomingThreshold: 2
+            )
+        )
+        XCTAssertTrue(engine.isSmartMixTransitionActive)
+        engine.cancelSmartMixTransition()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(completions.count, 0, "cancel must not end the outgoing track")
+
+        try await Task.sleep(nanoseconds: 3_000_000_000)
+        XCTAssertEqual(engine.currentTrackId, "outgoing")
+        XCTAssertEqual(completions.count, 1, "the outgoing track's own end must still be reported")
+        // The legacy completion fires once the node has read the segment, which
+        // can be up to about a second before the last frame plays.
+        if let endedAt = completions.first {
+            XCTAssertGreaterThan(endedAt - startedAt, 1.5)
+        }
+    }
+
     func testPauseAfterRouteChangeAndGaplessAdvanceUsesCurrentItemPlayhead() async throws {
         let engine = AudioPlaybackEngine()
         try engine.setup()

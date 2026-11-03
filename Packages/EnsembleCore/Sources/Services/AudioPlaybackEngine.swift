@@ -1543,6 +1543,15 @@ public final class AudioPlaybackEngine {
         smartMixTransition = nil
         onSmartMixTransitionActiveChanged?(false, playbackRequestGeneration)
         EnsembleLogger.debug("[AudioEngine] SmartMix cancelled")
+        // Starting the mix moved the generation past the outgoing segment's
+        // completion. Re-anchor that segment so its own end advances, and so the
+        // stopped incoming deck's completion is stale. A stopped engine means the
+        // caller is replacing the schedule, so only the generation moves.
+        if let file = currentFile, engine.isRunning {
+            reanchorCurrentSegment(file, reason: "SmartMix cancelled")
+        } else {
+            scheduleGeneration &+= 1
+        }
     }
 
     private func startSmartMixFadeTimer() {
@@ -1717,6 +1726,12 @@ public final class AudioPlaybackEngine {
             return
         }
 
+        reanchorCurrentSegment(file, reason: "Cleared scheduled files")
+    }
+
+    /// Reschedule the current file alone on the active deck from the live playhead,
+    /// under a new generation, so only that segment's completion can end the item.
+    private func reanchorCurrentSegment(_ file: AVAudioFile, reason: String) {
         // Capture position before stopping so we can re-anchor seamlessly
         let position = currentTime()
         let wasActive = wasPlaying || activePlayerNode.isPlaying
@@ -1737,7 +1752,7 @@ public final class AudioPlaybackEngine {
         let contentEnd = currentContentStartFrame + AVAudioFramePosition(currentContentFrameCount)
         guard fileFrame < contentEnd else {
             // Current track already at/past end — let natural completion handle it
-            EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (track at end)")
+            EnsembleLogger.debug("[AudioEngine] \(reason) (track at end)")
             onPlaybackComplete?(playbackRequestGeneration)
             return
         }
@@ -1767,7 +1782,7 @@ public final class AudioPlaybackEngine {
             startTimeUpdates(from: position)
         }
 
-        EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (flushed FIFO, re-anchored at \(String(format: "%.1f", position))s)")
+        EnsembleLogger.debug("[AudioEngine] \(reason) (flushed FIFO, re-anchored at \(String(format: "%.1f", position))s)")
     }
 
     // MARK: - Playback Control
