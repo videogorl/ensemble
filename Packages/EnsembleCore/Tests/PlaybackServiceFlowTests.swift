@@ -38,6 +38,33 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.audioEngine?.stop()
     }
 
+    /// Removing items before the current one must keep the index on the current item.
+    func testQueueRemovalsKeepTheCurrentItemCurrent() async throws {
+        let service = await makeService()
+        let tracks = try ["a", "b", "c", "d"].map { try makeTrack($0, seconds: 1) }
+        service.queue = tracks.map { QueueItem(track: $0) }
+        service.currentQueueIndex = 2
+        service.currentTrack = tracks[2]
+        service.playbackState = .paused
+
+        service.removeDeletedTracks([tracks[0].playbackIdentity])
+
+        XCTAssertEqual(service.queue.map(\.track.id), ["b", "c", "d"])
+        XCTAssertEqual(service.currentQueueIndex, 1)
+
+        // Autoplay off removes autoplay items, but not the one playing.
+        let autoplay = try ["auto1", "auto2"].map { try makeTrack($0, seconds: 1) }
+        service.queue = [QueueItem(track: tracks[0])] + autoplay.map { QueueItem(track: $0, source: .autoplay) }
+        service.currentQueueIndex = 2
+        service.currentTrack = autoplay[1]
+        service.isAutoplayEnabled = true
+
+        service.toggleAutoplay()
+
+        XCTAssertEqual(service.queue.map(\.track.id), ["a", "auto2"])
+        XCTAssertEqual(service.currentQueueIndex, 1)
+    }
+
     // MARK: - Harness
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"

@@ -1283,15 +1283,13 @@ extension PlaybackService {
             stop()
         }
 
-        queue.removeAll { trackIdentities.contains($0.track.playbackIdentity) }
+        let remaining = PlaybackQueueController.removingItems(from: queue, currentQueueIndex: currentQueueIndex) {
+            trackIdentities.contains($0.track.playbackIdentity)
+        }
+        queue = remaining.queue
+        currentQueueIndex = remaining.currentQueueIndex
         originalQueue.removeAll { trackIdentities.contains($0.track.playbackIdentity) }
         playbackHistory.removeAll { trackIdentities.contains($0.track.playbackIdentity) }
-
-        if queue.isEmpty {
-            currentQueueIndex = -1
-        } else {
-            currentQueueIndex = min(currentQueueIndex, queue.count - 1)
-        }
 
         if let currentTrack, trackIdentities.contains(currentTrack.playbackIdentity) {
             self.currentTrack = nil
