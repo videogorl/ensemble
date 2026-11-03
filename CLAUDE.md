@@ -120,7 +120,8 @@ with any other active runner using the same simulator; never use
 
 Device Hub, Simulator.app Computer Use, and iPhone Mirroring compete for global
 Mac focus, and each app's windows share one process. Only one agent may drive
-them at a time. A stale device view does not authorize restarting Device Hub
+them at a time; hold `~/.t3/bin/device-lock` `mac-gui` while doing so (see the
+global instructions). A stale device view does not authorize restarting Device Hub
 while another runner is active; verify the device independently, reopen only
 that view, or coordinate a global restart.
 
