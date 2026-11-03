@@ -60,6 +60,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         private let syncLibraryIncrementalHandler: (@Sendable (LibraryRepositoryProtocol) async throws -> LibrarySyncResult)?
         private let syncPlaylistsHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)?
         private let syncPlaylistsIncrementalHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)?
+        private(set) var lastIncrementalSince: TimeInterval?
 
         init(
             sourceIdentifier: MusicSourceIdentifier,
@@ -95,6 +96,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
             progressHandler: @Sendable (Double) -> Void
         ) async throws -> LibrarySyncResult {
             progressHandler(1)
+            lastIncrementalSince = timestamp
             await recorder.record("library-incremental")
             if let syncLibraryIncrementalHandler {
                 return try await syncLibraryIncrementalHandler(repository)
@@ -288,6 +290,28 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
             XCTAssertEqual(coordinator.lastContentChange?.source, source)
             XCTAssertEqual(coordinator.lastContentChange?.libraryResult?.changedTracks, 1)
         }
+    }
+
+    /// lastSyncedAt is stamped when a sync finishes; changes made while it ran
+    /// must fall inside the next window, which starts at that sync's query start.
+    func testIncrementalSyncWindowStartsAtThePreviousQueryStart() async throws {
+        let stack = CoreDataStack.inMemory()
+        let source = makeSourceIdentifier()
+        let cursors = SyncCursorRepository(coreDataStack: stack)
+        let coordinator = makeCoordinator(stack: stack, sources: [source], cursors: cursors)
+        try await recordPreviousSync(stack: stack, source: source)
+        let queryStartedAt = Date().addingTimeInterval(-600)
+        try await cursors.recordIncrementalSync(scopeKey: source.compositeKey, scopeType: .plexLibrary, at: queryStartedAt)
+        let provider = RecordingProvider(
+            sourceIdentifier: source, recorder: EventRecorder(),
+            syncLibraryIncrementalHandler: { _ in LibrarySyncResult() }
+        )
+        coordinator.setSyncProvidersForTesting([source.compositeKey: provider])
+
+        await coordinator.syncIncremental(source: source)
+
+        let since = try XCTUnwrap(provider.lastIncrementalSince)
+        XCTAssertEqual(since, queryStartedAt.timeIntervalSince1970 - 5, accuracy: 1)
     }
 
     func testPlaylistFailurePreservesCommittedLibraryAndTruthfulStatus() async throws {
