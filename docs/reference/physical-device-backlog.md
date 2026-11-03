@@ -71,6 +71,33 @@ not on the phone or AirPlay.
   stream-cached queue. If a track ends early, read the `Segment ended early`
   line for the playhead, duration, frame counts, and file size.
 
+### Sweep fixes on the same branch, after `dbec02b4`
+
+Engine and service paths are covered by EnsembleCore tests on macOS; none ran
+on the phone. Name each commit by its subject until it has a hash here.
+
+- Paused Next then Previous, then Play ("Unload the current item when the
+  engine stops"): sound plays and the scrubber moves. After a Plex track hands
+  off to Apple Music, the duration shown is the Apple Music track's.
+- Apple Music pause while buffering ("Rebind Apple Music events when a pause
+  starts a new session"): press Play on a paused Apple Music track and pause
+  again before it starts; then resume, once in the app and once from Control
+  Center. The scrubber and Lock Screen move, and the next track advances. Not
+  covered by any automated test.
+- Relaunch, then Next within 3 seconds ("Pre-buffer a restored queue at the
+  current paused playhead"): with a paused restored queue, press Next right
+  after launch, wait 5 seconds, press Play. The new track starts at 0:00.
+- Autoplay off while an autoplay track plays ("Keep the queue index on the
+  current item after removals"): the playing row stays highlighted and Next
+  goes to the following non-autoplay item, or ends the queue.
+- SmartMix cancel ("Stop a cancelled SmartMix crossfade from ending the
+  track"): during the first half of a crossfade, reorder Up Next or turn
+  SmartMix off. The outgoing track keeps playing to its end and then advances.
+- Downloads ("Keep in-flight installs out of the orphan download sweep"):
+  while a large album downloads, remove a different downloaded album (which
+  runs the orphan sweep). Every finished track of the first album plays
+  offline.
+
 ### Step 2, at `31f8e27c` or later
 
 See [the step note](../investigations/2026-10-21-step-2-composition-observation.md).
