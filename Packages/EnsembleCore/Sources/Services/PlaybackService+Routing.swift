@@ -332,6 +332,9 @@ extension PlaybackService {
 
         #if os(iOS)
             if #available(iOS 18, *), currentTrack?.isAppleMusic == true {
+                // MusicKit keeps its queue, so its events must carry the new session.
+                // The native engine adopts it on resume instead.
+                appleMusicEngineAdapter?.bind(activeEngineSession, startTime: currentTime)
                 appleMusicPlaybackController?.pause()
             } else {
                 audioEngine?.pause()
