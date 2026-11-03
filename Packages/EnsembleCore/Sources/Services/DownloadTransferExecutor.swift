@@ -282,6 +282,9 @@ final class DownloadTransferExecutor {
         } else {
             try FileManager.default.moveItem(at: sourceURL, to: stagingURL)
         }
+        // A move keeps the download's old date; a fresh one keeps the installed
+        // file out of the orphan sweep until its record is completed.
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: stagingURL.path)
         let validationProgress = dependencies.validationProgress
         await validationProgress(ctx, 0)
         try await Self.validateDownloadDuration(fileURL: stagingURL, ctx: ctx, progress: validationProgress)

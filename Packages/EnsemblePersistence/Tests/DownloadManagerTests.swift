@@ -566,7 +566,9 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertNil(track.localFilePath)
     }
 
-    func testRemoveOrphanedDownloadFilesRemovesUnreferencedFilesAndSidecars() async throws {
+    /// Old unreferenced files go; an install's staging file and a file installed
+    /// moments ago, before its record is completed, stay.
+    func testRemoveOrphanedDownloadFilesRemovesOnlySettledUnreferencedFiles() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let downloadManager = DownloadManager(coreDataStack: stack)
@@ -578,7 +580,12 @@ final class DownloadManagerTests: XCTestCase {
         let referencedSidecarURL = DownloadManager.downloadsDirectory.appendingPathComponent(referencedFilename + ".freq")
         let orphanURL = DownloadManager.downloadsDirectory.appendingPathComponent(orphanFilename)
         let orphanSidecarURL = DownloadManager.downloadsDirectory.appendingPathComponent(orphanSidecarFilename)
+        let stagingURL = DownloadManager.downloadsDirectory
+            .appendingPathComponent(".staged-\(suffix).mp3.installing-\(UUID().uuidString)")
+        let justInstalledURL = DownloadManager.downloadsDirectory.appendingPathComponent("installed-\(suffix).mp3")
         defer {
+            try? FileManager.default.removeItem(at: stagingURL)
+            try? FileManager.default.removeItem(at: justInstalledURL)
             try? FileManager.default.removeItem(at: referencedURL)
             try? FileManager.default.removeItem(at: referencedSidecarURL)
             try? FileManager.default.removeItem(at: orphanURL)
@@ -589,6 +596,12 @@ final class DownloadManagerTests: XCTestCase {
         try Data([0x02]).write(to: referencedSidecarURL)
         try Data([0x03]).write(to: orphanURL)
         try Data([0x04]).write(to: orphanSidecarURL)
+        try Data([0x05]).write(to: stagingURL)
+        try Data([0x06]).write(to: justInstalledURL)
+        let settled = Date().addingTimeInterval(-2 * DownloadManager.orphanFileGracePeriod)
+        for url in [orphanURL, orphanSidecarURL, stagingURL] {
+            try FileManager.default.setAttributes([.modificationDate: settled], ofItemAtPath: url.path)
+        }
         try await seedTrack(ratingKey: "302", sourceCompositeKey: sourceA, repository: libraryRepository)
         let download = try await downloadManager.createDownload(
             forTrackRatingKey: "302",
@@ -609,6 +622,8 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: referencedSidecarURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: orphanURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: orphanSidecarURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagingURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: justInstalledURL.path))
     }
 
     func testRepairDownloadsHealsMetadataWithoutChangingOrdinaryFetches() async throws {
