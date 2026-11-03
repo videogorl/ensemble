@@ -1928,6 +1928,11 @@ public final class AudioPlaybackEngine {
         engine.stop()
         clearStreamingPipeline()
         wasPlaying = false
+        // Nothing stays scheduled, so no item stays loaded: callers that match
+        // currentTrackId would otherwise resume a silent player.
+        currentFile = nil
+        currentTrackId = nil
+        fileDuration = 0
         playbackRequestGeneration = 0
         streamingStartTime = 0
         seekFrameOffset = 0

@@ -14,6 +14,21 @@ final class AudioPlaybackEnginePositionTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Paused Next then Previous stops the engine; Play must reload, not resume
+    /// an empty player that still claims the old item.
+    func testStopUnloadsTheCurrentItem() throws {
+        let engine = AudioPlaybackEngine()
+        try engine.setup()
+        try engine.load(fileURL: makeSilentFile(seconds: 1), trackId: "first", playbackGeneration: 1)
+        XCTAssertEqual(engine.currentTrackId, "first")
+
+        engine.stop()
+
+        XCTAssertNil(engine.currentTrackId)
+        XCTAssertNil(engine.currentPlaybackFileURL)
+        XCTAssertEqual(engine.fileDuration, 0)
+    }
+
     func testPauseAfterRouteChangeAndGaplessAdvanceUsesCurrentItemPlayhead() async throws {
         let engine = AudioPlaybackEngine()
         try engine.setup()
