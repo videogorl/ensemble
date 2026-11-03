@@ -1092,9 +1092,9 @@ extension PlaybackService {
 
         #if os(iOS)
             if #available(iOS 18, *), currentTrack?.isAppleMusic == true {
-                let shouldRebuildQueue = pendingPreBufferTime != nil
+                let shouldRebuildQueue = isPreBufferPending
                     || appleMusicPlaybackController?.activeQueueGeneration == nil
-                pendingPreBufferTime = nil
+                isPreBufferPending = false
                 playbackState = .buffering
                 updateNowPlayingInfo()
                 Task { @MainActor [weak self] in
@@ -1130,7 +1130,7 @@ extension PlaybackService {
         #endif
 
         // Clear pre-buffer flag — user is taking action now
-        pendingPreBufferTime = nil
+        isPreBufferPending = false
 
         // If no track is loaded in the engine (e.g., after state restoration where
         // pre-buffer hasn't completed yet), check if a pre-buffer is in progress.

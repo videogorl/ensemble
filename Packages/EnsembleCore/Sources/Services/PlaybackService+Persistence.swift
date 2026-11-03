@@ -222,7 +222,7 @@ extension PlaybackService {
         generateWaveform(for: decision.track.playbackIdentity)
         playbackState = .paused
         updateNowPlayingInfo()
-        pendingPreBufferTime = decision.restoredTime
+        isPreBufferPending = true
 
         if decision.removedAutoplayCount > 0 {
             savePlaybackState()

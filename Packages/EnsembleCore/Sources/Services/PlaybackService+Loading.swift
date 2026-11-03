@@ -1320,21 +1320,24 @@ extension PlaybackService {
         }
     }
 
-    /// Pre-buffer the restored track: create player item, insert paused, seek to saved position.
+    /// Pre-buffer the current paused track after restore: load it paused at the paused playhead.
     /// Called either immediately (local files) or after health check confirms server reachable.
+    /// Restore sets the playhead to the saved time; a paused Next, Previous, or seek
+    /// before this runs moves it, so the saved time alone may belong to another track.
     @MainActor
     func preBufferRestoredTrack() async {
         ensureAudioSessionConfigured()
-        guard let savedTime = pendingPreBufferTime,
+        guard isPreBufferPending,
               playbackState == .paused,
               audioEngine?.currentTrackId == nil,
               let track = currentTrack
         else {
-            pendingPreBufferTime = nil
+            isPreBufferPending = false
             return
         }
 
-        pendingPreBufferTime = nil
+        isPreBufferPending = false
+        let pausedTime = currentTime
         let generation = sessionGeneration
 
         guard prepareAudioEngineForPlaybackIfNeeded() else {
@@ -1358,7 +1361,7 @@ extension PlaybackService {
                 playbackGeneration: generation
             )
             let restoredTime = Self.restoredPausedSeekTime(
-                savedTime: savedTime,
+                savedTime: pausedTime,
                 duration: Self.effectiveDuration(
                     metadataDuration: track.duration,
                     itemDuration: audioEngine?.fileDuration
