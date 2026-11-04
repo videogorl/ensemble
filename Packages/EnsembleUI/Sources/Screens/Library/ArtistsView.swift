@@ -8,7 +8,6 @@ import UIKit
 struct ArtistBrowseControls: View {
     @Bindable var libraryVM: LibraryViewModel
     private let artistSnapshotCache: BrowseSnapshotCache<ArtistBrowseSnapshot>
-    @State private var showsFilters = false
 
     init(libraryVM: LibraryViewModel) {
         self.libraryVM = libraryVM
@@ -17,12 +16,10 @@ struct ArtistBrowseControls: View {
 
     var body: some View {
         if artistSnapshotCache.snapshot.hasVisibleContent || !libraryVM.artists.isEmpty {
-            EnsembleBrowseFilterButton(
+            LibraryFilterButton(
                 title: "Filter Artists",
-                hasActiveFilters: libraryVM.artistsFilterOptions.hasActiveFilters,
-                action: { showsFilters = true }
-            )
-            .sheet(isPresented: $showsFilters) {
+                hasActiveFilters: libraryVM.artistsFilterOptions.hasActiveFilters
+            ) {
                 FilterSheet(
                     filterOptions: $libraryVM.artistsFilterOptions,
                     availableGenres: artistSnapshotCache.snapshot.availableGenres,
@@ -32,12 +29,9 @@ struct ArtistBrowseControls: View {
             EnsembleBrowseSortMenu(
                 model: libraryVM,
                 options: ArtistSortOption.allCases,
-                selection: { $0.artistSortOption },
-                direction: { $0.artistsFilterOptions.sortDirection }
-            ) { option, direction in
-                if libraryVM.artistSortOption != option { libraryVM.artistSortOption = option }
-                libraryVM.artistsFilterOptions.sortDirection = direction
-            }
+                option: \.artistSortOption,
+                filterOptions: \.artistsFilterOptions
+            )
             .accessibilityLabel("Sort Artists")
         }
     }
@@ -78,34 +72,26 @@ public struct ArtistsView: View {
     }
 
     public var body: some View {
-        Group {
-            if artistSnapshot.phase != .idle && !hasLibraryContent {
-                loadingView
-            } else if !hasLibraryContent {
-                emptyView
-            } else {
-                rootContent
-            }
-        }
-        .navigationTitle("Artists")
-        .if(!isMacBrowsePicker) { view in
-            view.searchable(text: artistFilterOptions.searchText, prompt: "Filter artists")
-        }
-        .refreshable {
-            await libraryVM.refreshFromServer()
-        }
-        .refreshCommand {
-            await libraryVM.refreshFromServer()
-        }
-        .toolbar {
-            EnsembleBrowseToolbar(isVisible: isBrowseToolbarVisible && !isMacBrowsePicker) {
-                ArtistBrowseControls(libraryVM: libraryVM)
-            }
-        }
-        .ensembleBrowseToolbarMinimization()
-        .if(selectedArtist == nil) { view in
-            view.toolbarMaterialBackground()
-        }
+        LibraryBrowseScreen(
+            title: "Artists",
+            loadingTitle: "Loading artists…",
+            state: LibraryBrowseState(isLoading: artistSnapshot.phase != .idle, hasContent: hasLibraryContent),
+            empty: LibraryBrowseEmptyState(
+                title: "No Artists",
+                icon: EnsembleDesign.Icon.artists,
+                recovery: libraryVM.emptyStateRecovery(message: "No artists found in enabled libraries")
+            ),
+            search: LibraryBrowseSearch(
+                text: artistFilterOptions.searchText,
+                prompt: "Filter artists",
+                isVisible: !isMacBrowsePicker
+            ),
+            usesToolbarMaterial: selectedArtist == nil,
+            controlsVisible: isBrowseToolbarVisible && !isMacBrowsePicker,
+            refresh: { await libraryVM.refreshFromServer() },
+            controls: { ArtistBrowseControls(libraryVM: libraryVM) },
+            content: { rootContent }
+        )
     }
 
     @ViewBuilder
@@ -190,7 +176,7 @@ public struct ArtistsView: View {
                             artistSelectionRow(artist)
                         }
                     } header: {
-                        sectionHeader(section.letter).id(section.letter)
+                        EnsembleBrowseSectionHeader(section.letter).id(section.letter)
                     }
                 }
             } else {
@@ -208,58 +194,24 @@ public struct ArtistsView: View {
     }
 
     private var artistSelectionList: some View {
-        ScrollViewReader { proxy in
-            GeometryReader { geometry in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                        artistGenreChipBar
-
-                        if libraryVM.artistSortOption == .name {
-                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(artistSnapshot.sections) { section in
-                                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                        sectionHeader(section.letter)
-                                            .id(section.letter)
-
-                                        ForEach(section.artists) { displayArtist in
-                                            artistSelectionRow(displayArtist)
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.vertical)
-                        } else {
-                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(artistSnapshot.displayArtists) { displayArtist in
-                                    artistSelectionRow(displayArtist)
-                                }
-                            }
-                            .padding(.vertical)
-                        }
-
-                        LibraryBrowseCountFooter(
-                            count: artistSnapshot.displayArtists.count,
-                            singular: "artist",
-                            plural: "artists",
-                            bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
-                        )
-                    }
-                }
-                .miniPlayerBottomSpacing()
-                .libraryScrollIndexOverlay {
-                    if shouldShowScrollIndex(width: geometry.size.width) {
-                        ScrollIndex(
-                            letters: artistSnapshot.sections.map { $0.letter },
-                            currentLetter: .constant(nil),
-                            onLetterTap: { letter in
-                                proxy.scrollTo(letter, anchor: .top)
-                            }
-                        )
-                    }
-                }
-                .foregroundScrollActivity()
-            }
+        artistScroll { artists in
+            ForEach(artists) { artistSelectionRow($0) }
         }
+    }
+
+    private func artistScroll<Group: View>(
+        @ViewBuilder group: @escaping ([DisplayArtist]) -> Group
+    ) -> some View {
+        LibraryIndexedScroll(
+            sections: artistSnapshot.sections,
+            items: artistSnapshot.displayArtists,
+            singular: "artist",
+            plural: "artists",
+            isSectioned: libraryVM.artistSortOption == .name,
+            showsIndex: presentationMode == .compactRoot && libraryVM.artistSortOption == .name,
+            chipBar: AnyView(artistGenreChipBar),
+            group: group
+        )
     }
 
     private func artistSelectionRow(_ displayArtist: DisplayArtist) -> some View {
@@ -273,98 +225,18 @@ public struct ArtistsView: View {
         .id(displayArtist.id)
     }
 
-    private var loadingView: some View {
-        EnsembleStateScaffold(kind: .loading, title: "Loading artists…")
-    }
-
     private var hasLibraryContent: Bool {
         artistSnapshot.hasVisibleContent || !libraryVM.artists.isEmpty
     }
 
-    private var emptyView: some View {
-        EnsembleLibraryEmptyStateScaffold(
-            title: "No Artists",
-            iconSystemName: EnsembleDesign.Icon.artists,
-            recovery: libraryVM.emptyStateRecovery(message: "No artists found in enabled libraries"),
-            addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openProfile() }
-        )
-    }
-
     private var artistListView: some View {
-        ScrollViewReader { proxy in
-            GeometryReader { geometry in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                        artistGenreChipBar
-
-                        if libraryVM.artistSortOption == .name {
-                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(artistSnapshot.sections) { section in
-                                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                        sectionHeader(section.letter)
-                                            .id(section.letter)
-
-                                        DisplayArtistGrid(
-                                            artists: section.artists,
-                                            nowPlayingVM: nowPlayingVM
-                                        )
-                                    }
-                                }
-                            }
-                            .padding(.vertical)
-                        } else {
-                            DisplayArtistGrid(
-                                artists: artistSnapshot.displayArtists,
-                                nowPlayingVM: nowPlayingVM
-                            )
-                            .padding(.vertical)
-                        }
-
-                        LibraryBrowseCountFooter(
-                            count: artistSnapshot.displayArtists.count,
-                            singular: "artist",
-                            plural: "artists",
-                            bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
-                        )
-                    }
-                }
-                .miniPlayerBottomSpacing()
-                .libraryScrollIndexOverlay {
-                    if shouldShowScrollIndex(width: geometry.size.width) {
-                        ScrollIndex(
-                            letters: artistSnapshot.sections.map { $0.letter },
-                            currentLetter: .constant(nil),
-                            onLetterTap: { letter in
-                                proxy.scrollTo(letter, anchor: .top)
-                            }
-                        )
-                    }
-                }
-                .foregroundScrollActivity()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+        artistScroll { artists in
+            DisplayArtistGrid(artists: artists, nowPlayingVM: nowPlayingVM)
         }
     }
 
     private var artistGenreChipBar: some View {
-        GenreFilterHeader(
-            availableGenres: artistSnapshot.availableGenres,
-            selectedGenres: artistFilterOptions.selectedGenres,
-            excludedGenres: artistFilterOptions.excludedGenres,
-            favoriteFilter: artistFilterOptions.favoriteFilter
-        )
-    }
-
-    private func shouldShowScrollIndex(width: CGFloat) -> Bool {
-        presentationMode == .compactRoot &&
-        libraryVM.artistSortOption == .name &&
-        !artistSnapshot.displayArtists.isEmpty &&
-        ScrollIndex.isVisible(forContainerWidth: width)
-    }
-
-    private func sectionHeader(_ letter: String) -> some View {
-        EnsembleBrowseSectionHeader(letter)
+        GenreFilterHeader(availableGenres: artistSnapshot.availableGenres, filterOptions: artistFilterOptions)
     }
 }
 
