@@ -8,7 +8,6 @@ public struct AlbumsView: View {
     @Environment(DependencyContainer.self) private var deps
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @Environment(NavigationCoordinator.self) private var navigationCoordinator
-    @State private var showFilterSheet = false
     @State private var visibleAlbumID: String?
     @State private var selectedAlbum: DisplayAlbum?
     private let albumSnapshotCache: BrowseSnapshotCache<AlbumBrowseSnapshot>
@@ -39,69 +38,12 @@ public struct AlbumsView: View {
         )
     }
 
-    private var albumFilterButton: some View {
-        EnsembleBrowseFilterButton(
+    @ViewBuilder
+    private var albumControls: some View {
+        LibraryFilterButton(
             title: "Filter Albums",
             hasActiveFilters: libraryVM.albumsFilterOptions.hasActiveFilters
         ) {
-            showFilterSheet = true
-        }
-    }
-
-    private var albumSortMenu: some View {
-        EnsembleBrowseSortMenu(
-            model: libraryVM,
-            options: AlbumSortOption.allCases,
-            selection: { $0.albumSortOption },
-            direction: { $0.albumsFilterOptions.sortDirection }
-        ) { option, direction in
-            if libraryVM.albumSortOption != option {
-                libraryVM.albumSortOption = option
-            }
-            libraryVM.albumsFilterOptions.sortDirection = direction
-        }
-        .accessibilityLabel("Sort Albums")
-    }
-
-    public var body: some View {
-        Group {
-            if albumSnapshot.phase != .idle && !hasLibraryContent {
-                loadingView
-            } else if !hasLibraryContent {
-                emptyView
-            } else {
-                ZStack {
-                    albumGridView
-                        .opacity(isStageFlowActive ? 0 : 1)
-                        .allowsHitTesting(!isStageFlowActive)
-                        .accessibilityHidden(isStageFlowActive)
-                    if isStageFlowActive { stageFlowView }
-                }
-            }
-        }
-        #if os(iOS)
-        .navigationBarHidden(isStageFlowActive)
-        .if(true) { view in
-            view.toolbar(isStageFlowActive ? .hidden : .automatic, for: .navigationBar)
-        }
-        .statusBar(hidden: isStageFlowActive)
-        #endif
-        .navigationTitle(isStageFlowActive ? "" : "Albums")
-        .searchable(text: albumFilterOptions.searchText, prompt: "Filter albums")
-        .refreshable {
-            await libraryVM.refreshFromServer()
-        }
-        .refreshCommand {
-            await libraryVM.refreshFromServer()
-        }
-        .toolbar {
-            EnsembleBrowseToolbar(isVisible: isBrowseToolbarVisible) {
-                albumFilterButton
-                albumSortMenu
-            }
-        }
-        .ensembleBrowseToolbarMinimization()
-        .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: albumFilterOptions,
                 availableArtists: availableArtists,
@@ -112,10 +54,40 @@ public struct AlbumsView: View {
                 showHideSingles: true
             )
         }
+        EnsembleBrowseSortMenu(
+            model: libraryVM,
+            options: AlbumSortOption.allCases,
+            option: \.albumSortOption,
+            filterOptions: \.albumsFilterOptions
+        )
+        .accessibilityLabel("Sort Albums")
     }
 
-    private var loadingView: some View {
-        EnsembleStateScaffold(kind: .loading, title: "Loading albums…")
+    public var body: some View {
+        LibraryBrowseScreen(
+            title: "Albums",
+            loadingTitle: "Loading albums…",
+            state: LibraryBrowseState(isLoading: albumSnapshot.phase != .idle, hasContent: hasLibraryContent),
+            empty: LibraryBrowseEmptyState(
+                title: "No Albums",
+                icon: EnsembleDesign.Icon.album,
+                recovery: libraryVM.emptyStateRecovery(message: "No albums found in enabled libraries")
+            ),
+            search: LibraryBrowseSearch(text: albumFilterOptions.searchText, prompt: "Filter albums"),
+            hidesChrome: isStageFlowActive,
+            controlsVisible: isBrowseToolbarVisible,
+            refresh: { await libraryVM.refreshFromServer() },
+            controls: { albumControls },
+            content: {
+                ZStack {
+                    albumGridView
+                        .opacity(isStageFlowActive ? 0 : 1)
+                        .allowsHitTesting(!isStageFlowActive)
+                        .accessibilityHidden(isStageFlowActive)
+                    if isStageFlowActive { stageFlowView }
+                }
+            }
+        )
     }
 
     private var hasLibraryContent: Bool {
@@ -133,16 +105,6 @@ public struct AlbumsView: View {
         #endif
     }
 
-    private var emptyView: some View {
-        EnsembleLibraryEmptyStateScaffold(
-            title: "No Albums",
-            iconSystemName: EnsembleDesign.Icon.album,
-            recovery: libraryVM.emptyStateRecovery(message: "No albums found in enabled libraries"),
-            addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openProfile() }
-        )
-    }
-
     private var isSortIndexed: Bool {
         switch libraryVM.albumSortOption {
         case .title, .artist, .albumArtist:
@@ -153,92 +115,28 @@ public struct AlbumsView: View {
     }
 
     private var albumGridView: some View {
-        ScrollViewReader { proxy in
-            GeometryReader { geometry in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                        albumGenreChipBar
-
-                        if isSortIndexed {
-                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(albumSnapshot.sections) { section in
-                                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                        sectionHeader(section.letter)
-                                            .id(section.letter)
-
-                                        AlbumGrid(
-                                            albums: section.albums,
-                                            nowPlayingVM: nowPlayingVM,
-                                            navigationCoordinator: navigationCoordinator
-                                        )
-                                    }
-                                }
-                            }
-                            .padding(.vertical)
-                        } else {
-                            AlbumGrid(
-                                albums: albumSnapshot.albums,
-                                nowPlayingVM: nowPlayingVM,
-                                navigationCoordinator: navigationCoordinator
-                            )
-                                .padding(.vertical)
-                        }
-
-                        LibraryBrowseCountFooter(
-                            count: albumSnapshot.albums.count,
-                            singular: "album",
-                            plural: "albums",
-                            bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
-                        )
-                    }
-                }
-                .environment(\.tracksAlbumGridPosition, true)
-                .overlayPreferenceValue(AlbumGridBoundsKey.self) { bounds in
-                    GeometryReader { viewport in
-                        let visibleID = bounds.compactMap { id, anchor -> (String, CGRect)? in
-                            let frame = viewport[anchor]
-                            return frame.intersects(CGRect(origin: .zero, size: viewport.size)) ? (id, frame) : nil
-                        }.min {
-                            $0.1.minY == $1.1.minY ? $0.1.minX < $1.1.minX : $0.1.minY < $1.1.minY
-                        }?.0
-                        Color.clear
-                            .onAppear {
-                                if !isStageFlowActive, let visibleID { visibleAlbumID = visibleID }
-                            }
-                            .onChange(of: visibleID) { id in
-                                // Rotation can briefly collapse the viewport before StageFlow activates.
-                                guard !isStageFlowActive, let id else { return }
-                                visibleAlbumID = id
-                            }
-                    }
-                    .allowsHitTesting(false)
-                }
-                .onChange(of: isStageFlowActive) { active in
-                    if active {
-                        selectedAlbum = albumSnapshot.albums.first { $0.id == visibleAlbumID }
-                    } else if let id = selectedAlbum?.id {
-                        proxy.scrollTo(id, anchor: .top)
-                    }
-                }
-                .onChange(of: geometry.size) { _ in
-                    if !isStageFlowActive, let id = selectedAlbum?.id { proxy.scrollTo(id, anchor: .top) }
-                }
-                .miniPlayerBottomSpacing()
-                .libraryScrollIndexOverlay {
-                    if isSortIndexed && !albumSnapshot.albums.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {
-                        ScrollIndex(
-                            letters: albumSnapshot.sections.map { $0.letter },
-                            currentLetter: .constant(nil),
-                            onLetterTap: { letter in
-                                proxy.scrollTo(letter, anchor: .top)
-                            }
-                        )
-                    }
-                }
-                .foregroundScrollActivity()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        LibraryIndexedScroll(
+            sections: albumSnapshot.sections,
+            items: albumSnapshot.albums,
+            singular: "album",
+            plural: "albums",
+            isSectioned: isSortIndexed,
+            showsIndex: isSortIndexed,
+            chipBar: AnyView(albumGenreChipBar),
+            decoration: { proxy, size in
+                AlbumScrollTracking(
+                    proxy: proxy,
+                    size: size,
+                    albums: albumSnapshot.albums,
+                    isStageFlowActive: isStageFlowActive,
+                    visibleAlbumID: $visibleAlbumID,
+                    selectedAlbum: $selectedAlbum
+                )
+            },
+            group: { albums in
+                AlbumGrid(albums: albums, nowPlayingVM: nowPlayingVM, navigationCoordinator: navigationCoordinator)
             }
-        }
+        )
     }
 
     private var stageFlowView: some View {
@@ -271,16 +169,52 @@ public struct AlbumsView: View {
     }
 
     private var albumGenreChipBar: some View {
-        GenreFilterHeader(
-            availableGenres: albumSnapshot.availableGenres,
-            selectedGenres: albumFilterOptions.selectedGenres,
-            excludedGenres: albumFilterOptions.excludedGenres,
-            favoriteFilter: albumFilterOptions.favoriteFilter
-        )
+        GenreFilterHeader(availableGenres: albumSnapshot.availableGenres, filterOptions: albumFilterOptions)
     }
+}
 
-    private func sectionHeader(_ letter: String) -> some View {
-        EnsembleBrowseSectionHeader(letter)
+/// Keeps StageFlow and the album grid on the same album across rotation and mode switches.
+private struct AlbumScrollTracking: ViewModifier {
+    let proxy: ScrollViewProxy
+    let size: CGSize
+    let albums: [DisplayAlbum]
+    let isStageFlowActive: Bool
+    @Binding var visibleAlbumID: String?
+    @Binding var selectedAlbum: DisplayAlbum?
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.tracksAlbumGridPosition, true)
+            .overlayPreferenceValue(AlbumGridBoundsKey.self) { bounds in
+                GeometryReader { viewport in
+                    let visibleID = bounds.compactMap { id, anchor -> (String, CGRect)? in
+                        let frame = viewport[anchor]
+                        return frame.intersects(CGRect(origin: .zero, size: viewport.size)) ? (id, frame) : nil
+                    }.min {
+                        $0.1.minY == $1.1.minY ? $0.1.minX < $1.1.minX : $0.1.minY < $1.1.minY
+                    }?.0
+                    Color.clear
+                        .onAppear {
+                            if !isStageFlowActive, let visibleID { visibleAlbumID = visibleID }
+                        }
+                        .onChange(of: visibleID) { id in
+                            // Rotation can briefly collapse the viewport before StageFlow activates.
+                            guard !isStageFlowActive, let id else { return }
+                            visibleAlbumID = id
+                        }
+                }
+                .allowsHitTesting(false)
+            }
+            .onChange(of: isStageFlowActive) { active in
+                if active {
+                    selectedAlbum = albums.first { $0.id == visibleAlbumID }
+                } else if let id = selectedAlbum?.id {
+                    proxy.scrollTo(id, anchor: .top)
+                }
+            }
+            .onChange(of: size) { _ in
+                if !isStageFlowActive, let id = selectedAlbum?.id { proxy.scrollTo(id, anchor: .top) }
+            }
     }
 }
 
