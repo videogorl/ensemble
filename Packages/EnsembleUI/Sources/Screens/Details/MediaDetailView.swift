@@ -227,29 +227,29 @@ func makePlaylistHeaderFallbackArtworkRequest(
 public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @Bindable var viewModel: ViewModel
     let nowPlayingVM: NowPlayingViewModel
-
     let headerData: MediaHeaderData
     let navigationTitle: String
-    let showArtwork: Bool
-    let showTrackNumbers: Bool
-    let groupByDisc: Bool
-    let showFilter: Bool
-    let mediaType: PinnedItemType?
-    let selectedTrackId: String?
-    let genreChipContent: AnyView?
-    let playlistMenuActions: PlaylistDetailMenuActions?
-    let albumMenuActions: AlbumDetailMenuActions?
-    let hiddenCandidates: [HiddenMediaCandidate]
-    let hiddenIdentity: HiddenMediaIdentity?
-    let includesHidden: Bool
-    let additionalFooterContent: AnyView?
-    let supplementalLoad: (() async -> Void)?
-    /// Custom pin/unpin action for merged playlists (pins all constituents).
-    /// When nil, the default single-item pin behavior is used.
-    let customPinAction: ((Bool) -> Void)?
-    /// Custom pin state check for merged playlists.
-    /// When nil, checks the header's source-scoped identity in the current pinned identity snapshot.
-    let customIsPinned: ((Set<String>) -> Bool)?
+    let configuration: DetailConfiguration
+
+    private var showArtwork: Bool { configuration.showArtwork }
+    private var showTrackNumbers: Bool { configuration.showTrackNumbers }
+    private var groupByDisc: Bool { configuration.groupByDisc }
+    private var showFilter: Bool { configuration.showFilter }
+    private var mediaType: PinnedItemType? { configuration.mediaType }
+    private var selectedTrackId: String? { configuration.selectedTrackId }
+    private var hiddenCandidates: [HiddenMediaCandidate] { configuration.hiddenCandidates }
+    private var hiddenIdentity: HiddenMediaIdentity? { configuration.hiddenIdentity }
+    private var includesHidden: Bool { configuration.includesHidden }
+    private var additionalFooterContent: AnyView? { configuration.footerContent }
+    private var isAlbum: Bool { configuration.mediaType == .album }
+    private var playlistMenuActions: PlaylistDetailMenuActions? {
+        if case .playlist(let actions) = configuration.menu { return actions }
+        return nil
+    }
+    private var albumMenuActions: AlbumDetailMenuActions? {
+        if case .album(let actions) = configuration.menu { return actions }
+        return nil
+    }
 
     @State private var artworkImage: PlatformImage?
     @State private var blurredArtworkImage: PlatformImage?
@@ -257,7 +257,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var resolvedHeaderBlurCacheKey: String?
     @State private var headerArtworkRetryToken = 0
     @State private var showFilterSheet = false
-    @State private var showToolbarTitle = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
@@ -276,49 +275,20 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var activeDownloadTrackIdentities: Set<String> { deps.offlineDownloadService.activeDownloadTrackIdentities }
     private var availabilityGeneration: UInt64 { deps.trackAvailabilityResolver.availabilityGeneration }
 
-    public init(
+    init(
         viewModel: ViewModel,
         nowPlayingVM: NowPlayingViewModel,
         headerData: MediaHeaderData,
         navigationTitle: String,
-        showArtwork: Bool = true,
-        showTrackNumbers: Bool = false,
-        groupByDisc: Bool = false,
-        showFilter: Bool = true,
-        mediaType: PinnedItemType? = nil,
-        selectedTrackId: String? = nil,
-        hiddenCandidates: [HiddenMediaCandidate] = [],
-        hiddenIdentity: HiddenMediaIdentity? = nil,
-        includesHidden: Bool = false,
-        genreChipContent: AnyView? = nil,
-        playlistMenuActions: PlaylistDetailMenuActions? = nil,
-        albumMenuActions: AlbumDetailMenuActions? = nil,
-        additionalFooterContent: AnyView? = nil,
-        supplementalLoad: (() async -> Void)? = nil,
-        initialArtworkImage: PlatformImage? = nil,
-        customPinAction: ((Bool) -> Void)? = nil,
-        customIsPinned: ((Set<String>) -> Bool)? = nil
+        configuration: DetailConfiguration,
+        initialArtworkImage: PlatformImage? = nil
     ) {
+        let mediaType = configuration.mediaType
         self.viewModel = viewModel
         self.nowPlayingVM = nowPlayingVM
         self.headerData = headerData
         self.navigationTitle = navigationTitle
-        self.showArtwork = showArtwork
-        self.showTrackNumbers = showTrackNumbers
-        self.groupByDisc = groupByDisc
-        self.showFilter = showFilter
-        self.mediaType = mediaType
-        self.selectedTrackId = selectedTrackId
-        self.hiddenCandidates = hiddenCandidates
-        self.hiddenIdentity = hiddenIdentity
-        self.includesHidden = includesHidden
-        self.genreChipContent = genreChipContent
-        self.playlistMenuActions = playlistMenuActions
-        self.albumMenuActions = albumMenuActions
-        self.additionalFooterContent = additionalFooterContent
-        self.supplementalLoad = supplementalLoad
-        self.customPinAction = customPinAction
-        self.customIsPinned = customIsPinned
+        self.configuration = configuration
         self._artworkImage = State(initialValue: initialArtworkImage)
         let initialFallbackTrack = mediaType == .playlist
             ? viewModel.filteredTracks.first {
@@ -347,29 +317,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     public var body: some View {
         searchableContent
         .task { viewModel.start() }
-        .toolbar {
-            EnsembleDetailToolbarActions {
-                if shouldShowStandaloneFilterButton {
-                    EnsembleBrowseFilterButton(
-                        title: "Filter Tracks",
-                        hasActiveFilters: viewModel.filterOptions.hasActiveFilters
-                    ) {
-                        showFilterSheet = true
-                    }
-                }
-
-                if let mediaType = mediaType,
-                   let ratingKey = headerData.ratingKey {
-                    pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
-                }
-            }
-        }
-        .collapsingToolbarTitle(
-            navigationTitle,
-            threshold: 0,
-            showToolbarTitle: $showToolbarTitle
-        )
-        .artworkBackedToolbarBleed()
         // Native track lists manage their own bottom inset so rows can scroll
         // behind the floating mini player without shrinking the table host.
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
@@ -432,7 +379,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     /// Whether the radio button should be shown.
     private var hasRadioButton: Bool {
-        viewModel is AlbumDetailViewModel
+        isAlbum
     }
 
     private var playableTracks: [Track] {
@@ -484,7 +431,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     private var isPinnedForHeader: Bool {
         let pinnedIdentities = Set(pinManager.pinnedItems.map(\.sourceScopedID))
-        if let customIsPinned {
+        if let customIsPinned = configuration.pin?.isPinned {
             return customIsPinned(pinnedIdentities)
         }
         guard let ratingKey = headerData.ratingKey else { return false }
@@ -511,7 +458,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 Divider()
             }
 
-            if viewModel is AlbumDetailViewModel {
+            if isAlbum {
                 if let albumMenuActions {
                     Button {
                         albumMenuActions.onPlayNext()
@@ -591,7 +538,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
 
                     Button {
-                        if let customAction = customPinAction {
+                        if let customAction = configuration.pin?.toggle {
                             customAction(isPinned)
                         } else {
                             deps.pinManager.togglePin(
@@ -656,7 +603,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
 
                 Button {
-                    if let customAction = customPinAction {
+                    if let customAction = configuration.pin?.toggle {
                         customAction(isPinned)
                     } else {
                         deps.pinManager.togglePin(
@@ -837,7 +784,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .accessibilityHint(playlistMenuActions.deleteAvailability.reason ?? "")
             }
 
-            if viewModel is AlbumDetailViewModel, let albumMenuActions {
+            if let albumMenuActions {
                 if hasHiddenMediaAction {
                     HiddenMediaDetailMenuButton(
                         candidates: hiddenCandidates,
@@ -1029,22 +976,33 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// toolbar bleed for artwork-backed detail chrome; bottom spacing stays owned
     /// by the native table/list inset and the root mini-player container.
     private var baseContent: some View {
-        MediaDetailSurface(
-            artworkImage: artworkImage,
-            preBlurredArtworkImage: blurredArtworkImage,
-            preBlurredArtworkCacheKey: currentHeaderBlurCacheKey,
-            artworkContinuityIdentity: headerArtworkContinuityIdentity,
-            contentBleedsUnderTopChrome: true,
-            contentBleedsUnderBottomChrome: true
+        DetailScreen(
+            title: navigationTitle,
+            style: .trackList,
+            backdrop: DetailBackdrop(
+                artworkImage: artworkImage,
+                blurredImage: blurredArtworkImage,
+                blurCacheKey: currentHeaderBlurCacheKey,
+                continuityIdentity: headerArtworkContinuityIdentity
+            )
         ) {
+            if shouldShowStandaloneFilterButton {
+                EnsembleBrowseFilterButton(
+                    title: "Filter Tracks",
+                    hasActiveFilters: viewModel.filterOptions.hasActiveFilters
+                ) {
+                    showFilterSheet = true
+                }
+            }
+
+            if let mediaType = mediaType,
+               let ratingKey = headerData.ratingKey {
+                pinMenuButton(ratingKey: ratingKey, mediaType: mediaType)
+            }
+        } content: {
             detailContent
         }
-        .coordinateSpace(name: "mediaDetailScroll")
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
-        .navigationTitle("")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
     }
 
     @ViewBuilder
@@ -1068,7 +1026,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     private func runInitialLoads() async {
         await loadTracksIfNeeded()
-        if let supplementalLoad {
+        if let supplementalLoad = configuration.supplementalLoad {
             await supplementalLoad()
         }
     }
@@ -1319,7 +1277,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             Text(headerData.title)
                 .font(EnsembleDesign.Typography.sectionTitle)
                 .multilineTextAlignment(textAlignment)
-                .background(TitleOffsetTracker(coordinateSpace: "mediaDetailScroll"))
+                .background(TitleOffsetTracker(coordinateSpace: DetailScreen<EmptyView, EmptyView>.scrollSpace))
 
             subtitleView(alignment: textAlignment)
 
@@ -1390,7 +1348,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     @ViewBuilder
     private var radioButton: some View {
-        if let _ = viewModel as? AlbumDetailViewModel {
+        if isAlbum {
             Button {
                 nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
             } label: {
@@ -1452,7 +1410,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     await nowPlayingVM.toggleTrackFavorite(track)
                 }
             },
-            onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : { track in
+            onGoToAlbum: isAlbum ? nil : { track in
                 if let destination = NavigationCoordinator.Destination.album(for: track) {
                     navigationCoordinator.routeFromMenu(
                         to: destination,
@@ -1549,7 +1507,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             tracks: viewModel.filteredTracks,
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
-            showAlbumName: !(viewModel is AlbumDetailViewModel),
+            showAlbumName: !isAlbum,
             groupByDisc: groupByDisc,
             currentTrackId: currentTrackId,
             selectedTrackId: selectedTrackId,
@@ -1576,11 +1534,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             configuration: NativeTrackListConfiguration(
                 showArtwork: showArtwork,
                 showTrackNumbers: showTrackNumbers,
-                showAlbumName: !(viewModel is AlbumDetailViewModel),
+                showAlbumName: !isAlbum,
                 groupByDisc: groupByDisc,
                 rowHeight: TrackListLayoutMetrics.defaultRowHeight,
                 bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-                tableHeaderExtraHeight: macTableHeaderExtraHeight,
                 supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                 trackSourceLabels: headerData.trackSourceLabels,
                 currentTrackId: currentTrackId,
@@ -1622,10 +1579,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
-    private var macTableHeaderExtraHeight: CGFloat {
-        genreChipContent == nil ? 0 : GenreChipBar.reservedHeight + (tableHeaderTopContentVerticalPadding * 2)
-    }
-
     private var macDiscTrackGroups: [(disc: Int?, tracks: [(offset: Int, element: Track)])] {
         let indexedTracks = Array(viewModel.filteredTracks.enumerated())
         guard groupByDisc else {
@@ -1662,10 +1615,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         #endif
     }
 
-    private var tableHeaderTopContentVerticalPadding: CGFloat {
-        genreChipContent == nil ? 0 : EnsembleDesign.Spacing.sm
-    }
-
     private var tableHeaderRevision: String {
         [
             headerData.title,
@@ -1687,12 +1636,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             artworkWidth: ArtworkSize.medium.cgSize.width,
             topPadding: tableHeaderTopPadding,
             bottomPadding: tableHeaderBottomPadding,
-            topContentVerticalPadding: tableHeaderTopContentVerticalPadding,
-            topContent: {
-                if let genreChipContent {
-                    genreChipContent
-                }
-            },
+            topContent: { EmptyView() },
             artwork: {
                 headerArtwork
                     .mediaDetailArtworkShadow()

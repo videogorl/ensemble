@@ -795,59 +795,60 @@ public struct PlaylistDetailView: View {
                     nowPlayingVM: nowPlayingVM,
                     headerData: headerData,
                     navigationTitle: viewModel.playlist.title,
-                    showArtwork: true,
-                    showTrackNumbers: false,
-                    groupByDisc: false,
-                    mediaType: .playlist,
-                    hiddenCandidates: viewModel.playlist.hiddenCandidate(deps: deps).map { [$0] } ?? [],
-                    hiddenIdentity: HiddenMediaIdentity(viewModel.playlist),
-                    playlistMenuActions: PlaylistDetailMenuActions(
-                        favoriteAvailability: viewModel.playlist.actionAvailability(for: .favorite),
-                        isFavorite: isFavorite,
-                        downloadAvailability: resolvedDownloadMenuAvailability(
-                            isDownloaded: isDownloaded,
-                            sourceAvailability: viewModel.playlist.actionAvailability(for: .download)
+                    configuration: DetailConfiguration(
+                        mediaType: .playlist,
+                        menu: .playlist(
+                            PlaylistDetailMenuActions(
+                                favoriteAvailability: viewModel.playlist.actionAvailability(for: .favorite),
+                                isFavorite: isFavorite,
+                                downloadAvailability: resolvedDownloadMenuAvailability(
+                                    isDownloaded: isDownloaded,
+                                    sourceAvailability: viewModel.playlist.actionAvailability(for: .download)
+                                ),
+                                isDownloaded: isDownloaded,
+                                renameAvailability: viewModel.playlist.actionAvailability(for: .rename),
+                                editAvailability: resolvedPlaylistDetailEditAvailability(
+                                    actionAvailability: viewModel.playlist.actionAvailability(for: .reorder),
+                                    canEditContents: viewModel.canEditPlaylistItems,
+                                    unavailableReason: "Playlist contents are not available to edit."
+                                ),
+                                deleteAvailability: viewModel.playlist.actionAvailability(for: .delete),
+                                onToggleFavorite: {
+                                    setFavorite(!isFavorite)
+                                },
+                                onFavorite: {
+                                    guard !isFavorite else { return }
+                                    setFavorite(true)
+                                },
+                                onToggleDownload: {
+                                    Task {
+                                        await deps.offlineDownloadService.setPlaylistDownloadEnabled(
+                                            viewModel.playlist,
+                                            isEnabled: !isDownloaded
+                                        )
+                                    }
+                                },
+                                onRename: {
+                                    renamePromptText = viewModel.playlist.title
+                                    showRenamePrompt = true
+                                },
+                                onEdit: {
+                                    editedItems = viewModel.playlistItems
+                                    isEditingPlaylist = true
+                                },
+                                onDelete: {
+                                    showDeleteConfirmation = true
+                                },
+                                onPlayNext: {
+                                    nowPlayingVM.playNext(viewModel.filteredTracks.filter(\.isLibraryAvailable))
+                                },
+                                onPlayLast: {
+                                    nowPlayingVM.playLast(viewModel.filteredTracks.filter(\.isLibraryAvailable))
+                                }
+                            )
                         ),
-                        isDownloaded: isDownloaded,
-                        renameAvailability: viewModel.playlist.actionAvailability(for: .rename),
-                        editAvailability: resolvedPlaylistDetailEditAvailability(
-                            actionAvailability: viewModel.playlist.actionAvailability(for: .reorder),
-                            canEditContents: viewModel.canEditPlaylistItems,
-                            unavailableReason: "Playlist contents are not available to edit."
-                        ),
-                        deleteAvailability: viewModel.playlist.actionAvailability(for: .delete),
-                        onToggleFavorite: {
-                            setFavorite(!isFavorite)
-                        },
-                        onFavorite: {
-                            guard !isFavorite else { return }
-                            setFavorite(true)
-                        },
-                        onToggleDownload: {
-                            Task {
-                                await deps.offlineDownloadService.setPlaylistDownloadEnabled(
-                                    viewModel.playlist,
-                                    isEnabled: !isDownloaded
-                                )
-                            }
-                        },
-                        onRename: {
-                            renamePromptText = viewModel.playlist.title
-                            showRenamePrompt = true
-                        },
-                        onEdit: {
-                            editedItems = viewModel.playlistItems
-                            isEditingPlaylist = true
-                        },
-                        onDelete: {
-                            showDeleteConfirmation = true
-                        },
-                        onPlayNext: {
-                            nowPlayingVM.playNext(viewModel.filteredTracks.filter(\.isLibraryAvailable))
-                        },
-                        onPlayLast: {
-                            nowPlayingVM.playLast(viewModel.filteredTracks.filter(\.isLibraryAvailable))
-                        }
+                        hiddenCandidates: viewModel.playlist.hiddenCandidate(deps: deps).map { [$0] } ?? [],
+                        hiddenIdentity: HiddenMediaIdentity(viewModel.playlist)
                     ),
                     initialArtworkImage: initialArtworkImage
                 )

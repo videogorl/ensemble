@@ -359,124 +359,130 @@ public struct AlbumDetailView: View {
             nowPlayingVM: nowPlayingVM,
             headerData: headerData,
             navigationTitle: album.title,
-            showArtwork: false,
-            showTrackNumbers: true,
-            groupByDisc: true,
-            showFilter: false,
-            mediaType: .album,
-            selectedTrackId: viewModel.displayedTrackIdentity(for: selectedTrackId),
-            hiddenCandidates: displayAlbum.albums.compactMap { $0.hiddenCandidate(deps: deps) },
-            hiddenIdentity: displayAlbum.isMerged ? nil : HiddenMediaIdentity(album),
-            includesHidden: includesHidden,
-            albumMenuActions: AlbumDetailMenuActions(
-                favoriteAvailability: .combined(
-                    displayAlbum.albums.map { $0.actionAvailability(for: .favorite) }
-                ),
-                isFavorite: isFavorite(album),
-                downloadAvailability: .combined(displayAlbum.albums.map {
-                    resolvedDownloadMenuAvailability(
-                        isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled($0),
-                        sourceAvailability: $0.actionAvailability(for: .download)
-                    )
-                }),
-                isDownloaded: downloadState.isEnabled,
-                editMetadataAvailability: .combined(
-                    displayAlbum.albums.map { $0.actionAvailability(for: .editMetadata) }
-                ),
-                deleteAvailability: .combined(
-                    displayAlbum.albums.map { $0.actionAvailability(for: .delete) }
-                ),
-                onToggleFavorite: {
-                    sourceMutationAction(
-                        title: "Update Album Favorite",
-                        items: displayAlbum.albums,
-                        id: \.sourceScopedID,
-                        itemTitle: \.title,
-                        sourceKey: \.sourceCompositeKey,
-                        availability: { $0.actionAvailability(for: .favorite) },
-                        presenter: sourceActionPresenter,
-                        deps: deps
-                    ) { selectedAlbum in
-                        setFavorite(!isFavorite(selectedAlbum), for: selectedAlbum)
-                    }?()
-                },
-                onFavorite: {
-                    guard !isFavorite(album) else { return }
-                    setFavorite(true, for: album)
-                },
-                onToggleDownload: {
-                    Task {
-                        await deps.offlineDownloadService.toggleDownloads(for: displayAlbum.albums)
-                    }
-                },
-                onAddToPlaylist: { present in
-                    sourceMutationAction(
-                        title: "Add Album to Playlist",
-                        items: displayAlbum.albums,
-                        id: \.sourceScopedID,
-                        itemTitle: \.title,
-                        sourceKey: \.sourceCompositeKey,
-                        presenter: sourceActionPresenter,
-                        deps: deps
-                    ) { selectedAlbum in
-                        present(viewModel.filteredTracks(for: selectedAlbum), "Add Album to Playlist")
-                    }?()
-                },
-                onEditMetadata: {
-                    sourceMutationAction(
-                        title: "Edit Album Metadata",
-                        items: displayAlbum.albums,
-                        id: \.sourceScopedID,
-                        itemTitle: \.title,
-                        sourceKey: \.sourceCompositeKey,
-                        availability: { $0.actionAvailability(for: .editMetadata) },
-                        presenter: sourceActionPresenter,
-                        deps: deps,
-                        action: presentMetadataEditor(for:)
-                    )?()
-                },
-                onDelete: {
-                    sourceMutationAction(
-                        title: "Delete Album",
-                        items: displayAlbum.albums.filter {
-                            $0.actionAvailability(for: .delete).isAvailable
+            configuration: DetailConfiguration(
+                mediaType: .album,
+                menu: .album(
+                    AlbumDetailMenuActions(
+                        favoriteAvailability: .combined(
+                            displayAlbum.albums.map { $0.actionAvailability(for: .favorite) }
+                        ),
+                        isFavorite: isFavorite(album),
+                        downloadAvailability: .combined(displayAlbum.albums.map {
+                            resolvedDownloadMenuAvailability(
+                                isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled($0),
+                                sourceAvailability: $0.actionAvailability(for: .download)
+                            )
+                        }),
+                        isDownloaded: downloadState.isEnabled,
+                        editMetadataAvailability: .combined(
+                            displayAlbum.albums.map { $0.actionAvailability(for: .editMetadata) }
+                        ),
+                        deleteAvailability: .combined(
+                            displayAlbum.albums.map { $0.actionAvailability(for: .delete) }
+                        ),
+                        onToggleFavorite: {
+                            sourceMutationAction(
+                                title: "Update Album Favorite",
+                                items: displayAlbum.albums,
+                                id: \.sourceScopedID,
+                                itemTitle: \.title,
+                                sourceKey: \.sourceCompositeKey,
+                                availability: { $0.actionAvailability(for: .favorite) },
+                                presenter: sourceActionPresenter,
+                                deps: deps
+                            ) { selectedAlbum in
+                                setFavorite(!isFavorite(selectedAlbum), for: selectedAlbum)
+                            }?()
                         },
-                        id: \.sourceScopedID,
-                        itemTitle: \.title,
-                        sourceKey: \.sourceCompositeKey,
-                        presenter: sourceActionPresenter,
-                        deps: deps
-                    ) { selectedAlbum in
-                        albumPendingDeletion = selectedAlbum
-                    }?()
-                },
-                onPlayNext: {
-                    nowPlayingVM.playNext(viewModel.filteredTracks)
-                },
-                onPlayLast: {
-                    nowPlayingVM.playLast(viewModel.filteredTracks)
-                }
-            ),
-            additionalFooterContent: AnyView(albumMetadataFooter),
-            supplementalLoad: {
-                await viewModel.loadAlbumDetail()
-                await viewModel.loadRelatedAlbums()
-                await viewModel.loadSimilarAlbums()
-            },
-            customPinAction: { isPinned in
-                if isPinned {
-                    deps.pinManager.unpinAll(
-                        identities: Set(displayAlbum.albums.map(\.sourceScopedID))
+                        onFavorite: {
+                            guard !isFavorite(album) else { return }
+                            setFavorite(true, for: album)
+                        },
+                        onToggleDownload: {
+                            Task {
+                                await deps.offlineDownloadService.toggleDownloads(for: displayAlbum.albums)
+                            }
+                        },
+                        onAddToPlaylist: { present in
+                            sourceMutationAction(
+                                title: "Add Album to Playlist",
+                                items: displayAlbum.albums,
+                                id: \.sourceScopedID,
+                                itemTitle: \.title,
+                                sourceKey: \.sourceCompositeKey,
+                                presenter: sourceActionPresenter,
+                                deps: deps
+                            ) { selectedAlbum in
+                                present(viewModel.filteredTracks(for: selectedAlbum), "Add Album to Playlist")
+                            }?()
+                        },
+                        onEditMetadata: {
+                            sourceMutationAction(
+                                title: "Edit Album Metadata",
+                                items: displayAlbum.albums,
+                                id: \.sourceScopedID,
+                                itemTitle: \.title,
+                                sourceKey: \.sourceCompositeKey,
+                                availability: { $0.actionAvailability(for: .editMetadata) },
+                                presenter: sourceActionPresenter,
+                                deps: deps,
+                                action: presentMetadataEditor(for:)
+                            )?()
+                        },
+                        onDelete: {
+                            sourceMutationAction(
+                                title: "Delete Album",
+                                items: displayAlbum.albums.filter {
+                                    $0.actionAvailability(for: .delete).isAvailable
+                                },
+                                id: \.sourceScopedID,
+                                itemTitle: \.title,
+                                sourceKey: \.sourceCompositeKey,
+                                presenter: sourceActionPresenter,
+                                deps: deps
+                            ) { selectedAlbum in
+                                albumPendingDeletion = selectedAlbum
+                            }?()
+                        },
+                        onPlayNext: {
+                            nowPlayingVM.playNext(viewModel.filteredTracks)
+                        },
+                        onPlayLast: {
+                            nowPlayingVM.playLast(viewModel.filteredTracks)
+                        }
                     )
-                } else {
-                    deps.pinManager.pinAll(items: displayAlbum.albums.map { album in
-                        (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
-                    })
-                }
-            },
-            customIsPinned: { pinnedIdentities in
-                displayAlbum.albums.allSatisfy { pinnedIdentities.contains($0.sourceScopedID) }
-            }
+                ),
+                showArtwork: false,
+                showTrackNumbers: true,
+                groupByDisc: true,
+                showFilter: false,
+                selectedTrackId: viewModel.displayedTrackIdentity(for: selectedTrackId),
+                hiddenCandidates: displayAlbum.albums.compactMap { $0.hiddenCandidate(deps: deps) },
+                hiddenIdentity: displayAlbum.isMerged ? nil : HiddenMediaIdentity(album),
+                includesHidden: includesHidden,
+                footerContent: AnyView(albumMetadataFooter),
+                supplementalLoad: {
+                    await viewModel.loadAlbumDetail()
+                    await viewModel.loadRelatedAlbums()
+                    await viewModel.loadSimilarAlbums()
+                },
+                pin: .init(
+                    toggle: { isPinned in
+                        if isPinned {
+                            deps.pinManager.unpinAll(
+                                identities: Set(displayAlbum.albums.map(\.sourceScopedID))
+                            )
+                        } else {
+                            deps.pinManager.pinAll(items: displayAlbum.albums.map { album in
+                                (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
+                            })
+                        }
+                    },
+                    isPinned: { pinnedIdentities in
+                        displayAlbum.albums.allSatisfy { pinnedIdentities.contains($0.sourceScopedID) }
+                    }
+                )
+            )
         )
         .metadataEditorSheet(request: $metadataEditorRequest)
         .confirmationDialog(

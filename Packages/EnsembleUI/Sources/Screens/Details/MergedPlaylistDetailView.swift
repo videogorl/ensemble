@@ -42,117 +42,120 @@ public struct MergedPlaylistDetailView: View {
             nowPlayingVM: nowPlayingVM,
             headerData: headerData,
             navigationTitle: viewModel.displayPlaylist.title,
-            showArtwork: true,
-            showTrackNumbers: false,
-            groupByDisc: false,
-            mediaType: .playlist,
-            hiddenCandidates: playlists.compactMap { $0.hiddenCandidate(deps: deps) },
-            playlistMenuActions: PlaylistDetailMenuActions(
-                favoriteAvailability: .combined(
-                    playlists.map { $0.actionAvailability(for: .favorite) }
+            configuration: DetailConfiguration(
+                mediaType: .playlist,
+                menu: .playlist(
+                    PlaylistDetailMenuActions(
+                        favoriteAvailability: .combined(
+                            playlists.map { $0.actionAvailability(for: .favorite) }
+                        ),
+                        isFavorite: isFavorite(viewModel.displayPlaylist.primaryPlaylist),
+                        downloadAvailability: resolvedMergedDownloadMenuAvailability(
+                            isAnyDownloaded: downloadState.enabledCount > 0,
+                            sourceAvailabilities: downloadAvailabilities
+                        ),
+                        isDownloaded: downloadState.isEnabled,
+                        renameAvailability: .combined(
+                            playlists.map { $0.actionAvailability(for: .rename) }
+                        ),
+                        editAvailability: .combined(
+                            playlists.map { viewModel.editAvailability(for: $0) }
+                        ),
+                        deleteAvailability: .combined(
+                            playlists.map { $0.actionAvailability(for: .delete) }
+                        ),
+                        onToggleFavorite: {
+                            sourceMutationAction(
+                                title: "Update Playlist Favorite",
+                                items: playlists,
+                                id: \.sourceScopedID,
+                                itemTitle: \.title,
+                                sourceKey: \.sourceCompositeKey,
+                                availability: { $0.actionAvailability(for: .favorite) },
+                                presenter: sourceActionPresenter,
+                                deps: deps
+                            ) { playlist in
+                                setFavorite(!isFavorite(playlist), for: playlist)
+                            }?()
+                        },
+                        onFavorite: {
+                            let playlist = viewModel.displayPlaylist.primaryPlaylist
+                            guard !isFavorite(playlist) else { return }
+                            setFavorite(true, for: playlist)
+                        },
+                        onToggleDownload: {
+                            Task {
+                                await deps.offlineDownloadService.toggleDownloads(for: playlists)
+                            }
+                        },
+                        onRename: {
+                            sourceMutationAction(
+                                title: "Rename Playlist",
+                                items: viewModel.displayPlaylist.editablePlaylists,
+                                id: \.sourceScopedID,
+                                itemTitle: \.title,
+                                sourceKey: \.sourceCompositeKey,
+                                allAction: presentRenamePrompt(for:),
+                                presenter: sourceActionPresenter,
+                                deps: deps
+                            ) { playlist in
+                                presentRenamePrompt(for: [playlist])
+                            }?()
+                        },
+                        onEdit: {
+                            sourceMutationAction(
+                                title: "Edit Playlist",
+                                items: playlists.filter { viewModel.editAvailability(for: $0).isAvailable },
+                                id: \.sourceScopedID,
+                                itemTitle: \.title,
+                                sourceKey: \.sourceCompositeKey,
+                                presenter: sourceActionPresenter,
+                                deps: deps
+                            ) { playlist in
+                                editTarget = playlist
+                            }?()
+                        },
+                        onDelete: {
+                            sourceMutationAction(
+                                title: "Delete Playlist",
+                                items: viewModel.displayPlaylist.deletablePlaylists,
+                                id: \.sourceScopedID,
+                                itemTitle: \.title,
+                                sourceKey: \.sourceCompositeKey,
+                                presenter: sourceActionPresenter,
+                                deps: deps
+                            ) { playlist in
+                                deleteTarget = playlist
+                                showDeleteConfirmation = true
+                            }?()
+                        },
+                        onPlayNext: {
+                            nowPlayingVM.playNext(viewModel.filteredTracks)
+                        },
+                        onPlayLast: {
+                            nowPlayingVM.playLast(viewModel.filteredTracks)
+                        }
+                    )
                 ),
-                isFavorite: isFavorite(viewModel.displayPlaylist.primaryPlaylist),
-                downloadAvailability: resolvedMergedDownloadMenuAvailability(
-                    isAnyDownloaded: downloadState.enabledCount > 0,
-                    sourceAvailabilities: downloadAvailabilities
-                ),
-                isDownloaded: downloadState.isEnabled,
-                renameAvailability: .combined(
-                    playlists.map { $0.actionAvailability(for: .rename) }
-                ),
-                editAvailability: .combined(
-                    playlists.map { viewModel.editAvailability(for: $0) }
-                ),
-                deleteAvailability: .combined(
-                    playlists.map { $0.actionAvailability(for: .delete) }
-                ),
-                onToggleFavorite: {
-                    sourceMutationAction(
-                        title: "Update Playlist Favorite",
-                        items: playlists,
-                        id: \.sourceScopedID,
-                        itemTitle: \.title,
-                        sourceKey: \.sourceCompositeKey,
-                        availability: { $0.actionAvailability(for: .favorite) },
-                        presenter: sourceActionPresenter,
-                        deps: deps
-                    ) { playlist in
-                        setFavorite(!isFavorite(playlist), for: playlist)
-                    }?()
-                },
-                onFavorite: {
-                    let playlist = viewModel.displayPlaylist.primaryPlaylist
-                    guard !isFavorite(playlist) else { return }
-                    setFavorite(true, for: playlist)
-                },
-                onToggleDownload: {
-                    Task {
-                        await deps.offlineDownloadService.toggleDownloads(for: playlists)
+                hiddenCandidates: playlists.compactMap { $0.hiddenCandidate(deps: deps) },
+                // Pin/unpin ALL constituent playlists as a batch
+                pin: .init(
+                toggle: { isPinned in
+                    let dp = viewModel.displayPlaylist
+                    if isPinned {
+                        deps.pinManager.unpinAll(identities: Set(dp.playlists.map(\.sourceScopedID)))
+                    } else {
+                        deps.pinManager.pinAll(items: dp.playlists.map { playlist in
+                            (id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "", type: .playlist, title: dp.title)
+                        })
                     }
                 },
-                onRename: {
-                    sourceMutationAction(
-                        title: "Rename Playlist",
-                        items: viewModel.displayPlaylist.editablePlaylists,
-                        id: \.sourceScopedID,
-                        itemTitle: \.title,
-                        sourceKey: \.sourceCompositeKey,
-                        allAction: presentRenamePrompt(for:),
-                        presenter: sourceActionPresenter,
-                        deps: deps
-                    ) { playlist in
-                        presentRenamePrompt(for: [playlist])
-                    }?()
-                },
-                onEdit: {
-                    sourceMutationAction(
-                        title: "Edit Playlist",
-                        items: playlists.filter { viewModel.editAvailability(for: $0).isAvailable },
-                        id: \.sourceScopedID,
-                        itemTitle: \.title,
-                        sourceKey: \.sourceCompositeKey,
-                        presenter: sourceActionPresenter,
-                        deps: deps
-                    ) { playlist in
-                        editTarget = playlist
-                    }?()
-                },
-                onDelete: {
-                    sourceMutationAction(
-                        title: "Delete Playlist",
-                        items: viewModel.displayPlaylist.deletablePlaylists,
-                        id: \.sourceScopedID,
-                        itemTitle: \.title,
-                        sourceKey: \.sourceCompositeKey,
-                        presenter: sourceActionPresenter,
-                        deps: deps
-                    ) { playlist in
-                        deleteTarget = playlist
-                        showDeleteConfirmation = true
-                    }?()
-                },
-                onPlayNext: {
-                    nowPlayingVM.playNext(viewModel.filteredTracks)
-                },
-                onPlayLast: {
-                    nowPlayingVM.playLast(viewModel.filteredTracks)
+                isPinned: { pinnedIdentities in
+                    let identities = Set(viewModel.displayPlaylist.playlists.map(\.sourceScopedID))
+                    return identities.allSatisfy { pinnedIdentities.contains($0) }
                 }
-            ),
-            // Pin/unpin ALL constituent playlists as a batch
-            customPinAction: { isPinned in
-                let dp = viewModel.displayPlaylist
-                if isPinned {
-                    deps.pinManager.unpinAll(identities: Set(dp.playlists.map(\.sourceScopedID)))
-                } else {
-                    deps.pinManager.pinAll(items: dp.playlists.map { playlist in
-                        (id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "", type: .playlist, title: dp.title)
-                    })
-                }
-            },
-            customIsPinned: { pinnedIdentities in
-                let identities = Set(viewModel.displayPlaylist.playlists.map(\.sourceScopedID))
-                return identities.allSatisfy { pinnedIdentities.contains($0) }
-            }
+                )
+            )
         )
         .onChange(of: displayPlaylist) { updated in
             Task { await viewModel.updateDisplayPlaylist(updated) }
