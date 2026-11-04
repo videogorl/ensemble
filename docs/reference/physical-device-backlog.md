@@ -233,6 +233,12 @@ Not run or only partly run on the simulator:
 
 Every other iPhone row passed on the simulator and still needs one physical
 pass before step 0 is called verified.
+- Step 6 shared detail screen: album, artist (including a merged artist),
+  playlist (single and merged), genre, Favorites and Mood each open, show
+  their sections and artwork, and play. On Artist, check the hero artwork
+  does not flash or re-trim on push or back, the collapsing title appears on
+  scroll, and the sort and More menus work. Passed on the iPhone 17 Pro
+  simulator for album, artist, playlist, genre and Favorites only.
 
 ## Mac
 
@@ -246,6 +252,9 @@ pass before step 0 is called verified.
 - Step 1d at `2544a52a`: sleep the Mac while playing; after wake it stays
   paused (G22). Play and pause from the keyboard shortcut still work after
   the main-actor change.
+- Step 6 shared detail screen in the built Mac app (not run: no GUI driver
+  was available): the same detail kinds as the iPhone row, with artist detail
+  inside the Mac split.
 
 ## iPad Pro and Apple Watch
 
