@@ -425,6 +425,21 @@ final class PlaybackQueueController {
             .prefix(openSlots))
     }
 
+    /// Removes matching items and keeps the index on the current item, or on the
+    /// first remaining item after it when the current item was removed.
+    static func removingItems(
+        from queue: [QueueItem],
+        currentQueueIndex: Int,
+        where shouldRemove: (QueueItem) -> Bool
+    ) -> (queue: [QueueItem], currentQueueIndex: Int) {
+        let retained = queue.filter { !shouldRemove($0) }
+        guard !retained.isEmpty, currentQueueIndex >= 0 else {
+            return (retained, retained.isEmpty ? -1 : currentQueueIndex)
+        }
+        let retainedBeforeCurrent = queue.prefix(currentQueueIndex).filter { !shouldRemove($0) }.count
+        return (retained, min(retainedBeforeCurrent, retained.count - 1))
+    }
+
     static func pruneFutureAutoplayItems(
         queue: [QueueItem],
         currentQueueIndex: Int

@@ -766,15 +766,19 @@ public final class SyncCoordinator {
         operation.work.forEach { finishSourcePersistenceWork($0.lease) }
     }
 
-    /// Load the last sync date from CoreData
+    /// Where the next incremental window starts. lastSyncedAt is stamped when a
+    /// sync finishes, so changes made while it ran would fall outside a window
+    /// starting there; the library cursor records when that sync's query began.
     private func loadLastSyncDate(for sourceId: MusicSourceIdentifier) async -> Date? {
-        // Fetch from CoreData
-        do {
-            let sources = try await libraryRepository.fetchMusicSources()
-            return sources.first(where: { $0.compositeKey == sourceId.compositeKey })?.lastSyncedAt
-        } catch {
-            return nil
-        }
+        guard let sources = try? await libraryRepository.fetchMusicSources(),
+              let finishedAt = sources.first(where: { $0.compositeKey == sourceId.compositeKey })?.lastSyncedAt
+        else { return nil }
+        guard let cursor = try? await syncCursorRepository?.fetchCursor(
+            scopeKey: sourceId.compositeKey,
+            scopeType: .plexLibrary
+        ), let startedAt = [cursor.lastIncrementalSyncAt, cursor.lastFullSyncAt].compactMap({ $0 }).max()
+        else { return finishedAt }
+        return min(finishedAt, startedAt)
     }
 
     /// Sync all enabled sources

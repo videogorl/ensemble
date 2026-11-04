@@ -214,12 +214,15 @@ extension PlaybackService {
             reason: "restore"
         )
         currentTrack = decision.track
+        // The restored item is a paused load. Its pre-buffer and resume carry this
+        // session to the engine; session 0 events are never delivered.
+        beginSession()
         updatePlaybackTimes(rawTime: decision.restoredTime)
         waveformHeights = []
         generateWaveform(for: decision.track.playbackIdentity)
         playbackState = .paused
         updateNowPlayingInfo()
-        pendingPreBufferTime = decision.restoredTime
+        isPreBufferPending = true
 
         if decision.removedAutoplayCount > 0 {
             savePlaybackState()

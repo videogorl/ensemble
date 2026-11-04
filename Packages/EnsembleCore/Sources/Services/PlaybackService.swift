@@ -409,7 +409,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     var accountSourcesObservation: StreamSubscription?
     var healthCheckCompletionObservation: StreamSubscription?
     /// Set during queue restoration; cleared after pre-buffer completes or user taps play.
-    var pendingPreBufferTime: TimeInterval?
+    /// The pre-buffer loads the current track at the current paused playhead.
+    var isPreBufferPending = false
     /// Tracks the in-progress pre-buffer task so resume() can await it instead of
     /// starting a redundant transcode download.
     var preBufferTask: Task<Void, Never>?
@@ -800,12 +801,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Defer pre-buffer for restored streaming tracks by 3s so the critical
         // launch path (health checks, UI rendering, sync) has time to complete.
         // If the user taps play before the timer fires, resume() handles it
-        // directly and clears pendingPreBufferTime, so the deferred task no-ops.
-        if pendingPreBufferTime != nil, currentTrack?.isAppleMusic != true {
+        // directly and clears isPreBufferPending, so the deferred task no-ops.
+        if isPreBufferPending, currentTrack?.isAppleMusic != true {
             EnsembleLogger.debug("🏥 Health check complete — deferring pre-buffer by 3s")
             preBufferTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
-                // preBufferRestoredTrack guards on pendingPreBufferTime != nil,
+                // preBufferRestoredTrack guards on isPreBufferPending,
                 // playbackState == .paused, and player?.currentItem == nil —
                 // so it safely no-ops if the user already started playing.
                 await self?.preBufferRestoredTrack()

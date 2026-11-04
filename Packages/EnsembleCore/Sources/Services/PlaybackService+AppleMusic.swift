@@ -189,7 +189,7 @@ extension PlaybackService {
             startTime: TimeInterval?,
             generation: UInt64
         ) async {
-            pendingPreBufferTime = nil
+            isPreBufferPending = false
             guard queue.indices.contains(currentQueueIndex) else { return }
             let track = queue[currentQueueIndex].track
             guard track.isAppleMusic else { return }

@@ -1117,6 +1117,11 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             try? FileManager.default.removeItem(at: orphanSidecarURL)
         }
         try Data("orphan".utf8).write(to: orphanSidecarURL)
+        // The sweep leaves recently modified files to in-flight installs.
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-2 * DownloadManager.orphanFileGracePeriod)],
+            ofItemAtPath: orphanSidecarURL.path
+        )
 
         let result = try await harness.sourceCacheCleanupService.cleanupSource(sourceKey)
 

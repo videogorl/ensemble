@@ -126,6 +126,10 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         self.creationContext = coreDataStack.newBackgroundContext()
     }
 
+    /// An install moves a file into place before its record names it, so the
+    /// orphan sweep leaves recently modified files for a later pass.
+    public static let orphanFileGracePeriod: TimeInterval = 15 * 60
+
     /// Directory for storing downloaded tracks
     public static let downloadsDirectory: URL = {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -884,9 +888,10 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                     let contents = (try? FileManager.default.contentsOfDirectory(
                         at: Self.downloadsDirectory,
-                        includingPropertiesForKeys: nil,
+                        includingPropertiesForKeys: [.contentModificationDateKey],
                         options: []
                     )) ?? []
+                    let settledBefore = Date().addingTimeInterval(-Self.orphanFileGracePeriod)
 
                     var removedCount = 0
                     for url in contents {
@@ -894,7 +899,11 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         let ownerFilename = filename.hasSuffix(".freq")
                             ? String(filename.dropLast(".freq".count))
                             : filename
-                        guard !referencedFilenames.contains(ownerFilename) else { continue }
+                        guard !referencedFilenames.contains(ownerFilename),
+                              !filename.contains(".installing-"),
+                              let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                                  .contentModificationDate,
+                              modified < settledBefore else { continue }
 
                         try? FileManager.default.removeItem(at: url)
                         removedCount += 1

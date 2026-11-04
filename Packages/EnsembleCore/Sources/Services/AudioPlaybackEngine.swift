@@ -84,7 +84,10 @@ public final class AudioPlaybackEngine {
     /// During gapless transitions the playerNode keeps running, so sampleTime
     /// accumulates across segments. We capture it at each transition so
     /// currentTime() can subtract the prior segments' contribution.
-    private var playerTimeBaseOffset: AVAudioFramePosition = 0
+    /// Pausing does not reset sampleTime either, so pause captures it too.
+    /// Nil when the render clock cannot be tied to the current segment; the
+    /// tracked playhead is used until the next stop or gapless advance.
+    private var playerTimeBaseOffset: AVAudioFramePosition? = 0
     /// Sample rate of the currently loaded file
     private var sampleRate: Double = 44100
     /// Whether the engine was playing when last paused (for resume logic)
@@ -205,7 +208,15 @@ public final class AudioPlaybackEngine {
     /// Route-change notifications can arrive before AVAudioEngine tears down its
     /// render state. We capture the last stable playhead here so config-change
     /// recovery can ignore transient 0.0s reports during AirPlay switches.
-    private var pendingRouteRecoveryPosition: TimeInterval?
+    struct RouteRecoverySnapshot: Equatable {
+        let position: TimeInterval
+        let trackId: String
+        let capturedAt: TimeInterval
+    }
+    /// A config change follows its route change within moments; an older
+    /// snapshot describes a playhead that has since moved on.
+    static let routeRecoverySnapshotLifetime: TimeInterval = 5
+    private var pendingRouteRecovery: RouteRecoverySnapshot?
 
     // MARK: - Route Change Recovery
 
@@ -431,7 +442,7 @@ public final class AudioPlaybackEngine {
     /// Capture the last stable playhead before AVAudioEngineConfigurationChange
     /// invalidates render timing during a route transition.
     func prepareForRouteChange() {
-        guard currentTrackId != nil else { return }
+        guard let currentTrackId else { return }
 
         let renderClockPosition = currentRenderClockPosition()
         if let renderClockPosition {
@@ -445,7 +456,11 @@ public final class AudioPlaybackEngine {
             fallbackPosition: fallbackPosition,
             duration: fileDuration
         )
-        pendingRouteRecoveryPosition = position
+        pendingRouteRecovery = RouteRecoverySnapshot(
+            position: position,
+            trackId: currentTrackId,
+            capturedAt: CACurrentMediaTime()
+        )
         let renderClockDescription = renderClockPosition.map { String($0) } ?? "nil"
 
         EnsembleLogger.debug(
@@ -464,14 +479,19 @@ public final class AudioPlaybackEngine {
             cancelSmartMixTransition(continueIncoming: hasPromotedSmartMixTransition)
         }
         let livePosition = currentTime()
+        let snapshotPosition = Self.usableRouteRecoveryPosition(
+            pendingRouteRecovery,
+            currentTrackId: currentTrackId,
+            now: CACurrentMediaTime()
+        )
         let position = Self.resolvedRouteRecoveryPosition(
             livePosition: livePosition,
-            observedPosition: pendingRouteRecoveryPosition ?? durablePlaybackPosition,
+            observedPosition: snapshotPosition ?? durablePlaybackPosition,
             duration: fileDuration,
-            preferredSnapshot: pendingRouteRecoveryPosition
+            preferredSnapshot: snapshotPosition
         )
         let wasActive = wasPlaying
-        pendingRouteRecoveryPosition = nil
+        pendingRouteRecovery = nil
 
         EnsembleLogger.debug(
             "[AudioEngine][Graph] configurationChange"
@@ -981,7 +1001,7 @@ public final class AudioPlaybackEngine {
         currentTrackId = trackId
         playbackRequestGeneration = playbackGeneration
         sampleRate = file.processingFormat.sampleRate
-        pendingRouteRecoveryPosition = nil
+        pendingRouteRecovery = nil
 
         // Read encoder delay/padding for gapless-accurate scheduling.
         // MP3 files have priming frames (encoder delay, ~576 for LAME) at the start
@@ -1064,7 +1084,7 @@ public final class AudioPlaybackEngine {
         currentFile = nil
         currentTrackId = trackId
         playbackRequestGeneration = playbackGeneration
-        pendingRouteRecoveryPosition = nil
+        pendingRouteRecovery = nil
         seekFrameOffset = 0
         streamingStartTime = 0
         playerTimeBaseOffset = 0
@@ -1523,6 +1543,15 @@ public final class AudioPlaybackEngine {
         smartMixTransition = nil
         onSmartMixTransitionActiveChanged?(false, playbackRequestGeneration)
         EnsembleLogger.debug("[AudioEngine] SmartMix cancelled")
+        // Starting the mix moved the generation past the outgoing segment's
+        // completion. Re-anchor that segment so its own end advances, and so the
+        // stopped incoming deck's completion is stale. A stopped engine means the
+        // caller is replacing the schedule, so only the generation moves.
+        if let file = currentFile, engine.isRunning {
+            reanchorCurrentSegment(file, reason: "SmartMix cancelled")
+        } else {
+            scheduleGeneration &+= 1
+        }
     }
 
     private func startSmartMixFadeTimer() {
@@ -1590,6 +1619,7 @@ public final class AudioPlaybackEngine {
         currentContentFrameCount = transition.contentFrameCount
         sampleRate = transition.sampleRate
         fileDuration = transition.duration
+        pendingRouteRecovery = nil
         seekFrameOffset = AVAudioFramePosition(incomingPosition * transition.sampleRate)
         playerTimeBaseOffset = 0
         captureWallTimeBase(position: incomingPosition)
@@ -1616,12 +1646,7 @@ public final class AudioPlaybackEngine {
         scheduledFiles.removeAll()
         activePlaybackDeck = transition.incomingDeck
         seekFrameOffset = AVAudioFramePosition(clampedPosition * transition.sampleRate)
-        if let nodeTime = activePlayerNode.lastRenderTime,
-           let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) {
-            playerTimeBaseOffset = playerTime.sampleTime
-        } else {
-            playerTimeBaseOffset = 0
-        }
+        playerTimeBaseOffset = currentPlayerSampleTime()
         setVolume(0, for: transition.outgoingDeck)
         setVolume(1, for: transition.incomingDeck)
         playerNode(for: transition.outgoingDeck).stop()
@@ -1701,6 +1726,12 @@ public final class AudioPlaybackEngine {
             return
         }
 
+        reanchorCurrentSegment(file, reason: "Cleared scheduled files")
+    }
+
+    /// Reschedule the current file alone on the active deck from the live playhead,
+    /// under a new generation, so only that segment's completion can end the item.
+    private func reanchorCurrentSegment(_ file: AVAudioFile, reason: String) {
         // Capture position before stopping so we can re-anchor seamlessly
         let position = currentTime()
         let wasActive = wasPlaying || activePlayerNode.isPlaying
@@ -1721,7 +1752,7 @@ public final class AudioPlaybackEngine {
         let contentEnd = currentContentStartFrame + AVAudioFramePosition(currentContentFrameCount)
         guard fileFrame < contentEnd else {
             // Current track already at/past end — let natural completion handle it
-            EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (track at end)")
+            EnsembleLogger.debug("[AudioEngine] \(reason) (track at end)")
             onPlaybackComplete?(playbackRequestGeneration)
             return
         }
@@ -1751,7 +1782,7 @@ public final class AudioPlaybackEngine {
             startTimeUpdates(from: position)
         }
 
-        EnsembleLogger.debug("[AudioEngine] Cleared scheduled files (flushed FIFO, re-anchored at \(String(format: "%.1f", position))s)")
+        EnsembleLogger.debug("[AudioEngine] \(reason) (flushed FIFO, re-anchored at \(String(format: "%.1f", position))s)")
     }
 
     // MARK: - Playback Control
@@ -1772,7 +1803,7 @@ public final class AudioPlaybackEngine {
     func play(from time: TimeInterval = 0) throws {
         cancelSmartMixTransition()
         if streamingPipeline != nil {
-            pendingRouteRecoveryPosition = nil
+            pendingRouteRecovery = nil
             let startPosition = time > 0 ? time : streamingStartTime
             seekFrameOffset = AVAudioFramePosition(startPosition * sampleRate)
             playerTimeBaseOffset = 0
@@ -1788,7 +1819,7 @@ public final class AudioPlaybackEngine {
         guard let file = currentFile else {
             throw AudioPlaybackEngineError.noFileLoaded
         }
-        pendingRouteRecoveryPosition = nil
+        pendingRouteRecovery = nil
 
         // Convert user-visible time to file frame space
         let userFrame = AVAudioFramePosition(time * sampleRate)
@@ -1912,13 +1943,18 @@ public final class AudioPlaybackEngine {
         engine.stop()
         clearStreamingPipeline()
         wasPlaying = false
+        // Nothing stays scheduled, so no item stays loaded: callers that match
+        // currentTrackId would otherwise resume a silent player.
+        currentFile = nil
+        currentTrackId = nil
+        fileDuration = 0
         playbackRequestGeneration = 0
         streamingStartTime = 0
         seekFrameOffset = 0
         playerTimeBaseOffset = 0
         currentContentStartFrame = 0
         currentContentFrameCount = 0
-        pendingRouteRecoveryPosition = nil
+        pendingRouteRecovery = nil
         scheduledFiles.removeAll()
         updateDurablePlaybackPosition(0)
         EnsembleLogger.debug("[AudioEngine] Stopped")
@@ -1932,7 +1968,7 @@ public final class AudioPlaybackEngine {
         }
         guard let file = currentFile else { return }
         progressRevision &+= 1
-        pendingRouteRecoveryPosition = nil
+        pendingRouteRecovery = nil
 
         let wasPlayingBeforeSeek = wasPlaying || activePlayerNode.isPlaying
 
@@ -2005,19 +2041,39 @@ public final class AudioPlaybackEngine {
     /// This becomes unavailable during route transitions before our fallback state
     /// has been updated, so callers must handle `nil` explicitly.
     private func currentRenderClockPosition() -> TimeInterval? {
-        guard streamingPipeline == nil else { return nil }
-        guard let nodeTime = activePlayerNode.lastRenderTime,
+        guard streamingPipeline == nil,
+              let playerTimeBaseOffset,
+              let nodeTime = activePlayerNode.lastRenderTime,
               let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) else {
             return nil
         }
 
-        return Self.resolvedPlaybackPosition(
+        let renderPosition = Self.resolvedPlaybackPosition(
             renderSampleTime: playerTime.sampleTime,
             playerTimeBaseOffset: playerTimeBaseOffset,
             seekFrameOffset: seekFrameOffset,
             renderSampleRate: playerTime.sampleRate,
             mediaSampleRate: sampleRate
         )
+        guard let trusted = Self.trustedRenderClockPosition(
+            renderPosition,
+            observedPosition: durablePlaybackPosition
+        ) else {
+            EnsembleLogger.debug(
+                "[AudioEngine] Ignoring render clock \(renderPosition)s; tracked playhead is \(durablePlaybackPosition)s"
+            )
+            return nil
+        }
+        return trusted
+    }
+
+    /// The player node's sample time as of its last render, if it is rendering.
+    private func currentPlayerSampleTime() -> AVAudioFramePosition? {
+        guard let nodeTime = activePlayerNode.lastRenderTime,
+              let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) else {
+            return nil
+        }
+        return playerTime.sampleTime
     }
 
     /// Start periodic time updates at ~10Hz using wall-clock estimation.
@@ -2129,18 +2185,19 @@ public final class AudioPlaybackEngine {
     /// Route changes often pause first and deliver the config-change callback later,
     /// after `lastRenderTime` is gone. Updating `seekFrameOffset` here gives route
     /// recovery and resume a durable source of truth for the paused position.
+    /// The pause position supersedes any route snapshot, which only
+    /// config-change recovery may use.
     private func snapshotPlaybackPositionBeforeStopping() -> TimeInterval {
         let position = Self.resolvedRouteRecoveryPosition(
             livePosition: currentTime(),
             observedPosition: durablePlaybackPosition,
-            duration: fileDuration,
-            preferredSnapshot: pendingRouteRecoveryPosition
+            duration: fileDuration
         )
         seekFrameOffset = AVAudioFramePosition(position * sampleRate)
-        playerTimeBaseOffset = 0
+        playerTimeBaseOffset = currentPlayerSampleTime()
         captureWallTimeBase(position: position)
         updateDurablePlaybackPosition(position)
-        pendingRouteRecoveryPosition = nil
+        pendingRouteRecovery = nil
         return position
     }
 
@@ -2184,6 +2241,18 @@ public final class AudioPlaybackEngine {
         return clampedObserved
     }
 
+    /// A route snapshot applies only to the item it was taken on, and only briefly.
+    static func usableRouteRecoveryPosition(
+        _ snapshot: RouteRecoverySnapshot?,
+        currentTrackId: String?,
+        now: TimeInterval
+    ) -> TimeInterval? {
+        guard let snapshot,
+              snapshot.trackId == currentTrackId,
+              now - snapshot.capturedAt <= routeRecoverySnapshotLifetime else { return nil }
+        return snapshot.position
+    }
+
     static func resolvedPreparedRouteRecoveryPosition(
         renderClockPosition: TimeInterval?,
         observedPosition: TimeInterval,
@@ -2205,6 +2274,19 @@ public final class AudioPlaybackEngine {
         }
 
         return min(max(fallbackPosition, 0), upperBound)
+    }
+
+    /// The wall-clock playhead tracks the render clock within a fraction of a
+    /// second; a larger gap means the render clock's base is wrong.
+    static let maximumRenderClockDrift: TimeInterval = 2
+
+    static func trustedRenderClockPosition(
+        _ renderPosition: TimeInterval?,
+        observedPosition: TimeInterval
+    ) -> TimeInterval? {
+        guard let renderPosition,
+              abs(renderPosition - observedPosition) <= maximumRenderClockDrift else { return nil }
+        return renderPosition
     }
 
     private static func clampedPlaybackPosition(_ position: TimeInterval, duration: TimeInterval) -> TimeInterval {
@@ -2245,30 +2327,11 @@ public final class AudioPlaybackEngine {
             EnsembleLogger.debug("[AudioEngine] Segment complete ignored — wasPlaying=false")
             return
         }
+        logIfSegmentEndedEarly()
 
         if let next = scheduledFiles.first {
             let previousTrackId = currentTrackId
-            // Gapless advance: capture the current playerTime as the new base.
-            // playerNode keeps running across gapless segments, so sampleTime
-            // includes frames from all previous segments since the last stop().
-            if let nodeTime = activePlayerNode.lastRenderTime,
-               let pt = activePlayerNode.playerTime(forNodeTime: nodeTime) {
-                playerTimeBaseOffset = pt.sampleTime
-            }
-
-            scheduledFiles.removeFirst()
-            currentFile = next.file
-            currentTrackId = next.trackId
-            currentContentStartFrame = next.contentStartFrame
-            currentContentFrameCount = next.contentFrameCount
-            sampleRate = next.file.processingFormat.sampleRate
-            fileDuration = Double(next.contentFrameCount) / sampleRate
-            seekFrameOffset = 0
-
-            // Re-anchor wall-clock estimation for the new track (position ≈ 0)
-            captureWallTimeBase(position: 0)
-
-            EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
+            advanceToFirstScheduledFile()
 
             if let previousTrackId {
                 PlaybackJourneyLogger.finish("currentTrackEndedAdvanced", trackId: previousTrackId, detail: "next=\(next.trackId)")
@@ -2286,6 +2349,41 @@ public final class AudioPlaybackEngine {
             }
             onPlaybackComplete?(playbackRequestGeneration)
         }
+    }
+
+    /// Diagnoses file segments the player node finishes well before their
+    /// duration (seen on AirPlay with fully downloaded stream-cache files).
+    private func logIfSegmentEndedEarly() {
+        guard let file = currentFile, fileDuration - durablePlaybackPosition > 5 else { return }
+        let size = (try? file.url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        EnsembleLogger.info(
+            "[AudioEngine] Segment ended early trackId=\(currentTrackId ?? "nil")"
+                + " at=\(String(format: "%.1f", durablePlaybackPosition))s"
+                + " duration=\(String(format: "%.1f", fileDuration))s"
+                + " frames=\(currentContentFrameCount)/\(file.length)"
+                + " fileSize=\(size.map(String.init) ?? "missing")"
+        )
+    }
+
+    /// Make the first gapless-scheduled file current. The player node keeps
+    /// running across gapless segments, so its sampleTime includes every
+    /// earlier segment since the last stop(); the current value becomes the base.
+    private func advanceToFirstScheduledFile() {
+        let next = scheduledFiles.removeFirst()
+        playerTimeBaseOffset = currentPlayerSampleTime()
+        currentFile = next.file
+        currentTrackId = next.trackId
+        currentContentStartFrame = next.contentStartFrame
+        currentContentFrameCount = next.contentFrameCount
+        sampleRate = next.file.processingFormat.sampleRate
+        fileDuration = Double(next.contentFrameCount) / sampleRate
+        seekFrameOffset = 0
+        pendingRouteRecovery = nil
+
+        // Re-anchor wall-clock estimation for the new track (position ≈ 0)
+        captureWallTimeBase(position: 0)
+
+        EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset.map(String.init) ?? "nil")")
     }
 
     private func handleStreamingComplete(generation: UInt64) {
@@ -2314,28 +2412,10 @@ public final class AudioPlaybackEngine {
             EnsembleLogger.debug("[AudioEngine] Gapless completion ignored — wasPlaying=false, trackId=\(trackId)")
             return
         }
+        logIfSegmentEndedEarly()
 
         if let next = scheduledFiles.first {
-            // Capture playerTime base for the next segment
-            if let nodeTime = activePlayerNode.lastRenderTime,
-               let pt = activePlayerNode.playerTime(forNodeTime: nodeTime) {
-                playerTimeBaseOffset = pt.sampleTime
-            }
-
-            scheduledFiles.removeFirst()
-            currentFile = next.file
-            currentTrackId = next.trackId
-            currentContentStartFrame = next.contentStartFrame
-            currentContentFrameCount = next.contentFrameCount
-            sampleRate = next.file.processingFormat.sampleRate
-            fileDuration = Double(next.contentFrameCount) / sampleRate
-            seekFrameOffset = 0
-
-            // Re-anchor wall-clock estimation for the new track (position ≈ 0)
-            captureWallTimeBase(position: 0)
-
-            EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
-
+            advanceToFirstScheduledFile()
             onTrackAdvance?(next.trackId, playbackRequestGeneration)
             updateDurablePlaybackPosition(0)
         } else {

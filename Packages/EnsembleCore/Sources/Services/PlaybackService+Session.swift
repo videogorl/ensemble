@@ -1092,9 +1092,9 @@ extension PlaybackService {
 
         #if os(iOS)
             if #available(iOS 18, *), currentTrack?.isAppleMusic == true {
-                let shouldRebuildQueue = pendingPreBufferTime != nil
+                let shouldRebuildQueue = isPreBufferPending
                     || appleMusicPlaybackController?.activeQueueGeneration == nil
-                pendingPreBufferTime = nil
+                isPreBufferPending = false
                 playbackState = .buffering
                 updateNowPlayingInfo()
                 Task { @MainActor [weak self] in
@@ -1130,7 +1130,7 @@ extension PlaybackService {
         #endif
 
         // Clear pre-buffer flag — user is taking action now
-        pendingPreBufferTime = nil
+        isPreBufferPending = false
 
         // If no track is loaded in the engine (e.g., after state restoration where
         // pre-buffer hasn't completed yet), check if a pre-buffer is in progress.
@@ -1283,15 +1283,13 @@ extension PlaybackService {
             stop()
         }
 
-        queue.removeAll { trackIdentities.contains($0.track.playbackIdentity) }
+        let remaining = PlaybackQueueController.removingItems(from: queue, currentQueueIndex: currentQueueIndex) {
+            trackIdentities.contains($0.track.playbackIdentity)
+        }
+        queue = remaining.queue
+        currentQueueIndex = remaining.currentQueueIndex
         originalQueue.removeAll { trackIdentities.contains($0.track.playbackIdentity) }
         playbackHistory.removeAll { trackIdentities.contains($0.track.playbackIdentity) }
-
-        if queue.isEmpty {
-            currentQueueIndex = -1
-        } else {
-            currentQueueIndex = min(currentQueueIndex, queue.count - 1)
-        }
 
         if let currentTrack, trackIdentities.contains(currentTrack.playbackIdentity) {
             self.currentTrack = nil

@@ -50,6 +50,53 @@ Both the pinned native button and overflow item opened the route picker.
 - Exercise the guarded visible AirPlay fallback if the native internal button
   is unavailable; normal runtime used an intact native picker hierarchy.
 
+### Playback position fixes, branch `fix/playback-position-sync` at `9ee8cf42` or later
+
+Proven on macOS with a real AVAudioEngine (`AudioPlaybackEnginePositionTests`),
+not on the phone or AirPlay.
+
+- AirPlay then interruption (`9aaf9815`): switch to AirPlay, let several tracks
+  advance gaplessly, then trigger an interruption (call or Siri). The paused
+  scrubber and the resumed position match the current track, not the track
+  that was playing at the switch.
+- Pause and resume after gapless advances (`ae391278`): after a few gapless
+  tracks, pause and resume. The scrubber continues from the paused time, and a
+  later AirPlay switch logs a `render=` close to `observed=` and never
+  `Ignoring render clock`. Repeat once with the phone locked.
+- Relaunch and resume (`62e82bac`): force-quit while paused mid-queue,
+  relaunch, play, and let the track end into a gapless advance. The lock screen,
+  scrubber, and `ITEM_CHANGED ... via gapless` follow the new track, and no
+  `dropped native ... outside a session` line appears.
+- Early segment end (`9ee8cf42`, diagnostic only): keep AirPlay playing a
+  stream-cached queue. If a track ends early, read the `Segment ended early`
+  line for the playhead, duration, frame counts, and file size.
+
+### Sweep fixes on the same branch, after `dbec02b4`
+
+Engine and service paths are covered by EnsembleCore tests on macOS; none ran
+on the phone. Name each commit by its subject until it has a hash here.
+
+- Paused Next then Previous, then Play ("Unload the current item when the
+  engine stops"): sound plays and the scrubber moves. After a Plex track hands
+  off to Apple Music, the duration shown is the Apple Music track's.
+- Apple Music pause while buffering ("Rebind Apple Music events when a pause
+  starts a new session"): press Play on a paused Apple Music track and pause
+  again before it starts; then resume, once in the app and once from Control
+  Center. The scrubber and Lock Screen move, and the next track advances. Not
+  covered by any automated test.
+- Relaunch, then Next within 3 seconds ("Pre-buffer a restored queue at the
+  current paused playhead"): with a paused restored queue, press Next right
+  after launch, wait 5 seconds, press Play. The new track starts at 0:00.
+- Autoplay off while an autoplay track plays ("Keep the queue index on the
+  current item after removals"): the playing row stays highlighted and Next
+  goes to the following non-autoplay item, or ends the queue.
+- SmartMix cancel ("Stop a cancelled SmartMix crossfade from ending the
+  track"): during the first half of a crossfade, reorder Up Next or turn
+  SmartMix off. The outgoing track keeps playing to its end and then advances.
+- Downloads ("Keep in-flight installs out of the orphan download sweep"):
+  while a large album downloads, remove a different downloaded album (which
+  runs the orphan sweep). Every finished track of the first album plays
+  offline.
 
 ### Step 2, at `31f8e27c` or later
 
