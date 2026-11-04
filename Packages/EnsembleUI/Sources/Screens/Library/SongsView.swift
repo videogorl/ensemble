@@ -17,7 +17,6 @@ public struct SongsView: View {
     let nowPlayingVM: NowPlayingViewModel
     @State private var currentTrackId: String?
     @State private var recentPlaylistTitle: String?
-    @State private var showFilterSheet = false
     @State private var selectedAlbum: SongsStageFlowAlbum?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
@@ -44,28 +43,25 @@ public struct SongsView: View {
         )
     }
 
-    private var songsFilterButton: some View {
-        EnsembleBrowseFilterButton(
+    @ViewBuilder
+    private var songsControls: some View {
+        LibraryFilterButton(
             title: "Filter Songs",
             hasActiveFilters: libraryVM.tracksFilterOptions.hasActiveFilters
         ) {
-            showFilterSheet = true
+            FilterSheet(
+                filterOptions: trackFilterOptions,
+                availableGenres: trackSnapshot.availableGenres,
+                showGenreFilter: true
+            )
         }
-    }
-
-    private var songsMoreMenu: some View {
         Menu {
             EnsembleBrowseSortMenu(
                 model: libraryVM,
                 options: TrackSortOption.allCases,
-                selection: { $0.trackSortOption },
-                direction: { $0.tracksFilterOptions.sortDirection }
-            ) { option, direction in
-                if libraryVM.trackSortOption != option {
-                    libraryVM.trackSortOption = option
-                }
-                libraryVM.tracksFilterOptions.sortDirection = direction
-            }
+                option: \.trackSortOption,
+                filterOptions: \.tracksFilterOptions
+            )
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }
@@ -86,42 +82,34 @@ public struct SongsView: View {
     }
 
     public var body: some View {
-        Group {
-            if trackSnapshot.phase != .idle && !hasLibraryContent {
-                loadingView.refreshable {
-                    await refreshLibrary()
+        LibraryBrowseScreen(
+            title: "Songs",
+            loadingTitle: "Loading songs…",
+            state: LibraryBrowseState(isLoading: trackSnapshot.phase != .idle, hasContent: hasLibraryContent),
+            empty: LibraryBrowseEmptyState(
+                title: "No Songs",
+                icon: EnsembleDesign.Icon.musicNote,
+                recovery: libraryVM.emptyStateRecovery(message: "No songs found in enabled libraries")
+            ),
+            search: LibraryBrowseSearch(
+                text: trackFilterOptions.searchText,
+                prompt: "Filter songs",
+                isVisible: !isStageFlowActive
+            ),
+            hidesChrome: isStageFlowActive,
+            usesToolbarMaterial: !isStageFlowActive,
+            refreshesContent: false,
+            controlsVisible: !isStageFlowActive,
+            refresh: refreshLibrary,
+            controls: { songsControls },
+            content: {
+                if isStageFlowActive {
+                    landscapeAlbumStageFlowView
+                } else {
+                    trackListView
                 }
-            } else if !hasLibraryContent {
-                emptyView.refreshable {
-                    await refreshLibrary()
-                }
-            } else if isStageFlowActive {
-                landscapeAlbumStageFlowView
-            } else {
-                trackListView
             }
-        }
-        #if os(iOS)
-        .navigationBarHidden(isStageFlowActive)
-        .statusBar(hidden: isStageFlowActive)
-        #endif
-        .navigationTitle(isStageFlowActive ? "" : "Songs")
-        .if(!isStageFlowActive) { view in
-            view.searchable(text: trackFilterOptions.searchText, prompt: "Filter songs")
-        }
-        .refreshCommand {
-            await refreshLibrary()
-        }
-        .toolbar {
-            EnsembleBrowseToolbar(isVisible: hasLibraryContent && !isStageFlowActive) {
-                songsFilterButton
-                songsMoreMenu
-            }
-        }
-        .ensembleBrowseToolbarMinimization()
-        .if(!isStageFlowActive) { view in
-            view.toolbarMaterialBackground()
-        }
+        )
         .nowPlayingTrackListObservation(
             nowPlayingVM: nowPlayingVM,
             currentTrackId: $currentTrackId,
@@ -143,13 +131,6 @@ public struct SongsView: View {
             updateNativeTrackSections(from: trackSnapshot, sortOption: libraryVM.trackSortOption)
             guard isStageFlowActive else { return }
             rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
-        }
-        .sheet(isPresented: $showFilterSheet) {
-            FilterSheet(
-                filterOptions: trackFilterOptions,
-                availableGenres: trackSnapshot.availableGenres,
-                showGenreFilter: true
-            )
         }
     }
 
@@ -187,22 +168,8 @@ public struct SongsView: View {
         albumStageFlowView
     }
 
-    private var loadingView: some View {
-        EnsembleStateScaffold(kind: .loading, title: "Loading songs…")
-    }
-
     private var hasLibraryContent: Bool {
         trackSnapshot.hasVisibleContent || !libraryVM.tracks.isEmpty
-    }
-
-    private var emptyView: some View {
-        EnsembleLibraryEmptyStateScaffold(
-            title: "No Songs",
-            iconSystemName: EnsembleDesign.Icon.musicNote,
-            recovery: libraryVM.emptyStateRecovery(message: "No songs found in enabled libraries"),
-            addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openProfile() }
-        )
     }
 
     private var trackListView: some View {
