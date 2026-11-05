@@ -42,12 +42,9 @@ struct PlaylistBrowseControls: View {
         EnsembleBrowseSortMenu(
             model: viewModel,
             options: PlaylistSortOption.allCases,
-            selection: { $0.playlistSortOption },
-            direction: { $0.filterOptions.sortDirection }
-        ) { option, direction in
-            if viewModel.playlistSortOption != option { viewModel.playlistSortOption = option }
-            viewModel.filterOptions.sortDirection = direction
-        }
+            option: \.playlistSortOption,
+            filterOptions: \.filterOptions
+        )
         .accessibilityLabel("Sort Playlists")
     }
 
@@ -207,17 +204,38 @@ public struct PlaylistsView: View {
     }
 
     public var body: some View {
-        Group {
-            if viewModel.isLoading && effectivePlaylists.isEmpty {
-                loadingView
-            } else if effectivePlaylists.isEmpty {
-                emptyView
-            } else if presentationMode == .compactRoot && isStageFlowActive {
-                landscapeStageFlowView
-            } else {
-                rootContent
+        LibraryBrowseScreen(
+            title: "Playlists",
+            state: LibraryBrowseState(isLoading: viewModel.isLoading, hasContent: !effectivePlaylists.isEmpty),
+            empty: LibraryBrowseEmptyState(
+                title: "No Playlists",
+                icon: EnsembleDesign.Icon.playlist,
+                recovery: EnsembleLibraryEmptyStateScaffold.recovery(
+                    isRestoringCloudSources: isRestoringCloudSources,
+                    hasAnySources: accountManager.hasAnySources,
+                    isSyncing: syncCoordinator.isSyncing,
+                    hasEnabledLibraries: hasEnabledLibraries,
+                    emptyMessage: "Create playlists in your music sources to see them here"
+                )
+            ),
+            search: LibraryBrowseSearch(
+                text: $viewModel.filterOptions.searchText,
+                prompt: "Filter playlists",
+                isVisible: shouldShowPlaylistSearch && !isMacBrowsePicker
+            ),
+            hidesChrome: isStageFlowActive,
+            controlsVisible: !isStageFlowActive && !isMacBrowsePicker,
+            refresh: { await viewModel.refreshFromServer() },
+            loading: { loadingView },
+            controls: { PlaylistBrowseControls(viewModel: viewModel, nowPlayingVM: nowPlayingVM) },
+            content: {
+                if presentationMode == .compactRoot && isStageFlowActive {
+                    landscapeStageFlowView
+                } else {
+                    rootContent
+                }
             }
-        }
+        )
             .alert("Delete Playlist?", isPresented: Binding(
                 get: { playlistPendingSwipeDelete != nil },
                 set: { isPresented in
@@ -246,17 +264,6 @@ public struct PlaylistsView: View {
                 .nativeSheetNavigationContainer()
             }
             .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
-            #if os(iOS)
-            .navigationBarHidden(isStageFlowActive)
-            .if(isStageFlowActive) { view in
-                view.toolbar(.hidden, for: .navigationBar)
-            }
-            .statusBar(hidden: isStageFlowActive)
-            #endif
-            .navigationTitle(isStageFlowActive ? "" : "Playlists")
-            .if(shouldShowPlaylistSearch && !isMacBrowsePicker) { view in
-                view.searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter playlists")
-            }
             .task {
                 viewModel.start()
                 await viewModel.loadPlaylistsIfNeeded()
@@ -281,18 +288,6 @@ public struct PlaylistsView: View {
             .onReceive(PlaylistMutationEvent.publisher) { event in
                 handlePlaylistMutationEvent(event)
             }
-            .refreshable {
-                await viewModel.refreshFromServer()
-            }
-            .refreshCommand {
-                await viewModel.refreshFromServer()
-            }
-            .toolbar {
-                EnsembleBrowseToolbar(isVisible: !isStageFlowActive && !isMacBrowsePicker) {
-                    PlaylistBrowseControls(viewModel: viewModel, nowPlayingVM: nowPlayingVM)
-                }
-            }
-            .ensembleBrowseToolbarMinimization()
             .alert("Rename Playlist", isPresented: Binding(
                 get: { !renamePushPlaylists.isEmpty },
                 set: { if !$0 { renamePushPlaylists = [] } }
@@ -332,22 +327,6 @@ public struct PlaylistsView: View {
         .disabled(true)
         .accessibilityLabel("Loading playlists")
         .miniPlayerBottomSpacing()
-    }
-
-    private var emptyView: some View {
-        EnsembleLibraryEmptyStateScaffold(
-            title: "No Playlists",
-            iconSystemName: EnsembleDesign.Icon.playlist,
-            recovery: EnsembleLibraryEmptyStateScaffold.recovery(
-                isRestoringCloudSources: isRestoringCloudSources,
-                hasAnySources: accountManager.hasAnySources,
-                isSyncing: syncCoordinator.isSyncing,
-                hasEnabledLibraries: hasEnabledLibraries,
-                emptyMessage: "Create playlists in your music sources to see them here"
-            ),
-            addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openProfile() }
-        )
     }
 
     @ViewBuilder
