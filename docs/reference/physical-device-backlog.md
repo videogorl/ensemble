@@ -239,6 +239,10 @@ pass before step 0 is called verified.
   does not flash or re-trim on push or back, the collapsing title appears on
   scroll, and the sort and More menus work. Passed on the iPhone 17 Pro
   simulator for album, artist, playlist, genre and Favorites only.
+- Step 6b shared browse screen: Artists, Albums, Playlists, Songs and Genres
+  each open, sort, filter, search, open a detail and play a track; Albums
+  StageFlow rotation keeps the album in view and hides the nav bar; pull to
+  refresh on Songs (not exercised in the simulator).
 
 ## Mac
 
@@ -255,6 +259,9 @@ pass before step 0 is called verified.
 - Step 6 shared detail screen in the built Mac app (not run: no GUI driver
   was available): the same detail kinds as the iPhone row, with artist detail
   inside the Mac split.
+- Step 6b shared browse screen in the built Mac app (not run; the Mac launch
+  check comes with 6c): the same five browse kinds and the picker columns for
+  Artists, Genres and Playlists.
 
 ## iPad Pro and Apple Watch
 
