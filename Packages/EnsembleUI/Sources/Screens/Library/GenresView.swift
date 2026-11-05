@@ -48,26 +48,27 @@ public struct GenresView: View {
     }
 
     public var body: some View {
-        Group {
-            if genreSnapshot.phase != .idle && !genreSnapshot.hasVisibleContent {
-                loadingView
-            } else if !genreSnapshot.hasVisibleContent {
-                emptyView
-            } else {
-                rootContent
-            }
-        }
-        .navigationTitle("Genres")
-        .genreBrowseSearchable(
-            isVisible: isGenreBrowseSearchVisible && !isMacBrowsePicker,
-            text: genreFilterOptions.searchText
+        LibraryBrowseScreen(
+            title: "Genres",
+            loadingTitle: "Loading genres…",
+            state: LibraryBrowseState(
+                isLoading: genreSnapshot.phase != .idle,
+                hasContent: genreSnapshot.hasVisibleContent
+            ),
+            empty: LibraryBrowseEmptyState(
+                title: "No Genres",
+                icon: EnsembleDesign.Icon.genreEmpty,
+                recovery: libraryVM.emptyStateRecovery(message: "No genres found in enabled libraries")
+            ),
+            search: LibraryBrowseSearch(
+                text: genreFilterOptions.searchText,
+                prompt: "Filter genres",
+                isVisible: isGenreBrowseSearchVisible && !isMacBrowsePicker,
+                usesNavigationBarDrawer: true
+            ),
+            refresh: { await libraryVM.refreshFromServer() },
+            content: { rootContent }
         )
-        .refreshable {
-            await libraryVM.refreshFromServer()
-        }
-        .refreshCommand {
-            await libraryVM.refreshFromServer()
-        }
     }
 
     private var genreSnapshot: GenreBrowseSnapshot {
@@ -153,20 +154,6 @@ public struct GenresView: View {
             placeholder: {
                 LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.genreEmpty, title: "Select a Genre")
             }
-        )
-    }
-
-    private var loadingView: some View {
-        EnsembleStateScaffold(kind: .loading, title: "Loading genres…")
-    }
-
-    private var emptyView: some View {
-        EnsembleLibraryEmptyStateScaffold(
-            title: "No Genres",
-            iconSystemName: EnsembleDesign.Icon.genreEmpty,
-            recovery: libraryVM.emptyStateRecovery(message: "No genres found in enabled libraries"),
-            addSource: { navigationCoordinator.showingAddAccount = true },
-            manageSources: { navigationCoordinator.openProfile() }
         )
     }
 
@@ -409,14 +396,9 @@ struct GenreDetailContentView: View {
         EnsembleBrowseSortMenu(
             model: libraryVM,
             options: AlbumSortOption.allCases,
-            selection: { $0.genreDetailAlbumSortOption },
-            direction: { $0.genreDetailAlbumFilterOptions.sortDirection }
-        ) { option, direction in
-            if libraryVM.genreDetailAlbumSortOption != option {
-                libraryVM.genreDetailAlbumSortOption = option
-            }
-            libraryVM.genreDetailAlbumFilterOptions.sortDirection = direction
-        }
+            option: \.genreDetailAlbumSortOption,
+            filterOptions: \.genreDetailAlbumFilterOptions
+        )
         .accessibilityLabel("Sort Genre Albums")
     }
 
@@ -543,27 +525,6 @@ private struct GenreAlbumSearchModifier: ViewModifier {
     }
 }
 
-private struct GenreBrowseSearchModifier: ViewModifier {
-    let isVisible: Bool
-    @Binding var text: String
-
-    func body(content: Content) -> some View {
-        if isVisible {
-            #if os(iOS)
-            content.searchable(
-                text: $text,
-                placement: .navigationBarDrawer(displayMode: .automatic),
-                prompt: "Filter genres"
-            )
-            #else
-            content.searchable(text: $text, prompt: "Filter genres")
-            #endif
-        } else {
-            content
-        }
-    }
-}
-
 private struct GenreDetailNavigationTitleModifier: ViewModifier {
     let title: String
     let presentationStyle: GenreDetailContentView.PresentationStyle
@@ -588,10 +549,6 @@ private extension View {
 
     func genreAlbumSearchable(text: Binding<String>) -> some View {
         modifier(GenreAlbumSearchModifier(text: text))
-    }
-
-    func genreBrowseSearchable(isVisible: Bool, text: Binding<String>) -> some View {
-        modifier(GenreBrowseSearchModifier(isVisible: isVisible, text: text))
     }
 
     func genreListRowPadding() -> some View {
