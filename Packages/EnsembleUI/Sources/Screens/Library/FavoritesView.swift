@@ -108,14 +108,9 @@ public struct FavoritesView: View {
         EnsembleBrowseSortMenu(
             model: viewModel,
             options: FavoritesSortOption.allCases,
-            selection: { $0.favoritesSortOption },
-            direction: { $0.filterOptions.sortDirection }
-        ) { option, direction in
-            if viewModel.favoritesSortOption != option {
-                viewModel.favoritesSortOption = option
-            }
-            viewModel.filterOptions.sortDirection = direction
-        }
+            option: \.favoritesSortOption,
+            filterOptions: \.filterOptions
+        )
     }
 
     @ViewBuilder
