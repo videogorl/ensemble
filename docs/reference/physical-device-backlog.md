@@ -11,6 +11,51 @@ hardware. See [`rearchitecture-plan.md`](rearchitecture-plan.md) section 7.
   step's note under `docs/investigations/`.
 - A later step can supersede an item. Replace it rather than keeping both.
 
+## iPhone SE — shared browse, 2026-11-06
+
+Guest's iPhone, UDID `00008030-00090C493C13402E`, iOS 27.0.1.
+Production source: `01b96a83`. The installed build was initially 0.4.0
+`202611042151.0196`; the acceptance run rebuilt the same app source as
+0.4.0 `202611061142.0196` with the new iPhone UI tests.
+
+| Check | SE result |
+| --- | --- |
+| Artists: sort, filter, search, artist detail | Passed in XCUITest |
+| Albums: sort, Downloaded Only, Hide Singles, search, album detail | Passed in XCUITest |
+| Playlists: sort, search, playlist detail | Passed in XCUITest; no playlist mutations |
+| Genres: search, genre detail | Passed in XCUITest; no sort/filter controls offered |
+| Play a song from album detail, confirm progress, pause | Passed in XCUITest |
+| Songs: sort, filter, search | Still owed by hand: the phone was on its lock screen when the manual follow-up began |
+
+Sort/filter state and existing search text were restored by the passing checks.
+Songs automation remains under investigation: the list becomes visible, but
+XCUITest times out resolving `More Song Actions` before delivering its tap.
+`PhoneBrowseAcceptanceUITests.testSongs` is explicitly skipped with the dated
+reason; its browse assertions remain intact. Manual toolbar responsiveness,
+including whether More Song Actions feels slow, remains unverified until Lissy
+unlocks the phone. No app defect has been established from the query timeout.
+
+Device Hub observations (restarted after ignored taps):
+
+- Albums' red filter dot corresponds to saved Hide Singles = on, with
+  Downloaded Only = off. Hide Singles defaults to off in code; the dot is not
+  an unexplained default filter.
+- The letter index did not overlap the visible album covers at rest. It did
+  overlap the genre-chip strip above the grid.
+- Launch logs contain `tabChanged` to Settings for Albums, Genres and Songs,
+  but not Artists or Playlists; it does not occur on every launch.
+
+Local evidence from this run (temporary files may expire):
+`/tmp/ensemble-se-20261106/browse5.log` and `browse5.xcresult` contain the four
+passing browse checks and playback; `scoped8.log` and `scoped8.xcresult` capture
+the final Songs query timeout. `albums-grid.jpg`, `filter-retry.jpg` and
+`paused.jpg` show the visual observations and paused player. `songs-wake.jpg`
+shows the lock screen that blocked the manual follow-up. Device launch logs
+are in `/tmp/ensemble-se-20261106/closing-device-logs/`.
+
+This SE pass does not cover Albums StageFlow rotation or Songs pull to refresh.
+The iPhone 16 Pro, Mac, iPad and Watch items below remain independent checks.
+
 ## iPhone 16 Pro
 
 The items below for steps 0 to 2 are deferred by Felicity's choice on
