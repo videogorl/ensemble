@@ -227,7 +227,6 @@ final class PhoneBrowseAcceptanceUITests: XCTestCase {
     func testAlbums() throws { try browse("Albums", filter: true) }
     func testPlaylists() throws { try browse("Playlists", filter: false) }
     func testSongs() throws {
-        try XCTSkipIf(true, "2026-11-06: XCUITest times out resolving More Song Actions on the physical iPhone SE; under investigation.")
         try browse("Songs", filter: true)
     }
     func testGenres() throws { try browse("Genres", filter: false) }
@@ -238,7 +237,7 @@ final class PhoneBrowseAcceptanceUITests: XCTestCase {
         didLaunchApp = true
         XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 30))
         let ready = NSPredicate { _, _ in
-            if title == "Songs" { return self.app.tables.cells.firstMatch.exists }
+            if title == "Songs" { return self.songRows.firstMatch.exists }
             guard !self.app.staticTexts["Loading \(title.lowercased())…"].exists else { return false }
             if title == "Songs" || title == "Genres" || title == "Playlists" {
                 return self.app.cells.firstMatch.exists
@@ -247,10 +246,23 @@ final class PhoneBrowseAcceptanceUITests: XCTestCase {
         }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: app)], timeout: 60), .completed,
                        "\(title) did not finish loading its list")
-        let baseline = XCTAttachment(string: title == "Songs" ? "Native Songs table has loaded its first row" : app.debugDescription)
+        let baseline = XCTAttachment(string: app.debugDescription)
         baseline.name = "\(title)-baseline"
         baseline.lifetime = .keepAlways
         add(baseline)
+        if title == "Songs" {
+            let firstTitle = songRows.firstMatch.staticTexts.firstMatch.label
+            XCTAssertFalse(firstTitle.isEmpty)
+            app.tables.firstMatch.swipeUp()
+            let scrolledTitle = songRows.firstMatch.staticTexts.firstMatch.label
+            XCTAssertNotEqual(scrolledTitle, firstTitle, "Accessibility rows did not follow scrolling")
+            let rows = XCTAttachment(string: "Before scroll: \(firstTitle)\nAfter scroll: \(scrolledTitle)\n" + app.tables.firstMatch.debugDescription)
+            rows.name = "Songs-scrolled-rows"
+            rows.lifetime = .keepAlways
+            add(rows)
+            app.tables.firstMatch.swipeDown()
+            XCTAssertEqual(songRows.firstMatch.staticTexts.firstMatch.label, firstTitle)
+        }
         if title != "Genres" { try exerciseSort(title) }
         if filter {
             app.navigationBars.buttons["Filter \(title)"].tap()
@@ -277,7 +289,7 @@ final class PhoneBrowseAcceptanceUITests: XCTestCase {
         searched.lifetime = .keepAlways
         add(searched)
         let didFilter = title == "Songs"
-            ? app.cells.firstMatch.waitForNonExistence(timeout: 5)
+            ? songRows.firstMatch.waitForNonExistence(timeout: 5)
             : sampleLabel.map { app.buttons[$0].firstMatch.waitForNonExistence(timeout: 5) }
         search.buttons["Clear text"].tap()
         if !savedSearch.isEmpty { search.typeText(savedSearch) }
@@ -295,6 +307,10 @@ final class PhoneBrowseAcceptanceUITests: XCTestCase {
         if title == "Albums" { try playAndPause() }
     }
 
+    private var songRows: XCUIElementQuery {
+        app.tables.cells.containing(.button, identifier: "Track Actions")
+    }
+
     private func exerciseToggle(_ label: String) throws {
         let toggle = app.switches[label].firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
@@ -310,7 +326,10 @@ final class PhoneBrowseAcceptanceUITests: XCTestCase {
 
     private func exerciseSort(_ title: String) throws {
         openSort(title)
-        let selectedQuery = app.collectionViews.buttons.matching(NSPredicate(format: "identifier == 'chevron.up' OR identifier == 'chevron.down'"))
+        let directionPredicate = NSPredicate(format: "identifier == 'chevron.up' OR identifier == 'chevron.down'")
+        let selectedQuery = title == "Songs"
+            ? app.collectionViews.buttons.containing(directionPredicate)
+            : app.collectionViews.buttons.matching(directionPredicate)
         let hierarchy = XCTAttachment(string: title == "Songs" ? "Songs sort menu opened" : selectedQuery.debugDescription)
         hierarchy.name = "\(title)-sort"
         hierarchy.lifetime = .keepAlways
@@ -320,17 +339,25 @@ final class PhoneBrowseAcceptanceUITests: XCTestCase {
         let selected = selectedQuery.firstMatch
         XCTAssertTrue(selected.waitForExistence(timeout: 5), "Cannot identify selected sort safely")
         let label = selected.label
-        let direction = selected.identifier
+        let direction = sortDirection(selected, title: title)
         selected.tap()
         openSort(title)
         let reversed = app.collectionViews.buttons[label].firstMatch
-        let didReverse = reversed.identifier != direction
+        let didReverse = sortDirection(reversed, title: title) != direction
         reversed.tap()
         openSort(title)
-        let restored = app.collectionViews.buttons[label].firstMatch.identifier
+        let restored = sortDirection(app.collectionViews.buttons[label].firstMatch, title: title)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.75)).tap()
         XCTAssertTrue(didReverse, "Sort direction did not reverse")
         XCTAssertEqual(restored, direction, "Sort direction was not restored")
+    }
+
+    private func sortDirection(_ button: XCUIElement, title: String) -> String {
+        if title == "Songs" {
+            // The nested UIKit menu exposes the direction on a child image.
+            return button.images.matching(NSPredicate(format: "identifier == 'chevron.up' OR identifier == 'chevron.down'")).firstMatch.identifier
+        }
+        return button.identifier
     }
 
     private func openSort(_ title: String) {

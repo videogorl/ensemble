@@ -41,6 +41,43 @@ class DeferredLayoutTableView: UITableView {
     var defersLayoutUntilWindow = true
     var onLayout: (() -> Void)?
 
+    #if DEBUG
+    private let boundsSongsAutomationAccessibility: Bool = {
+        let automation = AutomationLaunchOptions.current
+        return automation.isEnabled && automation.startSurface == .songs
+    }()
+
+    // XCTest's full snapshot materializes offscreen native rows and exceeds the
+    // SE's memory limit. Bound only Songs automation; derive rows after scrolling.
+    private var songsAutomationElements: [Any] {
+        var elements: [Any] = []
+        if let tableHeaderView { elements.append(tableHeaderView) }
+        elements.append(contentsOf: visibleCells)
+        if let tableFooterView { elements.append(tableFooterView) }
+        return elements
+    }
+
+    override var accessibilityElements: [Any]? {
+        get { boundsSongsAutomationAccessibility ? songsAutomationElements : super.accessibilityElements }
+        set { super.accessibilityElements = newValue }
+    }
+
+    override func accessibilityElementCount() -> Int {
+        boundsSongsAutomationAccessibility ? songsAutomationElements.count : super.accessibilityElementCount()
+    }
+
+    override func accessibilityElement(at index: Int) -> Any? {
+        guard boundsSongsAutomationAccessibility else { return super.accessibilityElement(at: index) }
+        let elements = songsAutomationElements
+        return elements.indices.contains(index) ? elements[index] : nil
+    }
+
+    override func index(ofAccessibilityElement element: Any) -> Int {
+        guard boundsSongsAutomationAccessibility else { return super.index(ofAccessibilityElement: element) }
+        return songsAutomationElements.firstIndex { ($0 as AnyObject) === (element as AnyObject) } ?? NSNotFound
+    }
+    #endif
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil && !hasAppearedInWindow {

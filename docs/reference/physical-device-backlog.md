@@ -25,15 +25,31 @@ Production source: `01b96a83`. The installed build was initially 0.4.0
 | Playlists: sort, search, playlist detail | Passed in XCUITest; no playlist mutations |
 | Genres: search, genre detail | Passed in XCUITest; no sort/filter controls offered |
 | Play a song from album detail, confirm progress, pause | Passed in XCUITest |
-| Songs: sort, filter, search | Still owed by hand: the phone was on its lock screen when the manual follow-up began |
+| Songs: sort, filter, search; accessible rows after scrolling | Passed in XCUITest twice consecutively on Nov 8, no skips |
 
 Sort/filter state and existing search text were restored by the passing checks.
-Songs automation remains under investigation: the list becomes visible, but
-XCUITest times out resolving `More Song Actions` before delivering its tap.
-`PhoneBrowseAcceptanceUITests.testSongs` is explicitly skipped with the dated
-reason; its browse assertions remain intact. Manual toolbar responsiveness,
-including whether More Song Actions feels slow, remains unverified until Lissy
-unlocks the phone. No app defect has been established from the query timeout.
+On Nov 8, all five `PhoneBrowseAcceptanceUITests` passed twice consecutively on
+this SE, with zero failures and zero skips. `testSongs` is no longer skipped.
+The rebuilt installed app was 0.4.0 `202611081007.8943`. Core and UI package suites
+and the standalone iOS Debug build also passed after the change.
+
+The timeout came from XCUITest's full accessibility snapshot: iOS killed Ensemble
+at its process memory limit (2098 MiB), before delivering the toolbar tap. A
+user-approved DEBUG hook bounds native table accessibility to its header, visible
+cells and footer only for Songs automation launches. Default/release accessibility
+and normal app behavior are unchanged. The test also distinguishes track rows
+from the table's header/footer and reads the nested sort menu's child chevron.
+See the [Nov 8 investigation](../investigations/2026-11-08-se-songs-xcuitest-snapshot.md)
+for the cause, implementation boundary and evidence.
+
+Final manual readback confirmed Date Added descending, Downloaded Only off, no
+selected genres, empty search and paused playback. The phone was locked through
+Device Hub and the GUI lock released. The SE has no passcode; Home wakes it.
+
+Nov 8 evidence: `/tmp/ensemble-songs-20261108/browse1.xcresult` and
+`browse2.xcresult` (five passes each); `core-final.log`, `ui-final.log`,
+`ios-build-final.log`, `final-sort.jpg`, `final-filters.jpg`, `final-paused.jpg`.
+No new device crash reports appeared across the two acceptance runs.
 
 Device Hub observations (restarted after ignored taps):
 
