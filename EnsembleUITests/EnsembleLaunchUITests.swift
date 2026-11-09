@@ -271,9 +271,7 @@ final class PhoneBrowseAcceptanceUITests: XCTestCase {
             if title == "Albums" { try exerciseToggle("Hide Singles") }
             app.navigationBars.buttons["Done"].tap()
         }
-        let sample: XCUIElement? = title == "Songs" ? nil : app.scrollViews.buttons.allElementsBoundByIndex.first {
-            $0.isHittable && $0.frame.height > 60 && $0.label.contains(", ")
-        } ?? app.cells.buttons.allElementsBoundByIndex.first { $0.isHittable }
+        let sample: XCUIElement? = title == "Songs" ? nil : firstBrowseRow()
         let sampleLabel = sample?.label
         let search = app.navigationBars.searchFields.firstMatch
         if !search.isHittable { app.swipeDown() }
@@ -297,14 +295,18 @@ final class PhoneBrowseAcceptanceUITests: XCTestCase {
         if app.buttons["Cancel"].exists && app.buttons["Cancel"].isHittable { app.buttons["Cancel"].tap() }
         if let didFilter { XCTAssertTrue(didFilter, "Search did not remove the original row") }
         if title == "Songs" { return } // Songs are playable rows, not detail destinations.
-        let row = try XCTUnwrap(app.scrollViews.buttons.allElementsBoundByIndex.first {
-            $0.isHittable && $0.frame.height > 60 && $0.label.contains(", ")
-        } ?? app.cells.buttons.allElementsBoundByIndex.first { $0.isHittable },
-        "Expected a populated \(title) row")
+        let row = try XCTUnwrap(firstBrowseRow(), "Expected a populated \(title) row")
         row.tap()
         XCTAssertTrue(app.navigationBars.buttons.firstMatch.waitForExistence(timeout: 10))
         XCTAssertNotEqual(app.navigationBars.firstMatch.identifier, title, "Detail did not open")
         if title == "Albums" { try playAndPause() }
+    }
+
+    /// First on-screen tile or row. The frame test comes before `isHittable`, which cannot
+    /// evaluate the genre chips clipped by their horizontal scroller and fails the test.
+    private func firstBrowseRow() -> XCUIElement? {
+        app.scrollViews.buttons.allElementsBoundByIndex.first { $0.frame.height > 60 && $0.isHittable }
+            ?? app.cells.buttons.allElementsBoundByIndex.first { $0.isHittable }
     }
 
     private var songRows: XCUIElementQuery {
