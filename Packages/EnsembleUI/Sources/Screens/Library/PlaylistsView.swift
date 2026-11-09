@@ -94,7 +94,7 @@ public struct PlaylistsView: View {
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var renamePushPlaylists: [Playlist] = []
     @State private var renamePushPlaylistTitle = ""
-    // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
+    // Frozen during a server refresh so partial projections can't drop rows or clear the selection.
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist]?
     private var isRestoringCloudSources: Bool { deps.accountManager.isAwaitingCloudSources }
     private var demoModeEnabled: Bool { deps.settingsManager.demoModeEnabled }

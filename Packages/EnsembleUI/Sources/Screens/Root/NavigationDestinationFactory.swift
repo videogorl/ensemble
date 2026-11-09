@@ -152,7 +152,7 @@ struct NavigationDestinationFactory {
                 )
             }
         case .moodTracks(let mood):
-            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM, dependencies: viewModels.dependencies)
+            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .hidden:
             HiddenMediaView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.hidden)
         case .searchResults(let section):

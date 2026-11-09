@@ -7,7 +7,6 @@ public struct MoodTracksView: View {
     let nowPlayingVM: NowPlayingViewModel
     @Environment(DependencyContainer.self) private var deps
     @Environment(NavigationCoordinator.self) private var navigationCoordinator
-    @State private var viewModel: SearchViewModel
     @State private var moodTracks: [Track] = []
     @State private var isLoading = true
     @State private var error: String?
@@ -21,10 +20,9 @@ public struct MoodTracksView: View {
     @State private var nvmRecentPlaylistTitle: String?
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
 
-    public init(mood: Mood, nowPlayingVM: NowPlayingViewModel, dependencies: DependencyContainer) {
+    public init(mood: Mood, nowPlayingVM: NowPlayingViewModel) {
         self.mood = mood
         self.nowPlayingVM = nowPlayingVM
-        _viewModel = State(initialValue: SearchViewModel(dependencies: dependencies))
     }
 
     public var body: some View {
@@ -84,7 +82,6 @@ public struct MoodTracksView: View {
             .navigationBarTitleDisplayMode(.inline)
         #endif
             .task {
-                viewModel.start()
                 await loadTracks()
             }
             .nowPlayingTrackListObservation(
