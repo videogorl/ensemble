@@ -47,37 +47,4 @@ public enum SidebarSelection: Hashable {
         }
         return false
     }
-
-    static func selection(
-        for destination: NavigationCoordinator.Destination,
-        fallback: SidebarSelection?
-    ) -> SidebarSelection {
-        switch destination {
-        case .displayArtist, .artistNamed, .artistDetail, .artist:
-            return .library(.artists)
-        case .displayGenre:
-            return .library(.genres)
-        case .album, .albumDetail, .song:
-            return .library(.albums)
-        case .playlist(let id, let sourceKey):
-            return .playlist(id: id, sourceKey: sourceKey)
-        case .playlistDetail(let playlist, _):
-            return .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
-        case .mergedPlaylist(let title, let isSmart):
-            return .mergedPlaylist(title: title, isSmart: isSmart)
-        case .moodTracks:
-            return .library(.home)
-        case .hidden:
-            return .hidden
-        case .searchResults:
-            return .library(.search)
-        case .view(let tab):
-            switch tab {
-            case .home, .songs, .artists, .albums, .genres, .playlists, .favorites, .search:
-                return .library(tab)
-            case .downloads, .settings:
-                return fallback ?? .library(.home)
-            }
-        }
-    }
 }

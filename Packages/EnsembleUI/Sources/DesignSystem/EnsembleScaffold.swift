@@ -291,49 +291,6 @@ public enum EnsembleScaffold {
         public static let subtleSectionBackgroundOpacity = 0.1
     }
 
-    public enum BrowseSplit {
-        public struct Configuration: Equatable {
-            public let minimumSplitWidth: CGFloat
-            public let sidebarWidth: CGFloat
-            public let minimumSidebarWidth: CGFloat
-            public let maximumSidebarWidth: CGFloat
-            public let minimumDetailWidth: CGFloat
-            public let resizeHandleWidth: CGFloat
-
-            public init(
-                minimumSplitWidth: CGFloat = EnsembleDesign.Breakpoint.browseSplitMinimumWidth,
-                sidebarWidth: CGFloat = 340,
-                minimumSidebarWidth: CGFloat = 260,
-                maximumSidebarWidth: CGFloat = 460,
-                minimumDetailWidth: CGFloat = 420,
-                resizeHandleWidth: CGFloat = 12
-            ) {
-                self.minimumSplitWidth = minimumSplitWidth
-                self.sidebarWidth = sidebarWidth
-                self.minimumSidebarWidth = minimumSidebarWidth
-                self.maximumSidebarWidth = maximumSidebarWidth
-                self.minimumDetailWidth = minimumDetailWidth
-                self.resizeHandleWidth = resizeHandleWidth
-            }
-
-            public static let rootBrowse = Configuration(
-                minimumSplitWidth: 720,
-                sidebarWidth: 340,
-                minimumSidebarWidth: 280,
-                maximumSidebarWidth: 420,
-                minimumDetailWidth: 360
-            )
-        }
-
-        public static let coordinateSpaceName = "LargeScreenBrowseSplitView"
-        public static let resizeHandleBackingWidth: CGFloat = 10
-        public static let resizeHandleBackingHeight: CGFloat = 64
-        public static let resizeHandleThumbWidth: CGFloat = 3
-        public static let resizeHandleThumbHeight: CGFloat = 48
-        public static let resizeHandleThumbCornerRadius: CGFloat = 1.5
-        public static let placeholderIcon = EnsembleDesign.Typography.mediaPlaceholderIcon
-    }
-
     public enum DetailSurface {
         public static let wideHeaderThreshold = EnsembleDesign.Breakpoint.detailWideHeader
         public static let compactHeaderSpacing = EnsembleDesign.Spacing.lg
@@ -645,7 +602,7 @@ public struct EnsembleDetailToolbarActions<Content: View>: ToolbarContent {
             }
         }
         #else
-        EnsembleDetailToolbarLeadingSpacer()
+        EnsembleToolbarLeadingSpacer()
         ToolbarItem(placement: .primaryActionIfAvailable) {
             HStack(spacing: EnsembleScaffold.BrowseToolbar.itemSpacing) {
                 content()
@@ -674,37 +631,18 @@ public extension View {
 /// SwiftUI's macOS toolbar layout can cluster primary actions near the title or
 /// search field unless a flexible toolbar item precedes the action group.
 public struct EnsembleToolbarLeadingSpacer: ToolbarContent {
-    @Environment(\.isInLargeScreenBrowseDetailPane) private var isInLargeScreenBrowseDetailPane
-    private let suppressesInLargeScreenBrowseDetailPane: Bool
-
-    public init(suppressesInLargeScreenBrowseDetailPane: Bool = false) {
-        self.suppressesInLargeScreenBrowseDetailPane = suppressesInLargeScreenBrowseDetailPane
-    }
+    public init() {}
 
     public var body: some ToolbarContent {
         #if os(macOS)
         ToolbarItem {
-            if !suppressesInLargeScreenBrowseDetailPane || !isInLargeScreenBrowseDetailPane {
-                Spacer()
-            }
+            Spacer()
         }
         #else
         ToolbarItem(placement: .navigationBarTrailing) {
             EmptyView()
         }
         #endif
-    }
-}
-
-/// Standalone detail views on macOS need a leading flexible toolbar item so
-/// actions align with the trailing edge instead of clustering near the title.
-/// Detail panes inside LargeScreenBrowseSplitView already participate in the
-/// split's shared toolbar geometry and should not add that spacer.
-public struct EnsembleDetailToolbarLeadingSpacer: ToolbarContent {
-    public init() {}
-
-    public var body: some ToolbarContent {
-        EnsembleToolbarLeadingSpacer(suppressesInLargeScreenBrowseDetailPane: true)
     }
 }
 

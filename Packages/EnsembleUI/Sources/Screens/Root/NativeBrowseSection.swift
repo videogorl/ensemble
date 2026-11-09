@@ -1,7 +1,6 @@
 import EnsembleCore
 import SwiftUI
 
-@available(iOS 18.0, macOS 15.0, *)
 struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls: View>: View {
     @Environment(DependencyContainer.self) private var dependencies
     let tab: TabItem?
@@ -245,12 +244,10 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
     }
 }
 
-@available(iOS 18.0, macOS 15.0, *)
 private struct NativeBrowseScrollPositionKey: EnvironmentKey {
     static var defaultValue: Binding<String?> { .constant(nil) }
 }
 
-@available(iOS 18.0, macOS 15.0, *)
 extension EnvironmentValues {
     var nativeBrowseScrollPosition: Binding<String?> {
         get { self[NativeBrowseScrollPositionKey.self] }
@@ -259,7 +256,6 @@ extension EnvironmentValues {
 }
 
 /// Keeps native scroll state alive above the replaceable two/three-column roots.
-@available(iOS 18.0, macOS 15.0, *)
 struct NativeBrowseScrollState<Content: View>: View {
     let tab: TabItem?
     @ViewBuilder var content: Content
@@ -273,7 +269,6 @@ struct NativeBrowseScrollState<Content: View>: View {
     }
 }
 
-@available(iOS 18.0, macOS 15.0, *)
 struct NativeBrowseScrollView<Content: View>: View {
     @Environment(\.nativeBrowseScrollPosition) private var position
     @State private var hasRestoredPosition = false
@@ -289,22 +284,38 @@ struct NativeBrowseScrollView<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollPosition(id: position, anchor: .top)
-            .onScrollGeometryChange(for: CGSize.self) { $0.contentSize } action: { _, size in
-                // Restore only once the native scroll view has laid out its content.
-                guard !hasRestoredPosition, size.height > 0 else { return }
-                hasRestoredPosition = true
-                if let id = position.wrappedValue {
-                    proxy.scrollTo(id, anchor: .top)
-                }
-            }
+            .restoringScrollPosition { restore(with: proxy) }
             .foregroundScrollActivity()
             .miniPlayerBottomSpacing()
         }
     }
 }
 
+private extension NativeBrowseScrollView {
+    func restore(with proxy: ScrollViewProxy) {
+        guard !hasRestoredPosition else { return }
+        hasRestoredPosition = true
+        if let id = position.wrappedValue {
+            proxy.scrollTo(id, anchor: .top)
+        }
+    }
+}
+
+private extension View {
+    /// iOS 18+ restores once the scroll view reports laid-out content; iOS 17 restores on appear.
+    @ViewBuilder
+    func restoringScrollPosition(_ restore: @escaping () -> Void) -> some View {
+        if #available(iOS 18.0, macOS 15.0, *) {
+            onScrollGeometryChange(for: CGSize.self) { $0.contentSize } action: { _, size in
+                if size.height > 0 { restore() }
+            }
+        } else {
+            onAppear(perform: restore)
+        }
+    }
+}
+
 /// Register the root region; the shared chrome owner excludes the app sidebar.
-@available(iOS 18.0, macOS 15.0, *)
 struct NativeBrowseChrome: ViewModifier {
     func body(content: Content) -> some View {
         content.background {

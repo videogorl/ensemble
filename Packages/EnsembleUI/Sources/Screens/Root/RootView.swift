@@ -214,7 +214,7 @@ public struct RootView: View {
         hasAppliedAutomationLaunchRoute = true
 
         // Sidebar shells expose app settings through the Profile presentation.
-        if usesSidebarRootNavigationShell, startSurface == .settings {
+        if usesNativeBrowse, startSurface == .settings {
             _ = navigationCoordinator.routeAutomationSurface(.profile, source: "launchArgument.settingsAlias")
             return
         }
@@ -269,18 +269,6 @@ public struct RootView: View {
     private var mainContentView: some View {
         switch EnsemblePlatformFeaturePolicy.current.rootNavigationShell {
         case .nativeBrowse:
-            if #available(iOS 18.0, macOS 15.0, *) {
-                SidebarView(
-                    nowPlayingVM: nowPlayingVM,
-                    viewModels: screenModels,
-                    selection: $sidebarSelection,
-                    usesNativeBrowse: true,
-                    rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
-                )
-            } else {
-                MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
-            }
-        case .legacySidebar:
             SidebarView(
                 nowPlayingVM: nowPlayingVM,
                 viewModels: screenModels,
@@ -295,7 +283,6 @@ public struct RootView: View {
                         nowPlayingVM: nowPlayingVM,
                         viewModels: screenModels,
                         selection: $sidebarSelection,
-                        usesNativeBrowse: true,
                         adaptsToPhone: true,
                         wantsPhoneTabs: !expanded,
                         rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
@@ -334,10 +321,6 @@ public struct RootView: View {
         #else
         return false
         #endif
-    }
-
-    private var usesSidebarRootNavigationShell: Bool {
-        EnsemblePlatformFeaturePolicy.current.usesSidebarRootNavigation || usesExpandedPhoneBrowse
     }
 
     private var nowPlayingPresentationContent: some View {
@@ -400,7 +383,7 @@ public struct RootView: View {
     }
 
     private func syncSidebarSelection(to tab: TabItem) {
-        guard usesSidebarRootNavigationShell else { return }
+        guard usesNativeBrowse else { return }
         guard sidebarSelection?.correspondingTab != tab else { return }
 
         switch tab {
@@ -421,13 +404,6 @@ public struct RootView: View {
             clearSidebarPinPath()
             targetTab = NavigationCoordinator.targetTab(for: pending.destination)
             sidebarSelection = .library(targetTab)
-        } else if usesSidebarRootNavigationShell {
-            clearSidebarPinPath()
-            sidebarSelection = SidebarSelection.selection(
-                for: pending.destination,
-                fallback: sidebarSelection
-            )
-            targetTab = NavigationCoordinator.targetTab(for: pending.destination)
         } else {
             targetTab = pending.tab
         }

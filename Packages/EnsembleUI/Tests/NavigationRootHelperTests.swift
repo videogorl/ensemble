@@ -119,67 +119,6 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertTrue(coordinator.pathSnapshot(for: .artists).isEmpty)
     }
 
-    func testSidebarSelectionMappingForDestinations() {
-        XCTAssertEqual(
-            SidebarSelection.selection(for: .displayArtist(id: "merged:ajr"), fallback: nil),
-            .library(.artists)
-        )
-        XCTAssertEqual(
-            SidebarSelection.selection(for: .displayGenre(id: "merged:rock"), fallback: nil),
-            .library(.genres)
-        )
-        XCTAssertEqual(
-            SidebarSelection.selection(for: .artistDetail(Self.artist()), fallback: nil),
-            .library(.artists)
-        )
-        XCTAssertEqual(
-            SidebarSelection.selection(for: .artist(id: "artist", sourceKey: "server/library"), fallback: nil),
-            .library(.artists)
-        )
-        XCTAssertEqual(
-            SidebarSelection.selection(for: .album(id: "album", sourceKey: nil), fallback: nil),
-            .library(.albums)
-        )
-        XCTAssertEqual(
-            SidebarSelection.selection(for: .albumDetail(.single(Self.album())), fallback: nil),
-            .library(.albums)
-        )
-        XCTAssertEqual(
-            SidebarSelection.selection(for: .playlist(id: "playlist", sourceKey: "server/library"), fallback: nil),
-            .playlist(id: "playlist", sourceKey: "server/library")
-        )
-        XCTAssertEqual(
-            SidebarSelection.selection(for: .playlistDetail(Self.playlist()), fallback: nil),
-            .playlist(id: "playlist", sourceKey: "server/library")
-        )
-        XCTAssertEqual(
-            SidebarSelection.selection(for: .mergedPlaylist(title: "Mix", isSmart: true), fallback: nil),
-            .mergedPlaylist(title: "Mix", isSmart: true)
-        )
-        XCTAssertEqual(
-            SidebarSelection.selection(
-                for: .moodTracks(mood: Mood(id: "focus", key: "/moods/focus", title: "Focus")),
-                fallback: nil
-            ),
-            .library(.home)
-        )
-        XCTAssertEqual(
-            SidebarSelection.selection(for: .searchResults(section: .songs), fallback: nil),
-            .library(.search)
-        )
-        XCTAssertEqual(
-            SidebarSelection.selection(for: .view(.favorites), fallback: nil),
-            .library(.favorites)
-        )
-    }
-
-    func testSidebarSelectionFallsBackForAuxiliaryViewDestinations() {
-        let fallback = SidebarSelection.pin(id: "album", sourceKey: "server/library", type: .album)
-
-        XCTAssertEqual(SidebarSelection.selection(for: .view(.downloads), fallback: fallback), fallback)
-        XCTAssertEqual(SidebarSelection.selection(for: .view(.settings), fallback: nil), .library(.home))
-    }
-
     func testSidebarSelectionCorrespondingTabs() {
         XCTAssertEqual(SidebarSelection.library(.artists).correspondingTab, .artists)
         XCTAssertEqual(SidebarSelection.playlist(id: "playlist", sourceKey: nil).correspondingTab, .playlists)

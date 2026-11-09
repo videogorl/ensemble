@@ -48,7 +48,6 @@ public struct ArtistsView: View {
     private let presentationMode: PresentationMode
     private let externalSelectedArtist: Binding<DisplayArtist?>?
     @Environment(NavigationCoordinator.self) private var navigationCoordinator
-    @State private var localSelectedArtist: DisplayArtist?
     private let artistSnapshotCache: BrowseSnapshotCache<ArtistBrowseSnapshot>
 
     private var artistFilterOptions: Binding<FilterOptions> {
@@ -98,18 +97,14 @@ public struct ArtistsView: View {
     private var rootContent: some View {
         switch presentationMode {
         case .compactRoot:
-            adaptiveArtistView
+            artistListView
         case .selectionColumn:
-            if #available(iOS 18.0, macOS 15.0, *) {
-                nativeArtistSelectionList
-            } else {
-                artistSelectionList
-            }
+            nativeArtistSelectionList
         }
     }
 
     private var selectedArtist: DisplayArtist? {
-        externalSelectedArtist?.wrappedValue ?? localSelectedArtist
+        externalSelectedArtist?.wrappedValue
     }
 
     private var artistSnapshot: ArtistBrowseSnapshot {
@@ -123,38 +118,7 @@ public struct ArtistsView: View {
     }
 
     private func setSelectedArtist(_ artist: DisplayArtist?) {
-        if let externalSelectedArtist {
-            externalSelectedArtist.wrappedValue = artist
-        } else {
-            localSelectedArtist = artist
-        }
-    }
-
-    private var selectedArtistBinding: Binding<DisplayArtist?> {
-        Binding(
-            get: { selectedArtist },
-            set: { setSelectedArtist($0) }
-        )
-    }
-
-    private var adaptiveArtistView: some View {
-        LargeScreenBrowseSplitView(
-            selection: selectedArtistBinding,
-            configuration: .rootBrowse,
-            compact: {
-                artistListView
-            },
-            sidebar: {
-                artistSelectionList
-            },
-            detail: { displayArtist in
-                DisplayArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
-                    .id(displayArtist.id)
-            },
-            placeholder: {
-                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.artist, title: "Select an Artist")
-            }
-        )
+        externalSelectedArtist?.wrappedValue = artist
     }
 
     private var isMacBrowsePicker: Bool {
@@ -165,7 +129,6 @@ public struct ArtistsView: View {
         #endif
     }
 
-    @available(iOS 18.0, macOS 15.0, *)
     private var nativeArtistSelectionList: some View {
         NativeBrowseScrollView {
             artistGenreChipBar
@@ -191,12 +154,6 @@ public struct ArtistsView: View {
             )
         }
         .accessibilityIdentifier("browse.artists")
-    }
-
-    private var artistSelectionList: some View {
-        artistScroll { artists in
-            ForEach(artists) { artistSelectionRow($0) }
-        }
     }
 
     private func artistScroll<Group: View>(

@@ -333,24 +333,20 @@ public struct PlaylistsView: View {
     private var rootContent: some View {
         switch presentationMode {
         case .compactRoot:
-            adaptivePlaylistView
+            playlistListView
         case .selectionColumn:
-            if #available(iOS 18.0, macOS 15.0, *) {
-                NativeBrowseScrollView {
-                    ForEach(effectivePlaylists) { playlist in
-                        playlistSelectionRow(playlist)
-                            .padding(.horizontal, EnsembleScaffold.BrowseSelection.horizontalPadding)
-                            .padding(.vertical, EnsembleScaffold.BrowseSelection.verticalPadding)
-                            .browseSelectionBackground(isSelected: selectedPlaylist?.id == playlist.id)
-                            .padding(.horizontal, EnsembleScaffold.BrowseSelection.outerHorizontalPadding)
-                            .id(playlist.id)
-                    }
-                    playlistCountFooter(count: effectivePlaylists.count)
+            NativeBrowseScrollView {
+                ForEach(effectivePlaylists) { playlist in
+                    playlistSelectionRow(playlist)
+                        .padding(.horizontal, EnsembleScaffold.BrowseSelection.horizontalPadding)
+                        .padding(.vertical, EnsembleScaffold.BrowseSelection.verticalPadding)
+                        .browseSelectionBackground(isSelected: selectedPlaylist?.id == playlist.id)
+                        .padding(.horizontal, EnsembleScaffold.BrowseSelection.outerHorizontalPadding)
+                        .id(playlist.id)
                 }
-                .accessibilityIdentifier("browse.playlists")
-            } else {
-                playlistSelectionList
+                playlistCountFooter(count: effectivePlaylists.count)
             }
+            .accessibilityIdentifier("browse.playlists")
         }
     }
 
@@ -373,31 +369,6 @@ public struct PlaylistsView: View {
         }
     }
 
-    private var adaptivePlaylistView: some View {
-        LargeScreenBrowseSplitView(
-            selection: selectedPlaylistBinding,
-            configuration: .rootBrowse,
-            compact: {
-                playlistListView
-            },
-            sidebar: {
-                playlistSelectionList
-            },
-            detail: { displayPlaylist in
-                if displayPlaylist.isMerged {
-                    MergedPlaylistDetailView(displayPlaylist: displayPlaylist, nowPlayingVM: nowPlayingVM, dependencies: deps)
-                    .id(displayPlaylist.id)
-                } else {
-                    PlaylistDetailView(playlist: displayPlaylist.primaryPlaylist, nowPlayingVM: nowPlayingVM, dependencies: deps)
-                    .id(displayPlaylist.id)
-                }
-            },
-            placeholder: {
-                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.playlist, title: "Select a Playlist")
-            }
-        )
-    }
-
     private func playlistSelectionRow(_ playlist: DisplayPlaylist) -> some View {
         let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(playlist)
         return PlaylistRow(
@@ -407,26 +378,6 @@ public struct PlaylistsView: View {
             isDisabled: isPendingCreation,
             statusText: isPendingCreation ? "Creating..." : nil
         )
-    }
-
-    private var playlistSelectionList: some View {
-        List {
-            ForEach(effectivePlaylists) { dp in
-                playlistSelectionRow(dp)
-                .listRowBackground(
-                    RoundedRectangle(
-                        cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,
-                        style: .continuous
-                    )
-                    .fill(selectedPlaylist?.id == dp.id ? EnsembleScaffold.BrowseSelection.fillColor : Color.clear)
-                )
-            }
-
-            playlistCountFooter(count: effectivePlaylists.count)
-        }
-        .listStyle(.plain)
-        .foregroundScrollActivity()
-        .miniPlayerBottomSpacing()
     }
 
     private var playlistListView: some View {

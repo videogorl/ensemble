@@ -12,7 +12,6 @@ public enum EnsemblePlatformFamily: Equatable {
 
 public enum EnsembleRootNavigationShell: Equatable {
     case tabs
-    case legacySidebar
     case nativeBrowse
 }
 
@@ -44,17 +43,12 @@ public struct EnsemblePlatformFeaturePolicy: Equatable {
     public let usesUtilityCardScaffold: Bool
     public let commandPolicy: EnsembleCommandFeaturePolicy
 
-    public var usesSidebarRootNavigation: Bool {
-        rootNavigationShell != .tabs
-    }
-
     public var usesNativeBrowse: Bool {
         rootNavigationShell == .nativeBrowse
     }
 
     public static func resolve(
         family: EnsemblePlatformFamily,
-        supportsNativeBrowse: Bool,
         usesLargeMiniPlayer: Bool
     ) -> EnsemblePlatformFeaturePolicy {
         let rootNavigationShell: EnsembleRootNavigationShell
@@ -76,7 +70,7 @@ public struct EnsemblePlatformFeaturePolicy: Equatable {
                 providesPlaybackCommandMenu: false
             )
         case .iPad:
-            rootNavigationShell = supportsNativeBrowse ? .nativeBrowse : .legacySidebar
+            rootNavigationShell = .nativeBrowse
             miniPlayerMenuRenderer = .popover
             nativeTrackListBackend = .uiKitTable
             usesUtilityCardScaffold = false
@@ -122,21 +116,14 @@ public struct EnsemblePlatformFeaturePolicy: Equatable {
     public static var current: EnsemblePlatformFeaturePolicy {
         #if os(iOS)
         let family: EnsemblePlatformFamily = UIDevice.current.userInterfaceIdiom == .pad ? .iPad : .iPhone
-        let supportsNativeBrowse: Bool
-        if #available(iOS 18.0, *) {
-            supportsNativeBrowse = family == .iPad
-        } else {
-            supportsNativeBrowse = false
-        }
         return resolve(
             family: family,
-            supportsNativeBrowse: supportsNativeBrowse,
             usesLargeMiniPlayer: UIDevice.current.userInterfaceIdiom == .pad
         )
         #elseif os(macOS)
-        return resolve(family: .macOS, supportsNativeBrowse: true, usesLargeMiniPlayer: true)
+        return resolve(family: .macOS, usesLargeMiniPlayer: true)
         #else
-        return resolve(family: .other, supportsNativeBrowse: false, usesLargeMiniPlayer: false)
+        return resolve(family: .other, usesLargeMiniPlayer: false)
         #endif
     }
 
