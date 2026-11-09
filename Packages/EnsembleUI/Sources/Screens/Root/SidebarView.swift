@@ -852,11 +852,7 @@ public struct SidebarView: View {
             var roots: [TabItem: NavigationCoordinator.Destination] = [:]
             if let selectedArtist { roots[.artists] = .displayArtist(id: selectedArtist.id) }
             if let selectedGenre { roots[.genres] = .displayGenre(id: selectedGenre.id) }
-            if let selectedPlaylist {
-                roots[.playlists] = selectedPlaylist.isMerged
-                    ? .mergedPlaylist(title: selectedPlaylist.title, isSmart: selectedPlaylist.isSmart)
-                    : .playlistDetail(selectedPlaylist.primaryPlaylist)
-            }
+            if let selectedPlaylist { roots[.playlists] = .playlist(for: selectedPlaylist) }
             phoneNavigation.enterTabs(coordinator: navigationCoordinator, selection: selection, browseRoots: roots, sidebarDestination: compactSidebarDestination)
             rootSidebarChromeRegistrationHandler?(.hidden)
         } else {

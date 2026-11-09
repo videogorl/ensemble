@@ -58,6 +58,13 @@ public final class NavigationCoordinator {
             return .album(id: albumID, sourceKey: track.sourceCompositeKey, selectedTrackId: track.playbackIdentity)
         }
 
+        /// Merged playlists open by title; a single playlist opens its concrete model.
+        public static func playlist(for displayPlaylist: DisplayPlaylist) -> Destination {
+            displayPlaylist.isMerged
+                ? .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
+                : .playlistDetail(displayPlaylist.primaryPlaylist)
+        }
+
         var journeyLogDescription: String {
             switch self {
             case .displayArtist, .artistNamed, .artistDetail, .artist:

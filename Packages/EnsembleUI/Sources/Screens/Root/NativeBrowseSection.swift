@@ -2,7 +2,6 @@ import EnsembleCore
 import SwiftUI
 
 struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls: View>: View {
-    @Environment(DependencyContainer.self) private var dependencies
     let tab: TabItem?
     let sidebar: Sidebar
     let fallbackDetail: FallbackDetail
@@ -217,24 +216,19 @@ struct NativeBrowseSection<Sidebar: View, FallbackDetail: View, SidebarControls:
         switch tab {
         case .artists:
             if let artist {
-                ArtistDetailView(displayArtist: artist, nowPlayingVM: nowPlayingVM, dependencies: dependencies).id(artist.id)
+                NavigationDestinationFactory.selectionDetail(artist: artist, nowPlayingVM: nowPlayingVM, viewModels: viewModels)
             } else {
                 LargeScreenPlaceholderView(systemImage: tab.systemImage, title: "Select an Artist")
             }
         case .genres:
             if let genre {
-                GenreDetailContentView(libraryVM: viewModels.library, genre: genre,
-                                       nowPlayingVM: nowPlayingVM, presentationStyle: .splitPane).id(genre.id)
+                NavigationDestinationFactory.selectionDetail(genre: genre, nowPlayingVM: nowPlayingVM, viewModels: viewModels)
             } else {
                 LargeScreenPlaceholderView(systemImage: tab.systemImage, title: "Select a Genre")
             }
         case .playlists:
             if let playlist {
-                if playlist.isMerged {
-                    MergedPlaylistDetailView(displayPlaylist: playlist, nowPlayingVM: nowPlayingVM, dependencies: dependencies).id(playlist.id)
-                } else {
-                    PlaylistDetailView(playlist: playlist.primaryPlaylist, nowPlayingVM: nowPlayingVM, dependencies: dependencies).id(playlist.id)
-                }
+                NavigationDestinationFactory.selectionDetail(playlist: playlist, nowPlayingVM: nowPlayingVM, viewModels: viewModels)
             } else {
                 LargeScreenPlaceholderView(systemImage: tab.systemImage, title: "Select a Playlist")
             }

@@ -526,10 +526,7 @@ public struct PlaylistsView: View {
     }
 
     private func openPlaylist(_ displayPlaylist: DisplayPlaylist) {
-        let destination: NavigationCoordinator.Destination = displayPlaylist.isMerged
-            ? .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
-            : .playlistDetail(displayPlaylist.primaryPlaylist)
-        navigationCoordinator.route(to: destination)
+        navigationCoordinator.route(to: .playlist(for: displayPlaylist))
     }
 
     private func startOptimisticDelete(for playlist: Playlist) {
