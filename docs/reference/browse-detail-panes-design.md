@@ -1,10 +1,16 @@
 # Step 6 design: browse, detail, and panes
 
-Status: draft for Felicity's approval, written 2026-11-02 against `0ed447e1`.
-Implementation waits for approval. Plan context:
+Status: approved; 6a, 6b and 6c landed (6c on 2026-11-09), 6d not started.
+Written 2026-11-02 against `0ed447e1`; section 1 records that starting point.
+Plan context:
 [`rearchitecture-plan.md`](rearchitecture-plan.md) sections 4.7 and 5.
 
-## 1. Where things stand
+## 1. Where things stand (before step 6)
+
+Since then: detail runs on `DetailScreen`/`DetailConfiguration` (6a), browse
+on `LibraryBrowseScreen` (6b), and every iPad uses `NativeBrowseSection` with
+`SidebarView` in its own file; `LargeScreenBrowseSplitView` and the legacy
+shell are deleted (6c).
 
 Paths are under `Packages/EnsembleUI/Sources/` unless noted.
 
@@ -121,6 +127,12 @@ settle it. Step 6 addresses the cause directly:
   removed;
 - top-level roots keep a stable identity across sidebar switches.
 
+6c status: the first two are in. Roots still rebuild on a sidebar switch
+(`SidebarView` keys the detail root by selection). Home's hubs, header blur
+and hub artwork already seed from root-owned or cached state, so a rebuild
+loses scroll offsets, not data. Keeping roots alive is not adopted until the
+Mac re-measure shows a remaining pop-in.
+
 After the consolidation, re-measure Mac sidebar switching with the
 2026-10-01 method. Re-testing the native SwiftUI split is optional (open
 question 4).
@@ -213,15 +225,14 @@ iPhone checks are deferred, so each is also added to
 
 ## 6. Open questions for Felicity
 
-1. **iPadOS 17.** Should step 6 try native `NavigationSplitView` on iPadOS 17
-   and delete the legacy shell if it behaves, or keep iPadOS 17 on the legacy
-   shell? The current gate is an `iOS 18` check whose reason is not recorded.
+1. **iPadOS 17.** Resolved in 6c: native `NavigationSplitView` on every
+   iPadOS version; the legacy shell is deleted.
 2. **Penpot.** What state is the Penpot design system in, and which
    components come first? Should step 6 stay structure-only, as proposed, or
    build to Penpot specs where they exist?
-3. **Artist detail.** Is folding Artist detail onto the shared detail screen
-   acceptable, given it is the highest-churn file?
-4. **Mac native split.** Re-test SwiftUI's split after consolidation, or keep
-   the AppKit split without re-testing?
+3. **Artist detail.** Resolved in 6a: Artist builds on `DetailScreen` and
+   keeps its artwork continuity store.
+4. **Mac native split.** Open. 6c keeps the AppKit split; the pop-in
+   re-measure is still owed.
 5. **iPad Pro.** The physical iPad is approved for step 6. Connect it for the
    pane checks, or defer it like the iPhone checks?
