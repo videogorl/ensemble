@@ -5,8 +5,12 @@ hardware. See [`rearchitecture-plan.md`](rearchitecture-plan.md) section 7.
 
 - Add an item when a step's acceptance check cannot run, or runs only partly,
   on a simulator. Name the commit it applies to.
-- Run items on the iPhone 16 Pro through Device Hub unless another device is
-  named. Prove the installed build first.
+- Run iPhone items on the iPhone SE (Guest's iPhone, UDID
+  `00008030-00090C493C13402E`, no passcode) unless another device is named
+  (Felicity, 2026-11-09). Prove the installed build first.
+- An item the SE cannot run (no Apple Music sign-in, SIM, AirPlay receiver,
+  TV, Bluetooth output, paired watch or second iCloud client) stays listed
+  with the missing prerequisite named beside it.
 - Remove an item only with physical evidence, and record that evidence in the
   step's note under `docs/investigations/`.
 - A later step can supersede an item. Replace it rather than keeping both.
@@ -70,16 +74,13 @@ shows the lock screen that blocked the manual follow-up. Device launch logs
 are in `/tmp/ensemble-se-20261106/closing-device-logs/`.
 
 This SE pass does not cover Albums StageFlow rotation or Songs pull to refresh.
-The iPhone 16 Pro, Mac, iPad and Watch items below remain independent checks.
+The iPhone, Mac, iPad and Watch items below remain independent checks.
 
-## iPhone 16 Pro
+## iPhone (run on the iPhone SE)
 
-The items below for steps 0 to 2 are deferred by Felicity's choice on
-2026-11-02. They are not passed and not verified, and they stay here until
-they run on the phone. On 2026-11-01 none could run: Computer Use was not
-available to the agent, and the Xcode MCP listed only simulators, not the
-iPhone (paired, Wi-Fi tunnel connected). Running them needs Computer Use for
-Device Hub, or the phone on a cable so the Xcode MCP can reach it.
+These items were deferred on 2026-11-02 and written for the iPhone 16 Pro. On
+2026-11-09 Felicity moved them to the iPhone SE. They are not passed and not
+verified until they run there.
 
 ### TV Now Playing scene accessory, 2026-10-17 fix
 
@@ -119,7 +120,7 @@ Both the pinned native button and overflow item opened the route picker.
 - Exercise the guarded visible AirPlay fallback if the native internal button
   is unavailable; normal runtime used an intact native picker hierarchy.
 
-### Playback position fixes, branch `fix/playback-position-sync` at `9ee8cf42` or later
+### Playback position fixes, at `4dfcae14` or later
 
 Proven on macOS with a real AVAudioEngine (`AudioPlaybackEnginePositionTests`),
 not on the phone or AirPlay.
@@ -140,7 +141,7 @@ not on the phone or AirPlay.
   stream-cached queue. If a track ends early, read the `Segment ended early`
   line for the playhead, duration, frame counts, and file size.
 
-### Sweep fixes on the same branch, after `dbec02b4`
+### Sweep fixes, at `4dfcae14` or later
 
 Engine and service paths are covered by EnsembleCore tests on macOS; none ran
 on the phone. Name each commit by its subject until it has a hash here.
