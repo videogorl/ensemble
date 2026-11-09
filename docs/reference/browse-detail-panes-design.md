@@ -208,8 +208,10 @@ iPhone checks are deferred, so each is also added to
     cell-recycling and layout bugs in the known-issues archive. 6d shares
     models, not cells.
   - Mac pop-in and sidebar latency have regressed before; 6c re-measures.
-  - iPadOS 17 has no physical test device in the plan; it would rest on the
-    simulator.
+  - iPadOS 17 is untested, accepted by Felicity on 2026-11-09. Xcode 27.1
+    offers no iOS 17 or 18 simulator runtime and no iPadOS 17 device is
+    available, so iPadOS 17 runs the same native split as 18+ with no check
+    behind it. The iPadOS 17 acceptance line in section 4 is not run.
 
 ## 6. Open questions for Felicity
 

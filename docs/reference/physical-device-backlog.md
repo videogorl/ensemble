@@ -339,4 +339,10 @@ pass before step 0 is called verified.
   and Repeat All; with repeat off, Next and a natural end leave the last track
   paused at the start.
 
+- iPadOS 17, step 6c: accepted as untested on 2026-11-09 (no simulator
+  runtime for this Xcode, no device). If an iPadOS 17 iPad becomes available:
+  Artists, Genres and Playlists show detail in the next column, rotation and
+  Split View resizing keep the selection, full-width kinds push, and back
+  navigation keeps scroll position.
+
 The iPad and watch checklist sections start with steps 5 and 6.
