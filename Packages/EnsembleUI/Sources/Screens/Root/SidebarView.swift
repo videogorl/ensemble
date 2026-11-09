@@ -71,7 +71,7 @@ public struct SidebarView: View {
         nowPlayingVM: NowPlayingViewModel,
         viewModels: RootScreenModels,
         selection: Binding<SidebarSelection?>,
-        browseRootReset: Binding<TabItem?> = .constant(nil),
+        browseRootReset: Binding<TabItem?>,
         adaptsToPhone: Bool = false,
         wantsPhoneTabs: Bool = false,
         rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)? = nil
