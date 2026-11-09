@@ -28,7 +28,7 @@ final class StreamingAudioDecoder {
         let packetDescriptions: [AudioStreamPacketDescription]?
     }
     private var pendingPacketBatches: [RawPacketBatch] = []
-    private var pendingCompressedBuffers: [AVAudioCompressedBuffer] = []
+    private var pendingInputBuffers: [AVAudioBuffer] = []
     private var hasReportedFirstPacket = false
     private var hasReportedFirstPCM = false
     private var isReadyForPackets = false
@@ -97,7 +97,7 @@ final class StreamingAudioDecoder {
         }
         configureConverterIfPossible()
         drainPendingPacketBatches()
-        drainPendingCompressedBuffers()
+        drainPendingInputBuffers()
     }
 
     private func handleProperty(_ propertyID: AudioFileStreamPropertyID) {
@@ -174,8 +174,8 @@ final class StreamingAudioDecoder {
         guard converter != nil, inputFormat != nil else { return }
         while !pendingPacketBatches.isEmpty {
             let batch = pendingPacketBatches.removeFirst()
-            guard let compressedBuffer = batch.data.withUnsafeBytes({ bytes in
-                makeCompressedBuffer(
+            guard let inputBuffer = batch.data.withUnsafeBytes({ bytes in
+                makeInputBuffer(
                     byteCount: UInt32(batch.data.count),
                     packetCount: batch.packetCount,
                     inputData: bytes.baseAddress!,
@@ -184,81 +184,132 @@ final class StreamingAudioDecoder {
             }) else {
                 continue
             }
-            pendingCompressedBuffers.append(compressedBuffer)
+            pendingInputBuffers.append(inputBuffer)
         }
     }
 
-    private func makeCompressedBuffer(
+    /// Wraps one parsed packet batch in the buffer type the converter needs.
+    /// Both compressed-buffer initializers raise for linear PCM, A-law, and µ-law;
+    /// AVFAudio stores those in PCM buffers instead.
+    private func makeInputBuffer(
         byteCount: UInt32,
         packetCount: UInt32,
         inputData: UnsafeRawPointer,
         packetDescriptions: [AudioStreamPacketDescription]?
-    ) -> AVAudioCompressedBuffer? {
+    ) -> AVAudioBuffer? {
         guard let inputFormat else { return nil }
-        let packetCapacity = AVAudioPacketCount(packetCount)
-        let describedMaxPacketSize = packetDescriptions?
-            .map(\.mDataByteSize)
-            .max() ?? 0
+        let description = inputFormat.streamDescription.pointee
+        if [kAudioFormatLinearPCM, kAudioFormatULaw, kAudioFormatALaw].contains(description.mFormatID) {
+            return makePCMBuffer(format: inputFormat, byteCount: byteCount, inputData: inputData)
+        }
+        if description.mBytesPerPacket > 0 {
+            return makeConstantBitrateBuffer(
+                format: inputFormat,
+                bytesPerPacket: description.mBytesPerPacket,
+                byteCount: byteCount,
+                inputData: inputData
+            )
+        }
+        guard let packetDescriptions else {
+            EnsembleLogger.debug("[StreamingAudioDecoder] dropped variable-bitrate packets without descriptions")
+            return nil
+        }
+        return makeVariableBitrateBuffer(
+            format: inputFormat,
+            byteCount: byteCount,
+            packetCount: packetCount,
+            inputData: inputData,
+            packetDescriptions: packetDescriptions
+        )
+    }
+
+    private func makePCMBuffer(
+        format: AVAudioFormat,
+        byteCount: UInt32,
+        inputData: UnsafeRawPointer
+    ) -> AVAudioPCMBuffer? {
+        let bytesPerFrame = format.streamDescription.pointee.mBytesPerFrame
+        guard bytesPerFrame > 0 else { return nil }
+        let frameCount = AVAudioFrameCount(byteCount / bytesPerFrame)
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            return nil
+        }
+        // Audio files store PCM interleaved, so the buffer holds a single audio buffer.
+        let audioBuffers = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
+        guard audioBuffers.count == 1, let target = audioBuffers[0].mData else { return nil }
+        let copiedByteCount = Int(frameCount * bytesPerFrame)
+        target.copyMemory(from: inputData, byteCount: copiedByteCount)
+        audioBuffers[0].mDataByteSize = UInt32(copiedByteCount)
+        buffer.frameLength = frameCount
+        return buffer
+    }
+
+    private func makeConstantBitrateBuffer(
+        format: AVAudioFormat,
+        bytesPerPacket: UInt32,
+        byteCount: UInt32,
+        inputData: UnsafeRawPointer
+    ) -> AVAudioCompressedBuffer? {
+        let packetCount = AVAudioPacketCount(byteCount / bytesPerPacket)
+        guard packetCount > 0 else { return nil }
+        let buffer = AVAudioCompressedBuffer(format: format, packetCapacity: packetCount)
+        let copiedByteCount = packetCount * bytesPerPacket
+        buffer.data.copyMemory(from: inputData, byteCount: Int(copiedByteCount))
+        buffer.packetCount = packetCount
+        buffer.byteLength = copiedByteCount
+        return buffer
+    }
+
+    private func makeVariableBitrateBuffer(
+        format: AVAudioFormat,
+        byteCount: UInt32,
+        packetCount: UInt32,
+        inputData: UnsafeRawPointer,
+        packetDescriptions: [AudioStreamPacketDescription]
+    ) -> AVAudioCompressedBuffer? {
+        let describedMaxPacketSize = packetDescriptions.map(\.mDataByteSize).max() ?? 0
         let maxPacketSize = maximumPacketSize > 0
             ? max(maximumPacketSize, describedMaxPacketSize, byteCount)
             : max(1, describedMaxPacketSize, byteCount / max(packetCount, 1))
         let buffer = AVAudioCompressedBuffer(
-            format: inputFormat,
-            packetCapacity: packetCapacity,
+            format: format,
+            packetCapacity: AVAudioPacketCount(packetCount),
             maximumPacketSize: Int(maxPacketSize)
         )
 
         let target = buffer.data.assumingMemoryBound(to: UInt8.self)
         var targetOffset = 0
-
-        if let packetDescriptions {
-            var outputPacketIndex = 0
-            for index in 0 ..< Int(packetCount) {
-                let sourceDescription = packetDescriptions[index]
-                let packetSize = Int(sourceDescription.mDataByteSize)
-                guard packetSize > 0 else { continue }
-                let source = inputData
-                    .advanced(by: Int(sourceDescription.mStartOffset))
-                    .assumingMemoryBound(to: UInt8.self)
-                target.advanced(by: targetOffset).update(from: source, count: packetSize)
-                buffer.packetDescriptions![outputPacketIndex] = AudioStreamPacketDescription(
-                    mStartOffset: Int64(targetOffset),
-                    mVariableFramesInPacket: sourceDescription.mVariableFramesInPacket,
-                    mDataByteSize: UInt32(packetSize)
-                )
-                targetOffset += packetSize
-                outputPacketIndex += 1
-            }
-            guard outputPacketIndex > 0 else { return nil }
-            buffer.packetCount = AVAudioPacketCount(outputPacketIndex)
-        } else {
-            let packetSize = Int(byteCount / max(packetCount, 1))
-            guard packetSize > 0 else { return nil }
-            for index in 0 ..< Int(packetCount) {
-                let sourceOffset = index * packetSize
-                let source = inputData.advanced(by: sourceOffset).assumingMemoryBound(to: UInt8.self)
-                target.advanced(by: targetOffset).update(from: source, count: packetSize)
-                buffer.packetDescriptions![index] = AudioStreamPacketDescription(
-                    mStartOffset: Int64(targetOffset),
-                    mVariableFramesInPacket: 0,
-                    mDataByteSize: UInt32(packetSize)
-                )
-                targetOffset += packetSize
-            }
+        var outputPacketIndex = 0
+        for sourceDescription in packetDescriptions.prefix(Int(packetCount)) {
+            let packetSize = Int(sourceDescription.mDataByteSize)
+            guard packetSize > 0 else { continue }
+            let source = inputData
+                .advanced(by: Int(sourceDescription.mStartOffset))
+                .assumingMemoryBound(to: UInt8.self)
+            target.advanced(by: targetOffset).update(from: source, count: packetSize)
+            buffer.packetDescriptions![outputPacketIndex] = AudioStreamPacketDescription(
+                mStartOffset: Int64(targetOffset),
+                mVariableFramesInPacket: sourceDescription.mVariableFramesInPacket,
+                mDataByteSize: UInt32(packetSize)
+            )
+            targetOffset += packetSize
+            outputPacketIndex += 1
         }
-
+        guard outputPacketIndex > 0 else { return nil }
+        buffer.packetCount = AVAudioPacketCount(outputPacketIndex)
         buffer.byteLength = UInt32(targetOffset)
         return buffer
     }
 
-    private func drainPendingCompressedBuffers() {
-        while !pendingCompressedBuffers.isEmpty {
-            let buffer = pendingCompressedBuffers.removeFirst()
+    private func drainPendingInputBuffers() {
+        while !pendingInputBuffers.isEmpty {
+            let buffer = pendingInputBuffers.removeFirst()
             decode(buffer)
         }
     }
 
-    private func decode(_ compressedBuffer: AVAudioCompressedBuffer) {
+    private func decode(_ inputBuffer: AVAudioBuffer) {
         guard let converter, let outputFormat else { return }
 
         var didFeedInput = false
@@ -273,7 +324,7 @@ final class StreamingAudioDecoder {
                 }
                 didFeedInput = true
                 outStatus.pointee = .haveData
-                return compressedBuffer
+                return inputBuffer
             }
 
             if status == .error {
