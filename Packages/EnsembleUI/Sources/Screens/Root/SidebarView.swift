@@ -42,6 +42,8 @@ public struct SidebarView: View {
     }
 
     @Binding private var selection: SidebarSelection?
+    /// A one-shot request to show this tab's list root, clearing its picked item.
+    @Binding private var browseRootReset: TabItem?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var compactColumnPreference: CompactColumnPreference = .sidebar
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -69,6 +71,7 @@ public struct SidebarView: View {
         nowPlayingVM: NowPlayingViewModel,
         viewModels: RootScreenModels,
         selection: Binding<SidebarSelection?>,
+        browseRootReset: Binding<TabItem?> = .constant(nil),
         adaptsToPhone: Bool = false,
         wantsPhoneTabs: Bool = false,
         rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)? = nil
@@ -77,6 +80,7 @@ public struct SidebarView: View {
         self.viewModels = viewModels
         self.pinnedVM = viewModels.pinned
         self._selection = selection
+        self._browseRootReset = browseRootReset
         self.adaptsToPhone = adaptsToPhone
         self.wantsPhoneTabs = wantsPhoneTabs
         self._columnVisibility = State(initialValue: .all)
@@ -309,6 +313,15 @@ public struct SidebarView: View {
             updatePhoneLayout(wantsTabs: wantsTabs)
         }
         .onAppear { updatePhoneLayout(wantsTabs: wantsPhoneTabs) }
+        .onChange(of: browseRootReset) {
+            switch browseRootReset {
+            case .artists: selectedArtist = nil
+            case .genres: selectedGenre = nil
+            case .playlists: selectedPlaylist = nil
+            default: break
+            }
+            browseRootReset = nil
+        }
         .onChange(of: settingsManager.settings) {
             updateSettingsSnapshot()
         }

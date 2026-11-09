@@ -24,6 +24,7 @@ public struct RootView: View {
     @State private var sourceActionPresenter = MediaSourceActionPresenter()
     @State private var isNowPlayingPresented = false
     @State private var sidebarSelection: SidebarSelection? = .library(.home)
+    @State private var browseRootReset: TabItem?
     @State private var rootSidebarChromeRegistration: RootSidebarChromeRegistration = .absent
     @State private var isSoftwareKeyboardVisible = false
     @State private var hasLoggedAutomationLaunchOptions = false
@@ -142,6 +143,11 @@ public struct RootView: View {
         .onChange(of: navigationCoordinator.pendingNowPlayingRequest) {
             applyNowPlayingAutomationRequest()
         }
+        .onChange(of: navigationCoordinator.pendingAutomationSurface) {
+            guard let surface = navigationCoordinator.pendingAutomationSurface else { return }
+            navigationCoordinator.pendingAutomationSurface = nil
+            applyAutomationSurface(surface, source: "deepLink")
+        }
         #if canImport(UIKit)
         .onReceive(Self.softwareKeyboardVisibilityPublisher) { newValue in
             if newValue != isSoftwareKeyboardVisible {
@@ -212,14 +218,26 @@ public struct RootView: View {
         else { return }
 
         hasAppliedAutomationLaunchRoute = true
+        applyAutomationSurface(startSurface, source: "launchArgument")
+    }
 
-        // Sidebar shells expose app settings through the Profile presentation.
-        if usesNativeBrowse, startSurface == .settings {
-            _ = navigationCoordinator.routeAutomationSurface(.profile, source: "launchArgument.settingsAlias")
+    /// Opens an automation surface at its root, for launch arguments and `debug/open` alike.
+    private func applyAutomationSurface(_ surface: AutomationSurface, source: String) {
+        guard usesNativeBrowse else {
+            navigationCoordinator.routeAutomationSurface(surface, source: source)
             return
         }
-
-        _ = navigationCoordinator.routeAutomationSurface(startSurface, source: "launchArgument")
+        // Sidebar shells expose app settings through the Profile presentation.
+        if surface == .settings {
+            navigationCoordinator.routeAutomationSurface(.profile, source: source + ".settingsAlias")
+            return
+        }
+        if let tab = surface.tab {
+            clearSidebarPinPath()
+            sidebarSelection = .library(tab)
+            browseRootReset = tab
+        }
+        navigationCoordinator.routeAutomationSurface(surface, source: source)
     }
 
     private func applyAutomationPlaylistRefreshIfNeeded() {
@@ -273,6 +291,7 @@ public struct RootView: View {
                 nowPlayingVM: nowPlayingVM,
                 viewModels: screenModels,
                 selection: $sidebarSelection,
+                browseRootReset: $browseRootReset,
                 rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
             )
         case .tabs:
@@ -283,6 +302,7 @@ public struct RootView: View {
                         nowPlayingVM: nowPlayingVM,
                         viewModels: screenModels,
                         selection: $sidebarSelection,
+                        browseRootReset: $browseRootReset,
                         adaptsToPhone: true,
                         wantsPhoneTabs: !expanded,
                         rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
