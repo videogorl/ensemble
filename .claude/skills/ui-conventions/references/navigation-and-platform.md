@@ -33,8 +33,9 @@
 - StageFlow is iPhone-only and requires compact height plus landscape geometry.
   `MainTabView` owns activation, orientation support, and root chrome suppression. Browse screens only consume
   `isStageFlowActive`; do not add local rotation detection or delay timers.
-- Use `TrackListLayoutMetrics`, `LargeScreenBrowseSplitView`,
-  `EnsembleBrowseToolbar`, and native track-list hosts rather than duplicating
+- Use `TrackListLayoutMetrics`, `NativeBrowseSection` (with
+  `MacBrowseSplitView` on the Mac), `EnsembleBrowseToolbar`, and native
+  track-list hosts rather than duplicating
   spacing, pane math, row gestures, or table columns.
 - Keep intentional native bridges for native tables, AirPlay, Metal aurora,
   global toast hosting, and share/menu hosting.
