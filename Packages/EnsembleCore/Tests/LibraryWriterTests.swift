@@ -13,6 +13,7 @@ final class LibraryWriterTests: XCTestCase {
         let writer: LibraryWriter
         let repository: LibraryRepository
         let cursors: SyncCursorRepository
+        let pending: PendingMutationRepository
     }
 
     private func makeFixture() throws -> Fixture {
@@ -22,10 +23,12 @@ final class LibraryWriterTests: XCTestCase {
         let stack = CoreDataStack.onDisk(at: directory.appendingPathComponent("Ensemble.sqlite"))
         let repository = LibraryRepository(coreDataStack: stack)
         let cursors = SyncCursorRepository(coreDataStack: stack)
+        let pending = PendingMutationRepository(coreDataStack: stack)
         return Fixture(
-            writer: LibraryWriter(libraryRepository: repository, syncCursorRepository: cursors),
+            writer: LibraryWriter(libraryRepository: repository, syncCursorRepository: cursors, pendingMutationRepository: pending),
             repository: repository,
-            cursors: cursors
+            cursors: cursors,
+            pending: pending
         )
     }
 
@@ -46,11 +49,11 @@ final class LibraryWriterTests: XCTestCase {
         )
     }
 
-    private func track(_ id: String, album: String, title: String? = nil) -> TrackUpsertInput {
+    private func track(_ id: String, album: String, title: String? = nil, rating: Int = 0) -> TrackUpsertInput {
         TrackUpsertInput(
             ratingKey: id, key: "/track/\(id)", title: title ?? "Track \(id)", artistName: nil, albumName: nil,
             albumRatingKey: album, trackNumber: 1, discNumber: 1, duration: 1_000, thumbPath: nil, streamKey: nil,
-            dateAdded: nil, dateModified: Date(timeIntervalSince1970: 100), lastPlayed: nil, rating: 0, playCount: 0
+            dateAdded: nil, dateModified: Date(timeIntervalSince1970: 100), lastPlayed: nil, rating: rating, playCount: 0
         )
     }
 
@@ -355,5 +358,36 @@ final class LibraryWriterTests: XCTestCase {
         XCTAssertTrue(clockBehind.fullMetadataDue, "a cursor in the future is due")
         let full = try await f.writer.libraryPlan(for: sourceA, since: nil, now: t0 + 3_600)
         XCTAssertTrue(full.inventoryDue && full.fullMetadataDue && full.since == nil)
+    }
+
+    /// A favourite whose upload is still queued is newer than the server's rating; sync must not undo it.
+    func testASyncDoesNotReplaceARatingWhoseUploadIsStillQueued() async throws {
+        let f = try makeFixture()
+        let rated = LibraryBatch(
+            albums: [album("b1", artist: "a1")],
+            tracks: [track("t1", album: "b1", rating: 10), track("t2", album: "b1", rating: 10)],
+            queryStartedAt: t0
+        )
+        try await f.writer.apply(rated, to: sourceA)
+        let payload = try JSONEncoder().encode(
+            TrackRatingMutationPayload(trackRatingKey: "t1", sourceCompositeKey: sourceA.compositeKey, rating: 10)
+        )
+        try await f.pending.enqueueMutation(id: "m1", type: .trackRating, payload: payload, sourceCompositeKey: sourceA.compositeKey)
+
+        // The server has not seen the favourite yet and reports 0 for both tracks.
+        let server = LibraryBatch(
+            tracks: [track("t1", album: "b1", rating: 0), track("t2", album: "b1", rating: 0)],
+            queryStartedAt: t0 + 10
+        )
+        try await f.writer.apply(server, to: sourceA)
+
+        var ratings = try await f.repository.fetchTrackSummaries(forSource: sourceA.compositeKey).mapValues(\.rating)
+        XCTAssertEqual(ratings["t1"], 10, "queued favourite kept")
+        XCTAssertEqual(ratings["t2"], 0, "no queued mutation, the server's value applies")
+
+        try await f.pending.deleteMutation(id: "m1")
+        try await f.writer.apply(LibraryBatch(tracks: server.tracks, queryStartedAt: t0 + 20), to: sourceA)
+        ratings = try await f.repository.fetchTrackSummaries(forSource: sourceA.compositeKey).mapValues(\.rating)
+        XCTAssertEqual(ratings["t1"], 0, "once uploaded the server's value applies")
     }
 }

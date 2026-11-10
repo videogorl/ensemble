@@ -492,6 +492,7 @@ public final class SyncCoordinator {
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         syncCursorRepository: SyncCursorRepositoryProtocol? = nil,
+        pendingMutationRepository: PendingMutationRepositoryProtocol? = nil,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         networkMonitor: NetworkMonitor,
         serverHealthChecker: ServerHealthChecker,
@@ -504,7 +505,8 @@ public final class SyncCoordinator {
         self.syncCursorRepository = syncCursorRepository
         self.libraryWriter = LibraryWriter(
             libraryRepository: libraryRepository,
-            syncCursorRepository: syncCursorRepository
+            syncCursorRepository: syncCursorRepository,
+            pendingMutationRepository: pendingMutationRepository
         )
         self.artworkDownloadManager = artworkDownloadManager
         self.networkMonitor = networkMonitor

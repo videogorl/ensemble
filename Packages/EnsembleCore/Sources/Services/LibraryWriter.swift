@@ -131,10 +131,16 @@ public actor LibraryWriter {
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let cursors: SyncCursorRepositoryProtocol?
+    private let pendingMutations: PendingMutationRepositoryProtocol?
 
-    public init(libraryRepository: LibraryRepositoryProtocol, syncCursorRepository: SyncCursorRepositoryProtocol?) {
+    public init(
+        libraryRepository: LibraryRepositoryProtocol,
+        syncCursorRepository: SyncCursorRepositoryProtocol?,
+        pendingMutationRepository: PendingMutationRepositoryProtocol? = nil
+    ) {
         self.libraryRepository = libraryRepository
         self.cursors = syncCursorRepository
+        self.pendingMutations = pendingMutationRepository
     }
 
     /// Plans a fetch. A nil `since` plans a full library fetch.
@@ -240,7 +246,11 @@ public actor LibraryWriter {
 
         let artists = batch.artists.filter { existingArtists[$0.ratingKey]?.matches($0) != true }
         let albums = batch.albums.filter { existingAlbums[$0.ratingKey]?.matches($0) != true }
-        let tracks = batch.tracks.filter { existingTracks[$0.ratingKey]?.matches($0) != true }
+        // A rating or favourite still waiting to upload is newer than the server's value.
+        let pendingRatings = try await trackKeysWithQueuedRating(source: key)
+        let tracks = batch.tracks
+            .map { pendingRatings.contains($0.ratingKey) ? $0.keepingRating(of: existingTracks[$0.ratingKey]) : $0 }
+            .filter { existingTracks[$0.ratingKey]?.matches($0) != true }
 
         let membershipChanged = tracks.contains { existingTracks[$0.ratingKey]?.albumRatingKey != $0.albumRatingKey }
             || albums.contains { album in
@@ -268,6 +278,17 @@ public actor LibraryWriter {
             changedTracks: tracks.count,
             changedGenres: batch.genres?.count ?? 0
         )
+    }
+
+    private func trackKeysWithQueuedRating(source key: String) async throws -> Set<String> {
+        guard let pendingMutations else { return [] }
+        return Set(try await pendingMutations.fetchPendingMutationRecords().compactMap { record in
+            guard record.mutationType == .trackRating,
+                  let payload = try? JSONDecoder().decode(TrackRatingMutationPayload.self, from: record.payload),
+                  payload.sourceCompositeKey == key
+            else { return nil }
+            return payload.trackRatingKey
+        })
     }
 
     /// An empty key set would read the whole source, so no keys reads nothing.
@@ -336,6 +357,21 @@ public actor LibraryWriter {
         guard let lastAt else { return true }
         let age = now.timeIntervalSince(lastAt)
         return age < 0 || age >= interval
+    }
+}
+
+extension TrackUpsertInput {
+    /// The input with the stored row's rating, favourite flag and rating date; unchanged for a new track.
+    func keepingRating(of stored: TrackSyncMetadata?) -> TrackUpsertInput {
+        guard let stored else { return self }
+        return TrackUpsertInput(
+            ratingKey: ratingKey, key: key, title: title, artistName: artistName, albumName: albumName,
+            albumRatingKey: albumRatingKey, trackNumber: trackNumber, discNumber: discNumber, duration: duration,
+            thumbPath: thumbPath, streamKey: streamKey, streamId: streamId, dateAdded: dateAdded,
+            dateModified: dateModified, lastPlayed: lastPlayed, lastRatedAt: stored.lastRatedAt,
+            rating: stored.rating, isFavorite: stored.isFavorite, playCount: playCount, genreNames: genreNames,
+            updatesDateAdded: updatesDateAdded, actionCapabilitiesData: actionCapabilitiesData
+        )
     }
 }
 

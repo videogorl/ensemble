@@ -474,6 +474,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 libraryRepository: core.libraryRepository,
                 playlistRepository: core.playlistRepository,
                 syncCursorRepository: core.syncCursorRepository,
+                pendingMutationRepository: core.pendingMutationRepository,
                 artworkDownloadManager: core.artworkDownloadManager,
                 networkMonitor: network.networkMonitor,
                 serverHealthChecker: network.serverHealthChecker,

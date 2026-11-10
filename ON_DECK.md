@@ -36,21 +36,6 @@ An entry does not authorize the work; Felicity picks what gets done.
 - Next step: rerun on an idle Mac to separate load from real defects; widen the 1 s waits to
   event-based waits with a long timeout.
 
-## Confirmed: a sync can overwrite a rating or favourite whose upload is still queued (2026-11-10)
-
-- Evidence (read): `batchUpsertTracks` assigns `track.rating = Int16(input.rating ?? 0)`
-  (`LibraryRepository+SyncMetadata.swift:680`) without consulting `CDPendingMutation`.
-- Scenario: the user favourites a track offline. `TrackRatingLocalStore` writes the local rating and
-  queues a `trackRating` mutation (`TrackRatingMutationPayload`). A sync then fetches the server's
-  rating (0) and `LibraryWriter.writeRows` writes it over the local value until the queued mutation
-  uploads and a later sync reads it back.
-- Impact: the favourite flickers off, or is lost if the upload fails permanently. Not new in 3b.
-- Fix sketch (over the 40-line budget: the writer has no mutation-queue dependency): inject
-  `PendingMutationRepositoryProtocol` into `LibraryWriter`, decode pending `.trackRating` payloads for
-  the source in `writeRows`, and replace `rating`/`lastRatedAt` in matching inputs with the stored
-  values before the `matches` filter. One test: queue a rating, apply a batch with rating 0, expect
-  the stored rating kept.
-
 ## Confirmed: the full library fetch and the single all-track write are unbounded (2026-11-10)
 
 - Evidence (read): `PlexConnector.fetchFullLibrary` (`PlexConnector.swift:337`) holds every artist,
