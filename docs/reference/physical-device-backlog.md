@@ -518,8 +518,8 @@ short), 14291, 14292 and 14300 (twenty one pilots; the original is damaged, the 
 
 | Check | Status |
 | --- | --- |
-| iPhone SE, original quality: `PhonePlaybackAcceptanceUITests.testG2e_DamagedOriginalFallsBackToATranscodeOnce` with `TEST_RUNNER_ENSEMBLE_DAMAGED_TRACK=14291`. The track plays on past the damage point as a transcode; you hear a short gap at most, a "Playing at reduced quality" notice shows once with no Retry, and the session log has one forced decision (`directStream=0`) and no second fallback | Owed |
-| Same test for 11631 (default): the fallback is tried, the transcode has nothing past 2:14, and playback skips to the next track with the usual skip notice | Owed |
+| iPhone SE, original quality: `TEST_RUNNER_ENSEMBLE_PHONE_PLAYBACK=1` with `PhonePlaybackAcceptanceUITests.testG2e1_DamagedOriginalFallsBackWhenPlaybackReachesTheDamage` and `TEST_RUNNER_ENSEMBLE_DAMAGED_TRACK=14291` (default). The track plays on past the damage point as a transcode; you hear a short gap at most, a "Playing at reduced quality" notice shows once with no Retry, the probe reports `fb=forced`, and the session log has one forced decision (`directStream=0`) and no second fallback | Owed |
+| `testG2e2_SeekAfterTheDownloadCompletedLoadsTheTranscode` (default track 11631, `TEST_RUNNER_ENSEMBLE_DAMAGED_SEEK` sets the seek target): the download has finished, a seek past the damage loads the transcode, and an item that has nothing past 2:14 is skipped (probe `skip=1`), which is distinguishable from a normal end | Owed |
 | A damaged original in the queue behind a good track (queue 11741, 14291): at the boundary the prefetch fetches the transcode, the track plays gaplessly as a transcode, and the notice shows when it starts, not while 11741 plays | Owed |
 | Pause 14291 at original quality a few seconds before 2:27 and wait past it: nothing plays and no notice shows; Play then continues it as a transcode | Owed |
 

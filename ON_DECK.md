@@ -268,3 +268,21 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Impact: an honest file whose metadata duration is wrong is downloaded twice, then plays. No fallback is
   involved.
 - Next step: for a direct original, drop both comparisons and rely on the media check.
+
+## Confirmed: the streaming decoder cannot stream ALAC or a moov-at-end M4A (2026-11-10)
+
+- Evidence: a review decoded `afconvert -d alac` output and an ffmpeg fast-start file to 0 frames through
+  `StreamingAudioDecoder`; the converter error is only logged (`StreamingAudioDecoder.swift` near line 330).
+  A moov-at-end M4A fails with `parseFailed('optm')`.
+- Impact: such an original now falls back to a lower-quality transcode (step e) instead of playing at its
+  own quality, with the neutral "Playing at reduced quality" notice.
+- Next step: find why AVAudioConverter yields no frames for ALAC; separately, play a completed non-streamable
+  original from its downloaded file through the native engine so it stays at original quality.
+
+## Confirmed: at original quality a seek while the direct download is in flight restarts as a transcode (2026-11-10)
+
+- Evidence: simulator run on track 14291; the seek past the downloaded range loads a transcode instead of
+  waiting for or resuming the direct stream.
+- Impact: quality drops silently on a seek; not part of step e.
+- Next step: decide whether a seek past the buffered end should wait for the download or range-request the
+  original.

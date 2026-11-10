@@ -304,3 +304,15 @@ mostly away from home, sometimes at home.
   0:08) and a complete transcode (the fallback plays on). 11700's zeroed header is damage; Plex answers
   its transcode with HTTP 400 and the item fails.
 
+### Review round (2026-11-10)
+
+- A played direct download is decoded once, off the audio path, before it is cached; the cache manifest
+  records `mediaVerified`, and every lookup serves a verified direct artifact only. Older unverified entries
+  count as misses and are downloaded again once.
+- A healthy original that Core Audio cannot stream progressively (ALAC, an M4A with `moov` at the end) is
+  reported as `unstreamableOriginal`, never as damage. It takes the same fallback and the same neutral toast
+  ("Playing at reduced quality"). A prefetch and a played pipeline reach the same decision.
+- A non-audio 200 response (HTML, under 256 bytes) is a plain failure, not damage.
+- Known limit: the half-length rule compares decoded audio with the container's stated length. Core Audio
+  scans an MP3's length from its frames, so a truncated MP3 states the shorter length and is not caught. A
+  truncated MP3 is only caught by a decoder error.
