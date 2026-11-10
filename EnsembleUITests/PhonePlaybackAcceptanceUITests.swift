@@ -258,6 +258,50 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground, "App left the foreground (crash?)")
     }
 
+    /// Damage reached while paused: nothing plays and no notice shows until Play, which continues the
+    /// track as the forced transcode. No seek (a seek after the download finished already loads the
+    /// transcode), so the test plays the original up to a few seconds before the damage; the default
+    /// pause point suits 11631, whose audio ends at 2:14 (`TEST_RUNNER_ENSEMBLE_DAMAGED_PAUSE_AT`).
+    func testG2e3_DamageReachedWhilePausedWaitsForPlay() throws {
+        let env = ProcessInfo.processInfo.environment
+        let key = env["ENSEMBLE_DAMAGED_TRACK"] ?? Key.christmasInJune
+        let pauseAt = Double(env["ENSEMBLE_DAMAGED_PAUSE_AT"] ?? "") ?? 129
+        launch(quality: "original", forceStream: true)
+        play([key, Key.flac])
+        let reached = wait(pauseAt + 90, "\(key) near the damage") { $0.id == key && $0.state == "playing" && $0.pos >= pauseAt }
+        XCTAssertNotNil(reached, "Never reached \(pauseAt) s of \(key)")
+        XCTAssertNotEqual(reached?.fb, "forced", "The fallback fired before the pause; nothing left to prove")
+        transport("pause")
+        let paused = try XCTUnwrap(wait(10, "paused") { $0.id == key && $0.state == "paused" })
+        var stayedPaused = true
+        var toastWhilePaused = false
+        let until = Date().addingTimeInterval(20)
+        while Date() < until {
+            if let p = read() {
+                note(p)
+                stayedPaused = stayedPaused && p.id == key && p.state == "paused" && abs(p.pos - paused.pos) < 1
+                toastWhilePaused = toastWhilePaused || p.toast == "Playing at reduced quality"
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(stayedPaused, "Playback moved or changed track while paused")
+        XCTAssertFalse(toastWhilePaused, "The reduced-quality notice showed while paused")
+        transport("resume")
+        var sawForced = false
+        var sawToast = false
+        let settled = wait(60, "transcode or successor after Play") {
+            sawForced = sawForced || ($0.id == key && $0.fb == "forced")
+            sawToast = sawToast || $0.toast == "Playing at reduced quality"
+            return $0.state == "failed" || ($0.id == Key.flac && $0.state == "playing")
+                || ($0.id == key && $0.state == "playing" && $0.pos >= paused.pos + 15)
+        }
+        attachText("outcome-\(key)", "paused at \(paused.pos); forced \(sawForced); toast \(sawToast); settled \(settled?.text ?? "never")")
+        XCTAssertTrue(sawForced, "Play did not continue \(key) as the forced transcode")
+        XCTAssertTrue(sawToast, "The reduced-quality notice never showed after Play")
+        XCTAssertNotNil(settled, "Playback did not settle after Play")
+        XCTAssertNotEqual(settled?.state, "failed", "Playback halted: \(settled?.text ?? "")")
+    }
+
     /// The 11631 sequence from the first SE run: on a fast link the whole download finishes seconds in,
     /// then a seek restarts the stream. Before the finished file was decoded, that seek was served from
     /// the stream cache and the track ended at 2:14 like a normal end. Pass: `fb=marked` appears first
