@@ -39,19 +39,30 @@ written as a delta and nothing is deleted:
 1. `MusicAuthorization.currentStatus == .authorized` before the first page and again after the last.
 2. Every page of both reads arrived. A thrown error, a cancelled request or a failed page ends the pass with no
    batch at all.
-3. The API's `meta.total`, when the first page carries one, equals the number of songs received.
-4. Every song MusicKit lists is in the REST list. Neither read gives a total of its own, so MusicKit being
-   larger than the REST list is the only sign that a `next` chain stopped early. (The reverse, REST larger,
-   can only keep rows.)
+3. The API reported `meta.total` and it equals the number of songs received. **No total means no inventory.**
+4. Both reads found songs, or neither did.
+5. Every song MusicKit lists is in the REST list.
+6. The two counts differ by at most 0.5% of the larger count, at least 2. The reads describe one library, so the
+   benign gap is a song added in the seconds between them; a larger gap means one read stopped early.
 
-The writer then adds its own checks (blank or repeated IDs, a track whose album is missing, an inventory without
-songs, a stale batch). A complete but empty library deletes nothing, per the owner's decision. A pass that is
-not due for an inventory (cursor under 24 hours old) reads nothing.
+Every pass logs the API count, the reported total, the MusicKit count and the number of matching IDs, withheld or
+not. The writer then adds its own checks (blank or repeated IDs, a track whose album is missing, an inventory
+without songs, a stale batch). A complete but empty library deletes nothing.
 
-Risk: condition 4 assumes MusicKit item IDs and REST library IDs are the same ID space (the existing code
-already matched them for dates and play counts). If they were not, the inventory would be withheld on every
-pass and removals would never apply; that fails safe and shows as `Apple Music inventory withheld` in the log.
-This is the first check owed on the iPhone.
+What this does and does not prove: it cannot prove completeness. MusicKit's read stops at its first short page and
+has no total, so if both reads are short together they agree (for example a library still rebuilding after iCloud
+Music Library was re-enabled, with a REST total that happens to match). It makes a wrongful inventory unlikely, not
+impossible; a cap on how much one pass may delete is a policy question left with the owner.
+**To confirm on a phone:** that Apple sends `meta.total` on `/v1/me/library/songs`. If it does not, nothing is ever
+deleted from Apple Music (the safe direction) and the log says `the API reported no total`.
+
+A pass that read everything less than a day ago (inventory proved or withheld) reads nothing: the cursor records a
+withheld full read (`recordFullRead`, which sets only the full date) and the connector reads again only when both the
+inventory and the full read are due. A successful inventory advances both as before. This needs no new cursor field
+and no model change.
+
+The source row's names are written only when a batch carries them (`upsertMusicSource` no longer writes nil over a
+name), which also stops Plex batches from clearing names, as they have since 3b.
 
 ## Existing users' sync date
 

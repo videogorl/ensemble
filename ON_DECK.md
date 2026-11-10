@@ -215,3 +215,13 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Impact: a possible audible gap or no crossfade at the boundary after a track that was still streaming; unmeasured.
 - Next step: measure the boundary after a short original-quality track on a slow link, then decide whether the successor's prefetch needs to start earlier or the handoff needs a streaming path. Not authorized to change.
 
+## Confirmed: deleting a track loses Hidden choices and leaves dangling IDs (2026-11-10)
+
+- Evidence (read): `LibraryWriter.removeMissing` calls `HiddenMediaStore.removeMissing` for artists, albums
+  and tracks, which prunes their Hidden entries for good, and removing a track cascades its playlist
+  membership rows. The queue, play history, pins and the Siri index keep the removed IDs.
+- Impact: a temporary wrongful removal (a short inventory that passed the checks) loses the user's Hidden
+  choices even after the track returns on the next pass, and leaves queue, history, pin and Siri entries
+  pointing at rows that no longer exist.
+- Next step: decide whether deletion should keep Hidden entries (prune only on a later pass that confirms the
+  absence) and which owners should drop dangling IDs when `removedTrackRatingKeys` is reported. Not fixed.
