@@ -1,35 +1,61 @@
 import AVFoundation
 import Foundation
 
-/// Judges a downloaded original by its own media, never by library metadata.
+/// Judges an original by its own media, never by library metadata, with the decoder that plays it.
 enum OriginalMediaCheck {
-    /// Decodes the file start to end in small chunks. A decode error, or audio holding under half of the
-    /// length the file's own container states, is damage. Stops with `CancellationError` once
-    /// `shouldContinue` returns false.
-    static func verify(at fileURL: URL, shouldContinue: () -> Bool = { true }) throws {
-        func damaged(_ reason: String) -> Error { ProgressiveStreamError.damagedOriginal(reason: reason) }
-        let file: AVAudioFile
-        do { file = try AVAudioFile(forReading: fileURL) } catch { throw damaged("cannot be opened") }
-        let sampleRate = file.processingFormat.sampleRate
-        guard sampleRate > 0, file.length > 0,
-              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 32_768) else { return }
-        var decoded: AVAudioFramePosition = 0
-        do {
-            while file.framePosition < file.length {
-                guard shouldContinue() else { throw CancellationError() }
-                try file.read(into: buffer)
-                guard buffer.frameLength > 0 else { break }
-                decoded += AVAudioFramePosition(buffer.frameLength)
-            }
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            // Running out of data reads as eofErr (-39); any other error is the decoder rejecting it.
-            guard (error as NSError).code == -39 else { throw damaged("decoder error") }
+    /// What a decoder error says about the file: an index at the end of the file ('optm') is a layout
+    /// the streaming parser cannot read, not damage; any other parse failure is damage.
+    static func classify(decoderError error: Error) -> ProgressiveStreamError? {
+        guard let decoderError = error as? StreamingAudioDecoder.DecoderError else { return nil }
+        if case let .parseFailed(status) = decoderError, status == optimizeFormatStatus {
+            return .unstreamableOriginal(reason: "the index is at the end of the file")
         }
-        let expected = Double(file.length) / sampleRate
-        let actual = Double(decoded) / sampleRate
-        guard expected > 10, actual < expected * 0.5, actual < expected - 10 else { return }
-        throw damaged("audio ends at \(Int(actual)) of \(Int(expected)) seconds")
+        if case let .parseFailed(status) = decoderError { return .damagedOriginal(reason: "decoder status \(status)") }
+        return .damagedOriginal(reason: "decoder error")
     }
+
+    /// What decoding to the end says: nothing decoded from a stream that formed a format cannot be
+    /// streamed; audio holding under half of the length the container states is damage.
+    static func classify(decodedFrames: Int64, sampleRate: Double, containerSeconds: TimeInterval?) -> ProgressiveStreamError? {
+        guard sampleRate > 0 else { return nil }
+        if decodedFrames == 0 { return .unstreamableOriginal(reason: "the decoder produced no audio") }
+        guard let expected = containerSeconds, expected > 10 else { return nil }
+        let decoded = Double(decodedFrames) / sampleRate
+        guard decoded < expected * 0.5, decoded < expected - 10 else { return nil }
+        return .damagedOriginal(reason: "audio ends at \(Int(decoded)) of \(Int(expected)) seconds")
+    }
+
+    /// The length the file's own container states, when Core Audio can read one.
+    static func containerSeconds(of fileURL: URL) -> TimeInterval? {
+        guard let file = try? AVAudioFile(forReading: fileURL) else { return nil }
+        let sampleRate = file.processingFormat.sampleRate
+        guard sampleRate > 0, file.length > 0 else { return nil }
+        return Double(file.length) / sampleRate
+    }
+
+    /// Streams the file through the playback decoder in small chunks, start to end. Stops with
+    /// `CancellationError` once `shouldContinue` returns false.
+    static func verify(at fileURL: URL, fileExtension: String, shouldContinue: () -> Bool = { true }) throws {
+        let decoder: StreamingAudioDecoder
+        do { decoder = try StreamingAudioDecoder(fileExtension: fileExtension) } catch {
+            throw classify(decoderError: error) ?? error
+        }
+        var sampleRate = 0.0
+        var frames: Int64 = 0
+        decoder.onFormatReady = { sampleRate = $0.sampleRate }
+        decoder.onPCMBuffer = { frames += Int64($0.frameLength) }
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+        while let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+            guard shouldContinue() else { throw CancellationError() }
+            do { try decoder.append(chunk) } catch { throw classify(decoderError: error) ?? error }
+        }
+        guard sampleRate > 0 else { throw ProgressiveStreamError.damagedOriginal(reason: "no audio format") }
+        if let verdict = classify(decodedFrames: frames, sampleRate: sampleRate, containerSeconds: containerSeconds(of: fileURL)) {
+            throw verdict
+        }
+    }
+
+    /// kAudioFileStreamError_NotOptimized, 'optm'.
+    private static let optimizeFormatStatus: OSStatus = 0x6F70_746D
 }

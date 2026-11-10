@@ -588,7 +588,7 @@ final class StreamingAudioPipeline: NSObject {
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 let result = Result {
-                    try OriginalMediaCheck.verify(at: self.configuration.cacheURL) { [weak self] in
+                    try OriginalMediaCheck.verify(at: self.configuration.cacheURL, fileExtension: key.fileExtension) { [weak self] in
                         guard let self else { return false }
                         self.stateLock.lock()
                         defer { self.stateLock.unlock() }
@@ -633,7 +633,7 @@ final class StreamingAudioPipeline: NSObject {
             stateLock.unlock()
             timeout?.cancel()
             session?.finishTasksAndInvalidate()
-            EnsembleLogger.info("[StreamingPipeline] damagedOriginal trackId=\(configuration.trackID ?? "unknown") \(error.localizedDescription)")
+            EnsembleLogger.info("[StreamingPipeline] originalFlagged trackId=\(configuration.trackID ?? "unknown") \(error.localizedDescription)")
             onDamageFound?(error)
             for waiter in waiters { waiter.resume(throwing: error) }
             onDownloadEnd?()
@@ -707,7 +707,10 @@ final class StreamingAudioPipeline: NSObject {
         stateLock.unlock()
         if discardsArtifact { configuration.artifactCache.removeArtifact(at: configuration.cacheURL) }
         guard hasFormat else {
-            fail(ProgressiveStreamError.invalidPayload(bytesReceived: receivedByteCount))
+            // A complete download that never formed an audio format is not audio.
+            fail(configuration.artifactKey?.delivery == .direct
+                ? ProgressiveStreamError.damagedOriginal(reason: "no audio format")
+                : ProgressiveStreamError.invalidPayload(bytesReceived: receivedByteCount))
             return
         }
         pcmBuffer?.wakeWaiters()
@@ -717,29 +720,21 @@ final class StreamingAudioPipeline: NSObject {
         }
     }
 
-    /// An original that decoded without error yet holds under half of what its own container
-    /// states. Library metadata never judges it, and a stream that starts at an offset or states no
-    /// length is not checked. A transcode is never checked: it cannot fall back.
+    /// What decoding an original to its end says about it (see `OriginalMediaCheck`). Library metadata
+    /// never judges it, and a stream that starts at an offset is not checked. A transcode is never
+    /// checked: it cannot fall back.
     private func earlyEndOfDecodedAudio() -> Error? {
         stateLock.lock()
         let decodedFrames = decodedFrameCount
         let sampleRate = pcmBuffer?.format.sampleRate
         stateLock.unlock()
         guard let key = configuration.artifactKey, key.delivery == .direct, key.isCompleteTrack,
-              let sampleRate, sampleRate > 0,
-              let expected = Self.containerDuration(of: configuration.cacheURL), expected > 10 else { return nil }
-        let decoded = Double(decodedFrames) / sampleRate
-        guard decoded < expected * 0.5, decoded < expected - 10 else { return nil }
-        return ProgressiveStreamError.damagedOriginal(
-            reason: "audio ends at \(Int(decoded)) of \(Int(expected)) seconds"
+              let sampleRate else { return nil }
+        return OriginalMediaCheck.classify(
+            decodedFrames: Int64(decodedFrames),
+            sampleRate: sampleRate,
+            containerSeconds: OriginalMediaCheck.containerSeconds(of: configuration.cacheURL)
         )
-    }
-
-    private static func containerDuration(of fileURL: URL) -> TimeInterval? {
-        guard let file = try? AVAudioFile(forReading: fileURL) else { return nil }
-        let sampleRate = file.processingFormat.sampleRate
-        guard sampleRate > 0, file.length > 0 else { return nil }
-        return Double(file.length) / sampleRate
     }
 
     /// Network EOF registered this stream's file for replay. Read with `stateLock` held: a file
@@ -753,8 +748,16 @@ final class StreamingAudioPipeline: NSObject {
         stateLock.lock()
         // Bytes the decoder rejected are never replayed from the cache. Decided under the lock
         // that stops registration, so a registration racing this failure is still undone.
-        let isDamage = Self.isMediaDamage(error, delivery: configuration.artifactKey?.delivery)
-        let error = isDamage ? ProgressiveStreamError.damagedOriginal(reason: Self.damageReason(error)) : error
+        // A decoder error counts as media damage only on bytes that could be media: an error page or a
+        // tiny body is a bad delivery, a network condition, and keeps the plain failure.
+        let couldBeMedia = receivedByteCount >= 256
+            && !EnsembleAudioPayloadValidator.isClearlyInvalidLeadingText(payloadPrefix, rejectingServiceUnavailable: true)
+        let classified = configuration.artifactKey?.delivery == .direct && couldBeMedia
+            ? OriginalMediaCheck.classify(decoderError: error) : nil
+        let isDamage = classified != nil
+        let error: Error = classified
+            ?? (configuration.artifactKey?.delivery == .direct && !couldBeMedia && error is StreamingAudioDecoder.DecoderError
+                ? ProgressiveStreamError.invalidPayload(bytesReceived: receivedByteCount) : error)
         let discardsArtifact = isDamage && hasRegisteredArtifactLocked
         let shouldNotify = !cancelled && !completed
         cancelled = true
@@ -788,23 +791,6 @@ final class StreamingAudioPipeline: NSObject {
         if endsDownload { onDownloadEnd?() }
         if shouldNotify {
             onFailure?(error)
-        }
-    }
-
-    /// Evidence in an original's own media: the decoder rejected it, or its bytes are not audio.
-    /// Network and HTTP errors are not evidence, and a transcode never falls back.
-    private static func isMediaDamage(_ error: Error, delivery: PlaybackArtifactDelivery?) -> Bool {
-        guard delivery == .direct else { return false }
-        if error is StreamingAudioDecoder.DecoderError { return true }
-        if case ProgressiveStreamError.invalidPayload = error { return true }
-        return false
-    }
-
-    private static func damageReason(_ error: Error) -> String {
-        switch error {
-        case let ProgressiveStreamError.invalidPayload(bytes): return "not audio, \(bytes) bytes"
-        case let StreamingAudioDecoder.DecoderError.parseFailed(status): return "decoder status \(status)"
-        default: return "decoder error"
         }
     }
 

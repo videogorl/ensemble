@@ -251,6 +251,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
             pipeline.networkPathChanged()
         }
         XCTAssertNil(stalled.failure, "stalled")
+        XCTAssertEqual(stalled.samples.count, baseline.count, "stalled count")
         XCTAssertEqual(stalled.samples, baseline, "stalled")
         XCTAssertEqual(stalled.requests.last?.value(forHTTPHeaderField: "Range"), "bytes=\(stall)-")
 
@@ -310,6 +311,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
             ("original, audio ends early", .direct, truncated, true),
             ("original, whole file", .direct, whole, false),
             ("original, bytes are not audio", .direct, Data(repeating: 0, count: 600), true),
+            ("original, an HTML error page is a bad delivery", .direct, Data(("<html><body>" + String(repeating: "Bad gateway. ", count: 40) + "</body></html>").utf8), false),
             ("transcode, audio ends early", .transcode, truncated, false),
             ("transcode, bytes are not audio", .transcode, Data(repeating: 0, count: 600), false),
         ]
@@ -328,6 +330,52 @@ final class StreamingAudioPipelineTests: XCTestCase {
                     trackIdentity: key.trackIdentity, sourceFingerprint: "fp", requestedQuality: "original", requireDirect: false
                 ), "\(item.name): a damaged original is not replayed from the cache")
             }
+        }
+    }
+
+    /// Healthy files are never called damaged, and a file the streaming decoder cannot stream is a separate
+    /// reason with the same fallback: ALAC decodes to nothing and an M4A with its index at the end cannot
+    /// be parsed progressively. The prefetch check and the played stream give the same verdict.
+    func testClassificationOfRealEncodedFilesAgreesBetweenCheckAndPlayedStream() async throws {
+        enum Verdict: Equatable { case healthy, unstreamable }
+        let cases: [(name: String, ext: String, data: Data, verdict: Verdict)] = [
+            ("FLAC", "flac", try AudioFixtures.flac(seconds: 12), .healthy),
+            ("WAV", "wav", Self.wavFixture(seconds: 2), .healthy),
+            ("MP3", "mp3", EncodedFixtures.mp3, .healthy),
+            ("AAC (ADTS)", "aac", EncodedFixtures.aacADTS, .healthy),
+            ("AAC M4A, index first", "m4a", EncodedFixtures.aacFastStart, .healthy),
+            ("ALAC M4A", "m4a", EncodedFixtures.alac, .unstreamable),
+            ("ALAC M4A, index first", "m4a", EncodedFixtures.alacFastStart, .unstreamable),
+            ("AAC M4A, index at the end", "m4a", EncodedFixtures.aacMoovAtEnd, .unstreamable),
+        ]
+        let cache = PlaybackArtifactCache(
+            directory: FileManager.default.temporaryDirectory.appendingPathComponent("classify-cache-\(UUID().uuidString)"),
+            byteBudget: 1 << 26
+        )
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        func verdict(of error: Error?) -> Verdict {
+            switch error {
+            case ProgressiveStreamError.unstreamableOriginal?: return .unstreamable
+            case ProgressiveStreamError.damagedOriginal?: XCTFail("a healthy file was called damaged"); return .unstreamable
+            default: return .healthy
+            }
+        }
+        for (index, item) in cases.enumerated() {
+            // The prefetch check.
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("classify-\(UUID().uuidString).\(item.ext)")
+            try item.data.write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+            var checkError: Error?
+            do { try OriginalMediaCheck.verify(at: url, fileExtension: item.ext) } catch { checkError = error }
+            XCTAssertEqual(verdict(of: checkError), item.verdict, "\(item.name): check")
+            // The played stream.
+            let key = PlaybackArtifactKey(trackIdentity: "classify-\(index)", sourceFingerprint: "fp", requestedQuality: "original",
+                                          delivery: .direct, fileExtension: item.ext, startTime: 0)
+            let result = try await run(
+                payload: item.data, replies: [.ranged(dropAfter: nil)], duration: 2,
+                artifactKey: key, artifactCache: cache, fileExtension: item.ext
+            )
+            XCTAssertEqual(verdict(of: result.failure ?? result.earlyEnd), item.verdict, "\(item.name): played stream")
         }
     }
 
