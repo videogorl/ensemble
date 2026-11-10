@@ -71,36 +71,64 @@ extension PlaybackService {
         return .reuseExisting
     }
 
+    /// The session and queue item an automatic or toast retry belongs to. Next, Pause, Stop,
+    /// or another load starts a new session, so the retry no longer applies (G11).
+    struct RetryBinding: Equatable {
+        let generation: UInt64
+        let itemID: String
+    }
+
+    @MainActor
+    var currentRetryBinding: RetryBinding? {
+        currentQueueItemID.map { RetryBinding(generation: sessionGeneration, itemID: $0) }
+    }
+
     /// A stream that fails after it loaded is retried from where it stopped, at most
     /// `maxStreamRecoveryAttempts` times per item; then the item fails (G11, G12).
     @MainActor
     func recoverCurrentStream(after error: Error) {
-        guard stallRecoveryTask == nil,
-              let trackId = currentTrack?.playbackIdentity,
-              let itemID = currentQueueItemID else { return }
+        guard stallRecoveryTask == nil, currentTrack != nil,
+              let binding = currentRetryBinding else { return }
+        let itemID = binding.itemID
+        // A failed paused load is retried paused.
+        let shouldStartPlayback = playbackState == .loading ? playbackPreparationShouldStart : true
 
         let attempts = streamRecovery?.itemID == itemID ? streamRecovery?.attempts ?? 0 : 0
-        let isSpent = attempts >= Self.maxStreamRecoveryAttempts
-        if isSpent {
+        guard attempts < Self.maxStreamRecoveryAttempts else {
             streamRecovery = nil
-        } else {
-            streamRecovery = (itemID, attempts + 1, currentTime)
-            EnsembleLogger.playback("ENGINE: stream interrupted -- retrying from \(String(format: "%.1f", currentTime))s, attempt \(attempts + 1) (\(error.localizedDescription))")
-            audioEngine?.pause()
-            playbackState = .buffering
-            updateNowPlayingInfo()
+            scheduleItemFailure(error, binding: binding)
+            return
         }
+        streamRecovery = (itemID, attempts + 1, currentTime)
+        EnsembleLogger.playback("ENGINE: stream interrupted -- retrying from \(String(format: "%.1f", currentTime))s, attempt \(attempts + 1) (\(error.localizedDescription))")
+        audioEngine?.pause()
+        playbackState = .buffering
+        updateNowPlayingInfo()
 
-        let generation = sessionGeneration
         stallRecoveryTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.stallRecoveryTask = nil }
-            guard self.currentTrack?.playbackIdentity == trackId else { return }
-            if isSpent {
-                await self.handleItemFailure(error.localizedDescription, generation: generation)
-            } else {
-                await self.retryCurrentTrack(forceConnectionRefresh: false, reason: "stream-interrupted")
-            }
+            guard self.currentRetryBinding == binding else { return }
+            await self.retryCurrentTrack(
+                forceConnectionRefresh: false,
+                reason: "stream-interrupted",
+                shouldStartPlayback: shouldStartPlayback,
+                binding: binding
+            )
+        }
+    }
+
+    /// Hands an item's failure to `handleItemFailure` after the current event, as pending work
+    /// that Pause or a newer item cancels. It stops being pending once it runs: the failure
+    /// decision does not suspend, and the skipped-to item's load and autoplay work that follow
+    /// must not hold off that item's own failure.
+    @MainActor
+    func scheduleItemFailure(_ error: Error, binding: RetryBinding) {
+        stallRecoveryTask = Task { @MainActor [weak self] in
+            // A cancelled task no longer owns the slot; its canceller cleared it.
+            guard let self, !Task.isCancelled else { return }
+            self.stallRecoveryTask = nil
+            await self.handleItemFailure(error.localizedDescription, binding: binding, cause: error)
         }
     }
 
@@ -239,7 +267,7 @@ extension PlaybackService {
         guard let track = currentTrack, track.playbackIdentity == trackID else { return }
         // A fresh start reports "playing", as a resume already does (D4).
         reportingController.reportState(track: track, state: "playing", time: currentTime)
-        clearItemFailureMarkers()
+        noteItemStarted()
         applyPendingSeek()
         guard playbackState == .loading || playbackState == .buffering else { return }
         playbackState = .playing
@@ -266,6 +294,7 @@ extension PlaybackService {
         if let recovery = streamRecovery, recovery.itemID == currentQueueItemID,
            position - recovery.fromTime >= Self.streamRecoveryProgressSeconds {
             streamRecovery = nil
+            healthRetriedItemID = nil
         }
         if position < previousTime { updateNowPlayingInfo() }
         // Only the native engine schedules successors; MusicKit queues its own.
@@ -371,6 +400,7 @@ extension PlaybackService {
         if queue.indices.contains(currentQueueIndex) {
             recordToHistory(queue[currentQueueIndex])
         }
+        failureSkipItemID = nil
         currentQueueIndex = index
         currentTrack = newTrack ?? queue[index].track
         let position = kind == .crossfade ? (audioEngine?.currentTime() ?? 0) : 0
@@ -410,6 +440,7 @@ extension PlaybackService {
         #if canImport(UIKit)
             endTransitionLeaseGeneration = nil
         #endif
+        failureSkipItemID = nil
         let generation = session.rawValue
         beginTrackTransitionBackgroundTask(for: generation)
         Task { @MainActor [self] in
@@ -432,10 +463,9 @@ extension PlaybackService {
             return
         }
         EnsembleLogger.playback("ENGINE: error -- \(error.localizedDescription)")
-        guard playbackState == .playing || playbackState == .loading else { return }
-        Task { @MainActor in
-            await self.handleItemFailure(error.localizedDescription, generation: session.rawValue)
-        }
+        guard playbackState == .playing || playbackState == .loading,
+              stallRecoveryTask == nil, let binding = currentRetryBinding else { return }
+        scheduleItemFailure(error, binding: binding)
     }
 
     enum ItemFailureResponse: Equatable {
@@ -467,13 +497,39 @@ extension PlaybackService {
     func clearItemFailureMarkers() {
         failureSkipItemID = nil
         tlsRefreshedItemID = nil
+        healthRetriedItemID = nil
     }
 
-    /// The one path for an item that could not play, whichever engine or stage failed.
+    /// An item produced audio. The item reached by a failure skip keeps its mark, so its own
+    /// later failure halts (G11). A health retry stays used until it makes the progress that
+    /// resets stream recovery.
     @MainActor
-    func handleItemFailure(_ message: String, generation: UInt64) async {
+    func noteItemStarted() {
+        tlsRefreshedItemID = nil
+        if let itemID = healthRetriedItemID, streamRecovery == nil {
+            streamRecovery = (itemID, 0, currentTime)
+        }
+    }
+
+    /// The failure-skip mark and the health retry last while their item stays current,
+    /// compared by item ID. Runs when the current track is set and after a queue mutation
+    /// (not from the index setter: a queue and index are written back separately).
+    @MainActor
+    func reconcileItemFailureMarkers() {
+        if failureSkipItemID != currentQueueItemID { failureSkipItemID = nil }
+        if healthRetriedItemID != currentQueueItemID { healthRetriedItemID = nil }
+    }
+
+    /// The one path for an item that could not play, whichever engine or stage failed. It acts
+    /// only while `binding`'s session and item are current: a newer item, Pause, or Stop wins.
+    @MainActor
+    func handleItemFailure(_ message: String, binding: RetryBinding, cause: Error?) async {
+        endTrackTransitionBackgroundTask(for: binding.generation)
+        guard binding == currentRetryBinding else {
+            EnsembleLogger.playback("ITEM_FAILED: superseded by a newer item or session (\(message))")
+            return
+        }
         audioEngine?.pause()
-        endTrackTransitionBackgroundTask(for: generation)
 
         let response = Self.itemFailureResponse(
             intendsToPlay: playbackPreparationShouldStart,
@@ -483,6 +539,7 @@ extension PlaybackService {
             EnsembleLogger.playback(
                 "ITEM_FAILED: '\(currentTrack?.title ?? "nil")' (\(message)) — skipping to idx \(index)"
             )
+            showSkipToast(trackTitle: currentTrack?.title, message: message)
             failureSkipItemID = queue[index].id
             tlsRefreshedItemID = nil
             await performQueueAdvance(.item(index: index, wrapped: false), caller: "itemFailed-skip")
@@ -490,9 +547,62 @@ extension PlaybackService {
         }
 
         EnsembleLogger.playback("ITEM_FAILED: '\(currentTrack?.title ?? "nil")' (\(message)) — halting")
+        let waitsForServer = healthRetriedItemID != currentQueueItemID
+            && cause.map(PlaybackSessionStateMachine.isServerUnreachable) == true
         clearItemFailureMarkers()
         playbackState = .failed(message)
+        haltWaitsForServer = waitsForServer
         updateNowPlayingInfo()
+    }
+
+    /// Halting on an error offers Retry and stays until acted on or replaced.
+    @MainActor
+    func showHaltToast(_ message: String) {
+        let binding = currentRetryBinding
+        showFailureToast(ToastPayload(
+            style: .error,
+            iconSystemName: "exclamationmark.triangle",
+            title: "Playback stopped",
+            message: message,
+            action: ToastAction(title: "Retry") { [weak self] in
+                Task { @MainActor in await self?.retryHaltedItem(binding) }
+            },
+            isPersistent: true
+        ))
+    }
+
+    /// The halt toast's Retry, which acts only while that item is still halted in that session.
+    @MainActor
+    func retryHaltedItem(_ binding: RetryBinding?) async {
+        guard case .failed = playbackState, let binding, currentRetryBinding == binding else { return }
+        clearItemFailureMarkers()
+        await retryCurrentTrack(forceConnectionRefresh: true, reason: "manual", binding: binding)
+    }
+
+    @MainActor
+    func showSkipToast(trackTitle: String?, message: String) {
+        showFailureToast(ToastPayload(
+            style: .warning,
+            iconSystemName: "exclamationmark.triangle",
+            title: "Skipped \(trackTitle ?? "track")",
+            message: message
+        ))
+    }
+
+    @MainActor
+    func dismissFailureToast() {
+        guard let id = failureToastID else { return }
+        failureToastID = nil
+        toastCenter?.dismiss(id: id)
+    }
+
+    @MainActor
+    private func showFailureToast(_ toast: ToastPayload) {
+        dismissFailureToast()
+        guard let toastCenter else { return }
+        failureToastID = toast.id
+        // Playback errors are timely; another toast must not hold them back.
+        toastCenter.showNow(toast)
     }
 
     /// Begins a background task to keep the app alive during track transitions.
@@ -659,6 +769,7 @@ extension PlaybackService {
                 isDeviceOffline: isDeviceOffline,
                 isCellularStreamingDisabled: isCellularStreamingDisabled
             ))
+            haltWaitsForServer = !isCellularStreamingDisabled
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
             UserJourneyLogger.log(
                 context: "playback",
@@ -805,6 +916,7 @@ extension PlaybackService {
                 isDeviceOffline: isDeviceOffline,
                 isCellularStreamingDisabled: isCellularStreamingDisabled
             ))
+            haltWaitsForServer = !isCellularStreamingDisabled
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
             UserJourneyLogger.log(
                 context: "playback",
@@ -1278,6 +1390,7 @@ extension PlaybackService {
 
         // Cancel any in-flight transport work
         transportCoordinator.clear(removeDecisions: false)
+        clearItemFailureMarkers()
 
         endTrackTransitionBackgroundTask()
         cleanup()
@@ -1387,6 +1500,7 @@ extension PlaybackService {
     /// The end-of-track rule, applied without starting playback.
     @MainActor
     func finishCurrentItemWhilePaused() {
+        failureSkipItemID = nil
         switch queueAdvance(.naturalEnd) {
         case .repeatCurrent:
             selectQueueItemWhilePaused(at: currentQueueIndex, caller: "seekToEnd-repeatOne")

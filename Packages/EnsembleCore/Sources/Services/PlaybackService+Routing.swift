@@ -323,9 +323,14 @@ extension PlaybackService {
     func applyPauseForHandoff(reason: PlaybackHandoffCoordinator.PauseReason) {
         let wasActive = playbackState == .playing || playbackState == .buffering
         guard wasActive || reason == .user || reason == .system else { return }
-        // Pausing a load cancels it; pausing playback keeps the session.
-        if playbackState == .loading || playbackState == .buffering {
+        // Pausing a load or a pending retry or failure cancels it; pausing playback keeps
+        // the session.
+        if playbackState == .loading || playbackState == .buffering || stallRecoveryTask != nil {
             beginSession()
+        }
+        // Play restarts a stream whose retry or failure the pause cancelled.
+        if stallRecoveryTask != nil {
+            pausedStreamNeedsRefresh = true
         }
         skipTransitionTask?.cancel()
         skipTransitionTask = nil

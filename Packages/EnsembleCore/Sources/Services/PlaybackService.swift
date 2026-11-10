@@ -256,7 +256,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public internal(set) var currentTrack: Track? {
         get { snapshot.currentTrack }
-        set { snapshot.currentTrack = newValue }
+        set {
+            snapshot.currentTrack = newValue
+            // Every path that makes another item current sets its track after its index.
+            reconcileItemFailureMarkers()
+        }
     }
     public internal(set) var playbackState: PlaybackState {
         get { snapshot.playbackState }
@@ -264,8 +268,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let oldValue = snapshot.playbackState
             snapshot.playbackState = newValue
             guard playbackState != oldValue else { return }
+            haltWaitsForServer = false
             let trackTitle = currentTrack?.title ?? "nil"
             EnsembleLogger.playback("STATE: \(oldValue) → \(playbackState), track='\(trackTitle)'")
+            if case let .failed(message) = playbackState {
+                showHaltToast(message)
+            } else if case .failed = oldValue {
+                dismissFailureToast()
+            }
             updateNetworkWorkPressure()
             syncHandoffStateWithPlaybackState()
             refreshPresentationTime()
@@ -403,6 +413,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Tracks consecutive playback failures to stop rapid retry loops when server is unreachable
     /// The item reached by skipping a failed one; if it fails too, playback halts (G11).
     var failureSkipItemID: String?
+    /// The current halt was caused by an unreachable server or network, so a passing health
+    /// check may retry it. Any other halt waits for the user. Cleared by any state change.
+    var haltWaitsForServer = false
+    /// The item a health check already retried; one automatic retry per recovery, until the
+    /// retry makes sustained progress or another item becomes current.
+    var healthRetriedItemID: String?
+    /// Where playback failures are shown; nil in headless contexts.
+    let toastCenter: ToastCenter?
+    /// The one failure toast on screen; a newer failure replaces it in place.
+    var failureToastID: UUID?
     /// The item whose TLS failure already had its one connection refresh.
     var tlsRefreshedItemID: String?
     var networkStateObservation: StreamSubscription?
@@ -636,7 +656,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         downloadManager: DownloadManagerProtocol,
         trackRatingLocalStore: TrackRatingLocalStoring = TrackRatingLocalStore(coreDataStack: .shared),
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil,
-        libraryChanges: LibraryChanges? = nil
+        libraryChanges: LibraryChanges? = nil,
+        toastCenter: ToastCenter? = nil
     ) {
         self.init(
             syncCoordinator: syncCoordinator,
@@ -647,7 +668,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             queueStore: PlaybackQueueStore(),
             trackRatingLocalStore: trackRatingLocalStore,
             foregroundWorkScheduler: foregroundWorkScheduler,
-            libraryChanges: libraryChanges
+            libraryChanges: libraryChanges,
+            toastCenter: toastCenter
         )
     }
 
@@ -660,9 +682,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         queueStore: PlaybackQueueStore,
         trackRatingLocalStore: TrackRatingLocalStoring = TrackRatingLocalStore(coreDataStack: .shared),
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil,
-        libraryChanges: LibraryChanges? = nil
+        libraryChanges: LibraryChanges? = nil,
+        toastCenter: ToastCenter? = nil
     ) {
         self.libraryChanges = libraryChanges
+        self.toastCenter = toastCenter
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
         self.artworkLoader = artworkLoader
@@ -820,13 +844,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // Auto-resume: if playback failed because a server was offline, and a
-        // health check just passed, retry the current track automatically.
-        if case .failed = playbackState,
-           currentTrack?.localFilePath == nil
+        // Auto-resume: if playback halted because a server was unreachable, retry once
+        // the check has found the current track's server available again.
+        if case .failed = playbackState, haltWaitsForServer,
+           currentTrack?.localFilePath == nil,
+           let source = MediaSourceIdentity.parse(currentTrack?.sourceCompositeKey),
+           syncCoordinator.serverHealthChecker
+               .getServerState(accountId: source.accountId, serverId: source.serverId).isAvailable
         {
             EnsembleLogger.debug("🏥 Health check complete while in failed state — attempting auto-resume")
-            await retryCurrentTrack(forceConnectionRefresh: false, reason: "health-check-recovery")
+            // An automatic retry is not a new listen: if it fails, the item halts again (G11).
+            failureSkipItemID = currentQueueItemID
+            healthRetriedItemID = currentQueueItemID
+            await retryCurrentTrack(
+                forceConnectionRefresh: false,
+                reason: "health-check-recovery",
+                shouldStartPlayback: playbackPreparationShouldStart
+            )
             return
         }
     }

@@ -882,6 +882,7 @@ extension PlaybackService {
         refreshAutoplay: Bool = true,
         synchronizeAppleMusicQueue: Bool = true
     ) {
+        reconcileItemFailureMarkers()
         savePlaybackState()
         if synchronizeAppleMusicQueue {
             synchronizeAppleMusicQueueAfterMutation()

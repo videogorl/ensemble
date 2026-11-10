@@ -223,6 +223,10 @@ extension PlaybackService {
             stop()
             return
         }
+        let requestBinding = RetryBinding(generation: requestGeneration, itemID: queue[currentQueueIndex].id)
+        // Some callers move the index without setting the track, which happens only after the
+        // lookup below; a load cancelled during it must still end the previous item's markers.
+        reconcileItemFailureMarkers()
 
         #if os(iOS)
             if #available(iOS 18, *), queue[currentQueueIndex].track.isAppleMusic {
@@ -469,10 +473,11 @@ extension PlaybackService {
             }
             await handleItemFailure(
                 lastError?.localizedDescription ?? "Failed to load track",
-                generation: requestGeneration
+                binding: requestBinding,
+                cause: lastError
             )
         case let .generic(message):
-            await handleItemFailure(message, generation: requestGeneration)
+            await handleItemFailure(message, binding: requestBinding, cause: lastError)
         }
     }
 
@@ -487,13 +492,27 @@ extension PlaybackService {
         return nsError.domain == "com.apple.coreaudio.avfaudio" && nsError.code == 2_003_334_207
     }
 
-    func retryCurrentTrack(forceConnectionRefresh: Bool, reason: String) async {
-        guard let track = currentTrack else { return }
+    /// Reloads the current item from the playhead. `binding` ties the retry to the session and
+    /// item it was made for; it stops as soon as either changes.
+    @MainActor
+    func retryCurrentTrack(
+        forceConnectionRefresh: Bool,
+        reason: String,
+        shouldStartPlayback: Bool = true,
+        binding: RetryBinding? = nil
+    ) async {
+        guard let track = currentTrack, let binding = binding ?? currentRetryBinding else { return }
 
         let recoveryTime: TimeInterval?
         switch playbackState {
         case .playing, .buffering:
             recoveryTime = currentTime
+        case .failed:
+            recoveryTime = nil
+            // Leave the halt before waiting, so Pause, Stop, or a skip during the wait
+            // starts a new session and cancels this retry.
+            guard prepareAudioEngineForPlaybackIfNeeded() else { return }
+            playbackState = .loading
         default:
             recoveryTime = nil
         }
@@ -502,11 +521,17 @@ extension PlaybackService {
         // This handles tracks that finished downloading while queued/stalled.
         if track.localFilePath == nil {
             let resolved = await resolveTrackForPlaybackIfNeeded(track)
+            guard currentRetryBinding == binding else { return }
             if resolved.localFilePath != nil {
                 EnsembleLogger.debug("💾 Download fallback: swapping to local file for '\(track.title)' (\(reason))")
                 // Evict stale cached player item so it re-creates from local file
-                await MainActor.run { removeCachedPlayerItem(for: track.playbackIdentity) }
-                await playCurrentQueueItem(forcingFreshItem: true, seekTo: recoveryTime, caller: "retryCurrentTrack-downloadFallback(\(reason))")
+                removeCachedPlayerItem(for: track.playbackIdentity)
+                await playCurrentQueueItem(
+                    forcingFreshItem: true,
+                    seekTo: recoveryTime,
+                    shouldStartPlayback: shouldStartPlayback,
+                    caller: "retryCurrentTrack-downloadFallback(\(reason))"
+                )
                 return
             }
         }
@@ -519,7 +544,13 @@ extension PlaybackService {
             }
         }
 
-        await playCurrentQueueItem(forcingFreshItem: true, seekTo: recoveryTime, caller: "retryCurrentTrack(\(reason))")
+        guard currentRetryBinding == binding else { return }
+        await playCurrentQueueItem(
+            forcingFreshItem: true,
+            seekTo: recoveryTime,
+            shouldStartPlayback: shouldStartPlayback,
+            caller: "retryCurrentTrack(\(reason))"
+        )
     }
 
     /// Handle playback failure due to TLS errors.
@@ -534,12 +565,17 @@ extension PlaybackService {
         defer { endTrackTransitionBackgroundTask(for: generation) }
         // The failed attempt's session ends here, so a late event from it is stale.
         let generation = beginSession()
+        guard let binding = currentRetryBinding else { return }
 
         // A local file, or an item whose one refresh already failed, has failed.
         guard let track = currentTrack,
               track.localFilePath == nil,
               tlsRefreshedItemID != currentQueueItemID else {
-            await handleItemFailure("Unable to establish secure connection to server", generation: generation)
+            await handleItemFailure(
+                "Unable to establish secure connection to server",
+                binding: binding,
+                cause: URLError(.secureConnectionFailed)
+            )
             return
         }
         tlsRefreshedItemID = currentQueueItemID
@@ -560,7 +596,7 @@ extension PlaybackService {
             guard !Task.isCancelled, !PlaybackSessionStateMachine.isCancellation(error),
                   generation == sessionGeneration else { return }
             EnsembleLogger.debug("⚠️ Failed to refresh connection after TLS error: \(error.localizedDescription)")
-            await handleItemFailure("TLS connection error - no working server found", generation: generation)
+            await handleItemFailure("TLS connection error - no working server found", binding: binding, cause: error)
             return
         }
         guard !Task.isCancelled, generation == sessionGeneration else { return }

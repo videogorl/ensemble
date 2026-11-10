@@ -74,6 +74,15 @@ enum PlaybackSessionStateMachine {
         return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 
+    /// The device or server could not be reached, so the same request may work once it is
+    /// back: the connectivity failures the health checker also classifies, DNS included.
+    /// Media, delivery, and HTTP status failures (401, 503) are not.
+    static func isServerUnreachable(_ error: Error) -> Bool {
+        if case PlaybackError.offline = error { return true }
+        if case PlaybackError.serverUnavailable = error { return true }
+        return PlexErrorClassification.classify(underlyingError(error)) == .connectionFailure
+    }
+
     static func isRecoverableNetworkFailure(_ error: Error) -> Bool {
         let nsError = underlyingError(error) as NSError
         guard nsError.domain == NSURLErrorDomain else { return false }

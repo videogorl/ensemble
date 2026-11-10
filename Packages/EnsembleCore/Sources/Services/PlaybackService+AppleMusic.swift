@@ -193,6 +193,7 @@ extension PlaybackService {
             guard queue.indices.contains(currentQueueIndex) else { return }
             let track = queue[currentQueueIndex].track
             guard track.isAppleMusic else { return }
+            let binding = RetryBinding(generation: generation, itemID: queue[currentQueueIndex].id)
 
             audioAnalyzer.pauseUpdates()
             currentTrack = track
@@ -225,7 +226,7 @@ extension PlaybackService {
                       queue.indices.contains(currentQueueIndex),
                       queue[currentQueueIndex].track.playbackIdentity == track.playbackIdentity
                 else { return }
-                clearItemFailureMarkers()
+                noteItemStarted()
                 playbackState = .playing
                 applyPendingSeek()
                 updateNowPlayingInfo()
@@ -241,7 +242,7 @@ extension PlaybackService {
                 guard generation == sessionGeneration else { return }
                 appleMusicPlaybackController?.stop()
                 audioEngine?.stop()
-                await handleItemFailure(error.localizedDescription, generation: generation)
+                await handleItemFailure(error.localizedDescription, binding: binding, cause: error)
             }
         }
 

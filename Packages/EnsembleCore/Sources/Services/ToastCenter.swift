@@ -75,6 +75,18 @@ public final class ToastCenter {
         drainQueueIfNeeded()
     }
 
+    /// Shows `toast` ahead of everything else. A toast it displaces returns once it is dismissed.
+    public func showNow(_ toast: ToastPayload) {
+        if let current = currentToast {
+            autoDismissTask?.cancel()
+            autoDismissTask = nil
+            currentToast = nil
+            queue.insert(current, at: 0)
+        }
+        queue.insert(toast, at: 0)
+        drainQueueIfNeeded()
+    }
+
     public func dismissCurrent() {
         guard let toast = currentToast else { return }
         dismiss(id: toast.id)
