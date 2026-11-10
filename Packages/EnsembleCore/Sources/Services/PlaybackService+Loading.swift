@@ -443,6 +443,21 @@ extension PlaybackService {
         // A reload of a stream that was playing stays in its recovery window: a network failure
         // while resolving or starting it is another failure of the same recovery, not a failed
         // first load, so the window (not the two attempts above) decides when the item fails.
+        // A damaged original falls back once to a transcode, from where it stopped. Network
+        // errors, HTTP statuses and a transcode's own failures never do.
+        if let lastError, transportCoordinator.fallBackToTranscode(after: lastError, trackId: trackIdentity) {
+            EnsembleLogger.playback("TRACK: original damaged at startup -- falling back to a transcode (\(lastError.localizedDescription))")
+            endTrackTransitionBackgroundTask(for: requestGeneration)
+            await playCurrentQueueItem(
+                forcingFreshItem: true,
+                seekTo: request.recoverySeekTime,
+                shouldStartPlayback: shouldStartPlayback,
+                caller: "damaged-original-startup",
+                recoverySlotRelease: recoverySlotRelease
+            )
+            return
+        }
+
         if let recoverySlotRelease, let lastError,
            PlaybackSessionStateMachine.isServerUnreachable(lastError)
             || PlaybackSessionStateMachine.isRecoverableNetworkFailure(lastError) {
@@ -667,6 +682,20 @@ extension PlaybackService {
         return fileURL
     }
 
+    /// A prefetch gets the played track's fallback decision: a damaged original is fetched again
+    /// as a forced transcode, once.
+    func resolveAudioFileFallingBack(
+        for track: Track,
+        shouldContinue: @Sendable () async -> Bool = { true }
+    ) async throws -> URL {
+        do {
+            return try await resolveAudioFile(for: track, shouldContinue: shouldContinue)
+        } catch where transportCoordinator.fallBackToTranscode(after: error, trackId: track.playbackIdentity) {
+            EnsembleLogger.debug("[prefetch] Original of '\(track.title)' is damaged -- fetching a transcode (\(error.localizedDescription))")
+            return try await resolveAudioFile(for: track, shouldContinue: shouldContinue)
+        }
+    }
+
     nonisolated func shouldRetryStreamURLRequest(after error: Error) -> Bool {
         if let plexError = error as? PlexAPIError {
             switch plexError {
@@ -691,6 +720,8 @@ extension PlaybackService {
                 return .serverUnavailable(message: "Server returned HTTP \(code)")
             case .invalidPayload:
                 return .serverUnavailable(message: "Server returned invalid audio data")
+            case .damagedOriginal:
+                return .serverUnavailable(message: "The file is damaged")
             }
         }
 
@@ -989,7 +1020,7 @@ extension PlaybackService {
             {
                 fileURL = cachedURL
             } else {
-                fileURL = try await resolveAudioFile(for: track, shouldContinue: shouldContinue)
+                fileURL = try await resolveAudioFileFallingBack(for: track, shouldContinue: shouldContinue)
             }
 
             // Validate file duration against metadata to catch truncated cached files.
@@ -1002,7 +1033,7 @@ extension PlaybackService {
                 if PlaybackLocalFilePolicy.shouldTreatAsTruncated(fileDuration: fileDuration, expectedDuration: expectedDuration) {
                     EnsembleLogger.debug("[prefetch] Truncated file for '\(track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — evicting and re-downloading")
                     await evictTruncatedFile(fileURL: fileURL, track: track, fileDuration: fileDuration, expectedDuration: expectedDuration)
-                    fileURL = try await resolveAudioFile(for: track, shouldContinue: shouldContinue)
+                    fileURL = try await resolveAudioFileFallingBack(for: track, shouldContinue: shouldContinue)
                 }
             }
 

@@ -1104,16 +1104,18 @@ public func getStreamURL(
         trackStreamKey: String?,
         quality: StreamingQuality,
         metadataDurationSeconds: Double? = nil,
-        startTime: TimeInterval = 0
+        startTime: TimeInterval = 0,
+        forceTranscode: Bool = false
     ) async throws -> StreamDecision {
-        EnsembleLogger.debug("[PlexProvider] makeStreamDecision: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
+        EnsembleLogger.debug("[PlexProvider] makeStreamDecision: ratingKey=\(trackRatingKey), quality=\(quality.rawValue), forceTranscode=\(forceTranscode)")
 
         let decision = try await apiClient.makeStreamDecision(
             ratingKey: trackRatingKey,
             trackStreamKey: trackStreamKey,
             quality: quality,
             metadataDurationSeconds: metadataDurationSeconds,
-            startTime: startTime
+            startTime: startTime,
+            forceTranscode: forceTranscode
         )
         switch decision {
         case .directStream:

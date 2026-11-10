@@ -83,7 +83,8 @@ public protocol MusicSourceTwoPhasePlaybackResolving: MusicSourcePlaybackResolvi
         trackStreamKey: String?,
         quality: StreamingQuality,
         metadataDurationSeconds: Double?,
-        startTime: TimeInterval
+        startTime: TimeInterval,
+        forceTranscode: Bool
     ) async throws -> StreamDecision
 
     func assembleStreamResolution(from decision: StreamDecision) async throws -> StreamResolution

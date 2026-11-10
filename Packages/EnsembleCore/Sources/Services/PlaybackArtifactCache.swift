@@ -17,6 +17,12 @@ struct PlaybackArtifactKey: Codable, Equatable, Sendable {
 
     var isCompleteTrack: Bool { startTime == 0 }
 
+    /// The quality part of a key. A forced transcode is never served as, or cached over, the
+    /// original or a transcode PMS chose itself, so the forcing is part of it.
+    static func requestedQuality(_ quality: StreamingQuality, forcedTranscode: Bool) -> String {
+        forcedTranscode ? "\(quality.rawValue)+forced" : quality.rawValue
+    }
+
     static func sourceFingerprint(for track: Track) -> String {
         let modified = track.dateModified.map { String($0.timeIntervalSince1970) } ?? "unknown"
         return "\(track.streamKey ?? track.key)|\(modified)|\(track.duration)"

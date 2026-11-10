@@ -1179,7 +1179,7 @@ public final class AudioPlaybackEngine {
             if read == 0, isComplete {
                 DispatchQueue.main.async { [weak self, weak pipeline] in
                     guard let self, let pipeline, self.streamingPipeline === pipeline else { return }
-                    self.handleStreamingComplete(generation: completionGeneration)
+                    self.handleStreamingComplete(generation: completionGeneration, earlyEnd: pipeline.earlyEndError)
                 }
             }
             return noErr
@@ -2121,7 +2121,7 @@ public final class AudioPlaybackEngine {
         let position = streamingStartTime + Double(progress.consumedFrames) / sampleRate
         updateDurablePlaybackPosition(position)
         if fileDuration > 0, position >= fileDuration, wasPlaying, !streamingCompletionNotified {
-            handleStreamingComplete(generation: streamingCompletionGeneration)
+            handleStreamingComplete(generation: streamingCompletionGeneration, earlyEnd: nil)
             return
         }
         let reserve = Double(progress.bufferedFrames) / sampleRate
@@ -2391,10 +2391,16 @@ public final class AudioPlaybackEngine {
         EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset.map(String.init) ?? "nil")")
     }
 
-    private func handleStreamingComplete(generation: UInt64) {
+    private func handleStreamingComplete(generation: UInt64, earlyEnd: Error?) {
         guard generation == streamingCompletionGeneration else { return }
         guard wasPlaying, !streamingCompletionNotified else { return }
         streamingCompletionNotified = true
+        if let earlyEnd {
+            // The audio played out to where it really ends; that end is a failure, not a finish.
+            EnsembleLogger.debug("[AudioEngine] Streaming source ended early -- \(earlyEnd.localizedDescription)")
+            onError?(earlyEnd, nil, playbackRequestGeneration)
+            return
+        }
         wasPlaying = false
         stopTimeUpdates()
         EnsembleLogger.debug("[AudioEngine] Streaming source complete -- queue exhausted")

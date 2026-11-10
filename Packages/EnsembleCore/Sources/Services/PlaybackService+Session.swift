@@ -104,8 +104,19 @@ extension PlaybackService {
         let now = streamRecoveryClock()
         let known = streamRecovery?.itemID == itemID ? streamRecovery : nil
         let startedAt = known?.startedAt ?? now
+        // Invalid audio fails at once. A damaged original falls back once, to a transcode: the
+        // reload below resolves to it. A second damage, or any other media failure, fails.
         var isInvalidAudio = false
-        if case .invalidPayload? = error as? ProgressiveStreamError { isInvalidAudio = true }
+        switch error as? ProgressiveStreamError {
+        case .invalidPayload?:
+            isInvalidAudio = true
+        case .damagedOriginal?:
+            isInvalidAudio = currentTrack.map {
+                !transportCoordinator.fallBackToTranscode(after: error, trackId: $0.playbackIdentity)
+            } ?? true
+        default:
+            break
+        }
         // Reloads are paced: a server that sends enough to start and then drops must not be
         // reloaded in a tight loop.
         let wait = max(0, Self.streamRecoveryMinInterval - (now - (known?.lastReloadAt ?? -.infinity)))
@@ -326,6 +337,7 @@ extension PlaybackService {
         // A fresh start reports "playing", as a resume already does (D4).
         reportingController.reportState(track: track, state: "playing", time: currentTime)
         noteItemStarted()
+        noteReducedQuality(trackID: trackID)
         applyPendingSeek()
         guard playbackState == .loading || playbackState == .buffering else { return }
         playbackState = .playing
@@ -463,6 +475,7 @@ extension PlaybackService {
         currentTrack = newTrack ?? queue[index].track
         let position = kind == .crossfade ? (audioEngine?.currentTime() ?? 0) : 0
         resetForNewItem(at: position, isFullyBuffered: engine == .native)
+        noteReducedQuality(trackID: currentTrack?.playbackIdentity)
         if playbackState != .playing {
             playbackState = .playing
         }
@@ -611,6 +624,20 @@ extension PlaybackService {
         playbackState = .failed(message)
         haltWaitsForServer = waitsForServer
         updateNowPlayingInfo()
+    }
+
+    /// Tells the user, quietly, that a track whose original is damaged is playing as a transcode.
+    @MainActor
+    func noteReducedQuality(trackID: String?) {
+        guard let trackID, transportCoordinator.hasFallenBackToTranscode(trackId: trackID) else { return }
+        toastCenter?.show(ToastPayload(
+            style: .info,
+            iconSystemName: "exclamationmark.circle",
+            title: "Playing at reduced quality",
+            message: "The original file is damaged, so a lower-quality copy is playing.",
+            duration: 4,
+            dedupeKey: "reduced-quality-\(trackID)"
+        ))
     }
 
     /// Halting on an error offers Retry and stays until acted on or replaced.

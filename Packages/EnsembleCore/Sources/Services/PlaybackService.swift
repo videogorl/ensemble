@@ -603,11 +603,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 guard let self else { return nil }
                 return await self.syncCoordinator.serverFailureMessage(for: track)
             },
-            makeStreamDecision: { [weak self] track, quality, startTime in
+            makeStreamDecision: { [weak self] track, quality, startTime, forceTranscode in
                 guard let self else {
                     throw PlaybackError.unknown(NSError(domain: "PlaybackService", code: -1))
                 }
-                return try await self.syncCoordinator.makeStreamDecision(for: track, quality: quality, startTime: startTime)
+                return try await self.syncCoordinator.makeStreamDecision(
+                    for: track, quality: quality, startTime: startTime, forceTranscode: forceTranscode
+                )
             },
             assembleStreamResolution: { [weak self] track, decision in
                 guard let self else {
