@@ -97,6 +97,29 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
     /// Same at original quality, the direct PCM path of the d735bf26 fix.
     func testG1b_WAVStreamsToNaturalEnd_OriginalQuality() throws { try streamWAVToEnd(quality: "original") }
 
+    /// One direct download per server: the first track's download is held incomplete (15 s chunk delay), so the
+    /// successor's prefetch, which starts at first audio, would otherwise request its own file mid-download and
+    /// make Plex end the first ("Client stopped playback", NSURLErrorDomain -1005). Pass: the first track plays
+    /// and stays kind=directHTTP, the advance happens, and the session log has no "failed after startup".
+    /// The Plex log check is done by the runner. `TEST_RUNNER_ENSEMBLE_SERIAL_TRACKS=a,b` picks other original-
+    /// quality tracks when the library lacks the default WAV pair.
+    func testG1g_SuccessorPrefetchWaitsForDirectDownload() throws {
+        let keys = ProcessInfo.processInfo.environment["ENSEMBLE_SERIAL_TRACKS"]?.split(separator: ",").map(String.init)
+            ?? [Key.wav, Key.wavNext]
+        launch(quality: "original", forceStream: true, environment: [
+            "ENSEMBLE_AUTOMATION_STREAM_DELAY_TRACK": keys[0],
+            "ENSEMBLE_AUTOMATION_STREAM_DELAY_SECONDS": "15",
+        ])
+        play(keys)
+        let first = wait(90, "first track playing") { $0.id == keys[0] && $0.state == "playing" && $0.pos >= 3 }
+        XCTAssertNotNil(first, "First track did not start streaming")
+        let advanced = wait(420, "advance to the successor") { $0.id == keys[1] && $0.state == "playing" }
+        XCTAssertNotNil(advanced, "Playback did not advance after the first track's natural end")
+        let later = wait(30, "successor progressing") { $0.id == keys[1] && $0.pos >= 3 }
+        XCTAssertNotNil(later, "Successor did not progress")
+        XCTAssertEqual(app.state, .runningForeground, "App left the foreground (crash?)")
+    }
+
     func testG1c_MP3Streams20s() throws { try streamSeconds(Key.mp3, quality: nil) }
     func testG1d_AAC_Streams20s() throws { try streamSeconds(Key.aac, quality: nil) }
     func testG1e_FLACStreams20s_DefaultQuality() throws { try streamSeconds(Key.flac, quality: nil) }
