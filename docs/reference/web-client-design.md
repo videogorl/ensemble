@@ -130,9 +130,13 @@ Behavior:
 - Only an explicit removal by the user sets `removedAt`. A device that is
   not signed in to a source, or fails to reach it, never removes it. Entries
   merge per `serverSourceKey`, newest change wins, like library flags.
-- On native, Plex accounts already arrive through iCloud Keychain, so the
-  list mostly helps the web app and Apple Music, which is authorized per
-  device.
+- On native, Plex accounts already arrive through iCloud Keychain (the
+  existing **Sources** sync feature, `bootstrapSources`), so the list mostly
+  helps the web app and Apple Music, which is authorized per device. The
+  Keychain path stays: it carries the tokens, and this list never does.
+- The per-feature sync switches in `SyncSettingsManager` (Sources, Hidden
+  items, and the rest) keep working: a switched-off feature neither sends
+  nor applies its record.
 
 ## 4. Native migration
 
@@ -151,8 +155,11 @@ needs iOS 17 and macOS 14. The floors were raised on 2026-10-13.
 
 What `CKSyncEngine` changes for reliability:
 
-- Unsent changes are queued and survive relaunch; today a failed push is
-  dropped until the next local change or launch.
+- Unsent changes are queued and retried by the system. Today nothing is
+  lost either, because local state persists, but a failed push waits for
+  `CloudSyncCoordinator`'s own retry schedule (`firstConnectRetryDelays`),
+  the next foreground, or a manual refresh. `CKSyncEngine` replaces that
+  bootstrap and retry machinery.
 - It creates the zone and the subscription, follows change tokens, and backs
   off on rate limits and quota errors, replacing the hand-written
   `nextProfilePullAllowedAt` throttle.
