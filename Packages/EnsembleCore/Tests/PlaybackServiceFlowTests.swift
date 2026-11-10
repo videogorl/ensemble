@@ -69,7 +69,8 @@ final class PlaybackServiceFlowTests: XCTestCase {
     /// by the duration check) gets a bounded number of retries, then the item-failure
     /// contract: skip once while playing, halt if the skipped-to item fails too.
     func testRepeatedPostStartupStreamFailureIsBoundedThenFailsTheItem() async throws {
-        let service = await makeService()
+        let toasts = ToastCenter()
+        let service = await makeService(toastCenter: toasts)
         let tracks = try ["a", "b", "c"].map { try makeTrack($0) }
         service.queue = tracks.map { QueueItem(track: $0) }
         service.currentQueueIndex = 0
@@ -88,6 +89,8 @@ final class PlaybackServiceFlowTests: XCTestCase {
         }
         await recover()
         XCTAssertEqual(service.currentQueueIndex, 1, "the spent budget fails the item, which is skipped")
+        XCTAssertEqual(toasts.currentToast?.title, "Skipped a")
+        XCTAssertNil(toasts.currentToast?.action, "a skip offers no Retry")
 
         // The item reached by that skip fails too once its budget is spent: halt on the error.
         service.playbackState = .playing
@@ -98,6 +101,10 @@ final class PlaybackServiceFlowTests: XCTestCase {
         guard case .failed = service.playbackState else {
             return XCTFail("expected halt, got \(service.playbackState)")
         }
+        XCTAssertEqual(toasts.currentToast?.action?.title, "Retry", "the halt replaces the skip toast with one that offers Retry")
+        XCTAssertTrue(toasts.currentToast?.isPersistent == true)
+        service.playbackState = .paused
+        XCTAssertNil(toasts.currentToast, "leaving the failed state dismisses the halt toast")
         service.audioEngine?.stop()
     }
 
@@ -105,7 +112,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"
 
-    private func makeService() async -> PlaybackService {
+    private func makeService(toastCenter: ToastCenter? = nil) async -> PlaybackService {
         let accountManager = AccountManager(keychain: TestKeychain())
         accountManager.addPlexAccount(
             PlexAccountConfig(
@@ -156,7 +163,8 @@ final class PlaybackServiceFlowTests: XCTestCase {
             audioAnalyzer: FrequencyAnalysisService(),
             downloadManager: DownloadManager(coreDataStack: stack),
             queueStore: queueStore,
-            trackRatingLocalStore: TrackRatingLocalStore(coreDataStack: stack)
+            trackRatingLocalStore: TrackRatingLocalStore(coreDataStack: stack),
+            toastCenter: toastCenter
         )
     }
 

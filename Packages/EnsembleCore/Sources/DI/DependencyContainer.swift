@@ -511,7 +511,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 downloadManager: core.downloadManager,
                 trackRatingLocalStore: trackRatingLocalStore,
                 foregroundWorkScheduler: foregroundWorkScheduler,
-                libraryChanges: core.libraryChanges
+                libraryChanges: core.libraryChanges,
+                toastCenter: core.toastCenter
             )
         }
         let cacheManager = MainActor.assumeIsolated {

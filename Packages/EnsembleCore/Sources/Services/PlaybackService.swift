@@ -266,6 +266,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard playbackState != oldValue else { return }
             let trackTitle = currentTrack?.title ?? "nil"
             EnsembleLogger.playback("STATE: \(oldValue) → \(playbackState), track='\(trackTitle)'")
+            if case let .failed(message) = playbackState {
+                showHaltToast(message)
+            } else if case .failed = oldValue {
+                dismissFailureToast()
+            }
             updateNetworkWorkPressure()
             syncHandoffStateWithPlaybackState()
             refreshPresentationTime()
@@ -403,6 +408,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Tracks consecutive playback failures to stop rapid retry loops when server is unreachable
     /// The item reached by skipping a failed one; if it fails too, playback halts (G11).
     var failureSkipItemID: String?
+    /// Where playback failures are shown; nil in headless contexts.
+    let toastCenter: ToastCenter?
+    /// The one failure toast on screen; a newer failure replaces it in place.
+    var failureToastID: UUID?
     /// The item whose TLS failure already had its one connection refresh.
     var tlsRefreshedItemID: String?
     var networkStateObservation: StreamSubscription?
@@ -636,7 +645,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         downloadManager: DownloadManagerProtocol,
         trackRatingLocalStore: TrackRatingLocalStoring = TrackRatingLocalStore(coreDataStack: .shared),
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil,
-        libraryChanges: LibraryChanges? = nil
+        libraryChanges: LibraryChanges? = nil,
+        toastCenter: ToastCenter? = nil
     ) {
         self.init(
             syncCoordinator: syncCoordinator,
@@ -647,7 +657,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             queueStore: PlaybackQueueStore(),
             trackRatingLocalStore: trackRatingLocalStore,
             foregroundWorkScheduler: foregroundWorkScheduler,
-            libraryChanges: libraryChanges
+            libraryChanges: libraryChanges,
+            toastCenter: toastCenter
         )
     }
 
@@ -660,9 +671,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         queueStore: PlaybackQueueStore,
         trackRatingLocalStore: TrackRatingLocalStoring = TrackRatingLocalStore(coreDataStack: .shared),
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil,
-        libraryChanges: LibraryChanges? = nil
+        libraryChanges: LibraryChanges? = nil,
+        toastCenter: ToastCenter? = nil
     ) {
         self.libraryChanges = libraryChanges
+        self.toastCenter = toastCenter
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
         self.artworkLoader = artworkLoader

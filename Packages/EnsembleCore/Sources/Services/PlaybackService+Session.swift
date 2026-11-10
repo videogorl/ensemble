@@ -483,6 +483,7 @@ extension PlaybackService {
             EnsembleLogger.playback(
                 "ITEM_FAILED: '\(currentTrack?.title ?? "nil")' (\(message)) — skipping to idx \(index)"
             )
+            showSkipToast(trackTitle: currentTrack?.title, message: message)
             failureSkipItemID = queue[index].id
             tlsRefreshedItemID = nil
             await performQueueAdvance(.item(index: index, wrapped: false), caller: "itemFailed-skip")
@@ -493,6 +494,47 @@ extension PlaybackService {
         clearItemFailureMarkers()
         playbackState = .failed(message)
         updateNowPlayingInfo()
+    }
+
+    /// Halting on an error offers Retry and stays until acted on or replaced.
+    @MainActor
+    func showHaltToast(_ message: String) {
+        showFailureToast(ToastPayload(
+            style: .error,
+            iconSystemName: "exclamationmark.triangle",
+            title: "Playback stopped",
+            message: message,
+            action: ToastAction(title: "Retry") { [weak self] in
+                guard let self else { return }
+                Task { await self.retryCurrentTrack() }
+            },
+            isPersistent: true
+        ))
+    }
+
+    @MainActor
+    func showSkipToast(trackTitle: String?, message: String) {
+        showFailureToast(ToastPayload(
+            style: .warning,
+            iconSystemName: "exclamationmark.triangle",
+            title: "Skipped \(trackTitle ?? "track")",
+            message: message
+        ))
+    }
+
+    @MainActor
+    func dismissFailureToast() {
+        guard let id = failureToastID else { return }
+        failureToastID = nil
+        toastCenter?.dismiss(id: id)
+    }
+
+    @MainActor
+    private func showFailureToast(_ toast: ToastPayload) {
+        dismissFailureToast()
+        guard let toastCenter else { return }
+        failureToastID = toast.id
+        toastCenter.show(toast)
     }
 
     /// Begins a background task to keep the app alive during track transitions.

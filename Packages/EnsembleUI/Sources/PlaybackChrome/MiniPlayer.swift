@@ -181,7 +181,7 @@ public struct MiniPlayer: View {
 
 // MARK: - Track Info Sub-View
 
-/// Handles track display (artwork + text + swipe gesture), error banner, and
+/// Handles track display (artwork + text + swipe gesture) and
 /// the "Nothing Playing" empty state. Owns @ObservedObject so only this slice
 /// re-renders on NVM changes — the parent MiniPlayer body (gestures, background,
 /// context menu) stays untouched.
@@ -209,32 +209,6 @@ private struct MiniPlayerTrackInfo: View {
 
     var body: some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
-            // Error banner (if playback failed)
-            if case let .failed(errorMessage) = playbackProjection.playbackState {
-                HStack(spacing: EnsembleDesign.Spacing.sm) {
-                    Image(systemName: EnsembleDesign.Icon.error)
-                        .font(EnsembleDesign.Typography.rowSecondary)
-
-                    Text(errorMessage)
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .lineLimit(1)
-
-                    Spacer()
-
-                    Button("Retry") {
-                        Task {
-                            await viewModel.retryCurrentTrack()
-                        }
-                    }
-                    .font(EnsembleDesign.Typography.rowSecondary.weight(.semibold))
-                    .foregroundColor(EnsembleDesign.Color.onAccent)
-                }
-                .foregroundColor(EnsembleDesign.Color.onAccent)
-                .padding(.horizontal, EnsembleDesign.Spacing.md)
-                .padding(.vertical, EnsembleDesign.Spacing.chipVertical)
-                .background(EnsembleDesign.Color.warning)
-            }
-
             if let track = playbackProjection.currentTrack {
                 Group {
                     if showsWaveform {

@@ -336,6 +336,15 @@ pass before step 0 is called verified.
   which the simulator run did not exercise. Simulator results:
   [step 6d note](../investigations/2026-11-10-step-6d-track-list-host.md).
 
+- Playback errors as toasts (not simulator-run; only the unit test ran): with
+  a real damaged track (11700 "Noah's Descendants", HTTP 400) followed by a
+  good one, a "Skipped …" toast names the track and playback continues. With
+  two bad tracks in a row (11700 then 11631 "Christmas in June"), playback
+  stops, one persistent "Playback stopped" toast shows Retry, and Retry retries
+  (the toast disappears; leaving the failed state by any route also dismisses
+  it). A failure while paused starts nothing. In every case the mini player
+  shows the track in its normal paused state with no error text.
+
 ## Mac
 
 - Share Link with Apple Music access denied: confirm what is shared (the code
