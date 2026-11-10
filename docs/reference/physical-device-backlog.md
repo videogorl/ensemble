@@ -504,7 +504,7 @@ simulator with the DEBUG drop hook and in unit tests; a real network change is n
 
 | Check | Status |
 | --- | --- |
-| iPhone SE, WAV pair 8731/8732 at original quality: `PhonePlaybackAcceptanceUITests.testG1h_ConnectionDropMidDownloadKeepsPlaying`. The probe stays `playing`, position keeps advancing through the drop, the track ends and 8732 plays; the session log has `injectedStreamDrop` and `[StreamingPipeline] resumed` | Owed |
+| iPhone SE, WAV pair 8731/8732 at original quality: `PhonePlaybackAcceptanceUITests.testG1h_ConnectionDropMidDownloadKeepsPlaying`. The probe stays `playing`, position keeps advancing through the drop, the track ends and 8732 plays; the session log has `injectedStreamDrop` and `[StreamingPipeline] resumed` | Passed on the SE on 2026-11-10 (build 202611101056.9843): dropped at 1,015,808 of 50,699,330 bytes, resumed 0.26 s later at the same offset, state stayed `playing`, 8732 followed from the stream cache |
 | A real Wi-Fi to cellular switch mid-track at original quality (needs a phone with a SIM; the SE has none): playback continues without buffering while the reserve lasts, the session log shows `resumeRequested` right after the path change, and the audio after the switch is the original file, not an MP3 transcode | Owed |
-| Plex log for the SE run: no `Client stopped playback` for the in-flight part, and the ranged request is answered 206 | Owed |
+| Plex log for the SE run: no `Client stopped playback` for the in-flight part, and the ranged request is answered 206 | Passed on 2026-11-10: `range: bytes=1015808-` answered 206 with 49,683,522 bytes (the exact remainder); the only terminations fall on downloads that had already closed |
 
