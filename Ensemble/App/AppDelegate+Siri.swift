@@ -474,23 +474,19 @@ private func waitForPotentialExternalRoute(
     }
 
     // HomePod requests can establish the AirPlay route shortly after Siri
-    // wakes the app. Poll briefly before and after playback setup to avoid
+    // wakes the app. Wait briefly before and after playback setup to avoid
     // racing local speaker playback when route transfer is still in flight.
-    let stepNanoseconds: UInt64 = 250_000_000
-    var waited: UInt64 = 0
-
-    while waited < timeoutNanoseconds {
-        try? await Task.sleep(nanoseconds: stepNanoseconds)
-        waited += stepNanoseconds
-
-        let outputs = session.currentRoute.outputs
-        if hasExternalOutputRoute(outputs) {
-            let route = outputs
-                .map { "\($0.portType.rawValue):\($0.portName)" }
-                .joined(separator: ",")
-            AppLogger.info("SIRI_APP: [origin=\(origin)][phase=\(phase)] Route switched to external: \(route)")
-            return true
-        }
+    let switched = await NotificationCenter.default.waitUntil(
+        { hasExternalOutputRoute(session.currentRoute.outputs) },
+        after: AVAudioSession.routeChangeNotification,
+        timeout: .nanoseconds(Int64(timeoutNanoseconds))
+    )
+    if switched {
+        let route = session.currentRoute.outputs
+            .map { "\($0.portType.rawValue):\($0.portName)" }
+            .joined(separator: ",")
+        AppLogger.info("SIRI_APP: [origin=\(origin)][phase=\(phase)] Route switched to external: \(route)")
+        return true
     }
 
     let route = session.currentRoute.outputs

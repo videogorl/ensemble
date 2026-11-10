@@ -443,6 +443,14 @@ pass before step 0 is called verified.
   and Repeat All; with repeat off, Next and a natural end leave the last track
   paused at the start.
 
+- Siri AirPlay handoff, route-change wait (simplification batch, 2026-11-10):
+  the app now waits for `AVAudioSession.routeChangeNotification` instead of
+  polling every 250 ms. Needs a HomePod (not available on a simulator): ask
+  Siri on the iPhone to play something on the HomePod, with the app killed and
+  with it running. Playback must start on the HomePod after the app's nudge,
+  without a stretch of local speaker audio, and the SIRI_APP log must show
+  "Route switched to external" in the preExecute or postExecute phase.
+
 - iPadOS 17, step 6c: accepted as untested on 2026-11-09 (no simulator
   runtime for this Xcode, no device). If an iPadOS 17 iPad becomes available:
   Artists, Genres and Playlists show detail in the next column, rotation and

@@ -213,8 +213,7 @@ public final class AccountManager {
     private var accountLoadGeneration = 0
     private var nextSourceConfigurationRevision: UInt64 = 0
     private var sourceConfigurationRevisions: [String: UInt64] = [:]
-    private static let accountLoadPollNanoseconds: UInt64 = 25_000_000
-    private static let accountLoadPollLimit = 40
+    private static let accountLoadTimeout: Duration = .seconds(1)
     nonisolated private static let authMigrationVersionKey = "plex_auth_migration_version"
     nonisolated private static let authMigrationVersion = 2
     private static let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
@@ -279,22 +278,29 @@ public final class AccountManager {
                 Self.readAccountLoadResult(keychain: keychain)
             }
             accountLoadTask = task
+        }
 
-            Task { @MainActor [weak self] in
-                let result = await task.value
-                guard let self, self.accountLoadGeneration == generation else { return }
+        guard let task = accountLoadTask else { return }
+        let generation = accountLoadGeneration
+        let (finished, signal) = AsyncStream.makeStream(of: Void.self)
+        // Every waiter applies the result; whichever runs first clears `accountLoadTask`.
+        // A result arriving after the deadline is still applied.
+        Task { [weak self] in
+            let result = await task.value
+            if let self, self.accountLoadGeneration == generation, self.accountLoadTask != nil {
                 self.accountLoadTask = nil
                 self.applyAccountLoadResult(result)
             }
+            signal.yield()
         }
-
-        for _ in 0..<Self.accountLoadPollLimit {
-            guard accountLoadTask != nil else { return }
-            guard !Task.isCancelled else { return }
-            try? await Task.sleep(nanoseconds: Self.accountLoadPollNanoseconds)
+        let deadline = Task {
+            try? await Task.sleep(for: Self.accountLoadTimeout)
+            signal.yield()
         }
+        await finished.first { _ in true }
+        deadline.cancel()
 
-        guard accountLoadTask != nil else { return }
+        guard accountLoadTask != nil, !Task.isCancelled else { return }
         credentialLoadState = .unavailable
         EnsembleLogger.error("AccountManager: credential read timed out; preserving cached source data")
     }
