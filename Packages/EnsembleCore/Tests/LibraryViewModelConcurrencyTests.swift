@@ -235,18 +235,6 @@ final class LibraryViewModelConcurrencyTests: XCTestCase {
             try await repository.removeOrphanedGenres(notIn: validRatingKeys, forSource: sourceKey)
         }
 
-        func fetchTrackRatings(forSource sourceKey: String) async throws -> [String: Int16] {
-            try await repository.fetchTrackRatings(forSource: sourceKey)
-        }
-
-        func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
-            try await repository.fetchAlbumTimestamps(forSource: sourceKey)
-        }
-
-        func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
-            try await repository.fetchTrackTimestamps(forSource: sourceKey)
-        }
-
         func batchUpsertArtists(_ inputs: [ArtistUpsertInput], sourceCompositeKey: String) async throws {
             try await repository.batchUpsertArtists(inputs, sourceCompositeKey: sourceCompositeKey)
         }

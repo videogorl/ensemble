@@ -331,7 +331,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
     func testAppleMusicArtworkURLConvertsPrivateMusicKitAsset() async throws {
         let path = "musicKit://artwork/library/example/1200x1200?aat=Music115%2Fv4%2Fcover.png&at=item"
 
-        let url = try await AppleMusicSourceProvider().getArtworkURL(path: path, size: 300)
+        let url = try await AppleMusicConnector().getArtworkURL(path: path, size: 300)
 
         XCTAssertEqual(
             url?.absoluteString,
@@ -342,7 +342,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
     @available(iOS 18, *)
     func testAppleMusicFavoriteUsesResourceTypedSongID() throws {
         XCTAssertEqual(
-            try AppleMusicSourceProvider.favoritePath(catalogID: "1613600188"),
+            try AppleMusicConnector.favoritePath(catalogID: "1613600188"),
             "/v1/me/favorites?ids%5Bsongs%5D=1613600188"
         )
     }
@@ -365,22 +365,22 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         """#.utf8)
 
         XCTAssertEqual(
-            try AppleMusicSourceProvider.librarySongPath(libraryID: "i.library-song"),
+            try AppleMusicConnector.librarySongPath(libraryID: "i.library-song"),
             "/v1/me/library/songs/i.library-song?include=catalog"
         )
         XCTAssertEqual(
-            try AppleMusicSourceProvider.catalogID(in: data, libraryID: "i.library-song"),
+            try AppleMusicConnector.catalogID(in: data, libraryID: "i.library-song"),
             "6793692936"
         )
-        XCTAssertNil(try AppleMusicSourceProvider.catalogID(in: data, libraryID: "i.other-song"))
+        XCTAssertNil(try AppleMusicConnector.catalogID(in: data, libraryID: "i.other-song"))
     }
 
     @available(iOS 18, *)
     func testAppleMusicPaginationPreservesRequestedExtensions() {
         XCTAssertEqual(
-            AppleMusicSourceProvider.continuationPath(
+            AppleMusicConnector.continuationPath(
                 "/v1/me/library/songs?offset=100",
-                preservingQueryFrom: AppleMusicSourceProvider.librarySongsPath
+                preservingQueryFrom: AppleMusicConnector.librarySongsPath
             ),
             "/v1/me/library/songs?offset=100&limit=100&extend=inFavorites&include=albums,artists,catalog"
         )
@@ -388,11 +388,11 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
 
     @available(iOS 18, *)
     func testAppleMusicHubFetchDistinguishesEmptyFromFailure() async {
-        let empty = await AppleMusicSourceProvider.availableHub(
+        let empty = await AppleMusicConnector.availableHub(
             kind: .recentlyAdded,
             named: "Recently Added"
         ) { nil }
-        let failed = await AppleMusicSourceProvider.availableHub(
+        let failed = await AppleMusicConnector.availableHub(
             kind: .recentlyPlayed,
             named: "Recently Played"
         ) { throw URLError(.notConnectedToInternet) }
@@ -480,17 +480,17 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             elapsedMilliseconds: 25
         )
 
-        let track = AppleMusicSourceProvider.trackUpsertInput(
+        let track = AppleMusicConnector.trackUpsertInput(
             song,
             metadata: snapshot.songsByID[song.id],
             existing: nil,
             isFavorite: false
         )
-        let album = try XCTUnwrap(AppleMusicSourceProvider.albumUpsertInputs(
+        let album = try XCTUnwrap(AppleMusicConnector.albumUpsertInputs(
             from: [song],
             dateAddedByLibraryID: snapshot.albumDateAddedByID
         ).first)
-        let artist = try XCTUnwrap(AppleMusicSourceProvider.artistUpsertInputs(
+        let artist = try XCTUnwrap(AppleMusicConnector.artistUpsertInputs(
             from: [song],
             dateAddedByLibraryID: snapshot.artistDateAddedByID
         ).first)
@@ -508,14 +508,14 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         XCTAssertTrue(artist.updatesDateAdded)
         XCTAssertEqual(snapshot.elapsedMilliseconds, 25)
         XCTAssertEqual(
-            AppleMusicSourceProvider.albumUpsertInputs(
+            AppleMusicConnector.albumUpsertInputs(
                 from: [song],
                 songMetadataByLibraryID: snapshot.songsByID
             ).first?.dateAdded,
             trackDate
         )
         XCTAssertEqual(
-            AppleMusicSourceProvider.artistUpsertInputs(
+            AppleMusicConnector.artistUpsertInputs(
                 from: [song],
                 songMetadataByLibraryID: snapshot.songsByID
             ).first?.dateAdded,
@@ -536,7 +536,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             elapsedMilliseconds: 0
         )
         XCTAssertNil(catalogIdentityOnly.songsByID[song.id])
-        let preserved = AppleMusicSourceProvider.trackUpsertInput(
+        let preserved = AppleMusicConnector.trackUpsertInput(
             song,
             metadata: catalogIdentityOnly.songsByID[song.id],
             existing: .init(track),
@@ -603,12 +603,12 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         """#.utf8)
         let playlists = try JSONDecoder().decode(Page<LibraryPlaylist>.self, from: data).data
 
-        let restOnly = AppleMusicSourceProvider.restOnlyPlaylists(
+        let restOnly = AppleMusicConnector.restOnlyPlaylists(
             playlists,
             excluding: ["shared"]
         )
         let inputs = Dictionary(uniqueKeysWithValues: restOnly.map {
-            ($0.id, AppleMusicSourceProvider.playlistInput($0, duration: 0, trackCount: 0))
+            ($0.id, AppleMusicConnector.playlistInput($0, duration: 0, trackCount: 0))
         })
 
         XCTAssertEqual(Set(restOnly.map(\.id)), ["personal", "editorial"])
@@ -619,7 +619,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
 
         let restModifiedAt = try XCTUnwrap(playlists[0].dateModified)
         XCTAssertEqual(inputs["personal"]?.dateModified, restModifiedAt)
-        XCTAssertFalse(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
+        XCTAssertFalse(AppleMusicConnector.shouldRefreshPlaylistBody(
             existing: applePlaylistState(
                 trackCount: 1,
                 membershipRatingKeys: ["track"],
@@ -629,7 +629,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             refreshAllBodies: false
         ))
 
-        let shared = AppleMusicSourceProvider.playlistInput(
+        let shared = AppleMusicConnector.playlistInput(
             playlists[2],
             duration: 0,
             trackCount: 0
@@ -664,7 +664,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         """#.utf8)
         let songs = try JSONDecoder().decode(Page<LibrarySong>.self, from: data).data
 
-        let inputs = AppleMusicSourceProvider.albumUpsertInputs(from: songs)
+        let inputs = AppleMusicConnector.albumUpsertInputs(from: songs)
 
         XCTAssertEqual(inputs.count, 1)
         XCTAssertEqual(inputs[0].trackCount, 2)
@@ -672,7 +672,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
 
     @available(iOS 18, *)
     func testAppleMusicUserPlaylistCanAddWithoutRenameOrDelete() {
-        let capabilities = AppleMusicSourceProvider.playlistActionCapabilities(
+        let capabilities = AppleMusicConnector.playlistActionCapabilities(
             id: UUID().uuidString,
             isSmart: false,
             canEdit: true
@@ -697,42 +697,42 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         let bodyless = applePlaylistState(trackCount: 5, membershipRatingKeys: [], modifiedAt: modifiedAt)
         let empty = applePlaylistState(trackCount: 0, membershipRatingKeys: [], modifiedAt: modifiedAt)
 
-        XCTAssertTrue(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
+        XCTAssertTrue(AppleMusicConnector.shouldRefreshPlaylistBody(
             existing: nil,
             modifiedAt: modifiedAt,
             refreshAllBodies: false
         ))
-        XCTAssertFalse(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
+        XCTAssertFalse(AppleMusicConnector.shouldRefreshPlaylistBody(
             existing: complete,
             modifiedAt: modifiedAt,
             refreshAllBodies: false
         ))
-        XCTAssertTrue(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
+        XCTAssertTrue(AppleMusicConnector.shouldRefreshPlaylistBody(
             existing: complete,
             modifiedAt: modifiedAt.addingTimeInterval(1),
             refreshAllBodies: false
         ))
-        XCTAssertTrue(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
+        XCTAssertTrue(AppleMusicConnector.shouldRefreshPlaylistBody(
             existing: partial,
             modifiedAt: modifiedAt,
             refreshAllBodies: false
         ))
-        XCTAssertTrue(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
+        XCTAssertTrue(AppleMusicConnector.shouldRefreshPlaylistBody(
             existing: bodyless,
             modifiedAt: modifiedAt,
             refreshAllBodies: false
         ))
-        XCTAssertFalse(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
+        XCTAssertFalse(AppleMusicConnector.shouldRefreshPlaylistBody(
             existing: empty,
             modifiedAt: modifiedAt,
             refreshAllBodies: false
         ))
-        XCTAssertTrue(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
+        XCTAssertTrue(AppleMusicConnector.shouldRefreshPlaylistBody(
             existing: complete,
             modifiedAt: modifiedAt,
             refreshAllBodies: true
         ))
-        XCTAssertTrue(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
+        XCTAssertTrue(AppleMusicConnector.shouldRefreshPlaylistBody(
             existing: complete,
             modifiedAt: nil,
             refreshAllBodies: false
@@ -748,7 +748,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             modifiedAt: modifiedAt
         )
 
-        let plan = AppleMusicSourceProvider.playlistPersistencePlan(
+        let plan = AppleMusicConnector.playlistPersistencePlan(
             existing: existing,
             input: applePlaylistInput(trackCount: 2, modifiedAt: modifiedAt),
             membershipSnapshots: appleMembershipSnapshots(["one", "two"])
@@ -771,7 +771,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            AppleMusicSourceProvider.playlistPersistencePlan(
+            AppleMusicConnector.playlistPersistencePlan(
                 existing: existing,
                 input: applePlaylistInput(
                     title: "Renamed Playlist",
@@ -783,7 +783,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             .init(writesHeader: true, writesBody: false, ignoresStaleResponse: false)
         )
         XCTAssertEqual(
-            AppleMusicSourceProvider.playlistPersistencePlan(
+            AppleMusicConnector.playlistPersistencePlan(
                 existing: existing,
                 input: applePlaylistInput(trackCount: 2, modifiedAt: modifiedAt),
                 membershipSnapshots: appleMembershipSnapshots(["two", "one"])
@@ -822,7 +822,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
         )
 
-        let plan = AppleMusicSourceProvider.playlistPersistencePlan(
+        let plan = AppleMusicConnector.playlistPersistencePlan(
             existing: existing,
             input: applePlaylistInput(trackCount: 1, modifiedAt: modifiedAt),
             membershipSnapshots: [changedSnapshot]
@@ -842,17 +842,17 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             modifiedAt: modifiedAt
         )
 
-        let added = AppleMusicSourceProvider.playlistPersistencePlan(
+        let added = AppleMusicConnector.playlistPersistencePlan(
             existing: existing,
             input: applePlaylistInput(trackCount: 3, modifiedAt: modifiedAt),
             membershipSnapshots: appleMembershipSnapshots(["one", "two", "three"])
         )
-        let removed = AppleMusicSourceProvider.playlistPersistencePlan(
+        let removed = AppleMusicConnector.playlistPersistencePlan(
             existing: existing,
             input: applePlaylistInput(trackCount: 1, modifiedAt: modifiedAt),
             membershipSnapshots: appleMembershipSnapshots(["one"])
         )
-        let incomplete = AppleMusicSourceProvider.playlistPersistencePlan(
+        let incomplete = AppleMusicConnector.playlistPersistencePlan(
             existing: applePlaylistState(
                 trackCount: 2,
                 membershipRatingKeys: [],
@@ -880,7 +880,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            AppleMusicSourceProvider.playlistPersistencePlan(
+            AppleMusicConnector.playlistPersistencePlan(
                 existing: nil,
                 input: applePlaylistInput(trackCount: 1, modifiedAt: currentModifiedAt),
                 membershipSnapshots: appleMembershipSnapshots(["one"])
@@ -888,7 +888,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             .init(writesHeader: true, writesBody: true, ignoresStaleResponse: false)
         )
         XCTAssertEqual(
-            AppleMusicSourceProvider.playlistPersistencePlan(
+            AppleMusicConnector.playlistPersistencePlan(
                 existing: existing,
                 input: applePlaylistInput(
                     trackCount: 1,
@@ -905,7 +905,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         let inventoryDate = Date(timeIntervalSince1970: 2_000)
 
         XCTAssertEqual(
-            AppleMusicSourceProvider.libraryInventoryPlan(
+            AppleMusicConnector.libraryInventoryPlan(
                 authoritativeInventoryDate: inventoryDate,
                 now: inventoryDate.addingTimeInterval(60)
             ),
@@ -918,24 +918,24 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         let inventoryDate = Date(timeIntervalSince1970: 2_000)
 
         XCTAssertEqual(
-            AppleMusicSourceProvider.libraryInventoryPlan(
+            AppleMusicConnector.libraryInventoryPlan(
                 authoritativeInventoryDate: nil,
                 now: inventoryDate
             ),
             .fetchAuthoritativeInventory(reason: .noTrustedBaseline)
         )
         XCTAssertEqual(
-            AppleMusicSourceProvider.libraryInventoryPlan(
+            AppleMusicConnector.libraryInventoryPlan(
                 authoritativeInventoryDate: inventoryDate,
                 now: inventoryDate.addingTimeInterval(-1)
             ),
             .fetchAuthoritativeInventory(reason: .localClockRegressed)
         )
         XCTAssertEqual(
-            AppleMusicSourceProvider.libraryInventoryPlan(
+            AppleMusicConnector.libraryInventoryPlan(
                 authoritativeInventoryDate: inventoryDate,
                 now: inventoryDate.addingTimeInterval(
-                    AppleMusicSourceProvider.authoritativeLibraryInventoryInterval
+                    AppleMusicConnector.authoritativeLibraryInventoryInterval
                 )
             ),
             .fetchAuthoritativeInventory(reason: .periodicReconciliationDue)
@@ -949,17 +949,17 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let inventoryDate = Date(timeIntervalSince1970: 2_000)
 
-        AppleMusicSourceProvider.recordAuthoritativeLibraryInventory(
+        AppleMusicConnector.recordAuthoritativeLibraryInventory(
             completedAt: inventoryDate,
             defaults: defaults
         )
         XCTAssertEqual(
-            AppleMusicSourceProvider.authoritativeLibraryInventoryDate(defaults: defaults),
+            AppleMusicConnector.authoritativeLibraryInventoryDate(defaults: defaults),
             inventoryDate
         )
 
-        AppleMusicSourceProvider.clearLibraryInventoryState(defaults: defaults)
-        XCTAssertNil(AppleMusicSourceProvider.authoritativeLibraryInventoryDate(defaults: defaults))
+        AppleMusicConnector.clearLibraryInventoryState(defaults: defaults)
+        XCTAssertNil(AppleMusicConnector.authoritativeLibraryInventoryDate(defaults: defaults))
     }
 
     @available(iOS 18, *)
@@ -970,28 +970,28 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             membershipRatingKeys: ["one", "two", "three", "four", "five"],
             modifiedAt: restModifiedAt
         )
-        let effectiveModifiedAt = AppleMusicSourceProvider.effectivePlaylistModifiedDate(
+        let effectiveModifiedAt = AppleMusicConnector.effectivePlaylistModifiedDate(
             musicKit: nil,
             library: restModifiedAt
         )
 
         XCTAssertEqual(effectiveModifiedAt, restModifiedAt)
         XCTAssertEqual(
-            AppleMusicSourceProvider.effectivePlaylistModifiedDate(
+            AppleMusicConnector.effectivePlaylistModifiedDate(
                 musicKit: Date(timeIntervalSince1970: 50),
                 library: restModifiedAt
             ),
             restModifiedAt
         )
         XCTAssertEqual(
-            AppleMusicSourceProvider.effectivePlaylistModifiedDate(
+            AppleMusicConnector.effectivePlaylistModifiedDate(
                 musicKit: Date(timeIntervalSince1970: 150),
                 library: restModifiedAt
             ),
             Date(timeIntervalSince1970: 150)
         )
-        XCTAssertNil(AppleMusicSourceProvider.effectivePlaylistModifiedDate(musicKit: nil, library: nil))
-        XCTAssertFalse(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
+        XCTAssertNil(AppleMusicConnector.effectivePlaylistModifiedDate(musicKit: nil, library: nil))
+        XCTAssertFalse(AppleMusicConnector.shouldRefreshPlaylistBody(
             existing: existing,
             modifiedAt: effectiveModifiedAt,
             refreshAllBodies: false
@@ -1000,7 +1000,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
 
     @available(iOS 18, *)
     func testAppleMusicEmptySharedPlaylistFallsBackToNativeBody() async throws {
-        let tracks: [String] = try await AppleMusicSourceProvider.withNativePlaylistBodyFallback {
+        let tracks: [String] = try await AppleMusicConnector.withNativePlaylistBodyFallback {
             throw PlaylistBodyTestError.noRelatedResources
         } native: { restError in
             XCTAssertEqual(restError as? PlaylistBodyTestError, .noRelatedResources)
@@ -1013,7 +1013,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
     @available(iOS 18, *)
     func testAppleMusicPlaylistFallbackPreservesRESTErrorWhenNativeAlsoFails() async throws {
         do {
-            _ = try await AppleMusicSourceProvider.withNativePlaylistBodyFallback {
+            _ = try await AppleMusicConnector.withNativePlaylistBodyFallback {
                 throw PlaylistBodyTestError.server
             } native: { _ in
                 throw PlaylistBodyTestError.native
@@ -1023,7 +1023,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             XCTAssertEqual(error as? PlaylistBodyTestError, .server)
         }
 
-        let tracks: [String] = try await AppleMusicSourceProvider.withNativePlaylistBodyFallback {
+        let tracks: [String] = try await AppleMusicConnector.withNativePlaylistBodyFallback {
             throw PlaylistBodyTestError.server
         } native: { _ in
             return ["native-track"]

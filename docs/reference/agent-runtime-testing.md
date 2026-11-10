@@ -104,6 +104,11 @@ are `on` or `off`; `repeat` is `off`, `all`, or `one`. The modes go through
 the same calls as the queue page's buttons. On a device, open the link with
 `xcrun devicectl device process launch --payload-url` or from Safari.
 
+Run a library sync through the production coordinator, for before and after
+store comparisons: `ensemble://debug/sync?mode=full` (`syncAll`) or
+`?mode=incremental` (`syncAllIncremental`). The journey log records
+`syncStarted` and `syncFinished`.
+
 Use media deep links for known artist, album, and playlist identifiers. Confirm
 accepted commands through `USER_JOURNEY context=automation` logs and confirm
 rendering through a settled hierarchy or screenshot.

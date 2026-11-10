@@ -12,7 +12,7 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         libraryId: "1"
     )
 
-    private final class RecordingSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
+    private final class RecordingSyncProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         private(set) var fullLibrarySyncCount = 0
         private(set) var incrementalLibrarySyncCount = 0
@@ -281,7 +281,7 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         try await libraryRepository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
         try await syncCursorRepository.recordFullSync(
             scopeKey: sourceKey,
-            scopeType: .plexLibrary,
+            scopeType: .library,
             at: Date()
         )
         let serverSourceKey = MediaSourceIdentity.serverSourceKey(for: sourceId)
@@ -290,7 +290,7 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             scopeType: .serverPlaylists,
             at: Date()
         )
-        let legacyPlaylistKey = PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey)
+        let legacyPlaylistKey = PlexConnector.playlistOrphanCheckKey(for: serverSourceKey)
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: legacyPlaylistKey)
         defer { UserDefaults.standard.removeObject(forKey: legacyPlaylistKey) }
 
@@ -314,7 +314,7 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         XCTAssertEqual(provider.incrementalLibrarySyncCount, 1)
         let cursor = try await syncCursorRepository.fetchCursor(
             scopeKey: sourceKey,
-            scopeType: .plexLibrary
+            scopeType: .library
         )
         XCTAssertNil(cursor)
         let playlistCursor = try await syncCursorRepository.fetchCursor(

@@ -399,6 +399,13 @@ public struct PlaybackAutomationRequest: Equatable, Sendable {
     }
 }
 
+/// `ensemble://debug/sync?mode=full|incremental` runs the same coordinator
+/// entry points as a library refresh and a launch-time incremental sync.
+public enum SyncAutomationMode: String, Equatable, Sendable {
+    case full
+    case incremental
+}
+
 public enum AutomationIdentifiers {
     /// DEBUG-only invisible element whose value mirrors playback state for UI tests.
     public static let playbackProbe = "automation.playback.probe"

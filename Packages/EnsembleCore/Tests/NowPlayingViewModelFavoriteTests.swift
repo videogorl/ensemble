@@ -520,19 +520,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             0
         }
 
-        func fetchTrackRatings(forSource _: String) async throws -> [String: Int16] {
-            [:]
-        }
-
         func fetchArtistTimestamps(forSource _: String) async throws -> [String: Date] {
-            [:]
-        }
-
-        func fetchAlbumTimestamps(forSource _: String) async throws -> [String: Date] {
-            [:]
-        }
-
-        func fetchTrackTimestamps(forSource _: String) async throws -> [String: Date] {
             [:]
         }
 

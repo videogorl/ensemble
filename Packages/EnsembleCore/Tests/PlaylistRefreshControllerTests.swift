@@ -19,7 +19,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
     }
 
-    private final class MockProvider: MusicSourceSyncProvider, @unchecked Sendable {
+    private final class MockProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         var incrementalResult: Result<PlaylistSyncResult, Error>
         var fullResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
@@ -205,7 +205,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         let serverOneSourceA = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
         let serverOneSourceB = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "2")
         let serverTwoSource = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-2", libraryId: "1")
-        let providers: [String: MusicSourceSyncProvider] = [
+        let providers: [String: MusicSourceConnector] = [
             serverOneSourceA.compositeKey: MockProvider(
                 sourceIdentifier: serverOneSourceA,
                 incrementalResult: .success(PlaylistSyncResult(changedPlaylists: 1))
@@ -234,7 +234,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         let controller = PlaylistRefreshController()
         let plexSource = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "1")
         let appleSource = MusicSourceIdentifier(type: .appleMusic, accountId: "account", serverId: "server", libraryId: "2")
-        let providers: [String: MusicSourceSyncProvider] = [plexSource, appleSource].reduce(into: [:]) { result, source in
+        let providers: [String: MusicSourceConnector] = [plexSource, appleSource].reduce(into: [:]) { result, source in
             result[source.compositeKey] = MockProvider(
                 sourceIdentifier: source,
                 incrementalResult: .success(PlaylistSyncResult(changedPlaylists: 1))

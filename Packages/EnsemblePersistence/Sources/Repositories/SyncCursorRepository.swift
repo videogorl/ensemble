@@ -30,7 +30,8 @@ public struct SyncCursorRecord: Equatable, Sendable {
 }
 
 public enum SyncCursorScopeType: String, Sendable {
-    case plexLibrary = "plex-library"
+    /// The stored value predates non-Plex sources and stays so existing cursors still match.
+    case library = "plex-library"
     case serverPlaylists = "server-playlists"
 }
 

@@ -731,7 +731,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
 }
 
 /// An autoplay source whose recommendation request waits until released.
-private final class HeldRadioProvider: MusicSourceSyncProvider, MusicSourceRadioProviding, @unchecked Sendable {
+private final class HeldRadioProvider: MusicSourceLibrarySyncing, MusicSourceRadioProviding, @unchecked Sendable {
     let sourceIdentifier = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
     private let lock = NSLock()
     private var asked = false

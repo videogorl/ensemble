@@ -1,6 +1,7 @@
 # Web client and CloudKit settings design
 
-Status: proposal, awaiting Felicity's approval. Written 2026-11-10 against
+Status: planning. Felicity approved decisions 1 to 3 on 2026-11-10 (section 8);
+no implementation until she says to start. Written 2026-11-10 against
 `402c9c03` on `develop`. Not part of the rearchitecture plan; schedule it
 after step 3 closes (section 7).
 
@@ -11,7 +12,8 @@ that shares the user's Ensemble settings with the native apps through iCloud
 and plays music from Plex directly.
 
 The web app runs as a static single-page app on Cloudflare Pages (free tier),
-with no backend. The browser talks to two services:
+with no backend apart from one small Worker for Apple Music (section 3.5).
+The browser talks to two services:
 
 - **CloudKit**, through CloudKit JS, for Ensemble's synced settings.
 - **Plex**, through its HTTP API, for sign-in, the library, and streams.
@@ -102,6 +104,73 @@ overwrite) a newer major version.
   never as a deleted record. A missing record means "not migrated yet", and a
   failed fetch means "unknown". Neither one ever clears local data.
 
+### 3.4 Synced accounts, servers and libraries
+
+Felicity asked on 2026-11-10 to sync everything about sources except the
+tokens, when the **Sources** sync switch is on. A new device or the web app
+then shows the whole setup and only asks the user to sign in.
+
+Add one `SyncedSetting`, `ensemble.sync.sourceInventory`, a JSON array of
+accounts:
+
+| Level | Fields |
+|---|---|
+| Account | `provider` (`plex` or `appleMusic`), `accountID`, `displayName`, `addedAt`, `removedAt` |
+| Server (Plex) | `serverID`, `name`, `removedAt` |
+| Library | `libraryID`, `title`, `kind` (music only today) |
+
+- Which libraries are switched on stays in the existing `libraryFlags`
+  setting, keyed by source key. The inventory supplies the names to show next
+  to those switches; it does not duplicate them.
+- Server connection addresses are not synced. They change and include home
+  network addresses; each device gets fresh ones from plex.tv after sign-in.
+- No tokens, passwords, or anything that grants access.
+
+Behavior:
+
+- Settings shows every account, server and library from the inventory, each
+  marked signed in on this device or with a **Sign in** button (section 3.5).
+  After sign-in the device matches the result to the entry by account ID and
+  applies the library switches.
+- Only an explicit removal by the user sets `removedAt`. A device that is not
+  signed in, or can't reach a server, never removes anything. Entries merge
+  per account and per server, newest change wins, like library flags.
+- With the Sources switch off, a device neither writes nor applies the
+  inventory, matching how the switch works today.
+- On native, Plex accounts with tokens already arrive through iCloud Keychain
+  (the existing Sources feature, `bootstrapSources`). That path stays; the
+  inventory adds the web app and Apple Music, which is authorized per device.
+- The per-feature sync switches in `SyncSettingsManager` keep working: a
+  switched-off feature neither sends nor applies its record.
+
+### 3.5 Signing in without syncing tokens
+
+Three options were considered.
+
+1. **Sign in on each device.** The baseline: Plex's PIN sign-in on the web,
+   MusicKit authorization for Apple Music. Always available as the fallback.
+2. **Approve from a signed-in device (recommended for Plex).** The web app
+   creates a short Plex PIN and shows it as a QR code and an
+   `ensemble://` link. The iPhone or Mac app, already signed in, confirms the
+   account and calls `PUT https://plex.tv/api/v2/pins/link` with the code and
+   its own token. The web app's pending PIN then returns a **new token of its
+   own**. No token crosses iCloud; the web session appears in Plex's
+   authorized devices and can be revoked there on its own. This is the call
+   plex.tv/link uses, and python-plexapi's `MyPlexAccount.link` makes it, but
+   Plex does not document it, and a forum thread reports a 403 (error 1068)
+   for some devices. Prototype it before relying on it; option 1 stays.
+3. **Store tokens in CloudKit.** Rejected. As plain fields, anyone with a
+   web session on the user's Apple Account could read a token with full Plex
+   access. CloudKit's encrypted fields would protect them, but developer
+   reports say CloudKit JS cannot read encrypted fields (Apple's docs are
+   ambiguous), so the web app could not use them anyway.
+
+Apple Music on the web needs MusicKit JS, which needs an Apple Music
+developer token: a JWT signed with a MusicKit private key, valid for up to
+six months. Either embed a token rotated by hand, or mint it from a
+Cloudflare Worker (free tier) that keeps the key as a secret. The Worker is
+the only server piece in the design; it is needed only for Apple Music.
+
 ## 4. Native migration
 
 ### 4.1 Transport
@@ -112,6 +181,29 @@ hand-written subscription, fetch, and retry code in `CloudSyncService`, and
 the plan already lists it for evaluation. If it proves heavier than eight
 records warrant, the fallback is plain fetch-by-ID plus a database
 subscription on the zone.
+
+Why the current code is hand-written: `CloudSyncService` was written on
+2026-04-06, when the floors were iOS 15 and macOS 12, and `CKSyncEngine`
+needs iOS 17 and macOS 14. The floors were raised on 2026-10-13.
+
+What `CKSyncEngine` changes for reliability:
+
+- Unsent changes are queued and retried by the system. Today nothing is
+  lost either, because local state persists, but a failed push waits for
+  `CloudSyncCoordinator`'s own retry schedule (`firstConnectRetryDelays`),
+  the next foreground, or a manual refresh. `CKSyncEngine` replaces that
+  bootstrap and retry machinery.
+- It creates the zone and the subscription, follows change tokens, and backs
+  off on rate limits and quota errors, replacing the hand-written
+  `nextProfilePullAllowedAt` throttle.
+- It reports iCloud sign-out and account switches as events.
+- Conflicts are still ours: it reports a `serverRecordChanged` failure and
+  we merge with the existing functions (section 3.3).
+- The system decides when automatic syncs run, which can lag by seconds or
+  more. The app calls `fetchChanges` on foreground and `sendChanges` after a
+  user edit when it needs the change to go out promptly.
+- It needs its state saved between launches. Losing that state only causes
+  a full re-fetch of eight records, so the cost is small.
 
 `KVSSyncService` is deleted at the end of the migration, along with the
 key-value store observer on the watch.
@@ -145,7 +237,7 @@ key-value store observer on the watch.
 ### 5.1 Stack
 
 - Vite and TypeScript, built to static files in `web/dist`.
-- UI framework: open question for Felicity (section 8).
+- Svelte for the UI.
 - CloudKit JS, loaded from Apple's CDN.
 - hls.js for Plex transcode streams outside Safari.
 - Local cache in IndexedDB, treated as disposable.
@@ -188,6 +280,14 @@ changes with a saved sync token on launch and on window focus, and write
 with the record change tag (section 3.3). Live updates through CloudKit JS
 notifications are optional for the first release.
 
+Hidden items sync like every other setting. The web app reads the
+`HiddenMediaState` record and filters hidden albums, artists, playlists and
+tracks out of every list, search and shuffle, matching on the identity's kind,
+item ID and source key. Hiding or unhiding on the web writes a
+`HiddenMediaMutation` the native apps pick up. That record holds every hide
+ever made in one JSON array, so it has a size ceiling of CloudKit's 1 MB per
+record, roughly several thousand entries; split it per source if it nears that.
+
 ## 6. Repository and hosting
 
 **Same repository, in a top-level `web/` folder.**
@@ -216,11 +316,19 @@ while the native app stays private, or if it gets a different owner.
 3. Later: gapless playback, live setting updates, home-screen install,
    limited offline caching.
 
-## 8. Decisions for Felicity
+## 8. Decisions
 
-1. Approve moving the key-value settings to a CloudKit custom zone (section 3)?
-2. Approve `CKSyncEngine` as the transport, with fetch-by-ID as the fallback?
-3. Same repository, `web/` folder?
-4. Web UI framework: React (largest ecosystem) or Svelte (smallest bundle,
-   least code). Recommendation: Svelte.
-5. Domain for the web app; it is needed for the CloudKit token's allowed origins.
+Still planning; nothing is implemented. Answers from Felicity on 2026-11-10:
+
+1. Move the key-value settings to a CloudKit custom zone: **yes**, plus
+   syncing accounts, servers and libraries without tokens (sections 3.4
+   and 3.5).
+2. `CKSyncEngine` as the transport: **yes**. Today Ensemble uses no sync
+   engine: two records go through hand-written `CKDatabase` fetch and save
+   calls with a `CKDatabaseSubscription`, and the six settings go through
+   `NSUbiquitousKeyValueStore`.
+3. Same repository, `web/` folder: **yes**.
+4. Web UI framework: **Svelte**. Apple Music's own web app
+   (music.apple.com) is built with Svelte; checked 2026-11-10 by its served
+   HTML, which carries thousands of Svelte-scoped class names.
+5. Domain: open. Candidate: `app.ensemble.videogorl.me`.

@@ -13,7 +13,7 @@ For overlapping writes or multi-source collections, use the
 
 ## Hubs
 
-Providers implement `MusicSourceSyncProvider.getHomeHubs(limit:)` and map
+Providers implement `MusicSourceConnector.getHomeHubs(limit:)` and map
 semantic kind, scope, identity, and ranking fields at their boundary.
 `HomeHubLoader` alone merges and persists the combined last-good snapshot.
 Search reads that cache; it must not create a second provider fetch/save path.
