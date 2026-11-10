@@ -267,9 +267,10 @@ public enum EnsembleQueuePolicy {
         promote: (inout Item) -> Void
     ) {
         let start = currentQueueIndex + 1
-        guard start < queue.count else { return }
+        let end = min(insertionIndex, queue.count)
+        guard start < end else { return }
 
-        for index in start ..< min(insertionIndex, queue.count) where source(queue[index]) == .autoplay {
+        for index in start ..< end where source(queue[index]) == .autoplay {
             promote(&queue[index])
         }
     }

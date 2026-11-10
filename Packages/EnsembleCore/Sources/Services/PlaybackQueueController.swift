@@ -278,6 +278,7 @@ final class PlaybackQueueController {
             return nil
         }
 
+        let currentItemID = queue.indices.contains(currentQueueIndex) ? queue[currentQueueIndex].id : nil
         var item = queue.remove(at: sourceIndex)
         if let destinationSource {
             item.source = destinationSource
@@ -290,12 +291,8 @@ final class PlaybackQueueController {
             : destinationIndex
         queue.insert(item, at: adjustedDestination)
 
-        if sourceIndex == currentQueueIndex {
-            currentQueueIndex = adjustedDestination
-        } else if adjustedDestination <= currentQueueIndex, sourceIndex > currentQueueIndex {
-            currentQueueIndex -= 1
-        } else if adjustedDestination > currentQueueIndex, sourceIndex < currentQueueIndex {
-            currentQueueIndex += 1
+        if let currentItemID, let index = queue.firstIndex(where: { $0.id == currentItemID }) {
+            currentQueueIndex = index
         }
 
         flattenAutoplayItemsBeforeIndex(

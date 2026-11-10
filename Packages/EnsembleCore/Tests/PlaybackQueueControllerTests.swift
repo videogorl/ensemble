@@ -420,6 +420,36 @@ final class PlaybackQueueControllerTests: XCTestCase {
         XCTAssertEqual(currentQueueIndex, 2)
     }
 
+    /// The index follows the current item through moves across, onto, and away from it.
+    func testMoveItemKeepsTheIndexOnTheCurrentItem() {
+        let controller = makeController()
+        // From [A, B(current), C, D].
+        let rows: [(String, from: Int, to: Int, expected: String)] = [
+            ("later item to before current", 3, 1, "ADBC"),
+            ("later item to the front", 3, 0, "DABC"),
+            ("earlier item to after current", 0, 2, "BACD"),
+            ("earlier item to the end", 0, 4, "BCDA"),
+            ("earlier item onto its own slot", 0, 1, "ABCD"),
+            ("next item to before current", 2, 1, "ACBD"),
+            ("later items away from current", 2, 4, "ABDC"),
+            ("current item to the end", 1, 4, "ACDB"),
+            ("current item to the front", 1, 0, "BACD"),
+        ]
+        for row in rows {
+            var queue = ["A", "B", "C", "D"].map { makeItem(id: $0) }
+            var currentQueueIndex = 1
+            controller.moveItem(
+                byId: queue[row.from].id,
+                from: row.from,
+                to: row.to,
+                queue: &queue,
+                currentQueueIndex: &currentQueueIndex
+            )
+            XCTAssertEqual(queue.map(\.track.id).joined(), row.expected, row.0)
+            XCTAssertEqual(queue[currentQueueIndex].track.id, "B", "\(row.0): index follows B")
+        }
+    }
+
     func testMoveItemAdoptsDestinationQueueSection() {
         let controller = makeController()
         var queue = [

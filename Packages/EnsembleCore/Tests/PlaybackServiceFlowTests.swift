@@ -328,6 +328,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
         let edits: [(String, @MainActor (PlaybackService) -> Void)] = [
             ("remove an earlier item", { $0.removeFromQueue(at: 0) }),
             ("shuffle", { $0.toggleShuffle() }),
+            ("move a later item before it", { $0.moveQueueItem(byId: $0.queue[3].id, from: 3, to: 0) }),
         ]
         for (edit, perform) in edits {
             let service = await makeService()
