@@ -132,7 +132,8 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
             recoverySeekTime: 42,
             generation: 7
         )
-        await Task.yield()
+        // Prefetch runs in a detached task, so wait for the call rather than yielding once.
+        await waitUntil(timeout: 5) { prefetchCount.withValue { $0 } == 1 }
 
         XCTAssertEqual(visualizerTrackID.withValue { $0 }, "1")
         XCTAssertEqual(loadedTrackID.withValue { $0 }, "1")
@@ -186,7 +187,8 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
             recoverySeekTime: 42,
             generation: 7
         )
-        await Task.yield()
+        // Prefetch runs in a detached task, so wait for the call rather than yielding once.
+        await waitUntil(timeout: 5) { prefetchCount.withValue { $0 } == 1 }
 
         XCTAssertEqual(loadedTrackID.withValue { $0 }, "1")
         XCTAssertNil(soughtTime.withValue { $0 })

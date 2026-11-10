@@ -78,8 +78,10 @@ final class PlexWebSocketCoordinatorTests: XCTestCase {
     func testLibraryUpdateCarriesLatestExactItemChanges() async throws {
         let (coordinator, _) = makeCoordinator()
         var receivedChanges: Set<PlexLibraryChange> = []
+        let delivered = expectation(description: "debounced library update delivered")
         coordinator.onLibraryUpdate = { _, _, changes in
             receivedChanges = changes
+            delivered.fulfill()
         }
 
         await coordinator.handleEventForTesting(
@@ -95,7 +97,7 @@ final class PlexWebSocketCoordinatorTests: XCTestCase {
             from: "account:server"
         )
 
-        try await Task.sleep(nanoseconds: 3_100_000_000)
+        await fulfillment(of: [delivered], timeout: 15)
 
         XCTAssertEqual(receivedChanges, [
             PlexLibraryChange(ratingKey: "10", kind: .track, state: 9),
