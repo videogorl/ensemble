@@ -525,6 +525,9 @@ Dropped for now: `EnsembleSourceKit`, the conformance kit, the fake source,
 and the `ratingKey` rename. Jellyfin groundwork waits until Jellyfin is
 scheduled.
 
+Detailed design, awaiting Felicity's approval:
+[`shared-library-writer-design.md`](shared-library-writer-design.md).
+
 ### Step 4. Module split
 
 Parked on 2026-11-01. The outline is kept for later: split `EnsembleCore` along the seams steps 1 to 3 produced. Rewrite the
