@@ -38,6 +38,29 @@ public struct NetworkSnapshot: Equatable, Sendable {
     }
 }
 
+/// What makes one network path a different route for a download: whether it is usable and which
+/// interface is preferred. Extra interfaces appearing (cellular while Wi-Fi stays primary) and the
+/// expensive or constrained flags do not change the route.
+struct PathSignature: Equatable {
+    let status: NWPath.Status
+    let primaryInterfaceType: NWInterface.InterfaceType?
+    let primaryInterfaceName: String?
+
+    init(status: NWPath.Status, primaryInterfaceType: NWInterface.InterfaceType?, primaryInterfaceName: String?) {
+        self.status = status
+        self.primaryInterfaceType = primaryInterfaceType
+        self.primaryInterfaceName = primaryInterfaceName
+    }
+
+    init(_ path: NWPath) {
+        self.init(
+            status: path.status,
+            primaryInterfaceType: path.availableInterfaces.first?.type,
+            primaryInterfaceName: path.availableInterfaces.first?.name
+        )
+    }
+}
+
 /// Monitors network connectivity state using NWPathMonitor
 @MainActor
 @Observable
@@ -51,6 +74,17 @@ public final class NetworkMonitor {
     public var isConnected: Bool { snapshot.isConnected }
     public var isConstrained: Bool { snapshot.isConstrained }
     @ObservationIgnored private let broadcast = Broadcast<NetworkSnapshot>()
+    @ObservationIgnored private let pathBroadcast = Broadcast<UInt64>()
+    @ObservationIgnored private var lastPathSignature: PathSignature?
+    @ObservationIgnored private var pathChangePending = false
+    /// Counts debounced changes of the network path, including a new route on the same interface
+    /// type (another Wi-Fi network), which `snapshot` does not show.
+    public private(set) var pathGeneration: UInt64 = 0
+
+    /// Each debounced path change, as its new `pathGeneration`.
+    public func pathChanges() -> AsyncStream<UInt64> {
+        pathBroadcast.stream()
+    }
 
     /// The current snapshot, then each change.
     public func snapshots() -> AsyncStream<NetworkSnapshot> {
@@ -218,8 +252,10 @@ public final class NetworkMonitor {
     internal func injectNetworkStateForTesting(
         _ state: NetworkState,
         isConstrained: Bool = false,
+        pathChanged: Bool = false,
         debounced: Bool = true
     ) {
+        pathChangePending = pathChangePending || pathChanged
         if debounced {
             debounceStateUpdate(state: state, isConstrained: isConstrained)
         } else {
@@ -233,6 +269,9 @@ public final class NetworkMonitor {
     /// Ignored when offline simulation is active so the monitor doesn't overwrite the simulated state.
     private func debounceStateUpdate(path: NWPath) {
         guard !isSimulatingOffline else { return }
+        let signature = PathSignature(path)
+        if let lastPathSignature, lastPathSignature != signature { pathChangePending = true }
+        lastPathSignature = signature
         debounceStateUpdate(
             state: networkState(from: path),
             isConstrained: path.status == .satisfied && path.isConstrained
@@ -248,8 +287,13 @@ public final class NetworkMonitor {
                 try? await Task.sleep(nanoseconds: self.debounceNanoseconds)
             }
 
-            guard !Task.isCancelled else { return }
-            self?.updateState(to: state, isConstrained: isConstrained)
+            guard !Task.isCancelled, let self else { return }
+            self.updateState(to: state, isConstrained: isConstrained)
+            if self.pathChangePending {
+                self.pathChangePending = false
+                self.pathGeneration &+= 1
+                self.pathBroadcast.send(self.pathGeneration)
+            }
         }
     }
 

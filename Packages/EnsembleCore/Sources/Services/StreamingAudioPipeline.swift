@@ -1,4 +1,5 @@
 import AVFoundation
+import EnsembleAPI
 import EnsembleSupport
 import Foundation
 
@@ -14,6 +15,7 @@ final class GrowingAudioFile {
     private var terminalError: Error?
     private var reachedEOF = false
     private var writerClosed = false
+    private var drainsBeforeError = false
 
     init(url: URL) throws {
         try FileManager.default.createDirectory(
@@ -46,10 +48,14 @@ final class GrowingAudioFile {
         condition.signal()
     }
 
-    func finish(error: Error? = nil) {
+    /// `drainingFirst` lets the reader consume the bytes already written before it sees the error.
+    func finish(error: Error? = nil, drainingFirst: Bool = false) {
         condition.lock()
         if terminalError == nil {
             terminalError = error
+            drainsBeforeError = drainingFirst
+        } else if !drainingFirst {
+            drainsBeforeError = false
         }
         reachedEOF = error == nil
         if !writerClosed {
@@ -74,7 +80,7 @@ final class GrowingAudioFile {
         while readOffset >= availableByteCount, terminalError == nil, !reachedEOF {
             condition.wait()
         }
-        if let terminalError {
+        if let terminalError, !(drainsBeforeError && readOffset < availableByteCount) {
             condition.unlock()
             throw terminalError
         }
@@ -151,6 +157,12 @@ final class StreamingAudioPipeline: NSObject {
         let trackID: String?
         let artifactKey: PlaybackArtifactKey?
         let artifactCache: PlaybackArtifactCache
+        /// How long a dropped download is resumed before the failure is reported, and the pause between attempts.
+        let resumeWindow: TimeInterval
+        let resumeRetryInterval: TimeInterval
+        /// A download that received bytes this recently is healthy: a path change leaves it alone.
+        let healthyWindow: TimeInterval
+        let now: () -> TimeInterval
 
         init(
             request: URLRequest,
@@ -162,8 +174,20 @@ final class StreamingAudioPipeline: NSObject {
             sessionConfiguration: URLSessionConfiguration? = nil,
             trackID: String? = nil,
             artifactKey: PlaybackArtifactKey? = nil,
-            artifactCache: PlaybackArtifactCache = .shared
+            artifactCache: PlaybackArtifactCache = .shared,
+            idleTimeout: TimeInterval = 15,
+            resumeWindow: TimeInterval = AudioPlaybackEngine.maximumRebufferSeconds,
+            resumeRetryInterval: TimeInterval = 1,
+            healthyWindow: TimeInterval = 2,
+            now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
         ) {
+            // A dead connection is given up after `idleTimeout` without data, not URLSession's 60 s.
+            var request = request
+            request.timeoutInterval = min(request.timeoutInterval, idleTimeout)
+            self.resumeWindow = resumeWindow
+            self.resumeRetryInterval = resumeRetryInterval
+            self.healthyWindow = healthyWindow
+            self.now = now
             self.request = request
             self.fileExtension = fileExtension
             self.cacheURL = cacheURL
@@ -220,8 +244,25 @@ final class StreamingAudioPipeline: NSObject {
     private var downloadResult: Result<URL, Error>?
     private var downloadWaiters: [UUID: CheckedContinuation<URL, Error>] = [:]
     private var downloadTimeoutWorkItem: DispatchWorkItem?
+    /// What a ranged resume must match: the strong ETag and total length of the first response.
+    private var resumeValidator: (etag: String, totalBytes: Int64)?
+    /// The offset the current task was asked to resume from; nil for the original request.
+    private var resumeOffset: Int64?
+    private var resumeWorkItem: DispatchWorkItem?
+    private var recoveryStartedAt: TimeInterval?
+    private var resumeAttempts = 0
+    private var lastResumeRequestAt: TimeInterval?
+    /// A path change happened and no bytes have arrived since: a resume that then fails to connect
+    /// is not retried, so the service reloads on a freshly selected endpoint.
+    private var pathChangedAwaitingBytes = false
+    /// Set once the download is given up on while audio is still buffered; `render` reports it
+    /// when the PCM reserve runs out, so the engine reloads only after the reserve is played.
+    private var deferredError: Error?
+    private var drainedFailure: Error?
     #if DEBUG
         private var didApplyAutomationNetworkDelay = false
+        private var didApplyAutomationDrop = false
+        private var automationDropClockStart: TimeInterval?
     #endif
 
     var cacheURL: URL { configuration.cacheURL }
@@ -405,10 +446,22 @@ final class StreamingAudioPipeline: NSObject {
     ) -> Int {
         stateLock.lock()
         let pcmBuffer = self.pcmBuffer
+        let hasDrainedFailure = drainedFailure != nil
         stateLock.unlock()
         guard let pcmBuffer else { return 0 }
-        return pcmBuffer.read(into: audioBufferList, frameCount: frameCount,
-                              resumeFrames: Int(pcmBuffer.format.sampleRate), isComplete: isComplete)
+        let read = pcmBuffer.read(into: audioBufferList, frameCount: frameCount,
+                                  resumeFrames: Int(pcmBuffer.format.sampleRate), isComplete: isComplete)
+        if hasDrainedFailure, read < Int(frameCount) {
+            // Reported once: the real-time render thread must not keep posting work.
+            stateLock.lock()
+            let failure = drainedFailure
+            drainedFailure = nil
+            stateLock.unlock()
+            if let failure {
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in self?.fail(failure) }
+            }
+        }
+        return read
     }
 
     private func wire(_ decoder: StreamingAudioDecoder) {
@@ -458,9 +511,14 @@ final class StreamingAudioPipeline: NSObject {
         }
     }
 
-    private func append(_ data: Data) {
+    private func append(_ data: Data, from sender: URLSessionTask) {
         do {
             stateLock.lock()
+            // Bytes from a task that was replaced by a resume are dropped: the file continues from `receivedByteCount`.
+            guard sender === task else {
+                stateLock.unlock()
+                return
+            }
             let isFirstByte = !hasReceivedFirstByte
             hasReceivedFirstByte = true
             receivedByteCount += Int64(data.count)
@@ -468,10 +526,20 @@ final class StreamingAudioPipeline: NSObject {
                 payloadPrefix.append(data.prefix(64 - payloadPrefix.count))
             }
             lastByteUptime = ProcessInfo.processInfo.systemUptime
+            pathChangedAwaitingBytes = false
             let timeout = downloadTimeoutWorkItem
             downloadTimeoutWorkItem = nil
+            var recovered: (offset: Int64, attempts: Int, seconds: TimeInterval)?
+            if let offset = resumeOffset, let startedAt = recoveryStartedAt {
+                recovered = (offset, resumeAttempts, configuration.now() - startedAt)
+                recoveryStartedAt = nil
+                resumeAttempts = 0
+            }
             stateLock.unlock()
             timeout?.cancel()
+            if let recovered {
+                EnsembleLogger.info("[StreamingPipeline] resumed trackId=\(configuration.trackID ?? "unknown") offset=\(recovered.offset) attempts=\(recovered.attempts) sinceDrop=\(String(format: "%.2fs", recovered.seconds))")
+            }
             if isFirstByte {
                 onFirstByte?()
             }
@@ -537,7 +605,11 @@ final class StreamingAudioPipeline: NSObject {
             }
             completeDecodedStream()
         } catch {
-            fail(error)
+            stateLock.lock()
+            let deferred = deferredError.map { ($0 as NSError) == (error as NSError) } ?? false
+            if deferred { drainedFailure = deferredError }
+            stateLock.unlock()
+            if !deferred { fail(error) }
         }
     }
 
@@ -578,9 +650,12 @@ final class StreamingAudioPipeline: NSObject {
         startupTimeoutWorkItem = nil
         let downloadTimeout = downloadTimeoutWorkItem
         downloadTimeoutWorkItem = nil
+        let resumeWork = resumeWorkItem
+        resumeWorkItem = nil
         stateLock.unlock()
         timeout?.cancel()
         downloadTimeout?.cancel()
+        resumeWork?.cancel()
         pcmBuffer?.wakeWaiters()
         growingFile?.finish(error: error)
         task?.cancel()
@@ -593,6 +668,132 @@ final class StreamingAudioPipeline: NSObject {
         if shouldNotify {
             onFailure?(error)
         }
+    }
+
+    // MARK: - Resuming a dropped download
+
+    /// A download that ends in an error after bytes arrived. An original-quality file (strong ETag, known
+    /// length) is resumed with a `Range` request, paced and bounded by `resumeWindow`; the decoder keeps
+    /// reading what is on disk meanwhile. Anything else, or a resume that cannot be proved safe, is given
+    /// up on once the buffered audio has played out, so the service reloads from the playhead.
+    private func handleNetworkError(_ error: Error, task failedTask: URLSessionTask) {
+        stateLock.lock()
+        guard failedTask === task, !cancelled, downloadResult == nil, deferredError == nil else {
+            stateLock.unlock()
+            return
+        }
+        task = nil
+        guard hasReceivedFirstByte else {
+            stateLock.unlock()
+            fail(error)
+            return
+        }
+        // Every byte arrived and the connection failed afterwards: the file is whole.
+        if let validator = resumeValidator, receivedByteCount >= validator.totalBytes {
+            stateLock.unlock()
+            finishNetwork()
+            return
+        }
+        let now = configuration.now()
+        let startedAt = recoveryStartedAt ?? now
+        recoveryStartedAt = startedAt
+        // After a path change, a resume that cannot connect is not retried against the same endpoint:
+        // the service's reload selects a fresh one.
+        let resumeFailedAfterPathChange = resumeOffset != nil && pathChangedAwaitingBytes
+        guard let validator = resumeValidator, !resumeFailedAfterPathChange,
+              now - startedAt < configuration.resumeWindow else {
+            stateLock.unlock()
+            failAfterDraining(error)
+            return
+        }
+        EnsembleLogger.info("[StreamingPipeline] dropped trackId=\(configuration.trackID ?? "unknown") bytes=\(receivedByteCount)/\(validator.totalBytes) error=\((error as NSError).domain):\((error as NSError).code)")
+        scheduleResumeAndUnlock(now: now)
+    }
+
+    /// Schedules `beginResume`, paced like the service's reloads: a server that sends a little and drops
+    /// must not be hit in a tight loop. Called with the lock held; releases it.
+    private func scheduleResumeAndUnlock(now: TimeInterval) {
+        let delay = max(0, configuration.resumeRetryInterval - (now - (lastResumeRequestAt ?? -.infinity)))
+        let work = DispatchWorkItem { [weak self] in self?.beginResume() }
+        resumeWorkItem?.cancel()
+        resumeWorkItem = work
+        stateLock.unlock()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// Requests the rest of the file from the byte where the last task stopped.
+    private func beginResume() {
+        stateLock.lock()
+        resumeWorkItem = nil
+        guard !cancelled, downloadResult == nil, deferredError == nil, let session, resumeValidator != nil else {
+            stateLock.unlock()
+            return
+        }
+        let now = configuration.now()
+        let offset = receivedByteCount
+        recoveryStartedAt = recoveryStartedAt ?? now
+        lastResumeRequestAt = now
+        resumeAttempts += 1
+        var request = configuration.request
+        request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let resumeTask = session.dataTask(with: request)
+        task = resumeTask
+        resumeOffset = offset
+        let attempt = resumeAttempts
+        let sinceDrop = now - (recoveryStartedAt ?? now)
+        stateLock.unlock()
+        resumeTask.resume()
+        EnsembleLogger.info("[StreamingPipeline] resumeRequested trackId=\(configuration.trackID ?? "unknown") offset=\(offset) attempt=\(attempt) sinceDrop=\(String(format: "%.2fs", sinceDrop))")
+    }
+
+    /// The network path changed: a ranged download that has gone quiet restarts on the new path now,
+    /// rather than waiting for its old connection to fail. One that is still receiving is left alone.
+    func networkPathChanged() {
+        stateLock.lock()
+        guard let validator = resumeValidator, !cancelled, downloadResult == nil, deferredError == nil,
+              hasReceivedFirstByte, receivedByteCount < validator.totalBytes else {
+            stateLock.unlock()
+            return
+        }
+        pathChangedAwaitingBytes = true
+        let sinceLastByte = lastByteUptime.map { ProcessInfo.processInfo.systemUptime - $0 } ?? .infinity
+        guard sinceLastByte >= configuration.healthyWindow else {
+            stateLock.unlock()
+            return
+        }
+        let oldTask = task
+        task = nil
+        let now = configuration.now()
+        recoveryStartedAt = recoveryStartedAt ?? now
+        oldTask?.cancel()
+        scheduleResumeAndUnlock(now: now)
+    }
+
+    /// Gives up on the download without cutting off audio already on disk or in the PCM reserve.
+    private func failAfterDraining(_ error: Error) {
+        stateLock.lock()
+        guard decoderStarted, pcmBuffer != nil, !completed, !cancelled else {
+            stateLock.unlock()
+            fail(error)
+            return
+        }
+        guard deferredError == nil else {
+            stateLock.unlock()
+            return
+        }
+        deferredError = error
+        let oldTask = task
+        task = nil
+        let resumeWork = resumeWorkItem
+        resumeWorkItem = nil
+        let growingFile = self.growingFile
+        stateLock.unlock()
+        resumeWork?.cancel()
+        oldTask?.cancel()
+        session?.invalidateAndCancel()
+        growingFile?.finish(error: error, drainingFirst: true)
+        EnsembleLogger.info("[StreamingPipeline] downloadAbandoned trackId=\(configuration.trackID ?? "unknown") error=\((error as NSError).domain):\((error as NSError).code) reason=reloadAfterBuffer")
     }
 
     private func failStartupIfNeeded() {
@@ -631,6 +832,32 @@ final class StreamingAudioPipeline: NSObject {
         }
     #endif
 
+    #if DEBUG
+        /// Ends the connection once, as a network drop would, after N bytes or N seconds of the track's download.
+        private func dropAutomationConnectionIfNeeded(_ sender: URLSessionTask) {
+            let environment = ProcessInfo.processInfo.environment
+            guard environment["ENSEMBLE_AUTOMATION_MODE"] == "1",
+                  let trackID = configuration.trackID,
+                  let target = environment["ENSEMBLE_AUTOMATION_STREAM_DROP_TRACK"],
+                  !target.isEmpty,
+                  trackID == target || trackID.hasSuffix("||" + target) else { return }
+            let afterBytes = environment["ENSEMBLE_AUTOMATION_STREAM_DROP_AFTER_BYTES"].flatMap(Int64.init) ?? .max
+            let afterSeconds = environment["ENSEMBLE_AUTOMATION_STREAM_DROP_AFTER_SECONDS"].flatMap(Double.init) ?? .infinity
+            stateLock.lock()
+            let now = ProcessInfo.processInfo.systemUptime
+            let start = automationDropClockStart ?? now
+            automationDropClockStart = start
+            let shouldDrop = !didApplyAutomationDrop && !cancelled && sender === task
+                && (receivedByteCount >= afterBytes || now - start >= afterSeconds)
+            if shouldDrop { didApplyAutomationDrop = true }
+            stateLock.unlock()
+            guard shouldDrop else { return }
+            PlaybackJourneyLogger.mark("injectedStreamDrop", trackId: trackID)
+            sender.cancel()
+            handleNetworkError(URLError(.networkConnectionLost), task: sender)
+        }
+    #endif
+
     private var isActiveForWrites: Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
@@ -664,22 +891,51 @@ extension StreamingAudioPipeline: URLSessionDataDelegate {
         responseSummary = "status=\(statusCode) expectedBytes=\(response.expectedContentLength) framing=\(framing)"
         stateLock.unlock()
 
-        if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
+        stateLock.lock()
+        let isCurrent = dataTask === task
+        let resumeOffset = self.resumeOffset
+        let validator = resumeValidator
+        stateLock.unlock()
+        guard isCurrent else {
+            completionHandler(.cancel)
+            return
+        }
+        let http = response as? HTTPURLResponse
+        if let resumeOffset {
+            // Plex ignores If-Range, so the resumed bytes are appended only if the ETag and range match.
+            guard let http, let validator, statusCode == 206,
+                  http.value(forHTTPHeaderField: "ETag") == validator.etag,
+                  ResumableDownload.validContentRange(http.value(forHTTPHeaderField: "Content-Range"), offset: resumeOffset, total: validator.totalBytes),
+                  response.expectedContentLength == validator.totalBytes - resumeOffset else {
+                completionHandler(.cancel)
+                failAfterDraining(URLError(.badServerResponse))
+                return
+            }
+        } else if let http, !(200 ... 299).contains(http.statusCode) {
             completionHandler(.cancel)
             fail(ProgressiveStreamError.httpError(statusCode: http.statusCode, bodySnippet: nil))
             return
+        } else if let http, statusCode == 200, framing == "contentLength", response.expectedContentLength > 0,
+                  let etag = http.value(forHTTPHeaderField: "ETag"), etag.hasPrefix("\""), etag.hasSuffix("\""),
+                  (http.value(forHTTPHeaderField: "Content-Encoding") ?? "identity") == "identity" {
+            stateLock.lock()
+            resumeValidator = (etag, response.expectedContentLength)
+            stateLock.unlock()
         }
         completionHandler(.allow)
     }
 
-    func urlSession(_: URLSession, dataTask _: URLSessionDataTask, didReceive data: Data) {
+    func urlSession(_: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         #if DEBUG
             delayAutomationNetworkChunkIfNeeded()
         #endif
-        append(data)
+        append(data, from: dataTask)
+        #if DEBUG
+            dropAutomationConnectionIfNeeded(dataTask)
+        #endif
     }
 
-    func urlSession(_: URLSession, task _: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+    func urlSession(_: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
         let transaction = metrics.transactionMetrics.last
         var summary = "duration=\(String(format: "%.3fs", metrics.taskInterval.duration))"
             + " redirects=\(metrics.redirectCount)"
@@ -698,11 +954,19 @@ extension StreamingAudioPipeline: URLSessionDataDelegate {
         stateLock.lock()
         metricsSummary = summary
         stateLock.unlock()
+        let ranged = task.originalRequest?.value(forHTTPHeaderField: "Range") != nil
+        EnsembleLogger.info("[StreamingPipeline] connection trackId=\(configuration.trackID ?? "unknown") ranged=\(ranged) \(summary)")
     }
 
-    func urlSession(_: URLSession, task _: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error {
-            fail(error)
+    func urlSession(_: URLSession, task completedTask: URLSessionTask, didCompleteWithError error: Error?) {
+        stateLock.lock()
+        let isCurrent = completedTask === task
+        // A sized download that ends early without an error is a drop too.
+        let shortfall = resumeValidator.map { receivedByteCount < $0.totalBytes } ?? false
+        stateLock.unlock()
+        guard isCurrent else { return }
+        if let error = error ?? (shortfall ? URLError(.networkConnectionLost) : nil) {
+            handleNetworkError(error, task: completedTask)
         } else {
             finishNetwork()
         }

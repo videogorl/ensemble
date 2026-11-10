@@ -160,7 +160,7 @@ public enum ResumableDownload {
             && FileManager.default.fileExists(atPath: directory.appendingPathComponent(key + ".json").path)
     }
 
-    static func validContentRange(_ value: String?, offset: Int64, total: Int64) -> Bool {
+    public static func validContentRange(_ value: String?, offset: Int64, total: Int64) -> Bool {
         value == "bytes \(offset)-\(total - 1)/\(total)"
     }
 }

@@ -426,6 +426,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// The item whose TLS failure already had its one connection refresh.
     var tlsRefreshedItemID: String?
     var networkStateObservation: StreamSubscription?
+    var networkPathObservation: StreamSubscription?
     var accountSourcesObservation: StreamSubscription?
     var healthCheckCompletionObservation: StreamSubscription?
     /// Set during queue restoration; cleared after pre-buffer completes or user taps play.
@@ -818,6 +819,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 let previousState = service.lastObservedNetworkState
                 service.lastObservedNetworkState = snapshot.state
                 Task { await service.handleNetworkStateTransition(from: previousState, to: snapshot.state) }
+            }
+            self.networkPathObservation = self.networkMonitor.pathChanges().observe(self) { service, _ in
+                service.audioEngine?.networkPathChanged()
             }
         }
     }

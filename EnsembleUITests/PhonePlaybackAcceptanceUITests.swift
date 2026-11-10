@@ -120,6 +120,38 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground, "App left the foreground (crash?)")
     }
 
+    /// A dropped download resumes in the background: the first track's connection is cut once after 1 MB
+    /// (DEBUG `ENSEMBLE_AUTOMATION_STREAM_DROP_*`, which needs ENSEMBLE_AUTOMATION_MODE=1). Pass: from its first
+    /// `playing` sample to its end, every probe sample of the first track is `playing` with a position that
+    /// never goes back, and the successor then plays. A fast link finishes the download within a second, so the
+    /// runner confirms from the session log that `injectedStreamDrop` and `[StreamingPipeline] resumed` came
+    /// after `ENGINE: playing`. `TEST_RUNNER_ENSEMBLE_SERIAL_TRACKS=a,b` picks other original-quality tracks.
+    func testG1h_ConnectionDropMidDownloadKeepsPlaying() throws {
+        let keys = ProcessInfo.processInfo.environment["ENSEMBLE_SERIAL_TRACKS"]?.split(separator: ",").map(String.init)
+            ?? [Key.wav, Key.wavNext]
+        launch(quality: "original", forceStream: true, environment: [
+            "ENSEMBLE_AUTOMATION_STREAM_DROP_TRACK": keys[0],
+            "ENSEMBLE_AUTOMATION_STREAM_DROP_AFTER_BYTES": "1000000",
+        ])
+        play(keys)
+        let first = try XCTUnwrap(wait(90, "first track playing") { $0.id == keys[0] && $0.state == "playing" })
+        var furthest = first.pos
+        var samples = 0
+        let advanced = wait(first.dur + 90, "advance to the successor") { p in
+            if p.id == keys[0] {
+                samples += 1
+                XCTAssertEqual(p.state, "playing", "State left playing: \(p.text)")
+                XCTAssertGreaterThanOrEqual(p.pos, furthest - 0.5, "Position went backwards: \(p.text)")
+                furthest = max(furthest, p.pos)
+            }
+            return p.id == keys[1] && p.state == "playing"
+        }
+        XCTAssertNotNil(advanced, "Playback did not advance after the first track's natural end")
+        XCTAssertGreaterThan(samples, 10, "Too few samples of the first track")
+        XCTAssertGreaterThanOrEqual(furthest, first.dur - 5, "The first track did not play to its end")
+        XCTAssertEqual(app.state, .runningForeground, "App left the foreground (crash?)")
+    }
+
     func testG1c_MP3Streams20s() throws { try streamSeconds(Key.mp3, quality: nil) }
     func testG1d_AAC_Streams20s() throws { try streamSeconds(Key.aac, quality: nil) }
     func testG1e_FLACStreams20s_DefaultQuality() throws { try streamSeconds(Key.flac, quality: nil) }

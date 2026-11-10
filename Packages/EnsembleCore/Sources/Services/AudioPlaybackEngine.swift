@@ -95,6 +95,8 @@ public final class AudioPlaybackEngine {
     var isRunningForDiagnostics: Bool { engine.isRunning }
     private var streamingPipeline: StreamingAudioPipeline?
     var isStreamingSourceActive: Bool { streamingPipeline != nil }
+    /// A path change restarts the current stream's ranged download on the new path.
+    func networkPathChanged() { streamingPipeline?.networkPathChanged() }
     var currentPlaybackFileURL: URL? { currentFile?.url ?? streamingPipeline?.cacheURL }
     var currentPlaybackFileIsComplete: Bool { streamingPipeline?.isDownloadComplete ?? (currentFile != nil) }
     var currentPlaybackSampleRate: Double? { currentTrackId == nil ? nil : sampleRate }

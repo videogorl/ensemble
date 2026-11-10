@@ -495,3 +495,16 @@ incremental Plex library syncs against the live server (store comparison in
 | A Background Refresh near its deadline stops without leaving a partial inventory: the next launch's sync completes and counts match the server (the writer queues WebSocket batches behind a running one) | Owed |
 
 The iPad and watch checklist sections start with steps 5 and 6.
+
+## iPhone SE and a phone with a SIM — stream drop resume (steps c and d)
+
+Applies to the commits "Resume a dropped direct download with a Range request..." and
+"Restart a ranged download as soon as the network path changes". Proven on the iPhone 17 Pro Max
+simulator with the DEBUG drop hook and in unit tests; a real network change is not proven.
+
+| Check | Status |
+| --- | --- |
+| iPhone SE, WAV pair 8731/8732 at original quality: `PhonePlaybackAcceptanceUITests.testG1h_ConnectionDropMidDownloadKeepsPlaying`. The probe stays `playing`, position keeps advancing through the drop, the track ends and 8732 plays; the session log has `injectedStreamDrop` and `[StreamingPipeline] resumed` | Owed |
+| A real Wi-Fi to cellular switch mid-track at original quality (needs a phone with a SIM; the SE has none): playback continues without buffering while the reserve lasts, the session log shows `resumeRequested` right after the path change, and the audio after the switch is the original file, not an MP3 transcode | Owed |
+| Plex log for the SE run: no `Client stopped playback` for the in-flight part, and the ranged request is answered 206 | Owed |
+
