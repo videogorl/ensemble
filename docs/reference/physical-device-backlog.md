@@ -124,14 +124,11 @@ than the metadata and is rejected after it loads.
 The retry, skip and halt passed on the SE on 2026-11-10 with 11631 and 11700
 ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)).
 
-- Open finding, 2026-11-10 at `8d463c2b` (SE build `202611100529.8463`): 11631
-  was not rejected in two of two runs. The first attempt failed 1.2 s into
-  playback, so the retry asked for the transcode from 1.0 s. A stream that
-  starts at an offset has no length to compare, so the short-transcode check
-  did not apply and the truncated audio played to its early end. In the
-  earlier runs the failure came within 1.0 s, the retry started at 0, and
-  the track was skipped. The 11631-then-11700 halt and the 11700 single
-  failure passed on this build.
+- Fixed at `4f791813`: invalid audio data now fails the track without a retry.
+  Before that, a failure 1.2 s into playback made the retry start at 1.0 s,
+  where the short-transcode check has no length to judge, and the truncated
+  audio played. On the SE (build `202611100615.4791`, 2026-11-10) 11631 was
+  skipped at once in two of two runs, and 11631 then 11700 halted.
 - Play a normal track and drop the network mid-stream (Airplane Mode, then back
   on). Confirm it still recovers and keeps playing. The scripted run could not
   do this: Control Center gestures take 60 to 120 s on the SE, longer than the
