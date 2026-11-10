@@ -645,6 +645,8 @@ extension PlaybackService {
         public var automationReachedBySkippingFailure: Bool {
             failureSkipItemID != nil && failureSkipItemID == currentQueueItemID
         }
+        /// `stream` while the track plays from a progressive download, `file` once from a complete file.
+        public var automationPlaybackSource: String { audioEngine?.isStreamingSourceActive == true ? "stream" : "file" }
         public var automationToastTitle: String? { toastCenter?.currentToast?.title }
     #endif
 

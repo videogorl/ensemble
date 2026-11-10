@@ -525,3 +525,13 @@ covered by unit tests only.
 | The "Playing at reduced quality" notice is raised when the fallback loads | Passed on the SE on 2026-11-10 as app state: both `testG2e1` and `testG2e2` assert the probe's `toast` field equals "Playing at reduced quality". Not read from the pixels |
 | A damaged original in the queue behind a good track: the prefetch fetches the transcode and the notice shows when the track starts | Owed: needs a damaged original whose transcode is complete; none is on the server |
 | `testG2e3_DamageReachedWhilePausedWaitsForPlay` (11631, pauses at 129 s): stays paused for 20 s with no notice; Play continues as the forced transcode with the notice | Owed: written, not yet run; the SE was busy with the step 3c checks |
+
+
+## iPhone SE — a seek keeps the original (`fix/seek-keeps-original-quality`)
+
+Proven on the iPhone 17 Pro Max simulator and in unit tests; the phone's real link and decoder timing are not.
+
+| Check | Status |
+| --- | --- |
+| `PhonePlaybackAcceptanceUITests.testG1i_SeekDuringDirectDownloadStaysOriginal` on the SE with `TEST_RUNNER_ENSEMBLE_PHONE_PLAYBACK=1` (optional `TEST_RUNNER_ENSEMBLE_SERIAL_TRACKS=8731`, `TEST_RUNNER_ENSEMBLE_SEEK_TO=90`): a seek made while the original's download is held in flight waits, then plays from the file. The probe shows `src=stream` before and `src=file` after, `fb=` empty; the session log has `seek requires stream restart`, then `sourceDecisionCompleted kind=cachedFile`, never `kind=transcodedHTTP`, and one request for the part in the Plex log | Owed |
+| Real link, no delay injection: seek to 120 s a few seconds into 14291 at original quality; the track shows buffering until its download finishes and then plays the original from 120 s | Owed |

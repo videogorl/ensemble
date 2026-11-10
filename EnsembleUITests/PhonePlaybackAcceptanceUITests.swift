@@ -31,6 +31,8 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
         /// `marked` once the current track's original is known damaged, `forced` once it fell back to a
         /// transcode; `skip` is set for an item reached by skipping a failure; `toast` is the toast on screen.
         let fb: String, skip: Bool, toast: String
+        /// `stream` while playing from a progressive download, `file` from a complete file.
+        let src: String
 
         init?(_ value: String?) {
             guard let value else { return nil }
@@ -53,9 +55,10 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
             fb = fields["fb"] ?? ""
             skip = fields["skip"] == "1"
             toast = fields["toast"] ?? ""
+            src = fields["src"] ?? ""
         }
 
-        var text: String { "pid=\(pid) net=\(net) mix=\(mix) state=\(state) id=\(id) pos=\(pos) dur=\(dur) idx=\(idx)/\(count) err=\(err) fb=\(fb) skip=\(skip) toast=\(toast)" }
+        var text: String { "pid=\(pid) net=\(net) mix=\(mix) state=\(state) id=\(id) pos=\(pos) dur=\(dur) idx=\(idx)/\(count) err=\(err) fb=\(fb) skip=\(skip) src=\(src) toast=\(toast)" }
     }
 
     static let clock: DateFormatter = {
@@ -123,6 +126,41 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
         XCTAssertNotNil(advanced, "Playback did not advance after the first track's natural end")
         let later = wait(30, "successor progressing") { $0.id == keys[1] && $0.pos >= 3 }
         XCTAssertNotNil(later, "Successor did not progress")
+        XCTAssertEqual(app.state, .runningForeground, "App left the foreground (crash?)")
+    }
+
+    /// A seek while the original's direct download is in flight stays the original: the download is held
+    /// incomplete by a one-time chunk delay, the seek waits for it (no second request), and the track then
+    /// plays from the finished, verified file. Before the fix the seek reloaded an offset MP3 transcode.
+    /// Pass: before the seek `src=stream`; after it the track reaches `playing` with `src=file`, a position
+    /// from the target on, `fb` empty (no fallback) and no toast. The runner confirms from the session log
+    /// `seek requires stream restart`, then `sourceDecisionCompleted kind=cachedFile` and no
+    /// `kind=transcodedHTTP`. `TEST_RUNNER_ENSEMBLE_SERIAL_TRACKS=a` picks another original-quality track
+    /// and `TEST_RUNNER_ENSEMBLE_SEEK_TO` (default 90 s) the target.
+    func testG1i_SeekDuringDirectDownloadStaysOriginal() throws {
+        let env = ProcessInfo.processInfo.environment
+        let key = env["ENSEMBLE_SERIAL_TRACKS"]?.split(separator: ",").first.map(String.init) ?? Key.wav
+        let target = Double(env["ENSEMBLE_SEEK_TO"] ?? "") ?? 90
+        launch(quality: "original", forceStream: true, environment: [
+            "ENSEMBLE_AUTOMATION_STREAM_DELAY_TRACK": key,
+            "ENSEMBLE_AUTOMATION_STREAM_DELAY_SECONDS": "8",
+        ])
+        play([key])
+        // As soon as audio plays: the held chunk keeps the download open for a few seconds only, and a fast link finishes it at once.
+        let before = try XCTUnwrap(wait(90, "track playing from the download") { $0.id == key && ($0.state == "playing" || $0.state == "buffering") })
+        XCTAssertEqual(before.src, "stream", "The seek would not meet a download in flight: \(before.text)")
+        transport("seek", to: target)
+        var sawToast = false
+        let after = wait(120, "playing from the file at the target") { p in
+            sawToast = sawToast || !p.toast.isEmpty
+            return p.id == key && p.state == "playing" && p.pos >= target
+        }
+        let settled = try XCTUnwrap(after, "The track never played on from the seek target: \(read()?.text ?? "no probe")")
+        XCTAssertEqual(settled.src, "file", "The seek did not continue from the original file: \(settled.text)")
+        XCTAssertEqual(settled.fb, "", "The track fell back to a transcode: \(settled.text)")
+        XCTAssertFalse(sawToast, "A toast appeared (reduced quality?)")
+        let later = wait(30, "position advancing") { $0.id == key && $0.state == "playing" && $0.pos >= settled.pos + 3 }
+        XCTAssertNotNil(later, "Position did not advance from the target")
         XCTAssertEqual(app.state, .runningForeground, "App left the foreground (crash?)")
     }
 

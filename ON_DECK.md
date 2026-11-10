@@ -286,10 +286,11 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Next step: find why AVAudioConverter yields no frames for ALAC; separately, play a completed non-streamable
   original from its downloaded file through the native engine so it stays at original quality.
 
-## Confirmed: at original quality a seek while the direct download is in flight restarts as a transcode (2026-11-10)
+## Suspected: a seek inside already-downloaded bytes of a direct original still waits for the whole download (2026-11-10)
 
-- Evidence: simulator run on track 14291; the seek past the downloaded range loads a transcode instead of
-  waiting for or resuming the direct stream.
-- Impact: quality drops silently on a seek; not part of step e.
-- Next step: decide whether a seek past the buffered end should wait for the download or range-request the
-  original.
+- Evidence: the progressive decoder (`StreamingAudioDecoder`) is not seekable, so `AudioPlaybackEngine.seek` throws
+  `streamingSeekUnavailable` for every streaming source. The seek fix waits for the in-flight download and then
+  plays the verified file from the target; it cannot jump inside bytes that are on disk but not yet complete.
+- Impact: on a slow link, a seek into audio that is already downloaded shows buffering until the whole file is down.
+- Next step: only if the phone shows long waits, make the growing file seekable (WAV/FLAC offsets), which is a
+  decoder change, not a seek-path change.

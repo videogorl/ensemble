@@ -885,7 +885,7 @@ private extension NSView {
 
 #if DEBUG
 /// Invisible element exposing playback state to UI tests (automation launches only).
-/// Value: `pid=123|state=playing|id=<ratingKey>|pos=12.3|dur=182.0|idx=0|count=5|mix=0|net=online(wifi)|err=|fb=|skip=0|toast=`. `fb` is `marked` once the
+/// Value: `pid=123|state=playing|id=<ratingKey>|pos=12.3|dur=182.0|idx=0|count=5|mix=0|net=online(wifi)|err=|fb=|skip=0|src=stream|toast=`. `fb` is `marked` once the
 /// current track's original is known damaged and `forced` once it fell back to a transcode.
 private struct AutomationPlaybackProbe: View {
     let playback: PlaybackService
@@ -926,6 +926,7 @@ private struct AutomationPlaybackProbe: View {
             "err=\(error)",
             "fb=\(playback.automationFallbackStatus)",
             "skip=\(playback.automationReachedBySkippingFailure ? 1 : 0)",
+            "src=\(playback.automationPlaybackSource)",
             "toast=\((playback.automationToastTitle ?? "").replacingOccurrences(of: "|", with: "/"))",
         ].joined(separator: "|")
     }
