@@ -225,7 +225,7 @@ public struct SearchView: View {
     }
 
     private func routeSearchResult(to destination: NavigationCoordinator.Destination) {
-        if EnsemblePlatformFeaturePolicy.current.usesSidebarRootNavigation {
+        if EnsemblePlatformFeaturePolicy.current.usesNativeBrowse {
             handleSearchResultNavigation()
             navigationCoordinator.navigateFromExternalSearch(to: destination)
         } else {
@@ -553,11 +553,7 @@ public struct SearchView: View {
                     )
                 }
             } else if let displayPlaylist = displayItem.displayPlaylist {
-                navigationCoordinator.routeLink(
-                    to: displayPlaylist.isMerged
-                        ? .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
-                        : .playlistDetail(displayPlaylist.primaryPlaylist)
-                ) {
+                navigationCoordinator.routeLink(to: .playlist(for: displayPlaylist)) {
                     DisplayPlaylistCard(displayPlaylist: displayPlaylist)
                 }
                 .buttonStyle(.plain)

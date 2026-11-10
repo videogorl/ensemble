@@ -152,7 +152,7 @@ struct NavigationDestinationFactory {
                 )
             }
         case .moodTracks(let mood):
-            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM, dependencies: viewModels.dependencies)
+            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
         case .hidden:
             HiddenMediaView(nowPlayingVM: nowPlayingVM, viewModel: viewModels.hidden)
         case .searchResults(let section):
@@ -172,6 +172,33 @@ struct NavigationDestinationFactory {
                 isMoreRoot: false,
                 isSelectedRoot: true
             )
+        }
+    }
+
+    // Split-pane roots build from the model the picker already holds, so they
+    // skip the loader frame a pushed destination shows while it resolves an id.
+
+    @MainActor
+    static func selectionDetail(artist: DisplayArtist, nowPlayingVM: NowPlayingViewModel, viewModels: RootScreenModels) -> some View {
+        ArtistDetailView(displayArtist: artist, nowPlayingVM: nowPlayingVM, dependencies: viewModels.dependencies)
+            .id(artist.id)
+    }
+
+    @MainActor
+    static func selectionDetail(genre: DisplayGenre, nowPlayingVM: NowPlayingViewModel, viewModels: RootScreenModels) -> some View {
+        GenreDetailContentView(libraryVM: viewModels.library, genre: genre, nowPlayingVM: nowPlayingVM, presentationStyle: .splitPane)
+            .id(genre.id)
+    }
+
+    @MainActor
+    @ViewBuilder
+    static func selectionDetail(playlist: DisplayPlaylist, nowPlayingVM: NowPlayingViewModel, viewModels: RootScreenModels) -> some View {
+        if playlist.isMerged {
+            MergedPlaylistDetailView(displayPlaylist: playlist, nowPlayingVM: nowPlayingVM, dependencies: viewModels.dependencies)
+                .id(playlist.id)
+        } else {
+            PlaylistDetailView(playlist: playlist.primaryPlaylist, nowPlayingVM: nowPlayingVM, dependencies: viewModels.dependencies)
+                .id(playlist.id)
         }
     }
 

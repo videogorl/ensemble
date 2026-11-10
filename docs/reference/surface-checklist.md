@@ -36,6 +36,8 @@ interaction a row checks.
 - Debug route: `ensemble://debug/open?surface=<surface>`. Surfaces: `home`,
   `songs`, `artists`, `albums`, `genres`, `playlists`, `favorites`, `search`,
   `downloads`, `settings`, `profile`, `profile-storage`, `add-source`.
+  Both paths open a browse surface at its list root; in sidebar layouts
+  `settings` opens Profile.
 - Media deep links: `ensemble://album/<id>`, `artist/<id>`, `playlist/<id>`,
   `song/<id>`, each with an optional `sourceKey` query item.
 - Accepted commands log `USER_JOURNEY context=automation`.

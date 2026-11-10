@@ -24,6 +24,7 @@ public struct RootView: View {
     @State private var sourceActionPresenter = MediaSourceActionPresenter()
     @State private var isNowPlayingPresented = false
     @State private var sidebarSelection: SidebarSelection? = .library(.home)
+    @State private var browseRootReset: TabItem?
     @State private var rootSidebarChromeRegistration: RootSidebarChromeRegistration = .absent
     @State private var isSoftwareKeyboardVisible = false
     @State private var hasLoggedAutomationLaunchOptions = false
@@ -142,6 +143,11 @@ public struct RootView: View {
         .onChange(of: navigationCoordinator.pendingNowPlayingRequest) {
             applyNowPlayingAutomationRequest()
         }
+        .onChange(of: navigationCoordinator.pendingAutomationSurface) {
+            guard let surface = navigationCoordinator.pendingAutomationSurface else { return }
+            navigationCoordinator.pendingAutomationSurface = nil
+            applyAutomationSurface(surface, source: "deepLink")
+        }
         #if canImport(UIKit)
         .onReceive(Self.softwareKeyboardVisibilityPublisher) { newValue in
             if newValue != isSoftwareKeyboardVisible {
@@ -212,14 +218,26 @@ public struct RootView: View {
         else { return }
 
         hasAppliedAutomationLaunchRoute = true
+        applyAutomationSurface(startSurface, source: "launchArgument")
+    }
 
-        // Sidebar shells expose app settings through the Profile presentation.
-        if usesSidebarRootNavigationShell, startSurface == .settings {
-            _ = navigationCoordinator.routeAutomationSurface(.profile, source: "launchArgument.settingsAlias")
+    /// Opens an automation surface at its root, for launch arguments and `debug/open` alike.
+    private func applyAutomationSurface(_ surface: AutomationSurface, source: String) {
+        guard usesNativeBrowse else {
+            navigationCoordinator.routeAutomationSurface(surface, source: source)
             return
         }
-
-        _ = navigationCoordinator.routeAutomationSurface(startSurface, source: "launchArgument")
+        // Sidebar shells expose app settings through the Profile presentation.
+        if surface == .settings {
+            navigationCoordinator.routeAutomationSurface(.profile, source: source + ".settingsAlias")
+            return
+        }
+        if let tab = surface.tab {
+            clearSidebarPinPath()
+            sidebarSelection = .library(tab)
+            browseRootReset = tab
+        }
+        navigationCoordinator.routeAutomationSurface(surface, source: source)
     }
 
     private func applyAutomationPlaylistRefreshIfNeeded() {
@@ -269,22 +287,11 @@ public struct RootView: View {
     private var mainContentView: some View {
         switch EnsemblePlatformFeaturePolicy.current.rootNavigationShell {
         case .nativeBrowse:
-            if #available(iOS 18.0, macOS 15.0, *) {
-                SidebarView(
-                    nowPlayingVM: nowPlayingVM,
-                    viewModels: screenModels,
-                    selection: $sidebarSelection,
-                    usesNativeBrowse: true,
-                    rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
-                )
-            } else {
-                MainTabView(nowPlayingVM: nowPlayingVM, viewModels: screenModels)
-            }
-        case .legacySidebar:
             SidebarView(
                 nowPlayingVM: nowPlayingVM,
                 viewModels: screenModels,
                 selection: $sidebarSelection,
+                browseRootReset: $browseRootReset,
                 rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
             )
         case .tabs:
@@ -295,7 +302,7 @@ public struct RootView: View {
                         nowPlayingVM: nowPlayingVM,
                         viewModels: screenModels,
                         selection: $sidebarSelection,
-                        usesNativeBrowse: true,
+                        browseRootReset: $browseRootReset,
                         adaptsToPhone: true,
                         wantsPhoneTabs: !expanded,
                         rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
@@ -334,10 +341,6 @@ public struct RootView: View {
         #else
         return false
         #endif
-    }
-
-    private var usesSidebarRootNavigationShell: Bool {
-        EnsemblePlatformFeaturePolicy.current.usesSidebarRootNavigation || usesExpandedPhoneBrowse
     }
 
     private var nowPlayingPresentationContent: some View {
@@ -400,7 +403,7 @@ public struct RootView: View {
     }
 
     private func syncSidebarSelection(to tab: TabItem) {
-        guard usesSidebarRootNavigationShell else { return }
+        guard usesNativeBrowse else { return }
         guard sidebarSelection?.correspondingTab != tab else { return }
 
         switch tab {
@@ -421,13 +424,6 @@ public struct RootView: View {
             clearSidebarPinPath()
             targetTab = NavigationCoordinator.targetTab(for: pending.destination)
             sidebarSelection = .library(targetTab)
-        } else if usesSidebarRootNavigationShell {
-            clearSidebarPinPath()
-            sidebarSelection = SidebarSelection.selection(
-                for: pending.destination,
-                fallback: sidebarSelection
-            )
-            targetTab = NavigationCoordinator.targetTab(for: pending.destination)
         } else {
             targetTab = pending.tab
         }

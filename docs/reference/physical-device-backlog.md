@@ -332,6 +332,12 @@ pass before step 0 is called verified.
 - Step 6b shared browse screen in the built Mac app (not run; the Mac launch
   check comes with 6c): the same five browse kinds and the picker columns for
   Artists, Genres and Playlists.
+- Step 6c panes on a physical iPad (not run): native `NavigationSplitView`
+  now serves every iPad, including iPadOS 17; Artists, Genres and Playlists
+  show detail in the next column, rotation and Split View resizing keep the
+  selection, and full-width kinds push. Also the iPhone tab flow after the
+  shell removal, and the built Mac app (launch, ten sidebar switches, switch
+  time against the 299 ms baseline).
 
 ## iPad Pro and Apple Watch
 

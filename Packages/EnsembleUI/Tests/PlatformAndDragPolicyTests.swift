@@ -19,11 +19,9 @@ final class PlatformAndDragPolicyTests: XCTestCase {
     func testPlatformPolicyKeepsFeatureRulesSeparateFromRenderers() {
         let phone = EnsemblePlatformFeaturePolicy.resolve(
             family: .iPhone,
-            supportsNativeBrowse: true,
             usesLargeMiniPlayer: false
         )
         XCTAssertEqual(phone.rootNavigationShell, .tabs)
-        XCTAssertFalse(phone.usesSidebarRootNavigation)
         XCTAssertFalse(phone.usesNativeBrowse)
         XCTAssertEqual(phone.miniPlayerMenuRenderer, .compactButtons)
         XCTAssertEqual(phone.nativeTrackListBackend, .compactRows)
@@ -34,22 +32,18 @@ final class PlatformAndDragPolicyTests: XCTestCase {
 
         let iPad = EnsemblePlatformFeaturePolicy.resolve(
             family: .iPad,
-            supportsNativeBrowse: false,
             usesLargeMiniPlayer: true
         )
-        XCTAssertEqual(iPad.rootNavigationShell, .legacySidebar)
-        XCTAssertTrue(iPad.usesSidebarRootNavigation)
-        XCTAssertFalse(iPad.usesNativeBrowse)
+        XCTAssertEqual(iPad.rootNavigationShell, .nativeBrowse)
+        XCTAssertTrue(iPad.usesNativeBrowse)
         XCTAssertEqual(iPad.miniPlayerMenuRenderer, .popover)
         XCTAssertEqual(iPad.nativeTrackListBackend, .uiKitTable)
 
         let mac = EnsemblePlatformFeaturePolicy.resolve(
             family: .macOS,
-            supportsNativeBrowse: true,
             usesLargeMiniPlayer: true
         )
         XCTAssertEqual(mac.rootNavigationShell, .nativeBrowse)
-        XCTAssertTrue(mac.usesSidebarRootNavigation)
         XCTAssertTrue(mac.usesNativeBrowse)
         XCTAssertEqual(mac.miniPlayerMenuRenderer, .appKitMenu)
         XCTAssertEqual(mac.nativeTrackListBackend, .appKitTable)

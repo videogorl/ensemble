@@ -58,6 +58,13 @@ public final class NavigationCoordinator {
             return .album(id: albumID, sourceKey: track.sourceCompositeKey, selectedTrackId: track.playbackIdentity)
         }
 
+        /// Merged playlists open by title; a single playlist opens its concrete model.
+        public static func playlist(for displayPlaylist: DisplayPlaylist) -> Destination {
+            displayPlaylist.isMerged
+                ? .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
+                : .playlistDetail(displayPlaylist.primaryPlaylist)
+        }
+
         var journeyLogDescription: String {
             switch self {
             case .displayArtist, .artistNamed, .artistDetail, .artist:
@@ -133,6 +140,9 @@ public final class NavigationCoordinator {
     public var pendingNavigation: PendingNavigation?
     /// Set by the `debug/now-playing` route; the root view applies and clears it.
     public var pendingNowPlayingRequest: NowPlayingAutomationRequest?
+    /// Set by the `debug/open` route; the root view applies and clears it, since
+    /// the layout's aliases and browse selections live there.
+    public var pendingAutomationSurface: AutomationSurface?
 
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var navigationInteractionGeneration = 0
@@ -569,7 +579,8 @@ public final class NavigationCoordinator {
                 "surface": surface.rawValue
             ]
         )
-        return routeAutomationSurface(surface, source: "deepLink")
+        pendingAutomationSurface = surface
+        return true
     }
 
     private func shouldRouteExternalSearchThroughMore(targetTab: TabItem) -> Bool {

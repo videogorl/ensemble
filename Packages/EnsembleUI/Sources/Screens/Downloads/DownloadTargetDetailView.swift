@@ -49,7 +49,7 @@ public struct DownloadTargetDetailView: View {
                         downloadActionsToolbarItem
                     }
                 #else
-                    EnsembleDetailToolbarLeadingSpacer()
+                    EnsembleToolbarLeadingSpacer()
                     ToolbarItem(placement: .primaryActionIfAvailable) {
                         downloadActionsToolbarItem
                     }

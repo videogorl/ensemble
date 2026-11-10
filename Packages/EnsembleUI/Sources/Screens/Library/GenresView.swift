@@ -12,7 +12,6 @@ public struct GenresView: View {
     let nowPlayingVM: NowPlayingViewModel
     private let presentationMode: PresentationMode
     private let externalSelectedGenre: Binding<DisplayGenre?>?
-    @State private var localSelectedGenre: DisplayGenre?
     private let genreSnapshotCache: BrowseSnapshotCache<GenreBrowseSnapshot>
     @Environment(NavigationCoordinator.self) private var navigationCoordinator
     private var isMacBrowsePicker: Bool {
@@ -89,72 +88,32 @@ public struct GenresView: View {
     private var rootContent: some View {
         switch presentationMode {
         case .compactRoot:
-            adaptiveGenreView
+            genreListView
         case .selectionColumn:
-            if #available(iOS 18.0, macOS 15.0, *) {
-                NativeBrowseScrollView {
-                    ForEach(filteredGenres) { genre in
-                        Button { setSelectedGenre(genre) } label: {
-                            genreRow(genre)
-                                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-                                .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
-                                .frame(minHeight: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .browseSelectionBackground(isSelected: selectedGenre?.id == genre.id)
-                        .padding(.horizontal, EnsembleScaffold.BrowseSelection.outerHorizontalPadding)
-                        .id(genre.id)
+            NativeBrowseScrollView {
+                ForEach(filteredGenres) { genre in
+                    Button { setSelectedGenre(genre) } label: {
+                        genreRow(genre)
+                            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+                            .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
+                            .frame(minHeight: 44)
                     }
+                    .buttonStyle(.plain)
+                    .browseSelectionBackground(isSelected: selectedGenre?.id == genre.id)
+                    .padding(.horizontal, EnsembleScaffold.BrowseSelection.outerHorizontalPadding)
+                    .id(genre.id)
                 }
-                .accessibilityIdentifier("browse.genres")
-            } else {
-                genreSelectionList
             }
+            .accessibilityIdentifier("browse.genres")
         }
     }
 
     private var selectedGenre: DisplayGenre? {
-        externalSelectedGenre?.wrappedValue ?? localSelectedGenre
+        externalSelectedGenre?.wrappedValue
     }
 
     private func setSelectedGenre(_ genre: DisplayGenre?) {
-        if let externalSelectedGenre {
-            externalSelectedGenre.wrappedValue = genre
-        } else {
-            localSelectedGenre = genre
-        }
-    }
-
-    private var selectedGenreBinding: Binding<DisplayGenre?> {
-        Binding(
-            get: { selectedGenre },
-            set: { setSelectedGenre($0) }
-        )
-    }
-
-    private var adaptiveGenreView: some View {
-        LargeScreenBrowseSplitView(
-            selection: selectedGenreBinding,
-            configuration: .rootBrowse,
-            compact: {
-                genreListView
-            },
-            sidebar: {
-                genreSelectionList
-            },
-            detail: { genre in
-                GenreDetailContentView(
-                    libraryVM: libraryVM,
-                    genre: genre,
-                    nowPlayingVM: nowPlayingVM,
-                    presentationStyle: .splitPane
-                )
-                    .id(genre.id)
-            },
-            placeholder: {
-                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.genreEmpty, title: "Select a Genre")
-            }
-        )
+        externalSelectedGenre?.wrappedValue = genre
     }
 
     private var genreListView: some View {
@@ -178,33 +137,6 @@ public struct GenresView: View {
         let targetTab = navigationCoordinator.selectedTab
         navigationCoordinator.beginRouteTransition(in: targetTab)
         navigationCoordinator.push(.displayGenre(id: genre.id), in: targetTab)
-    }
-
-    private var genreSelectionList: some View {
-        List {
-            ForEach(filteredGenres) { genre in
-                genreRow(genre)
-                    .genreListRowPadding()
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        setSelectedGenre(genre)
-                    }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityAction {
-                        setSelectedGenre(genre)
-                    }
-                    .listRowBackground(
-                        RoundedRectangle(
-                            cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,
-                            style: .continuous
-                        )
-                        .fill(selectedGenre?.id == genre.id ? EnsembleScaffold.BrowseSelection.fillColor : Color.clear)
-                    )
-            }
-        }
-        .listStyle(.plain)
-        .foregroundScrollActivity()
-        .miniPlayerBottomSpacing()
     }
 
     private func genreRow(_ genre: DisplayGenre) -> some View {

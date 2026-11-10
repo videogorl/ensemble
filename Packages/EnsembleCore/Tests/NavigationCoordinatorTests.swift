@@ -210,36 +210,48 @@ final class NavigationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testAutomationDeepLinkRoutesKnownSurface() throws {
+    func testAutomationDeepLinkQueuesSurfaceForRoot() throws {
+        let cases: [(query: String, expected: AutomationSurface?)] = [
+            ("surface=songs", .songs),
+            ("surface=settings", .settings),
+            ("surface=profile-storage", .profileStorage),
+            ("surface=nowhere", nil)
+        ]
+
+        for (query, expected) in cases {
+            let coordinator = NavigationCoordinator()
+            coordinator.selectedTab = .albums
+            let url = try XCTUnwrap(URL(string: "ensemble://debug/open?\(query)"))
+
+            XCTAssertTrue(
+                coordinator.handleDeepLink(url, automationOptions: AutomationLaunchOptions(isEnabled: true)),
+                query
+            )
+            // The root view applies the surface, so the link itself routes nothing.
+            XCTAssertEqual(coordinator.pendingAutomationSurface, expected, query)
+            XCTAssertEqual(coordinator.selectedTab, .albums, query)
+        }
+    }
+
+    @MainActor
+    func testAutomationRouteOpensKnownSurfaceAtRoot() {
         let coordinator = NavigationCoordinator()
         coordinator.selectedTab = .albums
         coordinator.songsPath = [.album(id: "stale", sourceKey: nil)]
-        let url = try XCTUnwrap(URL(string: "ensemble://debug/open?surface=songs"))
 
-        XCTAssertTrue(
-            coordinator.handleDeepLink(
-                url,
-                automationOptions: AutomationLaunchOptions(isEnabled: true)
-            )
-        )
+        XCTAssertTrue(coordinator.routeAutomationSurface(.songs, source: "test"))
 
         XCTAssertEqual(coordinator.selectedTab, .songs)
         XCTAssertTrue(coordinator.pathSnapshot(for: .songs).isEmpty)
     }
 
     @MainActor
-    func testAutomationDeepLinkRoutesHiddenSurfaceThroughMore() throws {
+    func testAutomationRouteOpensHiddenSurfaceThroughMore() {
         let coordinator = NavigationCoordinator()
         coordinator.visibleTabs = [.home, .artists, .playlists, .search]
         coordinator.routesHiddenTabsThroughMore = true
-        let url = try XCTUnwrap(URL(string: "ensemble://debug/open?surface=songs"))
 
-        XCTAssertTrue(
-            coordinator.handleDeepLink(
-                url,
-                automationOptions: AutomationLaunchOptions(isEnabled: true)
-            )
-        )
+        XCTAssertTrue(coordinator.routeAutomationSurface(.songs, source: "test"))
 
         XCTAssertEqual(coordinator.selectedTab, .settings)
         XCTAssertEqual(coordinator.pathSnapshot(for: .settings), [.view(.songs)])
@@ -247,16 +259,10 @@ final class NavigationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testAutomationDeepLinkOpensProfilePresentation() throws {
+    func testAutomationRouteOpensProfilePresentation() {
         let coordinator = NavigationCoordinator()
-        let url = try XCTUnwrap(URL(string: "ensemble://debug/open?surface=profile-storage"))
 
-        XCTAssertTrue(
-            coordinator.handleDeepLink(
-                url,
-                automationOptions: AutomationLaunchOptions(isEnabled: true)
-            )
-        )
+        XCTAssertTrue(coordinator.routeAutomationSurface(.profileStorage, source: "test"))
 
         XCTAssertEqual(coordinator.activeAuxiliaryPresentation, .profile)
     }
