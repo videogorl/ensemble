@@ -106,7 +106,7 @@ WAV (transcoded and direct PCM), MP3, AAC and FLAC passed on the SE on
 2026-11-10 ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)).
 
 - Direct-stream an AIFF track to the end (none was run).
-- Fixed at `9e4b31ce`, owed one phone check: with a successor queued, the direct
+- Fixed at `757bb6c6`, owed one phone check: with a successor queued, the direct
   WAV stream of 8731 dropped three times with `NSURLErrorDomain -1005` (at 5.2,
   6.9 and 11.5 MB of 50.7 MB), then fell back to a transcode. The cause was ours:
   the prefetch of 8732 requested its own direct file while 8731 was still
