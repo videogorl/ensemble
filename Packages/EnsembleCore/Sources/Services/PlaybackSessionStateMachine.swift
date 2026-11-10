@@ -74,6 +74,14 @@ enum PlaybackSessionStateMachine {
         return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 
+    /// The device or server could not be reached, so the same request may work once it is
+    /// back. Media, delivery, and HTTP status failures are not.
+    static func isServerUnreachable(_ error: Error) -> Bool {
+        if case PlaybackError.offline = error { return true }
+        if case PlaybackError.serverUnavailable = error { return true }
+        return isRecoverableNetworkFailure(error)
+    }
+
     static func isRecoverableNetworkFailure(_ error: Error) -> Bool {
         let nsError = underlyingError(error) as NSError
         guard nsError.domain == NSURLErrorDomain else { return false }

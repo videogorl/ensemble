@@ -264,6 +264,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let oldValue = snapshot.playbackState
             snapshot.playbackState = newValue
             guard playbackState != oldValue else { return }
+            haltWaitsForServer = false
             let trackTitle = currentTrack?.title ?? "nil"
             EnsembleLogger.playback("STATE: \(oldValue) → \(playbackState), track='\(trackTitle)'")
             if case let .failed(message) = playbackState {
@@ -408,6 +409,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Tracks consecutive playback failures to stop rapid retry loops when server is unreachable
     /// The item reached by skipping a failed one; if it fails too, playback halts (G11).
     var failureSkipItemID: String?
+    /// The current halt was caused by an unreachable server or network, so a passing health
+    /// check may retry it. Any other halt waits for the user. Cleared by any state change.
+    var haltWaitsForServer = false
     /// Where playback failures are shown; nil in headless contexts.
     let toastCenter: ToastCenter?
     /// The one failure toast on screen; a newer failure replaces it in place.
@@ -833,12 +837,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // Auto-resume: if playback failed because a server was offline, and a
+        // Auto-resume: if playback halted because a server was unreachable, and a
         // health check just passed, retry the current track automatically.
-        if case .failed = playbackState,
+        if case .failed = playbackState, haltWaitsForServer,
            currentTrack?.localFilePath == nil
         {
             EnsembleLogger.debug("🏥 Health check complete while in failed state — attempting auto-resume")
+            // An automatic retry is not a new listen: if it fails, the item halts again (G11).
+            failureSkipItemID = currentQueueItemID
             await retryCurrentTrack(
                 forceConnectionRefresh: false,
                 reason: "health-check-recovery",

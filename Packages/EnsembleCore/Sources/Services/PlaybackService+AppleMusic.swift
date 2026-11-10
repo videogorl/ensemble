@@ -241,7 +241,7 @@ extension PlaybackService {
                 guard generation == sessionGeneration else { return }
                 appleMusicPlaybackController?.stop()
                 audioEngine?.stop()
-                await handleItemFailure(error.localizedDescription, generation: generation)
+                await handleItemFailure(error.localizedDescription, generation: generation, cause: error)
             }
         }
 

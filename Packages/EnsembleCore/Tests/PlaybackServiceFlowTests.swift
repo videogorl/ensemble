@@ -161,11 +161,11 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.currentTrack = tracks[0]
         service.playbackState = .playing
 
-        await service.handleItemFailure("a failed", generation: service.sessionGeneration)
+        await service.handleItemFailure("a failed", generation: service.sessionGeneration, cause: nil)
         XCTAssertEqual(service.currentQueueIndex, 1)
         service.handleEngineStarted(trackID: tracks[1].playbackIdentity, session: service.activeEngineSession)
         service.playbackState = .playing
-        await service.handleItemFailure("b failed", generation: service.sessionGeneration)
+        await service.handleItemFailure("b failed", generation: service.sessionGeneration, cause: nil)
         XCTAssertEqual(service.currentQueueIndex, 1, "no cascade to c")
         guard case .failed = service.playbackState else {
             return XCTFail("expected halt, got \(service.playbackState)")
@@ -194,7 +194,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
         toasts.show(ToastPayload(style: .info, iconSystemName: "arrow.down", title: "Downloading", isPersistent: true))
 
         func halt() async throws -> ToastAction {
-            await service.handleItemFailure("a failed", generation: service.sessionGeneration)
+            await service.handleItemFailure("a failed", generation: service.sessionGeneration, cause: nil)
             XCTAssertEqual(toasts.currentToast?.title, "Playback stopped", "the halt is not queued behind another toast")
             return try XCTUnwrap(toasts.currentToast?.action)
         }
@@ -216,6 +216,46 @@ final class PlaybackServiceFlowTests: XCTestCase {
         retry.handler()
         await waitUntil(timeout: 3) { service.playbackState == .playing }
         service.audioEngine?.stop()
+    }
+
+    /// A returning server retries only a halt that a server outage caused; a media or delivery
+    /// failure waits for the user. The automatic retry is not a new listen: if it fails, the
+    /// item halts again instead of skipping on through the queue (G11).
+    func testHealthCheckRetriesOnlyAHaltCausedByAnUnreachableServer() async throws {
+        let causes: [(String, Error, Bool)] = [
+            ("delivery", ProgressiveStreamError.invalidPayload(bytesReceived: 300), false),
+            ("http", ProgressiveStreamError.httpError(statusCode: 404, bodySnippet: nil), false),
+            ("server", URLError(.timedOut), true),
+        ]
+        for (cause, error, retries) in causes {
+            let service = await makeService()
+            // c is downloaded, so the offline test device could skip on to it.
+            let tracks = ["a", "b"].map(makeStreamingTrack) + [try makeTrack("c")]
+            service.queue = tracks.map { QueueItem(track: $0) }
+            service.currentQueueIndex = 1
+            service.currentTrack = tracks[1]
+            service.playbackState = .playing
+            service.playbackPreparationShouldStart = true
+            // b was reached by skipping a, and its retries are spent.
+            service.failureSkipItemID = service.queue[1].id
+            service.streamRecovery = (service.queue[1].id, PlaybackService.maxStreamRecoveryAttempts, 0)
+            service.recoverCurrentStream(after: error)
+            await service.stallRecoveryTask?.value
+            guard case .failed = service.playbackState else {
+                XCTFail("\(cause): expected a halt, got \(service.playbackState)")
+                continue
+            }
+
+            let generation = service.sessionGeneration
+            await service.handleHealthCheckCompletion()
+            XCTAssertEqual(service.sessionGeneration > generation, retries, "\(cause): retried on health")
+            XCTAssertEqual(service.currentQueueIndex, 1, "\(cause): never skips on to c")
+            guard case .failed = service.playbackState else {
+                XCTFail("\(cause): expected to stay halted, got \(service.playbackState)")
+                continue
+            }
+            service.audioEngine?.stop()
+        }
     }
 
     // MARK: - Harness
@@ -275,6 +315,14 @@ final class PlaybackServiceFlowTests: XCTestCase {
             queueStore: queueStore,
             trackRatingLocalStore: TrackRatingLocalStore(coreDataStack: stack),
             toastCenter: toastCenter
+        )
+    }
+
+    /// A track that only streams; the test service is offline, so loading it fails.
+    private func makeStreamingTrack(_ id: String) -> Track {
+        Track(
+            id: id, key: "/library/metadata/\(id)", title: id, duration: 200,
+            streamKey: "/library/parts/\(id)/file.mp3", sourceCompositeKey: Self.sourceCompositeKey
         )
     }
 

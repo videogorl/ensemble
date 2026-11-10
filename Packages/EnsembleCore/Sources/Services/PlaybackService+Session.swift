@@ -110,7 +110,7 @@ extension PlaybackService {
             defer { self.stallRecoveryTask = nil }
             guard self.currentRetryBinding == binding else { return }
             if isSpent {
-                await self.handleItemFailure(error.localizedDescription, generation: binding.generation)
+                await self.handleItemFailure(error.localizedDescription, generation: binding.generation, cause: error)
             } else {
                 await self.retryCurrentTrack(
                     forceConnectionRefresh: false,
@@ -454,7 +454,7 @@ extension PlaybackService {
         EnsembleLogger.playback("ENGINE: error -- \(error.localizedDescription)")
         guard playbackState == .playing || playbackState == .loading else { return }
         Task { @MainActor in
-            await self.handleItemFailure(error.localizedDescription, generation: session.rawValue)
+            await self.handleItemFailure(error.localizedDescription, generation: session.rawValue, cause: error)
         }
     }
 
@@ -499,7 +499,7 @@ extension PlaybackService {
 
     /// The one path for an item that could not play, whichever engine or stage failed.
     @MainActor
-    func handleItemFailure(_ message: String, generation: UInt64) async {
+    func handleItemFailure(_ message: String, generation: UInt64, cause: Error?) async {
         audioEngine?.pause()
         endTrackTransitionBackgroundTask(for: generation)
 
@@ -521,6 +521,7 @@ extension PlaybackService {
         EnsembleLogger.playback("ITEM_FAILED: '\(currentTrack?.title ?? "nil")' (\(message)) — halting")
         clearItemFailureMarkers()
         playbackState = .failed(message)
+        haltWaitsForServer = cause.map(PlaybackSessionStateMachine.isServerUnreachable) ?? false
         updateNowPlayingInfo()
     }
 
@@ -738,6 +739,7 @@ extension PlaybackService {
                 isDeviceOffline: isDeviceOffline,
                 isCellularStreamingDisabled: isCellularStreamingDisabled
             ))
+            haltWaitsForServer = !isCellularStreamingDisabled
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
             UserJourneyLogger.log(
                 context: "playback",
@@ -884,6 +886,7 @@ extension PlaybackService {
                 isDeviceOffline: isDeviceOffline,
                 isCellularStreamingDisabled: isCellularStreamingDisabled
             ))
+            haltWaitsForServer = !isCellularStreamingDisabled
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
             UserJourneyLogger.log(
                 context: "playback",

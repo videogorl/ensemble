@@ -469,10 +469,11 @@ extension PlaybackService {
             }
             await handleItemFailure(
                 lastError?.localizedDescription ?? "Failed to load track",
-                generation: requestGeneration
+                generation: requestGeneration,
+                cause: lastError
             )
         case let .generic(message):
-            await handleItemFailure(message, generation: requestGeneration)
+            await handleItemFailure(message, generation: requestGeneration, cause: lastError)
         }
     }
 
@@ -559,7 +560,11 @@ extension PlaybackService {
         guard let track = currentTrack,
               track.localFilePath == nil,
               tlsRefreshedItemID != currentQueueItemID else {
-            await handleItemFailure("Unable to establish secure connection to server", generation: generation)
+            await handleItemFailure(
+                "Unable to establish secure connection to server",
+                generation: generation,
+                cause: URLError(.secureConnectionFailed)
+            )
             return
         }
         tlsRefreshedItemID = currentQueueItemID
@@ -580,7 +585,7 @@ extension PlaybackService {
             guard !Task.isCancelled, !PlaybackSessionStateMachine.isCancellation(error),
                   generation == sessionGeneration else { return }
             EnsembleLogger.debug("⚠️ Failed to refresh connection after TLS error: \(error.localizedDescription)")
-            await handleItemFailure("TLS connection error - no working server found", generation: generation)
+            await handleItemFailure("TLS connection error - no working server found", generation: generation, cause: error)
             return
         }
         guard !Task.isCancelled, generation == sessionGeneration else { return }
