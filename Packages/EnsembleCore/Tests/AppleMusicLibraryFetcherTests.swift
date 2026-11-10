@@ -23,7 +23,7 @@ final class AppleMusicLibraryFetcherTests: XCTestCase {
         }
 
         func isAuthorized() async -> Bool { authorization.count > 1 ? authorization.removeFirst() : authorization[0] }
-        func songs(progress: @Sendable (Double) -> Void) async throws -> AppleMusicSongList {
+        func songs() async throws -> AppleMusicSongList {
             songReads += 1
             return try songs.get()
         }

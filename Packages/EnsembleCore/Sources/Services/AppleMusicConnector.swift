@@ -1,13 +1,5 @@
 import Foundation
 
-enum AppleMusicPagination {
-    static func progress(fetchedPageCount: Int, hasNextPage: Bool) -> Double {
-        guard hasNextPage else { return 1 }
-        let pageCount = max(fetchedPageCount, 0)
-        return Double(pageCount) / Double(pageCount + 10)
-    }
-}
-
 enum AppleMusicPlaylistItemKind: String, Sendable {
     case catalogSong = "songs"
     case librarySong = "library-songs"
@@ -215,10 +207,8 @@ public actor AppleMusicConnector:
 
         func isAuthorized() async -> Bool { MusicAuthorization.currentStatus == .authorized }
 
-        func songs(progress: @Sendable (Double) -> Void) async throws -> AppleMusicSongList {
-            let (songs, total): ([LibrarySong], Int?) = try await connector.fetchPages(
-                path: AppleMusicConnector.librarySongsPath, progressHandler: progress
-            )
+        func songs() async throws -> AppleMusicSongList {
+            let (songs, total): ([LibrarySong], Int?) = try await connector.fetchPages(path: AppleMusicConnector.librarySongsPath)
             return AppleMusicSongList(songs: songs, reportedTotal: total)
         }
 
@@ -805,24 +795,17 @@ public actor AppleMusicConnector:
         } ?? []
     }
 
-    private func fetchAll<Resource: Decodable>(
-        path: String,
-        progressHandler: @Sendable (Double) -> Void = { _ in }
-    ) async throws -> [Resource] {
-        try await fetchPages(path: path, progressHandler: progressHandler).items
+    private func fetchAll<Resource: Decodable>(path: String) async throws -> [Resource] {
+        try await fetchPages(path: path).items
     }
 
     /// Follows the `next` chain to its end. Any failed page throws, so a result is every page of the
     /// chain; `total` is the API's own count from the first page, when it reports one.
-    private func fetchPages<Resource: Decodable>(
-        path: String,
-        progressHandler: @Sendable (Double) -> Void = { _ in }
-    ) async throws -> (items: [Resource], total: Int?) {
+    private func fetchPages<Resource: Decodable>(path: String) async throws -> (items: [Resource], total: Int?) {
         let initialPath = path
         var path: String? = path
         var result: [Resource] = []
         var total: Int?
-        var fetchedPageCount = 0
         var fetchedPaths = Set<String>()
         while let current = path {
             try RefreshExecution.checkCancellation()
@@ -837,14 +820,9 @@ public actor AppleMusicConnector:
                 throw error
             }
             let page = try JSONDecoder().decode(Page<Resource>.self, from: data)
-            if fetchedPageCount == 0 { total = page.meta?.total }
+            if fetchedPaths.count == 1 { total = page.meta?.total }
             result.append(contentsOf: page.data)
             path = page.next.map { Self.continuationPath($0, preservingQueryFrom: initialPath) }
-            fetchedPageCount += 1
-            progressHandler(AppleMusicPagination.progress(
-                fetchedPageCount: fetchedPageCount,
-                hasNextPage: path != nil
-            ))
         }
         return (result, total)
     }

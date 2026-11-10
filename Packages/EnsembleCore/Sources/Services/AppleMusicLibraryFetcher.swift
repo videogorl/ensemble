@@ -7,7 +7,7 @@ protocol AppleMusicLibrarySource: Sendable {
     /// Whether the user still allows this app to read the Apple Music library.
     func isAuthorized() async -> Bool
     /// Every library song, following the API's `next` chain to its end. Throws on any failed page.
-    func songs(progress: @Sendable (Double) -> Void) async throws -> AppleMusicSongList
+    func songs() async throws -> AppleMusicSongList
     /// MusicKit's own enumeration of the library songs.
     func nativeMetadata() async throws -> NativeLibraryMetadataSnapshot
 }
@@ -52,8 +52,7 @@ struct AppleMusicLibraryFetcher: Sendable {
     func fetch(
         plan: LibrarySyncPlan,
         pendingFavoriteCatalogIDs: Set<String>,
-        now: Date = Date(),
-        progress: @Sendable (Double) -> Void = { _ in }
+        now: Date = Date()
     ) async throws -> AppleMusicLibraryFetch {
         // No change feed exists, so a pass that is not due for an inventory has nothing to read.
         var batch = LibraryBatch(queryStartedAt: now)
@@ -63,7 +62,7 @@ struct AppleMusicLibraryFetcher: Sendable {
         if plan.since != nil, !plan.inventoryDue { return AppleMusicLibraryFetch(batch: batch) }
 
         guard await source.isAuthorized() else { throw AppleMusicLibraryError.notAuthorized }
-        let list = try await source.songs { progress(0.1 + $0 * 0.4) }
+        let list = try await source.songs()
         let native = try await source.nativeMetadata()
         try RefreshExecution.checkCancellation()
         guard await source.isAuthorized() else { throw AppleMusicLibraryError.notAuthorized }
