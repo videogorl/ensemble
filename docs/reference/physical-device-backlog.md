@@ -102,8 +102,14 @@ running iOS 27.0.1 before that check. See the
 The 2026-10-30 abort in `AVAudioCompressedBuffer` is fixed and covered by
 `StreamingAudioDecoderTests` on macOS only.
 
-- Direct-stream a WAV or AIFF track from Plex on the phone. Confirm it plays
-  to the end without a crash, and that MP3, AAC and FLAC tracks still stream.
+WAV (transcoded and direct PCM), MP3, AAC and FLAC passed on the SE on
+2026-11-10 ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)).
+
+- Direct-stream an AIFF track to the end (none was run).
+- Open finding: with a successor queued, the direct WAV stream of 8731 dropped
+  twice with `NSURLErrorDomain -1005` at exactly 5,242,880 bytes, then fell
+  back to a transcode and finished. Alone in the queue it played through.
+  Suspected cause is the concurrent prefetch of the next track; unconfirmed.
 
 ### Bounded retry of a stream that fails after loading
 
@@ -112,12 +118,13 @@ Covered on macOS by a `PlaybackServiceFlowTests` regression test and the real
 in June", AJR) is a truncated FLAC on the server, so its transcode is shorter
 than the metadata and is rejected after it loads.
 
-- On the iPhone SE, play 11631 at a non-original quality. After two quick
-  retries the track is skipped; if the next track fails too, playback stops on
-  the error with Retry. Confirm it never spins at 0:00 and never starts playing
-  while paused.
+The retry, skip and halt passed on the SE on 2026-11-10 with 11631 and 11700
+([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)).
+
 - Play a normal track and drop the network mid-stream (Airplane Mode, then back
-  on). Confirm it still recovers and keeps playing.
+  on). Confirm it still recovers and keeps playing. The scripted run could not
+  do this: Control Center gestures take 60 to 120 s on the SE, longer than the
+  track. Run it by hand or with a longer track.
 
 ### Customizable Now Playing secondary actions, 2026-10-13 feature commit
 
@@ -143,14 +150,12 @@ not on the phone or AirPlay.
   advance gaplessly, then trigger an interruption (call or Siri). The paused
   scrubber and the resumed position match the current track, not the track
   that was playing at the switch.
-- Pause and resume after gapless advances (`ae391278`): after a few gapless
-  tracks, pause and resume. The scrubber continues from the paused time, and a
-  later AirPlay switch logs a `render=` close to `observed=` and never
-  `Ignoring render clock`. Repeat once with the phone locked.
-- Relaunch and resume (`62e82bac`): force-quit while paused mid-queue,
-  relaunch, play, and let the track end into a gapless advance. The lock screen,
-  scrubber, and `ITEM_CHANGED ... via gapless` follow the new track, and no
-  `dropped native ... outside a session` line appears.
+- Pause and resume after gapless advances (`ae391278`) passed on the SE on
+  2026-11-10, also from the system media controls with the app in the
+  background ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)). Still owed: a later AirPlay switch logs a `render=` close to
+  `observed=` and never `Ignoring render clock`.
+- Relaunch and resume (`62e82bac`) passed on the SE on 2026-11-10 by the log
+  and scrubber. Still owed: the Lock Screen follows the new track.
 - Early segment end (`9ee8cf42`, diagnostic only): keep AirPlay playing a
   stream-cached queue. If a track ends early, read the `Segment ended early`
   line for the playhead, duration, frame counts, and file size.
@@ -160,23 +165,20 @@ not on the phone or AirPlay.
 Engine and service paths are covered by EnsembleCore tests on macOS; none ran
 on the phone. Name each commit by its subject until it has a hash here.
 
-- Paused Next then Previous, then Play ("Unload the current item when the
-  engine stops"): sound plays and the scrubber moves. After a Plex track hands
-  off to Apple Music, the duration shown is the Apple Music track's.
+Paused Next/Previous/Play, relaunch then Next, autoplay off during an
+autoplay track, and SmartMix cancel (by turning SmartMix off) passed on the
+SE with Plex on 2026-11-10 ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)).
+
+- After a Plex track hands off to Apple Music ("Unload the current item when
+  the engine stops"), the duration shown is the Apple Music track's. Needs
+  Apple Music.
 - Apple Music pause while buffering ("Rebind Apple Music events when a pause
   starts a new session"): press Play on a paused Apple Music track and pause
   again before it starts; then resume, once in the app and once from Control
   Center. The scrubber and Lock Screen move, and the next track advances. Not
   covered by any automated test.
-- Relaunch, then Next within 3 seconds ("Pre-buffer a restored queue at the
-  current paused playhead"): with a paused restored queue, press Next right
-  after launch, wait 5 seconds, press Play. The new track starts at 0:00.
-- Autoplay off while an autoplay track plays ("Keep the queue index on the
-  current item after removals"): the playing row stays highlighted and Next
-  goes to the following non-autoplay item, or ends the queue.
-- SmartMix cancel ("Stop a cancelled SmartMix crossfade from ending the
-  track"): during the first half of a crossfade, reorder Up Next or turn
-  SmartMix off. The outgoing track keeps playing to its end and then advances.
+- SmartMix cancel by reordering Up Next during the first half of a crossfade
+  (the turn-SmartMix-off variant passed).
 - Downloads ("Keep in-flight installs out of the orphan download sweep"):
   while a large album downloads, remove a different downloaded album (which
   runs the orphan sweep). Every finished track of the first album plays
@@ -202,10 +204,9 @@ See [the step note](../investigations/2026-10-21-step-2-composition-observation.
   a request for the newest album played a different Apple Music album (step
   note).
 
-- Steps 2c and 2d, at `cf4e8d19` or later: launch, a toast, the Downloads
-  sheet, the Autoplay and SmartMix toggles, and an album's blurred header
-  backdrop. The simulator could not finish the 2d pass because host audio
-  hung (step note).
+- Steps 2c and 2d, at `cf4e8d19` or later: an album's blurred header
+  backdrop. Launch, a toast, the Downloads sheet and the Autoplay and SmartMix
+  toggles passed on the SE on 2026-11-10 ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)).
 - Now Playing debug link, at `ebf55f2a` or later: run items 1–3 and 11–13 of
   the 2026-10-26 list using
   `ensemble://debug/now-playing?page=queue&shuffle=…&repeat=…&autoplay=…`
@@ -229,11 +230,11 @@ See [the step note](../investigations/2026-10-17-step-1e-snapshot.md).
 
 - G7: toggle shuffle during an Apple Music track; the track keeps playing and
   the next track comes from the new order. Same during a SmartMix overlap.
-- G17: in Airplane Mode, a track already streamed in full plays and is not
-  greyed out; an Apple Music track is greyed out and skipped.
-- G18: pause an uncached Plex stream, switch from Wi-Fi to cellular (or wait
-  until the server drops the connection), press Play; it continues from the
-  same position without a long buffering wait.
+- G17: in Airplane Mode, an Apple Music track is greyed out and skipped. (A
+  fully streamed Plex track played offline on the SE on 2026-11-10, [2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md).)
+- G18: pause an uncached Plex stream, switch from Wi-Fi to cellular, press
+  Play; it continues from the same position. Needs a SIM. With Wi-Fi turned
+  off and on instead, it resumed in 1.3 s at the same position on 2026-11-10.
 - Watch: queue, track, and shuffle state still mirror after the snapshot
   change.
 
@@ -245,12 +246,13 @@ See [the step note](../investigations/2026-10-17-step-1d-session-lifecycle.md).
   if iOS sends the should-resume hint, and stays paused while locked otherwise
   (G14).
 - Bluetooth disconnect during a load: ends paused.
-- Lock Screen while a track loads after Next: shows playing; a track that
-  loads while paused shows paused.
-- A failed track while locked skips once; a second failure halts with the
-  error on the Lock Screen (G11, G15).
 - Apple Music item that fails to start: skipped once (G11).
-- Pause during a load from the Lock Screen: stays paused.
+- Next and Pause during a load, and a failed track that skips once and then
+  halts, passed on the SE on 2026-11-10 with the app in the background, driven
+  from the system media controls on the cover sheet ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)). Still owed on a
+  literal Lock Screen, by hand: it shows playing after Next, paused after
+  Pause, and the error after the halt (G11, G15). The scripted run cannot lock
+  the SE with the button.
 
 ### Step 1c engine contract, at `5dfdef45` or later
 
@@ -270,10 +272,10 @@ Everything on Apple Music runs through the new adapter and is unproven:
 
 See [the step note](../investigations/2026-10-16-step-1b-queue-policy.md).
 
-- End of queue: natural end and Next on the last item leave it paused at 0:00
-  with the queue kept; Lock Screen shows the paused item.
-- Next on the last item under Repeat One wraps to the first item, also from
-  the Lock Screen.
+- End of queue and the Repeat One wrap passed in the app on the SE on
+  2026-11-10, as did a shuffle toggle during playback ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)). Still owed: the
+  Lock Screen shows the paused item at the end of the queue, and Next under
+  Repeat One wraps from the Lock Screen.
 - Q2: an Apple Music item at the end of a queue under Repeat All with autoplay
   on wraps to the first item and does not start a station.
 - Apple Music boundary at the end of the queue with autoplay off: stays on the
@@ -289,11 +291,15 @@ Rows from [`surface-checklist.md`](surface-checklist.md). Results so far are in
 
 Impossible on a simulator:
 
-- Lock Screen: play and scrub. (Artwork, title, pause, and Next passed on
-  2026-10-26.)
-- Control Center: media tile, pause, play, next.
-- Background playback: natural track change while locked.
-- Offline playback: downloaded track in Airplane Mode; blocked track toasts.
+- Lock Screen scrub. FAILED in the scripted SE run on 2026-11-10 ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)): after
+  a drag on the system scrubber to about 70%, the app was on the next track
+  at 6.8 s. It is not known whether the synthesized drag was read as a scrub;
+  repeat by hand before treating it as an app defect. (Artwork, title, pause
+  and Next passed on 2026-10-26; play and pause passed on 2026-11-10.)
+- Control Center: Next. (The tile's pause and play passed on 2026-11-10.)
+- Offline playback: a blocked track toasts. (A downloaded track played with
+  the network off, and a natural track change in the background after an idle
+  lock passed, on 2026-11-10.)
 - Siri affinity and add. (Siri media requests passed on 2026-10-26.)
 - App Shortcuts: all five listed; Play Album runs.
 - Focus filter offered in Settings.
