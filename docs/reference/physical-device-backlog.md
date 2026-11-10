@@ -133,6 +133,8 @@ about 22:50 on 2026-11-09 and now decode cleanly.
   state any other way dismisses it. With a download progress toast showing,
   the halt toast still appears at once. The mini player shows no error text.
 - Tap Retry on the halt toast and press Pause at once: playback stays paused.
+  Pause just as a track's retries run out (Airplane Mode mid-stream): it stays
+  paused, never skips to the next track, and Play restarts the stream.
 - After a halt on a bad track, toggle Wi-Fi off and on so a health check
   runs: the halted track does not restart. After a halt caused by an
   unreachable server (Wi-Fi off, or a VPN-only server with the VPN off),

@@ -110,7 +110,7 @@ extension PlaybackService {
             defer { self.stallRecoveryTask = nil }
             guard self.currentRetryBinding == binding else { return }
             if isSpent {
-                await self.handleItemFailure(error.localizedDescription, generation: binding.generation, cause: error)
+                await self.handleItemFailure(error.localizedDescription, binding: binding, cause: error)
             } else {
                 await self.retryCurrentTrack(
                     forceConnectionRefresh: false,
@@ -452,9 +452,13 @@ extension PlaybackService {
             return
         }
         EnsembleLogger.playback("ENGINE: error -- \(error.localizedDescription)")
-        guard playbackState == .playing || playbackState == .loading else { return }
-        Task { @MainActor in
-            await self.handleItemFailure(error.localizedDescription, generation: session.rawValue, cause: error)
+        guard playbackState == .playing || playbackState == .loading,
+              stallRecoveryTask == nil, let binding = currentRetryBinding else { return }
+        // Pending like a spent stream retry, so Pause or a newer item before it runs wins.
+        stallRecoveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.stallRecoveryTask = nil }
+            await self.handleItemFailure(error.localizedDescription, binding: binding, cause: error)
         }
     }
 
@@ -506,11 +510,16 @@ extension PlaybackService {
         if failureSkipItemID != currentQueueItemID { failureSkipItemID = nil }
     }
 
-    /// The one path for an item that could not play, whichever engine or stage failed.
+    /// The one path for an item that could not play, whichever engine or stage failed. It acts
+    /// only while `binding`'s session and item are current: a newer item, Pause, or Stop wins.
     @MainActor
-    func handleItemFailure(_ message: String, generation: UInt64, cause: Error?) async {
+    func handleItemFailure(_ message: String, binding: RetryBinding, cause: Error?) async {
+        endTrackTransitionBackgroundTask(for: binding.generation)
+        guard binding == currentRetryBinding else {
+            EnsembleLogger.playback("ITEM_FAILED: superseded by a newer item or session (\(message))")
+            return
+        }
         audioEngine?.pause()
-        endTrackTransitionBackgroundTask(for: generation)
 
         let response = Self.itemFailureResponse(
             intendsToPlay: playbackPreparationShouldStart,

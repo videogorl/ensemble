@@ -161,11 +161,11 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.currentTrack = tracks[0]
         service.playbackState = .playing
 
-        await service.handleItemFailure("a failed", generation: service.sessionGeneration, cause: nil)
+        await service.handleItemFailure("a failed", binding: service.currentRetryBinding!, cause: nil)
         XCTAssertEqual(service.currentQueueIndex, 1)
         service.handleEngineStarted(trackID: tracks[1].playbackIdentity, session: service.activeEngineSession)
         service.playbackState = .playing
-        await service.handleItemFailure("b failed", generation: service.sessionGeneration, cause: nil)
+        await service.handleItemFailure("b failed", binding: service.currentRetryBinding!, cause: nil)
         XCTAssertEqual(service.currentQueueIndex, 1, "no cascade to c")
         guard case .failed = service.playbackState else {
             return XCTFail("expected halt, got \(service.playbackState)")
@@ -194,7 +194,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
         toasts.show(ToastPayload(style: .info, iconSystemName: "arrow.down", title: "Downloading", isPersistent: true))
 
         func halt() async throws -> ToastAction {
-            await service.handleItemFailure("a failed", generation: service.sessionGeneration, cause: nil)
+            await service.handleItemFailure("a failed", binding: service.currentRetryBinding!, cause: nil)
             XCTAssertEqual(toasts.currentToast?.title, "Playback stopped", "the halt is not queued behind another toast")
             return try XCTUnwrap(toasts.currentToast?.action)
         }
@@ -304,7 +304,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
             service.currentTrack = tracks[0]
             service.playbackState = .playing
             service.playbackPreparationShouldStart = true
-            await service.handleItemFailure("a failed", generation: service.sessionGeneration, cause: nil)
+            await service.handleItemFailure("a failed", binding: service.currentRetryBinding!, cause: nil)
             XCTAssertEqual(service.failureSkipItemID, service.queue[1].id, "\(route): b is reached by a skip")
             service.pauseInternally(source: .user)
 
@@ -315,7 +315,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
                 service.repeatMode = .off
                 service.playbackState = .playing
                 service.playbackPreparationShouldStart = true
-                await service.handleItemFailure("b failed", generation: service.sessionGeneration, cause: nil)
+                await service.handleItemFailure("b failed", binding: service.currentRetryBinding!, cause: nil)
                 XCTAssertEqual(service.currentQueueIndex, 2, "\(route): a new first failure skips")
             }
             service.audioEngine?.stop()
@@ -338,7 +338,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
             service.isShuffleEnabled = false
             service.playbackState = .playing
             service.playbackPreparationShouldStart = true
-            await service.handleItemFailure("a failed", generation: service.sessionGeneration, cause: nil)
+            await service.handleItemFailure("a failed", binding: service.currentRetryBinding!, cause: nil)
             let marked = service.queue[1].id
             XCTAssertEqual(service.failureSkipItemID, marked, "\(edit): b is reached by a skip")
 
@@ -348,7 +348,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
 
             service.playbackState = .playing
             service.playbackPreparationShouldStart = true
-            await service.handleItemFailure("b failed", generation: service.sessionGeneration, cause: nil)
+            await service.handleItemFailure("b failed", binding: service.currentRetryBinding!, cause: nil)
             if case .failed = service.playbackState {} else {
                 XCTFail("\(edit): b's failure halts, got \(service.playbackState) at \(service.currentQueueIndex)")
             }
@@ -393,6 +393,52 @@ final class PlaybackServiceFlowTests: XCTestCase {
         let again = await healthCheckRetries()
         XCTAssertFalse(again, "one automatic retry per recovery")
         service.audioEngine?.stop()
+    }
+
+    /// A failure handled after a delay applies only to the item and session it came from: if the
+    /// item changed first, it is dropped; if the user paused first, playback stays paused.
+    func testDeferredItemFailureYieldsToANewerItemOrAPause() async throws {
+        let triggers: [(String, (PlaybackService) -> Void)] = [
+            ("engine failure", { $0.handleEngineFailure(URLError(.badServerResponse), session: $0.activeEngineSession) }),
+            ("spent stream retries", { service in
+                service.streamRecovery = (service.queue[0].id, PlaybackService.maxStreamRecoveryAttempts, 0)
+                service.recoverCurrentStream(after: URLError(.timedOut))
+            }),
+        ]
+        let interruptions: [(String, (PlaybackService) -> Void)] = [
+            ("item changed", { service in
+                service.currentQueueIndex = 1
+                service.currentTrack = service.queue[1].track
+            }),
+            ("paused", { $0.pauseInternally(source: .user) }),
+        ]
+        for (trigger, fail) in triggers {
+            for (interruption, interrupt) in interruptions {
+                let row = "\(trigger), \(interruption)"
+                let service = await makeService()
+                let tracks = try ["a", "b", "c"].map { try makeTrack($0) }
+                service.queue = tracks.map { QueueItem(track: $0) }
+                service.currentQueueIndex = 0
+                service.currentTrack = tracks[0]
+                service.playbackState = .playing
+                service.playbackPreparationShouldStart = true
+                let expectedIndex = interruption == "paused" ? 0 : 1
+
+                fail(service)
+                interrupt(service)
+                await service.stallRecoveryTask?.value
+                for _ in 0..<20 { await Task.yield() }
+
+                XCTAssertEqual(service.currentQueueIndex, expectedIndex, "\(row): no skip")
+                XCTAssertNil(service.failureSkipItemID, "\(row): no skip mark")
+                if interruption == "paused" {
+                    XCTAssertEqual(service.playbackState, .paused, "\(row): stays paused")
+                } else if case .failed = service.playbackState {
+                    XCTFail("\(row): the newer item must not halt on the older failure")
+                }
+                service.audioEngine?.stop()
+            }
+        }
     }
 
     // MARK: - Harness

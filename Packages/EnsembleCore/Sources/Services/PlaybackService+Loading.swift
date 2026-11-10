@@ -224,6 +224,7 @@ extension PlaybackService {
             stop()
             return
         }
+        let requestBinding = RetryBinding(generation: requestGeneration, itemID: queue[currentQueueIndex].id)
 
         #if os(iOS)
             if #available(iOS 18, *), queue[currentQueueIndex].track.isAppleMusic {
@@ -470,11 +471,11 @@ extension PlaybackService {
             }
             await handleItemFailure(
                 lastError?.localizedDescription ?? "Failed to load track",
-                generation: requestGeneration,
+                binding: requestBinding,
                 cause: lastError
             )
         case let .generic(message):
-            await handleItemFailure(message, generation: requestGeneration, cause: lastError)
+            await handleItemFailure(message, binding: requestBinding, cause: lastError)
         }
     }
 
@@ -562,6 +563,7 @@ extension PlaybackService {
         defer { endTrackTransitionBackgroundTask(for: generation) }
         // The failed attempt's session ends here, so a late event from it is stale.
         let generation = beginSession()
+        guard let binding = currentRetryBinding else { return }
 
         // A local file, or an item whose one refresh already failed, has failed.
         guard let track = currentTrack,
@@ -569,7 +571,7 @@ extension PlaybackService {
               tlsRefreshedItemID != currentQueueItemID else {
             await handleItemFailure(
                 "Unable to establish secure connection to server",
-                generation: generation,
+                binding: binding,
                 cause: URLError(.secureConnectionFailed)
             )
             return
@@ -592,7 +594,7 @@ extension PlaybackService {
             guard !Task.isCancelled, !PlaybackSessionStateMachine.isCancellation(error),
                   generation == sessionGeneration else { return }
             EnsembleLogger.debug("⚠️ Failed to refresh connection after TLS error: \(error.localizedDescription)")
-            await handleItemFailure("TLS connection error - no working server found", generation: generation, cause: error)
+            await handleItemFailure("TLS connection error - no working server found", binding: binding, cause: error)
             return
         }
         guard !Task.isCancelled, generation == sessionGeneration else { return }
