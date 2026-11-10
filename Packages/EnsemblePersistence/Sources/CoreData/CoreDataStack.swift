@@ -33,16 +33,20 @@ public final class CoreDataStack: @unchecked Sendable {
             }
         }
 
-        // Fill playlist membership keys for stores migrated from before model 12.
-        let backfillContext = newBackgroundContext()
-        backfillContext.performAndWait {
-            do {
-                let summary = try PlaylistMembershipBackfill.run(in: backfillContext)
-                if summary != PlaylistMembershipBackfill.Summary() {
-                    EnsembleLogger.debug("Playlist membership backfill: keysFilled=\(summary.keysFilled) duplicateRowsRemoved=\(summary.rowsRemoved) playlists=\(summary.playlistsFilled)")
+        // Finish the model 12 membership keys. A failure is logged and repeated at the next
+        // launch (rows missing keys are the record); the store stays usable meanwhile.
+        // In-memory stores have nothing to migrate and do not support batch statements.
+        if !inMemory {
+            let backfillContext = newBackgroundContext()
+            backfillContext.performAndWait {
+                do {
+                    let summary = try PlaylistMembershipBackfill.run(in: backfillContext)
+                    if summary != PlaylistMembershipBackfill.Summary() {
+                        EnsembleLogger.debug("Playlist membership backfill: keysFilled=\(summary.keysFilled) duplicateRowsRemoved=\(summary.rowsRemoved) playlists=\(summary.playlistsFilled)")
+                    }
+                } catch {
+                    EnsembleLogger.debug("Playlist membership backfill incomplete; it will run again at the next launch: \(error)")
                 }
-            } catch {
-                EnsembleLogger.debug("Playlist membership key backfill failed: \(error)")
             }
         }
 

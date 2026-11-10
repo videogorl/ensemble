@@ -1004,7 +1004,9 @@ extension LibraryRepository {
 
         let request = CDPlaylistTrack.fetchRequest()
         request.predicate = NSPredicate(
-            format: "track == nil AND trackSourceCompositeKey == %@ AND trackRatingKey IN %@",
+            // Rows still missing their keys wait for the membership backfill: saving a
+            // change to one lets the constraint treat unrelated nil-key rows as equal.
+            format: "track == nil AND playlistRatingKey != nil AND trackSourceCompositeKey == %@ AND trackRatingKey IN %@",
             sourceCompositeKey,
             Array(tracksByRatingKey.keys)
         )

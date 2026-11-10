@@ -32,7 +32,7 @@ final class CoreDataMigrationTests: XCTestCase {
         track.setValue("track-0", forKey: "ratingKey")
         track.setValue("/library/metadata/track-0", forKey: "key")
         track.setValue("Track", forKey: "title")
-        func membership(order: Int32, item: String, ratingKey: String, linked: Bool) {
+        func membership(order: Int32, item: String?, ratingKey: String?, linked: Bool) {
             let row = NSEntityDescription.insertNewObject(forEntityName: "CDPlaylistTrack", into: legacyContext)
             row.setValue(order, forKey: "order")
             row.setValue(item, forKey: "playlistItemID")
@@ -41,13 +41,16 @@ final class CoreDataMigrationTests: XCTestCase {
             if linked { row.setValue(track, forKey: "track") }
         }
         // Positions 0 and 2 hold the same track legitimately; 1 is duplicated by the old
-        // writer; 3 holds two different items.
+        // writer; 3 holds two different items; 5 is a linked-only row (no item ID or
+        // snapshot key) written twice.
         membership(order: 0, item: "item-0", ratingKey: "track-0", linked: true)
         membership(order: 1, item: "item-1", ratingKey: "track-1", linked: false)
         membership(order: 1, item: "item-1", ratingKey: "track-1", linked: false)
         membership(order: 2, item: "item-2", ratingKey: "track-0", linked: true)
         membership(order: 3, item: "item-3", ratingKey: "track-3", linked: false)
         membership(order: 3, item: "item-4", ratingKey: "track-4", linked: false)
+        membership(order: 5, item: nil, ratingKey: nil, linked: true)
+        membership(order: 5, item: nil, ratingKey: nil, linked: true)
         try legacyContext.save()
         try detachStores(from: legacyContainer)
 
@@ -57,11 +60,11 @@ final class CoreDataMigrationTests: XCTestCase {
         let stack = CoreDataStack.onDisk(at: storeURL)
         XCTAssertEqual(
             logged.filter { $0.contains("membership backfill") },
-            ["Playlist membership backfill: keysFilled=5 duplicateRowsRemoved=1 playlists=1"]
+            ["Playlist membership backfill: keysFilled=6 duplicateRowsRemoved=2 playlists=1"]
         )
         let migrated = try await stack.performViewContext { context in
-            try context.fetch(CDPlaylistTrack.fetchRequest()).sorted { $0.order < $1.order }.map {
-                [$0.playlistRatingKey, $0.playlistSourceCompositeKey, $0.playlistItemID, String($0.order)]
+            try context.fetch(CDPlaylistTrack.fetchRequest()).sorted { $0.order < $1.order }.map { (row) -> [String?] in
+                [row.playlistRatingKey, row.playlistSourceCompositeKey, row.playlistItemID, String(row.order)]
             }
         }
         XCTAssertEqual(migrated, [
@@ -69,11 +72,73 @@ final class CoreDataMigrationTests: XCTestCase {
             ["playlist-1", source, "item-1", "1"],
             ["playlist-1", source, "item-2", "2"],
             ["playlist-1", source, "item-3", "3"],
-            ["playlist-1", source, "item-4", "4"],
+            ["playlist-1", source, nil, "5"],
+            ["playlist-1", source, "item-4", "6"],  // a different item at an occupied position moves to the end
         ])
 
         let secondPass = try await stack.performBackgroundContext { try PlaylistMembershipBackfill.run(in: $0) }
         XCTAssertEqual(secondPass, PlaylistMembershipBackfill.Summary())
+    }
+
+    /// A pass that fails midway must leave a store the next launch can finish, with every
+    /// membership still present.
+    func testBackfillFailureMidwayIsFinishedByTheNextRun() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ensemble-backfill-retry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let storeURL = directory.appendingPathComponent("Ensemble.sqlite")
+        let modelDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/CoreData/Compiled/SwiftPMEnsemble.momd", isDirectory: true)
+        let version11 = try XCTUnwrap(NSManagedObjectModel(contentsOf: modelDirectory.appendingPathComponent("Ensemble 11.mom")))
+        let version12 = try XCTUnwrap(NSManagedObjectModel(contentsOf: modelDirectory.appendingPathComponent("Ensemble 12.mom")))
+
+        let legacy = try await loadContainer(model: version11, storeURL: storeURL)
+        for playlistKey in ["playlist-a", "playlist-b"] {
+            let playlist = NSEntityDescription.insertNewObject(forEntityName: "CDPlaylist", into: legacy.viewContext)
+            playlist.setValue(playlistKey, forKey: "ratingKey")
+            playlist.setValue("/playlists/\(playlistKey)", forKey: "key")
+            playlist.setValue(playlistKey, forKey: "title")
+            playlist.setValue("plex:account:server", forKey: "sourceCompositeKey")
+            for order in 0..<3 {
+                for _ in 0..<2 {  // every position written twice by the old writer
+                    let row = NSEntityDescription.insertNewObject(forEntityName: "CDPlaylistTrack", into: legacy.viewContext)
+                    row.setValue(Int32(order), forKey: "order")
+                    row.setValue("\(playlistKey)-item-\(order)", forKey: "playlistItemID")
+                    row.setValue(playlist, forKey: "playlist")
+                }
+            }
+        }
+        try legacy.viewContext.save()
+        try detachStores(from: legacy)
+
+        let container = try await loadContainer(model: version12, storeURL: storeURL)
+        let context = container.newBackgroundContext()
+        struct Injected: Error {}
+        var statements = 0
+        try context.performAndWait {
+            XCTAssertThrowsError(try PlaylistMembershipBackfill.run(in: context) {
+                statements += 1
+                if statements == 2 { throw Injected() }  // after playlist one's duplicates, before its keys
+            })
+            // Unfinished rows still read as one per position.
+            let playlists = try context.fetch(CDPlaylist.fetchRequest())
+            XCTAssertEqual(playlists.map { $0.playlistItemsArray.count }, [3, 3])
+        }
+
+        try await context.perform {
+            let summary = try PlaylistMembershipBackfill.run(in: context)
+            XCTAssertEqual(summary.playlistsFilled, 2)
+            XCTAssertEqual(summary.keysFilled, 6)
+            let rows = try context.fetch(CDPlaylistTrack.fetchRequest())
+            XCTAssertEqual(rows.count, 6)
+            XCTAssertTrue(rows.allSatisfy { $0.playlistRatingKey != nil })
+            XCTAssertEqual(Set(rows.compactMap(\.playlistItemID)).count, 6)
+            XCTAssertEqual(try PlaylistMembershipBackfill.run(in: context), PlaylistMembershipBackfill.Summary())
+        }
     }
 
     func testEnsemble10StoreMigratesToEnsemble11WithCollectionRatings() async throws {

@@ -233,8 +233,17 @@ extension CDPlaylist {
         return result
     }
 
+    /// Rows in position order. A store that has not finished its membership backfill can
+    /// still hold exact duplicates of the same item at one position; show each once.
     public var playlistItemsArray: [CDPlaylistTrack] {
-        (playlistTracks as? Set<CDPlaylistTrack> ?? []).sorted { $0.order < $1.order }
+        var seen = Set<String>()
+        return (playlistTracks as? Set<CDPlaylistTrack> ?? []).sorted { $0.order < $1.order }.filter { membership in
+            let itemIdentity = membership.playlistItemID
+                ?? membership.trackRatingKey
+                ?? membership.track?.ratingKey
+                ?? membership.objectID.uriRepresentation().absoluteString
+            return seen.insert("\(membership.order)|\(itemIdentity)").inserted
+        }
     }
 
     public var hasUnavailableTracks: Bool {
