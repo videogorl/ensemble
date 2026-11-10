@@ -119,3 +119,31 @@ index and Siri route polling items are scheduled as one batch.
 
 Checked and left alone: the visible AirPlay control, artwork's persistent cache and retry
 rules, the Plex WebSocket polling fallback, and the size of `WatchRootView.swift`.
+
+## Audit, 2026-11-10: network and server health checking
+
+From a read-only audit; nothing here is a reproduced defect. One `NWPathMonitor`
+(`NetworkMonitor.swift`) owns device state; `PlexAPIClient` and its
+`ConnectionFailoverManager` own per-server state. Ranked by stability gain per unit of work.
+
+- **Suspected: a route change on the same interface is invisible** (M). The monitor publishes
+  only network type and Low Data Mode, so Wi-Fi to Wi-Fi or a cellular route change does not
+  invalidate the chosen server endpoint or trigger a health check. Next step: publish a
+  debounced path-change generation and have routing and stream recovery (step d of
+  `docs/investigations/2026-11-10-stream-drop-recovery-and-fallback.md`) use it.
+- **No timing data for a stream's connection** (S). Next step: record `URLSessionTaskMetrics`
+  and retry/probe timing per stream, without URLs or tokens.
+- **Stale "offline" can show while a fresh check runs** (M). Next step: move server state to
+  `checking` on a routing change.
+- **A recently healthy endpoint gets a sequential head start of up to 3 s** before the other
+  candidates race (M). Next step: after a route change, race it with the alternatives under
+  the same local, remote, relay order.
+- **The Plex WebSocket has no ping** (S/M), so a silently dead socket is noticed late. Next
+  step: `URLSessionWebSocketTask.sendPing` on a modest interval.
+- **`NWPath.isExpensive` is not used** (S/M). It could gate optional prefetch and downloads
+  on cellular or hotspot; never user-requested playback.
+- **Playback probes the server before it asks for the stream** (L). Letting the real request
+  be authoritative, with bounded failover on failure, is simpler but a broad change.
+
+Checked and found reasonable: the 1 s network debounce, endpoint ordering, coalescing of
+identical probes, the health cache lifetimes, and the five-minute sync fallback.
