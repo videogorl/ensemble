@@ -110,21 +110,8 @@ struct TrackListRows {
         }
     }
 
-    /// Same sections whose track arrays share storage with `other`'s, which
-    /// proves the tracks unchanged without comparing them.
-    func sharesStorage(with other: TrackListRows) -> Bool {
-        hasSameSections(as: other) && zip(sections, other.sections).allSatisfy {
-            arraysShareStorage($0.tracks, $1.tracks)
-        }
-    }
-
-    func flattened(
-        hasHeader: Bool = false,
-        hasFooter: Bool = false,
-        bottomContentInset: CGFloat = 0
-    ) -> [FlatRow] {
+    func flattened(hasHeader: Bool, hasFooter: Bool, bottomContentInset: CGFloat) -> [FlatRow] {
         var rows: [FlatRow] = []
-        rows.reserveCapacity(firstTrackIndexes.last.map { $0 + (sections.last?.tracks.count ?? 0) } ?? 0)
         if hasHeader {
             rows.append(.header)
         }
@@ -206,10 +193,11 @@ enum TrackListChange: Equatable {
               old.bottomSpacer == new.bottomSpacer,
               old.rows.hasSameSections(as: new.rows) else { return .reload }
 
+        // Shared array storage proves the tracks unchanged without comparing them.
         let tracksUnchanged = if let revision = new.contentRevision {
             revision == old.contentRevision
         } else {
-            old.rows.sharesStorage(with: new.rows)
+            zip(old.rows.sections, new.rows.sections).allSatisfy { arraysShareStorage($0.tracks, $1.tracks) }
         }
         if !tracksUnchanged {
             var detailsChanged = false
