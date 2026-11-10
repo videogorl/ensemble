@@ -35,6 +35,7 @@
 		E0001072 /* SystemMedia.intentdefinition in Resources */ = {isa = PBXBuildFile; fileRef = E0001070 /* SystemMedia.intentdefinition */; };
 		E0001081 /* EnsembleLaunchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001080 /* EnsembleLaunchUITests.swift */; };
 		E0001083 /* PlaybackDeviceAcceptanceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001082 /* PlaybackDeviceAcceptanceUITests.swift */; };
+		E0001091 /* PhonePlaybackAcceptanceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001090 /* PhonePlaybackAcceptanceUITests.swift */; };
 		E0002001 /* EnsembleWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002000 /* EnsembleWatchApp.swift */; };
 		E0002003 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002002 /* WatchRootView.swift */; };
 		E0002005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E0002004 /* Assets.xcassets */; };
@@ -130,6 +131,7 @@
 		E0001070 /* SystemMedia.intentdefinition */ = {isa = PBXFileReference; lastKnownFileType = file.intentdefinition; path = SystemMedia.intentdefinition; sourceTree = "<group>"; };
 		E0001080 /* EnsembleLaunchUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleLaunchUITests.swift; sourceTree = "<group>"; };
 		E0001082 /* PlaybackDeviceAcceptanceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackDeviceAcceptanceUITests.swift; sourceTree = "<group>"; };
+		E0001090 /* PhonePlaybackAcceptanceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePlaybackAcceptanceUITests.swift; sourceTree = "<group>"; };
 		E0002000 /* EnsembleWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleWatchApp.swift; sourceTree = "<group>"; };
 		E0002002 /* WatchRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRootView.swift; sourceTree = "<group>"; };
 		E0002004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -269,6 +271,7 @@
 			children = (
 				E0001080 /* EnsembleLaunchUITests.swift */,
 				E0001082 /* PlaybackDeviceAcceptanceUITests.swift */,
+				E0001090 /* PhonePlaybackAcceptanceUITests.swift */,
 			);
 			path = EnsembleUITests;
 			sourceTree = "<group>";
@@ -625,6 +628,7 @@
 			files = (
 				E0001081 /* EnsembleLaunchUITests.swift in Sources */,
 				E0001083 /* PlaybackDeviceAcceptanceUITests.swift in Sources */,
+				E0001091 /* PhonePlaybackAcceptanceUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -149,7 +149,7 @@ public struct RootView: View {
         #if DEBUG
         .overlay(alignment: .topLeading) {
             if AutomationLaunchOptions.current.isEnabled {
-                AutomationPlaybackProbe(playback: dependencies.playbackService)
+                AutomationPlaybackProbe(playback: dependencies.playbackService, network: dependencies.networkMonitor)
             }
         }
         #endif
@@ -868,9 +868,10 @@ private extension NSView {
 
 #if DEBUG
 /// Invisible element exposing playback state to UI tests (automation launches only).
-/// Value: `pid=123|state=playing|id=<ratingKey>|pos=12.3|dur=182.0|idx=0|count=5|mix=0|err=`.
+/// Value: `pid=123|state=playing|id=<ratingKey>|pos=12.3|dur=182.0|idx=0|count=5|mix=0|net=online(wifi)|err=`.
 private struct AutomationPlaybackProbe: View {
     let playback: PlaybackService
+    let network: NetworkMonitor
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.5)) { _ in
@@ -903,6 +904,7 @@ private struct AutomationPlaybackProbe: View {
             "idx=\(playback.currentQueueIndex)",
             "count=\(playback.queue.count)",
             "mix=\(playback.isSmartMixTransitionActive ? 1 : 0)",
+            "net=\(network.networkState)".replacingOccurrences(of: " ", with: ""),
             "err=\(error)",
         ].joined(separator: "|")
     }
