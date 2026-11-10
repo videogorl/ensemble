@@ -96,6 +96,13 @@ gain per unit of work. Sizes are S, M or L.
   UIKit probe finds the enclosing `UIScrollView` and turns scrolling off and on before a jump
   (commit `fdb0d4cc`). Next step: try `.scrollPosition(id:anchor:)` (iOS 17) in the scroll
   owner and see whether a jump during momentum behaves acceptably.
+  Tried 2026-11-10 and left as is: Songs on iOS is a `UITableView` (`MediaTrackList`), so
+  `.scrollPosition` does not apply there, and its owner already jumps with `scrollToRow`.
+  Removing the probe passed a flick-then-tap XCUITest on Songs, but nothing proved the
+  list was still decelerating when the tap landed (XCUITest waits for idle before it taps),
+  and Albums and Genres jump through `ScrollViewReader`, which the test did not cover. Next
+  step: log `isDecelerating` at the jump to confirm the scenario is reachable, then cover
+  Songs, Albums and Genres before deleting the probe.
 - **StageFlow is a `UICollectionView` cover flow** (`StageFlowCarousel.swift`, 196 lines, M).
   Next step: prototype `ScrollView` with `.scrollTargetBehavior(.viewAligned)` and
   `.scrollTransition` (iOS 17); keep UIKit if the 3D transform or cell reuse is lost.
