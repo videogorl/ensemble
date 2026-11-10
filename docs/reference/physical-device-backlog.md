@@ -494,4 +494,23 @@ incremental Plex library syncs against the live server (store comparison in
 | Background Refresh delivers the same library change through the writer: add or remove a file in the owned album, wait for a Background Refresh, then see the album count, the Siri index save and the offline download follow | Owed |
 | A Background Refresh near its deadline stops without leaving a partial inventory: the next launch's sync completes and counts match the server (the writer queues WebSocket batches behind a running one) | Owed |
 
+## iPhone with Apple Music — step 3c, Apple Music library on the writer
+
+Applies to the commits that move Apple Music library sync onto `LibraryWriter`
+(`d9150fee` and its follow-up). The iPhone SE has no Apple Music source; run
+these on Felicity's own iPhone. The iOS Simulator cannot authorize a MusicKit
+library (a bare MusicKit probe on the simulator returned `denied` for the
+library and REST requests), so the writer and fetcher behaviour is proved only by
+`AppleMusicLibraryFetcherTests` with a fake source.
+
+| Check | Status |
+| --- | --- |
+| First sync after the update (no library cursor yet) reads the whole library, writes no rows that differ, deletes nothing, and records the cursor; the log has no `Apple Music inventory withheld` line | Owed |
+| Add a song to the Apple Music library, sync: the song, its album and artist appear; the album count is right | Owed |
+| Remove that song, sync: the song leaves, and its album and artist leave when it was their last song | Owed |
+| A library of many thousands of songs is not mistaken for incomplete: no `inventory withheld` line, which would mean the REST total or the MusicKit witness check disagrees on a healthy library | Owed |
+| Play counts and last played dates survive a sync that cannot read MusicKit history for a song (stored values kept) | Owed |
+| Toggle Apple Music off in Settings: its rows and its library cursor go, a Plex source's rows and cursor stay; turn it back on and the first sync rebuilds | Owed |
+| Revoke Media & Apple Music access in iOS Settings mid-use, then sync: the sync fails and the library is unchanged | Owed |
+
 The iPad and watch checklist sections start with steps 5 and 6.
