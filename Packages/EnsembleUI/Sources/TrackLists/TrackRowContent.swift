@@ -58,21 +58,10 @@ struct TrackRowContent: Equatable {
         showsArtwork = configuration.showArtwork
         showsTrackNumber = configuration.showTrackNumbers
         artistColumnWidth = columnWidths.artist
-
-        // The wide columns still differ by platform; kept as they were until
-        // Felicity picks one rule (step 6d part 2 note).
-        #if os(macOS)
         artistColumn = [track.artistName ?? "Unknown Artist", sourceLabel]
             .compactMap { $0 }
             .joined(separator: " · ")
         albumColumn = track.albumName ?? "Unknown Album"
         albumColumnWidth = configuration.showAlbumName ? columnWidths.album : nil
-        #else
-        artistColumn = [track.unavailableReason ?? track.artistName ?? "Unknown Artist", sourceLabel]
-            .compactMap { $0 }
-            .joined(separator: " · ")
-        albumColumn = track.unavailableReason == nil ? track.albumName ?? "Unknown Album" : ""
-        albumColumnWidth = columnWidths.album
-        #endif
     }
 }
