@@ -10,7 +10,7 @@ public final class CoreDataStack: @unchecked Sendable {
         persistentContainer.viewContext
     }
 
-    private init(inMemory: Bool) {
+    private init(inMemory: Bool, storeURL: URL? = nil) {
         let model = Self.loadManagedObjectModel()
 
         persistentContainer = NSPersistentContainer(name: "Ensemble", managedObjectModel: model)
@@ -20,6 +20,8 @@ public final class CoreDataStack: @unchecked Sendable {
         if inMemory {
             description.type = NSInMemoryStoreType
             description.url = URL(fileURLWithPath: "/dev/null")
+        } else if let storeURL {
+            description.url = storeURL
         }
         description.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
         description.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
@@ -28,6 +30,19 @@ public final class CoreDataStack: @unchecked Sendable {
         persistentContainer.loadPersistentStores { description, error in
             if let error = error {
                 fatalError("Failed to load CoreData store: \(error)")
+            }
+        }
+
+        // Fill playlist membership keys for stores migrated from before model 12.
+        let backfillContext = newBackgroundContext()
+        backfillContext.performAndWait {
+            do {
+                let summary = try PlaylistMembershipBackfill.run(in: backfillContext)
+                if summary != PlaylistMembershipBackfill.Summary() {
+                    EnsembleLogger.debug("Playlist membership backfill: keysFilled=\(summary.keysFilled) duplicateRowsRemoved=\(summary.rowsRemoved) playlists=\(summary.playlistsFilled)")
+                }
+            } catch {
+                EnsembleLogger.debug("Playlist membership key backfill failed: \(error)")
             }
         }
 
@@ -42,6 +57,12 @@ public final class CoreDataStack: @unchecked Sendable {
     /// Create an in-memory stack for testing/previews
     public static func inMemory() -> CoreDataStack {
         CoreDataStack(inMemory: true)
+    }
+
+    /// Opens a stack on a SQLite file; tests use it because in-memory stores do not
+    /// enforce uniqueness constraints.
+    public static func onDisk(at storeURL: URL) -> CoreDataStack {
+        CoreDataStack(inMemory: false, storeURL: storeURL)
     }
 
     public func newBackgroundContext() -> NSManagedObjectContext {
@@ -156,6 +177,9 @@ public final class CoreDataStack: @unchecked Sendable {
         guard trackEntity.propertiesByName["actionCapabilitiesData"] != nil,
               model.entitiesByName["CDAlbum"]?.propertiesByName["actionCapabilitiesData"] != nil,
               model.entitiesByName["CDArtist"]?.propertiesByName["actionCapabilitiesData"] != nil else {
+            return false
+        }
+        guard model.entitiesByName["CDPlaylistTrack"]?.propertiesByName["playlistRatingKey"] != nil else {
             return false
         }
         guard let playlistEntity = model.entitiesByName["CDPlaylist"],

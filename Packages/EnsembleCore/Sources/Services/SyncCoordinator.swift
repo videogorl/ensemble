@@ -3246,8 +3246,6 @@ private extension SyncCoordinator {
         isSyncing = true
         defer { isSyncing = false }
 
-        try? await playlistRepository.removeDuplicatePlaylists()
-
         var syncedServerKeys = Set<String>()
         for registration in registrations {
             let provider = registration.provider

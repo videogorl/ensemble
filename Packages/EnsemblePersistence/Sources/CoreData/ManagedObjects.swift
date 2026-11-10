@@ -234,15 +234,7 @@ extension CDPlaylist {
     }
 
     public var playlistItemsArray: [CDPlaylistTrack] {
-        let memberships = playlistTracks as? Set<CDPlaylistTrack> ?? []
-        var seen = Set<String>()
-        return memberships.sorted { $0.order < $1.order }.filter { membership in
-            let itemIdentity = membership.playlistItemID
-                ?? membership.trackRatingKey
-                ?? membership.track?.ratingKey
-                ?? membership.objectID.uriRepresentation().absoluteString
-            return seen.insert("\(membership.order)|\(itemIdentity)").inserted
-        }
+        (playlistTracks as? Set<CDPlaylistTrack> ?? []).sorted { $0.order < $1.order }
     }
 
     public var hasUnavailableTracks: Bool {
@@ -270,6 +262,10 @@ extension CDPlaylist {
 public class CDPlaylistTrack: NSManagedObject {
     @NSManaged public var order: Int32
     @NSManaged public var playlistItemID: String?
+    /// Copies of the owning playlist's identity: Core Data constraints cannot name a
+    /// relationship. Position within a playlist is unique; the same track may repeat.
+    @NSManaged public var playlistRatingKey: String?
+    @NSManaged public var playlistSourceCompositeKey: String?
     @NSManaged public var trackRatingKey: String?
     @NSManaged public var trackSourceCompositeKey: String?
     @NSManaged public var trackKey: String?

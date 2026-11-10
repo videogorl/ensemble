@@ -3,6 +3,72 @@ import XCTest
 @testable import EnsemblePersistence
 
 final class CoreDataMigrationTests: XCTestCase {
+    /// A model-11 store holding the duplicate rows the old concurrent writer produced
+    /// must load under model 12's uniqueness constraint, then collapse to one row per position.
+    func testEnsemble11StoreWithDuplicateMembershipsMigratesAndBackfills() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ensemble-v11-v12-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let storeURL = directory.appendingPathComponent("Ensemble.sqlite")
+        let modelDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/CoreData/Compiled/SwiftPMEnsemble.momd", isDirectory: true)
+        let version11 = try XCTUnwrap(NSManagedObjectModel(
+            contentsOf: modelDirectory.appendingPathComponent("Ensemble 11.mom")
+        ))
+
+        let legacyContainer = try await loadContainer(model: version11, storeURL: storeURL)
+        let legacyContext = legacyContainer.viewContext
+        let source = "plex:account:server"
+        let playlist = NSEntityDescription.insertNewObject(forEntityName: "CDPlaylist", into: legacyContext)
+        playlist.setValue("playlist-1", forKey: "ratingKey")
+        playlist.setValue("/playlists/playlist-1", forKey: "key")
+        playlist.setValue("Duplicated", forKey: "title")
+        playlist.setValue(source, forKey: "sourceCompositeKey")
+        let track = NSEntityDescription.insertNewObject(forEntityName: "CDTrack", into: legacyContext)
+        track.setValue("track-0", forKey: "ratingKey")
+        track.setValue("/library/metadata/track-0", forKey: "key")
+        track.setValue("Track", forKey: "title")
+        func membership(order: Int32, item: String, ratingKey: String, linked: Bool) {
+            let row = NSEntityDescription.insertNewObject(forEntityName: "CDPlaylistTrack", into: legacyContext)
+            row.setValue(order, forKey: "order")
+            row.setValue(item, forKey: "playlistItemID")
+            row.setValue(ratingKey, forKey: "trackRatingKey")
+            row.setValue(playlist, forKey: "playlist")
+            if linked { row.setValue(track, forKey: "track") }
+        }
+        // Positions 0 and 2 hold the same track legitimately; 1 is duplicated by the old
+        // writer; 3 holds two different items.
+        membership(order: 0, item: "item-0", ratingKey: "track-0", linked: true)
+        membership(order: 1, item: "item-1", ratingKey: "track-1", linked: false)
+        membership(order: 1, item: "item-1", ratingKey: "track-1", linked: false)
+        membership(order: 2, item: "item-2", ratingKey: "track-0", linked: true)
+        membership(order: 3, item: "item-3", ratingKey: "track-3", linked: false)
+        membership(order: 3, item: "item-4", ratingKey: "track-4", linked: false)
+        try legacyContext.save()
+        try detachStores(from: legacyContainer)
+
+        let stack = CoreDataStack.onDisk(at: storeURL)
+        let migrated = try await stack.performViewContext { context in
+            try context.fetch(CDPlaylistTrack.fetchRequest()).sorted { $0.order < $1.order }.map {
+                [$0.playlistRatingKey, $0.playlistSourceCompositeKey, $0.playlistItemID, String($0.order)]
+            }
+        }
+        XCTAssertEqual(migrated, [
+            ["playlist-1", source, "item-0", "0"],
+            ["playlist-1", source, "item-1", "1"],
+            ["playlist-1", source, "item-2", "2"],
+            ["playlist-1", source, "item-3", "3"],
+            ["playlist-1", source, "item-4", "4"],
+        ])
+
+        let secondPass = try await stack.performBackgroundContext { try PlaylistMembershipBackfill.run(in: $0) }
+        XCTAssertEqual(secondPass, PlaylistMembershipBackfill.Summary())
+    }
+
     func testEnsemble10StoreMigratesToEnsemble11WithCollectionRatings() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ensemble-v10-v11-\(UUID().uuidString)", isDirectory: true)
