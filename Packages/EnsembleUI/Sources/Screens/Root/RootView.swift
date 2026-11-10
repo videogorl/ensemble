@@ -423,6 +423,9 @@ public struct RootView: View {
                     }
                     tracks.append(found)
                 }
+                // Debug links can arrive within a second of a cold launch, before the Plex connection is
+                // resolved; settle it first so the request tests playback, not launch timing.
+                try? await dependencies.syncCoordinator.refreshConnection()
                 await playback.play(tracks: tracks, startingAt: startIndex)
             }
         case .pause: playback.pause()
@@ -865,7 +868,7 @@ private extension NSView {
 
 #if DEBUG
 /// Invisible element exposing playback state to UI tests (automation launches only).
-/// Value: `state=playing|id=<ratingKey>|pos=12.3|dur=182.0|idx=0|count=5|err=`.
+/// Value: `pid=123|state=playing|id=<ratingKey>|pos=12.3|dur=182.0|idx=0|count=5|mix=0|err=`.
 private struct AutomationPlaybackProbe: View {
     let playback: PlaybackService
 
@@ -892,12 +895,14 @@ private struct AutomationPlaybackProbe: View {
         case let .failed(message): state = "failed"; error = message.replacingOccurrences(of: "|", with: "/")
         }
         return [
+            "pid=\(ProcessInfo.processInfo.processIdentifier)",
             "state=\(state)",
             "id=\(playback.currentTrack?.id ?? "")",
             "pos=\(String(format: "%.1f", playback.currentTimeValue))",
             "dur=\(String(format: "%.1f", playback.duration))",
             "idx=\(playback.currentQueueIndex)",
             "count=\(playback.queue.count)",
+            "mix=\(playback.isSmartMixTransitionActive ? 1 : 0)",
             "err=\(error)",
         ].joined(separator: "|")
     }

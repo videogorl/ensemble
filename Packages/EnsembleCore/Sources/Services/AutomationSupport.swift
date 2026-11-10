@@ -55,12 +55,14 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
     public static let simulateOfflineArgument = "-EnsembleAutomationSimulateOffline"
     public static let refreshPlaylistsArgument = "-EnsembleAutomationRefreshPlaylists"
     public static let forceNetworkStreamArgument = "-EnsembleAutomationForceNetworkStream"
+    public static let ignoreDownloadsArgument = "-EnsembleAutomationIgnoreDownloads"
     public static let modeEnvironmentKey = "ENSEMBLE_AUTOMATION_MODE"
     public static let startSurfaceEnvironmentKey = "ENSEMBLE_AUTOMATION_START_SURFACE"
     public static let disableAnimationsEnvironmentKey = "ENSEMBLE_AUTOMATION_DISABLE_ANIMATIONS"
     public static let simulateOfflineEnvironmentKey = "ENSEMBLE_AUTOMATION_SIMULATE_OFFLINE"
     public static let refreshPlaylistsEnvironmentKey = "ENSEMBLE_AUTOMATION_REFRESH_PLAYLISTS"
     public static let forceNetworkStreamEnvironmentKey = "ENSEMBLE_AUTOMATION_FORCE_NETWORK_STREAM"
+    public static let ignoreDownloadsEnvironmentKey = "ENSEMBLE_AUTOMATION_IGNORE_DOWNLOADS"
 
     public let isEnabled: Bool
     public let startSurface: AutomationSurface?
@@ -70,6 +72,8 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
     /// DEBUG builds resolve playback as if no track were downloaded or stream-cached,
     /// so a codec check exercises the network path without removing downloads.
     public let forceNetworkStream: Bool
+    /// Like `forceNetworkStream` but keeps the stream cache, so a fully streamed track can be replayed offline.
+    public let ignoreDownloads: Bool
 
     public init(
         isEnabled: Bool,
@@ -77,7 +81,8 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
         disableAnimations: Bool = false,
         simulateOffline: Bool = false,
         refreshPlaylists: Bool = false,
-        forceNetworkStream: Bool = false
+        forceNetworkStream: Bool = false,
+        ignoreDownloads: Bool = false
     ) {
         self.isEnabled = isEnabled
         self.startSurface = startSurface
@@ -85,6 +90,7 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
         self.simulateOffline = simulateOffline
         self.refreshPlaylists = refreshPlaylists
         self.forceNetworkStream = forceNetworkStream
+        self.ignoreDownloads = ignoreDownloads
     }
 
     public static var current: AutomationLaunchOptions {
@@ -141,13 +147,20 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
             environmentValue: environment[forceNetworkStreamEnvironmentKey]
         ) || boolUserDefault(userDefaults, for: forceNetworkStreamArgument)
 
+        let ignoreDownloads = boolValue(
+            after: ignoreDownloadsArgument,
+            in: arguments,
+            environmentValue: environment[ignoreDownloadsEnvironmentKey]
+        ) || boolUserDefault(userDefaults, for: ignoreDownloadsArgument)
+
         return AutomationLaunchOptions(
-            isEnabled: isEnabled || simulateOffline || refreshPlaylists || forceNetworkStream,
+            isEnabled: isEnabled || simulateOffline || refreshPlaylists || forceNetworkStream || ignoreDownloads,
             startSurface: startSurface,
             disableAnimations: disableAnimations,
             simulateOffline: simulateOffline,
             refreshPlaylists: refreshPlaylists,
-            forceNetworkStream: forceNetworkStream
+            forceNetworkStream: forceNetworkStream,
+            ignoreDownloads: ignoreDownloads
         )
     }
 
@@ -162,7 +175,8 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
                 "disableAnimations": disableAnimations ? "true" : "false",
                 "simulateOffline": simulateOffline ? "true" : "false",
                 "refreshPlaylists": refreshPlaylists ? "true" : "false",
-                "forceNetworkStream": forceNetworkStream ? "true" : "false"
+                "forceNetworkStream": forceNetworkStream ? "true" : "false",
+                "ignoreDownloads": ignoreDownloads ? "true" : "false"
             ]
         )
     }

@@ -174,14 +174,17 @@ final class PlaybackTransportCoordinator {
         let shouldPreferLocalForDataPolicy = await isNetworkConstrained()
 
         #if DEBUG
-        let forcesNetworkStream = AutomationLaunchOptions.current.forceNetworkStream
+        let automation = AutomationLaunchOptions.current
+        let forcesNetworkStream = automation.forceNetworkStream
+        let ignoresDownloads = forcesNetworkStream || automation.ignoreDownloads
         #else
         let forcesNetworkStream = false
+        let ignoresDownloads = false
         #endif
 
         var localSource: PlaybackSource?
         var hasInvalidLocalPayload = false
-        if let localPath = track.localFilePath, !forcesNetworkStream {
+        if let localPath = track.localFilePath, !ignoresDownloads {
             if FileManager.default.fileExists(atPath: localPath) {
                 let localPlaybackURL = dependencies.preparedLocalPlaybackURL(localPath)
                 if !dependencies.isClearlyInvalidLocalPayload(localPlaybackURL) {
