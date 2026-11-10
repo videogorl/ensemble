@@ -799,6 +799,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         engine.onStreamingPipelineCreated = { [weak self] pipeline, metadata in
             self?.transportCoordinator.registerDirectDownload(pipeline, metadata: metadata)
+            pipeline.onDamageFound = { [weak self] error in
+                PlaybackJourneyLogger.mark("damagedOriginalFound", trackId: metadata.trackId, detail: error.localizedDescription)
+                self?.transportCoordinator.markOriginalDamaged(trackId: metadata.trackId)
+            }
         }
         // A prefetch deferred behind a direct download is re-evaluated from the queue as it ends.
         transportCoordinator.onDirectDownloadEnded = { [weak self] in

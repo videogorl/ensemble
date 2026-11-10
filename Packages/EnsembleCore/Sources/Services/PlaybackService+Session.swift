@@ -626,6 +626,18 @@ extension PlaybackService {
         updateNowPlayingInfo()
     }
 
+    #if DEBUG
+        /// For the automation probe: the current track's fallback status, whether the item was reached
+        /// by skipping a failed one, and the toast on screen.
+        public var automationFallbackStatus: String {
+            currentTrack.map { transportCoordinator.fallbackStatus(trackId: $0.playbackIdentity) } ?? ""
+        }
+        public var automationReachedBySkippingFailure: Bool {
+            failureSkipItemID != nil && failureSkipItemID == currentQueueItemID
+        }
+        public var automationToastTitle: String? { toastCenter?.currentToast?.title }
+    #endif
+
     /// Tells the user, quietly, that a track whose original is damaged is playing as a transcode.
     @MainActor
     func noteReducedQuality(trackID: String?) {
