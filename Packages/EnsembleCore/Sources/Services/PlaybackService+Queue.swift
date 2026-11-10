@@ -360,8 +360,7 @@ extension PlaybackService {
         }
 
         // Cancel any pending stall retry. End-of-queue is not a recoverable stall.
-        stallRecoveryTask?.cancel()
-        stallRecoveryTask = nil
+        cancelStreamRecovery()
 
         applyPendingShuffleReorder()
         let advance = queueAdvance(.naturalEnd)
@@ -415,6 +414,7 @@ extension PlaybackService {
         let currentTrackTitle = currentTrack?.title ?? "nil"
         let currentState = playbackState
         EnsembleLogger.debug("[next] called — track='\(currentTrackTitle)', state=\(currentState), idx=\(currentQueueIndex)/\(queue.count)")
+        cancelStreamRecovery()
         resetHandoffForUserPlaybackIntent()
         if audioEngine?.isSmartMixTransitionActive != true {
             applyPendingShuffleReorder()
@@ -532,6 +532,7 @@ extension PlaybackService {
 
     @MainActor
     public func previous() {
+        cancelStreamRecovery()
         applyPendingShuffleReorder()
         let target = queueController.previousNavigationTarget(
             currentTime: currentTime,

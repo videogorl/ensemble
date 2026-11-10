@@ -65,10 +65,11 @@ final class PlaybackServiceFlowTests: XCTestCase {
         XCTAssertEqual(service.currentQueueIndex, 1)
     }
 
-    /// A stream that keeps dropping after it loaded gets a bounded number of retries, then
-    /// the item-failure contract: skip once while playing, halt if the skipped-to item fails
-    /// too. Invalid audio data (e.g. a truncated transcode) fails the item without a retry.
-    func testRepeatedPostStartupStreamFailureIsBoundedThenFailsTheItem() async throws {
+    /// A stream that keeps dropping after it loaded is retried for the engine's 30 s no-audio
+    /// limit, however many times it drops, then the item-failure contract: skip once while
+    /// playing, halt if the skipped-to item fails too. Invalid audio data (e.g. a truncated
+    /// transcode) fails the item without a retry.
+    func testPostStartupStreamFailureIsRetriedForThirtySecondsThenFailsTheItem() async throws {
         let toasts = ToastCenter()
         let service = await makeService(toastCenter: toasts)
         let tracks = try ["a", "b", "c"].map { try makeTrack($0) }
@@ -83,12 +84,15 @@ final class PlaybackServiceFlowTests: XCTestCase {
             await service.stallRecoveryTask?.value
         }
 
-        for _ in 0 ..< PlaybackService.maxStreamRecoveryAttempts {
+        for _ in 0 ..< 5 {
+            service.playbackState = .playing
             await recover()
-            XCTAssertEqual(service.currentQueueIndex, 0, "a retry keeps the same item")
+            XCTAssertEqual(service.currentQueueIndex, 0, "drops inside the window keep retrying the same item")
         }
+        service.playbackState = .playing
+        recoveryClock.now = service.streamRecovery.map { $0.startedAt + AudioPlaybackEngine.maximumRebufferSeconds } ?? 0
         await recover()
-        XCTAssertEqual(service.currentQueueIndex, 1, "the spent budget fails the item, which is skipped")
+        XCTAssertEqual(service.currentQueueIndex, 1, "the spent window fails the item, which is skipped")
         XCTAssertEqual(toasts.currentToast?.title, "Skipped a")
         XCTAssertNil(toasts.currentToast?.action, "a skip offers no Retry")
 
@@ -105,6 +109,82 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.playbackState = .paused
         XCTAssertNil(toasts.currentToast, "leaving the failed state dismisses the halt toast")
         service.audioEngine?.stop()
+    }
+
+    /// Reloads of a stream that was playing stay inside its recovery window and are paced. Each case
+    /// ends with the item skipped or the next item recovering, never with a failure dropped:
+    /// - a reload that fails at resolution (offline), or starts and drops again, comes back for another
+    ///   try no sooner than a second apart, and none launches later than 3 s before the 30 s window
+    ///   ends; only then is the item skipped. A failing reload returning by itself also proves the
+    ///   playback slot is freed across the reload.
+    /// - a pacing wait that overruns the window skips the item instead of launching a reload.
+    /// - a replacement stream that fails during the old recovery's wait gets its own recovery.
+    /// The worst case before the item fails is the last launch, at most 27 s into the window, plus
+    /// one attempt: resolving the source (15 s request timeout) and the engine's 15 s startup timeout.
+    func testReloadsStayInsideTheRecoveryWindowAndArePaced() async throws {
+        enum Scenario { case reloadFails, reloadDrops, sleepOverruns, replacementFailsDuringSleep }
+        let lastLaunch = AudioPlaybackEngine.maximumRebufferSeconds - PlaybackService.streamRecoveryMinRemaining
+        for scenario in [Scenario.reloadFails, .reloadDrops, .sleepOverruns, .replacementFailsDuringSleep] {
+            let name = "\(scenario)"
+            let clock = recoveryClock
+            clock.sleeps = []
+            let start = clock.now
+            let service = await makeService()
+            let first = scenario == .reloadFails ? makeStreamingTrack("a") : try makeTrack("a", seconds: 200)
+            let tracks = [first, try makeTrack("b", seconds: 200)]
+            service.queue = tracks.map { QueueItem(track: $0) }
+            service.currentQueueIndex = 0
+            service.currentTrack = tracks[0]
+            let failure = URLError(.networkConnectionLost)
+            var replacementRecovery: (pending: Bool, bound: Bool)?
+            service.streamRecoverySleep = { [unowned service] seconds in
+                XCTAssertEqual(service.currentQueueIndex, 0, "\(name): not skipped inside the window")
+                switch scenario {
+                case .sleepOverruns:
+                    clock.sleep(seconds + 40)
+                case .replacementFailsDuringSleep:
+                    // The queue moves on (a gapless handoff) without cancelling the sleeping recovery, and the
+                    // replacement stream fails before that wait ends.
+                    service.currentQueueIndex = 1
+                    service.currentTrack = tracks[1]
+                    service.beginSession()
+                    service.recoverCurrentStream(after: failure)
+                    replacementRecovery = (service.stallRecoveryTask != nil, service.stallRecoveryBinding == service.currentRetryBinding)
+                    clock.sleep(seconds)
+                default:
+                    XCTAssertLessThanOrEqual(clock.now + seconds - start, lastLaunch + 0.001, "\(name): no reload launches in the last 3 s of the window")
+                    clock.sleep(seconds)
+                }
+            }
+            if scenario == .sleepOverruns || scenario == .replacementFailsDuringSleep {
+                service.streamRecovery = .init(itemID: service.queue[0].id, startedAt: clock.now, fromTime: 0, lastReloadAt: clock.now)
+            }
+
+            var starts = 0
+            let maxStarts = scenario == .reloadDrops ? 60 : 1
+            while service.currentQueueIndex == 0, starts < maxStarts {
+                service.playbackState = .playing
+                service.recoverCurrentStream(after: failure)
+                starts += 1
+                while let task = service.stallRecoveryTask { await task.value }
+            }
+
+            switch scenario {
+            case .reloadFails, .reloadDrops, .sleepOverruns:
+                XCTAssertEqual(service.currentQueueIndex, 1, "\(name): the spent window skips the item")
+                if scenario != .sleepOverruns {
+                    XCTAssertGreaterThanOrEqual(clock.now - start, lastLaunch - PlaybackService.streamRecoveryMinInterval, name)
+                    XCTAssertTrue(clock.sleeps.allSatisfy { $0 >= PlaybackService.streamRecoveryMinInterval - 0.001 }, "\(name): reloads are at least a second apart")
+                    XCTAssertLessThanOrEqual(clock.sleeps.count + 1, 28, "\(name): about one reload a second within the window")
+                }
+            case .replacementFailsDuringSleep:
+                XCTAssertEqual(replacementRecovery?.pending, true, "\(name): the replacement's failure is not dropped")
+                XCTAssertEqual(replacementRecovery?.bound, true, name)
+                XCTAssertEqual(service.currentQueueIndex, 1, name)
+                XCTAssertEqual(service.audioEngine?.currentTrackId, tracks[1].playbackIdentity, "\(name): the replacement was reloaded")
+            }
+            service.audioEngine?.stop()
+        }
     }
 
     /// A retry scheduled for one session and queue item is dropped once the user moves on,
@@ -242,7 +322,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
             service.playbackPreparationShouldStart = true
             // b was reached by skipping a, and its retries are spent.
             service.failureSkipItemID = service.queue[1].id
-            service.streamRecovery = (service.queue[1].id, PlaybackService.maxStreamRecoveryAttempts, 0)
+            service.streamRecovery = spentRecovery(for: service.queue[1].id, service)
             service.recoverCurrentStream(after: error)
             await service.stallRecoveryTask?.value
             guard case .failed = service.playbackState else {
@@ -371,7 +451,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.playbackState = .playing
         service.playbackPreparationShouldStart = true
         func failOnAnOutage() async {
-            service.streamRecovery = (service.queue[0].id, PlaybackService.maxStreamRecoveryAttempts, 0)
+            service.streamRecovery = spentRecovery(for: service.queue[0].id, service)
             service.recoverCurrentStream(after: URLError(.timedOut))
             await service.stallRecoveryTask?.value
         }
@@ -410,7 +490,10 @@ final class PlaybackServiceFlowTests: XCTestCase {
         let triggers: [(String, (PlaybackService) -> Void)] = [
             ("engine failure", { $0.handleEngineFailure(URLError(.badServerResponse), session: $0.activeEngineSession) }),
             ("spent stream retries", { service in
-                service.streamRecovery = (service.queue[0].id, PlaybackService.maxStreamRecoveryAttempts, 0)
+                service.streamRecovery = .init(
+                    itemID: service.queue[0].id,
+                    startedAt: service.streamRecoveryClock() - AudioPlaybackEngine.maximumRebufferSeconds, fromTime: 0
+                )
                 service.recoverCurrentStream(after: URLError(.timedOut))
             }),
         ]
@@ -538,6 +621,18 @@ final class PlaybackServiceFlowTests: XCTestCase {
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"
 
+    /// A fake uptime for the recovery pacing: sleeping advances it, so nothing waits for real.
+    private final class RecoveryClock {
+        var now: TimeInterval = 1_000
+        var sleeps: [TimeInterval] = []
+        func sleep(_ seconds: TimeInterval) { sleeps.append(seconds); now += seconds }
+    }
+    private let recoveryClock = RecoveryClock()
+
+    private func spentRecovery(for itemID: String, _ service: PlaybackService) -> PlaybackService.StreamRecovery {
+        .init(itemID: itemID, startedAt: service.streamRecoveryClock() - AudioPlaybackEngine.maximumRebufferSeconds, fromTime: 0)
+    }
+
     private func makeService(toastCenter: ToastCenter? = nil) async -> PlaybackService {
         let accountManager = AccountManager(keychain: TestKeychain())
         accountManager.addPlexAccount(
@@ -582,7 +677,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
             snapshotURL: directory.appendingPathComponent("queue.json"),
             progressURL: directory.appendingPathComponent("progress.json")
         )
-        return PlaybackService(
+        let service = PlaybackService(
             syncCoordinator: syncCoordinator,
             networkMonitor: networkMonitor,
             artworkLoader: ArtworkLoader(syncCoordinator: syncCoordinator, artworkDownloadManager: EmptyArtworkDownloadManager()),
@@ -592,6 +687,10 @@ final class PlaybackServiceFlowTests: XCTestCase {
             trackRatingLocalStore: TrackRatingLocalStore(coreDataStack: stack),
             toastCenter: toastCenter
         )
+        let clock = recoveryClock
+        service.streamRecoveryClock = { clock.now }
+        service.streamRecoverySleep = { clock.sleep($0) }
+        return service
     }
 
     /// A track that only streams; the test service is offline, so loading it fails.

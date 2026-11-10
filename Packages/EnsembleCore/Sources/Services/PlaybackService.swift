@@ -465,11 +465,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     var artworkPrefetchTask: Task<Void, Never>?
     var lastObservedNetworkState: NetworkState?
     var stallRecoveryTask: Task<Void, Never>?
-    /// Retries spent on the current item after its stream failed once loaded; reset once
-    /// playback advances `streamRecoveryProgressSeconds` past `fromTime`.
-    var streamRecovery: (itemID: String, attempts: Int, fromTime: TimeInterval)?
-    nonisolated static let maxStreamRecoveryAttempts = 2
+    /// The session and item the pending `stallRecoveryTask` was made for.
+    var stallRecoveryBinding: RetryBinding?
+    /// The recovery window of the current item's stream, which failed once it loaded. It starts at
+    /// the first failure and ends once playback advances `streamRecoveryProgressSeconds` past
+    /// `fromTime`; reloads inside it are paced from `lastReloadAt`.
+    struct StreamRecovery {
+        let itemID: String
+        var startedAt: TimeInterval
+        var fromTime: TimeInterval
+        var lastReloadAt: TimeInterval?
+    }
+    var streamRecovery: StreamRecovery?
     nonisolated static let streamRecoveryProgressSeconds: TimeInterval = 5
+    /// The least time between two reload starts, and the least window left for one to start.
+    nonisolated static let streamRecoveryMinInterval: TimeInterval = 1
+    nonisolated static let streamRecoveryMinRemaining: TimeInterval = 3
+    /// The clock and pause the recovery pacing uses; tests replace them.
+    var streamRecoveryClock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    var streamRecoverySleep: (TimeInterval) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
     /// Tracks the in-progress next()/previous() transition task so it can be
     /// cancelled if the user presses next/previous again before it completes.
     var skipTransitionTask: Task<Void, Never>?
@@ -778,6 +792,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.cacheFileURL(fileURL, for: key.trackIdentity)
                 self.cleanupStreamCacheFiles()
             }
+        }
+
+        engine.onStreamingPipelineCreated = { [weak self] pipeline, metadata in
+            self?.transportCoordinator.registerDirectDownload(pipeline, metadata: metadata)
+        }
+        // A prefetch deferred behind a direct download is re-evaluated from the queue as it ends.
+        transportCoordinator.onDirectDownloadEnded = { [weak self] in
+            Task { await self?.prefetchNextItem() }
         }
 
         audioEngine = engine

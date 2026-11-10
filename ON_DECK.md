@@ -57,13 +57,6 @@ An entry does not authorize the work; Felicity picks what gets done.
 - Impact: wrong start position in playlists that repeat a track.
 - Next step: start playback from the tapped row's index, not a lookup by track id.
 
-## Suspected: playback slot held through a stream-retry reload (2026-11-09)
-
-- Evidence: read from the code during the playback failure work; same on `develop` before it.
-- Impact: unknown; may delay a user action that arrives during the reload.
-- Next step: fold into the stream drop recovery design
-  (`docs/investigations/2026-11-10-stream-drop-recovery-and-fallback.md`, in progress).
-
 ## Unchecked: gap above the Favorites header on Mac (2026-11-09)
 
 - Evidence: reported by a Mac check worker; not looked at again.
@@ -101,6 +94,18 @@ index and Siri route polling items are scheduled as one batch.
 
 Checked and left alone: the visible AirPlay control, artwork's persistent cache and retry
 rules, the Plex WebSocket polling fallback, and the size of `WatchRootView.swift`.
+
+## Suspected: flaky `NowPlayingArtworkProjectionTests` in the full EnsembleCore run (2026-11-10)
+
+- Evidence: `testProjectionUsesCachedArtworkImmediatelyAndSkipsReloadForRatingChanges` (`NowPlayingArtworkProjectionTests.swift:31`, `XCTAssertTrue`) failed in 2 of 3 whole-package `swift test -q` runs on the stream-retry branch and passed in the third, and in 3 of 3 runs of its own filter. Playback code is not involved; it looks order- or timing-dependent on shared artwork cache state.
+- Impact: a red full-suite run with no real regression.
+- Next step: run the package a few times with `--filter 'NowPlayingArtworkProjectionTests|Artwork'` to find the sibling test that leaves the cache populated.
+
+## Suspected: an offline download of an original may end a playing stream (2026-11-10)
+
+- Evidence: offline downloads request `/library/parts/...` with the same client identifier as playback (`PlexMusicSourceSyncProvider.swift:1654-1680`), and Plex ends the previous direct-play session for a client on any new part request (stream drop proposal, section 3). The Plex log keeps about 10 hours and held no offline download, so it is unobserved; the one-download-per-server gate covers streams only.
+- Impact: a download running while a track streams at original quality could cut the stream (-1005) the same way the prefetch did.
+- Next step: in one simulator run, start an offline download of an original while a delayed stream plays, then search the Plex log for "Terminated session" on that client. Only if it appears, make downloads of originals wait behind a stream download (Felicity's decision 2 in the proposal).
 
 ## Audit, 2026-11-10: network and server health checking
 
@@ -151,3 +156,10 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
   once, at the first launch of the model 12 build. No such store is known.
 - Next step: if one appears, fetch only positions with more than one row (grouped fetch with
   a count filter) so memory follows the suspicious rows instead of the playlist.
+
+## Pre-existing, weigh later: streaming tracks have no sample-gapless or file-backed SmartMix handoff (2026-11-10)
+
+- Evidence (reviewer's boundary notes, from reading the code): an uncached streaming track ends through a cached-file reload rather than a sample-gapless handoff (`AudioPlaybackEngine.swift:2392`), and a streaming outgoing track has no file-backed SmartMix crossfade path (`AudioPlaybackEngine.swift:1426`). Serializing direct downloads (one per server) can delay the successor's download further on a short track or a slow link, so more boundaries take this path.
+- Impact: a possible audible gap or no crossfade at the boundary after a track that was still streaming; unmeasured.
+- Next step: measure the boundary after a short original-quality track on a slow link, then decide whether the successor's prefetch needs to start earlier or the handoff needs a streaming path. Not authorized to change.
+

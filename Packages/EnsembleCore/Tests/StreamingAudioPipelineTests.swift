@@ -156,6 +156,42 @@ final class StreamingAudioPipelineTests: XCTestCase {
         XCTAssertEqual(cachedBytes, Int64(data.count))
         XCTAssertFalse(pipeline.diagnostics().isComplete)
     }
+
+    /// A download reports its end once, however it ends, so the prefetch it deferred can run.
+    func testDownloadEndIsReportedOnceOnSuccessAndOnCancel() async throws {
+        for succeeds in [true, false] {
+            DelayedAudioURLProtocol.configure(data: Data(count: 4096), chunkSize: 4096, delay: 0)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [succeeds ? DelayedAudioURLProtocol.self : StalledAudioURLProtocol.self]
+            let cacheURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("streaming-end-\(UUID().uuidString).mp3")
+            defer { try? FileManager.default.removeItem(at: cacheURL) }
+            let pipeline = StreamingAudioPipeline(configuration: .init(
+                request: URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/end.mp3"))),
+                fileExtension: "mp3",
+                cacheURL: cacheURL,
+                sessionConfiguration: configuration
+            ))
+            let ends = LockedEnds()
+            pipeline.onDownloadEnd = { ends.increment() }
+            if succeeds {
+                _ = try await pipeline.downloadedFile()
+            } else {
+                pipeline.startDownload()
+                pipeline.cancel()
+            }
+            pipeline.cancel()
+            try await Task.sleep(nanoseconds: 50_000_000)
+            XCTAssertEqual(ends.count, 1, succeeds ? "success" : "cancel")
+        }
+    }
+
+    private final class LockedEnds: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+        func increment() { lock.lock(); value += 1; lock.unlock() }
+    }
 }
 
 private final class StalledAudioURLProtocol: URLProtocol {

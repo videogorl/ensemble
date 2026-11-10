@@ -331,6 +331,7 @@ extension PlaybackService {
         // Play restarts a stream whose retry or failure the pause cancelled.
         if stallRecoveryTask != nil {
             pausedStreamNeedsRefresh = true
+            cancelStreamRecovery()
         }
         skipTransitionTask?.cancel()
         skipTransitionTask = nil

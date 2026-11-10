@@ -83,43 +83,96 @@ extension PlaybackService {
         currentQueueItemID.map { RetryBinding(generation: sessionGeneration, itemID: $0) }
     }
 
-    /// A stream that fails after it loaded is retried from where it stopped, at most
-    /// `maxStreamRecoveryAttempts` times per item; then the item fails (G11, G12).
+    /// A stream that fails after it loaded is retried from where it stopped for
+    /// `maximumRebufferSeconds` (the engine's no-audio limit) from its first failure, so a real
+    /// network switch does not skip a good track; then the item fails (G11, G12).
     /// Invalid audio data fails the item at once: the server sends the same bytes again,
     /// and a retry from an offset has no length for the short-transcode check to judge.
     @MainActor
     func recoverCurrentStream(after error: Error) {
-        guard stallRecoveryTask == nil, currentTrack != nil,
-              let binding = currentRetryBinding else { return }
+        guard currentTrack != nil, let binding = currentRetryBinding else { return }
+        // Pending work for this session and item already owns the failure. Pending work for a
+        // superseded one (Next, a new play) must not hide this stream's failure: drop it.
+        if stallRecoveryTask != nil {
+            guard stallRecoveryBinding != binding else { return }
+            cancelStreamRecovery()
+        }
         let itemID = binding.itemID
         // A failed paused load is retried paused.
         let shouldStartPlayback = playbackState == .loading ? playbackPreparationShouldStart : true
 
-        let attempts = streamRecovery?.itemID == itemID ? streamRecovery?.attempts ?? 0 : 0
+        let now = streamRecoveryClock()
+        let known = streamRecovery?.itemID == itemID ? streamRecovery : nil
+        let startedAt = known?.startedAt ?? now
         var isInvalidAudio = false
         if case .invalidPayload? = error as? ProgressiveStreamError { isInvalidAudio = true }
-        guard !isInvalidAudio, attempts < Self.maxStreamRecoveryAttempts else {
+        // Reloads are paced: a server that sends enough to start and then drops must not be
+        // reloaded in a tight loop.
+        let wait = max(0, Self.streamRecoveryMinInterval - (now - (known?.lastReloadAt ?? -.infinity)))
+        guard !isInvalidAudio, streamRecoveryWindowAllowsReload(startedAt: startedAt, now: now + wait) else {
             streamRecovery = nil
             scheduleItemFailure(error, binding: binding)
             return
         }
-        streamRecovery = (itemID, attempts + 1, currentTime)
-        EnsembleLogger.playback("ENGINE: stream interrupted -- retrying from \(String(format: "%.1f", currentTime))s, attempt \(attempts + 1) (\(error.localizedDescription))")
+        streamRecovery = StreamRecovery(itemID: itemID, startedAt: startedAt, fromTime: currentTime, lastReloadAt: known?.lastReloadAt)
+        EnsembleLogger.playback("ENGINE: stream interrupted -- retrying from \(String(format: "%.1f", currentTime))s, \(String(format: "%.1f", now - startedAt))s into recovery (\(error.localizedDescription))")
         audioEngine?.pause()
         playbackState = .buffering
         updateNowPlayingInfo()
 
+        stallRecoveryBinding = binding
         stallRecoveryTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.stallRecoveryTask = nil }
+            var slotReleased = false
+            // Once released or replaced, the slot may hold newer work that this task must not clear.
+            defer { if !slotReleased, self.stallRecoveryBinding == binding { self.freeStreamRecoverySlot() } }
+            if wait > 0 { do { try await self.streamRecoverySleep(wait) } catch { return } }
             guard self.currentRetryBinding == binding else { return }
+            // The pacing wait may have used up the window: check it as the reload launches.
+            let launchTime = self.streamRecoveryClock()
+            if let recovery = self.streamRecovery, recovery.itemID == itemID,
+               !self.streamRecoveryWindowAllowsReload(startedAt: recovery.startedAt, now: launchTime) {
+                slotReleased = true
+                self.streamRecovery = nil
+                self.scheduleItemFailure(error, binding: binding)
+                return
+            }
+            self.streamRecovery?.lastReloadAt = launchTime
             await self.retryCurrentTrack(
                 forceConnectionRefresh: false,
                 reason: "stream-interrupted",
                 shouldStartPlayback: shouldStartPlayback,
-                binding: binding
+                binding: binding,
+                recoverySlotRelease: {
+                    // The reload's source is starting or has failed: a new failure is a new
+                    // recovery, not one to drop, and Pause no longer has a pending retry to cancel.
+                    slotReleased = true
+                    self.freeStreamRecoverySlot()
+                }
             )
         }
+    }
+
+    /// Drops pending recovery or failure work: its reload or failure is superseded by Next, a new
+    /// play, Stop or Pause. A paused stream is refreshed by Play, not by this work.
+    @MainActor
+    func cancelStreamRecovery() {
+        stallRecoveryTask?.cancel()
+        freeStreamRecoverySlot()
+    }
+
+    /// Frees the slot for the task that is running in it, which must not cancel itself.
+    @MainActor
+    func freeStreamRecoverySlot() {
+        stallRecoveryTask = nil
+        stallRecoveryBinding = nil
+    }
+
+    /// A reload starts only while the recovery window, the engine's no-audio limit counted from
+    /// the first failure, has at least `streamRecoveryMinRemaining` left when it would start.
+    @MainActor
+    func streamRecoveryWindowAllowsReload(startedAt: TimeInterval, now: TimeInterval) -> Bool {
+        AudioPlaybackEngine.maximumRebufferSeconds - (now - startedAt) >= Self.streamRecoveryMinRemaining
     }
 
     /// Hands an item's failure to `handleItemFailure` after the current event, as pending work
@@ -128,10 +181,11 @@ extension PlaybackService {
     /// must not hold off that item's own failure.
     @MainActor
     func scheduleItemFailure(_ error: Error, binding: RetryBinding) {
+        stallRecoveryBinding = binding
         stallRecoveryTask = Task { @MainActor [weak self] in
             // A cancelled task no longer owns the slot; its canceller cleared it.
             guard let self, !Task.isCancelled else { return }
-            self.stallRecoveryTask = nil
+            self.freeStreamRecoverySlot()
             await self.handleItemFailure(error.localizedDescription, binding: binding, cause: error)
         }
     }
@@ -511,7 +565,7 @@ extension PlaybackService {
     func noteItemStarted() {
         tlsRefreshedItemID = nil
         if let itemID = healthRetriedItemID, streamRecovery == nil {
-            streamRecovery = (itemID, 0, currentTime)
+            streamRecovery = StreamRecovery(itemID: itemID, startedAt: streamRecoveryClock(), fromTime: currentTime)
         }
     }
 
@@ -1375,6 +1429,7 @@ extension PlaybackService {
     @MainActor
     public func stop() {
         beginSession()
+        cancelStreamRecovery()
 
         // Report stopped state to Plex before cleaning up
         if let track = currentTrack {

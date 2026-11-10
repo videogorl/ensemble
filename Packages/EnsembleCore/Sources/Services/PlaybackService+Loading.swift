@@ -188,7 +188,8 @@ extension PlaybackService {
         forcingFreshItem: Bool = false,
         seekTo startTime: TimeInterval? = nil,
         shouldStartPlayback: Bool = true,
-        caller: String = #function
+        caller: String = #function,
+        recoverySlotRelease: (@MainActor () -> Void)? = nil
     ) async {
         #if os(iOS)
             appleMusicQueueMutationGeneration &+= 1
@@ -203,6 +204,8 @@ extension PlaybackService {
 
         // Bump generation so any in-flight playback request knows it's been superseded
         beginSession()
+        // A new play supersedes a pending stream recovery; a recovery's own reload does not.
+        if recoverySlotRelease == nil { cancelStreamRecovery() }
         let requestGeneration = sessionGeneration
         pausedStreamNeedsRefresh = false
         // A retry of the same item keeps its pending seek; another item drops it.
@@ -331,7 +334,8 @@ extension PlaybackService {
 
         // Retry loop for network errors
         var lastError: Error?
-        let maxRetries = 2
+        // A recovery reload makes one attempt: a failure goes back through the paced recovery window.
+        let maxRetries = recoverySlotRelease == nil ? 2 : 1
 
         for attempt in 0 ..< maxRetries {
             do {
@@ -381,6 +385,7 @@ extension PlaybackService {
                 }
 
                 try Task.checkCancellation()
+                await MainActor.run { recoverySlotRelease?() }
                 try await launchCoordinator.completeLaunch(
                     for: request.track,
                     source: source,
@@ -432,6 +437,20 @@ extension PlaybackService {
             currentGeneration: sessionGeneration
         ) else {
             endTrackTransitionBackgroundTask(for: requestGeneration)
+            return
+        }
+
+        // A reload of a stream that was playing stays in its recovery window: a network failure
+        // while resolving or starting it is another failure of the same recovery, not a failed
+        // first load, so the window (not the two attempts above) decides when the item fails.
+        if let recoverySlotRelease, let lastError,
+           PlaybackSessionStateMachine.isServerUnreachable(lastError)
+            || PlaybackSessionStateMachine.isRecoverableNetworkFailure(lastError) {
+            endTrackTransitionBackgroundTask(for: requestGeneration)
+            await MainActor.run {
+                recoverySlotRelease()
+                self.recoverCurrentStream(after: lastError)
+            }
             return
         }
 
@@ -499,7 +518,8 @@ extension PlaybackService {
         forceConnectionRefresh: Bool,
         reason: String,
         shouldStartPlayback: Bool = true,
-        binding: RetryBinding? = nil
+        binding: RetryBinding? = nil,
+        recoverySlotRelease: (@MainActor () -> Void)? = nil
     ) async {
         guard let track = currentTrack, let binding = binding ?? currentRetryBinding else { return }
 
@@ -530,7 +550,8 @@ extension PlaybackService {
                     forcingFreshItem: true,
                     seekTo: recoveryTime,
                     shouldStartPlayback: shouldStartPlayback,
-                    caller: "retryCurrentTrack-downloadFallback(\(reason))"
+                    caller: "retryCurrentTrack-downloadFallback(\(reason))",
+                    recoverySlotRelease: recoverySlotRelease
                 )
                 return
             }
@@ -549,7 +570,8 @@ extension PlaybackService {
             forcingFreshItem: true,
             seekTo: recoveryTime,
             shouldStartPlayback: shouldStartPlayback,
-            caller: "retryCurrentTrack(\(reason))"
+            caller: "retryCurrentTrack(\(reason))",
+            recoverySlotRelease: recoverySlotRelease
         )
     }
 
@@ -761,6 +783,22 @@ extension PlaybackService {
                 EnsembleLogger.debug("[evictTruncatedFile] Failed to mark download as failed for '\(track.title)': \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Loads a source into the engine. A direct source reserves its server for the track (inside
+    /// `takePreparedPipeline`) until the engine registers its pipeline; a load that fails or is
+    /// superseded first must not leave the reservation behind.
+    @MainActor
+    private func loadEngine(
+        _ engine: AudioPlaybackEngine, source: PlaybackSource, trackId: String, generation: UInt64
+    ) async throws {
+        defer { transportCoordinator.releaseDirectReservation(trackID: trackId) }
+        try await engine.load(
+            source: source,
+            trackId: trackId,
+            playbackGeneration: generation,
+            preparedPipeline: transportCoordinator.takePreparedPipeline(for: source, trackID: trackId)
+        )
     }
 
     func prefetchNextItem() async {
@@ -1141,6 +1179,8 @@ extension PlaybackService {
             }) {
                 self.enqueueVisualizerTimelineLoad(track: track, fileURL: fileURL, plan: plan)
             }
+        } catch is DirectDownloadBusy {
+            EnsembleLogger.debug("[prefetch] Deferred '\(track.title)': a direct download from its server is in flight")
         } catch {
             guard !Task.isCancelled, await shouldContinue(),
                   !PlaybackSessionStateMachine.isCancellation(error) else { return }
@@ -1253,12 +1293,7 @@ extension PlaybackService {
                     return false
                 }
                                 nativeEngineAdapter?.willLoad(trackID: trackIdentity)
-                try await engine.load(
-                    source: source,
-                    trackId: trackIdentity,
-                    playbackGeneration: generation,
-                    preparedPipeline: transportCoordinator.takePreparedPipeline(for: source, trackID: trackIdentity)
-                )
+                try await loadEngine(engine, source: source, trackId: trackIdentity, generation: generation)
                 guard generation == sessionGeneration else {
                     if engine.playbackRequestGeneration == generation { engine.stop() }
                     endTrackTransitionBackgroundTask(for: generation)
@@ -1300,12 +1335,7 @@ extension PlaybackService {
                 return false
             }
                         nativeEngineAdapter?.willLoad(trackID: trackIdentity)
-            try await engine.load(
-                source: source,
-                trackId: trackIdentity,
-                playbackGeneration: generation,
-                preparedPipeline: transportCoordinator.takePreparedPipeline(for: source, trackID: trackIdentity)
-            )
+            try await loadEngine(engine, source: source, trackId: trackIdentity, generation: generation)
             guard generation == sessionGeneration else {
                 if engine.playbackRequestGeneration == generation { engine.stop() }
                 endTrackTransitionBackgroundTask(for: generation)
