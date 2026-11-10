@@ -978,34 +978,18 @@ public struct SearchView: View {
                 .padding(.horizontal)
             }
 
-            Group {
-                #if os(iOS)
-                    MediaTrackList(
-                        tracks: tracks,
-                        showArtwork: true,
-                        showTrackNumbers: false,
-                        groupByDisc: false,
-                        currentTrackId: currentTrackId,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        interactionModel: trackInteractionModel
-                    ) { track, _ in
-                        playSearchResult(track)
-                    }
-                #else
-                    TrackListHost(
-                        tracks: tracks,
-                        configuration: NativeTrackListConfiguration(
-                            managesOwnScrolling: false,
-                            currentTrackId: currentTrackId,
-                            availabilityGeneration: availabilityGeneration,
-                            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                            interactionModel: trackInteractionModel
-                        )
-                    ) { track, _ in
-                        playSearchResult(track)
-                    }
-                #endif
+            // Sized to its rows inside the results scroll view.
+            TrackListHost(
+                tracks: tracks,
+                configuration: NativeTrackListConfiguration(
+                    managesOwnScrolling: false,
+                    currentTrackId: currentTrackId,
+                    availabilityGeneration: availabilityGeneration,
+                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                    interactionModel: trackInteractionModel
+                )
+            ) { track, _ in
+                playSearchResult(track)
             }
             .frame(height: height)
         }
