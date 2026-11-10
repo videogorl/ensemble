@@ -257,7 +257,7 @@ extension PlaybackService {
         guard let track = currentTrack, track.playbackIdentity == trackID else { return }
         // A fresh start reports "playing", as a resume already does (D4).
         reportingController.reportState(track: track, state: "playing", time: currentTime)
-        clearItemFailureMarkers()
+        noteItemStarted()
         applyPendingSeek()
         guard playbackState == .loading || playbackState == .buffering else { return }
         playbackState = .playing
@@ -389,6 +389,7 @@ extension PlaybackService {
         if queue.indices.contains(currentQueueIndex) {
             recordToHistory(queue[currentQueueIndex])
         }
+        failureSkipItemID = nil
         currentQueueIndex = index
         currentTrack = newTrack ?? queue[index].track
         let position = kind == .crossfade ? (audioEngine?.currentTime() ?? 0) : 0
@@ -428,6 +429,7 @@ extension PlaybackService {
         #if canImport(UIKit)
             endTransitionLeaseGeneration = nil
         #endif
+        failureSkipItemID = nil
         let generation = session.rawValue
         beginTrackTransitionBackgroundTask(for: generation)
         Task { @MainActor [self] in
@@ -484,6 +486,14 @@ extension PlaybackService {
     @MainActor
     func clearItemFailureMarkers() {
         failureSkipItemID = nil
+        tlsRefreshedItemID = nil
+    }
+
+    /// An item produced audio. The item reached by a failure skip keeps its mark, so its own
+    /// later failure halts (G11); the mark ends when another item starts or that item ends.
+    @MainActor
+    func noteItemStarted() {
+        if failureSkipItemID != currentQueueItemID { failureSkipItemID = nil }
         tlsRefreshedItemID = nil
     }
 

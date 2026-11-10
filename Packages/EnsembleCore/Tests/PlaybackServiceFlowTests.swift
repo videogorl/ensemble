@@ -94,7 +94,6 @@ final class PlaybackServiceFlowTests: XCTestCase {
 
         // The item reached by that skip fails too once its budget is spent: halt on the error.
         service.playbackState = .playing
-        service.failureSkipItemID = service.queue[1].id
         service.streamRecovery = (service.queue[1].id, PlaybackService.maxStreamRecoveryAttempts, 0)
         await recover()
         XCTAssertEqual(service.currentQueueIndex, 1)
@@ -149,6 +148,36 @@ final class PlaybackServiceFlowTests: XCTestCase {
         XCTAssertEqual(pausedLoad.playbackState, .paused, "a failed paused load is retried paused")
         XCTAssertEqual(pausedLoad.currentTime, 114, accuracy: 0.5, "the retry resumes from the playhead")
         pausedLoad.audioEngine?.stop()
+    }
+
+    /// The item reached by skipping a failure keeps that mark after it starts playing, so its
+    /// own failure halts instead of skipping on through the queue (G11). Another item that
+    /// starts clears it.
+    func testItemReachedBySkipStillHaltsAfterItPlayedBriefly() async throws {
+        let service = await makeService()
+        let tracks = try ["a", "b", "c"].map { try makeTrack($0) }
+        service.queue = tracks.map { QueueItem(track: $0) }
+        service.currentQueueIndex = 0
+        service.currentTrack = tracks[0]
+        service.playbackState = .playing
+
+        await service.handleItemFailure("a failed", generation: service.sessionGeneration)
+        XCTAssertEqual(service.currentQueueIndex, 1)
+        service.handleEngineStarted(trackID: tracks[1].playbackIdentity, session: service.activeEngineSession)
+        service.playbackState = .playing
+        await service.handleItemFailure("b failed", generation: service.sessionGeneration)
+        XCTAssertEqual(service.currentQueueIndex, 1, "no cascade to c")
+        guard case .failed = service.playbackState else {
+            return XCTFail("expected halt, got \(service.playbackState)")
+        }
+
+        // A different item starting clears a leftover mark.
+        service.failureSkipItemID = service.queue[1].id
+        service.currentQueueIndex = 2
+        service.currentTrack = tracks[2]
+        service.handleEngineStarted(trackID: tracks[2].playbackIdentity, session: service.activeEngineSession)
+        XCTAssertNil(service.failureSkipItemID)
+        service.audioEngine?.stop()
     }
 
     // MARK: - Harness

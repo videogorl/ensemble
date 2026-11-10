@@ -225,7 +225,7 @@ extension PlaybackService {
                       queue.indices.contains(currentQueueIndex),
                       queue[currentQueueIndex].track.playbackIdentity == track.playbackIdentity
                 else { return }
-                clearItemFailureMarkers()
+                noteItemStarted()
                 playbackState = .playing
                 applyPendingSeek()
                 updateNowPlayingInfo()
