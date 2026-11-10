@@ -189,7 +189,7 @@ extension PlaybackService {
         seekTo startTime: TimeInterval? = nil,
         shouldStartPlayback: Bool = true,
         caller: String = #function,
-        onSourceStart: (@MainActor () -> Void)? = nil
+        recoverySlotRelease: (@MainActor () -> Void)? = nil
     ) async {
         #if os(iOS)
             appleMusicQueueMutationGeneration &+= 1
@@ -382,7 +382,7 @@ extension PlaybackService {
                 }
 
                 try Task.checkCancellation()
-                await MainActor.run { onSourceStart?() }
+                await MainActor.run { recoverySlotRelease?() }
                 try await launchCoordinator.completeLaunch(
                     for: request.track,
                     source: source,
@@ -434,6 +434,20 @@ extension PlaybackService {
             currentGeneration: sessionGeneration
         ) else {
             endTrackTransitionBackgroundTask(for: requestGeneration)
+            return
+        }
+
+        // A reload of a stream that was playing stays in its recovery window: a network failure
+        // while resolving or starting it is another failure of the same recovery, not a failed
+        // first load, so the window (not the two attempts above) decides when the item fails.
+        if let recoverySlotRelease, let lastError,
+           PlaybackSessionStateMachine.isServerUnreachable(lastError)
+            || PlaybackSessionStateMachine.isRecoverableNetworkFailure(lastError) {
+            endTrackTransitionBackgroundTask(for: requestGeneration)
+            await MainActor.run {
+                recoverySlotRelease()
+                self.recoverCurrentStream(after: lastError)
+            }
             return
         }
 
@@ -502,7 +516,7 @@ extension PlaybackService {
         reason: String,
         shouldStartPlayback: Bool = true,
         binding: RetryBinding? = nil,
-        onSourceStart: (@MainActor () -> Void)? = nil
+        recoverySlotRelease: (@MainActor () -> Void)? = nil
     ) async {
         guard let track = currentTrack, let binding = binding ?? currentRetryBinding else { return }
 
@@ -553,7 +567,7 @@ extension PlaybackService {
             seekTo: recoveryTime,
             shouldStartPlayback: shouldStartPlayback,
             caller: "retryCurrentTrack(\(reason))",
-            onSourceStart: onSourceStart
+            recoverySlotRelease: recoverySlotRelease
         )
     }
 

@@ -96,16 +96,20 @@ extension PlaybackService {
         // A failed paused load is retried paused.
         let shouldStartPlayback = playbackState == .loading ? playbackPreparationShouldStart : true
 
-        let now = ProcessInfo.processInfo.systemUptime
-        let startedAt = streamRecovery?.itemID == itemID ? streamRecovery?.startedAt ?? now : now
+        let now = streamRecoveryClock()
+        let known = streamRecovery?.itemID == itemID ? streamRecovery : nil
+        let startedAt = known?.startedAt ?? now
         var isInvalidAudio = false
         if case .invalidPayload? = error as? ProgressiveStreamError { isInvalidAudio = true }
-        guard !isInvalidAudio, now - startedAt < AudioPlaybackEngine.maximumRebufferSeconds else {
+        // Reloads are paced: a server that sends enough to start and then drops must not be
+        // reloaded in a tight loop.
+        let wait = max(0, Self.streamRecoveryMinInterval - (now - (known?.lastReloadAt ?? -.infinity)))
+        guard !isInvalidAudio, streamRecoveryWindowAllowsReload(startedAt: startedAt, now: now + wait) else {
             streamRecovery = nil
             scheduleItemFailure(error, binding: binding)
             return
         }
-        streamRecovery = (itemID, startedAt, currentTime)
+        streamRecovery = StreamRecovery(itemID: itemID, startedAt: startedAt, fromTime: currentTime, lastReloadAt: known?.lastReloadAt)
         EnsembleLogger.playback("ENGINE: stream interrupted -- retrying from \(String(format: "%.1f", currentTime))s, \(String(format: "%.1f", now - startedAt))s into recovery (\(error.localizedDescription))")
         audioEngine?.pause()
         playbackState = .buffering
@@ -116,20 +120,29 @@ extension PlaybackService {
             var slotReleased = false
             // Once released, the slot may hold a newer recovery that this task must not clear.
             defer { if !slotReleased { self.stallRecoveryTask = nil } }
+            if wait > 0 { do { try await self.streamRecoverySleep(wait) } catch { return } }
             guard self.currentRetryBinding == binding else { return }
+            self.streamRecovery?.lastReloadAt = self.streamRecoveryClock()
             await self.retryCurrentTrack(
                 forceConnectionRefresh: false,
                 reason: "stream-interrupted",
                 shouldStartPlayback: shouldStartPlayback,
                 binding: binding,
-                onSourceStart: {
-                    // The reload's source is starting: a new failure of it is a new recovery,
-                    // not one to drop, and Pause no longer has a pending retry to cancel.
+                recoverySlotRelease: {
+                    // The reload's source is starting or has failed: a new failure is a new
+                    // recovery, not one to drop, and Pause no longer has a pending retry to cancel.
                     slotReleased = true
                     self.stallRecoveryTask = nil
                 }
             )
         }
+    }
+
+    /// A reload starts only while the recovery window, the engine's no-audio limit counted from
+    /// the first failure, has at least `streamRecoveryMinRemaining` left when it would start.
+    @MainActor
+    func streamRecoveryWindowAllowsReload(startedAt: TimeInterval, now: TimeInterval) -> Bool {
+        AudioPlaybackEngine.maximumRebufferSeconds - (now - startedAt) >= Self.streamRecoveryMinRemaining
     }
 
     /// Hands an item's failure to `handleItemFailure` after the current event, as pending work
@@ -521,7 +534,7 @@ extension PlaybackService {
     func noteItemStarted() {
         tlsRefreshedItemID = nil
         if let itemID = healthRetriedItemID, streamRecovery == nil {
-            streamRecovery = (itemID, ProcessInfo.processInfo.systemUptime, currentTime)
+            streamRecovery = StreamRecovery(itemID: itemID, startedAt: streamRecoveryClock(), fromTime: currentTime)
         }
     }
 
