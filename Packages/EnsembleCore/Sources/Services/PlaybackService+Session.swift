@@ -85,6 +85,8 @@ extension PlaybackService {
 
     /// A stream that fails after it loaded is retried from where it stopped, at most
     /// `maxStreamRecoveryAttempts` times per item; then the item fails (G11, G12).
+    /// Invalid audio data fails the item at once: the server sends the same bytes again,
+    /// and a retry from an offset has no length for the short-transcode check to judge.
     @MainActor
     func recoverCurrentStream(after error: Error) {
         guard stallRecoveryTask == nil, currentTrack != nil,
@@ -94,7 +96,9 @@ extension PlaybackService {
         let shouldStartPlayback = playbackState == .loading ? playbackPreparationShouldStart : true
 
         let attempts = streamRecovery?.itemID == itemID ? streamRecovery?.attempts ?? 0 : 0
-        guard attempts < Self.maxStreamRecoveryAttempts else {
+        var isInvalidAudio = false
+        if case .invalidPayload? = error as? ProgressiveStreamError { isInvalidAudio = true }
+        guard !isInvalidAudio, attempts < Self.maxStreamRecoveryAttempts else {
             streamRecovery = nil
             scheduleItemFailure(error, binding: binding)
             return

@@ -65,9 +65,9 @@ final class PlaybackServiceFlowTests: XCTestCase {
         XCTAssertEqual(service.currentQueueIndex, 1)
     }
 
-    /// A stream that keeps failing after it loaded (e.g. a truncated transcode rejected
-    /// by the duration check) gets a bounded number of retries, then the item-failure
-    /// contract: skip once while playing, halt if the skipped-to item fails too.
+    /// A stream that keeps dropping after it loaded gets a bounded number of retries, then
+    /// the item-failure contract: skip once while playing, halt if the skipped-to item fails
+    /// too. Invalid audio data (e.g. a truncated transcode) fails the item without a retry.
     func testRepeatedPostStartupStreamFailureIsBoundedThenFailsTheItem() async throws {
         let toasts = ToastCenter()
         let service = await makeService(toastCenter: toasts)
@@ -76,7 +76,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.currentQueueIndex = 0
         service.currentTrack = tracks[0]
         service.playbackState = .playing
-        let error = ProgressiveStreamError.invalidPayload(bytesReceived: 2_864_498)
+        var error: Error = URLError(.networkConnectionLost)
 
         func recover() async {
             service.recoverCurrentStream(after: error)
@@ -92,9 +92,9 @@ final class PlaybackServiceFlowTests: XCTestCase {
         XCTAssertEqual(toasts.currentToast?.title, "Skipped a")
         XCTAssertNil(toasts.currentToast?.action, "a skip offers no Retry")
 
-        // The item reached by that skip fails too once its budget is spent: halt on the error.
+        // The item reached by that skip gets invalid audio data: halt on the error, with no retry.
         service.playbackState = .playing
-        service.streamRecovery = (service.queue[1].id, PlaybackService.maxStreamRecoveryAttempts, 0)
+        error = ProgressiveStreamError.invalidPayload(bytesReceived: 2_864_498)
         await recover()
         XCTAssertEqual(service.currentQueueIndex, 1)
         guard case .failed = service.playbackState else {
