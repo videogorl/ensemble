@@ -251,8 +251,9 @@ final class StreamingAudioPipelineTests: XCTestCase {
     /// Next, seek, Pause's refresh and a new play cancel the pipeline: a pending resume never starts.
     func testCancelDuringResumeStartsNoRequest() async throws {
         let wav = Self.wavFixture(seconds: 4)
-        let result = try await run(payload: wav, replies: [.ranged(dropAfter: wav.count / 2), .timesOut], retryInterval: 0.3) { pipeline in
+        let result = try await run(payload: wav, replies: [.ranged(dropAfter: wav.count / 2), .ranged(dropAfter: 1_000)], retryInterval: 0.3) { pipeline in
             while ScriptedURLProtocol.requests.count < 2 { try await Task.sleep(nanoseconds: 5_000_000) }
+            try await Task.sleep(nanoseconds: 50_000_000) // the resume dropped again: the next one is pending
             pipeline.cancel()
             try await Task.sleep(nanoseconds: 500_000_000)
         }

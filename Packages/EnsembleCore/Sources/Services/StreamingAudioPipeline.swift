@@ -247,6 +247,7 @@ final class StreamingAudioPipeline: NSObject {
     private var resumeWorkItem: DispatchWorkItem?
     private var recoveryStartedAt: TimeInterval?
     private var resumeAttempts = 0
+    private var lastResumeRequestAt: TimeInterval?
     /// Set once the download is given up on while audio is still buffered; `render` reports it
     /// when the PCM reserve runs out, so the engine reloads only after the reserve is played.
     private var deferredError: Error?
@@ -681,7 +682,8 @@ final class StreamingAudioPipeline: NSObject {
             failAfterDraining(error)
             return
         }
-        let delay = resumeAttempts == 0 ? 0 : configuration.resumeRetryInterval
+        // Paced like the service's reloads: a server that sends a little and drops must not be hit in a tight loop.
+        let delay = max(0, configuration.resumeRetryInterval - (now - (lastResumeRequestAt ?? -.infinity)))
         EnsembleLogger.info("[StreamingPipeline] dropped trackId=\(configuration.trackID ?? "unknown") bytes=\(receivedByteCount)/\(validator.totalBytes) error=\((error as NSError).domain):\((error as NSError).code) retryIn=\(String(format: "%.2fs", delay))")
         let work = DispatchWorkItem { [weak self] in self?.beginResume() }
         resumeWorkItem = work
@@ -700,6 +702,7 @@ final class StreamingAudioPipeline: NSObject {
         let now = configuration.now()
         let offset = receivedByteCount
         recoveryStartedAt = recoveryStartedAt ?? now
+        lastResumeRequestAt = now
         resumeAttempts += 1
         var request = configuration.request
         request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range")
@@ -923,14 +926,12 @@ extension StreamingAudioPipeline: URLSessionDataDelegate {
     func urlSession(_: URLSession, task completedTask: URLSessionTask, didCompleteWithError error: Error?) {
         stateLock.lock()
         let isCurrent = completedTask === task
+        // A sized download that ends early without an error is a drop too.
         let shortfall = resumeValidator.map { receivedByteCount < $0.totalBytes } ?? false
         stateLock.unlock()
         guard isCurrent else { return }
-        if let error {
+        if let error = error ?? (shortfall ? URLError(.networkConnectionLost) : nil) {
             handleNetworkError(error, task: completedTask)
-        } else if shortfall {
-            // The server ended a sized download early without an error: resume it like a drop.
-            handleNetworkError(URLError(.networkConnectionLost), task: completedTask)
         } else {
             finishNetwork()
         }
