@@ -35,6 +35,11 @@ in code: paged reads and bounded caches.
 - Use structured privacy-safe `Logger` calls, never `print`, in production Swift.
 - Reproduce reported bugs first when feasible. Capture the specific UI state,
   logs, database/network evidence, or runtime path that distinguishes the cause.
+- Record anything you notice outside your task in [`ON_DECK.md`](ON_DECK.md):
+  bugs, workarounds, over-complex code, a native API that would replace custom
+  machinery. Give evidence, impact and a next step, mark it suspected or
+  confirmed, and remove the entry when it is fixed. An entry does not
+  authorize the work.
 - Commit the completed logical change before handoff.
 
 ## Changelog Updates
@@ -112,6 +117,12 @@ simulators may run. Prefer XcodeBuildMCP snapshots plus low-level touch down/up,
 and verify the resulting UI or logs because an input command can succeed without
 being delivered. See `simulator-test` and
 `docs/reference/agent-runtime-testing.md`.
+
+Scripted XCUITests are the default for runtime checks on a simulator or a
+physical device (`EnsembleUITests`; `PhonePlaybackAcceptanceUITests` drives
+playback through debug routes and the `automation.playback.probe` element).
+Add a test method rather than driving the screen by hand. Use Device Hub or
+Computer Use only for what a scripted test cannot reach.
 
 Track every simulator UUID used. When finished using them, shut down each of
 those simulators and verify its state is `Shutdown` before handoff. Coordinate

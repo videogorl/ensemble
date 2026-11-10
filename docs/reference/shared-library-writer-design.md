@@ -503,6 +503,11 @@ Felicity approved the design and agreed with every recommendation:
 
 ## 7. Open questions for Felicity (connector revision)
 
+Resolved on 2026-11-10: Felicity agreed that section 3.5 is the connector
+layer she meant (question 1). The lead took the recommendations on questions
+2 and 3: rename in 3b, and connection health stays Plex-only until Jellyfin
+is scheduled.
+
 1. **Connector scope.** Is section 3.5 the connector layer you meant: one
    protocol family in EnsembleCore, the writer as its only write path, new
    capabilities added when a second source needs them, and no package or
