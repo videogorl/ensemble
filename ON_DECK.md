@@ -92,10 +92,6 @@ An entry does not authorize the work; Felicity picks what gets done.
 From a read-only audit; none of these is a confirmed defect. Ranked by expected stability
 gain per unit of work. Sizes are S, M or L.
 
-- **Account loading polls every 25 ms** (`AccountManager.swift:268`, S). A detached Keychain
-  read is followed by a poll for up to 1 s (commit `8ab31f92`, Keychain can block at macOS
-  startup). Next step: await the task's value and race it against one deadline; keep the
-  timeout and the cached-source fallback.
 - **Scroll index stops momentum by toggling scrolling** (`ScrollIndex.swift:141`, S/M). A
   UIKit probe finds the enclosing `UIScrollView` and turns scrolling off and on before a jump
   (commit `fdb0d4cc`). Next step: try `.scrollPosition(id:anchor:)` (iOS 17) in the scroll
