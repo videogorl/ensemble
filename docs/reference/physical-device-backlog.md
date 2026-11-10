@@ -470,4 +470,15 @@ the installed app has not been touched.
 | The first launch logs `Playlist membership backfill: keysFilled=... duplicateRowsRemoved=...` and later launches do not | Owed |
 | A Plex playlist sync after migration (full and incremental) saves without error and leaves one row per position | Owed |
 
+## iPhone — step 3b, library writer (Plex library sync)
+
+Applies to the commit that adds `LibraryWriter`. The simulator proved full and
+incremental Plex library syncs against the live server (store comparison in
+`docs/investigations/2026-11-10-step-3b-library-writer.md`).
+
+| Check | Status |
+| --- | --- |
+| Background Refresh delivers the same library change through the writer: add or remove a file in the owned album, wait for a Background Refresh, then see the album count, the Siri index save and the offline download follow | Owed |
+| A Background Refresh near its deadline stops without leaving a partial inventory: the next launch's sync completes and counts match the server (the writer queues WebSocket batches behind a running one) | Owed |
+
 The iPad and watch checklist sections start with steps 5 and 6.
