@@ -41,6 +41,12 @@ in code: paged reads and bounded caches.
   confirmed, and remove the entry when it is fixed. An entry does not
   authorize the work.
 - Commit the completed logical change before handoff.
+- Freeze (step 3, sub-steps 3a to 3e): no new features or behaviour changes in
+  sync and library-writing code (source providers' sync, `SyncCoordinator` sync
+  paths, repository write paths) except step 3's own sub-steps; blocking bug
+  fixes must also land in the new path. Remove this line when 3e closes. See
+  `docs/reference/shared-library-writer-design.md` and rearchitecture plan
+  section 6.
 
 ## Changelog Updates
 

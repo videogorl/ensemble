@@ -6,11 +6,16 @@ public final class CoreDataStack: @unchecked Sendable {
 
     public let persistentContainer: NSPersistentContainer
 
+    private let membershipKeysLock = NSLock()
+    private var membershipKeysComplete = false
+    /// Tests throw from it to make a pass fail midway.
+    var membershipBackfillStatementHook: () throws -> Void = {}
+
     public var viewContext: NSManagedObjectContext {
         persistentContainer.viewContext
     }
 
-    private init(inMemory: Bool) {
+    private init(inMemory: Bool, storeURL: URL? = nil, runsBackfill: Bool = true) {
         let model = Self.loadManagedObjectModel()
 
         persistentContainer = NSPersistentContainer(name: "Ensemble", managedObjectModel: model)
@@ -20,6 +25,8 @@ public final class CoreDataStack: @unchecked Sendable {
         if inMemory {
             description.type = NSInMemoryStoreType
             description.url = URL(fileURLWithPath: "/dev/null")
+        } else if let storeURL {
+            description.url = storeURL
         }
         description.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
         description.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
@@ -29,6 +36,15 @@ public final class CoreDataStack: @unchecked Sendable {
             if let error = error {
                 fatalError("Failed to load CoreData store: \(error)")
             }
+        }
+
+        // Finish the model 12 membership keys. A failure is logged and repeated at the next
+        // launch, or before the next track or source deletion; the store stays usable.
+        // In-memory stores have nothing to migrate and do not support batch statements.
+        if inMemory {
+            membershipKeysComplete = true
+        } else if runsBackfill {
+            _ = finishMembershipBackfill()
         }
 
         viewContext.automaticallyMergesChangesFromParent = true
@@ -42,6 +58,43 @@ public final class CoreDataStack: @unchecked Sendable {
     /// Create an in-memory stack for testing/previews
     public static func inMemory() -> CoreDataStack {
         CoreDataStack(inMemory: true)
+    }
+
+    /// Opens a stack on a SQLite file; tests use it because in-memory stores do not
+    /// enforce uniqueness constraints.
+    public static func onDisk(at storeURL: URL) -> CoreDataStack {
+        CoreDataStack(inMemory: false, storeURL: storeURL)
+    }
+
+    /// A stack whose backfill has not run yet, as after an interrupted launch pass.
+    static func onDiskWithoutBackfill(at storeURL: URL) -> CoreDataStack {
+        CoreDataStack(inMemory: false, storeURL: storeURL, runsBackfill: false)
+    }
+
+    /// Thrown by explicit removals that must not be skipped silently.
+    public struct MembershipBackfillPendingError: Error {}
+
+    /// True once no membership row is missing its keys; runs an unfinished pass first.
+    /// Deleting a track nullifies `track` on its membership rows, and saving a row that
+    /// still lacks keys can merge it into an unrelated one, so track and source deletions
+    /// check this and skip when the pass cannot finish.
+    public func finishMembershipBackfill() -> Bool {
+        membershipKeysLock.lock()
+        defer { membershipKeysLock.unlock() }
+        if membershipKeysComplete { return true }
+        let context = newBackgroundContext()
+        context.performAndWait {
+            do {
+                let summary = try PlaylistMembershipBackfill.run(in: context, afterStatement: membershipBackfillStatementHook)
+                if summary != PlaylistMembershipBackfill.Summary() {
+                    EnsembleLogger.debug("Playlist membership backfill: keysFilled=\(summary.keysFilled) duplicateRowsRemoved=\(summary.rowsRemoved) playlists=\(summary.playlistsFilled)")
+                }
+                membershipKeysComplete = true
+            } catch {
+                EnsembleLogger.debug("Playlist membership backfill incomplete; it will run again at the next launch or track deletion: \(error)")
+            }
+        }
+        return membershipKeysComplete
     }
 
     public func newBackgroundContext() -> NSManagedObjectContext {
@@ -156,6 +209,9 @@ public final class CoreDataStack: @unchecked Sendable {
         guard trackEntity.propertiesByName["actionCapabilitiesData"] != nil,
               model.entitiesByName["CDAlbum"]?.propertiesByName["actionCapabilitiesData"] != nil,
               model.entitiesByName["CDArtist"]?.propertiesByName["actionCapabilitiesData"] != nil else {
+            return false
+        }
+        guard model.entitiesByName["CDPlaylistTrack"]?.propertiesByName["playlistRatingKey"] != nil else {
             return false
         }
         guard let playlistEntity = model.entitiesByName["CDPlaylist"],

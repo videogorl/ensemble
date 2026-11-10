@@ -250,6 +250,7 @@ extension LibraryRepository {
     }
 
     public func deleteTrack(ratingKey: String, sourceCompositeKey: String?) async throws {
+        guard coreDataStack.finishMembershipBackfill() else { return }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 do {

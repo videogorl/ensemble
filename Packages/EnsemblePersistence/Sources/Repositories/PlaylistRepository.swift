@@ -256,7 +256,6 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
     func setPlaylistTrackSnapshots(_ snapshots: [PlaylistTrackSnapshot], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
     func deletePlaylists(sourceCompositeKey: String) async throws
-    func removeDuplicatePlaylists() async throws
     func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
 
     // Bulk timestamp lookup (for incremental sync change detection)
@@ -1101,10 +1100,14 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                         return
                     }
 
-                    // Remove existing playlist tracks
-                    if let existingTracks = playlist.playlistTracks as? Set<CDPlaylistTrack> {
-                        for pt in existingTracks {
-                            context.delete(pt)
+                    // Reuse the row at each position: the uniqueness constraint on
+                    // (playlist, order) would reject deleting and reinserting it in one save.
+                    var rowsByOrder: [Int32: CDPlaylistTrack] = [:]
+                    for row in (playlist.playlistTracks as? Set<CDPlaylistTrack> ?? []).sorted(by: { $0.order < $1.order }) {
+                        if rowsByOrder[row.order] == nil {
+                            rowsByOrder[row.order] = row
+                        } else {
+                            context.delete(row)
                         }
                     }
 
@@ -1156,8 +1159,10 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                                 fallbackArtworkSourceCompositeKey = trackSourceCompositeKey
                             }
                         }
-                        let playlistTrack = CDPlaylistTrack(context: context)
+                        let playlistTrack = rowsByOrder.removeValue(forKey: Int32(index)) ?? CDPlaylistTrack(context: context)
                         playlistTrack.order = Int32(index)
+                        playlistTrack.playlistRatingKey = playlist.ratingKey
+                        playlistTrack.playlistSourceCompositeKey = playlist.sourceCompositeKey
                         playlistTrack.playlistItemID = snapshot.playlistItemID
                         playlistTrack.trackRatingKey = snapshot.ratingKey
                         playlistTrack.trackSourceCompositeKey = trackSourceCompositeKey
@@ -1170,6 +1175,8 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                         playlistTrack.playlist = playlist
                         playlistTrack.track = track
                     }
+
+                    rowsByOrder.values.forEach(context.delete)
 
                     playlist.fallbackArtworkPath = fallbackArtworkPath
                     playlist.fallbackArtworkRatingKey = fallbackArtworkRatingKey
@@ -1238,46 +1245,6 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         }
     }
     
-    public func removeDuplicatePlaylists() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            self.coreDataStack.performBackgroundTask { context in
-                do {
-                    let request = CDPlaylist.fetchRequest()
-                    request.sortDescriptors = [
-                        NSSortDescriptor(key: "ratingKey", ascending: true),
-                        NSSortDescriptor(key: "updatedAt", ascending: false)
-                    ]
-                    
-                    let allPlaylists = try context.fetch(request)
-                    var seenRatingKeys = Set<String>()
-                    var playlistsToDelete: [CDPlaylist] = []
-                    
-                    // Keep the first (most recently updated) playlist for each ratingKey
-                    for playlist in allPlaylists {
-                        if seenRatingKeys.contains(playlist.ratingKey) {
-                            playlistsToDelete.append(playlist)
-                        } else {
-                            seenRatingKeys.insert(playlist.ratingKey)
-                        }
-                    }
-                    
-                    // Delete duplicates
-                    for playlist in playlistsToDelete {
-                        context.delete(playlist)
-                    }
-                    
-                    if !playlistsToDelete.isEmpty {
-                        try context.save()
-                    }
-
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
-    }
-
     public func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
         try await withCheckedThrowingContinuation { continuation in
             coreDataStack.performBackgroundTask { context in

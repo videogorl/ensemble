@@ -61,7 +61,6 @@ final class EmptyPlaylistRepository: PlaylistRepositoryProtocol, @unchecked Send
     func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws {}
     func deletePlaylist(ratingKey: String) async throws {}
     func deletePlaylists(sourceCompositeKey: String) async throws {}
-    func removeDuplicatePlaylists() async throws {}
     func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
     func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
 }

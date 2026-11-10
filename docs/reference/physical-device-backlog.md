@@ -457,4 +457,17 @@ pass before step 0 is called verified.
   Split View resizing keep the selection, full-width kinds push, and back
   navigation keeps scroll position.
 
+## iPhone SE — step 3a, playlist membership constraint (model 12)
+
+Applies to the commit that adds model 12. The SE's store was copied read-only
+on 2026-11-10 and migrated on the Mac (5,827 membership rows, no duplicates);
+the installed app has not been touched.
+
+| Check | Status |
+| --- | --- |
+| Install the 3a build over the existing SE store: the app launches and the store loads | Owed |
+| Playlists show their tracks and counts after migration; offline playlist targets still list their tracks and downloaded state | Owed |
+| The first launch logs `Playlist membership backfill: keysFilled=... duplicateRowsRemoved=...` and later launches do not | Owed |
+| A Plex playlist sync after migration (full and incremental) saves without error and leaves one row per position | Owed |
+
 The iPad and watch checklist sections start with steps 5 and 6.
