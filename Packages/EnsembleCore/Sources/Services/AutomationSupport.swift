@@ -54,30 +54,43 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
     public static let disableAnimationsArgument = "-EnsembleAutomationDisableAnimations"
     public static let simulateOfflineArgument = "-EnsembleAutomationSimulateOffline"
     public static let refreshPlaylistsArgument = "-EnsembleAutomationRefreshPlaylists"
+    public static let forceNetworkStreamArgument = "-EnsembleAutomationForceNetworkStream"
+    public static let ignoreDownloadsArgument = "-EnsembleAutomationIgnoreDownloads"
     public static let modeEnvironmentKey = "ENSEMBLE_AUTOMATION_MODE"
     public static let startSurfaceEnvironmentKey = "ENSEMBLE_AUTOMATION_START_SURFACE"
     public static let disableAnimationsEnvironmentKey = "ENSEMBLE_AUTOMATION_DISABLE_ANIMATIONS"
     public static let simulateOfflineEnvironmentKey = "ENSEMBLE_AUTOMATION_SIMULATE_OFFLINE"
     public static let refreshPlaylistsEnvironmentKey = "ENSEMBLE_AUTOMATION_REFRESH_PLAYLISTS"
+    public static let forceNetworkStreamEnvironmentKey = "ENSEMBLE_AUTOMATION_FORCE_NETWORK_STREAM"
+    public static let ignoreDownloadsEnvironmentKey = "ENSEMBLE_AUTOMATION_IGNORE_DOWNLOADS"
 
     public let isEnabled: Bool
     public let startSurface: AutomationSurface?
     public let disableAnimations: Bool
     public let simulateOffline: Bool
     public let refreshPlaylists: Bool
+    /// DEBUG builds resolve playback as if no track were downloaded or stream-cached,
+    /// so a codec check exercises the network path without removing downloads.
+    public let forceNetworkStream: Bool
+    /// Like `forceNetworkStream` but keeps the stream cache, so a fully streamed track can be replayed offline.
+    public let ignoreDownloads: Bool
 
     public init(
         isEnabled: Bool,
         startSurface: AutomationSurface? = nil,
         disableAnimations: Bool = false,
         simulateOffline: Bool = false,
-        refreshPlaylists: Bool = false
+        refreshPlaylists: Bool = false,
+        forceNetworkStream: Bool = false,
+        ignoreDownloads: Bool = false
     ) {
         self.isEnabled = isEnabled
         self.startSurface = startSurface
         self.disableAnimations = disableAnimations
         self.simulateOffline = simulateOffline
         self.refreshPlaylists = refreshPlaylists
+        self.forceNetworkStream = forceNetworkStream
+        self.ignoreDownloads = ignoreDownloads
     }
 
     public static var current: AutomationLaunchOptions {
@@ -128,12 +141,26 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
             environmentValue: environment[refreshPlaylistsEnvironmentKey]
         ) || boolUserDefault(userDefaults, for: refreshPlaylistsArgument)
 
+        let forceNetworkStream = boolValue(
+            after: forceNetworkStreamArgument,
+            in: arguments,
+            environmentValue: environment[forceNetworkStreamEnvironmentKey]
+        ) || boolUserDefault(userDefaults, for: forceNetworkStreamArgument)
+
+        let ignoreDownloads = boolValue(
+            after: ignoreDownloadsArgument,
+            in: arguments,
+            environmentValue: environment[ignoreDownloadsEnvironmentKey]
+        ) || boolUserDefault(userDefaults, for: ignoreDownloadsArgument)
+
         return AutomationLaunchOptions(
-            isEnabled: isEnabled || simulateOffline || refreshPlaylists,
+            isEnabled: isEnabled || simulateOffline || refreshPlaylists || forceNetworkStream || ignoreDownloads,
             startSurface: startSurface,
             disableAnimations: disableAnimations,
             simulateOffline: simulateOffline,
-            refreshPlaylists: refreshPlaylists
+            refreshPlaylists: refreshPlaylists,
+            forceNetworkStream: forceNetworkStream,
+            ignoreDownloads: ignoreDownloads
         )
     }
 
@@ -147,7 +174,9 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
                 "startSurface": startSurface?.rawValue ?? "none",
                 "disableAnimations": disableAnimations ? "true" : "false",
                 "simulateOffline": simulateOffline ? "true" : "false",
-                "refreshPlaylists": refreshPlaylists ? "true" : "false"
+                "refreshPlaylists": refreshPlaylists ? "true" : "false",
+                "forceNetworkStream": forceNetworkStream ? "true" : "false",
+                "ignoreDownloads": ignoreDownloads ? "true" : "false"
             ]
         )
     }
@@ -316,7 +345,64 @@ public struct NowPlayingAutomationRequest: Equatable, Sendable {
     }
 }
 
+/// `ensemble://debug/play?tracks=11631,8731&index=0` replaces the queue with
+/// library tracks named by Plex rating key (or full playback identity);
+/// `ensemble://debug/transport?action=pause|resume|next|previous` and
+/// `...?action=seek&to=170` drive the same calls as the transport buttons.
+public struct PlaybackAutomationRequest: Equatable, Sendable {
+    public enum Action: Equatable, Sendable {
+        case play(trackKeys: [String], startIndex: Int)
+        case pause
+        case resume
+        case next
+        case previous
+        case seek(TimeInterval)
+    }
+
+    public let action: Action
+
+    /// Nil unless every value is recognised, so a typo never half-applies.
+    init?(route: String, queryItems: [URLQueryItem]) {
+        func value(_ name: String) -> String? { queryItems.first { $0.name == name }?.value }
+        switch route {
+        case "play":
+            let keys = (value("tracks") ?? "").split(separator: ",").map(String.init)
+            guard !keys.isEmpty else { return nil }
+            let index = value("index").map(Int.init) ?? 0
+            guard let index, (0..<keys.count).contains(index) else { return nil }
+            action = .play(trackKeys: keys, startIndex: index)
+        case "transport":
+            switch value("action") {
+            case "pause": action = .pause
+            case "resume": action = .resume
+            case "next": action = .next
+            case "previous": action = .previous
+            case "seek":
+                guard let seconds = value("to").flatMap(Double.init), seconds.isFinite, seconds >= 0 else { return nil }
+                action = .seek(seconds)
+            default: return nil
+            }
+        default:
+            return nil
+        }
+    }
+
+    var logDetails: [String: String] {
+        switch action {
+        case let .play(keys, index): ["action": "play", "tracks": keys.joined(separator: ","), "index": "\(index)"]
+        case .pause: ["action": "pause"]
+        case .resume: ["action": "resume"]
+        case .next: ["action": "next"]
+        case .previous: ["action": "previous"]
+        case let .seek(seconds): ["action": "seek", "to": "\(seconds)"]
+        }
+    }
+}
+
 public enum AutomationIdentifiers {
+    /// DEBUG-only invisible element whose value mirrors playback state for UI tests.
+    public static let playbackProbe = "automation.playback.probe"
+
     public enum Sidebar {
         public static let search = "sidebar.search"
         public static let downloadsToolbar = "sidebar.toolbar.downloads"

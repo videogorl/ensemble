@@ -143,6 +143,16 @@ public struct RootView: View {
         .onChange(of: navigationCoordinator.pendingNowPlayingRequest) {
             applyNowPlayingAutomationRequest()
         }
+        .onChange(of: navigationCoordinator.pendingPlaybackRequest) {
+            applyPlaybackAutomationRequest()
+        }
+        #if DEBUG
+        .overlay(alignment: .topLeading) {
+            if AutomationLaunchOptions.current.isEnabled {
+                AutomationPlaybackProbe(playback: dependencies.playbackService, network: dependencies.networkMonitor)
+            }
+        }
+        #endif
         .onChange(of: navigationCoordinator.pendingAutomationSurface) {
             guard let surface = navigationCoordinator.pendingAutomationSurface else { return }
             navigationCoordinator.pendingAutomationSurface = nil
@@ -384,6 +394,45 @@ public struct RootView: View {
             if !isNowPlayingPresented {
                 presentNowPlayingFromMiniPlayer()
             }
+        }
+    }
+
+    /// Applies a `debug/play` or `debug/transport` request through the transport calls.
+    private func applyPlaybackAutomationRequest() {
+        guard let request = navigationCoordinator.pendingPlaybackRequest else { return }
+        navigationCoordinator.pendingPlaybackRequest = nil
+        let playback = dependencies.playbackService
+        switch request.action {
+        case let .play(trackKeys, startIndex):
+            Task { @MainActor in
+                let sourceKeys = dependencies.accountManager.enabledSources().map(\.compositeKey)
+                var tracks: [Track] = []
+                for key in trackKeys {
+                    var found: Track?
+                    for sourceKey in sourceKeys {
+                        // A full playback identity ("<source>||<ratingKey>") is accepted too.
+                        let ratingKey = key.components(separatedBy: "||").last ?? key
+                        if let cd = try? await dependencies.libraryRepository.fetchTrack(ratingKey: ratingKey, sourceCompositeKey: sourceKey) {
+                            found = Track(from: cd)
+                            break
+                        }
+                    }
+                    guard let found else {
+                        UserJourneyLogger.log(context: "automation", event: "playbackRequestFailed", details: ["reason": "trackNotFound", "track": key])
+                        return
+                    }
+                    tracks.append(found)
+                }
+                // Debug links can arrive within a second of a cold launch, before the Plex connection is
+                // resolved; settle it first so the request tests playback, not launch timing.
+                try? await dependencies.syncCoordinator.refreshConnection()
+                await playback.play(tracks: tracks, startingAt: startIndex)
+            }
+        case .pause: playback.pause()
+        case .resume: playback.resume()
+        case .next: playback.next()
+        case .previous: playback.previous()
+        case let .seek(seconds): playback.seek(to: seconds)
         }
     }
 
@@ -813,6 +862,51 @@ private struct MacWindowNowPlayingChromeBridge: NSViewRepresentable {
 private extension NSView {
     func allDescendants() -> [NSView] {
         subviews + subviews.flatMap { $0.allDescendants() }
+    }
+}
+#endif
+
+#if DEBUG
+/// Invisible element exposing playback state to UI tests (automation launches only).
+/// Value: `pid=123|state=playing|id=<ratingKey>|pos=12.3|dur=182.0|idx=0|count=5|mix=0|net=online(wifi)|err=`.
+private struct AutomationPlaybackProbe: View {
+    let playback: PlaybackService
+    let network: NetworkMonitor
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            Color.clear
+                .frame(width: 2, height: 2)
+                .allowsHitTesting(false)
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier(AutomationIdentifiers.playbackProbe)
+                .accessibilityValue(value)
+        }
+    }
+
+    private var value: String {
+        var error = ""
+        let state: String
+        switch playback.playbackState {
+        case .stopped: state = "stopped"
+        case .loading: state = "loading"
+        case .buffering: state = "buffering"
+        case .playing: state = "playing"
+        case .paused: state = "paused"
+        case let .failed(message): state = "failed"; error = message.replacingOccurrences(of: "|", with: "/")
+        }
+        return [
+            "pid=\(ProcessInfo.processInfo.processIdentifier)",
+            "state=\(state)",
+            "id=\(playback.currentTrack?.id ?? "")",
+            "pos=\(String(format: "%.1f", playback.currentTimeValue))",
+            "dur=\(String(format: "%.1f", playback.duration))",
+            "idx=\(playback.currentQueueIndex)",
+            "count=\(playback.queue.count)",
+            "mix=\(playback.isSmartMixTransitionActive ? 1 : 0)",
+            "net=\(network.networkState)".replacingOccurrences(of: " ", with: ""),
+            "err=\(error)",
+        ].joined(separator: "|")
     }
 }
 #endif
