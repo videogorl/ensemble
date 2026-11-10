@@ -146,6 +146,9 @@ public struct RootView: View {
         .onChange(of: navigationCoordinator.pendingPlaybackRequest) {
             applyPlaybackAutomationRequest()
         }
+        .onChange(of: navigationCoordinator.pendingSyncMode) {
+            applySyncAutomationRequest()
+        }
         #if DEBUG
         .overlay(alignment: .topLeading) {
             if AutomationLaunchOptions.current.isEnabled {
@@ -394,6 +397,20 @@ public struct RootView: View {
             if !isNowPlayingPresented {
                 presentNowPlayingFromMiniPlayer()
             }
+        }
+    }
+
+    /// Applies a `debug/sync` request through the coordinator's refresh entry points.
+    private func applySyncAutomationRequest() {
+        guard let mode = navigationCoordinator.pendingSyncMode else { return }
+        navigationCoordinator.pendingSyncMode = nil
+        Task { @MainActor in
+            UserJourneyLogger.log(context: "automation", event: "syncStarted", details: ["mode": mode.rawValue])
+            switch mode {
+            case .full: await dependencies.syncCoordinator.syncAll()
+            case .incremental: await dependencies.syncCoordinator.syncAllIncremental()
+            }
+            UserJourneyLogger.log(context: "automation", event: "syncFinished", details: ["mode": mode.rawValue])
         }
     }
 

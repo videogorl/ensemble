@@ -142,6 +142,8 @@ public final class NavigationCoordinator {
     public var pendingNowPlayingRequest: NowPlayingAutomationRequest?
     /// Set by the `debug/play` and `debug/transport` routes; the root view applies and clears it.
     public var pendingPlaybackRequest: PlaybackAutomationRequest?
+    /// Set by the `debug/sync` route; the root view applies and clears it.
+    public var pendingSyncMode: SyncAutomationMode?
     /// Set by the `debug/open` route; the root view applies and clears it, since
     /// the layout's aliases and browse selections live there.
     public var pendingAutomationSurface: AutomationSurface?
@@ -555,6 +557,24 @@ public final class NavigationCoordinator {
                 details: request.logDetails.merging(["route": Self.routeLogDescription(from: url)]) { $1 }
             )
             pendingNowPlayingRequest = request
+            return true
+        }
+
+        if routeComponents.dropFirst().first == "sync" {
+            guard let mode = Self.queryValue("mode", from: url).flatMap(SyncAutomationMode.init(rawValue:)) else {
+                UserJourneyLogger.log(
+                    context: "automation",
+                    event: "deepLinkRejected",
+                    details: ["route": Self.routeLogDescription(from: url), "reason": "unsupportedSyncMode"]
+                )
+                return true
+            }
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "deepLinkAccepted",
+                details: ["route": Self.routeLogDescription(from: url), "mode": mode.rawValue]
+            )
+            pendingSyncMode = mode
             return true
         }
 
