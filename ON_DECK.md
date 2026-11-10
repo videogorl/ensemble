@@ -13,3 +13,14 @@ Unrelated discoveries waiting for their own task. Remove an entry when it is fix
 - Impact: intermittent whole-suite crash; no production code involved.
 - Next step: guard the mock's recorded requests with a lock (or make the mock an actor)
   and rerun the full suite a few times.
+
+## Suspected: flaky WebSocket library-update test (2026-11-10)
+
+- Evidence: one full `EnsembleCore` run failed
+  `PlexWebSocketCoordinatorTests.testLibraryUpdateCarriesLatestExactItemChanges`
+  (`PlexWebSocketCoordinatorTests.swift:100`: no changes received, after 3.25 s).
+  The class passed 3 of 3 runs alone, and the playback branch that hit it does not touch
+  the coordinator or its test.
+- Impact: intermittent whole-suite failure; likely a timing window under full-suite load.
+- Next step: check the test's wait/debounce timing against the coordinator's debounce
+  and make it wait on the delivered change instead of a fixed interval.
