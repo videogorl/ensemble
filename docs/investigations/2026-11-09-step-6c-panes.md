@@ -102,3 +102,33 @@ numbers carry that risk. No focus loss was detected in any run.
 - Physical iPhone SE (in use by another worker); `testArtists` after the fix was
   not run there.
 - Rotation, track tables, and the earlier run's passed checks were not repeated.
+
+## Search result detail (iPad): not reproduced on `dd517dcd`
+
+Date: 2026-11-09. Source `dd517dcd` (app code unchanged; temporary journey and test
+code reverted). Simulator: iPad Pro 11-inch (M5) `6511F397-…`, Debug build.
+
+The reported failure (Search → artist shows "Select an Artist", `push 0->1` then
+`setPath 1->0` 0.44 s later) did not occur. A temporary XCUITest searched "abba"
+and tapped the result on the Search tab:
+
+| Case | Runs | Result |
+| --- | --- | --- |
+| Artist (ABBA), landscape, normal and immediate tap | 5 | detail pushed, no placeholder |
+| Artist, landscape, host load average above 150 | 2 | detail pushed |
+| Artist, portrait | 1 | detail pushed |
+| Artist, the 6c verifier's own prebuilt test bundle on this simulator | 1 | `placeholderShown=false` |
+| Playlist ("Ambient Electric"), landscape | 1 | detail pushed (Back, Playlists bar) |
+| Album ("Gold: Greatest Hits"), landscape | 1 | album pushed |
+
+Session logs for those runs show only `externalRoute`, `tabChanged`, and
+`push depth=0->1`; a temporary stack trace on every `setPath([])` never fired.
+Search has no genre results (mood tiles route to Home's `moodTracks`), so genre
+was not applicable. The iPhone and the Mac were not run.
+
+What the code shows (hypotheses, unconfirmed): the sidebar's own detail stack
+ignores an empty path while `isRouteTransitionActive` (`SidebarView.setActiveDetailPath`),
+a guard against a spurious pop after a route; the `NativeBrowseSection` detail
+stack binds `pathBinding(for:isActive:)`, which has no such guard. The failing run
+may have hit a state-dependent spurious `[]` through that binding. Nothing was
+changed, because the cause could not be observed.
