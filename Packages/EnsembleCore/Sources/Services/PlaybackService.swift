@@ -412,6 +412,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// The current halt was caused by an unreachable server or network, so a passing health
     /// check may retry it. Any other halt waits for the user. Cleared by any state change.
     var haltWaitsForServer = false
+    /// The item a health check already retried; one automatic retry per recovery.
+    var healthRetriedItemID: String?
     /// Where playback failures are shown; nil in headless contexts.
     let toastCenter: ToastCenter?
     /// The one failure toast on screen; a newer failure replaces it in place.
@@ -837,14 +839,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // Auto-resume: if playback halted because a server was unreachable, and a
-        // health check just passed, retry the current track automatically.
+        // Auto-resume: if playback halted because a server was unreachable, retry once
+        // the check has found the current track's server available again.
         if case .failed = playbackState, haltWaitsForServer,
-           currentTrack?.localFilePath == nil
+           currentTrack?.localFilePath == nil,
+           let source = MediaSourceIdentity.parse(currentTrack?.sourceCompositeKey),
+           syncCoordinator.serverHealthChecker
+               .getServerState(accountId: source.accountId, serverId: source.serverId).isAvailable
         {
             EnsembleLogger.debug("🏥 Health check complete while in failed state — attempting auto-resume")
             // An automatic retry is not a new listen: if it fails, the item halts again (G11).
             failureSkipItemID = currentQueueItemID
+            healthRetriedItemID = currentQueueItemID
             await retryCurrentTrack(
                 forceConnectionRefresh: false,
                 reason: "health-check-recovery",

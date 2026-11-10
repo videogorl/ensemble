@@ -187,6 +187,10 @@ public final class ServerHealthChecker {
         serverStates["\(accountId):\(serverId)"] ?? .unknown
     }
 
+    internal func setServerStateForTesting(_ state: ServerConnectionState, accountId: String, serverId: String) {
+        serverStates["\(accountId):\(serverId)"] = state
+    }
+
     public func getServerFailureReason(accountId: String, serverId: String) -> ServerConnectionFailureReason? {
         serverFailureReasons["\(accountId):\(serverId)"]
     }

@@ -229,6 +229,9 @@ final class PlaybackServiceFlowTests: XCTestCase {
         ]
         for (cause, error, retries) in causes {
             let service = await makeService()
+            service.syncCoordinator.serverHealthChecker.setServerStateForTesting(
+                .connected(url: "https://example.com"), accountId: "account-1", serverId: "server-1"
+            )
             // c is downloaded, so the offline test device could skip on to it.
             let tracks = ["a", "b"].map(makeStreamingTrack) + [try makeTrack("c")]
             service.queue = tracks.map { QueueItem(track: $0) }
@@ -350,6 +353,45 @@ final class PlaybackServiceFlowTests: XCTestCase {
             }
             service.audioEngine?.stop()
         }
+    }
+
+    /// A health check retries an outage halt only once the current track's server has passed it,
+    /// and only once per recovery: if that retry halts again, later checks leave it to the user.
+    func testHealthCheckRetriesAnOutageHaltOnceItsServerIsBack() async throws {
+        let service = await makeService()
+        let track = makeStreamingTrack("a")
+        service.queue = [QueueItem(track: track)]
+        service.currentQueueIndex = 0
+        service.currentTrack = track
+        service.playbackState = .playing
+        service.playbackPreparationShouldStart = true
+        service.streamRecovery = (service.queue[0].id, PlaybackService.maxStreamRecoveryAttempts, 0)
+        service.recoverCurrentStream(after: URLError(.timedOut))
+        await service.stallRecoveryTask?.value
+        guard case .failed = service.playbackState else {
+            return XCTFail("expected an outage halt, got \(service.playbackState)")
+        }
+        func healthCheckRetries() async -> Bool {
+            let generation = service.sessionGeneration
+            await service.handleHealthCheckCompletion()
+            return service.sessionGeneration > generation
+        }
+
+        let whileDown = await healthCheckRetries()
+        XCTAssertFalse(whileDown, "a check that did not find the server retries nothing")
+
+        service.syncCoordinator.serverHealthChecker.setServerStateForTesting(
+            .connected(url: "https://example.com"), accountId: "account-1", serverId: "server-1"
+        )
+        let onceBack = await healthCheckRetries()
+        XCTAssertTrue(onceBack, "the server is back")
+        // The test device is offline, so that retry halts on an outage again.
+        guard case .failed = service.playbackState else {
+            return XCTFail("expected the retry to halt, got \(service.playbackState)")
+        }
+        let again = await healthCheckRetries()
+        XCTAssertFalse(again, "one automatic retry per recovery")
+        service.audioEngine?.stop()
     }
 
     // MARK: - Harness

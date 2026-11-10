@@ -487,6 +487,7 @@ extension PlaybackService {
     func clearItemFailureMarkers() {
         failureSkipItemID = nil
         tlsRefreshedItemID = nil
+        healthRetriedItemID = nil
     }
 
     /// An item produced audio. The item reached by a failure skip keeps its mark, so its own
@@ -495,6 +496,7 @@ extension PlaybackService {
     func noteItemStarted() {
         reconcileFailureSkipMark()
         tlsRefreshedItemID = nil
+        healthRetriedItemID = nil
     }
 
     /// The failure-skip mark lasts while its item stays current, compared by item ID. Call
@@ -526,9 +528,11 @@ extension PlaybackService {
         }
 
         EnsembleLogger.playback("ITEM_FAILED: '\(currentTrack?.title ?? "nil")' (\(message)) — halting")
+        let waitsForServer = healthRetriedItemID != currentQueueItemID
+            && cause.map(PlaybackSessionStateMachine.isServerUnreachable) == true
         clearItemFailureMarkers()
         playbackState = .failed(message)
-        haltWaitsForServer = cause.map(PlaybackSessionStateMachine.isServerUnreachable) ?? false
+        haltWaitsForServer = waitsForServer
         updateNowPlayingInfo()
     }
 
