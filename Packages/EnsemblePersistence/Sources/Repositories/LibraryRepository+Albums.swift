@@ -183,6 +183,7 @@ extension LibraryRepository {
     }
 
     public func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws {
+        guard coreDataStack.finishMembershipBackfill() else { return }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 do {

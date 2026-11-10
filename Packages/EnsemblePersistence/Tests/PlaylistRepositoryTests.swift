@@ -2,9 +2,16 @@ import XCTest
 @testable import EnsemblePersistence
 
 final class PlaylistRepositoryTests: XCTestCase {
-    func testConcurrentPlaylistBodyReplacementsDoNotDuplicateMemberships() async throws {
-        let stack = CoreDataStack.inMemory()
+    /// Two repositories write through separate contexts, so only the store's uniqueness
+    /// constraint can keep their rows apart. In-memory stores do not enforce it.
+    func testConcurrentPlaylistBodyWritesFromSeparateContextsLeaveOneRowPerPosition() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("playlist-membership-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stack = CoreDataStack.onDisk(at: directory.appendingPathComponent("Ensemble.sqlite"))
         let repository = PlaylistRepository(coreDataStack: stack)
+        let writers = [repository, PlaylistRepository(coreDataStack: stack)]
         let source = "plex:account:server"
         _ = try await upsertPlaylist(
             in: repository,
@@ -13,14 +20,16 @@ final class PlaylistRepositoryTests: XCTestCase {
             sourceCompositeKey: source,
             trackCount: 3
         )
-        let snapshots = (0..<3).map {
-            PlaylistTrackSnapshot(ratingKey: "track-\($0)", playlistItemID: "item-\($0)")
+        // The same track at two positions must keep both rows.
+        let snapshots = ["track-0", "track-1", "track-0"].enumerated().map {
+            PlaylistTrackSnapshot(ratingKey: $0.element, playlistItemID: "item-\($0.offset)")
         }
 
         try await withThrowingTaskGroup(of: Void.self) { group in
-            for _ in 0..<4 {
+            for index in 0..<6 {
+                let writer = writers[index % writers.count]
                 group.addTask {
-                    try await repository.setPlaylistTrackSnapshots(
+                    try await writer.setPlaylistTrackSnapshots(
                         snapshots,
                         forPlaylist: "playlist-1",
                         sourceCompositeKey: source
@@ -37,51 +46,8 @@ final class PlaylistRepositoryTests: XCTestCase {
         )
         let playlist = try XCTUnwrap(fetchedPlaylist)
         XCTAssertEqual(playlist.playlistItemsArray.map(\.playlistItemID), snapshots.map(\.playlistItemID))
-    }
-
-    func testPlaylistBodyReadIgnoresExactDuplicateMemberships() async throws {
-        let stack = CoreDataStack.inMemory()
-        let repository = PlaylistRepository(coreDataStack: stack)
-        let source = "plex:account:server"
-        try await seedTrack(
-            ratingKey: "track-1",
-            title: "Track One",
-            sourceCompositeKey: "plex:account:server:library",
-            repository: LibraryRepository(coreDataStack: stack)
-        )
-        _ = try await upsertPlaylist(
-            in: repository,
-            compositePath: nil,
-            dateModified: nil,
-            sourceCompositeKey: source,
-            trackCount: 1
-        )
-        try await repository.setPlaylistTrackSnapshots(
-            [PlaylistTrackSnapshot(ratingKey: "track-1", playlistItemID: "item-1")],
-            forPlaylist: "playlist-1",
-            sourceCompositeKey: source
-        )
-
-        try await stack.performViewContext { context in
-            let playlist = try XCTUnwrap(try context.fetch(CDPlaylist.fetchRequest()).first)
-            let original = try XCTUnwrap(playlist.playlistItemsArray.first)
-            let duplicate = CDPlaylistTrack(context: context)
-            duplicate.order = original.order
-            duplicate.playlistItemID = original.playlistItemID
-            duplicate.trackRatingKey = original.trackRatingKey
-            duplicate.playlist = playlist
-            duplicate.track = original.track
-            try context.save()
-        }
-
-        let fetchedPlaylist = try await repository.fetchPlaylist(
-            ratingKey: "playlist-1",
-            sourceCompositeKey: source
-        )
-        let playlist = try XCTUnwrap(fetchedPlaylist)
-        XCTAssertEqual((playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count, 2)
-        XCTAssertEqual(playlist.playlistItemsArray.count, 1)
-        XCTAssertEqual(playlist.tracksArray.count, 1)
+        XCTAssertEqual((playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count, snapshots.count)
+        XCTAssertEqual(playlist.playlistItemsArray.map(\.trackRatingKey), ["track-0", "track-1", "track-0"])
     }
 
     func testScopedFetchOnEmptyStoreReturnsEmpty() async throws {

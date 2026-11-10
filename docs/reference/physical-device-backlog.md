@@ -454,10 +454,31 @@ pass before step 0 is called verified.
   and Repeat All; with repeat off, Next and a natural end leave the last track
   paused at the start.
 
+- Siri AirPlay handoff, route-change wait (simplification batch, 2026-11-10):
+  the app now waits for `AVAudioSession.routeChangeNotification` instead of
+  polling every 250 ms. Needs a HomePod (not available on a simulator): ask
+  Siri on the iPhone to play something on the HomePod, with the app killed and
+  with it running. Playback must start on the HomePod after the app's nudge,
+  without a stretch of local speaker audio, and the SIRI_APP log must show
+  "Route switched to external" in the preExecute or postExecute phase.
+
 - iPadOS 17, step 6c: accepted as untested on 2026-11-09 (no simulator
   runtime for this Xcode, no device). If an iPadOS 17 iPad becomes available:
   Artists, Genres and Playlists show detail in the next column, rotation and
   Split View resizing keep the selection, full-width kinds push, and back
   navigation keeps scroll position.
+
+## iPhone SE — step 3a, playlist membership constraint (model 12)
+
+Applies to the commit that adds model 12. The SE's store was copied read-only
+on 2026-11-10 and migrated on the Mac (5,827 membership rows, no duplicates);
+the installed app has not been touched.
+
+| Check | Status |
+| --- | --- |
+| Install the 3a build over the existing SE store: the app launches and the store loads | Owed |
+| Playlists show their tracks and counts after migration; offline playlist targets still list their tracks and downloaded state | Owed |
+| The first launch logs `Playlist membership backfill: keysFilled=... duplicateRowsRemoved=...` and later launches do not | Owed |
+| A Plex playlist sync after migration (full and incremental) saves without error and leaves one row per position | Owed |
 
 The iPad and watch checklist sections start with steps 5 and 6.

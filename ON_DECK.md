@@ -5,38 +5,20 @@ API that would replace custom machinery. Each entry gives evidence, impact and a
 step, and says whether it is suspected or confirmed. Remove an entry when it is fixed.
 An entry does not authorize the work; Felicity picks what gets done.
 
-## Confirmed: data race in a NowPlayingViewModel test mock (2026-11-09)
+## Suspected: other EnsembleCore tests fail under heavy host load (2026-11-10)
 
-- Evidence: one full `EnsembleCore` run crashed with SIGSEGV in
-  `NowPlayingViewModelFavoriteTests.testToggleRatingUpdatesFavoriteStateForCurrentTrack`.
-  The faulting frames are `Array.append` inside
-  `MockLibraryRepository.fetchTrack(ratingKey:sourceCompositeKey:)`, which appends to
-  `fetchTrackRequests` without a lock while `NowPlayingViewModel.setTrackFavorite` calls it
-  concurrently. The class passed 3 times alone and the next full run passed.
-- Impact: intermittent whole-suite crash; no production code involved.
-- Next step: guard the mock's recorded requests with a lock (or make the mock an actor)
-  and rerun the full suite a few times.
-
-## Suspected: flaky WebSocket library-update test (2026-11-10)
-
-- Evidence: one full `EnsembleCore` run failed
-  `PlexWebSocketCoordinatorTests.testLibraryUpdateCarriesLatestExactItemChanges`
-  (`PlexWebSocketCoordinatorTests.swift:100`: no changes received, after 3.25 s).
-  The class passed 3 of 3 runs alone, and the playback branch that hit it does not touch
-  the coordinator or its test.
-- Impact: intermittent whole-suite failure; likely a timing window under full-suite load.
-- Next step: check the test's wait/debounce timing against the coordinator's debounce
-  and make it wait on the delivered change instead of a fixed interval.
-
-## Suspected: flaky launch prefetch test (2026-11-10)
-
-- Evidence: one `swift test --filter Playback` run (329 tests) failed
-  `PlaybackLaunchCoordinatorTests.testCompleteLaunchDoesNotPostSeekStreamingSources`
-  (`PlaybackLaunchCoordinatorTests.swift:193`: prefetch count 0, expected 1). The class
-  passed 3 of 3 runs alone; the playback branch that hit it does not touch the coordinator.
-- Impact: intermittent failure under load; the test checks a prefetch dispatched in a task
-  after a single `Task.yield()`.
-- Next step: wait on the prefetch call (for example `waitUntil`) instead of one yield.
+- Evidence: with the Mac at load average 400-800 (other simulators and builds), three full
+  `swift test` runs executed 1187 tests with 5, 1 and 1 failures, a different set each time:
+  `AudioPlaybackEngineStreamingTests.testStreamingFailureAfterFormatReadyReachesEngineErrorHandler`
+  (1 s `fulfillment`), `DownloadQueueCoordinatorTests.testQueueLoopRestartsWhenMorePendingWorkArrivesDuringWindDown`,
+  `HomeViewModelRefreshPolicyTests.testLibraryDataClearInvalidatesLateCachedRestore` and
+  `testSourceChangeDuringActiveLoadFlushesAfterLoadCompletes` (1 s `fulfillment`),
+  `AccountManagerAuthPolicyTests.testAsyncCredentialLoadTimesOutWithoutBlockingCachedFallback`
+  (elapsed-time bound) and `NowPlayingViewModelFavoriteTests.testPlaybackProjectionTracksSmartMixTransitionState`
+  (fixed `waitForProjectionPropagation`). None touched the tests fixed in this change.
+- Impact: the full suite is not a reliable gate while the host is busy.
+- Next step: rerun on an idle Mac to separate load from real defects; widen the 1 s waits to
+  event-based waits with a long timeout.
 
 ## Confirmed: excessive disk writes on the iPhone SE 2 (2026-08-10 report, noted 2026-11-10)
 
@@ -85,23 +67,23 @@ An entry does not authorize the work; Felicity picks what gets done.
 From a read-only audit; none of these is a confirmed defect. Ranked by expected stability
 gain per unit of work. Sizes are S, M or L.
 
-- **Account loading polls every 25 ms** (`AccountManager.swift:268`, S). A detached Keychain
-  read is followed by a poll for up to 1 s (commit `8ab31f92`, Keychain can block at macOS
-  startup). Next step: await the task's value and race it against one deadline; keep the
-  timeout and the cached-source fallback.
 - **Scroll index stops momentum by toggling scrolling** (`ScrollIndex.swift:141`, S/M). A
   UIKit probe finds the enclosing `UIScrollView` and turns scrolling off and on before a jump
   (commit `fdb0d4cc`). Next step: try `.scrollPosition(id:anchor:)` (iOS 17) in the scroll
   owner and see whether a jump during momentum behaves acceptably.
+  Tried 2026-11-10 and left as is: Songs on iOS is a `UITableView` (`MediaTrackList`), so
+  `.scrollPosition` does not apply there, and its owner already jumps with `scrollToRow`.
+  Removing the probe passed a flick-then-tap XCUITest on Songs, but nothing proved the
+  list was still decelerating when the tap landed (XCUITest waits for idle before it taps),
+  and Albums and Genres jump through `ScrollViewReader`, which the test did not cover. Next
+  step: log `isDecelerating` at the jump to confirm the scenario is reachable, then cover
+  Songs, Albums and Genres before deleting the probe.
 - **StageFlow is a `UICollectionView` cover flow** (`StageFlowCarousel.swift`, 196 lines, M).
   Next step: prototype `ScrollView` with `.scrollTargetBehavior(.viewAligned)` and
   `.scrollTransition` (iOS 17); keep UIKit if the 3D transform or cell reuse is lost.
 - **Artwork has its own resolved-image cache beside Nuke's** (`ArtworkLoader.swift`, 988
   lines, M). Next step: check whether Nuke's pipeline cache can hold the resolved images
   while keeping stable identity, offline fallback and targeted invalidation.
-- **Siri AirPlay handoff polls the audio route every 250 ms** (`AppDelegate+Siri.swift:463`,
-  M). Next step: observe `AVAudioSession.routeChangeNotification` with one timeout; needs a
-  HomePod check on a physical phone.
 - **Toasts use a separate window** (`ToastView.swift`, 588 lines, M/L) so they appear above
   sheets (commit `405ecc4f`). A root `.overlay` is simpler but hides toasts behind a sheet.
   Low gain unless that behaviour is relaxed.
@@ -124,3 +106,53 @@ rules, the Plex WebSocket polling fallback, and the size of `WatchRootView.swift
 - Evidence: offline downloads request `/library/parts/...` with the same client identifier as playback (`PlexMusicSourceSyncProvider.swift:1654-1680`), and Plex ends the previous direct-play session for a client on any new part request (stream drop proposal, section 3). The Plex log keeps about 10 hours and held no offline download, so it is unobserved; the one-download-per-server gate covers streams only.
 - Impact: a download running while a track streams at original quality could cut the stream (-1005) the same way the prefetch did.
 - Next step: in one simulator run, start an offline download of an original while a delayed stream plays, then search the Plex log for "Terminated session" on that client. Only if it appears, make downloads of originals wait behind a stream download (Felicity's decision 2 in the proposal).
+
+## Audit, 2026-11-10: network and server health checking
+
+From a read-only audit; nothing here is a reproduced defect. One `NWPathMonitor`
+(`NetworkMonitor.swift`) owns device state; `PlexAPIClient` and its
+`ConnectionFailoverManager` own per-server state. Ranked by stability gain per unit of work.
+
+- **Suspected: a route change on the same interface is invisible** (M). The monitor publishes
+  only network type and Low Data Mode, so Wi-Fi to Wi-Fi or a cellular route change does not
+  invalidate the chosen server endpoint or trigger a health check. Next step: publish a
+  debounced path-change generation and have routing and stream recovery (step d of
+  `docs/investigations/2026-11-10-stream-drop-recovery-and-fallback.md`) use it.
+- **No timing data for a stream's connection** (S). Next step: record `URLSessionTaskMetrics`
+  and retry/probe timing per stream, without URLs or tokens.
+- **Stale "offline" can show while a fresh check runs** (M). Next step: move server state to
+  `checking` on a routing change.
+- **A recently healthy endpoint gets a sequential head start of up to 3 s** before the other
+  candidates race (M). Next step: after a route change, race it with the alternatives under
+  the same local, remote, relay order.
+- **The Plex WebSocket has no ping** (S/M), so a silently dead socket is noticed late. Next
+  step: `URLSessionWebSocketTask.sendPing` on a modest interval.
+- **`NWPath.isExpensive` is not used** (S/M). It could gate optional prefetch and downloads
+  on cellular or hotspot; never user-requested playback.
+- **Playback probes the server before it asks for the stream** (L). Letting the real request
+  be authoritative, with bounded failover on failure, is simpler but a broad change.
+
+Checked and found reasonable: the 1 s network debounce, endpoint ordering, coalescing of
+identical probes, the health cache lifetimes, and the five-minute sync fallback.
+
+- Evidence: one `swift test --filter Playback` run (329 tests) failed
+  `PlaybackLaunchCoordinatorTests.testCompleteLaunchDoesNotPostSeekStreamingSources`
+  (`PlaybackLaunchCoordinatorTests.swift:193`: prefetch count 0, expected 1). The class
+  passed 3 of 3 runs alone; the playback branch that hit it does not touch the coordinator.
+- Impact: intermittent failure under load; the test checks a prefetch dispatched in a task
+  after a single `Task.yield()`.
+- Next step: wait on the prefetch call (for example `waitUntil`) instead of one yield.
+
+## Known limit: membership backfill memory on a pathological playlist (2026-11-10)
+
+- Evidence: `PlaylistMembershipBackfill` holds one attribute-only row per membership of the
+  playlist it is processing. Measured on a Mac with a synthetic store (machine at load
+  average 100 to 200, so CPU time is the fair figure): 100,000 rows with a 20,000-row
+  playlist took 1.2 s CPU and +20 MB peak; a 200,000-row playlist with two different items
+  at every position took 2.8 s CPU and +199 MB peak. Real stores are 5,800 rows (0.24 s CPU,
+  +8 MB with 9,000 duplicates added). Details in
+  `docs/investigations/2026-11-10-step-3a-playlist-membership-constraint.md`.
+- Impact: a playlist of that size would cost an iPhone SE a few seconds and a few hundred MB
+  once, at the first launch of the model 12 build. No such store is known.
+- Next step: if one appears, fetch only positions with more than one row (grouped fetch with
+  a count filter) so memory follows the suspicious rows instead of the playlist.

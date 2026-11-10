@@ -371,7 +371,11 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
     private final class MockLibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
         private let coreDataStack = CoreDataStack.inMemory()
         var fetchedTrack: CDTrack?
-        private(set) var fetchTrackRequests: [(ratingKey: String, sourceCompositeKey: String?)] = []
+        private let recordedRequests = NSLock()
+        private var _fetchTrackRequests: [(ratingKey: String, sourceCompositeKey: String?)] = []
+        var fetchTrackRequests: [(ratingKey: String, sourceCompositeKey: String?)] {
+            recordedRequests.withLock { _fetchTrackRequests }
+        }
 
         func setFetchedTrack(id: String, sourceCompositeKey: String, thumbPath: String) {
             let track = CDTrack(context: coreDataStack.viewContext)
@@ -445,7 +449,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         }
 
         func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? {
-            fetchTrackRequests.append((ratingKey, sourceCompositeKey))
+            recordedRequests.withLock { _fetchTrackRequests.append((ratingKey, sourceCompositeKey)) }
             guard let fetchedTrack, fetchedTrack.ratingKey == ratingKey else { return nil }
             if let sourceCompositeKey {
                 return fetchedTrack.sourceCompositeKey == sourceCompositeKey ? fetchedTrack : nil
@@ -572,7 +576,6 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func setPlaylistTracks(_: [String], forPlaylist _: String, sourceCompositeKey _: String?) async throws {}
         func deletePlaylist(ratingKey _: String) async throws {}
         func deletePlaylists(sourceCompositeKey _: String) async throws {}
-        func removeDuplicatePlaylists() async throws {}
         func removeOrphanedPlaylists(notIn _: Set<String>, forSource _: String) async throws -> Int {
             0
         }
