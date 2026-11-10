@@ -5,6 +5,18 @@ API that would replace custom machinery. Each entry gives evidence, impact and a
 step, and says whether it is suspected or confirmed. Remove an entry when it is fixed.
 An entry does not authorize the work; Felicity picks what gets done.
 
+## Suspected: the iCloud profile subscription never fires (2026-11-10)
+
+- Evidence: `CloudSyncService` registers a `CKDatabaseSubscription` (`profile-changes`), but
+  saves `UserProfile` and `HiddenMediaState` without a zone, so they live in the private
+  database's default zone. Apple documents database subscriptions as covering custom zones
+  only. Not reproduced.
+- Impact: a profile or hidden-media change on one device may only reach the others on their
+  next pull, not by push.
+- Next step: change the profile name on one device and watch the other's log for a remote
+  notification. The fix in `docs/reference/web-client-design.md` section 3.1 moves both
+  records into a custom zone.
+
 ## Suspected: other EnsembleCore tests fail under heavy host load (2026-11-10)
 
 - Evidence: with the Mac at load average 400-800 (other simulators and builds), three full

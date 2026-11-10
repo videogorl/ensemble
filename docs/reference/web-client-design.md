@@ -1,0 +1,226 @@
+# Web client and CloudKit settings design
+
+Status: proposal, awaiting Felicity's approval. Written 2026-11-10 against
+`402c9c03` on `develop`. Not part of the rearchitecture plan; schedule it
+after step 3 closes (section 7).
+
+## 1. Goal
+
+A browser version of Ensemble, in the spirit of [Bear's web app](https://web.bear.app/),
+that shares the user's Ensemble settings with the native apps through iCloud
+and plays music from Plex directly.
+
+The web app runs as a static single-page app on Cloudflare Pages (free tier),
+with no backend. The browser talks to two services:
+
+- **CloudKit**, through CloudKit JS, for Ensemble's synced settings.
+- **Plex**, through its HTTP API, for sign-in, the library, and streams.
+
+Out of scope for the first release: offline downloads, gapless playback,
+Siri, the watch, and editing Plex playlists. These can follow.
+
+## 2. What blocks this today
+
+Ensemble syncs through three iCloud stores. Only one is reachable from a browser.
+
+| Data | Store today | Owner | Web reachable |
+|---|---|---|---|
+| Profile name and photo | CloudKit private database, default zone, `UserProfile` / `currentUserProfile` | `CloudSyncService` | Yes |
+| Hidden media | CloudKit private database, default zone, `HiddenMediaState` / `currentHiddenMediaState` | `CloudSyncService` | Yes |
+| Accent color, swipe layout, Now Playing actions, pins, library flags, merging preferences | iCloud key-value store, keys in `EnsembleKVSKey` | `KVSSyncService`, `CloudSyncCoordinator`, `WatchCloudPreferenceStore` | **No** |
+| Plex account credentials | iCloud Keychain, synchronizable items | `KeychainService` | **No**, by design |
+
+So the prerequisite is moving the six key-value settings into CloudKit. That
+also removes key-value store limits the native apps live with today: 1 MB
+total, no change tags, and whole-value last-writer-wins.
+
+Credentials stay in iCloud Keychain. The web app signs in to Plex on its
+own (section 5.2) and keeps its token in the browser. Plex tokens are never
+written to CloudKit.
+
+## 3. CloudKit record design
+
+### 3.1 One zone, one record per setting
+
+Create one custom zone, `EnsembleSettings`, in the private database of
+`iCloud.com.videogorl.ensemble`. It holds:
+
+| Record type | Record name | Fields |
+|---|---|---|
+| `SyncedSetting` | The existing `EnsembleKVSKey` string, e.g. `ensemble.sync.pins` | `payload` (String), `schemaVersion` (Int64), `modifiedAt` (Date/Time) |
+| `UserProfile` | `currentUserProfile` | Unchanged fields, moved into the zone |
+| `HiddenMediaState` | `currentHiddenMediaState` | Unchanged fields, moved into the zone |
+
+Reasons:
+
+- **One record per setting** mirrors the key-value store exactly, so every
+  existing encoder, decoder, and merge function is reused as is. Eight
+  records in all; no finer split is needed.
+- **A custom zone** is required for change tokens, database subscriptions,
+  and `CKSyncEngine`. Moving the two existing records in fixes a suspected
+  bug: the existing `CKDatabaseSubscription` does not fire for default-zone
+  changes, so remote profile edits may only arrive on the next pull (see
+  `ON_DECK.md`).
+- **`payload` as a JSON string, not bytes**, keeps records readable in the
+  CloudKit Console and in CloudKit JS without base64 handling.
+
+### 3.2 The JSON contract
+
+`payload` holds the same JSON the key-value store holds today, produced by
+the existing `Codable` types. The web client must decode those shapes
+exactly, so this note is their contract:
+
+| Setting | Swift type |
+|---|---|
+| `accentColor` | Plain color-name string such as `blue` (not JSON; the key-value store holds it as a string) |
+| `swipeLayout` | `TrackSwipeLayout` |
+| `nowPlayingActions` | `NowPlayingSecondaryLayout` |
+| `pins` | `[PinnedItem]` (the watch reads the subset `WatchPinnedReference`) |
+| `libraryFlags` | `[EnsembleLibraryFlagEntry]` |
+| `mergingPreferences` | `EnsembleMergingPreferences` |
+| Hidden media | `[HiddenMediaMutation]` |
+
+Pitfall: Swift's default `JSONEncoder` writes `Date` values as seconds since
+2001-01-01, not Unix time. The web client adds `978307200` when decoding
+`pinnedDate`, `modifiedAt` and similar fields, and subtracts it when
+encoding. The exception is `EnsembleLibraryFlagEntry.updatedAt`, a raw
+`TimeInterval` that its writers set from `timeIntervalSince1970`, so it is
+already Unix seconds.
+
+Any change to these types is now a change to a cross-client contract: bump
+`schemaVersion`, and have readers ignore unknown fields and reject (not
+overwrite) a newer major version.
+
+### 3.3 Conflicts and deletion safety
+
+- Writes use the server change tag. On `serverRecordChanged`, re-read, merge,
+  and retry, as `pushHiddenMedia` already does.
+- Settings with a merge function keep it: library flags use
+  `EnsembleLibraryFlagPolicy.merged`, hidden media uses `mergeHiddenMedia`.
+  The rest stay whole-value last-writer-wins, the same as today.
+- An empty value is written as an explicit empty payload (for pins, `[]`),
+  never as a deleted record. A missing record means "not migrated yet", and a
+  failed fetch means "unknown". Neither one ever clears local data.
+
+## 4. Native migration
+
+### 4.1 Transport
+
+Adopt `CKSyncEngine` for the `EnsembleSettings` zone. It is available on
+iOS 17, macOS 14 and watchOS 10, so it fits every floor. It replaces the
+hand-written subscription, fetch, and retry code in `CloudSyncService`, and
+the plan already lists it for evaluation. If it proves heavier than eight
+records warrant, the fallback is plain fetch-by-ID plus a database
+subscription on the zone.
+
+`KVSSyncService` is deleted at the end of the migration, along with the
+key-value store observer on the watch.
+
+### 4.2 Steps
+
+1. **Seed.** On first launch of the new build, for each setting whose
+   CloudKit record is missing, copy the key-value store value into CloudKit.
+   Copy `UserProfile` and `HiddenMediaState` from the default zone into
+   `EnsembleSettings` the same way. If a record already exists, CloudKit
+   wins and the key-value value is merged where a merge function exists.
+2. **Switch reads and writes** on iPhone, iPad and Mac to CloudKit.
+3. **Watch.** `WatchCloudPreferenceStore` reads the same zone through
+   `CKSyncEngine` and keeps its last snapshot locally, so launch stays
+   synchronous.
+4. **Remove** the key-value store code, the seed path, and the default-zone
+   records after one release. Removing the seed path is safe once every
+   device has run a migrated build; there is only one user today, so this
+   is a short window.
+
+### 4.3 Native verification
+
+- Change each setting on iPhone; it appears on Mac and the watch.
+- Seeding: a device with only key-value data ends up with matching CloudKit
+  records, and nothing is cleared when CloudKit is unreachable at launch.
+- Conflict: concurrent library-flag edits on two devices merge per entry.
+- Physical iPhone and watch checks go in `physical-device-backlog.md`.
+
+## 5. Web client
+
+### 5.1 Stack
+
+- Vite and TypeScript, built to static files in `web/dist`.
+- UI framework: open question for Felicity (section 8).
+- CloudKit JS, loaded from Apple's CDN.
+- hls.js for Plex transcode streams outside Safari.
+- Local cache in IndexedDB, treated as disposable.
+
+### 5.2 Sign-in
+
+- **iCloud:** CloudKit JS "Sign in with Apple ID", using a web API token
+  created in the CloudKit Console for the production environment, with the
+  site's origin in the token's allowed origins.
+- **Plex:** Plex's PIN sign-in flow (create a PIN, send the user to Plex's
+  auth page, poll for the token), then list servers from plex.tv's
+  resources endpoint. The `plex-api` skill has the endpoint details.
+
+### 5.3 Library
+
+The browser calls Plex servers directly over their `*.plex.direct` HTTPS
+addresses; Plex servers send CORS headers. Chrome asks the user before a
+public site reaches a home-network address, so the onboarding screen explains
+that prompt and prefers the remote address when local access is refused.
+
+The library cache is rebuilt from Plex like the native apps do, using paged
+requests. Safari may delete a site's data after 7 days unused, unless the
+site is installed to the home screen, so nothing in the cache is
+authoritative.
+
+### 5.4 Playback
+
+- Direct file streams through an `<audio>` element. FLAC plays in current
+  Safari, Chrome and Firefox.
+- Plex universal transcode (HLS): native in Safari, hls.js elsewhere. Both
+  paths stay supported, as on native.
+- Media Session API for lock-screen, keyboard and headset controls.
+- Known gaps: gapless playback, reliable background playback on iPhone
+  Safari, offline downloads.
+
+### 5.5 Settings
+
+Read and write the `EnsembleSettings` zone with CloudKit JS: fetch zone
+changes with a saved sync token on launch and on window focus, and write
+with the record change tag (section 3.3). Live updates through CloudKit JS
+notifications are optional for the first release.
+
+## 6. Repository and hosting
+
+**Same repository, in a top-level `web/` folder.**
+
+The two clients share no code; they share the CloudKit contract in section 3.
+Keeping them together means a contract change, its Swift writer, and its
+TypeScript reader land in one commit and one review, and agents see both
+sides. The costs are small and handled:
+
+- **Cloudflare Pages** builds from `web/` as its root directory, with build
+  watch paths limited to `web/**`, so Swift commits do not use builds.
+- **Agent guidance:** a short `web/CLAUDE.md` covers the web toolchain. The
+  root guide's Xcode rules don't apply inside `web/`.
+- **Xcode** ignores the folder; it is not in the workspace.
+
+Choose a separate repository instead only if the web app should be public
+while the native app stays private, or if it gets a different owner.
+
+## 7. Order of work
+
+1. Native migration (section 4), after step 3 closes. It touches
+   `CloudSyncService`, `KVSSyncService` and `CloudSyncCoordinator`, which
+   the step 3 freeze does not cover, but it is still a behavior change to
+   sync and deserves its own window.
+2. Web first release: sign-in, browse, search, play, queue, settings.
+3. Later: gapless playback, live setting updates, home-screen install,
+   limited offline caching.
+
+## 8. Decisions for Felicity
+
+1. Approve moving the key-value settings to a CloudKit custom zone (section 3)?
+2. Approve `CKSyncEngine` as the transport, with fetch-by-ID as the fallback?
+3. Same repository, `web/` folder?
+4. Web UI framework: React (largest ecosystem) or Svelte (smallest bundle,
+   least code). Recommendation: Svelte.
+5. Domain for the web app; it is needed for the CloudKit token's allowed origins.
