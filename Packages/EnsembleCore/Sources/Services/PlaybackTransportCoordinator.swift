@@ -264,7 +264,15 @@ final class PlaybackTransportCoordinator {
             }
         }
 
-        if normalizedStartTime == 0, !forcesNetworkStream,
+        // A seek on an original stays the original: it waits for this track's own direct download, the
+        // one request Plex allows, and plays from the verified file. An offset transcode (or a second
+        // direct request) would replace the original, or end the download in flight.
+        if normalizedStartTime > 0, quality == .original,
+           let download = inFlightDirectDownload(trackID: track.playbackIdentity) {
+            return .cachedFile(try await download.downloadedFile(), origin: .streamCache)
+        }
+        // A transcode's cached file starts at 0, so an offset transcode is requested instead.
+        if normalizedStartTime == 0 || quality == .original, !forcesNetworkStream,
            let cachedURL = artifactCache.completedArtifact(
                trackIdentity: track.playbackIdentity,
                sourceFingerprint: sourceFingerprint,
@@ -485,6 +493,13 @@ final class PlaybackTransportCoordinator {
             }
             return nil
         }
+    }
+
+    /// The direct download of this track that is still running, if any.
+    private func inFlightDirectDownload(trackID: String) -> StreamingAudioPipeline? {
+        directLock.lock()
+        defer { directLock.unlock() }
+        return directDownloads.values.first { $0.trackID == trackID }?.pipeline
     }
 
     /// Records the direct download the engine started for the track being played, against its reservation.

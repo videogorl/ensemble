@@ -783,6 +783,81 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         rig.coordinator.clear(removeDecisions: true)
     }
 
+    /// A seek at original quality stays the original. Inside a finished download it plays from the
+    /// verified file with no request; during one it waits for that download (a second request would end
+    /// it) and then plays the file; a fallen-back track and a lower quality still get an offset
+    /// transcode at once. Without the wait the decision stub would answer the seek with a transcode.
+    func testSeekOnAnOriginalStaysTheOriginal() async throws {
+        let whole = try AudioFixtures.flac(seconds: 24)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GatedPayloadProtocol.self]
+        let path = "/library/parts/seek/file.flac"
+
+        enum Expected { case cached, transcode }
+        func run(
+            _ name: String, inFlight: Bool, fallenBack: Bool = false,
+            expected: Expected, waits: Bool = false
+        ) async throws {
+            GatedPayloadProtocol.reset(payload: whole)
+            let cache = PlaybackArtifactCache(
+                directory: FileManager.default.temporaryDirectory.appendingPathComponent("seek-cache-\(UUID().uuidString)"),
+                byteBudget: 1 << 26
+            )
+            defer { try? FileManager.default.removeItem(at: cache.directory) }
+            let coordinator = makeFallbackCoordinator(quality: "original", cache: cache, session: configuration, partKeyIsFLAC: true)
+            let track = Track(id: "seek", key: "/library/metadata/seek", title: "seek", duration: 180, sourceCompositeKey: "plex:acct:srv1:1")
+
+            // The track plays from its direct download, as the service and engine start it.
+            let source = try await coordinator.resolvePlaybackSource(for: track)
+            guard case let .directHTTP(request, metadata) = source, let key = metadata.artifactKey else {
+                return XCTFail("\(name): expected a direct source")
+            }
+            XCTAssertNil(coordinator.takePreparedPipeline(for: source, trackID: track.playbackIdentity))
+            defer { coordinator.releaseDirectReservation(trackID: track.playbackIdentity) }
+            let pipeline = StreamingAudioPipeline(configuration: .init(
+                request: request, fileExtension: "flac", cacheURL: try cache.partialURL(for: key),
+                sessionConfiguration: configuration, trackID: metadata.trackId, artifactKey: key, artifactCache: cache
+            ))
+            coordinator.registerDirectDownload(pipeline, metadata: metadata)
+            pipeline.startDownload()
+            await GatedPayloadProtocol.waitUntilStarted(path)
+            if !inFlight {
+                GatedPayloadProtocol.release()
+                _ = try await pipeline.downloadedFile()
+            }
+            if fallenBack {
+                XCTAssertTrue(coordinator.fallBackToTranscode(after: ProgressiveStreamError.damagedOriginal(reason: "x"), trackId: track.playbackIdentity))
+            }
+
+            let seek = Task { try await coordinator.resolvePlaybackSource(for: track, startTime: 12) }
+            if waits {
+                try await Task.sleep(nanoseconds: 150_000_000)
+                GatedPayloadProtocol.release()
+            }
+            let resolved = try await seek.value
+            switch (expected, resolved) {
+            case let (.cached, .cachedFile(url, _)):
+                XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), name)
+            case let (.transcode, .transcodedHTTP(_, metadata)):
+                XCTAssertEqual(metadata.startTime, 12, name)
+            default:
+                XCTFail("\(name): unexpected \(resolved.journeyDescription)")
+            }
+            XCTAssertEqual(GatedPayloadProtocol.started().filter { $0 == path }.count, 1, "\(name): no second request for the part")
+            pipeline.cancel()
+        }
+
+        try await run("inside a finished download", inFlight: false, expected: .cached)
+        try await run("during the download", inFlight: true, expected: .cached, waits: true)
+        try await run("fallen back", inFlight: true, fallenBack: true, expected: .transcode)
+
+        let lower = makeFallbackCoordinator(quality: "high")
+        guard case let .transcodedHTTP(_, metadata) = try await lower.resolvePlaybackSource(for: fallbackTrack("seek"), startTime: 12) else {
+            return XCTFail("lower quality: expected an offset transcode")
+        }
+        XCTAssertEqual(metadata.startTime, 12)
+    }
+
     /// A prefetch's admission runs off the main actor while a replacement track is taken and
     /// registered. Whichever order they interleave in, once things settle exactly one direct request
     /// is in flight for the server: the replacement's, never a surviving prefetch beside it.
@@ -928,6 +1003,57 @@ private struct DirectRig {
             XCTFail("unexpected error \(error)", file: file, line: line)
         }
     }
+}
+
+/// Answers a request's headers at once and its body only when released, so a download stays in flight.
+private final class GatedPayloadProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var payload = Data()
+    private static var paths: [String] = []
+    private static var held: [GatedPayloadProtocol] = []
+    private static var released = false
+
+    static func reset(payload: Data) {
+        lock.lock(); defer { lock.unlock() }
+        self.payload = payload; paths = []; held = []; released = false
+    }
+    static func started() -> [String] { lock.lock(); defer { lock.unlock() }; return paths }
+    static func waitUntilStarted(_ path: String) async {
+        for _ in 0 ..< 500 {
+            if started().contains(path) { return }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+    static func release() {
+        lock.lock()
+        released = true
+        let pending = held
+        held = []
+        lock.unlock()
+        for request in pending { request.finish() }
+    }
+
+    override class func canInit(with _: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.lock.lock()
+        Self.paths.append(request.url?.path ?? "")
+        let isReleased = Self.released
+        if !isReleased { Self.held.append(self) }
+        let length = Self.payload.count
+        Self.lock.unlock()
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "\(length)"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if isReleased { finish() }
+    }
+    private func finish() {
+        Self.lock.lock(); let data = Self.payload; Self.lock.unlock()
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }
 
 /// Serves a payload per request path, and a 404 for any other.
