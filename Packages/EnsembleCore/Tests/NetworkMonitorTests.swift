@@ -108,6 +108,30 @@ final class NetworkMonitorTests: XCTestCase {
         XCTAssertTrue(sut.isConstrained)
     }
 
+    /// A route change on the same interface type leaves the snapshot alone but is still a path change,
+    /// reported once after the debounce however many updates arrive.
+    func testPathChangeIsDebouncedAndIndependentOfTheSnapshot() async {
+        let sut = NetworkMonitor(
+            debounceNanoseconds: 30_000_000,
+            monitorQueue: DispatchQueue(label: "test.network.path"),
+            monitorFactory: { FakePathMonitor() }
+        )
+        sut.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        var changes = sut.pathChanges().makeAsyncIterator()
+
+        sut.injectNetworkStateForTesting(.online(.wifi), pathChanged: true)
+        sut.injectNetworkStateForTesting(.online(.wifi), pathChanged: true)
+        let first = await changes.next()
+        XCTAssertEqual(first, 1)
+        XCTAssertEqual(sut.networkState, .online(.wifi))
+
+        sut.injectNetworkStateForTesting(.online(.cellular))
+        sut.injectNetworkStateForTesting(.online(.wifi), pathChanged: true)
+        let second = await changes.next()
+        XCTAssertEqual(second, 2)
+        XCTAssertEqual(sut.pathGeneration, 2)
+    }
+
     func testSnapshotStreamTransitions() async {
         let base = NetworkSnapshot(state: .online(.wifi))
         let sentinel = NetworkSnapshot(state: .limited, isConstrained: true)
