@@ -90,24 +90,6 @@ struct StageFlowTrackPanel: View {
             } else if tracks.isEmpty {
                 emptyState
             } else {
-                #if os(iOS)
-                MediaTrackList(
-                    tracks: tracks,
-                    showArtwork: true,
-                    showTrackNumbers: true,
-                    showAlbumName: false,
-                    groupByDisc: false,
-                    currentTrackId: currentTrackId,
-                    availabilityGeneration: availabilityGeneration,
-                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    managesOwnScrolling: true,
-                    bottomContentInset: 4,
-                    rowHeight: 58,
-                    interactionModel: trackInteractionModel
-                ) { _, index in
-                    nowPlayingVM.play(tracks: tracks, startingAt: index)
-                }
-                #else
                 TrackListHost(
                     tracks: tracks,
                     configuration: NativeTrackListConfiguration(
@@ -124,7 +106,6 @@ struct StageFlowTrackPanel: View {
                 ) { _, index in
                     nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
-                #endif
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

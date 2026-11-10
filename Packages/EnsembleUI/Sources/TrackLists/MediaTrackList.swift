@@ -606,59 +606,6 @@ struct MediaTrackList: UIViewRepresentable {
         self.onTrackTap = onTrackTap
     }
 
-    /// Migration adapter for direct callers; removed once they use `TrackListHost`.
-    init(
-        tracks: [Track],
-        showArtwork: Bool = true,
-        showTrackNumbers: Bool = false,
-        showAlbumName: Bool = true,
-        groupByDisc: Bool = false,
-        currentTrackId: String? = nil,
-        selectedTrackId: String? = nil,
-        availabilityGeneration: UInt64 = 0,
-        activeDownloadTrackIdentities: Set<String> = [],
-        managesOwnScrolling: Bool = false,
-        bottomContentInset: CGFloat = 0,
-        rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
-        tableHeaderContent: AnyView? = nil,
-        tableHeaderRevision: String? = nil,
-        tableFooterContent: AnyView? = nil,
-        interactionModel: TrackRowInteractionModel,
-        supplementalMetadataWidth: CGFloat? = nil,
-        trackSourceLabels: [String: String] = [:],
-        onGoToArtist: ((Track) -> Void)? = nil,
-        onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
-        onTrackTap: @escaping (Track, Int) -> Void
-    ) {
-        self.init(
-            sections: groupByDisc
-                ? NativeTrackListSection.discSections(for: tracks)
-                : [NativeTrackListSection(id: "all", title: "", tracks: tracks)],
-            configuration: NativeTrackListConfiguration(
-                showArtwork: showArtwork,
-                showTrackNumbers: showTrackNumbers,
-                showAlbumName: showAlbumName,
-                managesOwnScrolling: managesOwnScrolling,
-                rowHeight: rowHeight,
-                bottomContentInset: bottomContentInset,
-                supplementalMetadataWidth: supplementalMetadataWidth,
-                trackSourceLabels: trackSourceLabels,
-                currentTrackId: currentTrackId,
-                selectedTrackId: selectedTrackId,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                interactionModel: interactionModel
-            ),
-            tableHeaderContent: tableHeaderContent,
-            tableHeaderRevision: tableHeaderRevision,
-            tableFooterContent: tableFooterContent,
-            onRefresh: nil,
-            sectionScrollRequest: nil,
-            onRemoveFromPlaylist: onRemoveFromPlaylist,
-            onTrackTap: onTrackTap
-        )
-    }
-
     /// A single section keeps the caller's array storage, so unchanged
     /// updates skip the per-track comparison.
     private var tracks: [Track] {
