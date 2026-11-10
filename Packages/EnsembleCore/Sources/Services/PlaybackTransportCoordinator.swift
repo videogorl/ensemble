@@ -8,6 +8,8 @@ struct DirectDownloadBusy: Error {}
 /// Owns stream-decision, resolution-task, and prepared-stream state so
 /// PlaybackService can delegate transport concerns without owning Plex endpoint details.
 final class PlaybackTransportCoordinator {
+    /// How long a seek on an original waits for its download before taking an offset transcode.
+    var seekWaitLimit: TimeInterval = 10
     struct Dependencies {
         let networkState: @Sendable () async -> NetworkState
         let preparedLocalPlaybackURL: @Sendable (String) -> URL
@@ -265,11 +267,13 @@ final class PlaybackTransportCoordinator {
         }
 
         // A seek on an original stays the original: it waits for this track's own direct download, the
-        // one request Plex allows, and plays from the verified file. An offset transcode (or a second
-        // direct request) would replace the original, or end the download in flight.
+        // one request Plex allows, and plays from the verified file. A second direct request would end
+        // the download in flight. On a link too slow to finish within `seekWaitLimit`, the seek falls
+        // through to the offset transcode rather than leaving the listener in silence.
         if normalizedStartTime > 0, quality == .original,
-           let download = inFlightDirectDownload(trackID: track.playbackIdentity) {
-            return .cachedFile(try await download.downloadedFile(), origin: .streamCache)
+           let download = inFlightDirectDownload(trackID: track.playbackIdentity),
+           let file = try await finishedFile(of: download, within: seekWaitLimit) {
+            return .cachedFile(file, origin: .streamCache)
         }
         // A transcode's cached file starts at 0, so an offset transcode is requested instead.
         if normalizedStartTime == 0 || quality == .original, !forcesNetworkStream,
@@ -492,6 +496,20 @@ final class PlaybackTransportCoordinator {
                 pipeline.cancel()
             }
             return nil
+        }
+    }
+
+    /// The download's verified file, or nil when it is still running after `limit` seconds. The download
+    /// itself is left running either way.
+    private func finishedFile(of download: StreamingAudioPipeline, within limit: TimeInterval) async throws -> URL? {
+        try await withThrowingTaskGroup(of: URL?.self) { group in
+            group.addTask { try await download.downloadedFile() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(limit * 1_000_000_000))
+                return nil
+            }
+            defer { group.cancelAll() }
+            return try await group.next() ?? nil
         }
     }
 

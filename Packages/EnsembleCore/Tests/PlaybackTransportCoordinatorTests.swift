@@ -796,7 +796,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         enum Expected { case cached, transcode }
         func run(
             _ name: String, inFlight: Bool, fallenBack: Bool = false,
-            expected: Expected, waits: Bool = false
+            expected: Expected, waits: Bool = false, limit: TimeInterval? = nil
         ) async throws {
             GatedPayloadProtocol.reset(payload: whole)
             let cache = PlaybackArtifactCache(
@@ -805,6 +805,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
             )
             defer { try? FileManager.default.removeItem(at: cache.directory) }
             let coordinator = makeFallbackCoordinator(quality: "original", cache: cache, session: configuration, partKeyIsFLAC: true)
+            if let limit { coordinator.seekWaitLimit = limit }
             let track = Track(id: "seek", key: "/library/metadata/seek", title: "seek", duration: 180, sourceCompositeKey: "plex:acct:srv1:1")
 
             // The track plays from its direct download, as the service and engine start it.
@@ -850,6 +851,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         try await run("inside a finished download", inFlight: false, expected: .cached)
         try await run("during the download", inFlight: true, expected: .cached, waits: true)
         try await run("fallen back", inFlight: true, fallenBack: true, expected: .transcode)
+        try await run("download too slow to wait for", inFlight: true, expected: .transcode, limit: 0.2)
 
         let lower = makeFallbackCoordinator(quality: "high")
         guard case let .transcodedHTTP(_, metadata) = try await lower.resolvePlaybackSource(for: fallbackTrack("seek"), startTime: 12) else {
