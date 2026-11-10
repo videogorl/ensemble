@@ -94,31 +94,41 @@ extension PlaybackService {
         let shouldStartPlayback = playbackState == .loading ? playbackPreparationShouldStart : true
 
         let attempts = streamRecovery?.itemID == itemID ? streamRecovery?.attempts ?? 0 : 0
-        let isSpent = attempts >= Self.maxStreamRecoveryAttempts
-        if isSpent {
+        guard attempts < Self.maxStreamRecoveryAttempts else {
             streamRecovery = nil
-        } else {
-            streamRecovery = (itemID, attempts + 1, currentTime)
-            EnsembleLogger.playback("ENGINE: stream interrupted -- retrying from \(String(format: "%.1f", currentTime))s, attempt \(attempts + 1) (\(error.localizedDescription))")
-            audioEngine?.pause()
-            playbackState = .buffering
-            updateNowPlayingInfo()
+            scheduleItemFailure(error, binding: binding)
+            return
         }
+        streamRecovery = (itemID, attempts + 1, currentTime)
+        EnsembleLogger.playback("ENGINE: stream interrupted -- retrying from \(String(format: "%.1f", currentTime))s, attempt \(attempts + 1) (\(error.localizedDescription))")
+        audioEngine?.pause()
+        playbackState = .buffering
+        updateNowPlayingInfo()
 
         stallRecoveryTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.stallRecoveryTask = nil }
             guard self.currentRetryBinding == binding else { return }
-            if isSpent {
-                await self.handleItemFailure(error.localizedDescription, binding: binding, cause: error)
-            } else {
-                await self.retryCurrentTrack(
-                    forceConnectionRefresh: false,
-                    reason: "stream-interrupted",
-                    shouldStartPlayback: shouldStartPlayback,
-                    binding: binding
-                )
-            }
+            await self.retryCurrentTrack(
+                forceConnectionRefresh: false,
+                reason: "stream-interrupted",
+                shouldStartPlayback: shouldStartPlayback,
+                binding: binding
+            )
+        }
+    }
+
+    /// Hands an item's failure to `handleItemFailure` after the current event, as pending work
+    /// that Pause or a newer item cancels. It stops being pending once it runs: the failure
+    /// decision does not suspend, and the skipped-to item's load and autoplay work that follow
+    /// must not hold off that item's own failure.
+    @MainActor
+    func scheduleItemFailure(_ error: Error, binding: RetryBinding) {
+        stallRecoveryTask = Task { @MainActor [weak self] in
+            // A cancelled task no longer owns the slot; its canceller cleared it.
+            guard let self, !Task.isCancelled else { return }
+            self.stallRecoveryTask = nil
+            await self.handleItemFailure(error.localizedDescription, binding: binding, cause: error)
         }
     }
 
@@ -455,12 +465,7 @@ extension PlaybackService {
         EnsembleLogger.playback("ENGINE: error -- \(error.localizedDescription)")
         guard playbackState == .playing || playbackState == .loading,
               stallRecoveryTask == nil, let binding = currentRetryBinding else { return }
-        // Pending like a spent stream retry, so Pause or a newer item before it runs wins.
-        stallRecoveryTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.stallRecoveryTask = nil }
-            await self.handleItemFailure(error.localizedDescription, binding: binding, cause: error)
-        }
+        scheduleItemFailure(error, binding: binding)
     }
 
     enum ItemFailureResponse: Equatable {

@@ -476,6 +476,35 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.audioEngine?.stop()
     }
 
+    /// A failure skip stops being pending once it has decided, so the item it skipped to can fail
+    /// (and halt, being reached by a skip) while the skip still waits on autoplay work.
+    func testSkippedToItemFailsWhileTheSkipStillRefreshesAutoplay() async throws {
+        let service = await makeService()
+        let radio = HeldRadioProvider()
+        service.syncCoordinator.setSyncProvidersForTesting([radio.sourceIdentifier.compositeKey: radio])
+        service.isAutoplayEnabled = true
+        let tracks = try ["a", "b", "c"].map { try makeTrack($0) }
+        service.queue = tracks.map { QueueItem(track: $0) }
+        service.currentQueueIndex = 0
+        service.currentTrack = tracks[0]
+        service.playbackState = .playing
+        service.playbackPreparationShouldStart = true
+
+        service.handleEngineFailure(URLError(.badServerResponse), session: service.activeEngineSession)
+        await waitUntil(timeout: 3) { radio.wasAsked }
+        XCTAssertEqual(service.currentQueueIndex, 1, "the skip reached b and now waits on autoplay")
+
+        service.handleEngineFailure(URLError(.badServerResponse), session: service.activeEngineSession)
+        await waitUntil(timeout: 2) {
+            if case .failed = service.playbackState { return true }
+            return false
+        }
+        XCTAssertEqual(service.currentQueueIndex, 1, "b halts instead of skipping on")
+        radio.release()
+        await service.stallRecoveryTask?.value
+        service.audioEngine?.stop()
+    }
+
     // MARK: - Harness
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"
@@ -571,4 +600,42 @@ final class PlaybackServiceFlowTests: XCTestCase {
             sourceCompositeKey: Self.sourceCompositeKey
         )
     }
+}
+
+/// An autoplay source whose recommendation request waits until released.
+private final class HeldRadioProvider: MusicSourceSyncProvider, MusicSourceRadioProviding, @unchecked Sendable {
+    let sourceIdentifier = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
+    private let lock = NSLock()
+    private var asked = false
+    private var isReleased = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    var wasAsked: Bool { lock.withLock { asked } }
+
+    func getRecommendedTracks(basedOn track: Track, limit: Int) async -> [Track]? {
+        await withCheckedContinuation { continuation in
+            let resumeNow = lock.withLock {
+                asked = true
+                if !isReleased { waiting.append(continuation) }
+                return isReleased
+            }
+            if resumeNow { continuation.resume() }
+        }
+        return []
+    }
+
+    func release() {
+        let continuations = lock.withLock {
+            isReleased = true
+            defer { waiting = [] }
+            return waiting
+        }
+        continuations.forEach { $0.resume() }
+    }
+
+    func syncLibrary(to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
+    func syncLibraryIncremental(since timestamp: TimeInterval, to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
+    func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
+    func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, forceOrphanCheck: Bool, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
+    func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
 }
