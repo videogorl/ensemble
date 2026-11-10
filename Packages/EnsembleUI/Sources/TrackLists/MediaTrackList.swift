@@ -3,31 +3,6 @@ import EnsembleCore
 import EnsembleSupport
 import SwiftUI
 
-func compareTrackListState(_ lhs: [Track], _ rhs: [Track]) -> (identityOrderMatches: Bool, downloadStateChanged: Bool) {
-    guard lhs.count == rhs.count else { return (false, false) }
-
-    var downloadStateChanged = false
-    for (oldTrack, newTrack) in zip(lhs, rhs) {
-        guard oldTrack.sourceScopedID == newTrack.sourceScopedID else { return (false, false) }
-        downloadStateChanged = downloadStateChanged || oldTrack.isDownloaded != newTrack.isDownloaded
-    }
-    return (true, downloadStateChanged)
-}
-
-func arraysShareStorage<Element>(_ lhs: [Element], _ rhs: [Element]) -> Bool {
-    guard lhs.count == rhs.count else { return false }
-    guard !lhs.isEmpty else { return true }
-    return lhs.withUnsafeBufferPointer { lhsBuffer in
-        rhs.withUnsafeBufferPointer { rhsBuffer in
-            lhsBuffer.baseAddress == rhsBuffer.baseAddress
-        }
-    }
-}
-
-func trackIdentityOrderMatches(_ lhs: [Track], _ rhs: [Track]) -> Bool {
-    compareTrackListState(lhs, rhs).identityOrderMatches
-}
-
 #if canImport(UIKit)
 import UIKit
 
@@ -111,16 +86,6 @@ private final class HostedContentCell: UITableViewCell {
             content
         }
         .margins(.all, 0)
-    }
-}
-
-fileprivate struct MediaTrackGroup {
-    let id: String
-    let title: String?
-    let tracks: [Track]
-
-    var signature: String {
-        "\(id)|\(title ?? "")|\(tracks.count)"
     }
 }
 
@@ -549,8 +514,6 @@ struct MediaTrackList: UIViewRepresentable {
         self.onTrackTap = onTrackTap
     }
 
-    private var tracks: [Track] { sections.allTracks }
-
     /// Without its own scrolling the table sits in a parent `ScrollView`:
     /// scrolling is disabled and layout waits for a window.
     private var managesOwnScrolling: Bool { configuration.managesOwnScrolling }
@@ -617,8 +580,6 @@ struct MediaTrackList: UIViewRepresentable {
 
     public func updateUIView(_ tableView: UITableView, context: Context) {
         let coordinator = context.coordinator
-        let tracks = tracks
-        let previous = coordinator.configuration
         let bottomContentInset = configuration.bottomContentInset
         if managesOwnScrolling,
            coordinator.contentScrollViewOwner == nil,
@@ -637,71 +598,30 @@ struct MediaTrackList: UIViewRepresentable {
             tableView.contentInset.bottom = bottomContentInset
         }
 
-        let contentIsUnchanged: Bool = if let contentRevision = configuration.contentRevision {
-            contentRevision == previous.contentRevision
-        } else {
-            sectionsShareStorage(coordinator.sections, sections)
-        }
-        let newGroupedTracks = contentIsUnchanged ? coordinator.groupedTracks : makeTrackGroups()
-
-        // Check if track list structure changed (additions/removals/reordering).
-        // Shared array storage avoids repeating this linear scan on unrelated updates.
-        let newGroupSignature = contentIsUnchanged ? coordinator.groupSignature : newGroupedTracks.map(\.signature)
-        let trackState = contentIsUnchanged
-            ? (identityOrderMatches: true, downloadStateChanged: false)
-            : compareTrackListState(coordinator.tracks, tracks)
-        let dataChanged = !trackState.identityOrderMatches ||
-            coordinator.groupSignature != newGroupSignature ||
-            (coordinator.tableHeaderContent == nil) != (tableHeaderContent == nil) ||
-            coordinator.tableHeaderRevision != tableHeaderRevision ||
-            (coordinator.tableFooterContent == nil) != (tableFooterContent == nil)
-
-        // Check if any track's download state changed (localFilePath set or cleared)
-        let downloadStateChanged = !dataChanged && trackState.downloadStateChanged
-
-        let currentTrackChanged = previous.currentTrackId != configuration.currentTrackId
-        // Read network state from DependencyContainer (not observed — parent drives re-renders)
-        let isOffline = !dependencies.networkMonitor.isConnected
-        let offlineStateChanged = coordinator.isOffline != isOffline
-        let activeDownloadsChanged = previous.activeDownloadTrackIdentities != configuration.activeDownloadTrackIdentities
-        let availabilityChanged = previous.availabilityGeneration != configuration.availabilityGeneration
-        let supplementalMetadataWidthChanged = previous.supplementalMetadataWidth != configuration.supplementalMetadataWidth
-        let trackSourceLabelsChanged = previous.trackSourceLabels != configuration.trackSourceLabels
-        let displayRatingsChanged = coordinator.lastDisplayRatingsRevision != displayRatingsRevision
-        let newFavoriteStateSignature = !dataChanged && displayRatingsChanged
-            ? favoriteStateSignature(for: tracks)
-            : coordinator.favoriteStateSignature
-        let favoriteStateChanged = !dataChanged && coordinator.favoriteStateSignature != newFavoriteStateSignature
-
+        let newState = makeState()
+        let change = TrackListChange.between(coordinator.state, newState)
         let selectedRowIdentity = tableView.indexPathForSelectedRow
             .flatMap { coordinator.track(at: $0)?.playbackIdentity }
 
         // Update coordinator state
-        coordinator.tracks = tracks
-        coordinator.sections = sections
+        coordinator.state = newState
         coordinator.configuration = configuration
-        coordinator.groupedTracks = newGroupedTracks
-        coordinator.groupSignature = newGroupSignature
-        coordinator.favoriteStateSignature = newFavoriteStateSignature
         coordinator.onTrackTap = onTrackTap
         coordinator.onRemoveFromPlaylist = onRemoveFromPlaylist
         coordinator.artworkLoader = dependencies.artworkLoader
         coordinator.toastCenter = dependencies.toastCenter
         coordinator.settingsManager = dependencies.settingsManager
         coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
-        coordinator.isOffline = isOffline
-        coordinator.lastDisplayRatingsRevision = displayRatingsRevision
         // Hosted cells are separate SwiftUI roots and do not inherit the environment.
         coordinator.tableHeaderContent = tableHeaderContent.map { AnyView($0.environment(dependencies)) }
-        coordinator.tableHeaderRevision = tableHeaderRevision
         coordinator.tableFooterContent = tableFooterContent.map { AnyView($0.environment(dependencies)) }
         coordinator.onRefresh = onRefresh
 
-        // Reload data immediately after updating groupedTracks to keep UIKit's geometry
+        // Reload data immediately after updating the rows to keep UIKit's geometry
         // in sync with the backing data. Previously there was a ~85 line gap between the
         // data assignment and reloadData(), during which delegate methods could fire with
         // stale index paths against the new (possibly shorter) data — causing crashes.
-        if tableView.window != nil && dataChanged {
+        if tableView.window != nil && change == .reload {
             tableView.reloadData()
             if let selectedRowIdentity,
                let indexPath = coordinator.indexPath(forTrackId: selectedRowIdentity) {
@@ -740,9 +660,8 @@ struct MediaTrackList: UIViewRepresentable {
 
         coordinator.selectRequestedTrack()
 
-        if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged || supplementalMetadataWidthChanged || trackSourceLabelsChanged || favoriteStateChanged) {
-            // Reconfigure visible cells when track state or adaptive metadata width changes.
-            // Bounds-check indexPaths since visible cells may reference stale geometry.
+        if change == .reconfigureVisibleRows {
+            // Bounds-checked: visible cells may reference stale geometry.
             tableView.visibleCells.forEach { cell in
                 if let trackCell = cell as? TrackTableViewCell,
                    let indexPath = tableView.indexPath(for: cell),
@@ -759,9 +678,7 @@ struct MediaTrackList: UIViewRepresentable {
 
     public func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator(
-            tracks: tracks,
-            sections: sections,
-            groupedTracks: makeTrackGroups(),
+            state: makeState(),
             configuration: configuration,
             onTrackTap: onTrackTap,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
@@ -770,10 +687,7 @@ struct MediaTrackList: UIViewRepresentable {
             toastCenter: dependencies.toastCenter,
             settingsManager: dependencies.settingsManager,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
-            isOffline: !dependencies.networkMonitor.isConnected,
-            displayRatingsRevision: displayRatingsRevision,
             tableHeaderContent: tableHeaderContent.map { AnyView($0.environment(dependencies)) },
-            tableHeaderRevision: tableHeaderRevision,
             tableFooterContent: tableFooterContent.map { AnyView($0.environment(dependencies)) },
             onRefresh: onRefresh
         )
@@ -781,37 +695,24 @@ struct MediaTrackList: UIViewRepresentable {
         return coordinator
     }
 
-    private func makeTrackGroups() -> [MediaTrackGroup] {
-        sections.map { section in
-            MediaTrackGroup(
-                id: section.id,
-                title: section.title.isEmpty ? nil : section.title,
-                tracks: section.tracks
+    private func makeState() -> TrackListChange.State {
+        TrackListChange.State(
+            rows: TrackListRows(sections: sections),
+            contentRevision: configuration.contentRevision,
+            hasHeader: tableHeaderContent != nil,
+            headerRevision: tableHeaderRevision,
+            hasFooter: tableFooterContent != nil,
+            // Network state is read, not observed: the parent drives updates.
+            rowState: TrackListChange.RowState(
+                configuration: configuration,
+                isOffline: !dependencies.networkMonitor.isConnected,
+                displayRatingsRevision: displayRatingsRevision
             )
-        }
-    }
-
-    private func sectionsShareStorage(
-        _ lhs: [NativeTrackListSection],
-        _ rhs: [NativeTrackListSection]
-    ) -> Bool {
-        lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { previous, current in
-            previous.id == current.id
-                && previous.title == current.title
-                && arraysShareStorage(previous.tracks, current.tracks)
-        }
-    }
-
-    private func favoriteStateSignature(for tracks: [Track]) -> [Bool] {
-        tracks.map { configuration.interactionModel.isFavorited($0) }
+        )
     }
 
     public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate {
-        var tracks: [Track]
-        fileprivate var groupedTracks: [MediaTrackGroup]
-        var groupSignature: [String]
-        var favoriteStateSignature: [Bool]
-        var sections: [NativeTrackListSection]
+        var state: TrackListChange.State
         var configuration: NativeTrackListConfiguration
         var onTrackTap: (Track, Int) -> Void
         var onRemoveFromPlaylist: ((Track, Int) -> Void)?
@@ -822,20 +723,15 @@ struct MediaTrackList: UIViewRepresentable {
         var toastCenter: ToastCenter
         var settingsManager: SettingsManager
         var trackAvailabilityResolver: TrackAvailabilityResolver
-        var isOffline: Bool
         var tableFooterContent: AnyView?
-        var lastDisplayRatingsRevision: UInt64 = 0
         var tableHeaderContent: AnyView?
-        var tableHeaderRevision: String?
         var onRefresh: (() async -> Void)?
         weak var contentScrollViewOwner: UIViewController?
         weak var tableView: UITableView?
         private var artworkRecoveryObserver: StreamSubscription?
 
         fileprivate init(
-            tracks: [Track],
-            sections: [NativeTrackListSection],
-            groupedTracks: [MediaTrackGroup],
+            state: TrackListChange.State,
             configuration: NativeTrackListConfiguration,
             onTrackTap: @escaping (Track, Int) -> Void,
             onRemoveFromPlaylist: ((Track, Int) -> Void)?,
@@ -844,19 +740,12 @@ struct MediaTrackList: UIViewRepresentable {
             toastCenter: ToastCenter,
             settingsManager: SettingsManager,
             trackAvailabilityResolver: TrackAvailabilityResolver,
-            isOffline: Bool,
-            displayRatingsRevision: UInt64,
             tableHeaderContent: AnyView?,
-            tableHeaderRevision: String?,
             tableFooterContent: AnyView?,
             onRefresh: (() async -> Void)?
         ) {
-            self.tracks = tracks
-            self.sections = sections
+            self.state = state
             self.configuration = configuration
-            self.groupedTracks = groupedTracks
-            self.groupSignature = groupedTracks.map(\.signature)
-            self.favoriteStateSignature = []
             self.onTrackTap = onTrackTap
             self.onRemoveFromPlaylist = onRemoveFromPlaylist
             self.artworkLoader = artworkLoader
@@ -864,10 +753,7 @@ struct MediaTrackList: UIViewRepresentable {
             self.toastCenter = toastCenter
             self.settingsManager = settingsManager
             self.trackAvailabilityResolver = trackAvailabilityResolver
-            self.isOffline = isOffline
-            self.lastDisplayRatingsRevision = displayRatingsRevision
             self.tableHeaderContent = tableHeaderContent
-            self.tableHeaderRevision = tableHeaderRevision
             self.tableFooterContent = tableFooterContent
             self.onRefresh = onRefresh
             super.init()
@@ -904,9 +790,9 @@ struct MediaTrackList: UIViewRepresentable {
         
         // MARK: - Bounds-Safe Accessor
 
-        /// Safely access a track, returning nil if indices are out of bounds.
-        /// Protects against race conditions where UIKit requests cells for stale index paths
-        /// after groupedTracks has been updated but before reloadData completes.
+        private var rows: TrackListRows { state.rows }
+
+        /// Nil for an index path UIKit still holds from before an update.
         fileprivate func track(at indexPath: IndexPath) -> Track? {
             indexedTrack(at: indexPath)?.track
         }
@@ -926,12 +812,7 @@ struct MediaTrackList: UIViewRepresentable {
         }
 
         private func indexedTrack(at indexPath: IndexPath) -> (track: Track, index: Int)? {
-            guard let groupIndex = groupIndex(forTableSection: indexPath.section),
-                  indexPath.row < groupedTracks[groupIndex].tracks.count else {
-                return nil
-            }
-            let index = groupedTracks[..<groupIndex].reduce(0) { $0 + $1.tracks.count } + indexPath.row
-            return (groupedTracks[groupIndex].tracks[indexPath.row], index)
+            rows.track(section: indexPath.section - headerSectionCount, row: indexPath.row)
         }
 
         private var headerSectionCount: Int {
@@ -939,20 +820,17 @@ struct MediaTrackList: UIViewRepresentable {
         }
 
         var footerSection: Int {
-            headerSectionCount + groupedTracks.count
+            headerSectionCount + rows.sections.count
         }
 
-        fileprivate func groupIndex(forTableSection section: Int) -> Int? {
-            let groupIndex = section - headerSectionCount
-            return groupedTracks.indices.contains(groupIndex) ? groupIndex : nil
-        }
-
-        private func tableSection(forGroupIndex groupIndex: Int) -> Int {
-            headerSectionCount + groupIndex
+        /// The row-model section shown in a table section, if any.
+        private func rowSection(forTableSection section: Int) -> NativeTrackListSection? {
+            let index = section - headerSectionCount
+            return rows.sections.indices.contains(index) ? rows.sections[index] : nil
         }
 
         func sectionIndex(forID sectionID: String) -> Int? {
-            groupedTracks.firstIndex { $0.id == sectionID }.map(tableSection(forGroupIndex:))
+            rows.section(withID: sectionID).map { $0 + headerSectionCount }
         }
 
         // SwiftUI can supply the request before the table enters its window.
@@ -969,12 +847,7 @@ struct MediaTrackList: UIViewRepresentable {
         }
 
         func indexPath(forTrackId id: String) -> IndexPath? {
-            for (section, group) in groupedTracks.enumerated() {
-                if let row = group.tracks.firstIndex(where: { $0.playbackIdentity == id }) {
-                    return IndexPath(row: row, section: tableSection(forGroupIndex: section))
-                }
-            }
-            return nil
+            rows.position(ofTrackID: id).map { IndexPath(row: $0.row, section: $0.section + headerSectionCount) }
         }
 
         public func numberOfSections(in tableView: UITableView) -> Int {
@@ -988,8 +861,7 @@ struct MediaTrackList: UIViewRepresentable {
             if section == footerSection {
                 return tableFooterContent == nil ? 0 : 1
             }
-            guard let groupIndex = groupIndex(forTableSection: section) else { return 0 }
-            return groupedTracks[groupIndex].tracks.count
+            return rowSection(forTableSection: section)?.tracks.count ?? 0
         }
 
         public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -1029,8 +901,7 @@ struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-            guard let groupIndex = groupIndex(forTableSection: section),
-                  let title = groupedTracks[groupIndex].title else { return nil }
+            guard let title = rowSection(forTableSection: section)?.title, !title.isEmpty else { return nil }
 
             let headerView = UIView()
             headerView.backgroundColor = .clear
@@ -1059,8 +930,8 @@ struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-            guard let groupIndex = groupIndex(forTableSection: section) else { return 0 }
-            return groupedTracks[groupIndex].title == nil ? 0 : Self.sectionHeaderHeight
+            guard let rowSection = rowSection(forTableSection: section) else { return 0 }
+            return rowSection.title.isEmpty ? 0 : Self.sectionHeaderHeight
         }
 
         private static var sectionHeaderFont: UIFont {
@@ -1100,12 +971,12 @@ struct MediaTrackList: UIViewRepresentable {
         }
 
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-            groupIndex(forTableSection: indexPath.section) == nil ? UITableView.automaticDimension : configuration.rowHeight
+            rowSection(forTableSection: indexPath.section) == nil ? UITableView.automaticDimension : configuration.rowHeight
         }
 
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
             guard let track = track(at: indexPath) else { return nil }
-            let resolvedActions = configuration.interactionModel.resolve(for: track, in: tracks)
+            let resolvedActions = configuration.interactionModel.resolve(for: track, in: rows.tracks)
             guard let menu = makeContextMenu(for: track, at: indexPath, resolvedActions: resolvedActions) else { return nil }
 
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
@@ -1142,7 +1013,7 @@ struct MediaTrackList: UIViewRepresentable {
                         return
                     }
 
-                    let resolvedActions = self.configuration.interactionModel.resolve(for: track, in: self.tracks)
+                    let resolvedActions = self.configuration.interactionModel.resolve(for: track, in: self.rows.tracks)
                     let menu = self.makeContextMenu(for: track, at: indexPath, resolvedActions: resolvedActions)
                     completion(menu?.children ?? [])
                 }

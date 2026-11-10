@@ -16,6 +16,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     let onTrackTap: (Track, Int) -> Void
 
     @Environment(DependencyContainer.self) private var dependencies
+    @Environment(\.trackListDisplayRatingsRevision) private var displayRatingsRevision
 
     static var deterministicWideHeaderHeight: CGFloat {
         ArtworkSize.medium.cgSize.height
@@ -78,17 +79,9 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let tableView = scrollView.documentView as? NSTableView else { return }
         let coordinator = context.coordinator
-        let previous = coordinator.configuration
-        let contentChanged = if let contentRevision = configuration.contentRevision {
-            previous.contentRevision != contentRevision
-        } else {
-            coordinator.sections != sections
-        }
-        let structureChanged = contentChanged ||
-            (coordinator.tableHeaderContent == nil) != (tableHeaderContent == nil) ||
-            (coordinator.tableFooterContent == nil) != (tableFooterContent == nil) ||
-            previous.bottomContentInset != configuration.bottomContentInset
-        coordinator.sections = sections
+        let newState = makeState()
+        let change = TrackListChange.between(coordinator.state, newState)
+        coordinator.state = newState
         coordinator.configuration = configuration
         // Hosted cells are separate SwiftUI roots and do not inherit the environment.
         coordinator.tableHeaderContent = tableHeaderContent.map { AnyView($0.environment(dependencies)) }
@@ -99,18 +92,21 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         coordinator.settingsManager = dependencies.settingsManager
         coordinator.onRemoveFromPlaylist = onRemoveFromPlaylist
-        if structureChanged {
+        if change == .reload {
             coordinator.rebuildRows()
         }
 
-        if structureChanged || tableView.numberOfRows != coordinator.rows.count {
+        if change == .reload || tableView.numberOfRows != coordinator.rows.count {
             tableView.reloadData()
         } else {
+            // Header and footer content can change without a structural change.
             coordinator.invalidateDynamicRowHeights(in: tableView)
             tableView.enumerateAvailableRowViews { _, row in
                 guard row < coordinator.rows.count else { return }
                 let view = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
-                coordinator.configure(view: view, row: row)
+                if change == .reconfigureVisibleRows {
+                    coordinator.configure(view: view, row: row)
+                }
                 coordinator.configureHostingView(view, row: row, in: tableView)
             }
         }
@@ -131,9 +127,24 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         }
     }
 
+    private func makeState() -> TrackListChange.State {
+        TrackListChange.State(
+            rows: TrackListRows(sections: sections),
+            contentRevision: configuration.contentRevision,
+            hasHeader: tableHeaderContent != nil,
+            hasFooter: tableFooterContent != nil,
+            bottomSpacer: configuration.bottomContentInset,
+            rowState: TrackListChange.RowState(
+                configuration: configuration,
+                isOffline: !dependencies.networkMonitor.isConnected,
+                displayRatingsRevision: displayRatingsRevision
+            )
+        )
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(
-            sections: sections,
+            state: makeState(),
             configuration: configuration,
             tableHeaderContent: tableHeaderContent.map { AnyView($0.environment(dependencies)) },
             tableFooterContent: tableFooterContent.map { AnyView($0.environment(dependencies)) },
@@ -149,7 +160,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
-        var sections: [NativeTrackListSection]
+        var state: TrackListChange.State
         var configuration: NativeTrackListConfiguration
         var tableHeaderContent: AnyView?
         var tableFooterContent: AnyView?
@@ -163,7 +174,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         weak var tableView: NSTableView?
         var consumedSectionScrollRequestID: Int?
         var consumedSelectedTrackId: String?
-        private(set) var rows: [NativeTrackListFlattenedRow] = []
+        private(set) var rows: [TrackListRows.FlatRow] = []
         // Sharing a sizing host replaces the header tree each time the footer is measured.
         private var headerMeasuringView: NSHostingView<AnyView>?
         private var footerMeasuringView: NSHostingView<AnyView>?
@@ -171,7 +182,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         private var measuredFooter: (width: CGFloat, height: CGFloat)?
 
         init(
-            sections: [NativeTrackListSection],
+            state: TrackListChange.State,
             configuration: NativeTrackListConfiguration,
             tableHeaderContent: AnyView?,
             tableFooterContent: AnyView?,
@@ -183,7 +194,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             onRemoveFromPlaylist: ((Track, Int) -> Void)?,
             onTrackTap: @escaping (Track, Int) -> Void
         ) {
-            self.sections = sections
+            self.state = state
             self.configuration = configuration
             self.tableHeaderContent = tableHeaderContent
             self.tableFooterContent = tableFooterContent
@@ -199,11 +210,10 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         }
 
         func rebuildRows() {
-            rows = NativeTrackListFlattening.rows(
-                sections: sections,
-                hasHeader: tableHeaderContent != nil,
-                hasFooter: tableFooterContent != nil,
-                bottomContentInset: configuration.bottomContentInset
+            rows = state.rows.flattened(
+                hasHeader: state.hasHeader,
+                hasFooter: state.hasFooter,
+                bottomContentInset: state.bottomSpacer
             )
             measuredHeader = nil
             measuredFooter = nil
@@ -219,12 +229,15 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         }
 
         func rowIndex(forTrackId id: String) -> Int? {
-            rows.firstIndex { row in
-                if case let .track(track, _) = row {
-                    return track.playbackIdentity == id
-                }
-                return false
-            }
+            guard let position = state.rows.position(ofTrackID: id) else { return nil }
+            return rows.firstIndex { $0 == .track(section: position.section, row: position.row) }
+        }
+
+        /// The track shown in a flat row and its global index.
+        private func indexedTrack(atRow row: Int) -> (track: Track, index: Int)? {
+            guard rows.indices.contains(row),
+                  case let .track(section, sectionRow) = rows[row] else { return nil }
+            return state.rows.track(section: section, row: sectionRow)
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int {
@@ -338,11 +351,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-            guard row < rows.count,
-                  case let .track(track, _) = rows[row] else {
-                return nil
-            }
-
+            guard case let (track, _)? = indexedTrack(atRow: row) else { return nil }
             return MediaDragPayload.trackPasteboardWriter(for: track, shareService: shareService)
         }
 
@@ -361,11 +370,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             forRowIndexes rowIndexes: IndexSet
         ) {
             let items = rowIndexes.compactMap { row -> MediaDragPayload.Item? in
-                guard row < rows.count,
-                      case let .track(track, _) = rows[row] else {
-                    return nil
-                }
-                return MediaDragPayload.track(track).items.first
+                indexedTrack(atRow: row).flatMap { MediaDragPayload.track($0.track).items.first }
             }
             guard !items.isEmpty else { return }
             MacSidebarPlaylistDropRegistry.shared.beginDragging(MediaDragPayload(items: items))
@@ -392,9 +397,8 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         }
 
         func configure(view: NSView?, row: Int) {
-            guard row < rows.count,
-                  let view = view as? MacNativeTrackTableCell,
-                  case let .track(track, globalIndex) = rows[row] else { return }
+            guard let view = view as? MacNativeTrackTableCell,
+                  case let (track, globalIndex)? = indexedTrack(atRow: row) else { return }
 
             view.configure(
                 track: track,
@@ -409,7 +413,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                     return self.makeMenu(
                         for: track,
                         globalIndex: globalIndex,
-                        resolvedActions: self.configuration.interactionModel.resolve(for: track, in: self.sections.flatMap(\.tracks))
+                        resolvedActions: self.configuration.interactionModel.resolve(for: track, in: self.state.rows.tracks)
                     )
                 }
             )
@@ -432,10 +436,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         }
 
         @objc func tableDoubleClicked(_ sender: NSTableView) {
-            let row = sender.clickedRow
-            guard row >= 0,
-                  row < rows.count,
-                  case let .track(track, globalIndex) = rows[row] else { return }
+            guard case let (track, globalIndex)? = indexedTrack(atRow: sender.clickedRow) else { return }
             onTrackTap(track, globalIndex)
         }
 
@@ -444,8 +445,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             rowActionsForRow row: Int,
             edge: NSTableView.RowActionEdge
         ) -> [NSTableViewRowAction] {
-            guard row < rows.count,
-                  case let .track(track, _) = rows[row] else { return [] }
+            guard case let (track, _)? = indexedTrack(atRow: row) else { return [] }
             let layout = settingsManager.trackSwipeLayout
             let configured = edge == .leading ? layout.leading : layout.trailing
             let slots = MacNativeTrackTableView.appKitRowActionSlots(for: configured, edge: edge)
@@ -503,15 +503,11 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         }
 
         func contextMenu(forRow row: Int) -> NSMenu? {
-            guard row >= 0,
-                  row < rows.count,
-                  case let .track(track, globalIndex) = rows[row] else {
-                return nil
-            }
+            guard case let (track, globalIndex)? = indexedTrack(atRow: row) else { return nil }
             return makeMenu(
                 for: track,
                 globalIndex: globalIndex,
-                resolvedActions: configuration.interactionModel.resolve(for: track, in: sections.flatMap(\.tracks))
+                resolvedActions: configuration.interactionModel.resolve(for: track, in: state.rows.tracks)
             )
         }
 
