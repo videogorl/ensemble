@@ -32,6 +32,15 @@ public struct NativeTrackListSection: Identifiable, Equatable {
     }
 }
 
+extension Array where Element == NativeTrackListSection {
+    /// All tracks in order. A single section keeps the caller's array storage,
+    /// which lets the UIKit table skip its per-track comparison on unchanged
+    /// updates.
+    var allTracks: [Track] {
+        count == 1 ? self[0].tracks : flatMap(\.tracks)
+    }
+}
+
 /// Flattened row description shared by native track-list renderers and tests.
 ///
 /// Header, footer, section, and spacer rows are visual rows only. Track rows

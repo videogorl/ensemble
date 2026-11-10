@@ -93,20 +93,14 @@ public struct TrackListHost: View {
         #endif
     }
 
-    /// One section keeps the caller's array storage, which lets the UIKit
-    /// table skip its per-track comparison on unchanged updates.
-    private var allTracks: [Track] {
-        sections.count == 1 ? sections[0].tracks : sections.flatMap(\.tracks)
-    }
-
     private var tableSections: [NativeTrackListSection] {
         if configuration.groupByDisc {
-            return NativeTrackListSection.discSections(for: allTracks)
+            return NativeTrackListSection.discSections(for: sections.allTracks)
         }
         #if os(iOS)
         // iOS shows section headers only together with the section index.
         if !configuration.showsSectionIndex {
-            return [NativeTrackListSection(id: "all", title: "", tracks: allTracks)]
+            return [NativeTrackListSection(id: "all", title: "", tracks: sections.allTracks)]
         }
         #endif
         return sections

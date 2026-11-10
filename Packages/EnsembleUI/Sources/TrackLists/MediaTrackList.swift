@@ -606,11 +606,7 @@ struct MediaTrackList: UIViewRepresentable {
         self.onTrackTap = onTrackTap
     }
 
-    /// A single section keeps the caller's array storage, so unchanged
-    /// updates skip the per-track comparison.
-    private var tracks: [Track] {
-        sections.count == 1 ? sections[0].tracks : sections.flatMap(\.tracks)
-    }
+    private var tracks: [Track] { sections.allTracks }
 
     /// Without its own scrolling the table sits in a parent `ScrollView`:
     /// scrolling is disabled and layout waits for a window.
