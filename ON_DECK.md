@@ -16,9 +16,26 @@ An entry does not authorize the work; Felicity picks what gets done.
   `AccountManagerAuthPolicyTests.testAsyncCredentialLoadTimesOutWithoutBlockingCachedFallback`
   (elapsed-time bound) and `NowPlayingViewModelFavoriteTests.testPlaybackProjectionTracksSmartMixTransitionState`
   (fixed `waitForProjectionPropagation`). None touched the tests fixed in this change.
+- Update 2026-11-10 (step 3b): `HomeViewModelRefreshPolicyTests` (eight methods, 1 s waits) and
+  `LibraryViewModelCacheCleanupTests.testBrowseSnapshotPreservesVisibleTracksUntilEmptySourceStateSettles`
+  also fail on the unmodified base `e8ec7ef0` when a macOS build runs beside them, and all pass alone on
+  a quiet machine.
 - Impact: the full suite is not a reliable gate while the host is busy.
 - Next step: rerun on an idle Mac to separate load from real defects; widen the 1 s waits to
   event-based waits with a long timeout.
+
+## Suspected: an incremental track delta can blank a track's genre until the next full pass (2026-11-10)
+
+- Evidence (read, not reproduced): `PlexConnector.fetchChangedLibrary` takes a delta track's genre
+  from `albumGenres`, which holds only albums changed in the same delta; for a track whose album is
+  unchanged `genreNames` is nil, and `batchUpsertTracks` assigns `track.genreNames = input.genreNames`
+  unconditionally (`LibraryRepository+SyncMetadata.swift`), so the delta writes nil over the stored
+  genre. The same code existed before step 3b (`syncLibraryIncremental`); the 24-hour full-metadata
+  pass writes the genre back.
+- Impact: a track edited on the server (rating, title) can lose its genre in Genres until the next
+  full-metadata pass (every launch today, since launch deletes the library cursor).
+- Next step: reproduce with one disposable track edit on a test server, then take the genre from the
+  stored album when the album is not in the delta (`StoredLibrary.albums[..].genreNames`).
 
 ## Confirmed: excessive disk writes on the iPhone SE 2 (2026-08-10 report, noted 2026-11-10)
 
