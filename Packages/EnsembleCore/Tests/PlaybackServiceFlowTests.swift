@@ -65,6 +65,42 @@ final class PlaybackServiceFlowTests: XCTestCase {
         XCTAssertEqual(service.currentQueueIndex, 1)
     }
 
+    /// A stream that keeps failing after it loaded (e.g. a truncated transcode rejected
+    /// by the duration check) gets a bounded number of retries, then the item-failure
+    /// contract: skip once while playing, halt if the skipped-to item fails too.
+    func testRepeatedPostStartupStreamFailureIsBoundedThenFailsTheItem() async throws {
+        let service = await makeService()
+        let tracks = try ["a", "b", "c"].map { try makeTrack($0) }
+        service.queue = tracks.map { QueueItem(track: $0) }
+        service.currentQueueIndex = 0
+        service.currentTrack = tracks[0]
+        service.playbackState = .playing
+        let error = ProgressiveStreamError.invalidPayload(bytesReceived: 2_864_498)
+
+        func recover() async {
+            service.recoverCurrentStream(after: error)
+            await service.stallRecoveryTask?.value
+        }
+
+        for _ in 0 ..< PlaybackService.maxStreamRecoveryAttempts {
+            await recover()
+            XCTAssertEqual(service.currentQueueIndex, 0, "a retry keeps the same item")
+        }
+        await recover()
+        XCTAssertEqual(service.currentQueueIndex, 1, "the spent budget fails the item, which is skipped")
+
+        // The item reached by that skip fails too once its budget is spent: halt on the error.
+        service.playbackState = .playing
+        service.failureSkipItemID = service.queue[1].id
+        service.streamRecovery = (service.queue[1].id, PlaybackService.maxStreamRecoveryAttempts, 0)
+        await recover()
+        XCTAssertEqual(service.currentQueueIndex, 1)
+        guard case .failed = service.playbackState else {
+            return XCTFail("expected halt, got \(service.playbackState)")
+        }
+        service.audioEngine?.stop()
+    }
+
     // MARK: - Harness
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"

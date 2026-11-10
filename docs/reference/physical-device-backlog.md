@@ -105,6 +105,20 @@ The 2026-10-30 abort in `AVAudioCompressedBuffer` is fixed and covered by
 - Direct-stream a WAV or AIFF track from Plex on the phone. Confirm it plays
   to the end without a crash, and that MP3, AAC and FLAC tracks still stream.
 
+### Bounded retry of a stream that fails after loading
+
+Covered on macOS by a `PlaybackServiceFlowTests` regression test and the real
+11631 transcode bytes; not exercised on the phone. Plex track 11631 ("Christmas
+in June", AJR) is a truncated FLAC on the server, so its transcode is shorter
+than the metadata and is rejected after it loads.
+
+- On the iPhone SE, play 11631 at a non-original quality. After two quick
+  retries the track is skipped; if the next track fails too, playback stops on
+  the error with Retry. Confirm it never spins at 0:00 and never starts playing
+  while paused.
+- Play a normal track and drop the network mid-stream (Airplane Mode, then back
+  on). Confirm it still recovers and keeps playing.
+
 ### Customizable Now Playing secondary actions, 2026-10-13 feature commit
 
 Builds and SE/macOS/iPad evidence are in

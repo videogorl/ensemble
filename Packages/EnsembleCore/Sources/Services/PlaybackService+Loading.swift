@@ -632,7 +632,7 @@ extension PlaybackService {
             case let .httpError(code, _):
                 return .serverUnavailable(message: "Server returned HTTP \(code)")
             case .invalidPayload:
-                return .corruptLocalFile
+                return .serverUnavailable(message: "Server returned invalid audio data")
             }
         }
 
