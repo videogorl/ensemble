@@ -122,8 +122,7 @@ public class TrackTableViewCell: UITableViewCell {
     private var subtitleTopConstraint: NSLayoutConstraint?
     private var downloadIconWidthConstraint: NSLayoutConstraint?
     private var downloadIconTrailingConstraint: NSLayoutConstraint?
-    private var currentTrackID: String?
-    private var artworkLoadTask: Task<Void, Never>?
+    private let artwork = TrackCellArtwork()
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -361,38 +360,12 @@ public class TrackTableViewCell: UITableViewCell {
 
         contentView.alpha = content.isDimmed ? 0.45 : 1
 
-        // Load artwork if needed
         if showArtwork {
-            // Only load artwork if track changed
-            let playbackIdentity = track.playbackIdentity
-            if currentTrackID != playbackIdentity {
-                currentTrackID = playbackIdentity
-                artworkImageView.backgroundColor = UIColor.systemGray5
-                artworkImageView.image = TrackArtworkThumbnailLoader.cachedImage(
-                    for: track,
-                    artworkLoader: artworkLoader
-                )
-                
-                // Cancel any previous artwork load task
-                artworkLoadTask?.cancel()
-                
-                artworkLoadTask = artworkImageView.image == nil ? Task { @MainActor in
-                    let image = await TrackArtworkThumbnailLoader.image(
-                        for: track,
-                        artworkLoader: artworkLoader
-                    ) {
-                        self.currentTrackID == playbackIdentity
-                    }
-
-                    if self.currentTrackID == playbackIdentity {
-                        self.artworkImageView.image = image
-                    }
-                } : nil
-            } else {
-                // Same track - just update playing state without reloading artwork
+            artwork.show(track, artworkLoader: artworkLoader) { [weak artworkImageView] image in
+                artworkImageView?.image = image
             }
         } else {
-            currentTrackID = nil
+            artwork.reset()
             artworkImageView.image = nil
         }
     }
@@ -455,19 +428,14 @@ public class TrackTableViewCell: UITableViewCell {
 
     public override func prepareForReuse() {
         super.prepareForReuse()
-        // Cancel any in-flight artwork load
-        artworkLoadTask?.cancel()
-        artworkLoadTask = nil
-        currentTrackID = nil
-        // Don't clear the image - let the next configure() call handle it
+        // Keep the image: the next configure replaces it.
+        artwork.reset()
         titleLeadingConstraint?.isActive = false
         subtitleLeadingConstraint?.isActive = false
     }
 
     func prepareArtworkRetry() -> Bool {
-        guard artworkImageView.image == nil else { return false }
-        currentTrackID = nil
-        return true
+        artwork.prepareRetry(hasImage: artworkImageView.image != nil)
     }
 }
 

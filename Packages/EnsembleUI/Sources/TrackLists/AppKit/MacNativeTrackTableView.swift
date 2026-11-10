@@ -703,8 +703,7 @@ private final class MacNativeTrackTableCell: NSTableCellView {
     private var albumTrailingToDurationConstraint: NSLayoutConstraint?
     private var artistWidthConstraint: NSLayoutConstraint?
     private var albumWidthConstraint: NSLayoutConstraint?
-    private var artworkLoadTask: Task<Void, Never>?
-    private var currentTrackID: String?
+    private let artwork = TrackCellArtwork()
     private var menuProvider: (() -> NSMenu?)?
 
     override init(frame frameRect: NSRect) {
@@ -719,9 +718,7 @@ private final class MacNativeTrackTableCell: NSTableCellView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        artworkLoadTask?.cancel()
-        artworkLoadTask = nil
-        currentTrackID = nil
+        artwork.reset()
         menuProvider = nil
     }
 
@@ -753,17 +750,13 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         durationField.isHidden = content.isPlaying
         alphaValue = content.isDimmed ? 0.45 : 1
 
-        let showArtwork = content.showsArtwork
-        let playbackIdentity = track.playbackIdentity
-        if !showArtwork {
-            artworkLoadTask?.cancel()
-            artworkLoadTask = nil
-            currentTrackID = playbackIdentity
+        if content.showsArtwork {
+            artwork.show(track, artworkLoader: artworkLoader) { [weak artworkImageView] image in
+                artworkImageView?.image = image
+            }
+        } else {
+            artwork.reset()
             artworkImageView.image = nil
-        } else if currentTrackID != playbackIdentity {
-            currentTrackID = playbackIdentity
-            artworkImageView.image = nil
-            loadArtwork(for: track, artworkLoader: artworkLoader)
         }
     }
 
@@ -947,22 +940,6 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         setActive(titleLeadingToArtworkConstraint, showArtwork)
         setActive(titleLeadingToTrackNumberConstraint, !showArtwork && showTrackNumber)
         setActive(titleLeadingToContentConstraint, !showArtwork && !showTrackNumber)
-    }
-
-    private func loadArtwork(for track: Track, artworkLoader: ArtworkLoaderProtocol) {
-        artworkLoadTask?.cancel()
-        artworkLoadTask = Task { @MainActor in
-            let image = await TrackArtworkThumbnailLoader.image(
-                for: track,
-                artworkLoader: artworkLoader
-            ) {
-                currentTrackID == track.playbackIdentity
-            }
-
-            if currentTrackID == track.playbackIdentity {
-                artworkImageView.image = image
-            }
-        }
     }
 }
 
