@@ -51,7 +51,14 @@ final class CoreDataMigrationTests: XCTestCase {
         try legacyContext.save()
         try detachStores(from: legacyContainer)
 
+        var logged: [String] = []
+        EnsembleLogger.fileLogHandler = { _, _, message in logged.append(message) }
+        defer { EnsembleLogger.fileLogHandler = nil }
         let stack = CoreDataStack.onDisk(at: storeURL)
+        XCTAssertEqual(
+            logged.filter { $0.contains("membership backfill") },
+            ["Playlist membership backfill: keysFilled=5 duplicateRowsRemoved=1 playlists=1"]
+        )
         let migrated = try await stack.performViewContext { context in
             try context.fetch(CDPlaylistTrack.fetchRequest()).sorted { $0.order < $1.order }.map {
                 [$0.playlistRatingKey, $0.playlistSourceCompositeKey, $0.playlistItemID, String($0.order)]
