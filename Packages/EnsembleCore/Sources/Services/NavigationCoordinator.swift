@@ -140,6 +140,8 @@ public final class NavigationCoordinator {
     public var pendingNavigation: PendingNavigation?
     /// Set by the `debug/now-playing` route; the root view applies and clears it.
     public var pendingNowPlayingRequest: NowPlayingAutomationRequest?
+    /// Set by the `debug/play` and `debug/transport` routes; the root view applies and clears it.
+    public var pendingPlaybackRequest: PlaybackAutomationRequest?
     /// Set by the `debug/open` route; the root view applies and clears it, since
     /// the layout's aliases and browse selections live there.
     public var pendingAutomationSurface: AutomationSurface?
@@ -553,6 +555,25 @@ public final class NavigationCoordinator {
                 details: request.logDetails.merging(["route": Self.routeLogDescription(from: url)]) { $1 }
             )
             pendingNowPlayingRequest = request
+            return true
+        }
+
+        if let route = routeComponents.dropFirst().first, route == "play" || route == "transport" {
+            let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            guard let request = PlaybackAutomationRequest(route: route, queryItems: queryItems) else {
+                UserJourneyLogger.log(
+                    context: "automation",
+                    event: "deepLinkRejected",
+                    details: ["route": Self.routeLogDescription(from: url), "reason": "unsupportedPlaybackValue"]
+                )
+                return true
+            }
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "deepLinkAccepted",
+                details: request.logDetails.merging(["route": Self.routeLogDescription(from: url)]) { $1 }
+            )
+            pendingPlaybackRequest = request
             return true
         }
 

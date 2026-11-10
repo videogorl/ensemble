@@ -173,9 +173,15 @@ final class PlaybackTransportCoordinator {
         }()
         let shouldPreferLocalForDataPolicy = await isNetworkConstrained()
 
+        #if DEBUG
+        let forcesNetworkStream = AutomationLaunchOptions.current.forceNetworkStream
+        #else
+        let forcesNetworkStream = false
+        #endif
+
         var localSource: PlaybackSource?
         var hasInvalidLocalPayload = false
-        if let localPath = track.localFilePath {
+        if let localPath = track.localFilePath, !forcesNetworkStream {
             if FileManager.default.fileExists(atPath: localPath) {
                 let localPlaybackURL = dependencies.preparedLocalPlaybackURL(localPath)
                 if !dependencies.isClearlyInvalidLocalPayload(localPlaybackURL) {
@@ -191,7 +197,7 @@ final class PlaybackTransportCoordinator {
             }
         }
 
-        if normalizedStartTime == 0,
+        if normalizedStartTime == 0, !forcesNetworkStream,
            let cachedURL = artifactCache.completedArtifact(
                trackIdentity: track.playbackIdentity,
                sourceFingerprint: sourceFingerprint,
