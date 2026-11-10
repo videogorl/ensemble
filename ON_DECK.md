@@ -247,17 +247,24 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Next step: measure the boundary after a short original-quality track on a slow link, then decide whether the successor's prefetch needs to start earlier or the handoff needs a streaming path. Not authorized to change.
 
 
-## Suspected: stream-cache entries from before the damage check still play a damaged original short (2026-11-10)
+## Confirmed: originals cached by an older build cannot be played offline until replayed online (2026-11-10)
 
-- Evidence: a direct original is judged by its own media only while it streams (decoded length against its
-  container) or is prefetched (decoded start to end). A stream-cache hit (`completedArtifact(requireDirect:)`)
-  plays the stored file without either check. Builds before the fallback registered 11631-style files whose
-  container states the full length, so a cached copy of a damaged original would play to its short end and
-  advance. Not reproduced on a cache that held one.
-- Impact: a damaged original streamed by an older build keeps playing short from the cache, with no fallback,
-  until the entry is trimmed.
-- Next step: on a cache hit for a direct original, run the same decode check once and drop the entry on damage,
-  or purge direct entries when this build first launches.
+- Evidence: the stream cache now serves a direct original only when its manifest entry is marked verified.
+  Entries written before step e have no mark, so the lookup misses (`PlaybackTransportCoordinator.swift:266`)
+  and, offline, throws "offline" (`:276`); `resolveOfflinePlayableTrack` and the availability resolver miss the
+  same way. Found by the round-two review, by reading.
+- Impact: once, after updating: recently streamed original-quality tracks that are not offline downloads will
+  not play without a connection until they are streamed again. Offline downloads are unaffected.
+- Next step: verify an unmarked direct entry on first use (the check takes well under a second) and mark it,
+  instead of treating it as a miss; that also saves the one re-download.
+
+## Suspected: a prefetched download adopted mid-check never reports damage early (2026-11-10)
+
+- Evidence: `onDamageFound` is attached only to downloads the engine creates (`PlaybackService.swift:804`); a
+  prefetched one it adopts (`AudioPlaybackEngine.swift:1101`) never gets it. By reading; not reproduced.
+- Impact: low. The prefetch's own wait normally records the fallback, and playing into the damage still falls
+  back; only the early switch for a later seek is lost.
+- Next step: attach `onDamageFound` when the engine adopts a prefetched download.
 
 ## Suspected: two metadata-duration truncation checks still judge a direct original (2026-11-10)
 

@@ -221,14 +221,14 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
 
     /// The damaged-original fallback, proven by the probe's `fb` field, not by playback carrying on: `fb=marked`
     /// when a finished download is decoded and found damaged, `fb=forced` once the fallback reload was made.
-    /// The key defaults to 14291 (twenty one pilots: its original decodes 2:27 of 4:52, its transcode is
-    /// complete); `TEST_RUNNER_ENSEMBLE_DAMAGED_TRACK` picks another (14292, 14300, or 11631, whose
-    /// transcode is as short as its original). No seek: playback reaches the damage, the decoder ends
+    /// The key defaults to 11631, whose transcode is as short as its original, so it ends with `skip=1`;
+    /// `TEST_RUNNER_ENSEMBLE_DAMAGED_TRACK` picks another. (14291 is healthy on the owner's server: it played
+    /// in full unflagged on the SE on 2026-11-10.) No seek: playback reaches the damage, the decoder ends
     /// early, the track falls back to a transcode at the playhead and the "Playing at reduced quality"
     /// toast shows. Pass: `fb=forced` while the damaged track is current, the toast was seen, and the
     /// track then plays on (or, when Plex has nothing past the damage, is skipped with `skip=1`).
     func testG2e1_DamagedOriginalFallsBackWhenPlaybackReachesTheDamage() throws {
-        let key = ProcessInfo.processInfo.environment["ENSEMBLE_DAMAGED_TRACK"] ?? Key.twentyOnePilots[0]
+        let key = ProcessInfo.processInfo.environment["ENSEMBLE_DAMAGED_TRACK"] ?? Key.christmasInJune
         launch(quality: "original", forceStream: true)
         play([key, Key.flac])
         var forcedAt: Double?
