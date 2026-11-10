@@ -381,6 +381,15 @@ pass before step 0 is called verified.
   or download change shows on visible rows without scrolling (not exercised
   on the simulator: it would change data). With VoiceOver, the playing row
   announces the indicator rather than the duration (see `known-issues`).
+- Step 6d part 3, the queue on the row model, at `6dc28d59` or later: on
+  the Now Playing queue, rows show title, artist and artwork in Up Next,
+  Continue Playing, Autoplay and History; a track queued twice shows two
+  rows; a drag reorder within Up Next keeps titles and artwork on the right
+  rows and plays in the new order; Remove from Queue (long-press menu)
+  removes that row; skipping or tapping a row updates the list; artwork
+  appears after the server comes back from offline (retry path, not
+  exercised in the simulator). Drag reorder by finger, not the synthesized
+  drag the simulator run used.
 
 ## Mac
 
@@ -407,6 +416,10 @@ pass before step 0 is called verified.
 - Step 6d part 2 in the built Mac app, at `d27961ee` or later: a rating or
   download change redraws visible rows without a reload, and Mac swipe and
   drag-out still work on the shared row model (not driven).
+- Step 6d part 3 in the built Mac app, at `6dc28d59` or later: the queue
+  list renders with artwork, follows a track change, and reorder and remove
+  work. Its code is unchanged by part 3; not driven
+  because the Mac's session was locked during the run.
 - Step 6c panes on a physical iPad (not run): native `NavigationSplitView`
   now serves every iPad, including iPadOS 17; Artists, Genres and Playlists
   show detail in the next column, rotation and Split View resizing keep the

@@ -64,4 +64,24 @@ struct TrackRowContent: Equatable {
         albumColumn = track.albumName ?? "Unknown Album"
         albumColumnWidth = configuration.showAlbumName ? columnWidths.album : nil
     }
+
+    /// A queue or history row: artwork, title and artist. The queue holds only
+    /// what plays after the current track, so no row is playing, and it shows
+    /// no number, columns, duration, dimming, download or favourite state.
+    init(queueTrack track: Track) {
+        title = track.title
+        trackNumber = ""
+        subtitle = track.artistName ?? ""
+        artistColumn = ""
+        albumColumn = ""
+        duration = ""
+        isPlaying = false
+        isDimmed = false
+        downloadState = .none
+        isFavorited = false
+        showsArtwork = true
+        showsTrackNumber = false
+        artistColumnWidth = nil
+        albumColumnWidth = nil
+    }
 }

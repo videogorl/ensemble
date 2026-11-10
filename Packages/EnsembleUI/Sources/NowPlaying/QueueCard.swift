@@ -201,7 +201,6 @@ public struct QueueCard: View {
                         hiddenQueueItemCount: hiddenQueueItemCount,
                         history: queueProjection.playbackHistory,
                         showHistory: queueProjection.showHistory,
-                        currentQueueIndex: -1,
                         onItemTap: { _, absoluteIndex in
                             viewModel.playFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
                         },

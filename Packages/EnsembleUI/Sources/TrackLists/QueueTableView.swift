@@ -8,25 +8,17 @@ import UIKit
 
 // MARK: - Queue Item Cell
 
-public class QueueItemCell: UITableViewCell {
+/// One queue or history row. Its identity is the queue item; its content and
+/// artwork come from the shared track row model.
+final class QueueItemCell: UITableViewCell {
     private let artworkImageView = UIImageView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
-    private let durationLabel = UILabel()
-    private let playingIndicator = UIImageView()
     private let autoplayIndicator = UIImageView()
     private let contextMenuButton = UIButton(type: .system)
-
-    private var titleLeadingConstraint: NSLayoutConstraint?
-    private var subtitleLeadingConstraint: NSLayoutConstraint?
-    private var currentItemID: String?
-    private var artworkLoadTask: Task<Void, Never>?
     private var autoplayWidthConstraint: NSLayoutConstraint?
-    /// Monotonically increasing counter to guard against stale artwork loads.
-    /// Each configure() increments this; the async artwork task checks its
-    /// captured generation matches before assigning the image.
-    private var configureGeneration: UInt = 0
-    
+    private let artwork = TrackCellArtwork()
+
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setupViews()
@@ -57,17 +49,6 @@ public class QueueItemCell: UITableViewCell {
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(subtitleLabel)
         
-        durationLabel.isHidden = true
-        durationLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(durationLabel)
-        
-        playingIndicator.image = UIImage(systemName: EnsembleDesign.Icon.speakerPlaying)
-        playingIndicator.tintColor = .systemBlue
-        playingIndicator.contentMode = .scaleAspectFit
-        playingIndicator.translatesAutoresizingMaskIntoConstraints = false
-        playingIndicator.isHidden = true
-        contentView.addSubview(playingIndicator)
-        
         autoplayIndicator.image = UIImage(systemName: EnsembleDesign.Icon.generatedBadge)
         autoplayIndicator.tintColor = .systemPurple
         autoplayIndicator.contentMode = .scaleAspectFit
@@ -92,16 +73,13 @@ public class QueueItemCell: UITableViewCell {
             artworkImageView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.standardArtworkDimension),
             
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: TrackListLayoutMetrics.defaultTitleTopPadding),
-            // Title expands until it hits autoplay indicator (which is pinned right to duration)
+            titleLabel.leadingAnchor.constraint(equalTo: artworkImageView.trailingAnchor, constant: TrackListLayoutMetrics.rowInterItemSpacing),
+            // The title runs up to the autoplay badge, which sits before the actions button.
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: autoplayIndicator.leadingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap),
             
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: TrackListLayoutMetrics.primarySecondaryTextSpacing),
+            subtitleLabel.leadingAnchor.constraint(equalTo: artworkImageView.trailingAnchor, constant: TrackListLayoutMetrics.rowInterItemSpacing),
             subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contextMenuButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
-            
-            playingIndicator.trailingAnchor.constraint(equalTo: contextMenuButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing),
-            playingIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            playingIndicator.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension),
-            playingIndicator.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension),
             
             autoplayIndicator.trailingAnchor.constraint(equalTo: contextMenuButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
             autoplayIndicator.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
@@ -115,89 +93,38 @@ public class QueueItemCell: UITableViewCell {
         ])
     }
     
-    public func configure(
+    func configure(
         with item: QueueItem,
-        isPlaying: Bool,
+        content: TrackRowContent,
         artworkLoader: ArtworkLoaderProtocol,
         contextMenu: UIMenu?
     ) {
-        let track = item.track
-        titleLabel.text = track.title
-        
+        titleLabel.text = content.title
+        subtitleLabel.text = content.subtitle
+
         // Autoplay styling
         let isAutoplay = item.source == .autoplay
         titleLabel.textColor = isAutoplay ? .systemPurple : .label
         autoplayIndicator.isHidden = !isAutoplay
-        autoplayWidthConstraint?.constant = isAutoplay ? 14 : 0
-        
-        // Remove old constraints
-        titleLeadingConstraint?.isActive = false
-        subtitleLeadingConstraint?.isActive = false
-        
-        // Configure leading constraint
-        let leadingAnchor = artworkImageView.trailingAnchor
-        let constant = TrackListLayoutMetrics.rowInterItemSpacing
-        
-        titleLeadingConstraint = titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: constant)
-        subtitleLeadingConstraint = subtitleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: constant)
-        
-        titleLeadingConstraint?.isActive = true
-        subtitleLeadingConstraint?.isActive = true
-        
-        var subtitleParts: [String] = []
-        if let artist = track.artistName {
-            subtitleParts.append(artist)
-        }
-        subtitleLabel.text = subtitleParts.joined(separator: " · ")
-        
-        durationLabel.text = nil
-        durationLabel.isHidden = true
-        playingIndicator.isHidden = !isPlaying
+        autoplayWidthConstraint?.constant = isAutoplay ? TrackListLayoutMetrics.queueGeneratedBadgeDimension : 0
 
         contextMenuButton.menu = contextMenu
         contextMenuButton.isHidden = contextMenu == nil
-        
-        // Load artwork — increment generation so stale loads are discarded
-        configureGeneration &+= 1
-        let expectedGeneration = configureGeneration
 
-        if currentItemID != item.id {
-            currentItemID = item.id
-            artworkImageView.image = nil
-            artworkImageView.backgroundColor = UIColor.systemGray5
-
-            // Cancel any previous artwork load task
-            artworkLoadTask?.cancel()
-
-            artworkLoadTask = Task { @MainActor in
-                let image = await TrackArtworkThumbnailLoader.image(
-                    for: track,
-                    artworkLoader: artworkLoader
-                ) {
-                    self.configureGeneration == expectedGeneration
-                }
-
-                if self.configureGeneration == expectedGeneration {
-                    self.artworkImageView.image = image
-                }
-            }
+        artwork.show(item.track, artworkLoader: artworkLoader) { [weak artworkImageView] image in
+            artworkImageView?.image = image
         }
     }
     
-    public override func prepareForReuse() {
+    override func prepareForReuse() {
         super.prepareForReuse()
-        artworkLoadTask?.cancel()
-        artworkLoadTask = nil
-        currentItemID = nil
-        titleLeadingConstraint?.isActive = false
-        subtitleLeadingConstraint?.isActive = false
+        // Keep the image: the next configure replaces it.
+        artwork.reset()
         contextMenuButton.menu = nil
     }
 
     func prepareArtworkRetry() -> Bool {
-        guard artworkImageView.image == nil else { return false }
-        currentItemID = nil
-        return true
+        artwork.prepareRetry(hasImage: artworkImageView.image != nil)
     }
 }
 
@@ -239,7 +166,6 @@ public struct QueueTableView: UIViewRepresentable {
     let hiddenQueueItemCount: Int
     let history: [QueueItem]
     let showHistory: Bool
-    let currentQueueIndex: Int
     let onItemTap: (QueueItem, Int) -> Void
     let onHistoryTap: (QueueItem, Int) -> Void  // Called when tapping a history item (item, historyIndex)
     let interactionModel: TrackRowInteractionModel
@@ -253,7 +179,6 @@ public struct QueueTableView: UIViewRepresentable {
         hiddenQueueItemCount: Int,
         history: [QueueItem],
         showHistory: Bool,
-        currentQueueIndex: Int,
         onItemTap: @escaping (QueueItem, Int) -> Void,
         onHistoryTap: @escaping (QueueItem, Int) -> Void,
         interactionModel: TrackRowInteractionModel,
@@ -264,7 +189,6 @@ public struct QueueTableView: UIViewRepresentable {
         self.hiddenQueueItemCount = hiddenQueueItemCount
         self.history = history
         self.showHistory = showHistory
-        self.currentQueueIndex = currentQueueIndex
         self.onItemTap = onItemTap
         self.onHistoryTap = onHistoryTap
         self.interactionModel = interactionModel
@@ -295,12 +219,15 @@ public struct QueueTableView: UIViewRepresentable {
         tableView.setEditing(true, animated: false)
         tableView.allowsSelectionDuringEditing = true
         tableView.contentInsetAdjustmentBehavior = .never
+        tableView.accessibilityIdentifier = "nowPlaying.queue.table"
         context.coordinator.tableView = tableView
         return tableView
     }
     
     public func updateUIView(_ tableView: UITableView, context: Context) {
-        // Update coordinator state
+        // Rows are queue items, so duplicates of one track stay distinct. Any
+        // change to the shown items or sections reloads. A row shows only its
+        // item's track and source, so there is no in-place redraw.
         let dataChanged: Bool
         if context.coordinator.showHistory != showHistory {
             dataChanged = true
@@ -312,14 +239,11 @@ public struct QueueTableView: UIViewRepresentable {
                 context.coordinator.queueItems != queueItems) ||
                 context.coordinator.hiddenQueueItemCount != hiddenQueueItemCount
         }
-        
-        let currentIndexChanged = context.coordinator.currentQueueIndex != currentQueueIndex
-        
+
         context.coordinator.queueItems = queueItems
         context.coordinator.hiddenQueueItemCount = hiddenQueueItemCount
         context.coordinator.history = history
         context.coordinator.showHistory = showHistory
-        context.coordinator.currentQueueIndex = currentQueueIndex
         context.coordinator.onItemTap = onItemTap
         context.coordinator.onHistoryTap = onHistoryTap
         context.coordinator.interactionModel = interactionModel
@@ -329,27 +253,10 @@ public struct QueueTableView: UIViewRepresentable {
         if tableView.isEditing == showHistory {
             tableView.setEditing(!showHistory, animated: false)
         }
-        
+
         if dataChanged {
             context.coordinator.rebuildSections()
             tableView.reloadData()
-        } else if currentIndexChanged && !showHistory {
-            // Only update visible cells
-            tableView.visibleCells.forEach { cell in
-                if let queueCell = cell as? QueueItemCell,
-                   let indexPath = tableView.indexPath(for: cell),
-                   !context.coordinator.isMoreRow(indexPath),
-                   let item = context.coordinator.item(at: indexPath) {
-                    let absoluteIndex = context.coordinator.absoluteQueueIndex(for: indexPath)
-                    let isPlaying = absoluteIndex == currentQueueIndex
-                    queueCell.configure(
-                        with: item,
-                        isPlaying: isPlaying,
-                        artworkLoader: dependencies.artworkLoader,
-                        contextMenu: context.coordinator.contextMenu(for: item.track, absoluteIndex: absoluteIndex)
-                    )
-                }
-            }
         }
     }
     
@@ -359,7 +266,6 @@ public struct QueueTableView: UIViewRepresentable {
             hiddenQueueItemCount: hiddenQueueItemCount,
             history: history,
             showHistory: showHistory,
-            currentQueueIndex: currentQueueIndex,
             onItemTap: onItemTap,
             onHistoryTap: onHistoryTap,
             interactionModel: interactionModel,
@@ -379,7 +285,6 @@ public struct QueueTableView: UIViewRepresentable {
         var hiddenQueueItemCount: Int
         var history: [QueueItem]
         var showHistory: Bool
-        var currentQueueIndex: Int
         var onItemTap: (QueueItem, Int) -> Void
         var onHistoryTap: (QueueItem, Int) -> Void
         var interactionModel: TrackRowInteractionModel
@@ -422,7 +327,6 @@ public struct QueueTableView: UIViewRepresentable {
             hiddenQueueItemCount: Int,
             history: [QueueItem],
             showHistory: Bool,
-            currentQueueIndex: Int,
             onItemTap: @escaping (QueueItem, Int) -> Void,
             onHistoryTap: @escaping (QueueItem, Int) -> Void,
             interactionModel: TrackRowInteractionModel,
@@ -435,7 +339,6 @@ public struct QueueTableView: UIViewRepresentable {
             self.hiddenQueueItemCount = hiddenQueueItemCount
             self.history = history
             self.showHistory = showHistory
-            self.currentQueueIndex = currentQueueIndex
             self.onItemTap = onItemTap
             self.onHistoryTap = onHistoryTap
             self.interactionModel = interactionModel
@@ -534,13 +437,11 @@ public struct QueueTableView: UIViewRepresentable {
 
             let cell = tableView.dequeueReusableCell(withIdentifier: "QueueItemCell", for: indexPath) as! QueueItemCell
             guard let item = item(at: indexPath) else { return cell }
-            let absoluteIndex = absoluteQueueIndex(for: indexPath)
-            let isPlaying = absoluteIndex == currentQueueIndex
             cell.configure(
                 with: item,
-                isPlaying: isPlaying,
+                content: TrackRowContent(queueTrack: item.track),
                 artworkLoader: artworkLoader,
-                contextMenu: contextMenu(for: item.track, absoluteIndex: absoluteIndex)
+                contextMenu: contextMenu(for: item.track, absoluteIndex: absoluteQueueIndex(for: indexPath))
             )
             return cell
         }
