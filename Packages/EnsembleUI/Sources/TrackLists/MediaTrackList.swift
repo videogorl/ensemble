@@ -335,34 +335,28 @@ public class TrackTableViewCell: UITableViewCell {
         downloadIconTrailingConstraint?.isActive = true
     }
     
-    public func configure(
+    func configure(
         with track: Track,
-        showArtwork: Bool,
-        showTrackNumber: Bool,
-        showAlbumName: Bool = true,
-        isPlaying: Bool,
-        isUnavailableOffline: Bool,
-        isActivelyDownloading: Bool = false,
-        isFavorited: Bool = false,
-        supplementalMetadataWidth: CGFloat? = nil,
-        sourceLabel: String? = nil,
+        content: TrackRowContent,
         menu: UIMenu?,
-        rowHeight: CGFloat = 68,
+        rowHeight: CGFloat,
         artworkLoader: ArtworkLoaderProtocol
     ) {
         applyLayoutMetrics(for: rowHeight)
-        titleLabel.text = track.title
+        titleLabel.text = content.title
         overflowButton.menu = menu
         overflowButton.isHidden = menu == nil
 
         // Show/hide favorite heart (positioned in existing margin, no content shift)
-        favoriteHeartView.isHidden = !isFavorited
+        favoriteHeartView.isHidden = !content.isFavorited
 
         // Remove old constraints
         titleLeadingConstraint?.isActive = false
         subtitleLeadingConstraint?.isActive = false
 
         // Configure leading constraint based on what's showing
+        let showArtwork = content.showsArtwork
+        let showTrackNumber = content.showsTrackNumber
         let leadingAnchor = showArtwork ? artworkImageView.trailingAnchor : (showTrackNumber ? trackNumberLabel.trailingAnchor : contentView.leadingAnchor)
         let constant: CGFloat = showArtwork || showTrackNumber
             ? TrackListLayoutMetrics.rowInterItemSpacing
@@ -374,65 +368,34 @@ public class TrackTableViewCell: UITableViewCell {
         titleLeadingConstraint?.isActive = true
         subtitleLeadingConstraint?.isActive = true
 
-        let showsArtistMetadataColumn = Self.showsArtistMetadataColumn(for: supplementalMetadataWidth)
-        let showsAlbumMetadataColumn = Self.showsAlbumMetadataColumn(for: supplementalMetadataWidth)
-        applySupplementalMetadataLayout(
-            width: supplementalMetadataWidth,
-            showsArtistColumn: showsArtistMetadataColumn,
-            showsAlbumColumn: showsAlbumMetadataColumn
-        )
+        applySupplementalMetadataLayout(artistWidth: content.artistColumnWidth, albumWidth: content.albumColumnWidth)
 
-        var subtitleParts: [String] = []
-        if let artist = track.artistName {
-            subtitleParts.append(artist)
-        }
-        if showAlbumName, let album = track.albumName {
-            subtitleParts.append(album)
-        }
-        if let unavailableReason = track.unavailableReason {
-            subtitleParts.append(unavailableReason)
-        }
-        if let sourceLabel {
-            subtitleParts.append(sourceLabel)
-        }
-        subtitleLabel.text = showsArtistMetadataColumn ? nil : subtitleParts.joined(separator: " · ")
+        let showsArtistMetadataColumn = content.artistColumnWidth != nil
+        subtitleLabel.text = showsArtistMetadataColumn ? nil : content.subtitle
         subtitleLabel.isHidden = showsArtistMetadataColumn
-        let artistMetadata = track.unavailableReason ?? track.artistName ?? "Unknown Artist"
-        artistMetadataLabel.text = [artistMetadata, sourceLabel].compactMap { $0 }.joined(separator: " · ")
-        albumMetadataLabel.text = track.unavailableReason == nil ? track.albumName ?? "Unknown Album" : ""
-        
-        durationLabel.text = track.formattedDuration
-        durationLabel.isHidden = isPlaying
-        playingIndicator.isHidden = !isPlaying
+        artistMetadataLabel.text = content.artistColumn
+        albumMetadataLabel.text = content.albumColumn
+
+        durationLabel.text = content.duration
+        durationLabel.isHidden = content.isPlaying
+        playingIndicator.isHidden = !content.isPlaying
 
         // Show spinner while downloading, download icon when complete, hide both otherwise
-        if isActivelyDownloading {
-            downloadIcon.isHidden = true
+        downloadIcon.isHidden = content.downloadState != .downloaded
+        if content.downloadState == .downloading {
             downloadSpinner.startAnimating()
-        } else if track.isDownloaded {
-            downloadIcon.isHidden = false
-            downloadSpinner.stopAnimating()
         } else {
-            downloadIcon.isHidden = true
             downloadSpinner.stopAnimating()
-        }
-        
-        // Show/hide artwork
-        artworkImageView.isHidden = !showArtwork
-        
-        // Show/hide track number
-        trackNumberLabel.isHidden = !showTrackNumber
-        if showTrackNumber {
-            if isPlaying {
-                trackNumberLabel.text = ""
-                // Could add a playing indicator here if desired
-            } else {
-                trackNumberLabel.text = "\(track.trackNumber)"
-            }
         }
 
-        contentView.alpha = isUnavailableOffline ? 0.45 : 1
-        
+        artworkImageView.isHidden = !showArtwork
+        trackNumberLabel.isHidden = !showTrackNumber
+        if showTrackNumber {
+            trackNumberLabel.text = content.trackNumber
+        }
+
+        contentView.alpha = content.isDimmed ? 0.45 : 1
+
         // Load artwork if needed
         if showArtwork {
             // Only load artwork if track changed
@@ -508,15 +471,13 @@ public class TrackTableViewCell: UITableViewCell {
         artworkImageView.layer.cornerRadius = ArtworkCornerRadius.square(for: dimension)
     }
 
-    private func applySupplementalMetadataLayout(
-        width: CGFloat?,
-        showsArtistColumn: Bool,
-        showsAlbumColumn: Bool
-    ) {
+    private func applySupplementalMetadataLayout(artistWidth: CGFloat?, albumWidth: CGFloat?) {
+        let showsArtistColumn = artistWidth != nil
+        let showsAlbumColumn = albumWidth != nil
         artistMetadataLabel.isHidden = !showsArtistColumn
         albumMetadataLabel.isHidden = !showsAlbumColumn
-        artistWidthConstraint?.constant = showsArtistColumn ? Self.artistMetadataColumnWidth(for: width) : 0
-        albumWidthConstraint?.constant = showsAlbumColumn ? Self.albumMetadataColumnWidth(for: width) : 0
+        artistWidthConstraint?.constant = artistWidth ?? 0
+        albumWidthConstraint?.constant = albumWidth ?? 0
 
         titleTopConstraint?.isActive = !showsArtistColumn
         titleCenterYConstraint?.isActive = showsArtistColumn
@@ -527,24 +488,6 @@ public class TrackTableViewCell: UITableViewCell {
         albumTrailingToDownloadConstraint?.isActive = showsAlbumColumn
     }
 
-    private static func showsArtistMetadataColumn(for width: CGFloat?) -> Bool {
-        guard let width else { return false }
-        return TrackListLayoutMetrics.showsArtistMetadataColumn(for: width)
-    }
-
-    private static func showsAlbumMetadataColumn(for width: CGFloat?) -> Bool {
-        guard let width else { return false }
-        return TrackListLayoutMetrics.showsAlbumMetadataColumn(for: width)
-    }
-
-    private static func artistMetadataColumnWidth(for width: CGFloat?) -> CGFloat {
-        TrackListLayoutMetrics.artistMetadataColumnWidth(for: width)
-    }
-
-    private static func albumMetadataColumnWidth(for width: CGFloat?) -> CGFloat {
-        TrackListLayoutMetrics.albumMetadataColumnWidth(for: width)
-    }
-    
     public override func prepareForReuse() {
         super.prepareForReuse()
         // Cancel any in-flight artwork load
@@ -675,8 +618,8 @@ struct MediaTrackList: UIViewRepresentable {
     public func updateUIView(_ tableView: UITableView, context: Context) {
         let coordinator = context.coordinator
         let tracks = tracks
+        let previous = coordinator.configuration
         let bottomContentInset = configuration.bottomContentInset
-        coordinator.selectedTrackId = configuration.selectedTrackId
         if managesOwnScrolling,
            coordinator.contentScrollViewOwner == nil,
            tableView.window != nil {
@@ -695,7 +638,7 @@ struct MediaTrackList: UIViewRepresentable {
         }
 
         let contentIsUnchanged: Bool = if let contentRevision = configuration.contentRevision {
-            contentRevision == coordinator.contentRevision
+            contentRevision == previous.contentRevision
         } else {
             sectionsShareStorage(coordinator.sections, sections)
         }
@@ -716,14 +659,14 @@ struct MediaTrackList: UIViewRepresentable {
         // Check if any track's download state changed (localFilePath set or cleared)
         let downloadStateChanged = !dataChanged && trackState.downloadStateChanged
 
-        let currentTrackChanged = coordinator.currentTrackId != configuration.currentTrackId
+        let currentTrackChanged = previous.currentTrackId != configuration.currentTrackId
         // Read network state from DependencyContainer (not observed — parent drives re-renders)
         let isOffline = !dependencies.networkMonitor.isConnected
         let offlineStateChanged = coordinator.isOffline != isOffline
-        let activeDownloadsChanged = coordinator.activeDownloadTrackIdentities != configuration.activeDownloadTrackIdentities
-        let availabilityChanged = coordinator.lastAvailabilityGeneration != configuration.availabilityGeneration
-        let supplementalMetadataWidthChanged = coordinator.supplementalMetadataWidth != configuration.supplementalMetadataWidth
-        let trackSourceLabelsChanged = coordinator.trackSourceLabels != configuration.trackSourceLabels
+        let activeDownloadsChanged = previous.activeDownloadTrackIdentities != configuration.activeDownloadTrackIdentities
+        let availabilityChanged = previous.availabilityGeneration != configuration.availabilityGeneration
+        let supplementalMetadataWidthChanged = previous.supplementalMetadataWidth != configuration.supplementalMetadataWidth
+        let trackSourceLabelsChanged = previous.trackSourceLabels != configuration.trackSourceLabels
         let displayRatingsChanged = coordinator.lastDisplayRatingsRevision != displayRatingsRevision
         let newFavoriteStateSignature = !dataChanged && displayRatingsChanged
             ? favoriteStateSignature(for: tracks)
@@ -736,27 +679,17 @@ struct MediaTrackList: UIViewRepresentable {
         // Update coordinator state
         coordinator.tracks = tracks
         coordinator.sections = sections
-        coordinator.contentRevision = configuration.contentRevision
+        coordinator.configuration = configuration
         coordinator.groupedTracks = newGroupedTracks
         coordinator.groupSignature = newGroupSignature
         coordinator.favoriteStateSignature = newFavoriteStateSignature
-        coordinator.showArtwork = configuration.showArtwork
-        coordinator.showTrackNumbers = configuration.showTrackNumbers
-        coordinator.showAlbumName = configuration.showAlbumName
-        coordinator.currentTrackId = configuration.currentTrackId
         coordinator.onTrackTap = onTrackTap
         coordinator.onRemoveFromPlaylist = onRemoveFromPlaylist
-        coordinator.interactionModel = configuration.interactionModel
-        coordinator.supplementalMetadataWidth = configuration.supplementalMetadataWidth
-        coordinator.trackSourceLabels = configuration.trackSourceLabels
         coordinator.artworkLoader = dependencies.artworkLoader
         coordinator.toastCenter = dependencies.toastCenter
         coordinator.settingsManager = dependencies.settingsManager
         coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
         coordinator.isOffline = isOffline
-        coordinator.activeDownloadTrackIdentities = configuration.activeDownloadTrackIdentities
-        coordinator.rowHeight = configuration.rowHeight
-        coordinator.lastAvailabilityGeneration = configuration.availabilityGeneration
         coordinator.lastDisplayRatingsRevision = displayRatingsRevision
         // Hosted cells are separate SwiftUI roots and do not inherit the environment.
         coordinator.tableHeaderContent = tableHeaderContent.map { AnyView($0.environment(dependencies)) }
@@ -813,25 +746,8 @@ struct MediaTrackList: UIViewRepresentable {
             tableView.visibleCells.forEach { cell in
                 if let trackCell = cell as? TrackTableViewCell,
                    let indexPath = tableView.indexPath(for: cell),
-                   let groupIndex = coordinator.groupIndex(forTableSection: indexPath.section),
-                   indexPath.row < newGroupedTracks[groupIndex].tracks.count {
-                    let track = newGroupedTracks[groupIndex].tracks[indexPath.row]
-                    let isPlaying = track.playbackIdentity == configuration.currentTrackId
-                    trackCell.configure(
-                        with: track,
-                        showArtwork: configuration.showArtwork,
-                        showTrackNumber: configuration.showTrackNumbers,
-                        showAlbumName: configuration.showAlbumName,
-                        isPlaying: isPlaying,
-                        isUnavailableOffline: coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
-                        isActivelyDownloading: coordinator.activeDownloadTrackIdentities.contains(track.sourceScopedID),
-                        isFavorited: coordinator.interactionModel.isFavorited(track),
-                        supplementalMetadataWidth: coordinator.supplementalMetadataWidth,
-                        sourceLabel: coordinator.sourceLabel(for: track),
-                        menu: coordinator.makeDeferredContextMenu(for: track, at: indexPath),
-                        rowHeight: coordinator.rowHeight,
-                        artworkLoader: dependencies.artworkLoader
-                    )
+                   let track = coordinator.track(at: indexPath) {
+                    coordinator.configure(trackCell, with: track, at: indexPath)
                 }
             }
         }
@@ -895,30 +811,19 @@ struct MediaTrackList: UIViewRepresentable {
         fileprivate var groupedTracks: [MediaTrackGroup]
         var groupSignature: [String]
         var favoriteStateSignature: [Bool]
-        var showArtwork: Bool
-        var showTrackNumbers: Bool
-        var showAlbumName: Bool
-        var currentTrackId: String?
         var sections: [NativeTrackListSection]
-        var contentRevision: UInt64?
+        var configuration: NativeTrackListConfiguration
         var onTrackTap: (Track, Int) -> Void
         var onRemoveFromPlaylist: ((Track, Int) -> Void)?
         var consumedSectionScrollRequestID: Int?
-        var selectedTrackId: String?
         var consumedSelectedTrackId: String?
-        var interactionModel: TrackRowInteractionModel
-        var supplementalMetadataWidth: CGFloat?
-        var trackSourceLabels: [String: String]
         var artworkLoader: ArtworkLoaderProtocol
         var shareService: ShareService
         var toastCenter: ToastCenter
         var settingsManager: SettingsManager
         var trackAvailabilityResolver: TrackAvailabilityResolver
         var isOffline: Bool
-        var activeDownloadTrackIdentities: Set<String>
-        var rowHeight: CGFloat
         var tableFooterContent: AnyView?
-        var lastAvailabilityGeneration: UInt64 = 0
         var lastDisplayRatingsRevision: UInt64 = 0
         var tableHeaderContent: AnyView?
         var tableHeaderRevision: String?
@@ -948,27 +853,18 @@ struct MediaTrackList: UIViewRepresentable {
         ) {
             self.tracks = tracks
             self.sections = sections
-            self.contentRevision = configuration.contentRevision
+            self.configuration = configuration
             self.groupedTracks = groupedTracks
             self.groupSignature = groupedTracks.map(\.signature)
             self.favoriteStateSignature = []
-            self.showArtwork = configuration.showArtwork
-            self.showTrackNumbers = configuration.showTrackNumbers
-            self.showAlbumName = configuration.showAlbumName
-            self.currentTrackId = configuration.currentTrackId
             self.onTrackTap = onTrackTap
             self.onRemoveFromPlaylist = onRemoveFromPlaylist
-            self.interactionModel = configuration.interactionModel
-            self.supplementalMetadataWidth = configuration.supplementalMetadataWidth
-            self.trackSourceLabels = configuration.trackSourceLabels
             self.artworkLoader = artworkLoader
             self.shareService = shareService
             self.toastCenter = toastCenter
             self.settingsManager = settingsManager
             self.trackAvailabilityResolver = trackAvailabilityResolver
             self.isOffline = isOffline
-            self.activeDownloadTrackIdentities = configuration.activeDownloadTrackIdentities
-            self.rowHeight = configuration.rowHeight
             self.lastDisplayRatingsRevision = displayRatingsRevision
             self.tableHeaderContent = tableHeaderContent
             self.tableHeaderRevision = tableHeaderRevision
@@ -1015,8 +911,18 @@ struct MediaTrackList: UIViewRepresentable {
             indexedTrack(at: indexPath)?.track
         }
 
-        func sourceLabel(for track: Track) -> String? {
-            track.sourceCompositeKey.flatMap { trackSourceLabels[$0] }
+        func configure(_ cell: TrackTableViewCell, with track: Track, at indexPath: IndexPath) {
+            cell.configure(
+                with: track,
+                content: TrackRowContent(
+                    track: track,
+                    configuration: configuration,
+                    isDimmed: trackAvailabilityResolver.availability(for: track).shouldDim
+                ),
+                menu: makeDeferredContextMenu(for: track, at: indexPath),
+                rowHeight: configuration.rowHeight,
+                artworkLoader: artworkLoader
+            )
         }
 
         private func indexedTrack(at indexPath: IndexPath) -> (track: Track, index: Int)? {
@@ -1054,7 +960,7 @@ struct MediaTrackList: UIViewRepresentable {
         func selectRequestedTrack() {
             guard let tableView, tableView.window != nil,
                   tableView.bounds.width > 0, tableView.bounds.height > 0,
-                  let selectedTrackId, consumedSelectedTrackId != selectedTrackId,
+                  let selectedTrackId = configuration.selectedTrackId, consumedSelectedTrackId != selectedTrackId,
                   let indexPath = indexPath(forTrackId: selectedTrackId),
                   indexPath.section < tableView.numberOfSections,
                   indexPath.row < tableView.numberOfRows(inSection: indexPath.section) else { return }
@@ -1114,22 +1020,7 @@ struct MediaTrackList: UIViewRepresentable {
             let cell = tableView.dequeueReusableCell(withIdentifier: "TrackCell", for: indexPath) as! TrackTableViewCell
             cell.backgroundColor = .clear
             guard let track = track(at: indexPath) else { return cell }
-            let isPlaying = track.playbackIdentity == currentTrackId
-            cell.configure(
-                with: track,
-                showArtwork: showArtwork,
-                showTrackNumber: showTrackNumbers,
-                showAlbumName: showAlbumName,
-                isPlaying: isPlaying,
-                isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
-                isActivelyDownloading: activeDownloadTrackIdentities.contains(track.sourceScopedID),
-                isFavorited: interactionModel.isFavorited(track),
-                supplementalMetadataWidth: supplementalMetadataWidth,
-                sourceLabel: sourceLabel(for: track),
-                menu: makeDeferredContextMenu(for: track, at: indexPath),
-                rowHeight: rowHeight,
-                artworkLoader: artworkLoader
-            )
+            configure(cell, with: track, at: indexPath)
             return cell
         }
         
@@ -1209,12 +1100,12 @@ struct MediaTrackList: UIViewRepresentable {
         }
 
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-            groupIndex(forTableSection: indexPath.section) == nil ? UITableView.automaticDimension : rowHeight
+            groupIndex(forTableSection: indexPath.section) == nil ? UITableView.automaticDimension : configuration.rowHeight
         }
 
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
             guard let track = track(at: indexPath) else { return nil }
-            let resolvedActions = interactionModel.resolve(for: track, in: tracks)
+            let resolvedActions = configuration.interactionModel.resolve(for: track, in: tracks)
             guard let menu = makeContextMenu(for: track, at: indexPath, resolvedActions: resolvedActions) else { return nil }
 
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
@@ -1228,7 +1119,7 @@ struct MediaTrackList: UIViewRepresentable {
             resolvedActions: TrackRowInteractionModel.ResolvedActions
         ) -> UIMenu? {
             let indexed = indexedTrack(at: indexPath)
-            let canRemove = interactionModel.allowsRemovalFromPlaylist(track)
+            let canRemove = configuration.interactionModel.allowsRemovalFromPlaylist(track)
             return NativeMediaTableActionBuilder.contextMenu(
                 for: track,
                 resolvedActions: resolvedActions,
@@ -1242,7 +1133,7 @@ struct MediaTrackList: UIViewRepresentable {
         }
 
         func makeDeferredContextMenu(for track: Track, at indexPath: IndexPath) -> UIMenu? {
-            guard interactionModel.hasContextMenu(for: track) || onRemoveFromPlaylist != nil else { return nil }
+            guard configuration.interactionModel.hasContextMenu(for: track) || onRemoveFromPlaylist != nil else { return nil }
 
             return UIMenu(children: [
                 UIDeferredMenuElement.uncached { [weak self] completion in
@@ -1251,7 +1142,7 @@ struct MediaTrackList: UIViewRepresentable {
                         return
                     }
 
-                    let resolvedActions = self.interactionModel.resolve(for: track, in: self.tracks)
+                    let resolvedActions = self.configuration.interactionModel.resolve(for: track, in: self.tracks)
                     let menu = self.makeContextMenu(for: track, at: indexPath, resolvedActions: resolvedActions)
                     completion(menu?.children ?? [])
                 }
@@ -1294,9 +1185,9 @@ struct MediaTrackList: UIViewRepresentable {
 
         private func swipeActions(from configured: [TrackSwipeAction?], track: Track) -> [UIContextualAction] {
             guard track.isLibraryAvailable else { return [] }
-            let isFavorited = interactionModel.isFavorited(track)
+            let isFavorited = configuration.interactionModel.isFavorited(track)
             return configured.compactMap { candidate -> UIContextualAction? in
-                guard let action = candidate, interactionModel.hasHandler(for: action) else { return nil }
+                guard let action = candidate, configuration.interactionModel.hasHandler(for: action) else { return nil }
                 let contextual = UIContextualAction(
                     style: .normal,
                     title: TrackActionPresentation.title(for: action, isFavorited: isFavorited)
@@ -1305,7 +1196,7 @@ struct MediaTrackList: UIViewRepresentable {
                         completion(false)
                         return
                     }
-                    let resolvedActions = self.interactionModel.resolve(for: track)
+                    let resolvedActions = self.configuration.interactionModel.resolve(for: track)
                     guard TrackActionPresentation.isSupported(action, resolvedActions: resolvedActions) else {
                         completion(false)
                         return

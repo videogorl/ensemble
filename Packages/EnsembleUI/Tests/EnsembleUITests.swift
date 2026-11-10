@@ -620,20 +620,8 @@ final class EnsembleUITests: XCTestCase {
         )
         var candidateLookups = 0
         let dependencies = DependencyContainer()
-        let coordinator = MacNativeTrackTableView.Coordinator(
-            sections: [NativeTrackListSection(id: "all", title: "", tracks: [track])],
+        let configuration = NativeTrackListConfiguration(
             showArtwork: false,
-            showTrackNumbers: false,
-            showAlbumName: true,
-            tableHeaderContent: nil,
-            tableFooterContent: nil,
-            currentTrackId: nil,
-            availabilityGeneration: 0,
-            activeDownloadTrackIdentities: [],
-            bottomContentInset: 0,
-            usesDynamicTableHeaderHeight: false,
-            supplementalMetadataWidth: nil,
-            trackSourceLabels: [:],
             rowHeight: 48,
             interactionModel: TrackRowInteractionModel(
                 onPlayNext: { _ in },
@@ -641,7 +629,13 @@ final class EnsembleUITests: XCTestCase {
                     candidateLookups += 1
                     return [track]
                 }
-            ),
+            )
+        )
+        let coordinator = MacNativeTrackTableView.Coordinator(
+            sections: [NativeTrackListSection(id: "all", title: "", tracks: [track])],
+            configuration: configuration,
+            tableHeaderContent: nil,
+            tableFooterContent: nil,
             artworkLoader: dependencies.artworkLoader,
             shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
