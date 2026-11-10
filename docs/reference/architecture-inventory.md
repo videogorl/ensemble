@@ -401,7 +401,7 @@ Dynamic home screen powered by Plex's hub system:
 - `PlaybackService` -> `SyncCoordinator.scrobbleTrack()` -> `PlexAPIClient.scrobble()`
 - HTTP POST to `/:/scrobble`
 
-**Protocol:** `MusicSourceSyncProvider` includes `reportTimeline()` and `scrobble()` methods
+**Protocol:** `MusicSourceConnector` includes `reportTimeline()` and `scrobble()` methods
 
 ## Subsystem: Advanced Filtering
 
@@ -551,8 +551,8 @@ PlexAPIClient ──failover──> ServerConnectionRegistry <──writes──
                                         v
                              CompactSearchRows / MediaTrackList (UI dimming/blocking)
 
-PlaybackService ──makeStreamDecision──> SyncCoordinator ──> PlexMusicSourceSyncProvider ──> PlexAPIClient.makeStreamDecision()
-PlaybackService ──assembleStream──> SyncCoordinator ──> PlexMusicSourceSyncProvider ──> PlexAPIClient.assembleStreamResolution()
+PlaybackService ──makeStreamDecision──> SyncCoordinator ──> PlexConnector ──> PlexAPIClient.makeStreamDecision()
+PlaybackService ──assembleStream──> SyncCoordinator ──> PlexConnector ──> PlexAPIClient.assembleStreamResolution()
                                                                                               └──> ServerConnectionRegistry (reads fresh endpoint)
 PlaybackTransportCoordinator.cachedStreamDecisions ── survives ──> network transitions (decisions are endpoint-independent)
 
@@ -716,7 +716,7 @@ Karaoke-style time-synced lyrics fetched from Plex and displayed in the Lyrics C
 
 6. **Offline Sidecar** -- `OfflineDownloadService` generates a `.lrc` sidecar after downloading a track (if the track has a lyrics stream). `DownloadManager` cleans up `.lrc` sidecars when downloads are removed.
 
-7. **API Accessor** -- `SyncCoordinator.apiClient(for:)` exposes the underlying `PlexAPIClient` for a given source, used by `LyricsService` to make direct lyrics content requests. `PlexMusicSourceSyncProvider.exposedAPIClient` provides the underlying client.
+7. **API Accessor** -- `SyncCoordinator.apiClient(for:)` exposes the underlying `PlexAPIClient` for a given source, used by `LyricsService` to make direct lyrics content requests. `PlexConnector.exposedAPIClient` provides the underlying client.
 
 8. **PlexModels Extension** -- `PlexStream` gained lyrics fields (`format`, `key`, `streamKey`). `PlexTrack.lyricsStream` returns the first stream with `streamType == 4`.
 
@@ -728,7 +728,7 @@ Karaoke-style time-synced lyrics fetched from Plex and displayed in the Lyrics C
 - `Packages/EnsembleCore/Sources/DI/DependencyContainer.swift` - wires LyricsService
 - `Packages/EnsembleCore/Sources/ViewModels/NowPlayingViewModel.swift` - lyricsState, currentLyricsLineIndex
 - `Packages/EnsembleCore/Sources/Services/SyncCoordinator.swift` - apiClient(for:) accessor
-- `Packages/EnsembleCore/Sources/Services/PlexMusicSourceSyncProvider.swift` - exposedAPIClient
+- `Packages/EnsembleCore/Sources/Services/PlexConnector.swift` - exposedAPIClient
 - `Packages/EnsembleCore/Sources/Services/OfflineDownloadService.swift` - .lrc sidecar generation
 - `Packages/EnsemblePersistence/Sources/Downloads/DownloadManager.swift` - .lrc sidecar cleanup
 - `Packages/EnsembleUI/Sources/NowPlaying/LyricsCard.swift` - three-state lyrics display
@@ -813,7 +813,7 @@ Hybrid sync architecture for cross-device settings and credential sharing:
 ## Multi-Source Architecture
 
 When adding new music sources:
-1. Create provider implementing `MusicSourceSyncProvider` protocol
+1. Create provider implementing `MusicSourceConnector` protocol
 2. Add source type to `MusicSourceType` enum
 3. Register provider in `SyncCoordinator.refreshProviders()`
 4. Add account configuration model similar to `PlexAccountConfig`

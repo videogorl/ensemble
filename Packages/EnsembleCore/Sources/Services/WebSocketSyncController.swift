@@ -12,7 +12,7 @@ final class WebSocketSyncController {
     func resolveSections(
         sectionKey: String,
         serverKey: String,
-        providers: [String: MusicSourceSyncProvider],
+        providers: [String: MusicSourceConnector],
         knownSources: Set<MusicSourceIdentifier>
     ) -> [SectionResolution] {
         let parts = serverKey.split(separator: ":", maxSplits: 1)
@@ -34,7 +34,7 @@ final class WebSocketSyncController {
 
     func refreshServerPlaylists(
         serverKey: String,
-        providers: [String: MusicSourceSyncProvider],
+        providers: [String: MusicSourceConnector],
         playlistRepository: PlaylistRepositoryProtocol,
         playlistRefreshController: PlaylistRefreshController
     ) async throws -> PlaylistRefreshController.RefreshResult? {

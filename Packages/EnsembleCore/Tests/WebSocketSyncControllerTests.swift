@@ -163,7 +163,7 @@ struct WebSocketSyncControllerTests {
     }
 }
 
-private final class MockWebSocketProvider: MusicSourceSyncProvider, @unchecked Sendable {
+private final class MockWebSocketProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
     let sourceIdentifier: MusicSourceIdentifier
     let incrementalPlaylistResult: PlaylistSyncResult
 

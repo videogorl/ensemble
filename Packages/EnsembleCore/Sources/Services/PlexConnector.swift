@@ -3,8 +3,9 @@ import EnsemblePersistence
 import Foundation
 
 /// Syncs a single Plex server+library to CoreData
-public final class PlexMusicSourceSyncProvider:
-    MusicSourceSyncProvider,
+public final class PlexConnector:
+    MusicSourceLibraryFetching,
+    MusicSourceChangeFetching,
     MusicSourceTwoPhasePlaybackResolving,
     MusicSourceRatingMutating,
     MusicSourceCollectionRatingMutating,
@@ -300,500 +301,291 @@ public final class PlexMusicSourceSyncProvider:
         }
     }
 
-    func reconcileLibraryChanges(
-        _ changes: Set<PlexLibraryChange>,
-        to repository: LibraryRepositoryProtocol
-    ) async throws -> LibrarySyncResult {
-        let actionableChanges = changes.filter { !$0.isDeletion }
-        guard !actionableChanges.isEmpty else { return LibrarySyncResult() }
+    // MARK: - Library fetch
 
-        let sourceKey = sourceIdentifier.compositeKey
-        _ = try await repository.upsertMusicSource(
-            compositeKey: sourceKey,
-            type: sourceIdentifier.type.rawValue,
-            accountId: sourceIdentifier.accountId,
-            serverId: sourceIdentifier.serverId,
-            libraryId: sourceIdentifier.libraryId,
-            displayName: nil,
-            accountName: nil
+    /// Fetches the whole library, or only what changed since `plan.since`, plus the
+    /// complete inventory when one is due. Reads and returns values; the writer
+    /// decides what to store and delete.
+    public func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch {
+        if let since = plan.since { return try await fetchChangedLibrary(plan: plan, since: since) }
+        return try await fetchFullLibrary(plan: plan)
+    }
+
+    /// A list read once, or twice when the first read would remove cached keys.
+    struct Confirmed<Item> {
+        /// The latest read: what every non-deletion step uses.
+        let items: [Item]
+        /// The latest read plus rows only the first read listed. Deletion uses this, so a row
+        /// must be absent from both reads to be removed.
+        let all: [Item]
+    }
+
+    private func confirmed<Item, Stored>(
+        _ first: [Item],
+        storedKeys: Dictionary<String, Stored>.Keys,
+        key: (Item) -> String,
+        what: String,
+        reread: () async throws -> [Item]
+    ) async throws -> Confirmed<Item> {
+        guard !Set(storedKeys).isSubset(of: first.map(key)) else { return Confirmed(items: first, all: first) }
+        EnsembleLogger.debug("🔄 Confirming Plex \(what) inventory before orphan removal")
+        let second = try await reread()
+        let secondKeys = Set(second.map(key))
+        return Confirmed(items: second, all: second + first.filter { !secondKeys.contains(key($0)) })
+    }
+
+    private func fetchFullLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch {
+        let queryStartedAt = Date()
+        let stored = plan.stored
+        EnsembleLogger.debug("🔄 Full library fetch starting for \(sourceIdentifier.compositeKey)")
+
+        let artists = try await confirmed(
+            try await apiClient.getArtists(sectionKey: sectionKey),
+            storedKeys: stored.artists.keys, key: \.ratingKey, what: "artist"
+        ) { try await apiClient.getArtists(sectionKey: sectionKey) }
+        let albums = try await confirmed(
+            try await apiClient.getAlbums(sectionKey: sectionKey),
+            storedKeys: stored.albums.keys, key: \.ratingKey, what: "album"
+        ) { try await apiClient.getAlbums(sectionKey: sectionKey) }
+        let tracks = try await confirmed(
+            try await apiClient.getTracks(sectionKey: sectionKey),
+            storedKeys: stored.tracks.keys, key: \.ratingKey, what: "track"
+        ) { try await apiClient.getTracks(sectionKey: sectionKey) }
+        let genres = try await apiClient.getGenres(sectionKey: sectionKey)
+
+        let inventory = try LibraryInventory(
+            artistIDs: artists.all.map(\.ratingKey),
+            albumIDs: albums.all.map(\.ratingKey),
+            tracks: tracks.all.map { ($0.ratingKey, $0.parentRatingKey) },
+            genreIDs: genres.compactMap(\.ratingKey)
         )
+        let complete = await completeInputs(albums: albums.items, tracks: tracks.items, counts: inventory.trackCounts)
+        return LibraryBatch(
+            artists: artists.items.map(Self.artistUpsertInput),
+            albums: complete.albums,
+            tracks: complete.tracks,
+            genres: genres.map { GenreUpsertInput(ratingKey: $0.ratingKey, key: $0.key, title: $0.title) },
+            inventory: inventory,
+            isFullMetadataPass: true,
+            queryStartedAt: queryStartedAt
+        )
+    }
 
-        let explicitArtistKeys = Set(actionableChanges.filter { $0.kind == .artist }.map(\.ratingKey))
-        let explicitAlbumKeys = Set(actionableChanges.filter { $0.kind == .album }.map(\.ratingKey))
-        let explicitTrackKeys = Set(actionableChanges.filter { $0.kind == .track }.map(\.ratingKey))
+    /// Inputs for a complete album and track fetch: track counts from the inventory, and
+    /// tracks copying their album's genres, since Plex returns genres only on albums.
+    private func completeInputs(
+        albums: [PlexAlbum],
+        tracks: [PlexTrack],
+        counts: [String: Int]
+    ) async -> (albums: [AlbumUpsertInput], tracks: [TrackUpsertInput]) {
+        let releaseFormats = await libraryAlbumReleaseFormats()
+        let albumInputs = albums.map {
+            Self.albumUpsertInput(
+                from: $0,
+                trackCount: counts[$0.ratingKey],
+                releaseFormat: releaseFormats?[$0.ratingKey],
+                updatesReleaseFormat: releaseFormats != nil
+            )
+        }
+        let albumGenres = Self.genresByAlbum(albumInputs)
+        return (albumInputs, tracks.map { Self.trackUpsertInput(from: $0, genreNames: $0.parentRatingKey.flatMap { albumGenres[$0] }) })
+    }
 
+    private func fetchChangedLibrary(plan: LibrarySyncPlan, since: Date) async throws -> LibraryBatch {
+        let queryStartedAt = Date()
+        let stored = plan.stored
+        let timestamp = since.timeIntervalSince1970
+        EnsembleLogger.debug("🔄 Incremental fetch for \(sourceIdentifier.compositeKey) since \(since)")
+
+        // Plex can change artist fields without advancing artist or section timestamps,
+        // so the small artist catalog is compared directly beside the item-level queries.
+        let artists = try await confirmed(
+            try await apiClient.getArtists(sectionKey: sectionKey),
+            storedKeys: stored.artists.keys, key: \.ratingKey, what: "artist"
+        ) { try await apiClient.getArtists(sectionKey: sectionKey) }
+        let artistInputs = artists.items.map(Self.artistUpsertInput)
+
+        let albumChanges = Self.deduplicatedChangedItems(
+            added: try await apiClient.getAlbums(sectionKey: sectionKey, addedAfter: timestamp),
+            updated: try await apiClient.getAlbums(sectionKey: sectionKey, updatedAfter: timestamp),
+            existingTimestamps: stored.albums.mapValues { $0.dateModified ?? .distantPast },
+            ratingKey: { $0.ratingKey },
+            updatedAt: { $0.updatedAt }
+        )
+        let releaseFormats = albumChanges.changedItems.isEmpty ? nil : await libraryAlbumReleaseFormats()
+        let albumInputs = albumChanges.changedItems.map {
+            Self.albumUpsertInput(from: $0, releaseFormat: releaseFormats?[$0.ratingKey], updatesReleaseFormat: releaseFormats != nil)
+        }
+        // A track's genre is its album's: a changed album's own, otherwise the stored album's.
+        var albumGenres = stored.albums.compactMapValues(\.genreNames)
+        for album in albumInputs { albumGenres[album.ratingKey] = album.genreNames }
+
+        // Rating changes made on other clients are caught by the next full metadata pass:
+        // the ratedAfter filter returns every rated track whatever the date, which costs
+        // about 1 MB and 3 seconds per cycle for nothing.
+        let trackChanges = Self.deduplicatedChangedItems(
+            added: try await apiClient.getTracks(sectionKey: sectionKey, addedAfter: timestamp),
+            updated: try await apiClient.getTracks(sectionKey: sectionKey, updatedAfter: timestamp),
+            existingTimestamps: stored.tracks.mapValues(\.dateModified),
+            ratingKey: { $0.ratingKey },
+            updatedAt: { $0.updatedAt },
+            hasAdditionalChange: { track in
+                stored.tracks[track.ratingKey].map { $0.rating != Int16(track.userRating.map { Int($0) } ?? 0) } ?? false
+            }
+        )
+        let trackInputs = trackChanges.changedItems.map {
+            Self.trackUpsertInput(from: $0, genreNames: $0.parentRatingKey.flatMap { albumGenres[$0] })
+        }
+
+        var batch = LibraryBatch(artists: artistInputs, albums: albumInputs, tracks: trackInputs, queryStartedAt: queryStartedAt)
+        let changedCount = artistInputs.filter { stored.artists[$0.ratingKey]?.matches($0) != true }.count
+            + albumInputs.count + trackInputs.count
+        guard changedCount > 0 || plan.inventoryDue || plan.fullMetadataDue else { return batch }
+
+        // Delete only from a complete inventory: after a change, or once a day.
+        if plan.fullMetadataDue {
+            async let allAlbums = apiClient.getAlbums(sectionKey: sectionKey)
+            async let allTracks = apiClient.getTracks(sectionKey: sectionKey)
+            let albums = try await confirmed(
+                try await allAlbums, storedKeys: stored.albums.keys, key: \.ratingKey, what: "album"
+            ) { try await apiClient.getAlbums(sectionKey: sectionKey) }
+            let tracks = try await confirmed(
+                try await allTracks, storedKeys: stored.tracks.keys, key: \.ratingKey, what: "track"
+            ) { try await apiClient.getTracks(sectionKey: sectionKey) }
+            let inventory = try LibraryInventory(
+                artistIDs: artists.all.map(\.ratingKey),
+                albumIDs: albums.all.map(\.ratingKey),
+                tracks: tracks.all.map { ($0.ratingKey, $0.parentRatingKey) }
+            )
+            let complete = await completeInputs(albums: albums.items, tracks: tracks.items, counts: inventory.trackCounts)
+            batch.albums = complete.albums
+            batch.tracks = complete.tracks
+            batch.inventory = inventory
+            batch.isFullMetadataPass = true
+        } else {
+            let albums = try await confirmed(
+                try await apiClient.getAlbumInventory(sectionKey: sectionKey),
+                storedKeys: stored.albums.keys, key: \.ratingKey, what: "album"
+            ) { try await apiClient.getAlbumInventory(sectionKey: sectionKey) }
+            let tracks = try await confirmed(
+                try await apiClient.getTrackInventory(sectionKey: sectionKey),
+                storedKeys: stored.tracks.keys, key: \.ratingKey, what: "track"
+            ) { try await apiClient.getTrackInventory(sectionKey: sectionKey) }
+            let inventory = try LibraryInventory(
+                artistIDs: artists.all.map(\.ratingKey),
+                albumIDs: albums.all.map(\.ratingKey),
+                tracks: tracks.all.map { ($0.ratingKey, $0.parentRatingKey) }
+            )
+            let repaired = try await membershipRepairs(
+                inventory: inventory, tracks: tracks.all, plan: plan, fetchedAlbums: albumInputs, fetchedTracks: trackInputs,
+                albumGenres: albumGenres
+            )
+            batch.albums += repaired.albums
+            batch.tracks += repaired.tracks
+            batch.inventory = inventory
+        }
+        EnsembleLogger.info(
+            "Plex membership reconciliation tracks=\(batch.inventory?.trackParents.count ?? 0) albums=\(batch.inventory?.albumIDs.count ?? 0) fullMetadata=\(batch.isFullMetadataPass)"
+        )
+        return batch
+    }
+
+    /// Fetches the albums and tracks the inventory shows missing from the store or under
+    /// another album, so the writer can repair them before it deletes.
+    private func membershipRepairs(
+        inventory: LibraryInventory,
+        tracks: [PlexInventoryItem],
+        plan: LibrarySyncPlan,
+        fetchedAlbums: [AlbumUpsertInput],
+        fetchedTracks: [TrackUpsertInput],
+        albumGenres: [String: String]
+    ) async throws -> (albums: [AlbumUpsertInput], tracks: [TrackUpsertInput]) {
+        let counts = inventory.trackCounts
+        let knownAlbums = Set(plan.stored.albums.keys).union(fetchedAlbums.map(\.ratingKey))
+        var albumInputs: [AlbumUpsertInput] = []
+        var genres = albumGenres
+        for key in Set(counts.keys).subtracting(knownAlbums).sorted() {
+            try RefreshExecution.checkCancellation()
+            guard let album = try await apiClient.getAlbum(albumKey: key), album.ratingKey == key else {
+                throw PlexAPIError.invalidResponse
+            }
+            let input = Self.albumUpsertInput(from: album, trackCount: counts[key])
+            albumInputs.append(input)
+            genres[key] = input.genreNames
+        }
+        // The inventory wins: a track needs repair unless the album it will have after this
+        // batch (the delta's, else the stored one) is the album the inventory lists. A delta
+        // fetched before Plex moved the track would otherwise keep the old album.
+        let fetchedParents = Dictionary(fetchedTracks.map { ($0.ratingKey, $0.albumRatingKey) }) { $1 }
+        let repairs = tracks.filter {
+            let parentAfterBatch = fetchedParents.keys.contains($0.ratingKey)
+                ? fetchedParents[$0.ratingKey] ?? nil
+                : plan.stored.tracks[$0.ratingKey]?.albumRatingKey
+            return parentAfterBatch != $0.parentRatingKey
+        }
+        var trackInputs: [TrackUpsertInput] = []
+        for start in stride(from: 0, to: repairs.count, by: 500) {
+            try RefreshExecution.checkCancellation()
+            let batch = Array(repairs[start..<min(start + 500, repairs.count)])
+            let expectedParents = Dictionary(uniqueKeysWithValues: batch.map { ($0.ratingKey, $0.parentRatingKey) })
+            let fetched = try await apiClient.getTracks(ratingKeys: batch.map(\.ratingKey))
+            guard fetched.count == batch.count,
+                  Set(fetched.map(\.ratingKey)) == Set(expectedParents.keys),
+                  fetched.allSatisfy({ $0.parentRatingKey == expectedParents[$0.ratingKey] ?? nil }) else {
+                throw PlexAPIError.invalidResponse
+            }
+            trackInputs += fetched.map { Self.trackUpsertInput(from: $0, genreNames: $0.parentRatingKey.flatMap { genres[$0] }) }
+        }
+        return (albumInputs, trackInputs)
+    }
+
+    private static func genresByAlbum(_ albums: [AlbumUpsertInput]) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: albums.compactMap { album in album.genreNames.map { (album.ratingKey, $0) } })
+    }
+
+    // MARK: - Live changes
+
+    /// Fetches what a WebSocket notice names, plus the albums and artists above it.
+    /// Deletion hints fetch nothing; the caller marks the inventory due for them.
+    public func fetchChanges(_ hints: Set<LibraryChangeHint>) async throws -> LibraryBatch {
+        let queryStartedAt = Date()
+        let actionable = hints.filter { !$0.isDeleted }
+        guard !actionable.isEmpty else { return LibraryBatch(queryStartedAt: queryStartedAt) }
+
+        func ids(_ kind: LibraryChangeHint.Kind) -> Set<String> { Set(actionable.filter { $0.kind == kind }.map(\.itemID)) }
         var artistsByKey: [String: PlexArtist] = [:]
         var albumsByKey: [String: PlexAlbum] = [:]
         var tracksByKey: [String: PlexTrack] = [:]
 
-        for artistKey in explicitArtistKeys.sorted() {
+        for artistKey in ids(.artist).sorted() {
             if let artist = try await apiClient.getArtist(artistKey: artistKey) {
                 artistsByKey[artist.ratingKey] = artist
             }
-            for album in try await apiClient.getArtistAlbums(artistKey: artistKey) {
-                albumsByKey[album.ratingKey] = album
-            }
-            for track in try await apiClient.getArtistTracks(artistKey: artistKey) {
-                tracksByKey[track.ratingKey] = track
-            }
+            for album in try await apiClient.getArtistAlbums(artistKey: artistKey) { albumsByKey[album.ratingKey] = album }
+            for track in try await apiClient.getArtistTracks(artistKey: artistKey) { tracksByKey[track.ratingKey] = track }
+        }
+        for albumKey in ids(.album).sorted() {
+            if let album = try await apiClient.getAlbum(albumKey: albumKey) { albumsByKey[album.ratingKey] = album }
+            for track in try await apiClient.getAlbumTracks(albumKey: albumKey) { tracksByKey[track.ratingKey] = track }
+        }
+        let trackKeys = ids(.track)
+        if !trackKeys.isEmpty {
+            for track in try await apiClient.getTracks(ratingKeys: trackKeys.sorted()) { tracksByKey[track.ratingKey] = track }
+        }
+        for albumKey in Set(tracksByKey.values.compactMap(\.parentRatingKey)).subtracting(albumsByKey.keys).sorted() {
+            if let album = try await apiClient.getAlbum(albumKey: albumKey) { albumsByKey[album.ratingKey] = album }
+        }
+        for artistKey in Set(albumsByKey.values.compactMap(\.parentRatingKey)).subtracting(artistsByKey.keys).sorted() {
+            if let artist = try await apiClient.getArtist(artistKey: artistKey) { artistsByKey[artist.ratingKey] = artist }
         }
 
-        for albumKey in explicitAlbumKeys.sorted() {
-            if let album = try await apiClient.getAlbum(albumKey: albumKey) {
-                albumsByKey[album.ratingKey] = album
-            }
-            for track in try await apiClient.getAlbumTracks(albumKey: albumKey) {
-                tracksByKey[track.ratingKey] = track
-            }
-        }
-
-        if !explicitTrackKeys.isEmpty {
-            for track in try await apiClient.getTracks(ratingKeys: explicitTrackKeys.sorted()) {
-                tracksByKey[track.ratingKey] = track
-            }
-        }
-
-        let missingAlbumKeys = Set(tracksByKey.values.compactMap(\.parentRatingKey))
-            .subtracting(albumsByKey.keys)
-        for albumKey in missingAlbumKeys.sorted() {
-            if let album = try await apiClient.getAlbum(albumKey: albumKey) {
-                albumsByKey[album.ratingKey] = album
-            }
-        }
-
-        let missingArtistKeys = Set(albumsByKey.values.compactMap(\.parentRatingKey))
-            .subtracting(artistsByKey.keys)
-        for artistKey in missingArtistKeys.sorted() {
-            if let artist = try await apiClient.getArtist(artistKey: artistKey) {
-                artistsByKey[artist.ratingKey] = artist
-            }
-        }
-
-        let trackCounts = Self.trackCountsByAlbumRatingKey(Array(tracksByKey.values))
-        let albumInputs = albumsByKey.values.map { album in
-            Self.albumUpsertInput(from: album)
-        }
-        let albumGenres = Dictionary(uniqueKeysWithValues: albumInputs.compactMap { input in
-            input.genreNames.map { (input.ratingKey, $0) }
-        })
-        let artistInputs = artistsByKey.values.map(Self.artistUpsertInput)
-        let trackInputs = tracksByKey.values.map { track in
-            Self.trackUpsertInput(
-                from: track,
-                genreNames: track.parentRatingKey.flatMap { albumGenres[$0] }
-            )
-        }
-
-        async let existingArtists: [String: ArtistSyncMetadata] = artistInputs.isEmpty
-            ? [:]
-            : repository.fetchArtistSyncMetadata(
-                forSource: sourceKey,
-                ratingKeys: Set(artistInputs.map(\.ratingKey))
-            )
-        async let existingAlbums: [String: AlbumSyncMetadata] = albumInputs.isEmpty
-            ? [:]
-            : repository.fetchAlbumSyncMetadata(
-                forSource: sourceKey,
-                ratingKeys: Set(albumInputs.map(\.ratingKey))
-            )
-        async let existingTracks: [String: TrackSyncMetadata] = trackInputs.isEmpty
-            ? [:]
-            : repository.fetchTrackSyncMetadata(
-                forSource: sourceKey,
-                ratingKeys: Set(trackInputs.map(\.ratingKey))
-            )
-        let artistsToSync = Self.changedArtistInputs(
-            artistInputs,
-            existingMetadata: try await existingArtists
-        )
-        let cachedAlbums = try await existingAlbums
-        let albumsToSync = Self.changedAlbumInputs(albumInputs, existingMetadata: cachedAlbums)
-        let cachedTracks = try await existingTracks
-        let tracksToSync = Self.changedTrackInputs(trackInputs, existingMetadata: cachedTracks)
-        let membershipChanged = trackInputs.contains {
-            cachedTracks[$0.ratingKey] == nil || cachedTracks[$0.ratingKey]?.albumRatingKey != $0.albumRatingKey
-        } || albumInputs.contains {
-            guard let cached = cachedAlbums[$0.ratingKey] else { return true }
-            // Child responses are hints, not an authoritative count until inventory is validated.
-            return $0.trackCount.map { $0 != cached.trackCount } == true
-                || (explicitAlbumKeys.contains($0.ratingKey)
-                    && trackCounts[$0.ratingKey, default: 0] != cached.trackCount)
-        }
-        if membershipChanged {
-            // Persist before track writes: retries must reconcile both old and new parents.
-            try RefreshExecution.checkCancellation()
-            try await syncCursorRepository?.invalidateInventorySync(scopeKey: sourceKey, scopeType: .plexLibrary)
-        }
-
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertArtists(artistsToSync, sourceCompositeKey: sourceKey)
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertAlbums(albumsToSync, sourceCompositeKey: sourceKey)
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertTracks(tracksToSync, sourceCompositeKey: sourceKey)
-
-        EnsembleLogger.debug(
-            "🔌 Targeted Plex reconciliation for \(sourceKey): artists=\(artistsToSync.count) albums=\(albumsToSync.count) tracks=\(tracksToSync.count)"
-        )
-        return LibrarySyncResult(
-            changedArtists: artistsToSync.count,
-            changedAlbums: albumsToSync.count,
-            changedTracks: tracksToSync.count
-        )
-    }
-
-    public func syncLibraryIncremental(
-        since timestamp: TimeInterval,
-        to repository: LibraryRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> LibrarySyncResult {
-        let sourceKey = sourceIdentifier.compositeKey
-        let queryStartedAt = Date()
-        EnsembleLogger.debug("🔄 Incremental sync for \(sourceKey) since \(Date(timeIntervalSince1970: timestamp))")
-
-        let syncStart = CFAbsoluteTimeGetCurrent()
-
-        // Ensure CDMusicSource exists
-        _ = try await repository.upsertMusicSource(
-            compositeKey: sourceKey,
-            type: sourceIdentifier.type.rawValue,
-            accountId: sourceIdentifier.accountId,
-            serverId: sourceIdentifier.serverId,
-            libraryId: sourceIdentifier.libraryId,
-            displayName: nil,
-            accountName: nil
-        )
-
-        // Plex can change artist fields without advancing artist or section timestamps.
-        // Compare the small artist catalog directly alongside item-level incremental queries.
-        progressHandler(0.05)
-        var phaseStart = CFAbsoluteTimeGetCurrent()
-        async let existingArtistMetadataRequest = repository.fetchArtistSyncMetadata(forSource: sourceKey)
-        var artists = try await apiClient.getArtists(sectionKey: sectionKey)
-        let existingArtistMetadata = try await existingArtistMetadataRequest
-        var artistRatingKeys = Set(artists.map(\.ratingKey))
-        if !Set(existingArtistMetadata.keys).isSubset(of: artistRatingKeys) {
-            EnsembleLogger.debug("🔄 Confirming Plex artist inventory before orphan removal")
-            artists = try await apiClient.getArtists(sectionKey: sectionKey)
-            artistRatingKeys = Set(artists.map(\.ratingKey))
-        }
-        let artistInputs = artists.map(Self.artistUpsertInput)
-        let artistsToSync = Self.changedArtistInputs(
-            artistInputs,
-            existingMetadata: existingArtistMetadata
-        )
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertArtists(artistsToSync, sourceCompositeKey: sourceKey)
-        EnsembleLogger.debug(
-            "⏱️ Incremental sync: artist metadata comparison took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(artists.count) from server, \(artistsToSync.count) changed"
-        )
-
-        // Fetch existing timestamps to skip unchanged items (avoids expensive per-item CoreData upserts)
-        progressHandler(0.15)
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        let existingAlbumTimestamps = try await repository.fetchAlbumTimestamps(forSource: sourceKey)
-        let existingTrackTimestamps = try await repository.fetchTrackTimestamps(forSource: sourceKey)
-        let existingTrackRatings = try await repository.fetchTrackRatings(forSource: sourceKey)
-        EnsembleLogger.debug("⏱️ Incremental sync: timestamp prefetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(existingAlbumTimestamps.count) albums, \(existingTrackTimestamps.count) tracks)")
-
-        // Sync albums added or updated since timestamp
-        progressHandler(0.25)
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        let newAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, addedAfter: timestamp)
-        let updatedAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, updatedAfter: timestamp)
-
-        let albumChanges = Self.deduplicatedChangedItems(
-            added: newAlbums,
-            updated: updatedAlbums,
-            existingTimestamps: existingAlbumTimestamps,
-            ratingKey: { $0.ratingKey },
-            updatedAt: { $0.updatedAt }
-        )
-        let albumsToSync = albumChanges.changedItems
-        let releaseFormats = albumsToSync.isEmpty ? nil : await libraryAlbumReleaseFormats()
-
-        EnsembleLogger.debug("⏱️ Incremental sync: albums fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(albumChanges.uniqueCount) from server, \(albumsToSync.count) actually changed")
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        // Build album genre lookup for incremental track upserts
-        var incrementalAlbumGenres: [String: String] = [:]
-        let albumInputs = albumsToSync.map { album in
-            let input = Self.albumUpsertInput(
-                from: album,
-                releaseFormat: releaseFormats?[album.ratingKey],
-                updatesReleaseFormat: releaseFormats != nil
-            )
-            if let genreString = input.genreNames {
-                incrementalAlbumGenres[album.ratingKey] = genreString
-            }
-            return input
-        }
-        try RefreshExecution.checkCancellation()
-        if !albumInputs.isEmpty {
-            try await syncCursorRepository?.invalidateInventorySync(scopeKey: sourceKey, scopeType: .plexLibrary)
-        }
-        try await repository.batchUpsertAlbums(albumInputs, sourceCompositeKey: sourceKey)
-
-        // Sync tracks added or updated since timestamp
-        progressHandler(0.4)
-        if !albumsToSync.isEmpty {
-            EnsembleLogger.debug("⏱️ Incremental sync: albums upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
-        }
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        let newTracks = try await apiClient.getTracks(sectionKey: sectionKey, addedAfter: timestamp)
-        let updatedTracks = try await apiClient.getTracks(sectionKey: sectionKey, updatedAfter: timestamp)
-
-        // Note: ratedAfter (lastRatedAt>=) is intentionally omitted. The Plex API filter
-        // returns ALL ever-rated tracks regardless of the timestamp argument, wasting ~1MB
-        // and 3+ seconds per cycle for zero incremental benefit. Rating changes made on
-        // other clients are caught by the next authoritative metadata reconciliation.
-        // On-device rating changes go through MutationCoordinator immediately.
-
-        let trackChanges = Self.deduplicatedChangedItems(
-            added: newTracks,
-            updated: updatedTracks,
-            existingTimestamps: existingTrackTimestamps,
-            ratingKey: { $0.ratingKey },
-            updatedAt: { $0.updatedAt },
-            hasAdditionalChange: { track in
-                let serverRating = Int16(track.userRating.map { Int($0) } ?? 0)
-                guard let localRating = existingTrackRatings[track.ratingKey] else {
-                    return false
-                }
-                return localRating != serverRating
-            }
-        )
-        let tracksToSync = trackChanges.changedItems
-
-        // Diagnostic: break down WHY items in tracksToSync were flagged
-        let tracksNew = tracksToSync.lazy.filter { existingTrackTimestamps[$0.ratingKey] == nil }.count
-        let tracksRatingChanged = tracksToSync.lazy.filter { track in
-            guard let localRating = existingTrackRatings[track.ratingKey] else { return false }
-            return localRating != Int16(track.userRating.map { Int($0) } ?? 0)
-        }.count
-        let tracksTimestampChanged = tracksToSync.count - tracksNew - tracksRatingChanged
-        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackChanges.uniqueCount) from server, \(tracksToSync.count) to sync (new=\(tracksNew), ratingChanged=\(tracksRatingChanged), timestampChanged=\(tracksTimestampChanged))")
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        let trackInputs = tracksToSync.map { track in
-            let trackGenreNames = track.parentRatingKey.flatMap { incrementalAlbumGenres[$0] }
-            return Self.trackUpsertInput(from: track, genreNames: trackGenreNames)
-        }
-        try RefreshExecution.checkCancellation()
-        if !trackInputs.isEmpty && albumInputs.isEmpty {
-            // A saved delta can be skipped on replay; keep its inventory reconciliation due.
-            try await syncCursorRepository?.invalidateInventorySync(scopeKey: sourceKey, scopeType: .plexLibrary)
-        }
-        try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)
-
-        // Orphan removal: fetch server inventory only after changes or on a periodic cleanup.
-        progressHandler(0.55)
-        if !tracksToSync.isEmpty {
-            EnsembleLogger.debug("⏱️ Incremental sync: tracks upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
-        }
-        EnsembleLogger.debug("⏱️ Incremental sync: library phase total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
-        phaseStart = CFAbsoluteTimeGetCurrent()
-
-        let cursor = try await syncCursorRepository?.fetchCursor(
-            scopeKey: sourceKey,
-            scopeType: .plexLibrary
-        )
-        let changedItemCount = artistsToSync.count + albumsToSync.count + tracksToSync.count
-        let fullMetadataReconciliationDue = Self.shouldReconcileFullMetadata(
-            lastReconciledAt: cursor?.lastFullSyncAt,
-            now: Date()
-        )
-        let shouldCheckOrphans = Self.shouldCheckOrphans(
-            changedItemCount: changedItemCount,
-            lastCheckedAt: cursor?.lastInventorySyncAt?.timeIntervalSince1970 ?? 0,
-            now: Date()
-        )
-
-        var authoritativeChangedAlbums = 0
-        var authoritativeChangedTracks = 0
-        var authoritativeTrackCounts: [String: Int] = [:]
-        let removedArtists: Int
-        let removedAlbums: Int
-        let removedTracks: Int
-        let removedTrackRatingKeys: Set<String>
-        if shouldCheckOrphans || fullMetadataReconciliationDue {
-            let albumRatingKeys: Set<String>
-            let trackRatingKeys: Set<String>
-            progressHandler(0.65)
-            if fullMetadataReconciliationDue {
-                async let existingAlbumMetadata = repository.fetchAlbumSyncMetadata(forSource: sourceKey)
-                async let existingTrackMetadata = repository.fetchTrackSyncMetadata(forSource: sourceKey)
-                async let allAlbums = apiClient.getAlbums(sectionKey: sectionKey)
-                async let allTracks = apiClient.getTracks(sectionKey: sectionKey)
-                let cachedAlbumMetadata = try await existingAlbumMetadata
-                let cachedTrackMetadata = try await existingTrackMetadata
-                var albums = try await allAlbums
-                var tracks = try await allTracks
-                var candidateAlbumRatingKeys = try Self.completeAlbumRatingKeys(albums.map(\.ratingKey))
-                var candidateTrackRatingKeys = Set(tracks.map(\.ratingKey))
-                if !Set(cachedAlbumMetadata.keys).isSubset(of: candidateAlbumRatingKeys) {
-                    EnsembleLogger.debug("🔄 Confirming Plex album inventory before orphan removal")
-                    albums = try await apiClient.getAlbums(sectionKey: sectionKey)
-                    candidateAlbumRatingKeys = try Self.completeAlbumRatingKeys(albums.map(\.ratingKey))
-                }
-                if !Set(cachedTrackMetadata.keys).isSubset(of: candidateTrackRatingKeys) {
-                    EnsembleLogger.debug("🔄 Confirming Plex track inventory before orphan removal")
-                    tracks = try await apiClient.getTracks(sectionKey: sectionKey)
-                    candidateTrackRatingKeys = Set(tracks.map(\.ratingKey))
-                }
-                let trackCounts = try Self.completeAlbumTrackCounts(
-                    albumRatingKeys: candidateAlbumRatingKeys, tracks: tracks,
-                    ratingKey: { $0.ratingKey }, parentRatingKey: { $0.parentRatingKey }
-                )
-                let releaseFormats = await libraryAlbumReleaseFormats()
-                let authoritativeAlbumInputs = albums.map { album in
-                    Self.albumUpsertInput(
-                        from: album,
-                        trackCount: trackCounts[album.ratingKey],
-                        releaseFormat: releaseFormats?[album.ratingKey],
-                        updatesReleaseFormat: releaseFormats != nil
-                    )
-                }
-                let authoritativeAlbumGenres = Dictionary(
-                    uniqueKeysWithValues: authoritativeAlbumInputs.compactMap { input in
-                        input.genreNames.map { (input.ratingKey, $0) }
-                    }
-                )
-                let authoritativeTrackInputs = tracks.map { track in
-                    Self.trackUpsertInput(
-                        from: track,
-                        genreNames: track.parentRatingKey.flatMap { authoritativeAlbumGenres[$0] }
-                    )
-                }
-                let authoritativeAlbumsToSync = Self.changedAlbumInputs(
-                    authoritativeAlbumInputs,
-                    existingMetadata: cachedAlbumMetadata
-                )
-                let authoritativeTracksToSync = Self.changedTrackInputs(
-                    authoritativeTrackInputs,
-                    existingMetadata: cachedTrackMetadata
-                )
-                try RefreshExecution.checkCancellation()
-                try await repository.batchUpsertAlbums(
-                    authoritativeAlbumsToSync,
-                    sourceCompositeKey: sourceKey
-                )
-                try RefreshExecution.checkCancellation()
-                try await repository.batchUpsertTracks(
-                    authoritativeTracksToSync,
-                    sourceCompositeKey: sourceKey
-                )
-                authoritativeChangedAlbums = authoritativeAlbumsToSync.count
-                authoritativeChangedTracks = authoritativeTracksToSync.count
-                albumRatingKeys = candidateAlbumRatingKeys
-                trackRatingKeys = candidateTrackRatingKeys
-                EnsembleLogger.debug(
-                    "🔄 Authoritative Plex metadata reconciliation: albums=\(authoritativeChangedAlbums) tracks=\(authoritativeChangedTracks)"
-                )
-            } else {
-                // Reuse the complete cleanup inventory for relationships and counts.
-                var albumInventory = try await apiClient.getAlbumInventory(sectionKey: sectionKey)
-                var candidateAlbumRatingKeys = try Self.completeAlbumRatingKeys(albumInventory.map(\.ratingKey))
-                if !Set(existingAlbumTimestamps.keys).isSubset(of: candidateAlbumRatingKeys) {
-                    EnsembleLogger.debug("🔄 Confirming Plex album inventory before orphan removal")
-                    albumInventory = try await apiClient.getAlbumInventory(sectionKey: sectionKey)
-                    candidateAlbumRatingKeys = try Self.completeAlbumRatingKeys(albumInventory.map(\.ratingKey))
-                }
-                albumRatingKeys = candidateAlbumRatingKeys
-                progressHandler(0.75)
-                var trackInventory = try await apiClient.getTrackInventory(sectionKey: sectionKey)
-                var candidateTrackRatingKeys = Set(trackInventory.map(\.ratingKey))
-                if !Set(existingTrackTimestamps.keys).isSubset(of: candidateTrackRatingKeys) {
-                    EnsembleLogger.debug("🔄 Confirming Plex track inventory before orphan removal")
-                    trackInventory = try await apiClient.getTrackInventory(sectionKey: sectionKey)
-                    candidateTrackRatingKeys = Set(trackInventory.map(\.ratingKey))
-                }
-                trackRatingKeys = candidateTrackRatingKeys
-                authoritativeTrackCounts = try Self.completeAlbumTrackCounts(
-                    albumRatingKeys: albumRatingKeys, tracks: trackInventory,
-                    ratingKey: { $0.ratingKey }, parentRatingKey: { $0.parentRatingKey }
-                )
-                let repairs = try await reconcileTrackMembership(
-                    trackInventory, counts: authoritativeTrackCounts, to: repository
-                )
-                authoritativeChangedAlbums += repairs.changedAlbums
-                authoritativeChangedTracks += repairs.changedTracks
-            }
-            progressHandler(0.85)
-
-            removedTrackRatingKeys = Set(
-                existingTrackTimestamps.keys.lazy.filter { !trackRatingKeys.contains($0) }
-            )
-            try RefreshExecution.checkCancellation()
-            removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
-            try RefreshExecution.checkCancellation()
-            removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
-            try RefreshExecution.checkCancellation()
-            removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
-            try RefreshExecution.checkCancellation()
-            authoritativeChangedAlbums += try await repository.batchUpdateAlbumTrackCounts(
-                authoritativeTrackCounts, forSource: sourceKey
-            )
-            EnsembleLogger.info(
-                "Plex membership reconciliation tracks=\(trackRatingKeys.count) albums=\(albumRatingKeys.count) changedAlbums=\(authoritativeChangedAlbums) repairedTracks=\(authoritativeChangedTracks) elapsedMs=\(Int((CFAbsoluteTimeGetCurrent() - phaseStart) * 1_000))"
-            )
-            let survivingArtistIDs = artistRatingKeys
-            let survivingAlbumIDs = albumRatingKeys
-            let survivingTrackIDs = trackRatingKeys
-            await MainActor.run {
-                HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: sourceKey, survivingItemIDs: survivingArtistIDs)
-                HiddenMediaStore.shared.removeMissing(kind: .album, sourceKey: sourceKey, survivingItemIDs: survivingAlbumIDs)
-                HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: sourceKey, survivingItemIDs: survivingTrackIDs)
-            }
-            if fullMetadataReconciliationDue {
-                try RefreshExecution.checkCancellation()
-                try await syncCursorRepository?.recordFullSync(
-                    scopeKey: sourceKey,
-                    scopeType: .plexLibrary,
-                    at: queryStartedAt
-                )
-            } else {
-                try RefreshExecution.checkCancellation()
-                try await syncCursorRepository?.recordInventorySync(
-                    scopeKey: sourceKey,
-                    scopeType: .plexLibrary,
-                    at: Date()
-                )
-            }
-
-            if removedArtists + removedAlbums + removedTracks > 0 {
-                EnsembleLogger.debug("🧹 Removed orphans: \(removedArtists) artists, \(removedAlbums) albums, \(removedTracks) tracks")
-            } else {
-                EnsembleLogger.debug("✅ No orphaned items found")
-            }
-            EnsembleLogger.debug("⏱️ Incremental sync: orphan check took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
-        } else {
-            removedArtists = 0
-            removedAlbums = 0
-            removedTracks = 0
-            removedTrackRatingKeys = []
-            progressHandler(0.9)
-            EnsembleLogger.debug("⏭️ Incremental sync: orphan check skipped; no library changes and recent cleanup exists")
-        }
-
-        // Update last sync timestamp
-        try RefreshExecution.checkCancellation()
-        try await syncCursorRepository?.recordIncrementalSync(
-            scopeKey: sourceKey,
-            scopeType: .plexLibrary,
-            at: queryStartedAt
-        )
-        try RefreshExecution.checkCancellation()
-        try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
-
-        progressHandler(1.0)
-        EnsembleLogger.debug("✅ Incremental sync complete for \(sourceKey) — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
-        return LibrarySyncResult(
-            changedArtists: artistsToSync.count,
-            changedAlbums: albumsToSync.count + authoritativeChangedAlbums,
-            changedTracks: tracksToSync.count + authoritativeChangedTracks,
-            removedArtists: removedArtists,
-            removedAlbums: removedAlbums,
-            removedTracks: removedTracks,
-            removedTrackRatingKeys: removedTrackRatingKeys
+        let albumInputs = albumsByKey.values.map { Self.albumUpsertInput(from: $0) }
+        let albumGenres = Self.genresByAlbum(albumInputs)
+        return LibraryBatch(
+            artists: artistsByKey.values.map(Self.artistUpsertInput),
+            albums: albumInputs,
+            tracks: tracksByKey.values.map { Self.trackUpsertInput(from: $0, genreNames: $0.parentRatingKey.flatMap { albumGenres[$0] }) },
+            queryStartedAt: queryStartedAt
         )
     }
 
@@ -841,33 +633,6 @@ public final class PlexMusicSourceSyncProvider:
         return IncrementalChangeSet(uniqueItems: uniqueItems, changedItems: changedItems)
     }
 
-    static func changedArtistInputs(
-        _ inputs: [ArtistUpsertInput],
-        existingMetadata: [String: ArtistSyncMetadata]
-    ) -> [ArtistUpsertInput] {
-        inputs.filter { input in
-            existingMetadata[input.ratingKey]?.matches(input) != true
-        }
-    }
-
-    static func changedAlbumInputs(
-        _ inputs: [AlbumUpsertInput],
-        existingMetadata: [String: AlbumSyncMetadata]
-    ) -> [AlbumUpsertInput] {
-        inputs.filter { input in
-            existingMetadata[input.ratingKey]?.matches(input) != true
-        }
-    }
-
-    static func changedTrackInputs(
-        _ inputs: [TrackUpsertInput],
-        existingMetadata: [String: TrackSyncMetadata]
-    ) -> [TrackUpsertInput] {
-        inputs.filter { input in
-            existingMetadata[input.ratingKey]?.matches(input) != true
-        }
-    }
-
     private static func artistUpsertInput(from artist: PlexArtist) -> ArtistUpsertInput {
         ArtistUpsertInput(
             ratingKey: artist.ratingKey,
@@ -909,91 +674,6 @@ public final class PlexMusicSourceSyncProvider:
         )
     }
 
-    static func trackCountsByAlbumRatingKey(_ tracks: [PlexTrack]) -> [String: Int] {
-        tracks.reduce(into: [:]) { counts, track in
-            if let albumRatingKey = track.parentRatingKey {
-                counts[albumRatingKey, default: 0] += 1
-            }
-        }
-    }
-
-    private static func completeAlbumTrackCounts<Item>(
-        albumRatingKeys: Set<String>,
-        tracks: [Item],
-        ratingKey: (Item) -> String,
-        parentRatingKey: (Item) -> String?
-    ) throws -> [String: Int] {
-        guard albumRatingKeys.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
-            throw PlexAPIError.invalidResponse
-        }
-        var counts = Dictionary(uniqueKeysWithValues: albumRatingKeys.map { ($0, 0) })
-        var seenTracks = Set<String>()
-        for track in tracks {
-            let key = ratingKey(track)
-            guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  seenTracks.insert(key).inserted,
-                  let parent = parentRatingKey(track), counts[parent] != nil else {
-                throw PlexAPIError.invalidResponse
-            }
-            counts[parent, default: 0] += 1
-        }
-        return counts
-    }
-
-    private static func completeAlbumRatingKeys(_ keys: [String]) throws -> Set<String> {
-        let unique = Set(keys)
-        guard unique.count == keys.count,
-              keys.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
-            throw PlexAPIError.invalidResponse
-        }
-        return unique
-    }
-
-    private func reconcileTrackMembership(
-        _ inventory: [PlexInventoryItem],
-        counts: [String: Int],
-        to repository: LibraryRepositoryProtocol
-    ) async throws -> LibrarySyncResult {
-        let sourceKey = sourceIdentifier.compositeKey
-        let cachedTracks = try await repository.fetchTrackSyncMetadata(forSource: sourceKey)
-        let cachedAlbums = try await repository.fetchAlbumSyncMetadata(forSource: sourceKey)
-        let missingAlbums = Set(counts.keys).subtracting(cachedAlbums.keys)
-        var albumInputs: [AlbumUpsertInput] = []
-        var genres = cachedAlbums.compactMapValues(\.genreNames)
-        for key in missingAlbums.sorted() {
-            try RefreshExecution.checkCancellation()
-            guard let album = try await apiClient.getAlbum(albumKey: key), album.ratingKey == key else {
-                throw PlexAPIError.invalidResponse
-            }
-            let input = Self.albumUpsertInput(from: album, trackCount: counts[key])
-            albumInputs.append(input)
-            genres[key] = input.genreNames
-        }
-        let repairs = inventory.filter {
-            cachedTracks[$0.ratingKey] == nil || cachedTracks[$0.ratingKey]?.albumRatingKey != $0.parentRatingKey
-        }
-        var trackInputs: [TrackUpsertInput] = []
-        for start in stride(from: 0, to: repairs.count, by: 500) {
-            try RefreshExecution.checkCancellation()
-            let batch = Array(repairs[start..<min(start + 500, repairs.count)])
-            let expectedParents = Dictionary(uniqueKeysWithValues: batch.map { ($0.ratingKey, $0.parentRatingKey) })
-            let tracks = try await apiClient.getTracks(ratingKeys: batch.map(\.ratingKey))
-            guard tracks.count == batch.count,
-                  Set(tracks.map(\.ratingKey)) == Set(expectedParents.keys),
-                  tracks.allSatisfy({ $0.parentRatingKey == expectedParents[$0.ratingKey] ?? nil }) else {
-                throw PlexAPIError.invalidResponse
-            }
-            trackInputs += tracks.map {
-                Self.trackUpsertInput(from: $0, genreNames: $0.parentRatingKey.flatMap { genres[$0] })
-            }
-        }
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertAlbums(albumInputs, sourceCompositeKey: sourceKey)
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)
-        return LibrarySyncResult(changedAlbums: albumInputs.count, changedTracks: trackInputs.count)
-    }
-
     static func trackUpsertInput(from track: PlexTrack, genreNames: String?) -> TrackUpsertInput {
         TrackUpsertInput(
             ratingKey: track.ratingKey,
@@ -1018,179 +698,6 @@ public final class PlexMusicSourceSyncProvider:
         )
     }
     
-    public func syncLibrary(
-        to repository: LibraryRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> LibrarySyncResult {
-        let syncStart = CFAbsoluteTimeGetCurrent()
-        let queryStartedAt = Date()
-        let sourceKey = sourceIdentifier.compositeKey
-        EnsembleLogger.debug("🔄 Full library sync starting for \(sourceKey)")
-
-        // Ensure CDMusicSource exists
-        _ = try await repository.upsertMusicSource(
-            compositeKey: sourceKey,
-            type: sourceIdentifier.type.rawValue,
-            accountId: sourceIdentifier.accountId,
-            serverId: sourceIdentifier.serverId,
-            libraryId: sourceIdentifier.libraryId,
-            displayName: nil,
-            accountName: nil
-        )
-
-        async let cachedArtistMetadataRequest = repository.fetchArtistSyncMetadata(forSource: sourceKey)
-        async let cachedAlbumTimestampsRequest = repository.fetchAlbumTimestamps(forSource: sourceKey)
-        async let cachedTrackTimestampsRequest = repository.fetchTrackTimestamps(forSource: sourceKey)
-
-        // Sync artists (batch upsert — single context, single save)
-        progressHandler(0.1)
-        var phaseStart = CFAbsoluteTimeGetCurrent()
-        let cachedArtistMetadata = try await cachedArtistMetadataRequest
-        var artists = try await apiClient.getArtists(sectionKey: sectionKey)
-        var artistRatingKeys = Set(artists.map { $0.ratingKey })
-        if !Set(cachedArtistMetadata.keys).isSubset(of: artistRatingKeys) {
-            EnsembleLogger.debug("🔄 Confirming Plex artist inventory before orphan removal")
-            artists = try await apiClient.getArtists(sectionKey: sectionKey)
-            artistRatingKeys = Set(artists.map { $0.ratingKey })
-        }
-        let artistInputs = artists.map(Self.artistUpsertInput)
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertArtists(artistInputs, sourceCompositeKey: sourceKey)
-
-        EnsembleLogger.debug("⏱️ Full sync: artists \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(artists.count) items)")
-
-        // Sync albums (batch upsert)
-        progressHandler(0.3)
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        let cachedAlbumTimestamps = try await cachedAlbumTimestampsRequest
-        let cachedTrackTimestamps = try await cachedTrackTimestampsRequest
-        var albums = try await apiClient.getAlbums(sectionKey: sectionKey)
-        let releaseFormats = await libraryAlbumReleaseFormats()
-        var tracks = try await apiClient.getTracks(sectionKey: sectionKey)
-        var albumRatingKeys = try Self.completeAlbumRatingKeys(albums.map(\.ratingKey))
-        var trackRatingKeys = Set(tracks.map { $0.ratingKey })
-        if !Set(cachedAlbumTimestamps.keys).isSubset(of: albumRatingKeys) {
-            EnsembleLogger.debug("🔄 Confirming Plex album inventory before orphan removal")
-            albums = try await apiClient.getAlbums(sectionKey: sectionKey)
-            albumRatingKeys = try Self.completeAlbumRatingKeys(albums.map(\.ratingKey))
-        }
-        if !Set(cachedTrackTimestamps.keys).isSubset(of: trackRatingKeys) {
-            EnsembleLogger.debug("🔄 Confirming Plex track inventory before orphan removal")
-            tracks = try await apiClient.getTracks(sectionKey: sectionKey)
-            trackRatingKeys = Set(tracks.map { $0.ratingKey })
-        }
-        let trackCountsByAlbum = try Self.completeAlbumTrackCounts(
-            albumRatingKeys: albumRatingKeys, tracks: tracks,
-            ratingKey: { $0.ratingKey }, parentRatingKey: { $0.parentRatingKey }
-        )
-        // Build album genre lookup for copying genres to tracks (Plex only returns genres on albums)
-        var albumGenresByKey: [String: String] = [:]
-        let albumInputs = albums.map { album in
-            let input = Self.albumUpsertInput(
-                from: album,
-                trackCount: trackCountsByAlbum[album.ratingKey],
-                releaseFormat: releaseFormats?[album.ratingKey],
-                updatesReleaseFormat: releaseFormats != nil
-            )
-            if let genreString = input.genreNames {
-                albumGenresByKey[album.ratingKey] = genreString
-            }
-            return input
-        }
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertAlbums(albumInputs, sourceCompositeKey: sourceKey)
-
-        EnsembleLogger.debug("⏱️ Full sync: albums \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(albums.count) items)")
-
-        // Sync tracks (batch upsert — biggest win, ~24s → ~2-3s)
-        progressHandler(0.5)
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        let trackInputs = tracks.map { track in
-            // Copy genre from parent album (Plex doesn't return genres on tracks)
-            let trackGenreNames = track.parentRatingKey.flatMap { albumGenresByKey[$0] }
-            return Self.trackUpsertInput(from: track, genreNames: trackGenreNames)
-        }
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)
-
-        EnsembleLogger.debug("⏱️ Full sync: tracks \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(tracks.count) items)")
-
-        // Sync genres
-        progressHandler(0.7)
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        let genres = try await apiClient.getGenres(sectionKey: sectionKey)
-        let genreRatingKeys = Set(genres.compactMap { $0.ratingKey })
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertGenres(
-            genres.map { genre in
-                GenreUpsertInput(
-                    ratingKey: genre.ratingKey,
-                    key: genre.key,
-                    title: genre.title
-                )
-            },
-            sourceCompositeKey: sourceKey
-        )
-
-        EnsembleLogger.debug("⏱️ Full sync: genres \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(genres.count) items)")
-
-        // Remove orphaned items (deleted/merged on server but still in local DB)
-        progressHandler(0.85)
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        EnsembleLogger.debug("🧹 Checking for orphaned items...")
-        let removedTrackRatingKeys = Set(
-            cachedTrackTimestamps.keys.lazy.filter { !trackRatingKeys.contains($0) }
-        )
-        try RefreshExecution.checkCancellation()
-        let removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
-        try RefreshExecution.checkCancellation()
-        let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
-        try RefreshExecution.checkCancellation()
-        let removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
-        try RefreshExecution.checkCancellation()
-        let removedGenres = try await repository.removeOrphanedGenres(notIn: genreRatingKeys, forSource: sourceKey)
-        let survivingArtistIDs = artistRatingKeys
-        let survivingAlbumIDs = albumRatingKeys
-        let survivingTrackIDs = trackRatingKeys
-        await MainActor.run {
-            HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: sourceKey, survivingItemIDs: survivingArtistIDs)
-            HiddenMediaStore.shared.removeMissing(kind: .album, sourceKey: sourceKey, survivingItemIDs: survivingAlbumIDs)
-            HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: sourceKey, survivingItemIDs: survivingTrackIDs)
-        }
-
-        if removedArtists + removedAlbums + removedTracks + removedGenres > 0 {
-            EnsembleLogger.debug("🧹 Removed orphans: \(removedArtists) artists, \(removedAlbums) albums, \(removedTracks) tracks, \(removedGenres) genres")
-        } else {
-            EnsembleLogger.debug("✅ No orphaned items found")
-        }
-
-        EnsembleLogger.debug("⏱️ Full sync: orphan check \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
-        EnsembleLogger.debug("⏱️ Full sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s (\(artists.count) artists, \(albums.count) albums, \(tracks.count) tracks, \(genres.count) genres)")
-
-        // Update last sync timestamp
-        try RefreshExecution.checkCancellation()
-        try await syncCursorRepository?.recordFullSync(
-            scopeKey: sourceKey,
-            scopeType: .plexLibrary,
-            at: queryStartedAt
-        )
-        try RefreshExecution.checkCancellation()
-        try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
-
-        progressHandler(1.0)
-        return LibrarySyncResult(
-            changedArtists: artists.count,
-            changedAlbums: albums.count,
-            changedTracks: tracks.count,
-            changedGenres: genres.count,
-            removedArtists: removedArtists,
-            removedAlbums: removedAlbums,
-            removedTracks: removedTracks,
-            removedTrackRatingKeys: removedTrackRatingKeys,
-            removedGenres: removedGenres
-        )
-    }
-
     public func syncPlaylists(
         to repository: PlaylistRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
@@ -1480,16 +987,6 @@ public final class PlexMusicSourceSyncProvider:
         guard changedItemCount == 0 else { return true }
         guard lastCheckedAt > 0 else { return true }
         return now.timeIntervalSince1970 - lastCheckedAt >= interval
-    }
-
-    static func shouldReconcileFullMetadata(
-        lastReconciledAt: Date?,
-        now: Date,
-        interval: TimeInterval = orphanCheckInterval
-    ) -> Bool {
-        guard let lastReconciledAt else { return true }
-        let age = now.timeIntervalSince(lastReconciledAt)
-        return age < 0 || age >= interval
     }
 
     @discardableResult
@@ -1783,7 +1280,7 @@ public func getStreamURL(
                 do {
                     releaseFormats = try await artistAlbumReleaseFormats(artistTitle: artistTitle)
                 } catch {
-                    EnsembleLogger.debug("PlexMusicSourceSyncProvider: Album format query failed for \(artistKey): \(error.localizedDescription)")
+                    EnsembleLogger.debug("PlexConnector: Album format query failed for \(artistKey): \(error.localizedDescription)")
                     releaseFormats = [:]
                 }
                 return sectionAlbums.map {
@@ -1795,7 +1292,7 @@ public func getStreamURL(
                 }
             }
         } catch {
-            EnsembleLogger.debug("PlexMusicSourceSyncProvider: Section artist album query failed for \(artistKey): \(error.localizedDescription)")
+            EnsembleLogger.debug("PlexConnector: Section artist album query failed for \(artistKey): \(error.localizedDescription)")
         }
 
         return childAlbums.map { Album(from: $0, sourceKey: sourceIdentifier.compositeKey) }
@@ -1809,7 +1306,7 @@ public func getStreamURL(
         do {
             return try await albumReleaseFormats()
         } catch {
-            EnsembleLogger.debug("PlexMusicSourceSyncProvider: Library album format query failed: \(error.localizedDescription)")
+            EnsembleLogger.debug("PlexConnector: Library album format query failed: \(error.localizedDescription)")
             return nil
         }
     }

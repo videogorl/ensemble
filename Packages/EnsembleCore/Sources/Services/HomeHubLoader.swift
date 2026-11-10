@@ -352,7 +352,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
     }
 
     private static func fetchHubs(
-        provider: MusicSourceSyncProvider,
+        provider: MusicSourceConnector,
         limit: Int
     ) async -> ProviderHubResult {
         let sourceKey = provider.sourceIdentifier.compositeKey

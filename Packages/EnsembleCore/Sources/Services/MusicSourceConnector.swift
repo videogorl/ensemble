@@ -259,24 +259,11 @@ public enum MusicSourceLibraryAddOutcome: Sendable, Equatable {
     case alreadyPresent
 }
 
-/// Protocol for syncing music from a source (Plex, future Apple Music, etc.)
-public protocol MusicSourceSyncProvider: Sendable {
+/// A connected music service. It reads from and changes the remote service;
+/// `LibraryWriter` applies what it returns to the store.
+public protocol MusicSourceConnector: Sendable {
     var sourceIdentifier: MusicSourceIdentifier { get }
 
-    /// Sync the library content (artists, albums, tracks, genres) to CoreData
-    func syncLibrary(
-        to repository: LibraryRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> LibrarySyncResult
-    
-    /// Sync only items added or updated since the given timestamp (incremental sync)
-    /// - Parameter since: Unix timestamp of last sync (fetch items added/updated after this)
-    func syncLibraryIncremental(
-        since timestamp: TimeInterval,
-        to repository: LibraryRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> LibrarySyncResult
-    
     /// Sync playlists to CoreData (should be called once per server, not per library)
     func syncPlaylists(
         to repository: PlaylistRepositoryProtocol,
@@ -300,7 +287,49 @@ public protocol MusicSourceSyncProvider: Sendable {
     func getArtworkURL(path: String?, size: Int) async throws -> URL?
 }
 
-extension MusicSourceSyncProvider {
+/// Fetches a library into a batch for `LibraryWriter`. Folds into
+/// `MusicSourceConnector` when Apple Music moves onto the writer.
+public protocol MusicSourceLibraryFetching: MusicSourceConnector {
+    func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch
+}
+
+/// A change hint from a live channel (the Plex WebSocket today).
+public struct LibraryChangeHint: Hashable, Sendable {
+    public enum Kind: Sendable { case artist, album, track }
+
+    public let itemID: String
+    public let kind: Kind
+    public let isDeleted: Bool
+
+    public init(itemID: String, kind: Kind, isDeleted: Bool) {
+        self.itemID = itemID
+        self.kind = kind
+        self.isDeleted = isDeleted
+    }
+}
+
+/// Turns live-channel hints into a delta. A delta never deletes; a deletion
+/// hint only marks the inventory due (the caller does that).
+public protocol MusicSourceChangeFetching: MusicSourceConnector {
+    func fetchChanges(_ hints: Set<LibraryChangeHint>) async throws -> LibraryBatch
+}
+
+/// Syncs library rows straight into repositories. Apple Music only, until it
+/// moves onto `LibraryWriter`; then this protocol is deleted.
+public protocol MusicSourceLibrarySyncing: MusicSourceConnector {
+    func syncLibrary(
+        to repository: LibraryRepositoryProtocol,
+        progressHandler: @Sendable (Double) -> Void
+    ) async throws -> LibrarySyncResult
+
+    func syncLibraryIncremental(
+        since timestamp: TimeInterval,
+        to repository: LibraryRepositoryProtocol,
+        progressHandler: @Sendable (Double) -> Void
+    ) async throws -> LibrarySyncResult
+}
+
+extension MusicSourceConnector {
     public func getHomeHubs(limit: Int) async throws -> [Hub] { [] }
     public func getHomeHubResult(limit: Int) async throws -> MusicSourceHubFetchResult {
         MusicSourceHubFetchResult(hubs: try await getHomeHubs(limit: limit))

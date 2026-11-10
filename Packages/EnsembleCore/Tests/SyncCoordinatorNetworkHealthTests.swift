@@ -33,7 +33,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         }
     }
 
-    private struct MockSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
+    private struct MockSyncProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         var libraryResult: Result<LibrarySyncResult, Error> = .success(LibrarySyncResult())
         var playlistResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())

@@ -6,7 +6,7 @@ struct SourceProviderRevision: Equatable, Sendable {
 }
 
 struct ConfiguredSourceProvider: Sendable {
-    let provider: MusicSourceSyncProvider
+    let provider: MusicSourceConnector
     let revision: SourceProviderRevision
 }
 
