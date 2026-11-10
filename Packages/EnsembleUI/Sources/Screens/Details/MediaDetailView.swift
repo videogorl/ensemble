@@ -1529,14 +1529,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             playTrack(track)
         }
         #else
-        SongsTrackListHost(
-            sections: macNativeTrackSections,
+        TrackListHost(
+            tracks: viewModel.filteredTracks,
             configuration: NativeTrackListConfiguration(
                 showArtwork: showArtwork,
                 showTrackNumbers: showTrackNumbers,
                 showAlbumName: !isAlbum,
                 groupByDisc: groupByDisc,
-                rowHeight: TrackListLayoutMetrics.defaultRowHeight,
                 bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
                 supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                 trackSourceLabels: headerData.trackSourceLabels,
@@ -1547,16 +1546,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 interactionModel: trackInteractionModel
             ),
             tableHeaderContent: AnyView(tableHeaderForTrackList),
+            tableHeaderRevision: tableHeaderRevision,
             tableFooterContent: AnyView(VStack(spacing: EnsembleDesign.Spacing.none) {
                 emptyStateFooter
                 if let additionalFooterContent { additionalFooterContent }
             }),
-            onRemoveFromPlaylist: playlistTrackRemovalHandler.map { handler in
-                { track, _ in
-                    let displayIndex = viewModel.filteredTracks.firstIndex { $0.playbackIdentity == track.playbackIdentity } ?? 0
-                    handler(track, displayIndex)
-                }
-            }
+            onRemoveFromPlaylist: playlistTrackRemovalHandler
         ) { track, _ in
             playTrack(track)
         }

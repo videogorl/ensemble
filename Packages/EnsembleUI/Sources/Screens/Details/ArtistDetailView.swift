@@ -1110,13 +1110,14 @@ public struct ArtistDetailView: View {
             }
             .frame(height: height)
             #else
-            return SongsTrackListHost(
+            return TrackListHost(
                 tracks: tracks,
-                configuration: .songs(
+                configuration: NativeTrackListConfiguration(
+                    managesOwnScrolling: false,
+                    supplementalMetadataWidth: supplementalMetadataWidth,
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
                     activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    supplementalMetadataWidth: supplementalMetadataWidth,
                     interactionModel: interactionModel
                 )
             ) { _, index in

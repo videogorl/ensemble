@@ -118,10 +118,9 @@ fileprivate struct MediaTrackGroup {
     let id: String
     let title: String?
     let tracks: [Track]
-    let isIndexable: Bool
 
     var signature: String {
-        "\(id)|\(title ?? "")|\(tracks.count)|\(isIndexable)"
+        "\(id)|\(title ?? "")|\(tracks.count)"
     }
 }
 
@@ -566,70 +565,49 @@ public class TrackTableViewCell: UITableViewCell {
 
 // MARK: - Media Track List
 
-public struct MediaTrackList: UIViewRepresentable {
-    let tracks: [Track]
-    let sections: [NativeTrackListSection]?
-    let showArtwork: Bool
-    let showTrackNumbers: Bool
-    let showAlbumName: Bool
-    let groupByDisc: Bool
-    let currentTrackId: String?
-    let selectedTrackId: String?
-    let contentRevision: UInt64?
-    let onTrackTap: (Track, Int) -> Void
-    let onPlayNext: ((Track) -> Void)?
-    let onPlayLast: ((Track) -> Void)?
-    let onAddToPlaylist: ((Track) -> Void)?
-    let onAddToRecentPlaylist: ((Track) -> Void)?
-    let onToggleFavorite: ((Track) -> Void)?
-    let onGoToAlbum: ((Track) -> Void)?
-    let onGoToArtist: ((Track) -> Void)?
-    let onGetInfo: ((Track) -> Void)?
-    let onShareLink: ((Track) -> Void)?
-    let onShareFile: ((Track) -> Void)?
-    let onRemoveFromPlaylist: ((Track, Int) -> Void)?
-    let isTrackFavorited: ((Track) -> Bool)?
-    let canAddToRecentPlaylist: ((Track) -> Bool)?
-    let recentPlaylistTitle: String?
-    let showsNativeSectionIndex: Bool
-    let sectionScrollRequestID: Int?
-    let sectionScrollTargetID: String?
-    let interactionModel: TrackRowInteractionModel
-    /// Optional available width used to reveal wide artist/album metadata columns.
-    let supplementalMetadataWidth: CGFloat?
-    let trackSourceLabels: [String: String]
-
-    /// Change token from TrackAvailabilityResolver — parent observes the singleton
-    /// and passes the generation here so MediaTrackList doesn't subscribe itself.
-    let availabilityGeneration: UInt64
-    /// Set of ratingKeys currently downloading — parent observes OfflineDownloadService once
-    /// instead of N instances each subscribing to the singleton.
-    let activeDownloadTrackIdentities: Set<String>
-    /// When true, the UITableView manages its own scrolling and cell recycling.
-    /// When false (default), scroll is disabled and parent ScrollView handles scrolling.
-    /// Use true for large track lists (>200 tracks) embedded in a detail view.
-    let managesOwnScrolling: Bool
-    /// Bottom content inset for the UITableView. Used with self-scrolling tables to
-    /// allow content to scroll behind the mini player/tab bar (iOS blur-through effect).
-    /// Only applies when managesOwnScrolling is true.
-    let topContentInset: CGFloat
-    let bottomContentInset: CGFloat
-    /// Fixed height for each row. StageFlow uses a denser value while standard lists keep 68pt.
-    let rowHeight: CGFloat
-    /// Optional SwiftUI content to embed as the table's self-sizing first row.
-    /// Scrolls naturally with the table while preserving full cell recycling.
-    /// Used by MediaDetailView to scroll album art + action buttons with the track list.
+/// UIKit table behind `TrackListHost` on iOS and iPadOS.
+struct MediaTrackList: UIViewRepresentable {
+    let sections: [NativeTrackListSection]
+    let configuration: NativeTrackListConfiguration
+    /// Optional SwiftUI content embedded as the table's self-sizing first row.
+    /// Scrolls with the rows while preserving cell recycling.
     let tableHeaderContent: AnyView?
+    /// Changes when the header content changes without a structural change.
     let tableHeaderRevision: String?
-    /// Optional SwiftUI content to embed as the UITableView's `tableFooterView`.
-    /// Used to show loading/empty indicators below the track list while keeping
-    /// the header (chips + artwork + buttons) structurally identical across all states.
+    /// Optional SwiftUI content embedded as the table's last row, used for
+    /// loading and empty states below the rows.
     let tableFooterContent: AnyView?
     let onRefresh: (() async -> Void)?
+    let sectionScrollRequest: TrackSectionScrollRequest?
+    let onRemoveFromPlaylist: ((Track, Int) -> Void)?
+    let onTrackTap: (Track, Int) -> Void
     @Environment(DependencyContainer.self) private var dependencies
     @Environment(\.trackListDisplayRatingsRevision) private var displayRatingsRevision
 
-    public init(
+    init(
+        sections: [NativeTrackListSection],
+        configuration: NativeTrackListConfiguration,
+        tableHeaderContent: AnyView?,
+        tableHeaderRevision: String?,
+        tableFooterContent: AnyView?,
+        onRefresh: (() async -> Void)?,
+        sectionScrollRequest: TrackSectionScrollRequest?,
+        onRemoveFromPlaylist: ((Track, Int) -> Void)?,
+        onTrackTap: @escaping (Track, Int) -> Void
+    ) {
+        self.sections = sections
+        self.configuration = configuration
+        self.tableHeaderContent = tableHeaderContent
+        self.tableHeaderRevision = tableHeaderRevision
+        self.tableFooterContent = tableFooterContent
+        self.onRefresh = onRefresh
+        self.sectionScrollRequest = sectionScrollRequest
+        self.onRemoveFromPlaylist = onRemoveFromPlaylist
+        self.onTrackTap = onTrackTap
+    }
+
+    /// Migration adapter for direct callers; removed once they use `TrackListHost`.
+    init(
         tracks: [Track],
         showArtwork: Bool = true,
         showTrackNumbers: Bool = false,
@@ -637,160 +615,60 @@ public struct MediaTrackList: UIViewRepresentable {
         groupByDisc: Bool = false,
         currentTrackId: String? = nil,
         selectedTrackId: String? = nil,
-        contentRevision: UInt64? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         managesOwnScrolling: Bool = false,
-        topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
         tableHeaderContent: AnyView? = nil,
         tableHeaderRevision: String? = nil,
         tableFooterContent: AnyView? = nil,
-        onRefresh: (() async -> Void)? = nil,
-        interactionModel: TrackRowInteractionModel? = nil,
+        interactionModel: TrackRowInteractionModel,
         supplementalMetadataWidth: CGFloat? = nil,
         trackSourceLabels: [String: String] = [:],
-        onPlayNext: ((Track) -> Void)? = nil,
-        onPlayLast: ((Track) -> Void)? = nil,
-        onAddToPlaylist: ((Track) -> Void)? = nil,
-        onAddToRecentPlaylist: ((Track) -> Void)? = nil,
-        onToggleFavorite: ((Track) -> Void)? = nil,
-        onGoToAlbum: ((Track) -> Void)? = nil,
         onGoToArtist: ((Track) -> Void)? = nil,
-        onGetInfo: ((Track) -> Void)? = nil,
-        onShareLink: ((Track) -> Void)? = nil,
-        onShareFile: ((Track) -> Void)? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
-        isTrackFavorited: ((Track) -> Bool)? = nil,
-        canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
-        recentPlaylistTitle: String? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
-        self.tracks = tracks
-        self.sections = nil
-        self.showArtwork = showArtwork
-        self.showTrackNumbers = showTrackNumbers
-        self.showAlbumName = showAlbumName
-        self.groupByDisc = groupByDisc
-        self.currentTrackId = currentTrackId
-        self.selectedTrackId = selectedTrackId
-        self.contentRevision = contentRevision
-        self.availabilityGeneration = availabilityGeneration
-        self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
-        self.managesOwnScrolling = managesOwnScrolling
-        self.topContentInset = topContentInset
-        self.bottomContentInset = bottomContentInset
-        self.rowHeight = rowHeight
-        self.tableHeaderContent = tableHeaderContent
-        self.tableHeaderRevision = tableHeaderRevision
-        self.tableFooterContent = tableFooterContent
-        self.onRefresh = onRefresh
-        self.supplementalMetadataWidth = supplementalMetadataWidth
-        self.trackSourceLabels = trackSourceLabels
-        self.onPlayNext = onPlayNext
-        self.onPlayLast = onPlayLast
-        self.onAddToPlaylist = onAddToPlaylist
-        self.onAddToRecentPlaylist = onAddToRecentPlaylist
-        self.onToggleFavorite = onToggleFavorite
-        self.onGoToAlbum = onGoToAlbum
-        self.onGoToArtist = onGoToArtist
-        self.onGetInfo = onGetInfo
-        self.onShareLink = onShareLink
-        self.onShareFile = onShareFile
-        self.onRemoveFromPlaylist = onRemoveFromPlaylist
-        self.isTrackFavorited = isTrackFavorited
-        self.canAddToRecentPlaylist = canAddToRecentPlaylist
-        self.recentPlaylistTitle = recentPlaylistTitle
-        self.showsNativeSectionIndex = false
-        self.sectionScrollRequestID = nil
-        self.sectionScrollTargetID = nil
-        self.interactionModel = interactionModel ?? TrackRowInteractionModel(
-            onPlayNext: onPlayNext,
-            onPlayLast: onPlayLast,
-            onAddToPlaylist: onAddToPlaylist,
-            onAddToRecentPlaylist: onAddToRecentPlaylist,
-            onToggleFavorite: onToggleFavorite,
-            onGoToAlbum: onGoToAlbum,
-            onGoToArtist: onGoToArtist,
-            onGetInfo: onGetInfo,
-            onShareLink: onShareLink,
-            onShareFile: onShareFile,
-            isTrackFavorited: isTrackFavorited,
-            canAddToRecentPlaylist: canAddToRecentPlaylist,
-            recentPlaylistTitle: recentPlaylistTitle
+        self.init(
+            sections: groupByDisc
+                ? NativeTrackListSection.discSections(for: tracks)
+                : [NativeTrackListSection(id: "all", title: "", tracks: tracks)],
+            configuration: NativeTrackListConfiguration(
+                showArtwork: showArtwork,
+                showTrackNumbers: showTrackNumbers,
+                showAlbumName: showAlbumName,
+                managesOwnScrolling: managesOwnScrolling,
+                rowHeight: rowHeight,
+                bottomContentInset: bottomContentInset,
+                supplementalMetadataWidth: supplementalMetadataWidth,
+                trackSourceLabels: trackSourceLabels,
+                currentTrackId: currentTrackId,
+                selectedTrackId: selectedTrackId,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                interactionModel: interactionModel
+            ),
+            tableHeaderContent: tableHeaderContent,
+            tableHeaderRevision: tableHeaderRevision,
+            tableFooterContent: tableFooterContent,
+            onRefresh: nil,
+            sectionScrollRequest: nil,
+            onRemoveFromPlaylist: onRemoveFromPlaylist,
+            onTrackTap: onTrackTap
         )
-        self.onTrackTap = onTrackTap
     }
 
-    public init(
-        sections: [NativeTrackListSection],
-        showArtwork: Bool = true,
-        showTrackNumbers: Bool = false,
-        showAlbumName: Bool = true,
-        currentTrackId: String? = nil,
-        selectedTrackId: String? = nil,
-        contentRevision: UInt64? = nil,
-        availabilityGeneration: UInt64 = 0,
-        activeDownloadTrackIdentities: Set<String> = [],
-        topContentInset: CGFloat = 0,
-        bottomContentInset: CGFloat = 0,
-        rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
-        tableHeaderContent: AnyView? = nil,
-        tableHeaderRevision: String? = nil,
-        tableFooterContent: AnyView? = nil,
-        onRefresh: (() async -> Void)? = nil,
-        interactionModel: TrackRowInteractionModel? = nil,
-        supplementalMetadataWidth: CGFloat? = nil,
-        trackSourceLabels: [String: String] = [:],
-        showsNativeSectionIndex: Bool = false,
-        sectionScrollRequestID: Int? = nil,
-        sectionScrollTargetID: String? = nil,
-        onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
-        onTrackTap: @escaping (Track, Int) -> Void
-    ) {
-        self.tracks = sections.flatMap(\.tracks)
-        self.sections = sections
-        self.showArtwork = showArtwork
-        self.showTrackNumbers = showTrackNumbers
-        self.showAlbumName = showAlbumName
-        self.groupByDisc = false
-        self.currentTrackId = currentTrackId
-        self.selectedTrackId = selectedTrackId
-        self.contentRevision = contentRevision
-        self.availabilityGeneration = availabilityGeneration
-        self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
-        self.managesOwnScrolling = true
-        self.topContentInset = topContentInset
-        self.bottomContentInset = bottomContentInset
-        self.rowHeight = rowHeight
-        self.tableHeaderContent = tableHeaderContent
-        self.tableHeaderRevision = tableHeaderRevision
-        self.tableFooterContent = tableFooterContent
-        self.onRefresh = onRefresh
-        self.supplementalMetadataWidth = supplementalMetadataWidth
-        self.trackSourceLabels = trackSourceLabels
-        self.onPlayNext = nil
-        self.onPlayLast = nil
-        self.onAddToPlaylist = nil
-        self.onAddToRecentPlaylist = nil
-        self.onToggleFavorite = nil
-        self.onGoToAlbum = nil
-        self.onGoToArtist = nil
-        self.onGetInfo = nil
-        self.onShareLink = nil
-        self.onShareFile = nil
-        self.onRemoveFromPlaylist = onRemoveFromPlaylist
-        self.isTrackFavorited = nil
-        self.canAddToRecentPlaylist = nil
-        self.recentPlaylistTitle = nil
-        self.showsNativeSectionIndex = showsNativeSectionIndex
-        self.sectionScrollRequestID = sectionScrollRequestID
-        self.sectionScrollTargetID = sectionScrollTargetID
-        self.interactionModel = interactionModel ?? TrackRowInteractionModel()
-        self.onTrackTap = onTrackTap
+    /// A single section keeps the caller's array storage, so unchanged
+    /// updates skip the per-track comparison.
+    private var tracks: [Track] {
+        sections.count == 1 ? sections[0].tracks : sections.flatMap(\.tracks)
     }
-    
+
+    /// Without its own scrolling the table sits in a parent `ScrollView`:
+    /// scrolling is disabled and layout waits for a window.
+    private var managesOwnScrolling: Bool { configuration.managesOwnScrolling }
+
     public func makeUIView(context: Context) -> UITableView {
         let tableView = DeferredLayoutTableView(frame: .zero, style: .plain)
         tableView.defersLayoutUntilWindow = !managesOwnScrolling
@@ -802,8 +680,8 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.separatorInset = UIEdgeInsets(
             top: 0,
             left: TrackListLayoutMetrics.contentLeadingInset(
-                showArtwork: showArtwork,
-                showTrackNumbers: showTrackNumbers
+                showArtwork: configuration.showArtwork,
+                showTrackNumbers: configuration.showTrackNumbers
             ),
             bottom: 0,
             right: 0
@@ -831,22 +709,14 @@ public struct MediaTrackList: UIViewRepresentable {
         // Suppress any default section footer height so the content height stays
         // exactly N × rowHeight with no extra trailing space.
         tableView.sectionFooterHeight = 0
-        tableView.sectionIndexMinimumDisplayRowCount = 1
-        tableView.sectionIndexColor = UIColor(EnsembleDesign.Color.accent)
-        tableView.sectionIndexBackgroundColor = .clear
-        tableView.sectionIndexTrackingBackgroundColor = .clear
 
         // iOS 15 introduced automatic top padding above section headers; suppress it
         // so the content height is exactly N × rowHeight with no leading offset.
         tableView.sectionHeaderTopPadding = 0
 
-        // Content insets for scroll-behind-chrome behavior.
-        // Lets content scroll behind mini player/tab bar with blur effect.
-        if managesOwnScrolling && topContentInset > 0 {
-            tableView.contentInset.top = topContentInset
-        }
-        if managesOwnScrolling && bottomContentInset > 0 {
-            tableView.contentInset.bottom = bottomContentInset
+        // Lets content scroll behind the mini player/tab bar with blur effect.
+        if managesOwnScrolling && configuration.bottomContentInset > 0 {
+            tableView.contentInset.bottom = configuration.bottomContentInset
         }
 
         // Enable drag-and-drop for downloaded tracks on iPad
@@ -858,116 +728,98 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         return tableView
     }
-    
+
     public func updateUIView(_ tableView: UITableView, context: Context) {
-        context.coordinator.selectedTrackId = selectedTrackId
+        let coordinator = context.coordinator
+        let tracks = tracks
+        let bottomContentInset = configuration.bottomContentInset
+        coordinator.selectedTrackId = configuration.selectedTrackId
         if managesOwnScrolling,
-           context.coordinator.contentScrollViewOwner == nil,
+           coordinator.contentScrollViewOwner == nil,
            tableView.window != nil {
-            context.coordinator.registerContentScrollView(tableView)
+            coordinator.registerContentScrollView(tableView)
         }
 
         // Re-apply content insets if they were cleared. This can happen when
         // .automatic contentInsetAdjustmentBehavior recalculates insets as the table
         // enters the view hierarchy (e.g. a navigation controller or tab bar controller).
-        if managesOwnScrolling && tableView.contentInset.top != topContentInset {
-            tableView.contentInset.top = topContentInset
+        if managesOwnScrolling && tableView.contentInset.top != 0 {
+            tableView.contentInset.top = 0
         }
         if managesOwnScrolling && bottomContentInset > 0 && tableView.contentInset.bottom != bottomContentInset {
             EnsembleLogger.debug("MediaTrackList re-applying bottomContentInset: was \(tableView.contentInset.bottom), setting to \(bottomContentInset)")
             tableView.contentInset.bottom = bottomContentInset
         }
 
-        let contentIsUnchanged: Bool = if let contentRevision {
-            contentRevision == context.coordinator.contentRevision
+        let contentIsUnchanged: Bool = if let contentRevision = configuration.contentRevision {
+            contentRevision == coordinator.contentRevision
         } else {
-            switch (context.coordinator.sections, sections) {
-            case let (.some(previous), .some(current)):
-                arraysShareStorage(previous, current)
-            case (nil, nil):
-                arraysShareStorage(context.coordinator.tracks, tracks)
-            default:
-                false
-            }
+            sectionsShareStorage(coordinator.sections, sections)
         }
-        let newGroupedTracks = contentIsUnchanged ? context.coordinator.groupedTracks : makeTrackGroups()
+        let newGroupedTracks = contentIsUnchanged ? coordinator.groupedTracks : makeTrackGroups()
 
         // Check if track list structure changed (additions/removals/reordering).
         // Shared array storage avoids repeating this linear scan on unrelated updates.
-        let newGroupSignature = contentIsUnchanged ? context.coordinator.groupSignature : newGroupedTracks.map(\.signature)
+        let newGroupSignature = contentIsUnchanged ? coordinator.groupSignature : newGroupedTracks.map(\.signature)
         let trackState = contentIsUnchanged
             ? (identityOrderMatches: true, downloadStateChanged: false)
-            : compareTrackListState(context.coordinator.tracks, tracks)
+            : compareTrackListState(coordinator.tracks, tracks)
         let dataChanged = !trackState.identityOrderMatches ||
-            context.coordinator.groupSignature != newGroupSignature ||
-            (context.coordinator.tableHeaderContent == nil) != (tableHeaderContent == nil) ||
-            context.coordinator.tableHeaderRevision != tableHeaderRevision ||
-            (context.coordinator.tableFooterContent == nil) != (tableFooterContent == nil)
+            coordinator.groupSignature != newGroupSignature ||
+            (coordinator.tableHeaderContent == nil) != (tableHeaderContent == nil) ||
+            coordinator.tableHeaderRevision != tableHeaderRevision ||
+            (coordinator.tableFooterContent == nil) != (tableFooterContent == nil)
 
         // Check if any track's download state changed (localFilePath set or cleared)
         let downloadStateChanged = !dataChanged && trackState.downloadStateChanged
 
-        let currentTrackChanged = context.coordinator.currentTrackId != currentTrackId
+        let currentTrackChanged = coordinator.currentTrackId != configuration.currentTrackId
         // Read network state from DependencyContainer (not observed — parent drives re-renders)
         let isOffline = !dependencies.networkMonitor.isConnected
-        let offlineStateChanged = context.coordinator.isOffline != isOffline
-        let activeDownloadsChanged = context.coordinator.activeDownloadTrackIdentities != activeDownloadTrackIdentities
-        let availabilityChanged = context.coordinator.lastAvailabilityGeneration != availabilityGeneration
-        let supplementalMetadataWidthChanged = context.coordinator.supplementalMetadataWidth != supplementalMetadataWidth
-        let trackSourceLabelsChanged = context.coordinator.trackSourceLabels != trackSourceLabels
-        let displayRatingsChanged = context.coordinator.lastDisplayRatingsRevision != displayRatingsRevision
+        let offlineStateChanged = coordinator.isOffline != isOffline
+        let activeDownloadsChanged = coordinator.activeDownloadTrackIdentities != configuration.activeDownloadTrackIdentities
+        let availabilityChanged = coordinator.lastAvailabilityGeneration != configuration.availabilityGeneration
+        let supplementalMetadataWidthChanged = coordinator.supplementalMetadataWidth != configuration.supplementalMetadataWidth
+        let trackSourceLabelsChanged = coordinator.trackSourceLabels != configuration.trackSourceLabels
+        let displayRatingsChanged = coordinator.lastDisplayRatingsRevision != displayRatingsRevision
         let newFavoriteStateSignature = !dataChanged && displayRatingsChanged
             ? favoriteStateSignature(for: tracks)
-            : context.coordinator.favoriteStateSignature
-        let favoriteStateChanged = !dataChanged && context.coordinator.favoriteStateSignature != newFavoriteStateSignature
+            : coordinator.favoriteStateSignature
+        let favoriteStateChanged = !dataChanged && coordinator.favoriteStateSignature != newFavoriteStateSignature
 
         let selectedRowIdentity = tableView.indexPathForSelectedRow
-            .flatMap { context.coordinator.track(at: $0)?.playbackIdentity }
+            .flatMap { coordinator.track(at: $0)?.playbackIdentity }
 
         // Update coordinator state
-        context.coordinator.tracks = tracks
-        context.coordinator.sections = sections
-        context.coordinator.contentRevision = contentRevision
-        context.coordinator.groupedTracks = newGroupedTracks
-        context.coordinator.groupSignature = newGroupSignature
-        context.coordinator.favoriteStateSignature = newFavoriteStateSignature
-        context.coordinator.showArtwork = showArtwork
-        context.coordinator.showTrackNumbers = showTrackNumbers
-        context.coordinator.showAlbumName = showAlbumName
-        context.coordinator.currentTrackId = currentTrackId
-        context.coordinator.onTrackTap = onTrackTap
-        context.coordinator.onPlayNext = onPlayNext
-        context.coordinator.onPlayLast = onPlayLast
-        context.coordinator.onAddToPlaylist = onAddToPlaylist
-        context.coordinator.onAddToRecentPlaylist = onAddToRecentPlaylist
-        context.coordinator.onToggleFavorite = onToggleFavorite
-        context.coordinator.onGoToAlbum = onGoToAlbum
-        context.coordinator.onGoToArtist = onGoToArtist
-        context.coordinator.onGetInfo = onGetInfo
-        context.coordinator.onShareLink = onShareLink
-        context.coordinator.onShareFile = onShareFile
-        context.coordinator.onRemoveFromPlaylist = onRemoveFromPlaylist
-        context.coordinator.isTrackFavorited = isTrackFavorited
-        context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
-        context.coordinator.recentPlaylistTitle = recentPlaylistTitle
-        context.coordinator.showsNativeSectionIndex = showsNativeSectionIndex
-        context.coordinator.interactionModel = interactionModel
-        context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
-        context.coordinator.trackSourceLabels = trackSourceLabels
-        context.coordinator.artworkLoader = dependencies.artworkLoader
-        context.coordinator.toastCenter = dependencies.toastCenter
-        context.coordinator.settingsManager = dependencies.settingsManager
-        context.coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
-        context.coordinator.isOffline = isOffline
-        context.coordinator.activeDownloadTrackIdentities = activeDownloadTrackIdentities
-        context.coordinator.rowHeight = rowHeight
-        context.coordinator.lastAvailabilityGeneration = availabilityGeneration
-        context.coordinator.lastDisplayRatingsRevision = displayRatingsRevision
+        coordinator.tracks = tracks
+        coordinator.sections = sections
+        coordinator.contentRevision = configuration.contentRevision
+        coordinator.groupedTracks = newGroupedTracks
+        coordinator.groupSignature = newGroupSignature
+        coordinator.favoriteStateSignature = newFavoriteStateSignature
+        coordinator.showArtwork = configuration.showArtwork
+        coordinator.showTrackNumbers = configuration.showTrackNumbers
+        coordinator.showAlbumName = configuration.showAlbumName
+        coordinator.currentTrackId = configuration.currentTrackId
+        coordinator.onTrackTap = onTrackTap
+        coordinator.onRemoveFromPlaylist = onRemoveFromPlaylist
+        coordinator.interactionModel = configuration.interactionModel
+        coordinator.supplementalMetadataWidth = configuration.supplementalMetadataWidth
+        coordinator.trackSourceLabels = configuration.trackSourceLabels
+        coordinator.artworkLoader = dependencies.artworkLoader
+        coordinator.toastCenter = dependencies.toastCenter
+        coordinator.settingsManager = dependencies.settingsManager
+        coordinator.trackAvailabilityResolver = dependencies.trackAvailabilityResolver
+        coordinator.isOffline = isOffline
+        coordinator.activeDownloadTrackIdentities = configuration.activeDownloadTrackIdentities
+        coordinator.rowHeight = configuration.rowHeight
+        coordinator.lastAvailabilityGeneration = configuration.availabilityGeneration
+        coordinator.lastDisplayRatingsRevision = displayRatingsRevision
         // Hosted cells are separate SwiftUI roots and do not inherit the environment.
-        context.coordinator.tableHeaderContent = tableHeaderContent.map { AnyView($0.environment(dependencies)) }
-        context.coordinator.tableHeaderRevision = tableHeaderRevision
-        context.coordinator.tableFooterContent = tableFooterContent.map { AnyView($0.environment(dependencies)) }
-        context.coordinator.onRefresh = onRefresh
+        coordinator.tableHeaderContent = tableHeaderContent.map { AnyView($0.environment(dependencies)) }
+        coordinator.tableHeaderRevision = tableHeaderRevision
+        coordinator.tableFooterContent = tableFooterContent.map { AnyView($0.environment(dependencies)) }
+        coordinator.onRefresh = onRefresh
 
         // Reload data immediately after updating groupedTracks to keep UIKit's geometry
         // in sync with the backing data. Previously there was a ~85 line gap between the
@@ -975,16 +827,15 @@ public struct MediaTrackList: UIViewRepresentable {
         // stale index paths against the new (possibly shorter) data — causing crashes.
         if tableView.window != nil && dataChanged {
             tableView.reloadData()
-            tableView.reloadSectionIndexTitles()
             if let selectedRowIdentity,
-               let indexPath = context.coordinator.indexPath(forTrackId: selectedRowIdentity) {
+               let indexPath = coordinator.indexPath(forTrackId: selectedRowIdentity) {
                 tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
             }
         }
 
-        if let tableFooterContent = context.coordinator.tableFooterContent,
+        if let tableFooterContent = coordinator.tableFooterContent,
            let footerCell = tableView.cellForRow(
-               at: IndexPath(row: 0, section: context.coordinator.footerSection)
+               at: IndexPath(row: 0, section: coordinator.footerSection)
            ) as? HostedContentCell {
             footerCell.configure(content: tableFooterContent, tableView: tableView)
         }
@@ -993,11 +844,10 @@ public struct MediaTrackList: UIViewRepresentable {
         // will trigger reloadData() on didMoveToWindow to avoid early layout passes.
         guard tableView.window != nil else { return }
 
-        if let sectionScrollRequestID,
-           context.coordinator.consumedSectionScrollRequestID != sectionScrollRequestID,
-           let sectionScrollTargetID,
-           let targetSection = context.coordinator.sectionIndex(forID: sectionScrollTargetID) {
-            context.coordinator.consumedSectionScrollRequestID = sectionScrollRequestID
+        if let sectionScrollRequest,
+           coordinator.consumedSectionScrollRequestID != sectionScrollRequest.id,
+           let targetSection = coordinator.sectionIndex(forID: sectionScrollRequest.sectionID) {
+            coordinator.consumedSectionScrollRequestID = sectionScrollRequest.id
             tableView.layoutIfNeeded()
             if tableView.numberOfRows(inSection: targetSection) > 0 {
                 tableView.scrollToRow(
@@ -1012,7 +862,7 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
-        context.coordinator.selectRequestedTrack()
+        coordinator.selectRequestedTrack()
 
         if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged || supplementalMetadataWidthChanged || trackSourceLabelsChanged || favoriteStateChanged) {
             // Reconfigure visible cells when track state or adaptive metadata width changes.
@@ -1020,23 +870,23 @@ public struct MediaTrackList: UIViewRepresentable {
             tableView.visibleCells.forEach { cell in
                 if let trackCell = cell as? TrackTableViewCell,
                    let indexPath = tableView.indexPath(for: cell),
-                   let groupIndex = context.coordinator.groupIndex(forTableSection: indexPath.section),
+                   let groupIndex = coordinator.groupIndex(forTableSection: indexPath.section),
                    indexPath.row < newGroupedTracks[groupIndex].tracks.count {
                     let track = newGroupedTracks[groupIndex].tracks[indexPath.row]
-                    let isPlaying = track.playbackIdentity == currentTrackId
+                    let isPlaying = track.playbackIdentity == configuration.currentTrackId
                     trackCell.configure(
                         with: track,
-                        showArtwork: showArtwork,
-                        showTrackNumber: showTrackNumbers,
-                        showAlbumName: showAlbumName,
+                        showArtwork: configuration.showArtwork,
+                        showTrackNumber: configuration.showTrackNumbers,
+                        showAlbumName: configuration.showAlbumName,
                         isPlaying: isPlaying,
-                        isUnavailableOffline: context.coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
-                        isActivelyDownloading: context.coordinator.activeDownloadTrackIdentities.contains(track.sourceScopedID),
-                        isFavorited: context.coordinator.interactionModel.isFavorited(track),
-                        supplementalMetadataWidth: context.coordinator.supplementalMetadataWidth,
-                        sourceLabel: context.coordinator.sourceLabel(for: track),
-                        menu: context.coordinator.makeDeferredContextMenu(for: track, at: indexPath),
-                        rowHeight: context.coordinator.rowHeight,
+                        isUnavailableOffline: coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
+                        isActivelyDownloading: coordinator.activeDownloadTrackIdentities.contains(track.sourceScopedID),
+                        isFavorited: coordinator.interactionModel.isFavorited(track),
+                        supplementalMetadataWidth: coordinator.supplementalMetadataWidth,
+                        sourceLabel: coordinator.sourceLabel(for: track),
+                        menu: coordinator.makeDeferredContextMenu(for: track, at: indexPath),
+                        rowHeight: coordinator.rowHeight,
                         artworkLoader: dependencies.artworkLoader
                     )
                 }
@@ -1047,44 +897,21 @@ public struct MediaTrackList: UIViewRepresentable {
     public static func dismantleUIView(_ tableView: UITableView, coordinator: Coordinator) {
         coordinator.unregisterContentScrollView(tableView)
     }
-    
+
     public func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator(
             tracks: tracks,
             sections: sections,
-            contentRevision: contentRevision,
             groupedTracks: makeTrackGroups(),
-            showArtwork: showArtwork,
-            showTrackNumbers: showTrackNumbers,
-            showAlbumName: showAlbumName,
-            currentTrackId: currentTrackId,
+            configuration: configuration,
             onTrackTap: onTrackTap,
-            onPlayNext: onPlayNext,
-            onPlayLast: onPlayLast,
-            onAddToPlaylist: onAddToPlaylist,
-            onAddToRecentPlaylist: onAddToRecentPlaylist,
-            onToggleFavorite: onToggleFavorite,
-            onGoToAlbum: onGoToAlbum,
-            onGoToArtist: onGoToArtist,
-            onGetInfo: onGetInfo,
-            onShareLink: onShareLink,
-            onShareFile: onShareFile,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
-            isTrackFavorited: isTrackFavorited,
-            canAddToRecentPlaylist: canAddToRecentPlaylist,
-            recentPlaylistTitle: recentPlaylistTitle,
-            showsNativeSectionIndex: showsNativeSectionIndex,
-            interactionModel: interactionModel,
-            supplementalMetadataWidth: supplementalMetadataWidth,
-            trackSourceLabels: trackSourceLabels,
             artworkLoader: dependencies.artworkLoader,
             shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
             settingsManager: dependencies.settingsManager,
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
             isOffline: !dependencies.networkMonitor.isConnected,
-            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-            rowHeight: rowHeight,
             displayRatingsRevision: displayRatingsRevision,
             tableHeaderContent: tableHeaderContent.map { AnyView($0.environment(dependencies)) },
             tableHeaderRevision: tableHeaderRevision,
@@ -1094,48 +921,32 @@ public struct MediaTrackList: UIViewRepresentable {
         coordinator.observeArtworkRecovery(dependencies.libraryChanges)
         return coordinator
     }
-    
+
     private func makeTrackGroups() -> [MediaTrackGroup] {
-        if let sections {
-            return sections.map { section in
-                MediaTrackGroup(
-                    id: section.id,
-                    title: section.title.isEmpty ? nil : section.title,
-                    tracks: section.tracks,
-                    isIndexable: !section.title.isEmpty
-                )
-            }
-        }
-
-        if groupByDisc {
-            return groupTracksByDisc(tracks)
-        }
-
-        return [MediaTrackGroup(id: "all", title: nil, tracks: tracks, isIndexable: false)]
-    }
-
-    private func favoriteStateSignature(for tracks: [Track]) -> [Bool] {
-        tracks.map { interactionModel.isFavorited($0) }
-    }
-
-    private func groupTracksByDisc(_ tracks: [Track]) -> [MediaTrackGroup] {
-        let grouped = Dictionary(grouping: tracks) { $0.discNumber }
-        let sortedKeys = grouped.keys.sorted()
-        
-        // Only show disc numbers if there are multiple discs
-        let showDiscNumbers = sortedKeys.count > 1
-        
-        return sortedKeys.map { disc in
-            let title = showDiscNumbers ? "Disc \(disc)" : nil
-            return MediaTrackGroup(
-                id: "disc-\(disc)",
-                title: title,
-                tracks: grouped[disc] ?? [],
-                isIndexable: false
+        sections.map { section in
+            MediaTrackGroup(
+                id: section.id,
+                title: section.title.isEmpty ? nil : section.title,
+                tracks: section.tracks
             )
         }
     }
-    
+
+    private func sectionsShareStorage(
+        _ lhs: [NativeTrackListSection],
+        _ rhs: [NativeTrackListSection]
+    ) -> Bool {
+        lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { previous, current in
+            previous.id == current.id
+                && previous.title == current.title
+                && arraysShareStorage(previous.tracks, current.tracks)
+        }
+    }
+
+    private func favoriteStateSignature(for tracks: [Track]) -> [Bool] {
+        tracks.map { configuration.interactionModel.isFavorited($0) }
+    }
+
     public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate {
         var tracks: [Track]
         fileprivate var groupedTracks: [MediaTrackGroup]
@@ -1145,24 +956,10 @@ public struct MediaTrackList: UIViewRepresentable {
         var showTrackNumbers: Bool
         var showAlbumName: Bool
         var currentTrackId: String?
-        var sections: [NativeTrackListSection]?
+        var sections: [NativeTrackListSection]
         var contentRevision: UInt64?
         var onTrackTap: (Track, Int) -> Void
-        var onPlayNext: ((Track) -> Void)?
-        var onPlayLast: ((Track) -> Void)?
-        var onAddToPlaylist: ((Track) -> Void)?
-        var onAddToRecentPlaylist: ((Track) -> Void)?
-        var onToggleFavorite: ((Track) -> Void)?
-        var onGoToAlbum: ((Track) -> Void)?
-        var onGoToArtist: ((Track) -> Void)?
-        var onGetInfo: ((Track) -> Void)?
-        var onShareLink: ((Track) -> Void)?
-        var onShareFile: ((Track) -> Void)?
         var onRemoveFromPlaylist: ((Track, Int) -> Void)?
-        var isTrackFavorited: ((Track) -> Bool)?
-        var canAddToRecentPlaylist: ((Track) -> Bool)?
-        var recentPlaylistTitle: String?
-        var showsNativeSectionIndex: Bool
         var consumedSectionScrollRequestID: Int?
         var selectedTrackId: String?
         var consumedSelectedTrackId: String?
@@ -1189,40 +986,17 @@ public struct MediaTrackList: UIViewRepresentable {
 
         fileprivate init(
             tracks: [Track],
-            sections: [NativeTrackListSection]?,
-            contentRevision: UInt64?,
+            sections: [NativeTrackListSection],
             groupedTracks: [MediaTrackGroup],
-            showArtwork: Bool,
-            showTrackNumbers: Bool,
-            showAlbumName: Bool,
-            currentTrackId: String?,
+            configuration: NativeTrackListConfiguration,
             onTrackTap: @escaping (Track, Int) -> Void,
-            onPlayNext: ((Track) -> Void)?,
-            onPlayLast: ((Track) -> Void)?,
-            onAddToPlaylist: ((Track) -> Void)?,
-            onAddToRecentPlaylist: ((Track) -> Void)?,
-            onToggleFavorite: ((Track) -> Void)?,
-            onGoToAlbum: ((Track) -> Void)?,
-            onGoToArtist: ((Track) -> Void)?,
-            onGetInfo: ((Track) -> Void)?,
-            onShareLink: ((Track) -> Void)?,
-            onShareFile: ((Track) -> Void)?,
             onRemoveFromPlaylist: ((Track, Int) -> Void)?,
-            isTrackFavorited: ((Track) -> Bool)?,
-            canAddToRecentPlaylist: ((Track) -> Bool)?,
-            recentPlaylistTitle: String?,
-            showsNativeSectionIndex: Bool,
-            interactionModel: TrackRowInteractionModel,
-            supplementalMetadataWidth: CGFloat?,
-            trackSourceLabels: [String: String],
             artworkLoader: ArtworkLoaderProtocol,
             shareService: ShareService,
             toastCenter: ToastCenter,
             settingsManager: SettingsManager,
             trackAvailabilityResolver: TrackAvailabilityResolver,
             isOffline: Bool,
-            activeDownloadTrackIdentities: Set<String> = [],
-            rowHeight: CGFloat,
             displayRatingsRevision: UInt64,
             tableHeaderContent: AnyView?,
             tableHeaderRevision: String?,
@@ -1231,41 +1005,27 @@ public struct MediaTrackList: UIViewRepresentable {
         ) {
             self.tracks = tracks
             self.sections = sections
-            self.contentRevision = contentRevision
+            self.contentRevision = configuration.contentRevision
             self.groupedTracks = groupedTracks
             self.groupSignature = groupedTracks.map(\.signature)
             self.favoriteStateSignature = []
-            self.showArtwork = showArtwork
-            self.showTrackNumbers = showTrackNumbers
-            self.showAlbumName = showAlbumName
-            self.currentTrackId = currentTrackId
+            self.showArtwork = configuration.showArtwork
+            self.showTrackNumbers = configuration.showTrackNumbers
+            self.showAlbumName = configuration.showAlbumName
+            self.currentTrackId = configuration.currentTrackId
             self.onTrackTap = onTrackTap
-            self.onPlayNext = onPlayNext
-            self.onPlayLast = onPlayLast
-            self.onAddToPlaylist = onAddToPlaylist
-            self.onAddToRecentPlaylist = onAddToRecentPlaylist
-            self.onToggleFavorite = onToggleFavorite
-            self.onGoToAlbum = onGoToAlbum
-            self.onGoToArtist = onGoToArtist
-            self.onGetInfo = onGetInfo
-            self.onShareLink = onShareLink
-            self.onShareFile = onShareFile
             self.onRemoveFromPlaylist = onRemoveFromPlaylist
-            self.isTrackFavorited = isTrackFavorited
-            self.canAddToRecentPlaylist = canAddToRecentPlaylist
-            self.recentPlaylistTitle = recentPlaylistTitle
-            self.showsNativeSectionIndex = showsNativeSectionIndex
-            self.interactionModel = interactionModel
-            self.supplementalMetadataWidth = supplementalMetadataWidth
-            self.trackSourceLabels = trackSourceLabels
+            self.interactionModel = configuration.interactionModel
+            self.supplementalMetadataWidth = configuration.supplementalMetadataWidth
+            self.trackSourceLabels = configuration.trackSourceLabels
             self.artworkLoader = artworkLoader
             self.shareService = shareService
             self.toastCenter = toastCenter
             self.settingsManager = settingsManager
             self.trackAvailabilityResolver = trackAvailabilityResolver
             self.isOffline = isOffline
-            self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
-            self.rowHeight = rowHeight
+            self.activeDownloadTrackIdentities = configuration.activeDownloadTrackIdentities
+            self.rowHeight = configuration.rowHeight
             self.lastDisplayRatingsRevision = displayRatingsRevision
             self.tableHeaderContent = tableHeaderContent
             self.tableHeaderRevision = tableHeaderRevision
@@ -1475,27 +1235,6 @@ public struct MediaTrackList: UIViewRepresentable {
 
         private static var sectionHeaderHeight: CGFloat {
             ceil(sectionHeaderFont.lineHeight + (EnsembleScaffold.BrowseSectionHeader.verticalPadding * 2))
-        }
-
-        public func sectionIndexTitles(for tableView: UITableView) -> [String]? {
-            guard showsNativeSectionIndex else { return nil }
-
-            let titles = groupedTracks.compactMap { group in
-                group.isIndexable ? group.title : nil
-            }
-            return titles.isEmpty ? nil : titles
-        }
-
-        public func tableView(_ tableView: UITableView, sectionForSectionIndexTitle title: String, at index: Int) -> Int {
-            if let section = groupedTracks.firstIndex(where: { $0.isIndexable && $0.title == title }) {
-                return tableSection(forGroupIndex: section)
-            }
-
-            guard index >= 0, index < groupedTracks.count else {
-                return NSNotFound
-            }
-
-            return tableSection(forGroupIndex: index)
         }
 
         public func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {

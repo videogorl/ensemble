@@ -993,12 +993,15 @@ public struct SearchView: View {
                         playSearchResult(track)
                     }
                 #else
-                    SongsTrackListHost(
+                    TrackListHost(
                         tracks: tracks,
-                        currentTrackId: currentTrackId,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        interactionModel: trackInteractionModel
+                        configuration: NativeTrackListConfiguration(
+                            managesOwnScrolling: false,
+                            currentTrackId: currentTrackId,
+                            availabilityGeneration: availabilityGeneration,
+                            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                            interactionModel: trackInteractionModel
+                        )
                     ) { track, _ in
                         playSearchResult(track)
                     }

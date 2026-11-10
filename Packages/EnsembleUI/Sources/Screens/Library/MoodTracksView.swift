@@ -56,14 +56,14 @@ public struct MoodTracksView: View {
                 .ignoresSafeArea(.container, edges: [.top, .bottom])
                 .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
             #else
-                SongsTrackListHost(
+                TrackListHost(
                     tracks: moodTracks,
-                    configuration: .songs(
+                    configuration: NativeTrackListConfiguration(
+                        bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+                        supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                         currentTrackId: currentTrackId,
                         availabilityGeneration: availabilityGeneration,
                         activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-                        supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                         interactionModel: trackInteractionModel
                     ),
                     tableHeaderContent: AnyView(moodHeader),

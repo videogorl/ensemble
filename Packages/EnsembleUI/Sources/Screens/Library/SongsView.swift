@@ -190,16 +190,13 @@ public struct SongsView: View {
     private func compactTrackListView(width: CGFloat) -> some View {
         Group {
             if libraryVM.trackSortOption == .title {
-                SongsTrackListHost(
+                TrackListHost(
                     sections: largeScreenTrackSections,
-                    currentTrackId: currentTrackId,
-                    contentRevision: trackContentRevision,
-                    availabilityGeneration: availabilityGeneration,
-                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
-                    supplementalMetadataWidth: width,
-                    showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
-                    interactionModel: largeScreenTrackInteractionModel,
+                    configuration: songsTrackListConfiguration(
+                        width: width,
+                        bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
+                        showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width)
+                    ),
                     tableHeaderContent: songsTableHeaderContent,
                     tableFooterContent: songsCountFooterContent,
                     onRefresh: refreshLibrary
@@ -208,15 +205,12 @@ public struct SongsView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                SongsTrackListHost(
+                TrackListHost(
                     tracks: trackSnapshot.tracks,
-                    currentTrackId: currentTrackId,
-                    contentRevision: trackContentRevision,
-                    availabilityGeneration: availabilityGeneration,
-                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
-                    supplementalMetadataWidth: width,
-                    interactionModel: largeScreenTrackInteractionModel,
+                    configuration: songsTrackListConfiguration(
+                        width: width,
+                        bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing
+                    ),
                     tableHeaderContent: songsTableHeaderContent,
                     tableFooterContent: songsCountFooterContent,
                     onRefresh: refreshLibrary
@@ -303,17 +297,14 @@ public struct SongsView: View {
     }
 
     private func largeScreenIndexedSongList(width: CGFloat, tableHeaderContent: AnyView? = nil) -> some View {
-        SongsTrackListHost(
+        TrackListHost(
             sections: largeScreenTrackSections,
-            currentTrackId: currentTrackId,
-            contentRevision: trackContentRevision,
-            availabilityGeneration: availabilityGeneration,
-            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-            bottomContentInset: largeScreenSongListBottomInset,
-            usesDynamicTableHeaderHeight: tableHeaderContent != nil,
-            supplementalMetadataWidth: width,
-            showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
-            interactionModel: largeScreenTrackInteractionModel,
+            configuration: songsTrackListConfiguration(
+                width: width,
+                bottomContentInset: largeScreenSongListBottomInset,
+                showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
+                usesDynamicTableHeaderHeight: tableHeaderContent != nil
+            ),
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: songsCountFooterContent,
             onRefresh: refreshLibrary
@@ -323,22 +314,38 @@ public struct SongsView: View {
     }
 
     private func largeScreenFlatSongList(width: CGFloat, tableHeaderContent: AnyView? = nil) -> some View {
-        SongsTrackListHost(
+        TrackListHost(
             tracks: trackSnapshot.tracks,
-            currentTrackId: currentTrackId,
-            contentRevision: trackContentRevision,
-            availabilityGeneration: availabilityGeneration,
-            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-            bottomContentInset: largeScreenSongListBottomInset,
-            usesDynamicTableHeaderHeight: tableHeaderContent != nil,
-            supplementalMetadataWidth: width,
-            interactionModel: largeScreenTrackInteractionModel,
+            configuration: songsTrackListConfiguration(
+                width: width,
+                bottomContentInset: largeScreenSongListBottomInset,
+                usesDynamicTableHeaderHeight: tableHeaderContent != nil
+            ),
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: songsCountFooterContent,
             onRefresh: refreshLibrary
         ) { track, _ in
             playTrack(track)
         }
+    }
+
+    private func songsTrackListConfiguration(
+        width: CGFloat,
+        bottomContentInset: CGFloat,
+        showsSectionIndex: Bool = false,
+        usesDynamicTableHeaderHeight: Bool = false
+    ) -> NativeTrackListConfiguration {
+        NativeTrackListConfiguration(
+            showsSectionIndex: showsSectionIndex,
+            bottomContentInset: bottomContentInset,
+            usesDynamicTableHeaderHeight: usesDynamicTableHeaderHeight,
+            supplementalMetadataWidth: width,
+            currentTrackId: currentTrackId,
+            contentRevision: trackContentRevision,
+            availabilityGeneration: availabilityGeneration,
+            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+            interactionModel: largeScreenTrackInteractionModel
+        )
     }
 
     private var largeScreenSongListBottomInset: CGFloat {

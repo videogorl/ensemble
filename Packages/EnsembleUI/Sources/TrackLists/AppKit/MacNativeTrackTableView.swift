@@ -5,36 +5,22 @@ import SwiftUI
 #if os(macOS)
 import AppKit
 
+/// AppKit table behind `TrackListHost` on macOS.
 struct MacNativeTrackTableView: NSViewRepresentable {
     let sections: [NativeTrackListSection]
-    let showArtwork: Bool
-    let showTrackNumbers: Bool
-    let showAlbumName: Bool
+    let configuration: NativeTrackListConfiguration
     let tableHeaderContent: AnyView?
     let tableFooterContent: AnyView?
-    let currentTrackId: String?
-    let selectedTrackId: String?
-    let contentRevision: UInt64?
-    let availabilityGeneration: UInt64
-    let activeDownloadTrackIdentities: Set<String>
-    let bottomContentInset: CGFloat
-    let tableHeaderExtraHeight: CGFloat
-    let usesDynamicTableHeaderHeight: Bool
-    let supplementalMetadataWidth: CGFloat?
-    let trackSourceLabels: [String: String]
-    let rowHeight: CGFloat
-    let interactionModel: TrackRowInteractionModel
     let onRemoveFromPlaylist: ((Track, Int) -> Void)?
     let sectionScrollRequest: TrackSectionScrollRequest?
     let onTrackTap: (Track, Int) -> Void
 
     @Environment(DependencyContainer.self) private var dependencies
 
-    static func deterministicWideHeaderHeight(tableHeaderExtraHeight: CGFloat) -> CGFloat {
+    static var deterministicWideHeaderHeight: CGFloat {
         ArtworkSize.medium.cgSize.height
             + EnsembleScaffold.DetailSurface.macWideHeaderTopPadding
             + EnsembleScaffold.DetailSurface.macWideHeaderBottomPadding
-            + tableHeaderExtraHeight
     }
 
     static func appKitRowActionSlots(
@@ -92,7 +78,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let tableView = scrollView.documentView as? NSTableView else { return }
         let coordinator = context.coordinator
-        let contentChanged = if let contentRevision {
+        let contentChanged = if let contentRevision = configuration.contentRevision {
             coordinator.contentRevision != contentRevision
         } else {
             coordinator.sections != sections
@@ -100,25 +86,24 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         let structureChanged = contentChanged ||
             (coordinator.tableHeaderContent == nil) != (tableHeaderContent == nil) ||
             (coordinator.tableFooterContent == nil) != (tableFooterContent == nil) ||
-            coordinator.bottomContentInset != bottomContentInset
+            coordinator.bottomContentInset != configuration.bottomContentInset
         coordinator.sections = sections
-        coordinator.contentRevision = contentRevision
-        context.coordinator.showArtwork = showArtwork
-        context.coordinator.showTrackNumbers = showTrackNumbers
-        context.coordinator.showAlbumName = showAlbumName
+        coordinator.contentRevision = configuration.contentRevision
+        context.coordinator.showArtwork = configuration.showArtwork
+        context.coordinator.showTrackNumbers = configuration.showTrackNumbers
+        context.coordinator.showAlbumName = configuration.showAlbumName
         // Hosted cells are separate SwiftUI roots and do not inherit the environment.
         context.coordinator.tableHeaderContent = tableHeaderContent.map { AnyView($0.environment(dependencies)) }
         context.coordinator.tableFooterContent = tableFooterContent.map { AnyView($0.environment(dependencies)) }
-        context.coordinator.currentTrackId = currentTrackId
-        context.coordinator.availabilityGeneration = availabilityGeneration
-        context.coordinator.activeDownloadTrackIdentities = activeDownloadTrackIdentities
-        context.coordinator.bottomContentInset = bottomContentInset
-        context.coordinator.tableHeaderExtraHeight = tableHeaderExtraHeight
-        context.coordinator.usesDynamicTableHeaderHeight = usesDynamicTableHeaderHeight
-        context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
-        context.coordinator.trackSourceLabels = trackSourceLabels
-        context.coordinator.rowHeight = rowHeight
-        context.coordinator.interactionModel = interactionModel
+        context.coordinator.currentTrackId = configuration.currentTrackId
+        context.coordinator.availabilityGeneration = configuration.availabilityGeneration
+        context.coordinator.activeDownloadTrackIdentities = configuration.activeDownloadTrackIdentities
+        context.coordinator.bottomContentInset = configuration.bottomContentInset
+        context.coordinator.usesDynamicTableHeaderHeight = configuration.usesDynamicTableHeaderHeight
+        context.coordinator.supplementalMetadataWidth = configuration.supplementalMetadataWidth
+        context.coordinator.trackSourceLabels = configuration.trackSourceLabels
+        context.coordinator.rowHeight = configuration.rowHeight
+        context.coordinator.interactionModel = configuration.interactionModel
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.shareService = dependencies.shareService
         context.coordinator.toastCenter = dependencies.toastCenter
@@ -148,7 +133,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             context.coordinator.consumedSectionScrollRequestID = sectionScrollRequest.id
         }
 
-        if let selectedTrackId,
+        if let selectedTrackId = configuration.selectedTrackId,
            context.coordinator.consumedSelectedTrackId != selectedTrackId,
            let targetRow = context.coordinator.rowIndex(forTrackId: selectedTrackId) {
             tableView.selectRowIndexes(IndexSet(integer: targetRow), byExtendingSelection: false)
@@ -160,22 +145,21 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             sections: sections,
-            contentRevision: contentRevision,
-            showArtwork: showArtwork,
-            showTrackNumbers: showTrackNumbers,
-            showAlbumName: showAlbumName,
+            contentRevision: configuration.contentRevision,
+            showArtwork: configuration.showArtwork,
+            showTrackNumbers: configuration.showTrackNumbers,
+            showAlbumName: configuration.showAlbumName,
             tableHeaderContent: tableHeaderContent.map { AnyView($0.environment(dependencies)) },
             tableFooterContent: tableFooterContent.map { AnyView($0.environment(dependencies)) },
-            currentTrackId: currentTrackId,
-            availabilityGeneration: availabilityGeneration,
-            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-            bottomContentInset: bottomContentInset,
-            tableHeaderExtraHeight: tableHeaderExtraHeight,
-            usesDynamicTableHeaderHeight: usesDynamicTableHeaderHeight,
-            supplementalMetadataWidth: supplementalMetadataWidth,
-            trackSourceLabels: trackSourceLabels,
-            rowHeight: rowHeight,
-            interactionModel: interactionModel,
+            currentTrackId: configuration.currentTrackId,
+            availabilityGeneration: configuration.availabilityGeneration,
+            activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
+            bottomContentInset: configuration.bottomContentInset,
+            usesDynamicTableHeaderHeight: configuration.usesDynamicTableHeaderHeight,
+            supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+            trackSourceLabels: configuration.trackSourceLabels,
+            rowHeight: configuration.rowHeight,
+            interactionModel: configuration.interactionModel,
             artworkLoader: dependencies.artworkLoader,
             shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
@@ -199,7 +183,6 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         var availabilityGeneration: UInt64
         var activeDownloadTrackIdentities: Set<String>
         var bottomContentInset: CGFloat
-        var tableHeaderExtraHeight: CGFloat
         var usesDynamicTableHeaderHeight: Bool
         var supplementalMetadataWidth: CGFloat?
         var trackSourceLabels: [String: String]
@@ -234,7 +217,6 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             availabilityGeneration: UInt64,
             activeDownloadTrackIdentities: Set<String>,
             bottomContentInset: CGFloat,
-            tableHeaderExtraHeight: CGFloat,
             usesDynamicTableHeaderHeight: Bool,
             supplementalMetadataWidth: CGFloat?,
             trackSourceLabels: [String: String],
@@ -259,7 +241,6 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             self.availabilityGeneration = availabilityGeneration
             self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
             self.bottomContentInset = bottomContentInset
-            self.tableHeaderExtraHeight = tableHeaderExtraHeight
             self.usesDynamicTableHeaderHeight = usesDynamicTableHeaderHeight
             self.supplementalMetadataWidth = supplementalMetadataWidth
             self.trackSourceLabels = trackSourceLabels
@@ -613,9 +594,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         private func headerHeight(for rootView: AnyView, in tableView: NSTableView, forceMeasure: Bool = false) -> CGFloat {
             let width = effectiveTableWidth(tableView)
             if !usesDynamicTableHeaderHeight, width >= EnsembleScaffold.DetailSurface.wideHeaderThreshold {
-                return MacNativeTrackTableView.deterministicWideHeaderHeight(
-                    tableHeaderExtraHeight: tableHeaderExtraHeight
-                )
+                return MacNativeTrackTableView.deterministicWideHeaderHeight
             }
 
             if !forceMeasure, let measuredHeader, measuredHeader.width == width {
@@ -1087,11 +1066,11 @@ private final class MacNativeTrackTableCell: NSTableCellView {
 }
 
 private extension NSUserInterfaceItemIdentifier {
-    static let track = NSUserInterfaceItemIdentifier("SongsTrackListHost.TrackColumn")
-    static let trackRow = NSUserInterfaceItemIdentifier("SongsTrackListHost.TrackRow")
-    static let hostingRow = NSUserInterfaceItemIdentifier("SongsTrackListHost.HostingRow")
-    static let sectionHeader = NSUserInterfaceItemIdentifier("SongsTrackListHost.SectionHeader")
-    static let bottomSpacer = NSUserInterfaceItemIdentifier("SongsTrackListHost.BottomSpacer")
-    static let nonClippingRow = NSUserInterfaceItemIdentifier("SongsTrackListHost.NonClippingRow")
+    static let track = NSUserInterfaceItemIdentifier("TrackListHost.TrackColumn")
+    static let trackRow = NSUserInterfaceItemIdentifier("TrackListHost.TrackRow")
+    static let hostingRow = NSUserInterfaceItemIdentifier("TrackListHost.HostingRow")
+    static let sectionHeader = NSUserInterfaceItemIdentifier("TrackListHost.SectionHeader")
+    static let bottomSpacer = NSUserInterfaceItemIdentifier("TrackListHost.BottomSpacer")
+    static let nonClippingRow = NSUserInterfaceItemIdentifier("TrackListHost.NonClippingRow")
 }
 #endif

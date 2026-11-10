@@ -15,6 +15,21 @@ public struct NativeTrackListSection: Identifiable, Equatable {
         self.title = title
         self.tracks = tracks
     }
+
+    /// One section per disc in disc order, keeping track order within a disc.
+    /// Sections are titled only when there is more than one disc.
+    static func discSections(for tracks: [Track]) -> [NativeTrackListSection] {
+        let grouped = Dictionary(grouping: tracks, by: \.discNumber)
+        let discs = grouped.keys.sorted()
+        let showsTitles = discs.count > 1
+        return discs.map { disc in
+            NativeTrackListSection(
+                id: "disc-\(disc)",
+                title: showsTitles ? "Disc \(disc)" : "",
+                tracks: grouped[disc] ?? []
+            )
+        }
+    }
 }
 
 /// Flattened row description shared by native track-list renderers and tests.

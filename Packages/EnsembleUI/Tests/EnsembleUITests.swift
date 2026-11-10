@@ -631,7 +631,6 @@ final class EnsembleUITests: XCTestCase {
             availabilityGeneration: 0,
             activeDownloadTrackIdentities: [],
             bottomContentInset: 0,
-            tableHeaderExtraHeight: 0,
             usesDynamicTableHeaderHeight: false,
             supplementalMetadataWidth: nil,
             trackSourceLabels: [:],
