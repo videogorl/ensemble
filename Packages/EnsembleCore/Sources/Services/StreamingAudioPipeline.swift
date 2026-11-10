@@ -160,6 +160,8 @@ final class StreamingAudioPipeline: NSObject {
         /// How long a dropped download is resumed before the failure is reported, and the pause between attempts.
         let resumeWindow: TimeInterval
         let resumeRetryInterval: TimeInterval
+        /// A download that received bytes this recently is healthy: a path change leaves it alone.
+        let healthyWindow: TimeInterval
         let now: () -> TimeInterval
 
         init(
@@ -176,6 +178,7 @@ final class StreamingAudioPipeline: NSObject {
             idleTimeout: TimeInterval = 15,
             resumeWindow: TimeInterval = AudioPlaybackEngine.maximumRebufferSeconds,
             resumeRetryInterval: TimeInterval = 1,
+            healthyWindow: TimeInterval = 2,
             now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
         ) {
             // A dead connection is given up after `idleTimeout` without data, not URLSession's 60 s.
@@ -183,6 +186,7 @@ final class StreamingAudioPipeline: NSObject {
             request.timeoutInterval = min(request.timeoutInterval, idleTimeout)
             self.resumeWindow = resumeWindow
             self.resumeRetryInterval = resumeRetryInterval
+            self.healthyWindow = healthyWindow
             self.now = now
             self.request = request
             self.fileExtension = fileExtension
@@ -248,6 +252,9 @@ final class StreamingAudioPipeline: NSObject {
     private var recoveryStartedAt: TimeInterval?
     private var resumeAttempts = 0
     private var lastResumeRequestAt: TimeInterval?
+    /// A path change happened and no bytes have arrived since: a resume that then fails to connect
+    /// is not retried, so the service reloads on a freshly selected endpoint.
+    private var pathChangedAwaitingBytes = false
     /// Set once the download is given up on while audio is still buffered; `render` reports it
     /// when the PCM reserve runs out, so the engine reloads only after the reserve is played.
     private var deferredError: Error?
@@ -439,13 +446,20 @@ final class StreamingAudioPipeline: NSObject {
     ) -> Int {
         stateLock.lock()
         let pcmBuffer = self.pcmBuffer
-        let drainedFailure = self.drainedFailure
+        let hasDrainedFailure = drainedFailure != nil
         stateLock.unlock()
         guard let pcmBuffer else { return 0 }
         let read = pcmBuffer.read(into: audioBufferList, frameCount: frameCount,
                                   resumeFrames: Int(pcmBuffer.format.sampleRate), isComplete: isComplete)
-        if let drainedFailure, read < Int(frameCount) {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in self?.fail(drainedFailure) }
+        if hasDrainedFailure, read < Int(frameCount) {
+            // Reported once: the real-time render thread must not keep posting work.
+            stateLock.lock()
+            let failure = drainedFailure
+            drainedFailure = nil
+            stateLock.unlock()
+            if let failure {
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in self?.fail(failure) }
+            }
         }
         return read
     }
@@ -512,6 +526,7 @@ final class StreamingAudioPipeline: NSObject {
                 payloadPrefix.append(data.prefix(64 - payloadPrefix.count))
             }
             lastByteUptime = ProcessInfo.processInfo.systemUptime
+            pathChangedAwaitingBytes = false
             let timeout = downloadTimeoutWorkItem
             downloadTimeoutWorkItem = nil
             var recovered: (offset: Int64, attempts: Int, seconds: TimeInterval)?
@@ -673,19 +688,34 @@ final class StreamingAudioPipeline: NSObject {
             fail(error)
             return
         }
+        // Every byte arrived and the connection failed afterwards: the file is whole.
+        if let validator = resumeValidator, receivedByteCount >= validator.totalBytes {
+            stateLock.unlock()
+            finishNetwork()
+            return
+        }
         let now = configuration.now()
         let startedAt = recoveryStartedAt ?? now
         recoveryStartedAt = startedAt
-        guard let validator = resumeValidator, receivedByteCount < validator.totalBytes,
+        // After a path change, a resume that cannot connect is not retried against the same endpoint:
+        // the service's reload selects a fresh one.
+        let resumeFailedAfterPathChange = resumeOffset != nil && pathChangedAwaitingBytes
+        guard let validator = resumeValidator, !resumeFailedAfterPathChange,
               now - startedAt < configuration.resumeWindow else {
             stateLock.unlock()
             failAfterDraining(error)
             return
         }
-        // Paced like the service's reloads: a server that sends a little and drops must not be hit in a tight loop.
+        EnsembleLogger.info("[StreamingPipeline] dropped trackId=\(configuration.trackID ?? "unknown") bytes=\(receivedByteCount)/\(validator.totalBytes) error=\((error as NSError).domain):\((error as NSError).code)")
+        scheduleResumeAndUnlock(now: now)
+    }
+
+    /// Schedules `beginResume`, paced like the service's reloads: a server that sends a little and drops
+    /// must not be hit in a tight loop. Called with the lock held; releases it.
+    private func scheduleResumeAndUnlock(now: TimeInterval) {
         let delay = max(0, configuration.resumeRetryInterval - (now - (lastResumeRequestAt ?? -.infinity)))
-        EnsembleLogger.info("[StreamingPipeline] dropped trackId=\(configuration.trackID ?? "unknown") bytes=\(receivedByteCount)/\(validator.totalBytes) error=\((error as NSError).domain):\((error as NSError).code) retryIn=\(String(format: "%.2fs", delay))")
         let work = DispatchWorkItem { [weak self] in self?.beginResume() }
+        resumeWorkItem?.cancel()
         resumeWorkItem = work
         stateLock.unlock()
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay, execute: work)
@@ -717,8 +747,8 @@ final class StreamingAudioPipeline: NSObject {
         EnsembleLogger.info("[StreamingPipeline] resumeRequested trackId=\(configuration.trackID ?? "unknown") offset=\(offset) attempt=\(attempt) sinceDrop=\(String(format: "%.2fs", sinceDrop))")
     }
 
-    /// The network path changed: a ranged download restarts on the new path now, rather than waiting
-    /// for its old connection to fail.
+    /// The network path changed: a ranged download that has gone quiet restarts on the new path now,
+    /// rather than waiting for its old connection to fail. One that is still receiving is left alone.
     func networkPathChanged() {
         stateLock.lock()
         guard let validator = resumeValidator, !cancelled, downloadResult == nil, deferredError == nil,
@@ -726,13 +756,18 @@ final class StreamingAudioPipeline: NSObject {
             stateLock.unlock()
             return
         }
-        resumeWorkItem?.cancel()
-        resumeWorkItem = nil
+        pathChangedAwaitingBytes = true
+        let sinceLastByte = lastByteUptime.map { ProcessInfo.processInfo.systemUptime - $0 } ?? .infinity
+        guard sinceLastByte >= configuration.healthyWindow else {
+            stateLock.unlock()
+            return
+        }
         let oldTask = task
         task = nil
-        stateLock.unlock()
+        let now = configuration.now()
+        recoveryStartedAt = recoveryStartedAt ?? now
         oldTask?.cancel()
-        beginResume()
+        scheduleResumeAndUnlock(now: now)
     }
 
     /// Gives up on the download without cutting off audio already on disk or in the PCM reserve.

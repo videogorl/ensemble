@@ -132,6 +132,21 @@ final class NetworkMonitorTests: XCTestCase {
         XCTAssertEqual(sut.pathGeneration, 2)
     }
 
+    /// Only a different status or preferred interface is a different route: another interface appearing
+    /// behind the same primary one is not.
+    func testPathSignatureIgnoresInterfacesThatAreNotPrimary() {
+        let wifi = PathSignature(status: .satisfied, primaryInterfaceType: .wifi, primaryInterfaceName: "en0")
+        let rows: [(name: String, other: PathSignature, differs: Bool)] = [
+            ("same primary interface", PathSignature(status: .satisfied, primaryInterfaceType: .wifi, primaryInterfaceName: "en0"), false),
+            ("primary becomes cellular", PathSignature(status: .satisfied, primaryInterfaceType: .cellular, primaryInterfaceName: "pdp_ip0"), true),
+            ("primary Wi-Fi interface changes", PathSignature(status: .satisfied, primaryInterfaceType: .wifi, primaryInterfaceName: "en1"), true),
+            ("path becomes unsatisfied", PathSignature(status: .unsatisfied, primaryInterfaceType: nil, primaryInterfaceName: nil), true),
+        ]
+        for row in rows {
+            XCTAssertEqual(wifi != row.other, row.differs, row.name)
+        }
+    }
+
     func testSnapshotStreamTransitions() async {
         let base = NetworkSnapshot(state: .online(.wifi))
         let sentinel = NetworkSnapshot(state: .limited, isConstrained: true)

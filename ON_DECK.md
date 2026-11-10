@@ -174,6 +174,24 @@ rules, the Plex WebSocket polling fallback, and the size of `WatchRootView.swift
 - Impact: a download running while a track streams at original quality could cut the stream (-1005) the same way the prefetch did.
 - Next step: in one simulator run, start an offline download of an original while a delayed stream plays, then search the Plex log for "Terminated session" on that client. Only if it appears, make downloads of originals wait behind a stream download (Felicity's decision 2 in the proposal).
 
+## Confirmed gaps in stream drop resume (2026-11-10, review of steps c and d)
+
+- **A resume re-requests the original URL** (confirmed, M). `StreamingAudioPipeline.beginResume` uses
+  `configuration.request`, so after leaving home mid-track a resume goes to the LAN address and fails to
+  connect (up to 15 s). Mitigation in place: after a path change, a resume that fails to connect is not
+  retried, so the service reload (which selects a fresh endpoint) follows one attempt later. Fix: the
+  transport coordinator hands the pipeline an async closure that rebuilds the track's stream request from
+  its cached decision and the server's currently selected endpoint (`assembleStreamResolution`); the ETag
+  and `Content-Range` checks stay. It needs the `Track` kept alongside the pipeline, an async `beginResume`
+  with a guard against a second resume starting during the await, and a test, which was judged over the
+  50 source lines allowed for it.
+- **A resume with no route waits indefinitely** (confirmed from the code, S). The pipeline's session uses
+  `waitsForConnectivity = true`, so a resume requested while offline does not time out and the 30 s window
+  does not bound an offline period. While playing, the engine's rebuffer timeout still ends the stream;
+  while paused, the pipeline holds its direct-download server slot until Play or the network returns (only
+  prefetch consults the slot). Next step: decide whether a paused stream should release the slot or give up
+  after a long offline period.
+
 ## Audit, 2026-11-10: network and server health checking
 
 From a read-only audit; nothing here is a reproduced defect. One `NWPathMonitor`

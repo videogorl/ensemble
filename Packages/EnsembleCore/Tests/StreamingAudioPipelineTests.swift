@@ -188,7 +188,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
 
     // MARK: - Dropped downloads
 
-    private enum Outcome { case resumed, failsAfterReserve, failsAtOnce }
+    private enum Outcome { case resumed, completesWithoutResume, failsAfterReserve, failsAtOnce }
 
     /// A drop after startup keeps the buffered audio playing and resumes from the right byte; a resume that
     /// cannot be proved safe, a transcode, or a dead connection plays the reserve out and then fails.
@@ -199,6 +199,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
         let drop = wav.count * 2 / 5
         let rows: [(name: String, etag: String?, replies: [ScriptedURLProtocol.Reply], outcome: Outcome, requests: Int)] = [
             ("drop, resumes from the byte it stopped at", "\"v1\"", [.ranged(dropAfter: drop), .ranged(dropAfter: nil)], .resumed, 2),
+            ("every byte arrived, then the connection failed", "\"v1\"", [.ranged(dropAfter: wav.count)], .completesWithoutResume, 1),
             ("two drops in a row", "\"v1\"", [.ranged(dropAfter: drop), .ranged(dropAfter: 20_000), .ranged(dropAfter: nil)], .resumed, 3),
             ("ETag changed", "\"v1\"", [.ranged(dropAfter: drop), .changedETag], .failsAfterReserve, 2),
             ("server answers 200 to the Range request", "\"v1\"", [.ranged(dropAfter: drop), .full], .failsAfterReserve, 2),
@@ -217,6 +218,10 @@ final class StreamingAudioPipelineTests: XCTestCase {
                 XCTAssertTrue(result.completed, row.name)
                 let range = result.requests[1].value(forHTTPHeaderField: "Range")
                 XCTAssertEqual(range, "bytes=\(drop)-", row.name)
+            case .completesWithoutResume:
+                XCTAssertNil(result.failure, row.name)
+                XCTAssertEqual(result.samples, baseline, row.name)
+                XCTAssertTrue(result.completed, row.name)
             case .failsAfterReserve:
                 XCTAssertNotNil(result.failure, row.name)
                 XCTAssertGreaterThan(result.samples.count, 0, "\(row.name): the reserve plays before the failure")
@@ -234,18 +239,59 @@ final class StreamingAudioPipelineTests: XCTestCase {
         XCTAssertEqual(result.requests.first?.timeoutInterval, 15)
     }
 
-    /// A path change restarts the ranged download at once; the retry pause is far longer than the test.
-    func testPathChangeResumesWithoutWaitingForTheTaskToFail() async throws {
+    /// A path change restarts a download that has gone quiet at once (the retry pause is far longer than the
+    /// test), leaves one that is still receiving alone, and does not retry a resume that cannot connect.
+    func testPathChangeRestartsOnlyAStalledDownload() async throws {
         let wav = Self.wavFixture(seconds: 4)
         let baseline = try await run(payload: wav, replies: [.ranged(dropAfter: nil)]).samples
         let stall = wav.count / 2
-        let result = try await run(payload: wav, replies: [.stalls(afterBytes: stall), .ranged(dropAfter: nil)], retryInterval: 60) { pipeline in
+        let stalled = try await run(payload: wav, replies: [.stalls(afterBytes: stall), .ranged(dropAfter: nil)], retryInterval: 60, healthyWindow: 0.2) { pipeline in
             while pipeline.diagnostics().receivedBytes < stall { try await Task.sleep(nanoseconds: 5_000_000) }
+            try await Task.sleep(nanoseconds: 400_000_000)
             pipeline.networkPathChanged()
         }
+        XCTAssertNil(stalled.failure, "stalled")
+        XCTAssertEqual(stalled.samples, baseline, "stalled")
+        XCTAssertEqual(stalled.requests.last?.value(forHTTPHeaderField: "Range"), "bytes=\(stall)-")
+
+        let healthy = try await run(payload: wav, replies: [.trickles], healthyWindow: 5) { pipeline in
+            while pipeline.diagnostics().receivedBytes < 40_000 { try await Task.sleep(nanoseconds: 2_000_000) }
+            pipeline.networkPathChanged()
+        }
+        XCTAssertNil(healthy.failure, "healthy")
+        XCTAssertEqual(healthy.samples, baseline, "healthy")
+        XCTAssertEqual(healthy.requests.count, 1, "a transfer that is still receiving is not restarted")
+
+        let unreachable = try await run(payload: wav, replies: [.stalls(afterBytes: stall), .timesOut], healthyWindow: 0.2) { pipeline in
+            while pipeline.diagnostics().receivedBytes < stall { try await Task.sleep(nanoseconds: 5_000_000) }
+            try await Task.sleep(nanoseconds: 400_000_000)
+            pipeline.networkPathChanged()
+        }
+        XCTAssertNotNil(unreachable.failure, "unreachable")
+        XCTAssertEqual(unreachable.requests.count, 2, "one attempt after the path changed, then the service reloads")
+    }
+
+    /// A spliced direct download goes through the completed-artifact validation (size, duration) and is
+    /// registered in the stream cache.
+    func testSplicedDirectDownloadIsRecordedInTheStreamCache() async throws {
+        let wav = Self.wavFixture(seconds: 12)
+        let cache = PlaybackArtifactCache(
+            directory: FileManager.default.temporaryDirectory.appendingPathComponent("splice-cache-\(UUID().uuidString)"),
+            byteBudget: 1 << 24
+        )
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let key = PlaybackArtifactKey(trackIdentity: "splice-track", sourceFingerprint: "fp", requestedQuality: "original",
+                                      delivery: .direct, fileExtension: "wav", startTime: 0)
+        let result = try await run(
+            payload: wav, replies: [.ranged(dropAfter: wav.count / 3), .ranged(dropAfter: nil)],
+            duration: 12, artifactKey: key, artifactCache: cache
+        )
         XCTAssertNil(result.failure)
-        XCTAssertEqual(result.samples, baseline)
-        XCTAssertEqual(result.requests.last?.value(forHTTPHeaderField: "Range"), "bytes=\(stall)-")
+        XCTAssertEqual(result.requests.count, 2)
+        let cached = try XCTUnwrap(cache.completedArtifact(
+            trackIdentity: key.trackIdentity, sourceFingerprint: "fp", requestedQuality: "original", requireDirect: true
+        ))
+        XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: cached.path))[.size] as? Int, wav.count)
     }
 
     /// Next, seek, Pause's refresh and a new play cancel the pipeline: a pending resume never starts.
@@ -275,21 +321,30 @@ final class StreamingAudioPipelineTests: XCTestCase {
         replies: [ScriptedURLProtocol.Reply],
         idleTimeout: TimeInterval? = 15,
         retryInterval: TimeInterval = 0.01,
+        healthyWindow: TimeInterval = 2,
+        duration: TimeInterval? = nil,
+        artifactKey: PlaybackArtifactKey? = nil,
+        artifactCache: PlaybackArtifactCache = .shared,
         during: ((StreamingAudioPipeline) async throws -> Void)? = nil
     ) async throws -> RunResult {
         let clock = ScriptedURLProtocol.configure(payload: payload, etag: etag, replies: replies)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ScriptedURLProtocol.self]
-        let cacheURL = FileManager.default.temporaryDirectory.appendingPathComponent("resume-\(UUID().uuidString).wav")
-        defer { try? FileManager.default.removeItem(at: cacheURL) }
+        let cacheURL = try artifactKey.map { try artifactCache.partialURL(for: $0) }
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("resume-\(UUID().uuidString).wav")
+        defer { if artifactKey == nil { try? FileManager.default.removeItem(at: cacheURL) } }
         let pipeline = StreamingAudioPipeline(configuration: .init(
             request: URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/file.wav"))),
             fileExtension: "wav",
             cacheURL: cacheURL,
+            duration: duration,
             sessionConfiguration: configuration,
+            artifactKey: artifactKey,
+            artifactCache: artifactCache,
             idleTimeout: idleTimeout ?? 15,
             resumeWindow: 30,
             resumeRetryInterval: retryInterval,
+            healthyWindow: healthyWindow,
             now: { clock.now }
         ))
         let state = RunState()
@@ -438,6 +493,7 @@ private final class ScriptedURLProtocol: URLProtocol {
         case changedETag, wrongRange
         case stalls(afterBytes: Int)   // sends bytes, then holds the connection open
         case timesOut                  // 15 simulated seconds pass, then NSURLErrorTimedOut
+        case trickles                  // the whole file, slowly
     }
 
     private static let lock = NSLock()
@@ -482,6 +538,7 @@ private final class ScriptedURLProtocol: URLProtocol {
         var end = payload.count
         var failure: URLError.Code?
         var holds = false
+        var pause = 0.001
         switch reply {
         case let .ranged(dropAfter):
             if let dropAfter { end = min(payload.count, offset + dropAfter); failure = .networkConnectionLost }
@@ -489,6 +546,7 @@ private final class ScriptedURLProtocol: URLProtocol {
         case .changedETag: tag = "\"v2\""
         case .wrongRange: break
         case let .stalls(afterBytes): end = min(payload.count, afterBytes); holds = true
+        case .trickles: pause = 0.005
         case .timesOut: clock.advance(by: 15); client?.urlProtocol(self, didFailWithError: URLError(.timedOut)); return
         }
         if let tag { headers["ETag"] = tag }
@@ -503,7 +561,7 @@ private final class ScriptedURLProtocol: URLProtocol {
         DispatchQueue.global(qos: .utility).async {
             for start in stride(from: sent, to: end, by: 8192) {
                 self.client?.urlProtocol(self, didLoad: payload[start ..< min(start + 8192, end)])
-                Thread.sleep(forTimeInterval: 0.001)
+                Thread.sleep(forTimeInterval: pause)
             }
             if let failure {
                 self.client?.urlProtocol(self, didFailWithError: URLError(failure))

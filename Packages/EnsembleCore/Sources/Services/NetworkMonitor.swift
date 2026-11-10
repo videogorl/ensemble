@@ -38,6 +38,29 @@ public struct NetworkSnapshot: Equatable, Sendable {
     }
 }
 
+/// What makes one network path a different route for a download: whether it is usable and which
+/// interface is preferred. Extra interfaces appearing (cellular while Wi-Fi stays primary) and the
+/// expensive or constrained flags do not change the route.
+struct PathSignature: Equatable {
+    let status: NWPath.Status
+    let primaryInterfaceType: NWInterface.InterfaceType?
+    let primaryInterfaceName: String?
+
+    init(status: NWPath.Status, primaryInterfaceType: NWInterface.InterfaceType?, primaryInterfaceName: String?) {
+        self.status = status
+        self.primaryInterfaceType = primaryInterfaceType
+        self.primaryInterfaceName = primaryInterfaceName
+    }
+
+    init(_ path: NWPath) {
+        self.init(
+            status: path.status,
+            primaryInterfaceType: path.availableInterfaces.first?.type,
+            primaryInterfaceName: path.availableInterfaces.first?.name
+        )
+    }
+}
+
 /// Monitors network connectivity state using NWPathMonitor
 @MainActor
 @Observable
@@ -52,7 +75,7 @@ public final class NetworkMonitor {
     public var isConstrained: Bool { snapshot.isConstrained }
     @ObservationIgnored private let broadcast = Broadcast<NetworkSnapshot>()
     @ObservationIgnored private let pathBroadcast = Broadcast<UInt64>()
-    @ObservationIgnored private var lastPath: NWPath?
+    @ObservationIgnored private var lastPathSignature: PathSignature?
     @ObservationIgnored private var pathChangePending = false
     /// Counts debounced changes of the network path, including a new route on the same interface
     /// type (another Wi-Fi network), which `snapshot` does not show.
@@ -246,8 +269,9 @@ public final class NetworkMonitor {
     /// Ignored when offline simulation is active so the monitor doesn't overwrite the simulated state.
     private func debounceStateUpdate(path: NWPath) {
         guard !isSimulatingOffline else { return }
-        if let lastPath, lastPath != path { pathChangePending = true }
-        lastPath = path
+        let signature = PathSignature(path)
+        if let lastPathSignature, lastPathSignature != signature { pathChangePending = true }
+        lastPathSignature = signature
         debounceStateUpdate(
             state: networkState(from: path),
             isConstrained: path.status == .satisfied && path.isConstrained
