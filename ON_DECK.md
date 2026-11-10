@@ -24,3 +24,13 @@ Unrelated discoveries waiting for their own task. Remove an entry when it is fix
 - Impact: intermittent whole-suite failure; likely a timing window under full-suite load.
 - Next step: check the test's wait/debounce timing against the coordinator's debounce
   and make it wait on the delivered change instead of a fixed interval.
+
+## Suspected: flaky launch prefetch test (2026-11-10)
+
+- Evidence: one `swift test --filter Playback` run (329 tests) failed
+  `PlaybackLaunchCoordinatorTests.testCompleteLaunchDoesNotPostSeekStreamingSources`
+  (`PlaybackLaunchCoordinatorTests.swift:193`: prefetch count 0, expected 1). The class
+  passed 3 of 3 runs alone; the playback branch that hit it does not touch the coordinator.
+- Impact: intermittent failure under load; the test checks a prefetch dispatched in a task
+  after a single `Task.yield()`.
+- Next step: wait on the prefetch call (for example `waitUntil`) instead of one yield.
