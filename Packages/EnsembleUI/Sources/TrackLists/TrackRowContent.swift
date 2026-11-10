@@ -34,7 +34,7 @@ struct TrackRowContent: Equatable {
     init(track: Track, configuration: NativeTrackListConfiguration, isDimmed: Bool) {
         let isPlaying = track.playbackIdentity == configuration.currentTrackId
         let sourceLabel = track.sourceCompositeKey.flatMap { configuration.trackSourceLabels[$0] }
-        let width = configuration.supplementalMetadataWidth
+        let columnWidths = TrackListLayoutMetrics.metadataColumnWidths(for: configuration.supplementalMetadataWidth)
 
         title = track.title
         trackNumber = isPlaying ? "" : "\(track.trackNumber)"
@@ -57,9 +57,7 @@ struct TrackRowContent: Equatable {
         isFavorited = configuration.interactionModel.isFavorited(track)
         showsArtwork = configuration.showArtwork
         showsTrackNumber = configuration.showTrackNumbers
-        artistColumnWidth = TrackListLayoutMetrics.showsArtistMetadataColumn(for: width)
-            ? TrackListLayoutMetrics.artistMetadataColumnWidth(for: width)
-            : nil
+        artistColumnWidth = columnWidths.artist
 
         // The wide columns still differ by platform; kept as they were until
         // Felicity picks one rule (step 6d part 2 note).
@@ -68,15 +66,13 @@ struct TrackRowContent: Equatable {
             .compactMap { $0 }
             .joined(separator: " · ")
         albumColumn = track.albumName ?? "Unknown Album"
-        let showsAlbumColumn = configuration.showAlbumName
-            && TrackListLayoutMetrics.showsAlbumMetadataColumn(for: width)
+        albumColumnWidth = configuration.showAlbumName ? columnWidths.album : nil
         #else
         artistColumn = [track.unavailableReason ?? track.artistName ?? "Unknown Artist", sourceLabel]
             .compactMap { $0 }
             .joined(separator: " · ")
         albumColumn = track.unavailableReason == nil ? track.albumName ?? "Unknown Album" : ""
-        let showsAlbumColumn = TrackListLayoutMetrics.showsAlbumMetadataColumn(for: width)
+        albumColumnWidth = columnWidths.album
         #endif
-        albumColumnWidth = showsAlbumColumn ? TrackListLayoutMetrics.albumMetadataColumnWidth(for: width) : nil
     }
 }

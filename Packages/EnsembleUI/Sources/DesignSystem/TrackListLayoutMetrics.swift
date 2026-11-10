@@ -15,6 +15,9 @@ public enum TrackListLayoutMetrics {
     public static let utilitySectionOuterPadding: CGFloat = detailHorizontalPadding - rowHorizontalPadding
 
     public static let defaultRowHeight: CGFloat = 68
+    /// Rows for tracks that cannot play right now.
+    public static let unavailableRowAlpha: CGFloat = 0.45
+    public static let nativeMacSectionHeaderRowHeight: CGFloat = 40
     public static let compactRowHeightThreshold: CGFloat = 60
     public static let standardArtworkDimension: CGFloat = 44
     public static let compactArtworkDimension: CGFloat = 40
@@ -110,29 +113,16 @@ public enum TrackListLayoutMetrics {
     }
     #endif
 
-    public static func showsArtistMetadataColumn(for width: CGFloat?) -> Bool {
-        guard let width else { return false }
-        return width >= supplementalArtistColumnThreshold
-    }
-
-    public static func showsAlbumMetadataColumn(for width: CGFloat?) -> Bool {
-        guard let width else { return false }
-        return width >= supplementalAlbumColumnThreshold
-    }
-
-    public static func artistMetadataColumnWidth(for width: CGFloat?) -> CGFloat {
-        guard let width else { return 0 }
-        return min(
-            max(width * supplementalArtistColumnRatio, supplementalArtistColumnMinimum),
-            supplementalArtistColumnMaximum
-        )
-    }
-
-    public static func albumMetadataColumnWidth(for width: CGFloat?) -> CGFloat {
-        guard let width else { return 0 }
-        return min(
-            max(width * supplementalAlbumColumnRatio, supplementalAlbumColumnMinimum),
-            supplementalAlbumColumnMaximum
-        )
+    /// Wide-layout column widths for a list `width` wide; nil hides a column.
+    /// The album column needs more width than the artist column.
+    public static func metadataColumnWidths(for width: CGFloat?) -> (artist: CGFloat?, album: CGFloat?) {
+        guard let width else { return (nil, nil) }
+        let artist = width >= supplementalArtistColumnThreshold
+            ? min(max(width * supplementalArtistColumnRatio, supplementalArtistColumnMinimum), supplementalArtistColumnMaximum)
+            : nil
+        let album = width >= supplementalAlbumColumnThreshold
+            ? min(max(width * supplementalAlbumColumnRatio, supplementalAlbumColumnMinimum), supplementalAlbumColumnMaximum)
+            : nil
+        return (artist, album)
     }
 }

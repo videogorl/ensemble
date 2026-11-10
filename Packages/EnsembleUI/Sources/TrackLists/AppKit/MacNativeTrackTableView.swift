@@ -265,7 +265,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard row < rows.count else { return configuration.rowHeight }
-            if case .section = rows[row] { return 40 }
+            if case .section = rows[row] { return TrackListLayoutMetrics.nativeMacSectionHeaderRowHeight }
             if case let .bottomSpacer(height) = rows[row] { return height }
             if case .header = rows[row], let tableHeaderContent {
                 return headerHeight(for: tableHeaderContent, in: tableView)
@@ -748,7 +748,7 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         downloadImageView.isHidden = content.downloadState == .none
         playingImageView.isHidden = !content.isPlaying
         durationField.isHidden = content.isPlaying
-        alphaValue = content.isDimmed ? 0.45 : 1
+        alphaValue = content.isDimmed ? TrackListLayoutMetrics.unavailableRowAlpha : 1
 
         if content.showsArtwork {
             artwork.show(track, artworkLoader: artworkLoader) { [weak artworkImageView] image in

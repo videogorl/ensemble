@@ -358,7 +358,7 @@ public class TrackTableViewCell: UITableViewCell {
             trackNumberLabel.text = content.trackNumber
         }
 
-        contentView.alpha = content.isDimmed ? 0.45 : 1
+        contentView.alpha = content.isDimmed ? TrackListLayoutMetrics.unavailableRowAlpha : 1
 
         if showArtwork {
             artwork.show(track, artworkLoader: artworkLoader) { [weak artworkImageView] image in
