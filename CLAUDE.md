@@ -36,6 +36,12 @@ in code: paged reads and bounded caches.
 - Reproduce reported bugs first when feasible. Capture the specific UI state,
   logs, database/network evidence, or runtime path that distinguishes the cause.
 - Commit the completed logical change before handoff.
+- Freeze (step 3, sub-steps 3a to 3e): no new features or behaviour changes in
+  sync and library-writing code (source providers' sync, `SyncCoordinator` sync
+  paths, repository write paths) except step 3's own sub-steps; blocking bug
+  fixes must also land in the new path. Remove this line when 3e closes. See
+  `docs/reference/shared-library-writer-design.md` and rearchitecture plan
+  section 6.
 
 ## Changelog Updates
 
