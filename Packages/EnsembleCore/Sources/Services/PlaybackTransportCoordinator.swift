@@ -1,6 +1,10 @@
 import EnsembleAPI
 import Foundation
 
+/// A prefetch that did not start because a direct download from the same server is in flight.
+/// It is not a failure: the prefetch runs again when that download ends.
+struct DirectDownloadBusy: Error {}
+
 /// Owns stream-decision, resolution-task, and prepared-stream state so
 /// PlaybackService can delegate transport concerns without owning Plex endpoint details.
 final class PlaybackTransportCoordinator {
@@ -23,6 +27,7 @@ final class PlaybackTransportCoordinator {
     private let isNetworkConstrained: @Sendable () async -> Bool
     private let allowStreamingOnCellular: @Sendable () -> Bool
     private let artifactCache: PlaybackArtifactCache
+    private let streamSessionConfiguration: URLSessionConfiguration?
     private let lock = NSLock()
     private var cachedStreamDecisions: [String: StreamDecision] = [:]
     private var sourceResolutionTasks: [String: Task<PlaybackSource, Error>] = [:]
@@ -31,6 +36,13 @@ final class PlaybackTransportCoordinator {
         let pipeline: StreamingAudioPipeline
     }
     private var preparedStreams: [String: PreparedStream] = [:]
+    /// Plex ends a client's direct download when it requests another direct file, so one
+    /// direct download runs per server at a time: the one in flight, by server and track.
+    /// Its own lock, because a pipeline reports its end while the coordinator cancels it.
+    private let directLock = NSLock()
+    private var directDownloads: [String: (trackID: String, pipeline: StreamingAudioPipeline)] = [:]
+    /// Called when a direct download ends, so the prefetch the download deferred can run.
+    var onDirectDownloadEnded: (@Sendable () -> Void)?
 
     init(
         dependencies: Dependencies,
@@ -40,8 +52,10 @@ final class PlaybackTransportCoordinator {
         allowStreamingOnCellular: @escaping @Sendable () -> Bool = {
             AudioQualityPreference.storedAllowStreamingOnCellular()
         },
-        artifactCache: PlaybackArtifactCache = .shared
+        artifactCache: PlaybackArtifactCache = .shared,
+        streamSessionConfiguration: URLSessionConfiguration? = nil
     ) {
+        self.streamSessionConfiguration = streamSessionConfiguration
         self.dependencies = dependencies
         self.streamingQuality = streamingQuality
         self.downloadQuality = downloadQuality
@@ -95,7 +109,7 @@ final class PlaybackTransportCoordinator {
             } catch {
                 try Task.checkCancellation()
                 guard await shouldContinue() else { throw CancellationError() }
-                guard !PlaybackSessionStateMachine.isCancellation(error) else { throw error }
+                guard !PlaybackSessionStateMachine.isCancellation(error), !(error is DirectDownloadBusy) else { throw error }
                 evict(trackId: track.playbackIdentity, includeDecision: true, cancelTask: true)
                 guard attempt == 0,
                       PlaybackSessionStateMachine.isRecoverableNetworkFailure(error) else { throw error }
@@ -333,7 +347,8 @@ final class PlaybackTransportCoordinator {
                     delivery: .direct,
                     fileExtension: fileExtension,
                     startTime: 0
-                )
+                ),
+                directServerKey: MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey)
             ))
         case let .progressiveTranscode(config):
             return .transcodedHTTP(config.streamRequest, metadata: PlaybackSourceMetadata(
@@ -385,11 +400,48 @@ final class PlaybackTransportCoordinator {
         }
         guard let key = metadata.artifactKey else { return nil }
         return withLock {
-            guard let prepared = preparedStreams[metadata.trackId], prepared.key == key else { return nil }
-            preparedStreams.removeValue(forKey: metadata.trackId)
-            EnsembleLogger.debug("[prefetch] Adopted stream trackId=\(metadata.trackId) bytes=\(prepared.pipeline.diagnostics().receivedBytes)")
-            return prepared.pipeline
+            if let prepared = preparedStreams[metadata.trackId], prepared.key == key {
+                preparedStreams.removeValue(forKey: metadata.trackId)
+                EnsembleLogger.debug("[prefetch] Adopted stream trackId=\(metadata.trackId) bytes=\(prepared.pipeline.diagnostics().receivedBytes)")
+                return prepared.pipeline
+            }
+            // The track to be played downloads next; a prefetch of another track from the same
+            // server still downloading would end it. The prefetch is re-evaluated when it can run.
+            if key.delivery == .direct, let serverKey = metadata.directServerKey,
+               let inFlight = directDownload(serverKey: serverKey), inFlight.trackID != metadata.trackId,
+               preparedStreams[inFlight.trackID]?.pipeline === inFlight.pipeline {
+                EnsembleLogger.debug("[prefetch] Cancelled trackId=\(inFlight.trackID): \(metadata.trackId) plays next from the same server")
+                preparedStreams.removeValue(forKey: inFlight.trackID)
+                inFlight.pipeline.cancel()
+            }
+            return nil
         }
+    }
+
+    /// Records a direct download the engine started for the track being played.
+    func registerDirectDownload(_ pipeline: StreamingAudioPipeline, metadata: PlaybackSourceMetadata) {
+        guard metadata.artifactKey?.delivery == .direct, let serverKey = metadata.directServerKey else { return }
+        trackDirectDownload(pipeline, trackID: metadata.trackId, serverKey: serverKey)
+    }
+
+    private func trackDirectDownload(_ pipeline: StreamingAudioPipeline, trackID: String, serverKey: String) {
+        directLock.lock()
+        directDownloads[serverKey] = (trackID, pipeline)
+        directLock.unlock()
+        pipeline.onDownloadEnd = { [weak self, weak pipeline] in
+            guard let self, let pipeline else { return }
+            self.directLock.lock()
+            let wasTracked = self.directDownloads[serverKey]?.pipeline === pipeline
+            if wasTracked { self.directDownloads.removeValue(forKey: serverKey) }
+            self.directLock.unlock()
+            if wasTracked { self.onDirectDownloadEnded?() }
+        }
+    }
+
+    private func directDownload(serverKey: String) -> (trackID: String, pipeline: StreamingAudioPipeline)? {
+        directLock.lock()
+        defer { directLock.unlock() }
+        return directDownloads[serverKey]
     }
 
     private func materializeSourceToFile(_ source: PlaybackSource, for track: Track) async throws -> URL {
@@ -398,16 +450,14 @@ final class PlaybackTransportCoordinator {
             return url
         case let .directHTTP(request, metadata), let .transcodedHTTP(request, metadata):
             guard let key = metadata.artifactKey else { throw PlaybackError.streamURLUnavailable }
-            // A prefetch of an original waits for the server's current direct download.
-            var slot: DirectDownloadSlot?
-            if key.delivery == .direct, !withLock({ preparedStreams[track.playbackIdentity]?.key == key }),
-               let gateKey = DirectDownloadGate.key(for: request) {
-                EnsembleLogger.debug("[prefetch] Waiting for the server's direct download slot trackId=\(track.playbackIdentity)")
-                slot = try await DirectDownloadGate.shared.acquire(gateKey)
-            }
             let pipeline = try withLock { () throws -> StreamingAudioPipeline in
                 if let existing = preparedStreams[track.playbackIdentity], existing.key == key {
                     return existing.pipeline
+                }
+                // Do not start a second direct download from a server that has one in flight.
+                if key.delivery == .direct, let serverKey = metadata.directServerKey,
+                   directDownload(serverKey: serverKey) != nil {
+                    throw DirectDownloadBusy()
                 }
                 preparedStreams.removeValue(forKey: track.playbackIdentity)?.pipeline.cancel()
                 let pipeline = StreamingAudioPipeline(configuration: .init(
@@ -415,12 +465,15 @@ final class PlaybackTransportCoordinator {
                     fileExtension: metadata.cacheFileExtension,
                     cacheURL: try artifactCache.partialURL(for: key),
                     duration: metadata.duration,
+                    sessionConfiguration: streamSessionConfiguration,
                     trackID: metadata.trackId,
                     artifactKey: key,
-                    artifactCache: artifactCache,
-                    downloadSlot: slot
+                    artifactCache: artifactCache
                 ))
                 preparedStreams[track.playbackIdentity] = PreparedStream(key: key, pipeline: pipeline)
+                if key.delivery == .direct, let serverKey = metadata.directServerKey {
+                    trackDirectDownload(pipeline, trackID: track.playbackIdentity, serverKey: serverKey)
+                }
                 pipeline.startDownload()
                 EnsembleLogger.debug("[prefetch] Prepared stream trackId=\(track.playbackIdentity)")
                 return pipeline

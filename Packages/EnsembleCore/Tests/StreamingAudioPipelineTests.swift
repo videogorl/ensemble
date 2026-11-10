@@ -157,35 +157,40 @@ final class StreamingAudioPipelineTests: XCTestCase {
         XCTAssertFalse(pipeline.diagnostics().isComplete)
     }
 
-    /// A direct download holds its server's slot until it ends, however it ends, so the next
-    /// track's prefetch neither starts early nor waits forever.
-    func testDownloadSlotIsHeldUntilTheDownloadEnds() async throws {
-        let gate = DirectDownloadGate()
+    /// A download reports its end once, however it ends, so the prefetch it deferred can run.
+    func testDownloadEndIsReportedOnceOnSuccessAndOnCancel() async throws {
         for succeeds in [true, false] {
             DelayedAudioURLProtocol.configure(data: Data(count: 4096), chunkSize: 4096, delay: 0)
             let configuration = URLSessionConfiguration.ephemeral
             configuration.protocolClasses = [succeeds ? DelayedAudioURLProtocol.self : StalledAudioURLProtocol.self]
             let cacheURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("streaming-slot-\(UUID().uuidString).mp3")
+                .appendingPathComponent("streaming-end-\(UUID().uuidString).mp3")
             defer { try? FileManager.default.removeItem(at: cacheURL) }
             let pipeline = StreamingAudioPipeline(configuration: .init(
-                request: URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/slot.mp3"))),
+                request: URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/end.mp3"))),
                 fileExtension: "mp3",
                 cacheURL: cacheURL,
-                sessionConfiguration: configuration,
-                downloadSlot: gate.enter("audio.test:0")
+                sessionConfiguration: configuration
             ))
-            let next = Task { try await gate.acquire("audio.test:0") }
+            let ends = LockedEnds()
+            pipeline.onDownloadEnd = { ends.increment() }
             if succeeds {
                 _ = try await pipeline.downloadedFile()
             } else {
                 pipeline.startDownload()
-                try await Task.sleep(nanoseconds: 100_000_000)
                 pipeline.cancel()
             }
-            let slot = try await next.value
-            slot.release()
+            pipeline.cancel()
+            try await Task.sleep(nanoseconds: 50_000_000)
+            XCTAssertEqual(ends.count, 1, succeeds ? "success" : "cancel")
         }
+    }
+
+    private final class LockedEnds: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+        func increment() { lock.lock(); value += 1; lock.unlock() }
     }
 }
 

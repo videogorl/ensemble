@@ -15,6 +15,8 @@ struct PlaybackSourceMetadata: Sendable, Equatable {
     let isSeekable: Bool
     let cacheFileExtension: String
     let artifactKey: PlaybackArtifactKey?
+    /// The Plex server a direct (original-quality) download comes from; nil for anything else.
+    let directServerKey: String?
 
     init(
         trackId: String,
@@ -24,7 +26,8 @@ struct PlaybackSourceMetadata: Sendable, Equatable {
         startTime: TimeInterval = 0,
         isSeekable: Bool,
         cacheFileExtension: String,
-        artifactKey: PlaybackArtifactKey? = nil
+        artifactKey: PlaybackArtifactKey? = nil,
+        directServerKey: String? = nil
     ) {
         self.trackId = trackId
         self.ratingKey = ratingKey
@@ -34,6 +37,7 @@ struct PlaybackSourceMetadata: Sendable, Equatable {
         self.isSeekable = isSeekable
         self.cacheFileExtension = cacheFileExtension
         self.artifactKey = artifactKey
+        self.directServerKey = directServerKey
     }
 }
 

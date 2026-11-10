@@ -243,6 +243,8 @@ public final class AudioPlaybackEngine {
     var onBufferedProgress: ((_ trackId: String, _ playbackGeneration: UInt64, _ progress: Double) -> Void)?
     /// Fires after a full offset-zero stream reaches clean EOF and all encoded bytes were decoded.
     var onStreamingFileComplete: ((URL, PlaybackArtifactKey, TimeInterval?, UInt64) -> Void)?
+    /// A pipeline the engine made itself (not a prefetched one), before it starts.
+    var onStreamingPipelineCreated: ((StreamingAudioPipeline, PlaybackSourceMetadata) -> Void)?
     /// Fires on unrecoverable engine errors (route change failure, etc.)
     /// Parameters: (error, trackId or nil). When trackId is non-nil, the error
     /// originated from a gapless-scheduled track (not the currently playing one).
@@ -1114,10 +1116,9 @@ public final class AudioPlaybackEngine {
                 cacheURL: cacheURL,
                 duration: metadata.duration,
                 trackID: metadata.trackId,
-                artifactKey: metadata.artifactKey,
-                downloadSlot: metadata.artifactKey?.delivery == .direct
-                    ? DirectDownloadGate.key(for: request).map(DirectDownloadGate.shared.enter) : nil
+                artifactKey: metadata.artifactKey
             ))
+            onStreamingPipelineCreated?(pipeline, metadata)
             if let artifactKey = metadata.artifactKey, artifactKey.isCompleteTrack {
                 pipeline.onDownloadComplete = { [weak self] fileURL in
                     self?.onStreamingFileComplete?(

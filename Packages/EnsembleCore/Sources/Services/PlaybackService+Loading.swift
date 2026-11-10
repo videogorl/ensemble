@@ -1145,6 +1145,8 @@ extension PlaybackService {
             }) {
                 self.enqueueVisualizerTimelineLoad(track: track, fileURL: fileURL, plan: plan)
             }
+        } catch is DirectDownloadBusy {
+            EnsembleLogger.debug("[prefetch] Deferred '\(track.title)': a direct download from its server is in flight")
         } catch {
             guard !Task.isCancelled, await shouldContinue(),
                   !PlaybackSessionStateMachine.isCancellation(error) else { return }
