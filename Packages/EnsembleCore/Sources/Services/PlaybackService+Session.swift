@@ -496,11 +496,10 @@ extension PlaybackService {
     }
 
     /// An item produced audio. The item reached by a failure skip keeps its mark, so its own
-    /// later failure halts (G11); the mark ends when another item starts or that item ends.
-    /// A health retry stays used until it makes the progress that resets stream recovery.
+    /// later failure halts (G11). A health retry stays used until it makes the progress that
+    /// resets stream recovery.
     @MainActor
     func noteItemStarted() {
-        reconcileItemFailureMarkers()
         tlsRefreshedItemID = nil
         if let itemID = healthRetriedItemID, streamRecovery == nil {
             streamRecovery = (itemID, 0, currentTime)
@@ -508,8 +507,8 @@ extension PlaybackService {
     }
 
     /// The failure-skip mark and the health retry last while their item stays current,
-    /// compared by item ID. Call only once a queue and index change is complete: the two are
-    /// written back separately.
+    /// compared by item ID. Runs when the current track is set and after a queue mutation
+    /// (not from the index setter: a queue and index are written back separately).
     @MainActor
     func reconcileItemFailureMarkers() {
         if failureSkipItemID != currentQueueItemID { failureSkipItemID = nil }

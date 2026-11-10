@@ -209,7 +209,6 @@ extension PlaybackService {
         if pendingSeek?.itemID != currentQueueItemID {
             pendingSeek = nil
         }
-        reconcileItemFailureMarkers()
         playbackPreparationShouldStart = shouldStartPlayback
         // A start from the beginning is a new listen for reporting and scrobbling (D3).
         if (startTime ?? 0) == 0 {
