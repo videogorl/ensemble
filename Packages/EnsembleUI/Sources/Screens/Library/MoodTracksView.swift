@@ -31,51 +31,26 @@ public struct MoodTracksView: View {
             backgroundGradient
                 .ignoresSafeArea()
 
-            #if os(iOS)
-                // UIKit table with header/footer, matching MediaDetailView pattern
-                MediaTrackList(
-                    tracks: moodTracks,
-                    showArtwork: true,
-                    showTrackNumbers: false,
-                    showAlbumName: true,
+            // UIKit or AppKit table; the mood header scrolls with the rows.
+            TrackListHost(
+                tracks: moodTracks,
+                configuration: NativeTrackListConfiguration(
+                    bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+                    supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
                     activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    managesOwnScrolling: true,
-                    bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-                    tableHeaderContent: AnyView(moodHeader),
-                    tableFooterContent: AnyView(moodFooter),
-                    interactionModel: trackInteractionModel,
-                    supplementalMetadataWidth: trackListSupplementalMetadataWidth
-                ) { _, index in
-                    if !nowPlayingVM.isAutoplayEnabled {
-                        nowPlayingVM.toggleAutoplay()
-                    }
-                    nowPlayingVM.play(tracks: moodTracks, startingAt: index)
+                    interactionModel: trackInteractionModel
+                ),
+                tableHeaderContent: AnyView(moodHeader),
+                tableFooterContent: AnyView(moodFooter)
+            ) { _, index in
+                if !nowPlayingVM.isAutoplayEnabled {
+                    nowPlayingVM.toggleAutoplay()
                 }
-                .ignoresSafeArea(.container, edges: [.top, .bottom])
-                .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
-            #else
-                TrackListHost(
-                    tracks: moodTracks,
-                    configuration: NativeTrackListConfiguration(
-                        bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-                        supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                        currentTrackId: currentTrackId,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        interactionModel: trackInteractionModel
-                    ),
-                    tableHeaderContent: AnyView(moodHeader),
-                    tableFooterContent: AnyView(moodFooter)
-                ) { _, index in
-                    if !nowPlayingVM.isAutoplayEnabled {
-                        nowPlayingVM.toggleAutoplay()
-                    }
-                    nowPlayingVM.play(tracks: moodTracks, startingAt: index)
-                }
-                .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
-            #endif
+                nowPlayingVM.play(tracks: moodTracks, startingAt: index)
+            }
+            .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         }
         .navigationTitle(mood.title)
         #if os(iOS)
