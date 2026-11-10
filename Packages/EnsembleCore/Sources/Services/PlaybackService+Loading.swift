@@ -204,6 +204,8 @@ extension PlaybackService {
 
         // Bump generation so any in-flight playback request knows it's been superseded
         beginSession()
+        // A new play supersedes a pending stream recovery; a recovery's own reload does not.
+        if recoverySlotRelease == nil { cancelStreamRecovery() }
         let requestGeneration = sessionGeneration
         pausedStreamNeedsRefresh = false
         // A retry of the same item keeps its pending seek; another item drops it.
@@ -332,7 +334,8 @@ extension PlaybackService {
 
         // Retry loop for network errors
         var lastError: Error?
-        let maxRetries = 2
+        // A recovery reload makes one attempt: a failure goes back through the paced recovery window.
+        let maxRetries = recoverySlotRelease == nil ? 2 : 1
 
         for attempt in 0 ..< maxRetries {
             do {
@@ -547,7 +550,8 @@ extension PlaybackService {
                     forcingFreshItem: true,
                     seekTo: recoveryTime,
                     shouldStartPlayback: shouldStartPlayback,
-                    caller: "retryCurrentTrack-downloadFallback(\(reason))"
+                    caller: "retryCurrentTrack-downloadFallback(\(reason))",
+                    recoverySlotRelease: recoverySlotRelease
                 )
                 return
             }

@@ -465,6 +465,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     var artworkPrefetchTask: Task<Void, Never>?
     var lastObservedNetworkState: NetworkState?
     var stallRecoveryTask: Task<Void, Never>?
+    /// The session and item the pending `stallRecoveryTask` was made for.
+    var stallRecoveryBinding: RetryBinding?
     /// The recovery window of the current item's stream, which failed once it loaded. It starts at
     /// the first failure and ends once playback advances `streamRecoveryProgressSeconds` past
     /// `fromTime`; reloads inside it are paced from `lastReloadAt`.

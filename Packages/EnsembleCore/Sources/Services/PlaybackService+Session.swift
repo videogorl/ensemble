@@ -90,8 +90,13 @@ extension PlaybackService {
     /// and a retry from an offset has no length for the short-transcode check to judge.
     @MainActor
     func recoverCurrentStream(after error: Error) {
-        guard stallRecoveryTask == nil, currentTrack != nil,
-              let binding = currentRetryBinding else { return }
+        guard currentTrack != nil, let binding = currentRetryBinding else { return }
+        // Pending work for this session and item already owns the failure. Pending work for a
+        // superseded one (Next, a new play) must not hide this stream's failure: drop it.
+        if stallRecoveryTask != nil {
+            guard stallRecoveryBinding != binding else { return }
+            cancelStreamRecovery()
+        }
         let itemID = binding.itemID
         // A failed paused load is retried paused.
         let shouldStartPlayback = playbackState == .loading ? playbackPreparationShouldStart : true
@@ -115,14 +120,24 @@ extension PlaybackService {
         playbackState = .buffering
         updateNowPlayingInfo()
 
+        stallRecoveryBinding = binding
         stallRecoveryTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var slotReleased = false
-            // Once released, the slot may hold a newer recovery that this task must not clear.
-            defer { if !slotReleased { self.stallRecoveryTask = nil } }
+            // Once released or replaced, the slot may hold newer work that this task must not clear.
+            defer { if !slotReleased, self.stallRecoveryBinding == binding { self.freeStreamRecoverySlot() } }
             if wait > 0 { do { try await self.streamRecoverySleep(wait) } catch { return } }
             guard self.currentRetryBinding == binding else { return }
-            self.streamRecovery?.lastReloadAt = self.streamRecoveryClock()
+            // The pacing wait may have used up the window: check it as the reload launches.
+            let launchTime = self.streamRecoveryClock()
+            if let recovery = self.streamRecovery, recovery.itemID == itemID,
+               !self.streamRecoveryWindowAllowsReload(startedAt: recovery.startedAt, now: launchTime) {
+                slotReleased = true
+                self.streamRecovery = nil
+                self.scheduleItemFailure(error, binding: binding)
+                return
+            }
+            self.streamRecovery?.lastReloadAt = launchTime
             await self.retryCurrentTrack(
                 forceConnectionRefresh: false,
                 reason: "stream-interrupted",
@@ -132,10 +147,25 @@ extension PlaybackService {
                     // The reload's source is starting or has failed: a new failure is a new
                     // recovery, not one to drop, and Pause no longer has a pending retry to cancel.
                     slotReleased = true
-                    self.stallRecoveryTask = nil
+                    self.freeStreamRecoverySlot()
                 }
             )
         }
+    }
+
+    /// Drops pending recovery or failure work: its reload or failure is superseded by Next, a new
+    /// play, Stop or Pause. A paused stream is refreshed by Play, not by this work.
+    @MainActor
+    func cancelStreamRecovery() {
+        stallRecoveryTask?.cancel()
+        freeStreamRecoverySlot()
+    }
+
+    /// Frees the slot for the task that is running in it, which must not cancel itself.
+    @MainActor
+    func freeStreamRecoverySlot() {
+        stallRecoveryTask = nil
+        stallRecoveryBinding = nil
     }
 
     /// A reload starts only while the recovery window, the engine's no-audio limit counted from
@@ -151,10 +181,11 @@ extension PlaybackService {
     /// must not hold off that item's own failure.
     @MainActor
     func scheduleItemFailure(_ error: Error, binding: RetryBinding) {
+        stallRecoveryBinding = binding
         stallRecoveryTask = Task { @MainActor [weak self] in
             // A cancelled task no longer owns the slot; its canceller cleared it.
             guard let self, !Task.isCancelled else { return }
-            self.stallRecoveryTask = nil
+            self.freeStreamRecoverySlot()
             await self.handleItemFailure(error.localizedDescription, binding: binding, cause: error)
         }
     }
@@ -1398,6 +1429,7 @@ extension PlaybackService {
     @MainActor
     public func stop() {
         beginSession()
+        cancelStreamRecovery()
 
         // Report stopped state to Plex before cleaning up
         if let track = currentTrack {

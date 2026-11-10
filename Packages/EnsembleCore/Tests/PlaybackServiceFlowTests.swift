@@ -111,42 +111,78 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.audioEngine?.stop()
     }
 
-    /// Reloads of a stream that was playing stay inside its recovery window and are paced: a reload
-    /// that fails at resolution (the device is offline) or a server that starts the reload and drops it
-    /// again each come back for another try, no sooner than a second apart, until the 30 s window
-    /// is spent; only then is the item skipped. This also holds the playback slot free across the
-    /// reload: without that, a failure of the reload is ignored and the item is never retried or failed.
+    /// Reloads of a stream that was playing stay inside its recovery window and are paced. Each case
+    /// ends with the item skipped or the next item recovering, never with a failure dropped:
+    /// - a reload that fails at resolution (offline), or starts and drops again, comes back for another
+    ///   try no sooner than a second apart, and none launches later than 3 s before the 30 s window
+    ///   ends; only then is the item skipped. A failing reload returning by itself also proves the
+    ///   playback slot is freed across the reload.
+    /// - a pacing wait that overruns the window skips the item instead of launching a reload.
+    /// - a replacement stream that fails during the old recovery's wait gets its own recovery.
+    /// The worst case before the item fails is the last launch, at most 27 s into the window, plus
+    /// one attempt: resolving the source (15 s request timeout) and the engine's 15 s startup timeout.
     func testReloadsStayInsideTheRecoveryWindowAndArePaced() async throws {
-        let cases: [(name: String, reloadFails: Bool)] = [("reload fails at resolution", true), ("reload starts and drops again", false)]
-        for (name, reloadFails) in cases {
+        enum Scenario { case reloadFails, reloadDrops, sleepOverruns, replacementFailsDuringSleep }
+        let lastLaunch = AudioPlaybackEngine.maximumRebufferSeconds - PlaybackService.streamRecoveryMinRemaining
+        for scenario in [Scenario.reloadFails, .reloadDrops, .sleepOverruns, .replacementFailsDuringSleep] {
+            let name = "\(scenario)"
             let clock = recoveryClock
             clock.sleeps = []
             let start = clock.now
             let service = await makeService()
-            let first = reloadFails ? makeStreamingTrack("a") : try makeTrack("a", seconds: 200)
-            let tracks = [first, try makeTrack("b")]
+            let first = scenario == .reloadFails ? makeStreamingTrack("a") : try makeTrack("a", seconds: 200)
+            let tracks = [first, try makeTrack("b", seconds: 200)]
             service.queue = tracks.map { QueueItem(track: $0) }
             service.currentQueueIndex = 0
             service.currentTrack = tracks[0]
+            let failure = URLError(.networkConnectionLost)
+            var replacementRecovery: (pending: Bool, bound: Bool)?
             service.streamRecoverySleep = { [unowned service] seconds in
                 XCTAssertEqual(service.currentQueueIndex, 0, "\(name): not skipped inside the window")
-                clock.sleep(seconds)
+                switch scenario {
+                case .sleepOverruns:
+                    clock.sleep(seconds + 40)
+                case .replacementFailsDuringSleep:
+                    // The queue moves on (a gapless handoff) without cancelling the sleeping recovery, and the
+                    // replacement stream fails before that wait ends.
+                    service.currentQueueIndex = 1
+                    service.currentTrack = tracks[1]
+                    service.beginSession()
+                    service.recoverCurrentStream(after: failure)
+                    replacementRecovery = (service.stallRecoveryTask != nil, service.stallRecoveryBinding == service.currentRetryBinding)
+                    clock.sleep(seconds)
+                default:
+                    XCTAssertLessThanOrEqual(clock.now + seconds - start, lastLaunch + 0.001, "\(name): no reload launches in the last 3 s of the window")
+                    clock.sleep(seconds)
+                }
+            }
+            if scenario == .sleepOverruns || scenario == .replacementFailsDuringSleep {
+                service.streamRecovery = .init(itemID: service.queue[0].id, startedAt: clock.now, fromTime: 0, lastReloadAt: clock.now)
             }
 
             var starts = 0
-            // A failing reload must return to the window by itself; only a reload that succeeds and then
-            // drops again needs another engine failure.
-            while service.currentQueueIndex == 0, starts < (reloadFails ? 1 : 60) {
+            let maxStarts = scenario == .reloadDrops ? 60 : 1
+            while service.currentQueueIndex == 0, starts < maxStarts {
                 service.playbackState = .playing
-                service.recoverCurrentStream(after: URLError(.networkConnectionLost))
+                service.recoverCurrentStream(after: failure)
                 starts += 1
                 while let task = service.stallRecoveryTask { await task.value }
             }
 
-            XCTAssertEqual(service.currentQueueIndex, 1, "\(name): the spent window skips the item")
-            XCTAssertGreaterThanOrEqual(clock.now - start, AudioPlaybackEngine.maximumRebufferSeconds - PlaybackService.streamRecoveryMinRemaining, name)
-            XCTAssertTrue(clock.sleeps.allSatisfy { $0 >= PlaybackService.streamRecoveryMinInterval - 0.001 }, "\(name): reloads are at least a second apart")
-            XCTAssertLessThanOrEqual(clock.sleeps.count + 1, 28, "\(name): about one reload a second within the window")
+            switch scenario {
+            case .reloadFails, .reloadDrops, .sleepOverruns:
+                XCTAssertEqual(service.currentQueueIndex, 1, "\(name): the spent window skips the item")
+                if scenario != .sleepOverruns {
+                    XCTAssertGreaterThanOrEqual(clock.now - start, lastLaunch - PlaybackService.streamRecoveryMinInterval, name)
+                    XCTAssertTrue(clock.sleeps.allSatisfy { $0 >= PlaybackService.streamRecoveryMinInterval - 0.001 }, "\(name): reloads are at least a second apart")
+                    XCTAssertLessThanOrEqual(clock.sleeps.count + 1, 28, "\(name): about one reload a second within the window")
+                }
+            case .replacementFailsDuringSleep:
+                XCTAssertEqual(replacementRecovery?.pending, true, "\(name): the replacement's failure is not dropped")
+                XCTAssertEqual(replacementRecovery?.bound, true, name)
+                XCTAssertEqual(service.currentQueueIndex, 1, name)
+                XCTAssertEqual(service.audioEngine?.currentTrackId, tracks[1].playbackIdentity, "\(name): the replacement was reloaded")
+            }
             service.audioEngine?.stop()
         }
     }
