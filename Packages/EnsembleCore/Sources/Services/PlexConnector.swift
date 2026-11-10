@@ -311,17 +311,27 @@ public final class PlexConnector:
         return try await fetchFullLibrary(plan: plan)
     }
 
-    /// Reads the list again when the first answer would remove cached keys, and uses that answer.
+    /// A list read once, or twice when the first read would remove cached keys.
+    struct Confirmed<Item> {
+        /// The latest read: what every non-deletion step uses.
+        let items: [Item]
+        /// The latest read plus rows only the first read listed. Deletion uses this, so a row
+        /// must be absent from both reads to be removed.
+        let all: [Item]
+    }
+
     private func confirmed<Item, Stored>(
-        _ items: [Item],
+        _ first: [Item],
         storedKeys: Dictionary<String, Stored>.Keys,
         key: (Item) -> String,
         what: String,
         reread: () async throws -> [Item]
-    ) async throws -> [Item] {
-        guard !Set(storedKeys).isSubset(of: items.map(key)) else { return items }
+    ) async throws -> Confirmed<Item> {
+        guard !Set(storedKeys).isSubset(of: first.map(key)) else { return Confirmed(items: first, all: first) }
         EnsembleLogger.debug("🔄 Confirming Plex \(what) inventory before orphan removal")
-        return try await reread()
+        let second = try await reread()
+        let secondKeys = Set(second.map(key))
+        return Confirmed(items: second, all: second + first.filter { !secondKeys.contains(key($0)) })
     }
 
     private func fetchFullLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch {
@@ -344,14 +354,14 @@ public final class PlexConnector:
         let genres = try await apiClient.getGenres(sectionKey: sectionKey)
 
         let inventory = try LibraryInventory(
-            artistIDs: artists.map(\.ratingKey),
-            albumIDs: albums.map(\.ratingKey),
-            tracks: tracks.map { ($0.ratingKey, $0.parentRatingKey) },
+            artistIDs: artists.all.map(\.ratingKey),
+            albumIDs: albums.all.map(\.ratingKey),
+            tracks: tracks.all.map { ($0.ratingKey, $0.parentRatingKey) },
             genreIDs: genres.compactMap(\.ratingKey)
         )
-        let complete = await completeInputs(albums: albums, tracks: tracks, counts: inventory.trackCounts)
+        let complete = await completeInputs(albums: albums.items, tracks: tracks.items, counts: inventory.trackCounts)
         return LibraryBatch(
-            artists: artists.map(Self.artistUpsertInput),
+            artists: artists.items.map(Self.artistUpsertInput),
             albums: complete.albums,
             tracks: complete.tracks,
             genres: genres.map { GenreUpsertInput(ratingKey: $0.ratingKey, key: $0.key, title: $0.title) },
@@ -393,7 +403,7 @@ public final class PlexConnector:
             try await apiClient.getArtists(sectionKey: sectionKey),
             storedKeys: stored.artists.keys, key: \.ratingKey, what: "artist"
         ) { try await apiClient.getArtists(sectionKey: sectionKey) }
-        let artistInputs = artists.map(Self.artistUpsertInput)
+        let artistInputs = artists.items.map(Self.artistUpsertInput)
 
         let albumChanges = Self.deduplicatedChangedItems(
             added: try await apiClient.getAlbums(sectionKey: sectionKey, addedAfter: timestamp),
@@ -406,7 +416,9 @@ public final class PlexConnector:
         let albumInputs = albumChanges.changedItems.map {
             Self.albumUpsertInput(from: $0, releaseFormat: releaseFormats?[$0.ratingKey], updatesReleaseFormat: releaseFormats != nil)
         }
-        let albumGenres = Self.genresByAlbum(albumInputs)
+        // A track's genre is its album's: a changed album's own, otherwise the stored album's.
+        var albumGenres = stored.albums.compactMapValues(\.genreNames)
+        for album in albumInputs { albumGenres[album.ratingKey] = album.genreNames }
 
         // Rating changes made on other clients are caught by the next full metadata pass:
         // the ratedAfter filter returns every rated track whatever the date, which costs
@@ -441,11 +453,11 @@ public final class PlexConnector:
                 try await allTracks, storedKeys: stored.tracks.keys, key: \.ratingKey, what: "track"
             ) { try await apiClient.getTracks(sectionKey: sectionKey) }
             let inventory = try LibraryInventory(
-                artistIDs: artists.map(\.ratingKey),
-                albumIDs: albums.map(\.ratingKey),
-                tracks: tracks.map { ($0.ratingKey, $0.parentRatingKey) }
+                artistIDs: artists.all.map(\.ratingKey),
+                albumIDs: albums.all.map(\.ratingKey),
+                tracks: tracks.all.map { ($0.ratingKey, $0.parentRatingKey) }
             )
-            let complete = await completeInputs(albums: albums, tracks: tracks, counts: inventory.trackCounts)
+            let complete = await completeInputs(albums: albums.items, tracks: tracks.items, counts: inventory.trackCounts)
             batch.albums = complete.albums
             batch.tracks = complete.tracks
             batch.inventory = inventory
@@ -460,12 +472,12 @@ public final class PlexConnector:
                 storedKeys: stored.tracks.keys, key: \.ratingKey, what: "track"
             ) { try await apiClient.getTrackInventory(sectionKey: sectionKey) }
             let inventory = try LibraryInventory(
-                artistIDs: artists.map(\.ratingKey),
-                albumIDs: albums.map(\.ratingKey),
-                tracks: tracks.map { ($0.ratingKey, $0.parentRatingKey) }
+                artistIDs: artists.all.map(\.ratingKey),
+                albumIDs: albums.all.map(\.ratingKey),
+                tracks: tracks.all.map { ($0.ratingKey, $0.parentRatingKey) }
             )
             let repaired = try await membershipRepairs(
-                inventory: inventory, tracks: tracks, plan: plan, fetchedAlbums: albumInputs, fetchedTracks: trackInputs,
+                inventory: inventory, tracks: tracks.all, plan: plan, fetchedAlbums: albumInputs, fetchedTracks: trackInputs,
                 albumGenres: albumGenres
             )
             batch.albums += repaired.albums
@@ -486,12 +498,12 @@ public final class PlexConnector:
         plan: LibrarySyncPlan,
         fetchedAlbums: [AlbumUpsertInput],
         fetchedTracks: [TrackUpsertInput],
-        albumGenres fetchedGenres: [String: String]
+        albumGenres: [String: String]
     ) async throws -> (albums: [AlbumUpsertInput], tracks: [TrackUpsertInput]) {
         let counts = inventory.trackCounts
         let knownAlbums = Set(plan.stored.albums.keys).union(fetchedAlbums.map(\.ratingKey))
         var albumInputs: [AlbumUpsertInput] = []
-        var genres = plan.stored.albums.compactMapValues(\.genreNames).merging(fetchedGenres) { $1 }
+        var genres = albumGenres
         for key in Set(counts.keys).subtracting(knownAlbums).sorted() {
             try RefreshExecution.checkCancellation()
             guard let album = try await apiClient.getAlbum(albumKey: key), album.ratingKey == key else {
@@ -501,9 +513,15 @@ public final class PlexConnector:
             albumInputs.append(input)
             genres[key] = input.genreNames
         }
-        let fetchedTrackKeys = Set(fetchedTracks.map(\.ratingKey))
+        // The inventory wins: a track needs repair unless the album it will have after this
+        // batch (the delta's, else the stored one) is the album the inventory lists. A delta
+        // fetched before Plex moved the track would otherwise keep the old album.
+        let fetchedParents = Dictionary(fetchedTracks.map { ($0.ratingKey, $0.albumRatingKey) }) { $1 }
         let repairs = tracks.filter {
-            !fetchedTrackKeys.contains($0.ratingKey) && plan.stored.tracks[$0.ratingKey]?.albumRatingKey != $0.parentRatingKey
+            let parentAfterBatch = fetchedParents.keys.contains($0.ratingKey)
+                ? fetchedParents[$0.ratingKey] ?? nil
+                : plan.stored.tracks[$0.ratingKey]?.albumRatingKey
+            return parentAfterBatch != $0.parentRatingKey
         }
         var trackInputs: [TrackUpsertInput] = []
         for start in stride(from: 0, to: repairs.count, by: 500) {

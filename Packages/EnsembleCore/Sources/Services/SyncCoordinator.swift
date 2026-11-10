@@ -3791,8 +3791,8 @@ private extension SyncCoordinator {
             return result
         }
         guard let legacy = provider as? MusicSourceLibrarySyncing else {
-            EnsembleLogger.error("Source \(source.compositeKey) has no library sync")
-            return LibrarySyncResult()
+            EnsembleLogger.error("Source \(source.compositeKey) implements no library sync; failing the pass")
+            throw MusicSourceRoutingError.providerUnavailable(sourceKey: source.compositeKey)
         }
         if let since {
             return try await legacy.syncLibraryIncremental(

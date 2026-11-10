@@ -294,7 +294,13 @@ public actor LibraryWriter {
         try RefreshExecution.checkCancellation()
         let removedAlbums = try await libraryRepository.removeOrphanedAlbums(notIn: inventory.albumIDs, forSource: key)
         try RefreshExecution.checkCancellation()
-        let removedArtists = try await libraryRepository.removeOrphanedArtists(notIn: inventory.artistIDs, forSource: key)
+        // Removing an artist cascades into its albums and their tracks. The inventory proves
+        // track-to-album closure but not album-to-artist (the album inventory carries no
+        // parent), so an artist missing from it is kept while a surviving album still has it.
+        let albumArtists = try await libraryRepository.fetchAlbumSyncMetadata(forSource: key)
+            .values.compactMap(\.artistRatingKey)
+        let keptArtistIDs = inventory.artistIDs.union(albumArtists)
+        let removedArtists = try await libraryRepository.removeOrphanedArtists(notIn: keptArtistIDs, forSource: key)
         var removedGenres = 0
         if let genreIDs = inventory.genreIDs, !genreIDs.isEmpty {
             try RefreshExecution.checkCancellation()
@@ -304,7 +310,7 @@ public actor LibraryWriter {
         let recounted = try await libraryRepository.batchUpdateAlbumTrackCounts(inventory.trackCounts, forSource: key)
 
         await MainActor.run {
-            HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: key, survivingItemIDs: inventory.artistIDs)
+            HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: key, survivingItemIDs: keptArtistIDs)
             HiddenMediaStore.shared.removeMissing(kind: .album, sourceKey: key, survivingItemIDs: inventory.albumIDs)
             HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: key, survivingItemIDs: trackIDs)
         }

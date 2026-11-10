@@ -108,6 +108,26 @@ final class LibraryWriterTests: XCTestCase {
         XCTAssertEqual([result.removedArtists, result.removedAlbums, result.removedTracks], [1, 1, 1])
     }
 
+    /// An inventory that omits an artist an album still references (inventory-only albums carry no
+    /// parent, so the initializer cannot catch it) must not cascade-delete that artist's listed rows.
+    func testAnArtistAStoredAlbumStillReferencesIsNeverDeleted() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(fullBatch(at: t0), to: sourceA)
+
+        let result = try await f.writer.apply(LibraryBatch(
+            inventory: try LibraryInventory(
+                artistIDs: ["a2"], albumIDs: ["b1", "b2"], tracks: [("t1", "b1"), ("t2", "b1"), ("t3", "b2")]
+            ),
+            queryStartedAt: t0 + 10
+        ), to: sourceA)
+
+        let a = try await stored(f, sourceA)
+        XCTAssertEqual(a.artists, everything.artists, "a1 is still the parent of listed album b1")
+        XCTAssertEqual(a.albums, everything.albums)
+        XCTAssertEqual(a.tracks, everything.tracks)
+        XCTAssertEqual([result.removedArtists, result.removedAlbums, result.removedTracks], [0, 0, 0])
+    }
+
     /// Rows a response did not list must survive unless a complete inventory says they are gone.
     func testNothingIsDeletedWithoutACompleteNonEmptyInventory() async throws {
         let cases: [(name: String, batch: LibraryBatch)] = [
