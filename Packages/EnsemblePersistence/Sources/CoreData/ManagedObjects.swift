@@ -244,7 +244,7 @@ extension CDPlaylist {
                     itemID: $0.playlistItemID,
                     trackRatingKey: $0.trackRatingKey,
                     linkedTrackRatingKey: $0.track?.ratingKey,
-                    objectID: $0.objectID.uriRepresentation().absoluteString
+                    objectID: $0.objectID
                 )
             )).inserted
         }
@@ -280,9 +280,9 @@ struct PlaylistMembershipItem: Hashable {
     let itemID: String?
     let trackRatingKey: String?
     let linkedTrackRatingKey: String?
-    let objectID: String?
+    let objectID: NSManagedObjectID?
 
-    init(itemID: String?, trackRatingKey: String?, linkedTrackRatingKey: String?, objectID: String) {
+    init(itemID: String?, trackRatingKey: String?, linkedTrackRatingKey: String?, objectID: NSManagedObjectID) {
         self.itemID = itemID
         self.trackRatingKey = trackRatingKey
         self.linkedTrackRatingKey = linkedTrackRatingKey

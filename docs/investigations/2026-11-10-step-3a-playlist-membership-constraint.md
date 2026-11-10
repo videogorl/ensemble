@@ -12,11 +12,19 @@ migration against real stores before it lands).
   migration is inferred; no mapping model.
 - `PlaylistMembershipBackfill` runs from `CoreDataStack.init` after the store
   loads (not for in-memory stores). It fills the keys and deletes a row only
-  when it repeats the item at its position. Item identity is `playlistItemID`,
-  else `trackRatingKey`, else the linked track's rating key, else the object
-  ID (the old reader's chain, so linked-only legacy rows written twice are
-  recognized as duplicates). A different item at an occupied position moves
-  after the playlist's last position instead of being deleted. Rows without a
+  when it repeats the item at its position. `PlaylistMembershipItem`, shared
+  by the backfill and the reader guard, compares `playlistItemID`,
+  `trackRatingKey` and the linked track's rating key field by field, never as
+  one string: item ID "42" and track key "42" are different namespaces. Rule:
+  two rows at one position are duplicates only when every field is equal,
+  which is what the old concurrent writer produced (linked-only rows written
+  twice match on their linked track). Rows that might describe one item
+  through different fields (one has the item ID, the other only the track key)
+  are not duplicates: both stay, and the extra one moves. A row with no item
+  information is unique. A different item at an occupied position is shifted
+  past the playlist's last position instead of being deleted: the n-th extra
+  item at a position moves by n times (highest order + 1) in one statement per
+  2,000 rows per rank, so every new order is unused. Rows without a
   playlist are deleted. It logs once, counts only: `Playlist membership
   backfill: keysFilled=N duplicateRowsRemoved=N playlists=N`.
 - `PlaylistRepository.setPlaylistTrackSnapshots` reuses the row at each
@@ -51,6 +59,15 @@ copies below).
     nil-key row would let the constraint treat unrelated nil-key rows at one
     position as equal (observed: Core Data merges two nil-key rows at the same
     order into one), so those rows wait for the backfill;
+  - track and source deletions (`deleteTrack`, `deleteAlbum`, the orphan
+    removals, `deleteAllData`, `deleteAllLibraryData`) first run
+    `CoreDataStack.finishMembershipBackfill()`, which retries an unfinished
+    pass; if it still cannot finish, the sync-driven deletions are skipped
+    (cleanup, safe to defer) and the two explicit removals throw
+    `MembershipBackfillPendingError`. Needed because deleting a track nullifies
+    `track` on its membership rows: with nil keys, two such rows at one
+    position in different playlists merged into one on save (observed before
+    this guard; `testTrackDeletionWaitsForTheMembershipBackfill`);
   - readers keep the exact-duplicate guard in `playlistItemsArray`, so a store
     that failed its backfill shows each item once instead of doubled playlists.
     The guard can go once the backfill's completion is recorded durably or a
@@ -61,7 +78,26 @@ copies below).
   state. Cost: the one-time pass runs synchronously in `CoreDataStack.init`,
   like the store load and migration beside it.
 
-### Boundedness
+### Boundedness (measured 2026-11-10, after the identity and shift changes)
+
+CPU seconds and peak footprint over the pre-run footprint, Mac, one run each;
+wall time was 4 to 5 times higher because the machine was at load average 100
+to 200.
+
+| Store | Backfill CPU | Peak over pre-run |
+| --- | --- | --- |
+| SE copy + 9,088 duplicates (14,920 rows) | 0.24 s | +8 MB |
+| Synthetic 100,000 rows, 20,000-row playlist, 8,201 duplicates | 1.18 s | +20 MB |
+| Synthetic 202,225 rows, one 200,000-row playlist with two different items at every position (100,000 rows shifted, none deleted) | 2.80 s | +199 MB |
+
+Statements: the shift is one statement per 2,000 displaced rows per rank (50 for
+the last store), not one per row. Memory is still proportional to the largest
+playlist (about 1 KB per membership row). That limit is left as is: no real
+store is near it, and the fix (fetch only positions with more than one row)
+is recorded in `ON_DECK.md`. The 20,000-row case is the largest anyone has
+written about; the 200,000-row case is a stress bound, not an observed store.
+
+### Boundedness (first measurement)
 
 Per playlist, the pass fetches only `objectID`, `order`, `playlistItemID`,
 `trackRatingKey` and `track.ratingKey` as dictionaries (no managed objects, no

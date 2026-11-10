@@ -98,7 +98,7 @@ enum PlaylistMembershipBackfill {
                     itemID: itemID,
                     trackRatingKey: dictionary["trackRatingKey"] as? String,
                     linkedTrackRatingKey: linked,
-                    objectID: id.uriRepresentation().absoluteString
+                    objectID: id
                 ),
                 isLinked: linked != nil
             )

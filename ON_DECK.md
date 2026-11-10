@@ -34,3 +34,17 @@ Unrelated discoveries waiting for their own task. Remove an entry when it is fix
 - Impact: intermittent failure under load; the test checks a prefetch dispatched in a task
   after a single `Task.yield()`.
 - Next step: wait on the prefetch call (for example `waitUntil`) instead of one yield.
+
+## Known limit: membership backfill memory on a pathological playlist (2026-11-10)
+
+- Evidence: `PlaylistMembershipBackfill` holds one attribute-only row per membership of the
+  playlist it is processing. Measured on a Mac with a synthetic store (machine at load
+  average 100 to 200, so CPU time is the fair figure): 100,000 rows with a 20,000-row
+  playlist took 1.2 s CPU and +20 MB peak; a 200,000-row playlist with two different items
+  at every position took 2.8 s CPU and +199 MB peak. Real stores are 5,800 rows (0.24 s CPU,
+  +8 MB with 9,000 duplicates added). Details in
+  `docs/investigations/2026-11-10-step-3a-playlist-membership-constraint.md`.
+- Impact: a playlist of that size would cost an iPhone SE a few seconds and a few hundred MB
+  once, at the first launch of the model 12 build. No such store is known.
+- Next step: if one appears, fetch only positions with more than one row (grouped fetch with
+  a count filter) so memory follows the suspicious rows instead of the playlist.
