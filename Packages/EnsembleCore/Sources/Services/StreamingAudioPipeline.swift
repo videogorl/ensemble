@@ -189,6 +189,8 @@ final class StreamingAudioPipeline: NSObject {
     var onFirstPCM: (() -> Void)?
     var onBufferedProgress: ((Double) -> Void)?
     var onDownloadComplete: ((URL) -> Void)?
+    /// Called once when the download ends, however it ends: complete, failed or cancelled.
+    var onDownloadEnd: (() -> Void)?
     var onComplete: ((URL) -> Void)?
     var onFailure: ((Error) -> Void)?
 
@@ -524,6 +526,7 @@ final class StreamingAudioPipeline: NSObject {
         for waiter in waiters {
             waiter.resume(returning: configuration.cacheURL)
         }
+        onDownloadEnd?()
     }
 
     private func decode(growingFile: GrowingAudioFile, decoder: StreamingAudioDecoder?) {
@@ -564,7 +567,8 @@ final class StreamingAudioPipeline: NSObject {
         let shouldNotify = !cancelled && !completed
         cancelled = true
         if terminalError == nil { terminalError = error }
-        if downloadResult == nil { downloadResult = .failure(error) }
+        let endsDownload = downloadResult == nil
+        if endsDownload { downloadResult = .failure(error) }
         let waiters = Array(downloadWaiters.values)
         downloadWaiters.removeAll()
         let pcmBuffer = self.pcmBuffer
@@ -585,6 +589,7 @@ final class StreamingAudioPipeline: NSObject {
         for waiter in waiters {
             waiter.resume(throwing: error)
         }
+        if endsDownload { onDownloadEnd?() }
         if shouldNotify {
             onFailure?(error)
         }

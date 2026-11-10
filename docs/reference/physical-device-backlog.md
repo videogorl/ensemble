@@ -106,13 +106,20 @@ WAV (transcoded and direct PCM), MP3, AAC and FLAC passed on the SE on
 2026-11-10 ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)).
 
 - Direct-stream an AIFF track to the end (none was run).
-- Open finding: with a successor queued, the direct WAV stream of 8731 dropped
-  three times with `NSURLErrorDomain -1005` (at 5.2, 6.9 and 11.5 MB of
-  50.7 MB), then fell back to a transcode and finished. The first drop came
-  110 ms after the prefetch of the next track (8732, also direct WAV) opened
-  its own download. Alone in the queue the track played through. Suspected
-  cause: the second direct download on the same host ends the first.
-  Unconfirmed; reproduce on the Mac with 8731 then 8732 at original quality.
+- Fixed at `a890293c`, owed one phone check: with a successor queued, the direct
+  WAV stream of 8731 dropped three times with `NSURLErrorDomain -1005` (at 5.2,
+  6.9 and 11.5 MB of 50.7 MB), then fell back to a transcode. The cause was ours:
+  the prefetch of 8732 requested its own direct file while 8731 was still
+  downloading, and Plex keeps one direct-play session per client (the Plex log
+  shows "Terminated session ... Client stopped playback"). Direct downloads are
+  now one per server at a time; the prefetch of a successor is deferred, not queued, while one is in flight, and runs again when it ends. On the
+  SE at original quality, play 8731 then 8732 on a slow link
+  (`testG1g_SuccessorPrefetchWaitsForDirectDownload` with the default WAV pair,
+  `ENSEMBLE_PHONE_PLAYBACK=1`): confirm 8731 stays `kind=directHTTP` with no
+  "failed after startup", the advance to 8732 is gapless, and the Plex log on the
+  Mac shows no "Terminated session" for the phone's client.
+- Offline downloads of originals were not changed. Whether one ends a playing
+  stream is unobserved (the Plex log keeps about 10 hours); see `ON_DECK.md`.
 
 ### Bounded retry of a stream that fails after loading
 
@@ -129,6 +136,11 @@ The retry, skip and halt passed on the SE on 2026-11-10 with 11631 and 11700
   where the short-transcode check has no length to judge, and the truncated
   audio played. On the SE (build `202611100615.4791`, 2026-11-10) 11631 was
   skipped at once in two of two runs, and 11631 then 11700 halted.
+- Changed at `4a8dd66d`: a dropped stream is retried inside a 30 second window from
+  its first failure (the engine's no-audio limit) instead of twice, including when a
+  reload fails at resolution or startup. Reloads are at least a second apart, and
+  none starts with under three seconds of the window left. Covered by
+  `PlaybackServiceFlowTests`; the real-network part is this item.
 - Play a normal track and drop the network mid-stream (Airplane Mode, then back
   on). Confirm it still recovers and keeps playing. The scripted run could not
   do this: Control Center gestures take 60 to 120 s on the SE, longer than the
