@@ -296,6 +296,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         set {
             snapshot.currentQueueIndex = newValue
             queueStateRevision &+= 1
+            // The failure-skip mark belongs to one stretch of one item; any other item ends it.
+            if let marked = failureSkipItemID, !queue.indices.contains(newValue) || queue[newValue].id != marked {
+                failureSkipItemID = nil
+            }
         }
     }
     public internal(set) var queueStateRevision = 0

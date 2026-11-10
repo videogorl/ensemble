@@ -277,6 +277,47 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.audioEngine?.stop()
     }
 
+    /// The mark on an item reached by skipping a failure lasts only while that item stays
+    /// current: moving away and back, finishing it, or Stop ends it, so a later failure of the
+    /// item is a new first failure and skips.
+    func testFailureSkipMarkEndsWhenTheItemChangesOrFinishes() async throws {
+        let routes: [(String, @MainActor (PlaybackService) -> Void)] = [
+            ("away and back while paused", { service in
+                service.selectQueueItemWhilePaused(at: 2, caller: "test")
+                service.selectQueueItemWhilePaused(at: 1, caller: "test")
+            }),
+            ("Repeat One seek to end while paused", { service in
+                service.repeatMode = .one
+                service.finishCurrentItemWhilePaused()
+            }),
+            ("stop", { service in service.stop() }),
+        ]
+        for (route, perform) in routes {
+            let service = await makeService()
+            let tracks = try ["a", "b", "c"].map { try makeTrack($0) }
+            service.queue = tracks.map { QueueItem(track: $0) }
+            service.currentQueueIndex = 0
+            service.currentTrack = tracks[0]
+            service.playbackState = .playing
+            service.playbackPreparationShouldStart = true
+            await service.handleItemFailure("a failed", generation: service.sessionGeneration, cause: nil)
+            XCTAssertEqual(service.failureSkipItemID, service.queue[1].id, "\(route): b is reached by a skip")
+            service.pauseInternally(source: .user)
+
+            perform(service)
+            XCTAssertNil(service.failureSkipItemID, "\(route): the mark ends")
+
+            if service.currentTrack != nil {
+                service.repeatMode = .off
+                service.playbackState = .playing
+                service.playbackPreparationShouldStart = true
+                await service.handleItemFailure("b failed", generation: service.sessionGeneration, cause: nil)
+                XCTAssertEqual(service.currentQueueIndex, 2, "\(route): a new first failure skips")
+            }
+            service.audioEngine?.stop()
+        }
+    }
+
     // MARK: - Harness
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"

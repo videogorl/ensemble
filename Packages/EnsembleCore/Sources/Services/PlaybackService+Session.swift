@@ -1360,6 +1360,7 @@ extension PlaybackService {
 
         // Cancel any in-flight transport work
         transportCoordinator.clear(removeDecisions: false)
+        clearItemFailureMarkers()
 
         endTrackTransitionBackgroundTask()
         cleanup()
@@ -1469,6 +1470,7 @@ extension PlaybackService {
     /// The end-of-track rule, applied without starting playback.
     @MainActor
     func finishCurrentItemWhilePaused() {
+        failureSkipItemID = nil
         switch queueAdvance(.naturalEnd) {
         case .repeatCurrent:
             selectQueueItemWhilePaused(at: currentQueueIndex, caller: "seekToEnd-repeatOne")
