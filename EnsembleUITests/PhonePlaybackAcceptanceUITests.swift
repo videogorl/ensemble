@@ -213,6 +213,48 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
         XCTAssertNil(recovered, "11700 left the failed state (loop?)")
     }
 
+    /// A damaged original at original quality falls back once to a transcode, from where its media
+    /// stops. 11631's FLAC holds 2:14 of the 4:39 it declares, and Plex's transcode of it is as short, so
+    /// the expected outcome is "fallback tried, transcode has nothing past 2:14 or is rejected, item
+    /// skipped to 11741". A damaged original Plex can still transcode in full (twenty one pilots 14291,
+    /// 14292 and 14300 on the owner's server: `TEST_RUNNER_ENSEMBLE_DAMAGED_TRACK`) plays on past the damage
+    /// instead. Records the outcome and attaches it. Pass: it settles as one of the two, never a spin,
+    /// a stall, or a halt. The runner confirms from the session log: one `original damaged` or
+    /// `stream interrupted` line with `forceTranscode=true` decisions for the track and no second fallback.
+    /// `TEST_RUNNER_ENSEMBLE_DAMAGED_SEEK` is where to seek first (default 120 s, before the damage).
+    func testG2e_DamagedOriginalFallsBackToATranscodeOnce() throws {
+        let env = ProcessInfo.processInfo.environment
+        let key = env["ENSEMBLE_DAMAGED_TRACK"] ?? Key.christmasInJune
+        let seek = Double(env["ENSEMBLE_DAMAGED_SEEK"] ?? "") ?? 120
+        launch(quality: "original", forceStream: true)
+        play([key, Key.flac])
+        let started = try XCTUnwrap(wait(90, "\(key) playing") { $0.id == key && $0.state == "playing" && $0.pos >= 3 })
+        transport("seek", to: seek)
+        var outcome = "unsettled"
+        var furthest = started.pos
+        var sawBuffering = false
+        let limit = Date().addingTimeInterval(240)
+        while Date() < limit, outcome == "unsettled" {
+            guard let p = read() else { continue }
+            note(p)
+            if p.id == key {
+                furthest = max(furthest, p.pos)
+                sawBuffering = sawBuffering || p.state == "buffering"
+                if p.state == "failed" { outcome = "HALTED on \(key): \(p.err)" }
+                if p.state == "playing", p.pos >= seek + 60 { outcome = "fallback played on: \(Int(p.pos)) s of \(Int(p.dur)) s" }
+            } else if p.id == Key.flac, p.state == "playing", p.pos >= 3 {
+                outcome = "skipped to the successor after \(Int(furthest)) s of \(key)"
+            } else if p.state == "failed" {
+                outcome = "HALTED: \(p.text)"
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        log("OUTCOME \(key): \(outcome) (buffered during recovery: \(sawBuffering))")
+        attachText("outcome-\(key)", outcome)
+        XCTAssertTrue(outcome.hasPrefix("fallback played on") || outcome.hasPrefix("skipped to the successor"), outcome)
+        XCTAssertEqual(app.state, .runningForeground, "App left the foreground (crash?)")
+    }
+
     /// twenty one pilots self-titled at original quality: record what each track does, observed to its
     /// natural end (a corrupt frame is expected to show as retries then a skip or halt).
     func testG2d1_TwentyOnePilots_ImplicitDemandForProof() throws { try observeToEnd(Key.twentyOnePilots[0]) }
