@@ -32,6 +32,9 @@ cleanup. The line target is replaced by a fix-commit measure. See section 5.
 Steps 0 to 2 are closed out on simulator evidence as of 2026-11-02; their
 physical iPhone acceptance is deferred by Felicity's choice and stays owed in
 the device backlog, so they are not verified.
+The step 3 design was approved on 2026-11-10 and 3a is in progress. The same
+day Felicity asked for a connector layer for future sources such as Jellyfin;
+the design's section 3.5 adds it within 3b to 3e, pending her approval.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
@@ -156,9 +159,11 @@ generation-checks progress events. That is the playback problem in miniature.
 
 This section is the long-term direction. After the 2026-11-01 revision only
 part of it is scheduled: 4.3 and 4.6 are delivered, 4.7 is step 6, and the
-shared reconciler from 4.4 is the slim step 3. The module split in 4.2,
-`EnsembleSourceKit` and the conformance kit in 4.4, and the store in 4.5 are
-parked. Do not build parked parts without asking Felicity.
+shared reconciler from 4.4 is the slim step 3. Since 2026-11-10 step 3 also
+makes the existing source protocols the connector layer described at the end
+of 4.4. The module split in 4.2, `EnsembleSourceKit` and the conformance kit
+in 4.4, and the store in 4.5 are parked. Do not build parked parts without
+asking Felicity.
 
 ### 4.1 Principles
 
@@ -290,6 +295,27 @@ protocol MusicSource: Sendable {
 - `EnsembleSourceKit` ships a conformance test kit. Every source runs it
   against recorded fixtures. A fake in-memory source is the kit's reference
   conformer and the stand-in third source until Jellyfin exists.
+
+**What is scheduled (2026-11-10).** Felicity asked to build step 3 "with the
+mindset of attaching other services, such as Jellyfin, down the road", with
+"a connector layer to standardize all writes and functions from each
+connector". The facet shape above stays the long-term target and stays
+parked. Step 3 delivers the smaller version in place, inside EnsembleCore
+([design section 3.5](shared-library-writer-design.md#35-the-connector-layer)):
+
+- `MusicSourceSyncProvider` becomes `MusicSourceConnector`: fetch methods that
+  return batches, plus Feed and artwork. The existing opt-in `MusicSource*`
+  capability protocols stay, and live changes become one more
+  (`MusicSourceChangeFetching`).
+- `LibraryWriter` is the only write path to the store for every connector.
+- `MusicSourceCapabilities` stays the UI flag table; a table test keeps its
+  flags in agreement with protocol conformance.
+- Accounts, connection health, MusicKit playback and one-source functions
+  stay source-specific until a second source needs them.
+- No package, conformance kit, fake source or Jellyfin code. In the facet
+  sketch above, `connector` means sign-in and health; when that sketch is
+  revisited, call that facet `connection` so it does not clash with
+  `MusicSourceConnector`.
 
 ### 4.5 Store
 
@@ -522,11 +548,16 @@ sync cursors. Add Core Data uniqueness constraints where duplicates have
 happened, such as playlist membership rows.
 
 Dropped for now: `EnsembleSourceKit`, the conformance kit, the fake source,
-and the `ratingKey` rename. Jellyfin groundwork waits until Jellyfin is
-scheduled.
+and the `ratingKey` rename. No Jellyfin code is written.
 
-Detailed design, awaiting Felicity's approval:
-[`shared-library-writer-design.md`](shared-library-writer-design.md).
+Detailed design, approved by Felicity on 2026-11-10 with all six of its
+recommendations: [`shared-library-writer-design.md`](shared-library-writer-design.md).
+3a, the membership constraint and migration, is in progress. On 2026-11-10
+Felicity also asked for a connector layer so services such as Jellyfin can
+attach later. The design's section 3.5 makes the source protocols that layer
+within 3b to 3e, with no new sub-step or package; it awaits her approval
+before 3b starts. Her question about crashes is answered in
+[the crash evidence note](../investigations/2026-11-10-crash-evidence-and-library-writer.md).
 
 ### Step 4. Module split
 
