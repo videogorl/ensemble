@@ -1141,3 +1141,228 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
         timeline.append(line)
     }
 }
+
+// MARK: - Step 3c: Apple Music library on the shared writer
+
+/// Drives the system Music and Settings apps beside Ensemble. Reads text only; never types into a
+/// sign-in, passcode or payment prompt and never accepts a subscription offer.
+extension PhonePlaybackAcceptanceUITests {
+    func labels(of application: XCUIApplication, limit: Int = 200) -> String {
+        application.descendants(matching: .any).allElementsBoundByIndex.prefix(limit).compactMap { element -> String? in
+            let label = element.label
+            let value = (element.value as? String) ?? ""
+            guard !label.isEmpty || !value.isEmpty else { return nil }
+            return "\(element.elementType.rawValue):\(label)\(value.isEmpty ? "" : " =" + value)"
+        }.joined(separator: "\n")
+    }
+
+    /// Opens Music once, taps only plain Continue / Not Now notices, and dumps what is on screen.
+    func testM0_MusicAppPreconditions() throws {
+        let music = XCUIApplication(bundleIdentifier: "com.apple.Music")
+        music.launch()
+        for round in 1...4 {
+            Thread.sleep(forTimeInterval: 4)
+            attachText("music-labels-\(round)", labels(of: music))
+            let plain = ["Continue", "Not Now", "Done"].map { music.buttons[$0] }.first { $0.exists && $0.isHittable }
+            guard let button = plain else { break }
+            let text = labels(of: music)
+            // Subscription offers and sign-in prompts are never accepted.
+            if text.localizedCaseInsensitiveContains("trial") || text.localizedCaseInsensitiveContains("password")
+                || text.localizedCaseInsensitiveContains("Sign In") { attachText("music-stopped", text); break }
+            button.tap()
+        }
+        for tab in ["Library", "Search", "Home", "Listen Now"] where music.tabBars.buttons[tab].exists {
+            music.tabBars.buttons[tab].tap()
+            Thread.sleep(forTimeInterval: 3)
+            attachText("music-tab-\(tab)", labels(of: music))
+        }
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Opens Music's Library tab and each library category, dumping text (no taps beyond navigation).
+    func testM1_MusicLibraryContents() throws {
+        let music = XCUIApplication(bundleIdentifier: "com.apple.Music")
+        music.launch()
+        Thread.sleep(forTimeInterval: 4)
+        let library = music.tabBars.buttons["Library"].firstMatch
+        XCTAssertTrue(library.waitForExistence(timeout: 10))
+        library.tap()
+        Thread.sleep(forTimeInterval: 4)
+        attachText("music-library-root", labels(of: music))
+        for category in ["Songs", "Albums", "Artists", "Playlists"] {
+            let row = music.buttons[category].firstMatch
+            guard row.exists else { continue }
+            row.tap()
+            Thread.sleep(forTimeInterval: 4)
+            attachText("music-library-\(category)", labels(of: music))
+            music.swipeUp(velocity: .fast); music.swipeUp(velocity: .fast); music.swipeUp(velocity: .fast)
+            Thread.sleep(forTimeInterval: 2)
+            attachText("music-library-\(category)-end", labels(of: music, limit: 80))
+            music.navigationBars.buttons.firstMatch.tap()
+            Thread.sleep(forTimeInterval: 2)
+        }
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Cold-launches Ensemble onto an automation surface (no playback probe is awaited).
+    func launchEnsemble(surface: String, settle: TimeInterval = 8) {
+        app.launchArguments = ["-EnsembleAutomationMode", "YES", "-EnsembleAutomationStartSurface", surface]
+        app.launchEnvironment = ["ENSEMBLE_AUTOMATION_MODE": "1"]
+        app.launch()
+        Thread.sleep(forTimeInterval: settle)
+    }
+
+    /// Taps `Allow` / `OK` on a system permission alert if one is up; returns its text. Never taps anything else.
+    @discardableResult
+    func allowSystemAlert(timeout: TimeInterval = 12) -> String? {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let alert = springboard.alerts.firstMatch
+        guard alert.waitForExistence(timeout: timeout) else { return nil }
+        let text = labels(of: springboard, limit: 40)
+        attachText("system-alert", text)
+        for title in ["Allow", "OK"] where alert.buttons[title].exists { alert.buttons[title].tap(); break }
+        return text
+    }
+
+    /// Enables the Apple Music source from the Add Source screen and waits for the first sync to settle.
+    func testM2_EnableAppleMusicSource() throws {
+        launchEnsemble(surface: "add-source")
+        attachText("add-source-before", appLabels().joined(separator: "\n"))
+        let row = app.buttons["Apple Music"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "No Apple Music row on Add Source")
+        row.tap()
+        let alertText = allowSystemAlert()
+        attachText("alert-seen", alertText ?? "no system alert")
+        for round in 1...6 {
+            Thread.sleep(forTimeInterval: 10)
+            attachText("after-enable-\(round)", appLabels().joined(separator: "\n"))
+        }
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    var preferences: XCUIApplication { XCUIApplication(bundleIdentifier: "com.apple.Preferences") }
+
+    /// Scrolls the current Settings list until `label` is hittable, then taps it. Returns false when it never appears.
+    @discardableResult
+    func tapSettingsRow(_ label: String, in settings: XCUIApplication) -> Bool {
+        let row = settings.cells.containing(.staticText, identifier: label).firstMatch
+        for _ in 0..<12 {
+            if row.exists, row.isHittable { row.tap(); Thread.sleep(forTimeInterval: 2); return true }
+            settings.swipeUp(velocity: .default)
+            Thread.sleep(forTimeInterval: 0.6)
+        }
+        return false
+    }
+
+    /// Opens Settings > Privacy & Security > Media & Apple Music and dumps it (discovery only).
+    func testM3_DiscoverMediaPermissionPane() throws {
+        let settings = preferences
+        settings.launch()
+        Thread.sleep(forTimeInterval: 3)
+        // Start from the Settings root even if the app resumed deep in a pane.
+        for _ in 0..<4 where settings.navigationBars.buttons.firstMatch.exists && settings.navigationBars.buttons.firstMatch.isHittable
+            && settings.navigationBars.element.identifier != "com.apple.settings.root" {
+            if settings.navigationBars.buttons.count > 0, settings.navigationBars.buttons.firstMatch.label != "" { settings.navigationBars.buttons.firstMatch.tap(); Thread.sleep(forTimeInterval: 1) } else { break }
+        }
+        attachText("settings-root", labels(of: settings, limit: 60))
+        XCTAssertTrue(tapSettingsRow("Privacy & Security", in: settings), "no Privacy & Security row")
+        attachText("privacy-pane", labels(of: settings, limit: 80))
+        XCTAssertTrue(tapSettingsRow("Media & Apple Music", in: settings), "no Media & Apple Music row")
+        attachText("media-pane", labels(of: settings, limit: 60))
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Sets Ensemble's Media & Apple Music switch in iOS Settings; returns the value read back ("1" on, "0" off).
+    @discardableResult
+    func setMediaPermission(_ on: Bool) -> String? {
+        let settings = preferences
+        settings.terminate()
+        settings.launch()
+        Thread.sleep(forTimeInterval: 3)
+        var toggle = settings.switches["Ensemble"].firstMatch
+        if !toggle.exists {
+            if !settings.staticTexts["Media & Apple Music"].exists {
+                tapSettingsRow("Privacy & Security", in: settings)
+            }
+            tapSettingsRow("Media & Apple Music", in: settings)
+            toggle = settings.switches["Ensemble"].firstMatch
+        }
+        guard toggle.waitForExistence(timeout: 10) else { attachText("permission-switch-missing", labels(of: settings, limit: 60)); return nil }
+        // The row is a switch containing a label button and the real switch; tap the trailing edge, where the control is.
+        if (toggle.value as? String == "1") != on {
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+            Thread.sleep(forTimeInterval: 2)
+        }
+        let value = toggle.value as? String
+        attachText("permission-\(on ? "on" : "off")", "switch value after: \(value ?? "nil")")
+        return value
+    }
+
+    /// Check 7: revoke Media & Apple Music mid-use, run a full sync, then restore the permission.
+    func testM5_RevokeAccessThenSync() throws {
+        launchEnsemble(surface: "profile", settle: 10)
+        attachText("profile-before", appLabels().joined(separator: "\n"))
+        XCTAssertEqual(setMediaPermission(false), "0", "could not revoke the permission")
+        // Ensemble may have been terminated by the permission change; this launch is the "mid-use" resume.
+        launchEnsemble(surface: "profile", settle: 10)
+        openLink("sync?mode=full")
+        Thread.sleep(forTimeInterval: 40)
+        attachText("profile-after-revoked-sync", appLabels().joined(separator: "\n"))
+        XCTAssertEqual(setMediaPermission(true), "1", "could not restore the permission")
+        launchEnsemble(surface: "profile", settle: 10)
+        openLink("sync?mode=full")
+        Thread.sleep(forTimeInterval: 40)
+        attachText("profile-after-restored-sync", appLabels().joined(separator: "\n"))
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Check 6, first half: Profile > Music Sources > Apple Music > Remove Source, confirming the alert.
+    /// Removes only Ensemble's Apple Music source and its local rows; Plex is untouched.
+    func testM4a_RemoveAppleMusicSource() throws {
+        launchEnsemble(surface: "profile", settle: 10)
+        let row = app.cells.containing(.staticText, identifier: "Apple Music").firstMatch
+        for _ in 0..<8 where !(row.exists && row.isHittable) { app.swipeUp(velocity: .default); Thread.sleep(forTimeInterval: 0.6) }
+        XCTAssertTrue(row.exists, "No Apple Music row in Music Sources")
+        row.tap()
+        Thread.sleep(forTimeInterval: 2)
+        attachText("apple-detail", labels(of: app, limit: 300))
+        let remove = app.buttons["Remove Source"].firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 10))
+        remove.tap()
+        let confirm = app.alerts.firstMatch.buttons["Remove"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "No Remove confirmation")
+        confirm.tap()
+        Thread.sleep(forTimeInterval: 12)
+        attachText("after-remove", labels(of: app, limit: 300))
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Check 2 probe: with Sync Library off, can Music add one catalog song to the library? Taps one Add control
+    /// at most, and never `Turn On`, `Try`, `Subscribe` or a sign-in control.
+    func testM6_TryAddOneSongWithSyncLibraryOff() throws {
+        let music = XCUIApplication(bundleIdentifier: "com.apple.Music")
+        music.launch()
+        Thread.sleep(forTimeInterval: 4)
+        music.tabBars.buttons["Search"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 2)
+        let field = music.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("Never Gonna Give You Up\n")
+        Thread.sleep(forTimeInterval: 6)
+        attachText("music-search-results", labels(of: music, limit: 400))
+        let add = music.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Add' AND NOT (label CONTAINS 'Playlist')")).firstMatch
+        guard add.exists else { attachText("no-add-control", labels(of: music, limit: 120)); return }
+        add.tap()
+        Thread.sleep(forTimeInterval: 4)
+        let after = labels(of: music, limit: 120)
+        attachText("music-after-add", after)
+        for dismiss in ["Cancel", "Not Now", "Close"] where music.buttons[dismiss].exists { music.buttons[dismiss].tap(); break }
+    }
+}

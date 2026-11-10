@@ -225,3 +225,16 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
   pointing at rows that no longer exist.
 - Next step: decide whether deletion should keep Hidden entries (prune only on a later pass that confirms the
   absence) and which owners should drop dangling IDs when `removedTrackRatingKeys` is reported. Not fixed.
+
+## Apple Music sync failure shows an opaque error (suspected)
+
+- Evidence: on the iPhone SE with Media & Apple Music revoked, the log line was
+  `Sync failed for appleMusic:device:system:library: The operation couldn’t be completed. (EnsembleCore.AppleMusicLibraryError error 0.)`
+  (session `2026-11-10-131550`, step 3c). `AppleMusicLibraryError` has no
+  `LocalizedError` description, and `AppleMusicSourceDetailView` shows
+  `syncErrorMessage` verbatim in red.
+- Impact: suspected; a user who revokes access sees that raw text on the Apple
+  Music source page instead of a "Allow Apple Music access in Settings" message.
+  Not confirmed on screen.
+- Next step: read the Apple Music source page after a revoked sync (UI text) and,
+  if it is the raw text, give `notAuthorized` a localized description.
