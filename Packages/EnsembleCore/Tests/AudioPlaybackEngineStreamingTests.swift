@@ -179,6 +179,16 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
         )
 
         XCTAssertGreaterThan(format.sampleRate, 0)
+        // A drop that cannot be resumed is reported once the buffered audio has played out, so play it out (faster than real time).
+        let output = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096))
+        let renderLoop = Task {
+            while !Task.isCancelled {
+                output.frameLength = 4096
+                pipeline.render(into: output.mutableAudioBufferList, frameCount: 4096)
+                try? await Task.sleep(nanoseconds: 2_000_000)
+            }
+        }
+        defer { renderLoop.cancel() }
         await fulfillment(of: [failed], timeout: 1)
         let diagnostics = pipeline.diagnostics()
         XCTAssertEqual(diagnostics.responseSummary, "status=200 expectedBytes=-1 framing=unknown")

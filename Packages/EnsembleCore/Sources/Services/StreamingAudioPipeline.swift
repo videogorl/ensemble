@@ -900,7 +900,7 @@ extension StreamingAudioPipeline: URLSessionDataDelegate {
         #endif
     }
 
-    func urlSession(_: URLSession, task _: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+    func urlSession(_: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
         let transaction = metrics.transactionMetrics.last
         var summary = "duration=\(String(format: "%.3fs", metrics.taskInterval.duration))"
             + " redirects=\(metrics.redirectCount)"
@@ -918,9 +918,9 @@ extension StreamingAudioPipeline: URLSessionDataDelegate {
         }
         stateLock.lock()
         metricsSummary = summary
-        let attempt = resumeAttempts
         stateLock.unlock()
-        EnsembleLogger.info("[StreamingPipeline] connection trackId=\(configuration.trackID ?? "unknown") resumeAttempt=\(attempt) \(summary)")
+        let ranged = task.originalRequest?.value(forHTTPHeaderField: "Range") != nil
+        EnsembleLogger.info("[StreamingPipeline] connection trackId=\(configuration.trackID ?? "unknown") ranged=\(ranged) \(summary)")
     }
 
     func urlSession(_: URLSession, task completedTask: URLSessionTask, didCompleteWithError error: Error?) {

@@ -121,10 +121,11 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
     }
 
     /// A dropped download resumes in the background: the first track's connection is cut once after 1 MB
-    /// (DEBUG `ENSEMBLE_AUTOMATION_STREAM_DROP_*`, which needs ENSEMBLE_AUTOMATION_MODE=1). Pass: through the drop
-    /// the probe stays `playing` for the first track and its position keeps advancing, the track ends and the
-    /// successor plays. The runner checks the session log for `injectedStreamDrop` and `[StreamingPipeline] resumed`.
-    /// `TEST_RUNNER_ENSEMBLE_SERIAL_TRACKS=a,b` picks other original-quality tracks.
+    /// (DEBUG `ENSEMBLE_AUTOMATION_STREAM_DROP_*`, which needs ENSEMBLE_AUTOMATION_MODE=1). Pass: from its first
+    /// `playing` sample to its end, every probe sample of the first track is `playing` with a position that
+    /// never goes back, and the successor then plays. A fast link finishes the download within a second, so the
+    /// runner confirms from the session log that `injectedStreamDrop` and `[StreamingPipeline] resumed` came
+    /// after `ENGINE: playing`. `TEST_RUNNER_ENSEMBLE_SERIAL_TRACKS=a,b` picks other original-quality tracks.
     func testG1h_ConnectionDropMidDownloadKeepsPlaying() throws {
         let keys = ProcessInfo.processInfo.environment["ENSEMBLE_SERIAL_TRACKS"]?.split(separator: ",").map(String.init)
             ?? [Key.wav, Key.wavNext]
@@ -133,21 +134,21 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
             "ENSEMBLE_AUTOMATION_STREAM_DROP_AFTER_BYTES": "1000000",
         ])
         play(keys)
-        let first = try XCTUnwrap(wait(90, "first track playing") { $0.id == keys[0] && $0.state == "playing" && $0.pos >= 1 })
+        let first = try XCTUnwrap(wait(90, "first track playing") { $0.id == keys[0] && $0.state == "playing" })
         var furthest = first.pos
-        let watchEnd = Date().addingTimeInterval(20)
-        while Date() < watchEnd {
-            if let p = read(), p.id == keys[0] {
-                note(p)
-                XCTAssertEqual(p.state, "playing", "State left playing through the drop: \(p.text)")
+        var samples = 0
+        let advanced = wait(first.dur + 90, "advance to the successor") { p in
+            if p.id == keys[0] {
+                samples += 1
+                XCTAssertEqual(p.state, "playing", "State left playing: \(p.text)")
                 XCTAssertGreaterThanOrEqual(p.pos, furthest - 0.5, "Position went backwards: \(p.text)")
                 furthest = max(furthest, p.pos)
             }
-            Thread.sleep(forTimeInterval: 0.5)
+            return p.id == keys[1] && p.state == "playing"
         }
-        XCTAssertGreaterThanOrEqual(furthest, first.pos + 15, "Position did not keep advancing through the drop")
-        let advanced = wait(first.dur + 90, "advance to the successor") { $0.id == keys[1] && $0.state == "playing" }
         XCTAssertNotNil(advanced, "Playback did not advance after the first track's natural end")
+        XCTAssertGreaterThan(samples, 10, "Too few samples of the first track")
+        XCTAssertGreaterThanOrEqual(furthest, first.dur - 5, "The first track did not play to its end")
         XCTAssertEqual(app.state, .runningForeground, "App left the foreground (crash?)")
     }
 
@@ -1157,7 +1158,7 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
         return nil
     }
 
-    func note(_ p: Probe) {
+    private func note(_ p: Probe) {
         let key = "\(p.state)|\(p.id)|\(p.err)"
         if key != lastNoted || Date().timeIntervalSince(lastNotedAt) >= 5 {
             log("probe \(p.text)")
