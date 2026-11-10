@@ -272,3 +272,19 @@ Sources: [Apple DTS on taps and HLS](https://developer.apple.com/forums/thread/4
 [SFBAudioEngine HTTP discussion](https://github.com/sbooth/SFBAudioEngine/discussions/206),
 [AudioStreaming](https://github.com/dimitris-c/AudioStreaming),
 [Plexamp transcoded gapless on iOS](https://forums.plex.tv/t/plexamp-not-true-gapless-on-ios-with-transcoded-opus/613762).
+
+## Decisions (Felicity, 2026-11-10)
+
+Steps a to e are approved. Her streaming quality is Original, and drops happen
+mostly away from home, sometimes at home.
+
+1. Step a waits for one direct download to finish before starting the next;
+   no per-stream session tagging.
+2. Offline downloads of originals wait behind a stream download only if the
+   Plex log in step a shows they end the stream too. The offline download
+   mechanism itself does not change.
+3. A damaged original that Plex refuses with HTTP 400 fails; it does not fall
+   back.
+4. The engine split stays; only its network handling is repaired.
+5. Joining a new transcode onto the buffered end is deferred unless the phone
+   test shows audible gaps.

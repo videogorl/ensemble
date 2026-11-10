@@ -96,11 +96,6 @@ gain per unit of work. Sizes are S, M or L.
   read is followed by a poll for up to 1 s (commit `8ab31f92`, Keychain can block at macOS
   startup). Next step: await the task's value and race it against one deadline; keep the
   timeout and the cached-source fallback.
-- **AirPlay menu item presses a private button** (`AirPlayButton.swift:28`, S). After a menu
-  action it waits 200 ms, finds the button inside `AVRoutePickerView` and fires it; if absent
-  it shows the picker for 8 s (commit `09a1bcc0`). There is no public API to open the picker.
-  Next step: decide with Felicity whether the overflow menu item is worth it, or whether the
-  visible native control is enough.
 - **Scroll index stops momentum by toggling scrolling** (`ScrollIndex.swift:141`, S/M). A
   UIKit probe finds the enclosing `UIScrollView` and turns scrolling off and on before a jump
   (commit `fdb0d4cc`). Next step: try `.scrollPosition(id:anchor:)` (iOS 17) in the scroll
@@ -117,6 +112,10 @@ gain per unit of work. Sizes are S, M or L.
 - **Toasts use a separate window** (`ToastView.swift`, 588 lines, M/L) so they appear above
   sheets (commit `405ecc4f`). A root `.overlay` is simpler but hides toasts behind a sheet.
   Low gain unless that behaviour is relaxed.
+
+Decided by Felicity on 2026-11-10: the AirPlay menu item that presses the button inside
+`AVRoutePickerView` (`AirPlayButton.swift:28`) stays as it is. The account polling, scroll
+index and Siri route polling items are scheduled as one batch.
 
 Checked and left alone: the visible AirPlay control, artwork's persistent cache and retry
 rules, the Plex WebSocket polling fallback, and the size of `WatchRootView.swift`.
