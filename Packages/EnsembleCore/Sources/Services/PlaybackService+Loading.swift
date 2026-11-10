@@ -487,8 +487,16 @@ extension PlaybackService {
         return nsError.domain == "com.apple.coreaudio.avfaudio" && nsError.code == 2_003_334_207
     }
 
-    func retryCurrentTrack(forceConnectionRefresh: Bool, reason: String) async {
-        guard let track = currentTrack else { return }
+    /// Reloads the current item from the playhead. `binding` ties the retry to the session and
+    /// item it was made for; it stops as soon as either changes.
+    @MainActor
+    func retryCurrentTrack(
+        forceConnectionRefresh: Bool,
+        reason: String,
+        shouldStartPlayback: Bool = true,
+        binding: RetryBinding? = nil
+    ) async {
+        guard let track = currentTrack, let binding = binding ?? currentRetryBinding else { return }
 
         let recoveryTime: TimeInterval?
         switch playbackState {
@@ -502,11 +510,17 @@ extension PlaybackService {
         // This handles tracks that finished downloading while queued/stalled.
         if track.localFilePath == nil {
             let resolved = await resolveTrackForPlaybackIfNeeded(track)
+            guard currentRetryBinding == binding else { return }
             if resolved.localFilePath != nil {
                 EnsembleLogger.debug("💾 Download fallback: swapping to local file for '\(track.title)' (\(reason))")
                 // Evict stale cached player item so it re-creates from local file
-                await MainActor.run { removeCachedPlayerItem(for: track.playbackIdentity) }
-                await playCurrentQueueItem(forcingFreshItem: true, seekTo: recoveryTime, caller: "retryCurrentTrack-downloadFallback(\(reason))")
+                removeCachedPlayerItem(for: track.playbackIdentity)
+                await playCurrentQueueItem(
+                    forcingFreshItem: true,
+                    seekTo: recoveryTime,
+                    shouldStartPlayback: shouldStartPlayback,
+                    caller: "retryCurrentTrack-downloadFallback(\(reason))"
+                )
                 return
             }
         }
@@ -519,7 +533,13 @@ extension PlaybackService {
             }
         }
 
-        await playCurrentQueueItem(forcingFreshItem: true, seekTo: recoveryTime, caller: "retryCurrentTrack(\(reason))")
+        guard currentRetryBinding == binding else { return }
+        await playCurrentQueueItem(
+            forcingFreshItem: true,
+            seekTo: recoveryTime,
+            shouldStartPlayback: shouldStartPlayback,
+            caller: "retryCurrentTrack(\(reason))"
+        )
     }
 
     /// Handle playback failure due to TLS errors.

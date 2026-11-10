@@ -108,6 +108,49 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.audioEngine?.stop()
     }
 
+    /// A retry scheduled for one session and queue item is dropped once the user moves on,
+    /// whether to another track or to a second copy of the same track, and it keeps the
+    /// play intent: Pause during the wait stays paused, and a paused load stays paused.
+    func testPendingStreamRecoveryFollowsItsSessionItemAndIntent() async throws {
+        let a = try makeTrack("a", seconds: 200)
+        let b = try makeTrack("b", seconds: 200)
+        func failMidStream(queue: [Track], state: PlaybackState = .playing) async -> PlaybackService {
+            let service = await makeService()
+            service.queue = queue.map { QueueItem(track: $0) }
+            service.currentQueueIndex = 0
+            service.currentTrack = queue[0]
+            service.playbackState = state
+            service.playbackPreparationShouldStart = state != .loading
+            service.updatePlaybackTimes(rawTime: 114)
+            service.recoverCurrentStream(after: URLError(.networkConnectionLost))
+            return service
+        }
+
+        for (name, other) in [("next", b), ("duplicate", a)] {
+            let service = await failMidStream(queue: [a, other])
+            // The user selects the other item before the retry runs.
+            service.currentQueueIndex = 1
+            service.beginSession()
+            await service.stallRecoveryTask?.value
+            XCTAssertNil(service.audioEngine?.currentTrackId, "\(name): the stale retry loads nothing")
+            service.audioEngine?.stop()
+        }
+
+        let paused = await failMidStream(queue: [a])
+        paused.pauseInternally(source: .user)
+        await paused.stallRecoveryTask?.value
+        XCTAssertEqual(paused.playbackState, .paused, "Pause during the wait is kept")
+        XCTAssertTrue(paused.pausedStreamNeedsRefresh, "Play restarts the dead stream")
+        paused.audioEngine?.stop()
+
+        // A paused load (selecting an item while paused) fails mid-stream.
+        let pausedLoad = await failMidStream(queue: [a], state: .loading)
+        await pausedLoad.stallRecoveryTask?.value
+        XCTAssertEqual(pausedLoad.playbackState, .paused, "a failed paused load is retried paused")
+        XCTAssertEqual(pausedLoad.currentTime, 114, accuracy: 0.5, "the retry resumes from the playhead")
+        pausedLoad.audioEngine?.stop()
+    }
+
     // MARK: - Harness
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"

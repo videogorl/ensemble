@@ -71,13 +71,27 @@ extension PlaybackService {
         return .reuseExisting
     }
 
+    /// The session and queue item an automatic or toast retry belongs to. Next, Pause, Stop,
+    /// or another load starts a new session, so the retry no longer applies (G11).
+    struct RetryBinding: Equatable {
+        let generation: UInt64
+        let itemID: String
+    }
+
+    @MainActor
+    var currentRetryBinding: RetryBinding? {
+        currentQueueItemID.map { RetryBinding(generation: sessionGeneration, itemID: $0) }
+    }
+
     /// A stream that fails after it loaded is retried from where it stopped, at most
     /// `maxStreamRecoveryAttempts` times per item; then the item fails (G11, G12).
     @MainActor
     func recoverCurrentStream(after error: Error) {
-        guard stallRecoveryTask == nil,
-              let trackId = currentTrack?.playbackIdentity,
-              let itemID = currentQueueItemID else { return }
+        guard stallRecoveryTask == nil, currentTrack != nil,
+              let binding = currentRetryBinding else { return }
+        let itemID = binding.itemID
+        // A failed paused load is retried paused.
+        let shouldStartPlayback = playbackState == .loading ? playbackPreparationShouldStart : true
 
         let attempts = streamRecovery?.itemID == itemID ? streamRecovery?.attempts ?? 0 : 0
         let isSpent = attempts >= Self.maxStreamRecoveryAttempts
@@ -91,15 +105,19 @@ extension PlaybackService {
             updateNowPlayingInfo()
         }
 
-        let generation = sessionGeneration
         stallRecoveryTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.stallRecoveryTask = nil }
-            guard self.currentTrack?.playbackIdentity == trackId else { return }
+            guard self.currentRetryBinding == binding else { return }
             if isSpent {
-                await self.handleItemFailure(error.localizedDescription, generation: generation)
+                await self.handleItemFailure(error.localizedDescription, generation: binding.generation)
             } else {
-                await self.retryCurrentTrack(forceConnectionRefresh: false, reason: "stream-interrupted")
+                await self.retryCurrentTrack(
+                    forceConnectionRefresh: false,
+                    reason: "stream-interrupted",
+                    shouldStartPlayback: shouldStartPlayback,
+                    binding: binding
+                )
             }
         }
     }
@@ -499,17 +517,25 @@ extension PlaybackService {
     /// Halting on an error offers Retry and stays until acted on or replaced.
     @MainActor
     func showHaltToast(_ message: String) {
+        let binding = currentRetryBinding
         showFailureToast(ToastPayload(
             style: .error,
             iconSystemName: "exclamationmark.triangle",
             title: "Playback stopped",
             message: message,
             action: ToastAction(title: "Retry") { [weak self] in
-                guard let self else { return }
-                Task { await self.retryCurrentTrack() }
+                Task { @MainActor in await self?.retryHaltedItem(binding) }
             },
             isPersistent: true
         ))
+    }
+
+    /// The halt toast's Retry, which acts only while that item is still halted in that session.
+    @MainActor
+    func retryHaltedItem(_ binding: RetryBinding?) async {
+        guard case .failed = playbackState, let binding, currentRetryBinding == binding else { return }
+        clearItemFailureMarkers()
+        await retryCurrentTrack(forceConnectionRefresh: true, reason: "manual", binding: binding)
     }
 
     @MainActor

@@ -839,7 +839,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
            currentTrack?.localFilePath == nil
         {
             EnsembleLogger.debug("🏥 Health check complete while in failed state — attempting auto-resume")
-            await retryCurrentTrack(forceConnectionRefresh: false, reason: "health-check-recovery")
+            await retryCurrentTrack(
+                forceConnectionRefresh: false,
+                reason: "health-check-recovery",
+                shouldStartPlayback: playbackPreparationShouldStart
+            )
             return
         }
     }

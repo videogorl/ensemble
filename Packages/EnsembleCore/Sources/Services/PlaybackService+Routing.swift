@@ -327,6 +327,10 @@ extension PlaybackService {
         if playbackState == .loading || playbackState == .buffering {
             beginSession()
         }
+        // Pausing drops a pending stream retry, so Play must restart the failed stream.
+        if stallRecoveryTask != nil {
+            pausedStreamNeedsRefresh = true
+        }
         skipTransitionTask?.cancel()
         skipTransitionTask = nil
 
