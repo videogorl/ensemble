@@ -264,6 +264,11 @@ public enum MusicSourceLibraryAddOutcome: Sendable, Equatable {
 public protocol MusicSourceConnector: Sendable {
     var sourceIdentifier: MusicSourceIdentifier { get }
 
+    /// Reads the library into a batch for `LibraryWriter`: the whole library when `plan.since` is nil,
+    /// otherwise what changed, plus an inventory only when the source proved it complete. A failed,
+    /// partial or cancelled read throws or omits the inventory; it never reports a partial one.
+    func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch
+
     /// Sync playlists to CoreData (should be called once per server, not per library)
     func syncPlaylists(
         to repository: PlaylistRepositoryProtocol,
@@ -287,12 +292,6 @@ public protocol MusicSourceConnector: Sendable {
     func getArtworkURL(path: String?, size: Int) async throws -> URL?
 }
 
-/// Fetches a library into a batch for `LibraryWriter`. Folds into
-/// `MusicSourceConnector` when Apple Music moves onto the writer.
-public protocol MusicSourceLibraryFetching: MusicSourceConnector {
-    func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch
-}
-
 /// A change hint from a live channel (the Plex WebSocket today).
 public struct LibraryChangeHint: Hashable, Sendable {
     public enum Kind: Sendable { case artist, album, track }
@@ -312,21 +311,6 @@ public struct LibraryChangeHint: Hashable, Sendable {
 /// hint only marks the inventory due (the caller does that).
 public protocol MusicSourceChangeFetching: MusicSourceConnector {
     func fetchChanges(_ hints: Set<LibraryChangeHint>) async throws -> LibraryBatch
-}
-
-/// Syncs library rows straight into repositories. Apple Music only, until it
-/// moves onto `LibraryWriter`; then this protocol is deleted.
-public protocol MusicSourceLibrarySyncing: MusicSourceConnector {
-    func syncLibrary(
-        to repository: LibraryRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> LibrarySyncResult
-
-    func syncLibraryIncremental(
-        since timestamp: TimeInterval,
-        to repository: LibraryRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> LibrarySyncResult
 }
 
 extension MusicSourceConnector {

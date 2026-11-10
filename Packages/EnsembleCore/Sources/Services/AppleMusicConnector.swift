@@ -161,7 +161,7 @@ import MusicKit
 
 @available(iOS 18, *)
 public actor AppleMusicConnector:
-    MusicSourceLibrarySyncing,
+    MusicSourceConnector,
     MusicSourcePlaybackResolving,
     MusicSourceRatingMutating,
     MusicSourcePlaylistReconciling,
@@ -172,8 +172,6 @@ public actor AppleMusicConnector:
     public nonisolated let sourceIdentifier = MusicSourceIdentifier.appleMusic
     static let librarySongsPath = "/v1/me/library/songs?limit=100&extend=inFavorites&include=albums,artists,catalog"
     static let libraryPlaylistsPath = "/v1/me/library/playlists?limit=100&include=catalog"
-    static let authoritativeLibraryInventoryInterval: TimeInterval = 24 * 60 * 60
-    private static let authoritativeLibraryInventoryDateKey = "sources.appleMusic.libraryInventory.authoritativeDate"
     private var catalogIDsByLibraryID: [String: String] = [:]
     private var pendingFavoriteCatalogIDs = Set<String>()
 
@@ -200,264 +198,33 @@ public actor AppleMusicConnector:
         )
     }
 
-    public func syncLibrary(
-        to repository: LibraryRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> LibrarySyncResult {
-        try await syncLibraryAuthoritatively(
-            to: repository,
-            progressHandler: progressHandler
-        )
+    /// Reads the whole library; the coordinator hands the batch to `LibraryWriter`. Apple Music has no
+    /// change feed, so a pass that is not due for an inventory returns an empty batch.
+    public func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch {
+        let fetch = try await AppleMusicLibraryFetcher(source: MusicKitLibrarySource(connector: self))
+            .fetch(plan: plan, pendingFavoriteCatalogIDs: pendingFavoriteCatalogIDs)
+        if let catalogIDs = fetch.catalogIDsByLibraryID {
+            catalogIDsByLibraryID = catalogIDs
+            pendingFavoriteCatalogIDs.subtract(fetch.confirmedFavoriteCatalogIDs)
+        }
+        return fetch.batch
     }
 
-    private func syncLibraryAuthoritatively(
-        to repository: LibraryRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> LibrarySyncResult {
-        let sourceKey = sourceIdentifier.compositeKey
-        _ = try await repository.upsertMusicSource(
-            compositeKey: sourceKey,
-            type: sourceIdentifier.type.rawValue,
-            accountId: sourceIdentifier.accountId,
-            serverId: sourceIdentifier.serverId,
-            libraryId: sourceIdentifier.libraryId,
-            displayName: "Apple Music",
-            accountName: "This Device"
-        )
+    private struct MusicKitLibrarySource: AppleMusicLibrarySource {
+        let connector: AppleMusicConnector
 
-        progressHandler(0.1)
-        let fetchedSongs: [LibrarySong] = try await fetchAll(
-            path: Self.librarySongsPath,
-            progressHandler: { progress in
-                progressHandler(0.1 + (progress * 0.4))
-            }
-        )
-        var seenSongIDs = Set<String>()
-        let songs = fetchedSongs.filter { seenSongIDs.insert($0.id).inserted }
-        let nativeMetadata = try await Self.fetchNativeLibraryMetadata()
-        progressHandler(0.5)
+        func isAuthorized() async -> Bool { MusicAuthorization.currentStatus == .authorized }
 
-        catalogIDsByLibraryID = Dictionary(uniqueKeysWithValues: songs.compactMap { song in
-            song.catalogID.map { (song.id, $0) }
-        })
-        pendingFavoriteCatalogIDs.subtract(songs.compactMap { song in
-            song.attributes.inFavorites == true ? song.catalogID : nil
-        })
-
-        let artists = Self.artistUpsertInputs(
-            from: songs,
-            dateAddedByLibraryID: nativeMetadata.artistDateAddedByID,
-            songMetadataByLibraryID: nativeMetadata.songsByID
-        )
-        let albums = Self.albumUpsertInputs(
-            from: songs,
-            dateAddedByLibraryID: nativeMetadata.albumDateAddedByID,
-            songMetadataByLibraryID: nativeMetadata.songsByID
-        )
-        let existingArtists = try await repository.fetchArtistSyncMetadata(forSource: sourceKey)
-        let existingAlbums = try await repository.fetchAlbumSyncMetadata(forSource: sourceKey)
-        let existingTracks = try await repository.fetchTrackSyncMetadata(forSource: sourceKey)
-        let tracks = songs.map { song in
-            Self.trackUpsertInput(
-                song,
-                metadata: nativeMetadata.songsByID[song.id],
-                existing: existingTracks[song.id],
-                isFavorite: song.attributes.inFavorites == true
-                    || song.catalogID.map(pendingFavoriteCatalogIDs.contains) == true
+        func songs(progress: @Sendable (Double) -> Void) async throws -> AppleMusicSongList {
+            let (songs, total): ([LibrarySong], Int?) = try await connector.fetchPages(
+                path: AppleMusicConnector.librarySongsPath, progressHandler: progress
             )
+            return AppleMusicSongList(songs: songs, reportedTotal: total)
         }
 
-        let changedArtists = artists.filter { existingArtists[$0.ratingKey]?.matches($0) != true }
-        let changedAlbums = albums.filter { existingAlbums[$0.ratingKey]?.matches($0) != true }
-        let changedTracks = tracks.filter { existingTracks[$0.ratingKey]?.matches($0) != true }
-        let datedTracks = tracks.lazy.filter { $0.dateAdded != nil }.count
-        let datedAlbums = albums.lazy.filter { $0.dateAdded != nil }.count
-        let datedArtists = artists.lazy.filter { $0.dateAdded != nil }.count
-        let lastPlayedTracks = tracks.lazy.filter { $0.lastPlayed != nil }.count
-        let playedTracks = tracks.lazy.filter { ($0.playCount ?? 0) > 0 }.count
-        let matchedSongs = songs.lazy.filter { nativeMetadata.songsByID[$0.id] != nil }.count
-        EnsembleLogger.debug(
-            "🎵 Apple Music inventory \(songs.count) songs; native \(nativeMetadata.elapsedMilliseconds)ms matched=\(matchedSongs)/\(songs.count) dated=\(datedTracks)/\(datedAlbums)/\(datedArtists) track/album/artist played=\(lastPlayedTracks) last/\(playedTracks) counted; writing \(changedArtists.count) artists, \(changedAlbums.count) albums, \(changedTracks.count) tracks"
-        )
-
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertArtists(changedArtists, sourceCompositeKey: sourceKey)
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertAlbums(changedAlbums, sourceCompositeKey: sourceKey)
-        try RefreshExecution.checkCancellation()
-        try await repository.batchUpsertTracks(changedTracks, sourceCompositeKey: sourceKey)
-        progressHandler(0.85)
-
-        let artistKeys = Set(artists.map(\.ratingKey))
-        let albumKeys = Set(albums.map(\.ratingKey))
-        let trackKeys = Set(tracks.map(\.ratingKey))
-        try RefreshExecution.checkCancellation()
-        let removedArtists = try await repository.removeOrphanedArtists(notIn: artistKeys, forSource: sourceKey)
-        try RefreshExecution.checkCancellation()
-        let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumKeys, forSource: sourceKey)
-        try RefreshExecution.checkCancellation()
-        let removedTracks = try await repository.removeOrphanedTracks(notIn: trackKeys, forSource: sourceKey)
-        await MainActor.run {
-            HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: sourceKey, survivingItemIDs: artistKeys)
-            HiddenMediaStore.shared.removeMissing(kind: .album, sourceKey: sourceKey, survivingItemIDs: albumKeys)
-            HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: sourceKey, survivingItemIDs: trackKeys)
+        func nativeMetadata() async throws -> NativeLibraryMetadataSnapshot {
+            try await AppleMusicConnector.fetchNativeLibraryMetadata()
         }
-        try RefreshExecution.checkCancellation()
-        try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
-        Self.recordAuthoritativeLibraryInventory(completedAt: Date())
-        progressHandler(1)
-
-        return LibrarySyncResult(
-            changedArtists: changedArtists.count,
-            changedAlbums: changedAlbums.count,
-            changedTracks: changedTracks.count,
-            removedArtists: removedArtists,
-            removedAlbums: removedAlbums,
-            removedTracks: removedTracks
-        )
-    }
-
-    static func artistUpsertInputs(
-        from songs: [LibrarySong],
-        dateAddedByLibraryID: [String: Date] = [:],
-        songMetadataByLibraryID: [String: NativeLibrarySongMetadata] = [:]
-    ) -> [ArtistUpsertInput] {
-        Dictionary(grouping: songs, by: \.artistKey).compactMap { key, songs -> ArtistUpsertInput? in
-            guard let song = songs.first else { return nil }
-            return ArtistUpsertInput(
-                ratingKey: key,
-                key: key,
-                name: song.attributes.artistName ?? "Unknown Artist",
-                summary: nil,
-                thumbPath: nil,
-                artPath: nil,
-                dateAdded: song.artistLibraryID.flatMap { dateAddedByLibraryID[$0] }
-                    ?? Self.earliestSongAddedDate(
-                        in: songs,
-                        metadataByLibraryID: songMetadataByLibraryID
-                    ),
-                dateModified: nil,
-                updatesDateAdded: true
-            )
-        }
-    }
-
-    static func albumUpsertInputs(
-        from songs: [LibrarySong],
-        dateAddedByLibraryID: [String: Date] = [:],
-        songMetadataByLibraryID: [String: NativeLibrarySongMetadata] = [:]
-    ) -> [AlbumUpsertInput] {
-        Dictionary(grouping: songs, by: \.albumKey).compactMap { key, songs -> AlbumUpsertInput? in
-            guard let song = songs.first else { return nil }
-            return AlbumUpsertInput(
-                ratingKey: key,
-                key: key,
-                title: song.attributes.albumName ?? "Unknown Album",
-                artistName: song.attributes.artistName,
-                albumArtist: song.attributes.artistName,
-                artistRatingKey: song.artistKey,
-                summary: nil,
-                thumbPath: song.artworkURL,
-                artPath: nil,
-                year: song.year,
-                trackCount: songs.count,
-                dateAdded: song.albumLibraryID.flatMap { dateAddedByLibraryID[$0] }
-                    ?? Self.earliestSongAddedDate(
-                        in: songs,
-                        metadataByLibraryID: songMetadataByLibraryID
-                    ),
-                dateModified: nil,
-                rating: nil,
-                genreNames: song.attributes.genreNames?.joined(separator: ", "),
-                updatesDateAdded: true
-            )
-        }
-    }
-
-    private static func earliestSongAddedDate(
-        in songs: [LibrarySong],
-        metadataByLibraryID: [String: NativeLibrarySongMetadata]
-    ) -> Date? {
-        songs.compactMap {
-            metadataByLibraryID[$0.id]?.dateAdded ?? $0.dateAdded
-        }.min()
-    }
-
-    public func syncLibraryIncremental(
-        since _: TimeInterval,
-        to repository: LibraryRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> LibrarySyncResult {
-        let plan = Self.libraryInventoryPlan(
-            authoritativeInventoryDate: Self.authoritativeLibraryInventoryDate(),
-            now: Date()
-        )
-
-        switch plan {
-        case .reuseAuthoritativeInventory:
-            EnsembleLogger.debug(
-                "🎵 Apple Music authoritative library inventory is recent; reusing it"
-            )
-            try RefreshExecution.checkCancellation()
-            try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceIdentifier.compositeKey)
-            progressHandler(1)
-            return LibrarySyncResult()
-        case .fetchAuthoritativeInventory(let reason):
-            EnsembleLogger.debug(
-                "🎵 Apple Music authoritative library inventory required reason=\(reason.rawValue)"
-            )
-            return try await syncLibraryAuthoritatively(
-                to: repository,
-                progressHandler: progressHandler
-            )
-        }
-    }
-
-    enum LibraryInventoryRefreshReason: String, Equatable {
-        case noTrustedBaseline
-        case localClockRegressed
-        case periodicReconciliationDue
-    }
-
-    enum LibraryInventoryPlan: Equatable {
-        case reuseAuthoritativeInventory
-        case fetchAuthoritativeInventory(reason: LibraryInventoryRefreshReason)
-    }
-
-    static func libraryInventoryPlan(
-        authoritativeInventoryDate: Date?,
-        now: Date,
-        reconciliationInterval: TimeInterval = authoritativeLibraryInventoryInterval
-    ) -> LibraryInventoryPlan {
-        guard let authoritativeInventoryDate else {
-            return .fetchAuthoritativeInventory(reason: .noTrustedBaseline)
-        }
-
-        let inventoryAge = now.timeIntervalSince(authoritativeInventoryDate)
-        guard inventoryAge >= 0 else {
-            return .fetchAuthoritativeInventory(reason: .localClockRegressed)
-        }
-        guard inventoryAge < reconciliationInterval else {
-            return .fetchAuthoritativeInventory(reason: .periodicReconciliationDue)
-        }
-        return .reuseAuthoritativeInventory
-    }
-
-    static func authoritativeLibraryInventoryDate(
-        defaults: UserDefaults = .standard
-    ) -> Date? {
-        defaults.object(forKey: authoritativeLibraryInventoryDateKey) as? Date
-    }
-
-    static func recordAuthoritativeLibraryInventory(
-        completedAt: Date,
-        defaults: UserDefaults = .standard
-    ) {
-        defaults.set(completedAt, forKey: authoritativeLibraryInventoryDateKey)
-    }
-
-    static func clearLibraryInventoryState(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: authoritativeLibraryInventoryDateKey)
     }
 
     public func syncPlaylists(
@@ -1042,9 +809,19 @@ public actor AppleMusicConnector:
         path: String,
         progressHandler: @Sendable (Double) -> Void = { _ in }
     ) async throws -> [Resource] {
+        try await fetchPages(path: path, progressHandler: progressHandler).items
+    }
+
+    /// Follows the `next` chain to its end. Any failed page throws, so a result is every page of the
+    /// chain; `total` is the API's own count from the first page, when it reports one.
+    private func fetchPages<Resource: Decodable>(
+        path: String,
+        progressHandler: @Sendable (Double) -> Void = { _ in }
+    ) async throws -> (items: [Resource], total: Int?) {
         let initialPath = path
         var path: String? = path
         var result: [Resource] = []
+        var total: Int?
         var fetchedPageCount = 0
         var fetchedPaths = Set<String>()
         while let current = path {
@@ -1060,6 +837,7 @@ public actor AppleMusicConnector:
                 throw error
             }
             let page = try JSONDecoder().decode(Page<Resource>.self, from: data)
+            if fetchedPageCount == 0 { total = page.meta?.total }
             result.append(contentsOf: page.data)
             path = page.next.map { Self.continuationPath($0, preservingQueryFrom: initialPath) }
             fetchedPageCount += 1
@@ -1068,7 +846,7 @@ public actor AppleMusicConnector:
                 hasNextPage: path != nil
             ))
         }
-        return result
+        return (result, total)
     }
 
     private nonisolated static func fetchNativeLibraryMetadata() async throws
@@ -1243,45 +1021,6 @@ public actor AppleMusicConnector:
             items: items,
             semanticKind: HubSemanticKind.provider(identifier: id, title: title),
             sourceScope: HubSourceScope(source: .appleMusic)
-        )
-    }
-
-    static func trackUpsertInput(
-        _ song: LibrarySong,
-        metadata: NativeLibrarySongMetadata?,
-        existing: TrackSyncMetadata?,
-        isFavorite: Bool
-    ) -> TrackUpsertInput {
-        let lastPlayed: Date?
-        let playCount: Int?
-        if let metadata {
-            lastPlayed = metadata.lastPlayed
-            playCount = metadata.playCount
-        } else {
-            lastPlayed = existing?.lastPlayed
-            playCount = existing?.playCount
-        }
-
-        return TrackUpsertInput(
-            ratingKey: song.id,
-            key: song.trackKey,
-            title: song.attributes.name,
-            artistName: song.attributes.artistName,
-            albumName: song.attributes.albumName,
-            albumRatingKey: song.albumKey,
-            trackNumber: song.attributes.trackNumber,
-            discNumber: song.attributes.discNumber,
-            duration: song.attributes.durationInMillis,
-            thumbPath: song.artworkURL,
-            streamKey: song.attributes.url,
-            dateAdded: metadata?.dateAdded ?? song.dateAdded,
-            dateModified: nil,
-            lastPlayed: lastPlayed,
-            rating: isFavorite ? 10 : nil,
-            isFavorite: isFavorite,
-            playCount: playCount,
-            genreNames: song.attributes.genreNames?.joined(separator: ", "),
-            updatesDateAdded: true
         )
     }
 
@@ -1724,116 +1463,6 @@ public actor AppleMusicConnector:
 }
 
 @available(iOS 18, *)
-struct NativeLibrarySongMetadata: Sendable, Equatable {
-    let itemID: String
-    let dateAdded: Date?
-    let lastPlayed: Date?
-    let playCount: Int?
-}
-
-@available(iOS 18, *)
-struct NativeLibraryDateMetadata: Sendable, Equatable {
-    let itemID: String
-    let dateAdded: Date?
-}
-
-@available(iOS 18, *)
-struct NativeLibraryMetadataSnapshot: Sendable {
-    let songsByID: [String: NativeLibrarySongMetadata]
-    let albumDateAddedByID: [String: Date]
-    let artistDateAddedByID: [String: Date]
-    let elapsedMilliseconds: Int
-
-    init(
-        songs: [NativeLibrarySongMetadata],
-        albums: [NativeLibraryDateMetadata],
-        artists: [NativeLibraryDateMetadata],
-        elapsedMilliseconds: Int
-    ) {
-        songsByID = Dictionary(
-            songs.map { ($0.itemID, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        albumDateAddedByID = Dictionary(
-            albums.compactMap { item in item.dateAdded.map { (item.itemID, $0) } },
-            uniquingKeysWith: { first, _ in first }
-        )
-        artistDateAddedByID = Dictionary(
-            artists.compactMap { item in item.dateAdded.map { (item.itemID, $0) } },
-            uniquingKeysWith: { first, _ in first }
-        )
-        self.elapsedMilliseconds = elapsedMilliseconds
-    }
-}
-
-@available(iOS 18, *)
-struct Page<Resource: Decodable>: Decodable {
-    let data: [Resource]
-    let next: String?
-}
-
-@available(iOS 18, *)
-struct LibrarySong: Decodable {
-    struct Attributes: Decodable {
-        struct PlayParameters: Decodable { let catalogId: String? }
-        let name: String
-        let artistName: String?
-        let albumName: String?
-        let artwork: Artwork?
-        let durationInMillis: Int?
-        let trackNumber: Int?
-        let discNumber: Int?
-        let genreNames: [String]?
-        let dateAdded: String?
-        let releaseDate: String?
-        let inFavorites: Bool?
-        let url: String?
-        let playParams: PlayParameters?
-    }
-    struct Relationships: Decodable {
-        let albums: Page<LibraryReference>?
-        let artists: Page<LibraryReference>?
-        let catalog: Page<CatalogReference>?
-    }
-    struct LibraryReference: Decodable { let id: String }
-    struct CatalogReference: Decodable { let id: String }
-
-    let id: String
-    let type: String?
-    let attributes: Attributes
-    let relationships: Relationships?
-
-    var catalogID: String? { attributes.playParams?.catalogId ?? relationships?.catalog?.data.first?.id }
-    var isSong: Bool { type == nil || type == "library-songs" || type == "songs" }
-    var trackKey: String {
-        catalogID.map { "apple-library-catalog:\($0)" } ?? "apple-library:\(id)"
-    }
-    var dateAdded: Date? { attributes.dateAdded.flatMap(Self.date) }
-    var year: Int? { attributes.releaseDate.flatMap { Int($0.prefix(4)) } }
-    var artworkURL: String? { attributes.artwork?.url }
-    var artistLibraryID: String? { relationships?.artists?.data.first?.id }
-    var albumLibraryID: String? { relationships?.albums?.data.first?.id }
-    var artistKey: String {
-        "apple-artist:\(artistLibraryID ?? Self.normalized(attributes.artistName ?? "Unknown Artist"))"
-    }
-    var albumKey: String {
-        if let id = albumLibraryID {
-            return "apple-album:\(id)"
-        }
-        return "apple-album:\(Self.normalized(attributes.artistName ?? "Unknown Artist"))|\(Self.normalized(attributes.albumName ?? "Unknown Album"))"
-    }
-
-    private static func normalized(_ value: String) -> String {
-        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func date(_ value: String) -> Date? {
-        ISO8601DateFormatter().date(from: value) ?? DateFormatter.appleMusicDay.date(from: value)
-    }
-}
-
-@available(iOS 18, *)
 struct LibraryPlaylist: Decodable {
     struct DescriptionAttribute: Decodable {
         let standard: String?
@@ -1878,18 +1507,6 @@ struct LibraryPlaylist: Decodable {
     private static func date(_ value: String) -> Date? {
         ISO8601DateFormatter().date(from: value) ?? DateFormatter.appleMusicDay.date(from: value)
     }
-}
-
-@available(iOS 18, *)
-struct Artwork: Decodable { let url: String }
-
-private extension DateFormatter {
-    static let appleMusicDay: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
 }
 
 public enum AppleMusicSourceError: LocalizedError {

@@ -731,7 +731,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
 }
 
 /// An autoplay source whose recommendation request waits until released.
-private final class HeldRadioProvider: MusicSourceLibrarySyncing, MusicSourceRadioProviding, @unchecked Sendable {
+private final class HeldRadioProvider: MusicSourceConnector, MusicSourceRadioProviding, @unchecked Sendable {
     let sourceIdentifier = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
     private let lock = NSLock()
     private var asked = false
@@ -761,8 +761,7 @@ private final class HeldRadioProvider: MusicSourceLibrarySyncing, MusicSourceRad
         continuations.forEach { $0.resume() }
     }
 
-    func syncLibrary(to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
-    func syncLibraryIncremental(since timestamp: TimeInterval, to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
+    func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
     func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
     func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, forceOrphanCheck: Bool, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
     func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }

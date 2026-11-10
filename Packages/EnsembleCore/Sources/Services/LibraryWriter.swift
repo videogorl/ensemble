@@ -97,6 +97,12 @@ public struct LibraryBatch: Sendable {
     public var inventory: LibraryInventory?
     /// Every row's metadata was fetched and compared, not only the changed ones.
     public var isFullMetadataPass = false
+    /// Tracks whose last played date and play count the source could not read this pass; their stored
+    /// values are kept instead of being cleared.
+    public var tracksWithoutPlayHistory: Set<String> = []
+    /// Names to store on the source row; nil leaves the row's names empty, as for Plex.
+    public var sourceDisplayName: String?
+    public var sourceAccountName: String?
     /// When the connector began its queries; the cursors record this date.
     public var queryStartedAt: Date
 
@@ -107,6 +113,7 @@ public struct LibraryBatch: Sendable {
         genres: [GenreUpsertInput]? = nil,
         inventory: LibraryInventory? = nil,
         isFullMetadataPass: Bool = false,
+        tracksWithoutPlayHistory: Set<String> = [],
         queryStartedAt: Date
     ) {
         self.artists = artists
@@ -115,6 +122,7 @@ public struct LibraryBatch: Sendable {
         self.genres = genres
         self.inventory = inventory
         self.isFullMetadataPass = isFullMetadataPass
+        self.tracksWithoutPlayHistory = tracksWithoutPlayHistory
         self.queryStartedAt = queryStartedAt
     }
 }
@@ -168,7 +176,7 @@ public actor LibraryWriter {
             EnsembleLogger.info("Ignoring a stale library batch for \(key): query started before the last committed pass")
             return LibrarySyncResult()
         }
-        try await ensureSource(source)
+        try await ensureSource(source, batch: batch)
         var result = try await writeRows(batch, key: key)
 
         var inventoryApplied = false
@@ -199,7 +207,7 @@ public actor LibraryWriter {
     /// except to mark the inventory due.
     @discardableResult
     public func applyChanges(_ batch: LibraryBatch, to source: MusicSourceIdentifier) async throws -> LibrarySyncResult {
-        try await ensureSource(source)
+        try await ensureSource(source, batch: batch)
         return try await writeRows(batch, key: source.compositeKey)
     }
 
@@ -215,15 +223,15 @@ public actor LibraryWriter {
 
     // MARK: - Rows
 
-    private func ensureSource(_ source: MusicSourceIdentifier) async throws {
+    private func ensureSource(_ source: MusicSourceIdentifier, batch: LibraryBatch) async throws {
         _ = try await libraryRepository.upsertMusicSource(
             compositeKey: source.compositeKey,
             type: source.type.rawValue,
             accountId: source.accountId,
             serverId: source.serverId,
             libraryId: source.libraryId,
-            displayName: nil,
-            accountName: nil
+            displayName: batch.sourceDisplayName,
+            accountName: batch.sourceAccountName
         )
     }
 
@@ -247,10 +255,14 @@ public actor LibraryWriter {
         let artists = batch.artists.filter { existingArtists[$0.ratingKey]?.matches($0) != true }
         let albums = batch.albums.filter { existingAlbums[$0.ratingKey]?.matches($0) != true }
         // A rating or favourite still waiting to upload is newer than the server's value.
-        let pendingRatings = try await trackKeysWithQueuedRating(source: key)
-        let tracks = batch.tracks
-            .map { pendingRatings.contains($0.ratingKey) ? $0.keepingRating(of: existingTracks[$0.ratingKey]) : $0 }
-            .filter { existingTracks[$0.ratingKey]?.matches($0) != true }
+        let queuedRatings = try await trackKeysWithQueuedRating(source: key)
+        let tracks = batch.tracks.map { input -> TrackUpsertInput in
+            guard let stored = existingTracks[input.ratingKey] else { return input }
+            return input.keeping(
+                ratingOf: queuedRatings.contains(input.ratingKey) ? stored : nil,
+                playHistoryOf: batch.tracksWithoutPlayHistory.contains(input.ratingKey) ? stored : nil
+            )
+        }.filter { existingTracks[$0.ratingKey]?.matches($0) != true }
 
         let membershipChanged = tracks.contains { existingTracks[$0.ratingKey]?.albumRatingKey != $0.albumRatingKey }
             || albums.contains { album in
@@ -361,15 +373,17 @@ public actor LibraryWriter {
 }
 
 extension TrackUpsertInput {
-    /// The input with the stored row's rating, favourite flag and rating date; unchanged for a new track.
-    func keepingRating(of stored: TrackSyncMetadata?) -> TrackUpsertInput {
-        guard let stored else { return self }
-        return TrackUpsertInput(
+    /// The input with the stored rating, favourite flag and rating date, and/or the stored last played
+    /// date and play count, in place of the fetched ones.
+    func keeping(ratingOf ratingStored: TrackSyncMetadata?, playHistoryOf historyStored: TrackSyncMetadata?) -> TrackUpsertInput {
+        TrackUpsertInput(
             ratingKey: ratingKey, key: key, title: title, artistName: artistName, albumName: albumName,
             albumRatingKey: albumRatingKey, trackNumber: trackNumber, discNumber: discNumber, duration: duration,
             thumbPath: thumbPath, streamKey: streamKey, streamId: streamId, dateAdded: dateAdded,
-            dateModified: dateModified, lastPlayed: lastPlayed, lastRatedAt: stored.lastRatedAt,
-            rating: stored.rating, isFavorite: stored.isFavorite, playCount: playCount, genreNames: genreNames,
+            dateModified: dateModified, lastPlayed: historyStored.map(\.lastPlayed) ?? lastPlayed,
+            lastRatedAt: ratingStored.map(\.lastRatedAt) ?? lastRatedAt,
+            rating: ratingStored?.rating ?? rating, isFavorite: ratingStored.map(\.isFavorite) ?? isFavorite,
+            playCount: historyStored?.playCount ?? playCount, genreNames: genreNames,
             updatesDateAdded: updatesDateAdded, actionCapabilitiesData: actionCapabilitiesData
         )
     }

@@ -2040,11 +2040,6 @@ public final class SyncCoordinator {
 
         if sourceId.type == .appleMusic {
             Playlist.clearAppleMusicPlaylistCapabilityCache()
-            #if os(iOS)
-            if #available(iOS 18, *) {
-                AppleMusicConnector.clearLibraryInventoryState()
-            }
-            #endif
             HomeHubLoader.removeFailedHubKey(forSourceCompositeKey: sourceId.compositeKey)
             clearLastPlaylistTargets(forServerSourceKey: sourceId.compositeKey)
         }
@@ -2057,9 +2052,7 @@ public final class SyncCoordinator {
             } else {
                 try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
             }
-            if sourceId.type == .plex {
-                try await libraryWriter.removeCursor(for: sourceId)
-            }
+            try await libraryWriter.removeCursor(for: sourceId)
 
             if accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceId.compositeKey) {
                 sourcePersistenceFence.finishCleanup(sourceKey: sourceId.compositeKey)
@@ -3774,36 +3767,22 @@ private extension SyncCoordinator {
         }
     }
 
-    /// Syncs one source's library: a writer plan, the connector's fetch, then the writer's
-    /// apply. A nil `since` syncs the whole library. Apple Music still syncs itself.
+    /// Syncs one source's library: a writer plan, the connector's fetch, then the writer's apply.
+    /// A nil `since` syncs the whole library.
     private func syncLibrary(
         _ provider: MusicSourceConnector,
         source: MusicSourceIdentifier,
         since: Date?,
         progressHandler: @escaping @Sendable (Double) -> Void
     ) async throws -> LibrarySyncResult {
-        if let fetcher = provider as? MusicSourceLibraryFetching {
-            progressHandler(0.1)
-            let plan = try await libraryWriter.libraryPlan(for: source, since: since)
-            progressHandler(0.3)
-            let batch = try await fetcher.fetchLibrary(plan: plan)
-            progressHandler(0.8)
-            let result = try await libraryWriter.apply(batch, to: source)
-            progressHandler(1.0)
-            return result
-        }
-        guard let legacy = provider as? MusicSourceLibrarySyncing else {
-            EnsembleLogger.error("Source \(source.compositeKey) implements no library sync; failing the pass")
-            throw MusicSourceRoutingError.providerUnavailable(sourceKey: source.compositeKey)
-        }
-        if let since {
-            return try await legacy.syncLibraryIncremental(
-                since: since.timeIntervalSince1970,
-                to: libraryRepository,
-                progressHandler: progressHandler
-            )
-        }
-        return try await legacy.syncLibrary(to: libraryRepository, progressHandler: progressHandler)
+        progressHandler(0.1)
+        let plan = try await libraryWriter.libraryPlan(for: source, since: since)
+        progressHandler(0.3)
+        let batch = try await provider.fetchLibrary(plan: plan)
+        progressHandler(0.8)
+        let result = try await libraryWriter.apply(batch, to: source)
+        progressHandler(1.0)
+        return result
     }
 
     private func syncPlaylistsIfNeeded(
