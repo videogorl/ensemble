@@ -781,6 +781,22 @@ extension PlaybackService {
         }
     }
 
+    /// Loads a source into the engine. A direct source reserves its server for the track (inside
+    /// `takePreparedPipeline`) until the engine registers its pipeline; a load that fails or is
+    /// superseded first must not leave the reservation behind.
+    @MainActor
+    private func loadEngine(
+        _ engine: AudioPlaybackEngine, source: PlaybackSource, trackId: String, generation: UInt64
+    ) async throws {
+        defer { transportCoordinator.releaseDirectReservation(trackID: trackId) }
+        try await engine.load(
+            source: source,
+            trackId: trackId,
+            playbackGeneration: generation,
+            preparedPipeline: transportCoordinator.takePreparedPipeline(for: source, trackID: trackId)
+        )
+    }
+
     func prefetchNextItem() async {
         scheduleUpcomingArtworkPrefetch()
         await prefetchUpcomingItems(depth: 2)
@@ -1273,12 +1289,7 @@ extension PlaybackService {
                     return false
                 }
                                 nativeEngineAdapter?.willLoad(trackID: trackIdentity)
-                try await engine.load(
-                    source: source,
-                    trackId: trackIdentity,
-                    playbackGeneration: generation,
-                    preparedPipeline: transportCoordinator.takePreparedPipeline(for: source, trackID: trackIdentity)
-                )
+                try await loadEngine(engine, source: source, trackId: trackIdentity, generation: generation)
                 guard generation == sessionGeneration else {
                     if engine.playbackRequestGeneration == generation { engine.stop() }
                     endTrackTransitionBackgroundTask(for: generation)
@@ -1320,12 +1331,7 @@ extension PlaybackService {
                 return false
             }
                         nativeEngineAdapter?.willLoad(trackID: trackIdentity)
-            try await engine.load(
-                source: source,
-                trackId: trackIdentity,
-                playbackGeneration: generation,
-                preparedPipeline: transportCoordinator.takePreparedPipeline(for: source, trackID: trackIdentity)
-            )
+            try await loadEngine(engine, source: source, trackId: trackIdentity, generation: generation)
             guard generation == sessionGeneration else {
                 if engine.playbackRequestGeneration == generation { engine.stop() }
                 endTrackTransitionBackgroundTask(for: generation)

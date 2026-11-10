@@ -542,6 +542,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         await rig.assertDeferred(b)
         let sourceB = try await rig.coordinator.resolvePlaybackSource(for: b)
         XCTAssertNil(rig.coordinator.takePreparedPipeline(for: sourceB, trackID: b.playbackIdentity))
+        rig.coordinator.releaseDirectReservation(trackID: b.playbackIdentity)
         playing.cancel()
         await StalledRequestProtocol.waitUntilIdle()
 
@@ -563,6 +564,45 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         await StalledRequestProtocol.waitUntilIdle()
         XCTAssertNil(rig.coordinator.takePreparedPipeline(for: sourceB, trackID: b.playbackIdentity), "the cancelled prefetch is gone")
         prefetchB2.cancel()
+        rig.coordinator.releaseDirectReservation(trackID: b.playbackIdentity)
+
+        // C's reservation holds the server until its pipeline registers or its load ends: a prefetch
+        // is deferred meanwhile. A load that fails or is superseded releases it, and so does a track
+        // that turns out not to need a direct download (a local file).
+        XCTAssertNil(rig.coordinator.takePreparedPipeline(for: sourceC, trackID: c.playbackIdentity))
+        await rig.assertDeferred(b)
+        rig.coordinator.releaseDirectReservation(trackID: c.playbackIdentity)
+        XCTAssertNil(rig.coordinator.takePreparedPipeline(for: .localFile(URL(fileURLWithPath: "/tmp/c.mp3")), trackID: c.playbackIdentity))
+        let prefetchB3 = Task { try await rig.coordinator.resolveAudioFile(for: b) }
+        await StalledRequestProtocol.waitUntilStarted("/library/parts/b/file.mp3", count: 3)
+        prefetchB3.cancel()
+        rig.coordinator.clear(removeDecisions: true)
+    }
+
+    /// A prefetch's admission runs off the main actor while a replacement track is taken and
+    /// registered. Whichever order they interleave in, once things settle exactly one direct request
+    /// is in flight for the server: the replacement's, never a surviving prefetch beside it.
+    func testPrefetchAdmissionRacingAReplacementLeavesOneRequestInFlight() async throws {
+        for iteration in 0 ..< 60 {
+            let rig = try DirectRig()
+            let (a, b, c) = (rig.track("a"), rig.track("b"), rig.track("c"))
+            let current = try await rig.startPlaying(a)
+            let prefetch = Task { try await rig.coordinator.resolveAudioFile(for: b) }
+            for _ in 0 ..< iteration % 5 { await Task.yield() }
+            current.cancel()
+            let replacement = try await rig.startPlaying(c, suspensions: iteration % 7)
+
+            var settled = false
+            for _ in 0 ..< 200 where !settled {
+                settled = StalledRequestProtocol.inFlight(host: "pms.test") == 1
+                if !settled { try await Task.sleep(nanoseconds: 5_000_000) }
+            }
+            XCTAssertEqual(StalledRequestProtocol.inFlight(host: "pms.test"), 1, "iteration \(iteration)")
+            prefetch.cancel()
+            replacement.cancel()
+            rig.coordinator.clear(removeDecisions: true)
+            await StalledRequestProtocol.waitUntilIdle()
+        }
     }
 }
 
@@ -578,6 +618,7 @@ private final class StalledRequestProtocol: URLProtocol {
         startedPaths = []; inFlight = [:]; maxInFlightByHost = [:]
     }
     static func started() -> [String] { lock.lock(); defer { lock.unlock() }; return startedPaths }
+    static func inFlight(host: String) -> Int { lock.lock(); defer { lock.unlock() }; return inFlight[host] ?? 0 }
     static func maxInFlight(host: String) -> Int { lock.lock(); defer { lock.unlock() }; return maxInFlightByHost[host] ?? 0 }
     static func waitUntilIdle() async {
         for _ in 0 ..< 500 {
@@ -645,12 +686,18 @@ private struct DirectRig {
         Track(id: id, key: "/library/metadata/\(id)", title: id, duration: 180, sourceCompositeKey: "plex:acct:\(server):1")
     }
 
-    /// What the engine does for the track being played: make its pipeline, register it, start it.
-    func startPlaying(_ track: Track) async throws -> StreamingAudioPipeline {
-        guard case let .directHTTP(request, metadata) = try await coordinator.resolvePlaybackSource(for: track) else {
+    /// What the service and engine do for the track being played: take its pipeline (which reserves
+    /// the server), make the engine's own, register it, start it, and release the reservation.
+    /// `suspensions` stretches the window between the take and the registration.
+    func startPlaying(_ track: Track, suspensions: Int = 0) async throws -> StreamingAudioPipeline {
+        let source = try await coordinator.resolvePlaybackSource(for: track)
+        guard case let .directHTTP(request, metadata) = source else {
             throw XCTSkip("expected a direct source")
         }
         let key = try XCTUnwrap(metadata.artifactKey)
+        XCTAssertNil(coordinator.takePreparedPipeline(for: source, trackID: track.playbackIdentity))
+        defer { coordinator.releaseDirectReservation(trackID: track.playbackIdentity) }
+        for _ in 0 ..< suspensions { await Task.yield() }
         let pipeline = StreamingAudioPipeline(configuration: .init(
             request: request,
             fileExtension: metadata.cacheFileExtension,
