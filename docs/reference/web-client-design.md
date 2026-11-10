@@ -145,6 +145,26 @@ the plan already lists it for evaluation. If it proves heavier than eight
 records warrant, the fallback is plain fetch-by-ID plus a database
 subscription on the zone.
 
+Why the current code is hand-written: `CloudSyncService` was written on
+2026-04-06, when the floors were iOS 15 and macOS 12, and `CKSyncEngine`
+needs iOS 17 and macOS 14. The floors were raised on 2026-10-13.
+
+What `CKSyncEngine` changes for reliability:
+
+- Unsent changes are queued and survive relaunch; today a failed push is
+  dropped until the next local change or launch.
+- It creates the zone and the subscription, follows change tokens, and backs
+  off on rate limits and quota errors, replacing the hand-written
+  `nextProfilePullAllowedAt` throttle.
+- It reports iCloud sign-out and account switches as events.
+- Conflicts are still ours: it reports a `serverRecordChanged` failure and
+  we merge with the existing functions (section 3.3).
+- The system decides when automatic syncs run, which can lag by seconds or
+  more. The app calls `fetchChanges` on foreground and `sendChanges` after a
+  user edit when it needs the change to go out promptly.
+- It needs its state saved between launches. Losing that state only causes
+  a full re-fetch of eight records, so the cost is small.
+
 `KVSSyncService` is deleted at the end of the migration, along with the
 key-value store observer on the watch.
 
@@ -177,7 +197,7 @@ key-value store observer on the watch.
 ### 5.1 Stack
 
 - Vite and TypeScript, built to static files in `web/dist`.
-- UI framework: open question for Felicity (section 8).
+- Svelte for the UI.
 - CloudKit JS, loaded from Apple's CDN.
 - hls.js for Plex transcode streams outside Safari.
 - Local cache in IndexedDB, treated as disposable.
@@ -220,6 +240,14 @@ changes with a saved sync token on launch and on window focus, and write
 with the record change tag (section 3.3). Live updates through CloudKit JS
 notifications are optional for the first release.
 
+Hidden items sync like every other setting. The web app reads the
+`HiddenMediaState` record and filters hidden albums, artists, playlists and
+tracks out of every list, search and shuffle, matching on the identity's kind,
+item ID and source key. Hiding or unhiding on the web writes a
+`HiddenMediaMutation` the native apps pick up. That record holds every hide
+ever made in one JSON array, so it has a size ceiling of CloudKit's 1 MB per
+record, roughly several thousand entries; split it per source if it nears that.
+
 ## 6. Repository and hosting
 
 **Same repository, in a top-level `web/` folder.**
@@ -259,7 +287,7 @@ Still planning; nothing is implemented. Answers from Felicity on 2026-11-10:
    calls with a `CKDatabaseSubscription`, and the six settings go through
    `NSUbiquitousKeyValueStore`.
 3. Same repository, `web/` folder: **yes**.
-4. Web UI framework: open. Recommendation: Svelte. Apple Music's own web app
+4. Web UI framework: **Svelte**. Apple Music's own web app
    (music.apple.com) is built with Svelte; checked 2026-11-10 by its served
    HTML, which carries thousands of Svelte-scoped class names.
 5. Domain: open. Candidate: `app.ensemble.videogorl.me`.
