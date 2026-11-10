@@ -1,6 +1,8 @@
 # Step 6 design: browse, detail, and panes
 
-Status: approved; 6a, 6b and 6c landed (6c on 2026-11-09), 6d not started.
+Status: approved; 6a, 6b and 6c landed (6c on 2026-11-09). 6d part 1 (one
+host and configuration) is done on its branch; part 2 (shared row model,
+queue on it) is not started.
 Written 2026-11-02 against `0ed447e1`; section 1 records that starting point.
 Plan context:
 [`rearchitecture-plan.md`](rearchitecture-plan.md) sections 4.7 and 5.
