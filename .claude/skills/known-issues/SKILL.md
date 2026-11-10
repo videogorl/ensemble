@@ -134,7 +134,7 @@ No unresolved critical issues are currently documented.
 ### Cross-Source Snapshot Amplification
 
 - **Area:** `PlaylistRepository`, `HubRepository`, `DownloadManager`, `LibraryViewModel`, playlist/album/artist detail view models, `MediaTrackList`.
-- **Status:** A TestFlight iPhone SE 2 froze while opening a merged playlist only after a second music source became visible. Concurrent delete-and-replace playlist membership saves had created exact duplicate rows and doubled the rendered body; `PlaylistRepository` now serializes those writes and deduplicates legacy reads. `HubRepository` replacement writes and `DownloadManager` record creation are also serialized, `LibraryViewModel` coalesces overlapping full loads, detail view models suppress unchanged snapshots, and `MediaTrackList` combines identity/download comparison into one pass while avoiding unchanged favorite-state scans. The affected simulator store still contains 2,840 legacy duplicate membership groups across the merged playlist and `All Music`, so cross-source large-collection testing remains a watchlist item until repaired stores and constrained hardware are verified.
+- **Status:** A TestFlight iPhone SE 2 froze while opening a merged playlist only after a second music source became visible. Concurrent delete-and-replace playlist membership saves had created exact duplicate rows and doubled the rendered body; `PlaylistRepository` now serializes those writes and deduplicates legacy reads. `HubRepository` replacement writes and `DownloadManager` record creation are also serialized, `LibraryViewModel` coalesces overlapping full loads, detail view models suppress unchanged snapshots, and the native track tables compare identities and details in one pass, reading favourite state from the ratings revision instead of scanning tracks. The affected simulator store still contains 2,840 legacy duplicate membership groups across the merged playlist and `All Music`, so cross-source large-collection testing remains a watchlist item until repaired stores and constrained hardware are verified.
 - **Rule:** Follow the durable [multi-source persistence checks](../testing/references/persistence-and-unchanged-work.md#multiple-sources-and-large-collections). Keep this watchlist item open until repaired stores and constrained hardware are verified.
 
 ### AirPlay Glitch During Health Probes
@@ -165,6 +165,18 @@ No unresolved critical issues are currently documented.
 - **Area:** Songs table on macOS and iOS, `ArtworkLoader`.
 - **Status:** On 2026-10-13 a full accessibility walk of the macOS Songs table (about 17,000 tracks) made it resolve artwork for thousands of rows; artwork then showed placeholders on every screen for minutes and recovered only after relaunch. On the iOS 26.5 simulator an accessibility snapshot of Songs exceeded the test runner's watchdog and held the app above 100 percent CPU; the app itself kept accepting routes. Both were triggered by automation. VoiceOver and other assistive clients have not been tested and may hit the same cost.
 - **Next step:** Measure a VoiceOver pass over Songs on a large library. If confirmed, bound what the table exposes or resolves per accessibility request.
+
+### iOS Track Rows Keep Stale Accessibility Text After A Redraw
+
+- **Area:** `TrackTableViewCell` in `MediaTrackList`, iOS/iPadOS.
+- **Status:** On 2026-11-09 the iOS 27.0 simulator (iPhone 17 Pro Max and iPad Pro 11) showed the play-state indicator move to the tapped row in screenshots, but the row's accessibility children still exposed its duration ("28:56") instead of the indicator. Same result on the `a5c23da7` baseline, so it predates the step 6d part 2 row model. Seen only through XCUITest. Hypothesis: UIKit keeps the cell's cached accessibility elements when a visible cell is redrawn in place. VoiceOver may announce the old state.
+- **Next step:** Check with VoiceOver on a device whether the playing row announces the indicator. If confirmed, post an accessibility layout change or rebuild the cell's accessibility label on redraw.
+
+### iPad Search Artist Result Can Open An Empty Artists Pane
+
+- **Area:** `NavigationCoordinator` external routes, `NativeBrowseSection` Artists detail stack, iPadOS.
+- **Status:** Suspected, not confirmed as a defect. On 2026-11-09 and 2026-11-10 the iPad Pro 11 simulator (iOS 27.0, `d27961ee`, heavily loaded Mac) logged `externalRoute destination=artist`, `tabChanged from=Search to=Artists` and `push depth=0->1 destination=artist`, yet showed "Select an Artist" in portrait and landscape. The same UI test opened Au4's detail on `b6d82488` (step 6d part 1), and routing code is unchanged between them. Hypothesis: the push lands before the Artists detail stack's path binding is active (it requires `rootSelection == .library(.artists)`), so the path is dropped; timing would explain the difference.
+- **Next step:** Repeat on an idle Mac with the `a5c23da7` baseline, then log the path binding's set calls around the route. Opening an artist from the Artists list is unaffected.
 
 ### Queue Order Differs From The Songs List On Mac
 
