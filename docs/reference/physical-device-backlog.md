@@ -335,6 +335,13 @@ pass before step 0 is called verified.
   Also Stage Flow's track panel in landscape and pull to refresh on Songs,
   which the simulator run did not exercise. Simulator results:
   [step 6d note](../investigations/2026-11-10-step-6d-track-list-host.md).
+- Step 6d part 2, one row model, at `d27961ee` or later: on Songs, a fast
+  scroll away and back keeps titles and artwork; the play-state indicator
+  moves to the tapped row; pull to refresh or a sync that changes tracks
+  does not flicker artwork, lose the indicator or jump the scroll; a rating
+  or download change shows on visible rows without scrolling (not exercised
+  on the simulator: it would change data). With VoiceOver, the playing row
+  announces the indicator rather than the duration (see `known-issues`).
 
 ## Mac
 
@@ -358,6 +365,9 @@ pass before step 0 is called verified.
   one album detail rendered, double-click played and context menus opened in
   the Debug build; Mac swipe (trackpad row actions), drag-out, Search,
   Favorites, Mood, artist and playlist track lists were not driven.
+- Step 6d part 2 in the built Mac app, at `d27961ee` or later: a rating or
+  download change redraws visible rows without a reload, and Mac swipe and
+  drag-out still work on the shared row model (not driven).
 - Step 6c panes on a physical iPad (not run): native `NavigationSplitView`
   now serves every iPad, including iPadOS 17; Artists, Genres and Playlists
   show detail in the next column, rotation and Split View resizing keep the
@@ -366,6 +376,11 @@ pass before step 0 is called verified.
   time against the 299 ms baseline).
 
 ## iPad Pro and Apple Watch
+
+- iPad, step 6d part 2 at `d27961ee` or later: in landscape at full width,
+  Songs shows the artist and album columns; album detail shows no album
+  column; a playlist's "Library not synced" rows show artist and album in the
+  columns, stay dimmed, and a tap shows the "Library not synced" toast.
 
 - Watch, step 1b at `3e063453`: Next on the last track wraps under Repeat One
   and Repeat All; with repeat off, Next and a natural end leave the last track

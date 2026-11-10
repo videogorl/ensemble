@@ -620,20 +620,8 @@ final class EnsembleUITests: XCTestCase {
         )
         var candidateLookups = 0
         let dependencies = DependencyContainer()
-        let coordinator = MacNativeTrackTableView.Coordinator(
-            sections: [NativeTrackListSection(id: "all", title: "", tracks: [track])],
+        let configuration = NativeTrackListConfiguration(
             showArtwork: false,
-            showTrackNumbers: false,
-            showAlbumName: true,
-            tableHeaderContent: nil,
-            tableFooterContent: nil,
-            currentTrackId: nil,
-            availabilityGeneration: 0,
-            activeDownloadTrackIdentities: [],
-            bottomContentInset: 0,
-            usesDynamicTableHeaderHeight: false,
-            supplementalMetadataWidth: nil,
-            trackSourceLabels: [:],
             rowHeight: 48,
             interactionModel: TrackRowInteractionModel(
                 onPlayNext: { _ in },
@@ -641,7 +629,16 @@ final class EnsembleUITests: XCTestCase {
                     candidateLookups += 1
                     return [track]
                 }
+            )
+        )
+        let coordinator = MacNativeTrackTableView.Coordinator(
+            state: TrackListChange.State(
+                rows: TrackListRows(sections: [NativeTrackListSection(id: "all", title: "", tracks: [track])]),
+                rowState: TrackListChange.RowState(configuration: configuration, isOffline: false, displayRatingsRevision: 0)
             ),
+            configuration: configuration,
+            tableHeaderContent: nil,
+            tableFooterContent: nil,
             artworkLoader: dependencies.artworkLoader,
             shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
@@ -1083,30 +1080,31 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(SongsView.nativeTrackSections(from: reordered, sortOption: .duration).flatMap(\.tracks).map(\.id), ["b", "a"])
     }
 
-    func testNativeTrackListFlatteningPreservesTrackIndexesAcrossSupplementaryRows() {
+    func testTrackListRowsKeepGlobalIndexesAcrossSupplementaryRows() {
         let firstTrack = Track(id: "track-1", key: "/tracks/1", title: "Track 1")
         let secondTrack = Track(id: "track-2", key: "/tracks/2", title: "Track 2")
         let thirdTrack = Track(id: "track-3", key: "/tracks/3", title: "Track 3")
+        let trackRows = TrackListRows(sections: [
+            NativeTrackListSection(id: "disc-1", title: "Disc 1", tracks: [firstTrack, secondTrack]),
+            NativeTrackListSection(id: "disc-2", title: "Disc 2", tracks: [thirdTrack])
+        ])
 
-        let rows = NativeTrackListFlattening.rows(
-            sections: [
-                NativeTrackListSection(id: "disc-1", title: "Disc 1", tracks: [firstTrack, secondTrack]),
-                NativeTrackListSection(id: "disc-2", title: "Disc 2", tracks: [thirdTrack])
-            ],
-            hasHeader: true,
-            hasFooter: true,
-            bottomContentInset: 18
-        )
+        let rows = trackRows.flattened(hasHeader: true, hasFooter: true, bottomContentInset: 18)
 
-        XCTAssertEqual(rows.count, 8)
-        XCTAssertEqual(rows[0], .header)
-        XCTAssertEqual(rows[1], .section(id: "disc-1", title: "Disc 1"))
-        XCTAssertEqual(rows[2], .track(firstTrack, globalIndex: 0))
-        XCTAssertEqual(rows[3], .track(secondTrack, globalIndex: 1))
-        XCTAssertEqual(rows[4], .section(id: "disc-2", title: "Disc 2"))
-        XCTAssertEqual(rows[5], .track(thirdTrack, globalIndex: 2))
-        XCTAssertEqual(rows[6], .footer)
-        XCTAssertEqual(rows[7], .bottomSpacer(18))
+        XCTAssertEqual(rows, [
+            .header,
+            .section(id: "disc-1", title: "Disc 1"),
+            .track(section: 0, row: 0),
+            .track(section: 0, row: 1),
+            .section(id: "disc-2", title: "Disc 2"),
+            .track(section: 1, row: 0),
+            .footer,
+            .bottomSpacer(18)
+        ])
+        XCTAssertEqual(trackRows.track(section: 1, row: 0)?.index, 2)
+        XCTAssertEqual(trackRows.track(section: 1, row: 0)?.track, thirdTrack)
+        XCTAssertNil(trackRows.track(section: 1, row: 1))
+        XCTAssertTrue(trackRows.position(ofTrackID: thirdTrack.playbackIdentity)! == (1, 0))
     }
 
     func testScrollIndexCompactTrailingPaddingDoesNotOverlapViewportEdge() {
@@ -1284,48 +1282,72 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(selections.map(\.includesAll), [false, true])
     }
 
-    func testMediaTrackListIdentityOrderUsesSourceScopedTrackID() {
-        let subscriberTrack = Track(
-            id: "7551",
-            key: "/tracks/7551",
-            title: "Techno Jeep",
-            sourceCompositeKey: "plex:subscriber:server:music"
-        )
-        let freeAccountTrack = Track(
-            id: "7551",
-            key: "/tracks/7551",
-            title: "Techno Jeep",
-            sourceCompositeKey: "plex:free:server:music"
-        )
-        let tracks = [subscriberTrack]
-        let sharedTracks = tracks
-        let copiedTracks = tracks.map { $0 }
+    func testTrackListChangeReloadsOnStructureAndRedrawsOnDetailsOrRowState() {
+        let source = "plex:subscriber:server:music"
+        let a = Track(id: "a", key: "/tracks/a", title: "A", sourceCompositeKey: source)
+        let b = Track(id: "b", key: "/tracks/b", title: "B", sourceCompositeKey: source)
+        let renamedA = Track(id: "a", key: "/tracks/a", title: "A (Live)", sourceCompositeKey: source)
+        let downloadedA = Track(id: "a", key: "/tracks/a", title: "A", localFilePath: "/tmp/a.flac", sourceCompositeKey: source)
+        let otherAccountA = Track(id: "a", key: "/tracks/a", title: "A", sourceCompositeKey: "plex:free:server:music")
+        let tracks = [a, b]
 
-        XCTAssertTrue(trackIdentityOrderMatches([subscriberTrack], [subscriberTrack]))
-        XCTAssertFalse(trackIdentityOrderMatches([subscriberTrack], [freeAccountTrack]))
-        XCTAssertTrue(arraysShareStorage(tracks, sharedTracks))
-        XCTAssertFalse(arraysShareStorage(tracks, copiedTracks))
-    }
+        func state(
+            _ sections: [NativeTrackListSection],
+            revision: UInt64? = nil,
+            hasHeader: Bool = false,
+            headerRevision: String? = nil,
+            bottomSpacer: CGFloat = 0,
+            currentTrackId: String? = nil,
+            isOffline: Bool = false,
+            ratingsRevision: UInt64 = 0
+        ) -> TrackListChange.State {
+            TrackListChange.State(
+                rows: TrackListRows(sections: sections),
+                contentRevision: revision,
+                hasHeader: hasHeader,
+                headerRevision: headerRevision,
+                bottomSpacer: bottomSpacer,
+                rowState: TrackListChange.RowState(
+                    configuration: NativeTrackListConfiguration(currentTrackId: currentTrackId),
+                    isOffline: isOffline,
+                    displayRatingsRevision: ratingsRevision
+                )
+            )
+        }
+        func one(_ tracks: [Track], title: String = "") -> [NativeTrackListSection] {
+            [NativeTrackListSection(id: "all", title: title, tracks: tracks)]
+        }
 
-    func testMediaTrackListStateComparisonFindsDownloadChangesInOnePass() {
-        let remoteTrack = Track(
-            id: "7551",
-            key: "/tracks/7551",
-            title: "Techno Jeep",
-            sourceCompositeKey: "plex:subscriber:server:music"
-        )
-        let downloadedTrack = Track(
-            id: "7551",
-            key: "/tracks/7551",
-            title: "Techno Jeep",
-            localFilePath: "/tmp/7551.flac",
-            sourceCompositeKey: "plex:subscriber:server:music"
-        )
+        let base = state(one(tracks))
+        let cases: [(String, TrackListChange.State, TrackListChange)] = [
+            ("shared storage", state(one(tracks)), .none),
+            ("equal copy", state(one([a, b].map { $0 })), .none),
+            ("renamed track", state(one([renamedA, b])), .reconfigureVisibleRows),
+            ("download finished", state(one([downloadedA, b])), .reconfigureVisibleRows),
+            ("same id from another account", state(one([otherAccountA, b])), .reload),
+            ("reordered", state(one([b, a])), .reload),
+            ("removed", state(one([a])), .reload),
+            ("section title", state(one(tracks, title: "A")), .reload),
+            ("split into sections", state([
+                NativeTrackListSection(id: "all", title: "", tracks: [a]),
+                NativeTrackListSection(id: "more", title: "", tracks: [b])
+            ]), .reload),
+            ("header added", state(one(tracks), hasHeader: true), .reload),
+            ("header revision", state(one(tracks), headerRevision: "loaded"), .reload),
+            ("bottom spacer", state(one(tracks), bottomSpacer: 20), .reload),
+            ("current track", state(one(tracks), currentTrackId: a.playbackIdentity), .reconfigureVisibleRows),
+            ("offline", state(one(tracks), isOffline: true), .reconfigureVisibleRows),
+            ("ratings revision", state(one(tracks), ratingsRevision: 1), .reconfigureVisibleRows)
+        ]
+        for (name, new, expected) in cases {
+            XCTAssertEqual(TrackListChange.between(base, new), expected, name)
+        }
 
-        let comparison = compareTrackListState([remoteTrack], [downloadedTrack])
-
-        XCTAssertTrue(comparison.identityOrderMatches)
-        XCTAssertTrue(comparison.downloadStateChanged)
+        // An unchanged revision skips the track comparison; a new one compares.
+        let revised = state(one(tracks), revision: 1)
+        XCTAssertEqual(TrackListChange.between(revised, state(one([renamedA, b]), revision: 1)), .none)
+        XCTAssertEqual(TrackListChange.between(revised, state(one([renamedA, b]), revision: 2)), .reconfigureVisibleRows)
+        XCTAssertEqual(TrackListChange.between(revised, state(one(tracks), revision: 2)), .none)
     }
 
     func testMediaMenuCatalogTrackLibraryContextIncludesBaseAndEditingActions() {
