@@ -721,7 +721,7 @@ extension PlaybackService {
             case .invalidPayload:
                 return .serverUnavailable(message: "Server returned invalid audio data")
             case .damagedOriginal:
-                return .serverUnavailable(message: "The file is damaged")
+                return .unknown(streamError)
             }
         }
 

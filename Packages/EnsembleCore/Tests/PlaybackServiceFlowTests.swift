@@ -111,6 +111,133 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.audioEngine?.stop()
     }
 
+    /// A damaged original falls back once to a forced transcode, from the startup path and from a
+    /// stream that failed after it loaded, and only for damage in the media itself:
+    /// - the fallback plays, tells the user quietly, and happens once;
+    /// - a transcode that is also invalid, or that Plex refuses (400), fails the item as without a
+    ///   fallback: skipped while playing, halted if the skipped-to item fails too;
+    /// - a refused original (400) and a failure that is not media damage never fall back;
+    /// - found while paused, nothing plays.
+    func testDamagedOriginalFallsBackOnceToATranscodeAndOtherFailuresDoNot() async throws {
+        let damaged = ProgressiveStreamError.damagedOriginal(reason: "test")
+        enum Forced { case plays, invalid, refused }
+        let rows: [(name: String, first: Error, forced: Forced, paused: Bool, fallbacks: Int)] = [
+            ("damaged original plays as a transcode", damaged, .plays, false, 1),
+            ("damaged original and invalid transcode fail", damaged, .invalid, false, 1),
+            ("damaged original and refused transcode fail", damaged, .refused, false, 1),
+            ("refused original does not fall back", ProgressiveStreamError.httpError(statusCode: 400, bodySnippet: nil), .plays, false, 0),
+            ("damage found while paused starts nothing", damaged, .plays, true, 1),
+        ]
+        for row in rows {
+            let toasts = ToastCenter()
+            let service = await makeService(toastCenter: toasts)
+            let audio = try makeTrack("fb")
+            let track = Track(
+                id: "fb", key: "/library/metadata/fb", title: "fb", duration: 10,
+                streamKey: "/library/parts/fb/file.flac", sourceCompositeKey: Self.sourceCompositeKey
+            )
+            let next = try makeTrack("next")
+            let forcedCalls = ForcedDecisionCount()
+            let playable = URL(fileURLWithPath: try XCTUnwrap(audio.localFilePath))
+            service.transportCoordinator = PlaybackTransportCoordinator(
+                dependencies: .init(
+                    networkState: { .online(.wifi) },
+                    preparedLocalPlaybackURL: { URL(fileURLWithPath: $0) },
+                    isClearlyInvalidLocalPayload: { _ in false },
+                    ensureServerConnection: { _ in },
+                    serverFailureMessage: { _ in nil },
+                    makeStreamDecision: { track, _, _, force in
+                        if force { forcedCalls.increment() }
+                        return force
+                            ? .progressiveTranscode(TranscodeStreamDecision(
+                                path: "/music/:/transcode/universal/start.mp3", queryItems: [], ratingKey: track.id,
+                                estimatedContentLength: 1_024, metadataDuration: track.duration
+                            ))
+                            : .directStream(partKey: "/library/parts/fb/file.flac")
+                    },
+                    assembleStreamResolution: { _, decision in
+                        switch decision {
+                        case .directStream: throw row.first
+                        case .progressiveTranscode:
+                            switch row.forced {
+                            case .plays: return .directStream(playable)
+                            case .invalid: throw ProgressiveStreamError.invalidPayload(bytesReceived: 9)
+                            case .refused: throw ProgressiveStreamError.httpError(statusCode: 400, bodySnippet: nil)
+                            }
+                        }
+                    },
+                    refreshConnection: {},
+                    shouldRetryStreamURLRequest: { _ in false },
+                    mapToPlaybackError: { .unknown($0) }
+                ),
+                streamingQuality: { "original" }
+            )
+            service.queue = [QueueItem(track: track), QueueItem(track: next)]
+            service.currentQueueIndex = 0
+            service.currentTrack = track
+
+            await service.playCurrentQueueItem(shouldStartPlayback: !row.paused, caller: "test")
+            for _ in 0 ..< 20 { await Task.yield() }
+            await service.stallRecoveryTask?.value
+
+            XCTAssertEqual(forcedCalls.value, row.fallbacks, "\(row.name): forced decisions")
+            XCTAssertEqual(service.transportCoordinator.hasFallenBackToTranscode(trackId: track.playbackIdentity), row.fallbacks == 1, row.name)
+            switch (row.forced, row.fallbacks, row.paused) {
+            case (.plays, 1, false):
+                await waitUntil(timeout: 3) { service.playbackState == .playing }
+                XCTAssertEqual(service.currentQueueIndex, 0, "\(row.name): stays on the item")
+                await waitUntil(timeout: 3) { toasts.currentToast?.title == "Playing at reduced quality" }
+                XCTAssertEqual(toasts.currentToast?.title, "Playing at reduced quality", row.name)
+                XCTAssertNil(toasts.currentToast?.action, "\(row.name): a notice offers no Retry")
+                XCTAssertFalse(toasts.currentToast?.isPersistent ?? true, row.name)
+            case (.plays, 1, true):
+                XCTAssertEqual(service.currentQueueIndex, 0, row.name)
+                XCTAssertNotEqual(service.playbackState, .playing, row.name)
+            default:
+                await waitUntil(timeout: 3) { service.currentQueueIndex == 1 }
+                XCTAssertEqual(service.currentQueueIndex, 1, "\(row.name): the failed item is skipped")
+                XCTAssertNotEqual(toasts.currentToast?.title, "Playing at reduced quality", row.name)
+            }
+            service.audioEngine?.stop()
+        }
+    }
+
+    /// After it loaded, a damaged original reloads as a forced transcode, once; a network drop is not
+    /// damage and keeps the recovery window; a second damage fails the item at once.
+    func testDamagedOriginalAfterStartupReloadsOnceAndNetworkDropsDoNotFallBack() async throws {
+        let service = await makeService()
+        let tracks = try ["a", "b"].map { try makeTrack($0) }
+        service.queue = tracks.map { QueueItem(track: $0) }
+        service.currentQueueIndex = 0
+        service.currentTrack = tracks[0]
+        let id = tracks[0].playbackIdentity
+
+        service.playbackState = .playing
+        service.recoverCurrentStream(after: URLError(.networkConnectionLost))
+        await service.stallRecoveryTask?.value
+        XCTAssertFalse(service.transportCoordinator.hasFallenBackToTranscode(trackId: id), "a drop is not damage")
+
+        service.playbackState = .playing
+        service.recoverCurrentStream(after: ProgressiveStreamError.damagedOriginal(reason: "test"))
+        XCTAssertTrue(service.transportCoordinator.hasFallenBackToTranscode(trackId: id))
+        XCTAssertEqual(service.playbackState, .buffering, "the reload is the fallback, not a failure")
+        XCTAssertEqual(service.currentQueueIndex, 0)
+        await service.stallRecoveryTask?.value
+
+        service.playbackState = .playing
+        service.recoverCurrentStream(after: ProgressiveStreamError.damagedOriginal(reason: "again"))
+        await service.stallRecoveryTask?.value
+        XCTAssertEqual(service.currentQueueIndex, 1, "damage after the fallback fails the item, which is skipped")
+        service.audioEngine?.stop()
+    }
+
+    private final class ForcedDecisionCount: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+        func increment() { lock.lock(); count += 1; lock.unlock() }
+    }
+
     /// Reloads of a stream that was playing stay inside its recovery window and are paced. Each case
     /// ends with the item skipped or the next item recovering, never with a failure dropped:
     /// - a reload that fails at resolution (offline), or starts and drops again, comes back for another

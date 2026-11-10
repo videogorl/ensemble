@@ -294,6 +294,43 @@ final class StreamingAudioPipelineTests: XCTestCase {
         XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: cached.path))[.size] as? Int, wav.count)
     }
 
+    /// Only an original is judged by its media, and only the media judges it: bytes the decoder
+    /// rejects, and audio ending under half of what the file's own container states, are damage;
+    /// a transcode is never reported as damaged, so it can never fall back.
+    func testOriginalMediaDamageIsReportedAndATranscodeIsNeverJudged() async throws {
+        let whole = try AudioFixtures.flac(seconds: 24)
+        // The FLAC header states 24 s; a quarter of the bytes arrive.
+        let truncated = Data(whole.prefix(whole.count / 4))
+        let cache = PlaybackArtifactCache(
+            directory: FileManager.default.temporaryDirectory.appendingPathComponent("damage-cache-\(UUID().uuidString)"),
+            byteBudget: 1 << 26
+        )
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let cases: [(name: String, delivery: PlaybackArtifactDelivery, payload: Data, damaged: Bool)] = [
+            ("original, audio ends early", .direct, truncated, true),
+            ("original, whole file", .direct, whole, false),
+            ("original, bytes are not audio", .direct, Data(repeating: 0, count: 600), true),
+            ("transcode, audio ends early", .transcode, truncated, false),
+            ("transcode, bytes are not audio", .transcode, Data(repeating: 0, count: 600), false),
+        ]
+        for (index, item) in cases.enumerated() {
+            let key = PlaybackArtifactKey(trackIdentity: "damage-\(index)", sourceFingerprint: "fp", requestedQuality: "original",
+                                          delivery: item.delivery, fileExtension: "flac", startTime: 0)
+            let result = try await run(
+                payload: item.payload, replies: [.ranged(dropAfter: nil)],
+                duration: 24, artifactKey: key, artifactCache: cache, fileExtension: "flac"
+            )
+            var isDamage = false
+            if case ProgressiveStreamError.damagedOriginal? = result.failure ?? result.earlyEnd { isDamage = true }
+            XCTAssertEqual(isDamage, item.damaged, "\(item.name): \(String(describing: result.failure ?? result.earlyEnd))")
+            if item.damaged {
+                XCTAssertNil(cache.completedArtifact(
+                    trackIdentity: key.trackIdentity, sourceFingerprint: "fp", requestedQuality: "original", requireDirect: false
+                ), "\(item.name): a damaged original is not replayed from the cache")
+            }
+        }
+    }
+
     /// Next, seek, Pause's refresh and a new play cancel the pipeline: a pending resume never starts.
     func testCancelDuringResumeStartsNoRequest() async throws {
         let wav = Self.wavFixture(seconds: 4)
@@ -312,6 +349,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
         var requests: [URLRequest]
         var failure: Error?
         var completed: Bool
+        var earlyEnd: Error?
     }
 
     /// Plays one stubbed stream the way the engine's render callback does, until it completes or fails.
@@ -325,6 +363,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
         duration: TimeInterval? = nil,
         artifactKey: PlaybackArtifactKey? = nil,
         artifactCache: PlaybackArtifactCache = .shared,
+        fileExtension: String = "wav",
         during: ((StreamingAudioPipeline) async throws -> Void)? = nil
     ) async throws -> RunResult {
         let clock = ScriptedURLProtocol.configure(payload: payload, etag: etag, replies: replies)
@@ -334,8 +373,8 @@ final class StreamingAudioPipelineTests: XCTestCase {
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("resume-\(UUID().uuidString).wav")
         defer { if artifactKey == nil { try? FileManager.default.removeItem(at: cacheURL) } }
         let pipeline = StreamingAudioPipeline(configuration: .init(
-            request: URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/file.wav"))),
-            fileExtension: "wav",
+            request: URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/file.\(fileExtension)"))),
+            fileExtension: fileExtension,
             cacheURL: cacheURL,
             duration: duration,
             sessionConfiguration: configuration,
@@ -361,7 +400,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
         while Date() < deadline, !drained {
             guard let format = state.format,
                   let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 512) else {
-                drained = state.finished
+                drained = state.finished || pipeline.isComplete
                 try await Task.sleep(nanoseconds: 2_000_000)
                 continue
             }
@@ -369,12 +408,15 @@ final class StreamingAudioPipelineTests: XCTestCase {
             let read = pipeline.render(into: buffer.mutableAudioBufferList, frameCount: 512)
             samples += UnsafeBufferPointer(start: buffer.floatChannelData![0], count: read)
             if read == 0 {
-                drained = state.finished
+                drained = state.finished || pipeline.isComplete
                 try await Task.sleep(nanoseconds: 2_000_000)
             }
         }
         try await during.value
-        return RunResult(samples: samples, requests: ScriptedURLProtocol.requests, failure: state.failure, completed: state.completed)
+        return RunResult(
+            samples: samples, requests: ScriptedURLProtocol.requests, failure: state.failure,
+            completed: state.completed, earlyEnd: pipeline.earlyEndError
+        )
     }
 
     private final class RunState: @unchecked Sendable {

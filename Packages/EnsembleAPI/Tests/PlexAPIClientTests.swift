@@ -410,6 +410,47 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertEqual(queryItems.first(where: { $0.name == "offset" })?.value, "184")
     }
 
+    /// A forced transcode turns off PMS's direct streaming, so a compatible original cannot come
+    /// back as its own bytes ("copy" or a direct part), at offset zero or from a seek offset.
+    func testForcedTranscodeDecisionNeverReturnsTheOriginal() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(url: "https://example.com", token: "test", identifier: "server", name: "Server"),
+            keychain: TestKeychain(), urlSession: session
+        )
+        PlexAPIClientURLProtocol.install { request in
+            XCTAssertEqual(request.url?.path, "/music/:/transcode/universal/decision")
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let directStream = query.first { $0.name == "directStream" }?.value
+            // PMS copies the original audio unless direct streaming is off (curl, 2026-11-09).
+            let decision = directStream == "0" ? "transcode" : "copy"
+            return (200, Data(#"{"MediaContainer":{"Metadata":[{"Media":[{"Part":[{"decision":"\#(decision)","key":"/library/parts/1/file.mp3"}]}]}]}}"#.utf8))
+        }
+
+        for (startTime, forceTranscode, expectsDirect) in [(0.0, false, true), (0, true, false), (60, false, false), (60, true, false)] {
+            let decision = try await client.makeStreamDecision(
+                ratingKey: "8536",
+                trackStreamKey: "/library/parts/1/file.mp3",
+                quality: .high,
+                metadataDurationSeconds: 262,
+                startTime: startTime,
+                forceTranscode: forceTranscode
+            )
+            switch decision {
+            case .directStream:
+                XCTAssertTrue(expectsDirect, "start \(startTime) forced \(forceTranscode)")
+            case let .progressiveTranscode(transcode):
+                XCTAssertFalse(expectsDirect, "start \(startTime) forced \(forceTranscode)")
+                let flags = transcode.queryItems.filter { ["directStream", "directStreamAudio"].contains($0.name) }
+                XCTAssertEqual(flags.map(\.value), forceTranscode ? ["0", "0"] : ["1", "1"])
+                XCTAssertEqual(transcode.queryItems.first { $0.name == "musicBitrate" }?.value, "320")
+            }
+        }
+    }
+
     func testUniversalStreamFileExtensionUsesContentTypeForOriginalQuality() {
         XCTAssertEqual(
             PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "audio/flac"),
