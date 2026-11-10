@@ -205,6 +205,7 @@ public final class SyncCoordinator {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCursorRepository: SyncCursorRepositoryProtocol?
+    private let libraryWriter: LibraryWriter
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let refreshOrchestrator: RefreshOrchestrator
     private let playlistRefreshController: PlaylistRefreshController
@@ -501,6 +502,10 @@ public final class SyncCoordinator {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.syncCursorRepository = syncCursorRepository
+        self.libraryWriter = LibraryWriter(
+            libraryRepository: libraryRepository,
+            syncCursorRepository: syncCursorRepository
+        )
         self.artworkDownloadManager = artworkDownloadManager
         self.networkMonitor = networkMonitor
         self.serverHealthChecker = serverHealthChecker
@@ -775,7 +780,7 @@ public final class SyncCoordinator {
         else { return nil }
         guard let cursor = try? await syncCursorRepository?.fetchCursor(
             scopeKey: sourceId.compositeKey,
-            scopeType: .plexLibrary
+            scopeType: .library
         ), let startedAt = [cursor.lastIncrementalSyncAt, cursor.lastFullSyncAt].compactMap({ $0 }).max()
         else { return finishedAt }
         return min(finishedAt, startedAt)
@@ -1574,10 +1579,7 @@ public final class SyncCoordinator {
         var invalidatedServerKeys = Set<String>()
         for provider in syncProviders.values where provider.sourceIdentifier.type == .plex {
             do {
-                try await syncCursorRepository.deleteCursor(
-                    scopeKey: provider.sourceIdentifier.compositeKey,
-                    scopeType: .plexLibrary
-                )
+                try await libraryWriter.removeCursor(for: provider.sourceIdentifier)
             } catch {
                 EnsembleLogger.error(
                     "Failed to prepare authoritative Plex reconciliation for \(provider.sourceIdentifier.compositeKey): \(error.localizedDescription)"
@@ -2054,10 +2056,7 @@ public final class SyncCoordinator {
                 try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
             }
             if sourceId.type == .plex {
-                try await syncCursorRepository?.deleteCursor(
-                    scopeKey: sourceId.compositeKey,
-                    scopeType: .plexLibrary
-                )
+                try await libraryWriter.removeCursor(for: sourceId)
             }
 
             if accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceId.compositeKey) {
@@ -3083,16 +3082,18 @@ public final class SyncCoordinator {
                 return .failure(message: "Source configuration is unavailable.")
             }
             defer { finishSourcePersistenceOperation(operation) }
-            guard let provider = operation.providers[resolution.sourceId.compositeKey] as? PlexConnector else {
-                return .failure(message: "Plex source is unavailable.")
+            guard let provider = operation.providers[resolution.sourceId.compositeKey] as? MusicSourceChangeFetching else {
+                return .failure(message: "Source cannot fetch live changes.")
             }
             do {
-                if changes.isEmpty || changes.contains(where: { $0.isDeletion }) {
-                    try await syncCursorRepository?.invalidateInventorySync(
-                        scopeKey: resolution.sourceId.compositeKey, scopeType: .plexLibrary
-                    )
+                let hints = Set(changes.map(\.hint))
+                if hints.isEmpty || hints.contains(where: \.isDeleted) {
+                    try await libraryWriter.invalidateInventory(for: resolution.sourceId)
                 }
-                let result = try await provider.reconcileLibraryChanges(changes, to: libraryRepository)
+                let result = try await libraryWriter.applyChanges(
+                    try await provider.fetchChanges(hints),
+                    to: resolution.sourceId
+                )
                 guard isSourcePersistenceOperationCurrent(operation) else {
                     return .failure(message: "Source configuration changed.")
                 }
@@ -3111,9 +3112,7 @@ public final class SyncCoordinator {
                 return .success
             } catch {
                 // Keep reconciliation due even when targeted metadata has no timestamp delta to replay.
-                try? await syncCursorRepository?.invalidateInventorySync(
-                    scopeKey: resolution.sourceId.compositeKey, scopeType: .plexLibrary
-                )
+                try? await libraryWriter.invalidateInventory(for: resolution.sourceId)
                 EnsembleLogger.error(
                     "🔌 SyncCoordinator: Targeted Plex reconciliation failed for \(resolution.compositeKey): \(error.localizedDescription)"
                 )
@@ -3513,8 +3512,10 @@ private extension SyncCoordinator {
         sourceStatuses[source] = MusicSourceStatus(syncStatus: .syncing(progress: 0), connectionState: currentConnectionState)
 
         do {
-            libraryResult = try await provider.syncLibrary(
-                to: libraryRepository,
+            libraryResult = try await syncLibrary(
+                provider,
+                source: source,
+                since: nil,
                 progressHandler: { [self] progress in
                     Task { @MainActor in
                         guard isSourcePersistenceWorkCurrent(sourceKey: source.compositeKey, revision: sourceWork.revision, lease: sourceWork.lease) else { return }
@@ -3679,10 +3680,10 @@ private extension SyncCoordinator {
         sourceStatuses[source] = MusicSourceStatus(syncStatus: .syncing(progress: 0), connectionState: currentConnectionState)
 
         do {
-            let timestamp = lastSyncDate.timeIntervalSince1970 - 5
-            libraryResult = try await provider.syncLibraryIncremental(
-                since: timestamp,
-                to: libraryRepository,
+            libraryResult = try await syncLibrary(
+                provider,
+                source: source,
+                since: lastSyncDate.addingTimeInterval(-5),
                 progressHandler: { [self] progress in
                     Task { @MainActor in
                         guard isSourcePersistenceWorkCurrent(sourceKey: source.compositeKey, revision: sourceWork.revision, lease: sourceWork.lease) else { return }
@@ -3769,6 +3770,38 @@ private extension SyncCoordinator {
                 libraryResult: libraryResult
             )
         }
+    }
+
+    /// Syncs one source's library: a writer plan, the connector's fetch, then the writer's
+    /// apply. A nil `since` syncs the whole library. Apple Music still syncs itself.
+    private func syncLibrary(
+        _ provider: MusicSourceConnector,
+        source: MusicSourceIdentifier,
+        since: Date?,
+        progressHandler: @escaping @Sendable (Double) -> Void
+    ) async throws -> LibrarySyncResult {
+        if let fetcher = provider as? MusicSourceLibraryFetching {
+            progressHandler(0.1)
+            let plan = try await libraryWriter.libraryPlan(for: source, since: since)
+            progressHandler(0.3)
+            let batch = try await fetcher.fetchLibrary(plan: plan)
+            progressHandler(0.8)
+            let result = try await libraryWriter.apply(batch, to: source)
+            progressHandler(1.0)
+            return result
+        }
+        guard let legacy = provider as? MusicSourceLibrarySyncing else {
+            EnsembleLogger.error("Source \(source.compositeKey) has no library sync")
+            return LibrarySyncResult()
+        }
+        if let since {
+            return try await legacy.syncLibraryIncremental(
+                since: since.timeIntervalSince1970,
+                to: libraryRepository,
+                progressHandler: progressHandler
+            )
+        }
+        return try await legacy.syncLibrary(to: libraryRepository, progressHandler: progressHandler)
     }
 
     private func syncPlaylistsIfNeeded(

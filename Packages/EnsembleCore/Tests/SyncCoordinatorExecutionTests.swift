@@ -53,7 +53,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         }
     }
 
-    private final class RecordingProvider: MusicSourceConnector, @unchecked Sendable {
+    private final class RecordingProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         private let recorder: EventRecorder
         private let syncLibraryHandler: (@Sendable (LibraryRepositoryProtocol) async throws -> LibrarySyncResult)?
@@ -301,7 +301,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         let coordinator = makeCoordinator(stack: stack, sources: [source], cursors: cursors)
         try await recordPreviousSync(stack: stack, source: source)
         let queryStartedAt = Date().addingTimeInterval(-600)
-        try await cursors.recordIncrementalSync(scopeKey: source.compositeKey, scopeType: .plexLibrary, at: queryStartedAt)
+        try await cursors.recordIncrementalSync(scopeKey: source.compositeKey, scopeType: .library, at: queryStartedAt)
         let provider = RecordingProvider(
             sourceIdentifier: source, recorder: EventRecorder(),
             syncLibraryIncrementalHandler: { _ in LibrarySyncResult() }

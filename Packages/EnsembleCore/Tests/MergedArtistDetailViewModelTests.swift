@@ -57,9 +57,6 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         func removeOrphanedAlbums(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
         func removeOrphanedTracks(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
         func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
-        func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
-        func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
-        func fetchTrackRatings(forSource sourceKey: String) async throws -> [String: Int16] { [:] }
         func removeOrphanedGenres(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
         func batchUpsertArtists(_ inputs: [ArtistUpsertInput], sourceCompositeKey: String) async throws {}
         func batchUpsertAlbums(_ inputs: [AlbumUpsertInput], sourceCompositeKey: String) async throws {}
@@ -97,7 +94,7 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
 
-    private actor ArtistDetailProvider: MusicSourceConnector, MusicSourceDetailProviding {
+    private actor ArtistDetailProvider: MusicSourceLibrarySyncing, MusicSourceDetailProviding {
         let sourceIdentifier: MusicSourceIdentifier
         let albums: [Album]
         private var artistAlbumRequests = 0

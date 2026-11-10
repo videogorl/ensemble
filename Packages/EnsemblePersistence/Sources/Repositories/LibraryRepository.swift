@@ -91,6 +91,19 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
     }
 }
 
+/// A stored track's change-detection fields: the date and rating the server sync compares, and its album.
+public struct TrackSyncSummary: Sendable, Equatable {
+    public let dateModified: Date
+    public let rating: Int16
+    public let albumRatingKey: String?
+
+    public init(dateModified: Date, rating: Int16, albumRatingKey: String?) {
+        self.dateModified = dateModified
+        self.rating = rating
+        self.albumRatingKey = albumRatingKey
+    }
+}
+
 /// Source-scoped album fields used to skip unchanged persistence work.
 public struct AlbumSyncMetadata: Sendable, Equatable {
     public let key: String
@@ -670,9 +683,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func fetchArtistSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: ArtistSyncMetadata]
     func fetchAlbumSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: AlbumSyncMetadata]
     func fetchTrackSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: TrackSyncMetadata]
-    func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date]
-    func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date]
-    func fetchTrackRatings(forSource sourceKey: String) async throws -> [String: Int16]
+    func fetchTrackSummaries(forSource sourceKey: String) async throws -> [String: TrackSyncSummary]
     func fetchGenreCoverageStats(forSource sourceKey: String) async throws -> GenreCoverageStats?
     func removeOrphanedGenres(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
 
@@ -696,6 +707,16 @@ public protocol LibraryRepositoryProtocol: Sendable {
 }
 
 public extension LibraryRepositoryProtocol {
+    func fetchTrackSummaries(forSource sourceKey: String) async throws -> [String: TrackSyncSummary] {
+        try await fetchTrackSyncMetadata(forSource: sourceKey).mapValues {
+            TrackSyncSummary(
+                dateModified: $0.dateModified ?? .distantPast,
+                rating: Int16($0.rating),
+                albumRatingKey: $0.albumRatingKey
+            )
+        }
+    }
+
     func fetchArtists(forSource sourceCompositeKey: String) async throws -> [CDArtist] {
         try await fetchArtists().filter { $0.sourceCompositeKey == sourceCompositeKey }
     }

@@ -388,51 +388,23 @@ extension LibraryRepository {
         }
     }
 
-    /// Fetch all album ratingKey -> dateModified pairs for a source (single query for change detection)
-    public func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
-        try await coreDataStack.performBackgroundContext { context in
-            let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
-            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-            request.propertiesToFetch = ["ratingKey", "dateModified"]
-            let albums = try context.fetch(request)
-            var result: [String: Date] = [:]
-            result.reserveCapacity(albums.count)
-            for album in albums {
-                // Use distantPast for nil dateModified so we can detect existence
-                result[album.ratingKey] = album.dateModified ?? Date.distantPast
-            }
-            return result
-        }
-    }
-
-    /// Fetch all track ratingKey -> dateModified pairs for a source (single query for change detection)
-    public func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
+    /// Fetches each track's modification date, rating and album key without comparing full metadata.
+    public func fetchTrackSummaries(forSource sourceKey: String) async throws -> [String: TrackSyncSummary] {
         try await coreDataStack.performBackgroundContext { context in
             let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
             request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-            request.propertiesToFetch = ["ratingKey", "dateModified"]
+            request.propertiesToFetch = ["ratingKey", "dateModified", "rating"]
+            request.relationshipKeyPathsForPrefetching = ["album"]
             let tracks = try context.fetch(request)
-            var result: [String: Date] = [:]
+            var result: [String: TrackSyncSummary] = [:]
             result.reserveCapacity(tracks.count)
             for track in tracks {
-                // Use distantPast for nil dateModified so we can detect existence
-                result[track.ratingKey] = track.dateModified ?? Date.distantPast
-            }
-            return result
-        }
-    }
-
-    /// Fetch all track ratingKey -> rating pairs for a source (for detecting rating changes)
-    public func fetchTrackRatings(forSource sourceKey: String) async throws -> [String: Int16] {
-        try await coreDataStack.performBackgroundContext { context in
-            let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
-            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-            request.propertiesToFetch = ["ratingKey", "rating"]
-            let tracks = try context.fetch(request)
-            var result: [String: Int16] = [:]
-            result.reserveCapacity(tracks.count)
-            for track in tracks {
-                result[track.ratingKey] = track.rating
+                result[track.ratingKey] = TrackSyncSummary(
+                    // distantPast marks a stored row with no date, so existence stays detectable.
+                    dateModified: track.dateModified ?? .distantPast,
+                    rating: track.rating,
+                    albumRatingKey: track.album?.ratingKey
+                )
             }
             return result
         }

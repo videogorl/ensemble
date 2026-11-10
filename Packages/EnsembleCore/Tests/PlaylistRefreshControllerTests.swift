@@ -19,7 +19,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
     }
 
-    private final class MockProvider: MusicSourceConnector, @unchecked Sendable {
+    private final class MockProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         var incrementalResult: Result<PlaylistSyncResult, Error>
         var fullResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())

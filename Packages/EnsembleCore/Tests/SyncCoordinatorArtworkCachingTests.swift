@@ -48,7 +48,7 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
 
-    private final class RecordingSyncProvider: MusicSourceConnector, @unchecked Sendable {
+    private final class RecordingSyncProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
         struct ArtworkRequest: Equatable {
             let path: String?
             let size: Int

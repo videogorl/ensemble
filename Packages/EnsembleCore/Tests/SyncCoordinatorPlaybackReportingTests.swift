@@ -113,7 +113,7 @@ private struct TimelineCall: Equatable {
     let duration: Int
 }
 
-private final class RecordingReportingProvider: MusicSourceConnector, MusicSourcePlaybackReporting, @unchecked Sendable {
+private final class RecordingReportingProvider: MusicSourceLibrarySyncing, MusicSourcePlaybackReporting, @unchecked Sendable {
     let sourceIdentifier: MusicSourceIdentifier
     var timelineCalls: [TimelineCall] = []
     var scrobbleRatingKeys: [String] = []

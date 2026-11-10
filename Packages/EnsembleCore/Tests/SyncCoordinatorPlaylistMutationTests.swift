@@ -82,7 +82,7 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { try await base.fetchPlaylistTimestamps(forSource: sourceKey) }
     }
 
-    private actor RecordingPlaylistProvider: MusicSourceConnector, MusicSourcePlaylistMutating, MusicSourceRatingMutating {
+    private actor RecordingPlaylistProvider: MusicSourceLibrarySyncing, MusicSourcePlaylistMutating, MusicSourceRatingMutating {
         let sourceIdentifier: MusicSourceIdentifier
         private(set) var events: [String] = []
         private(set) var mutationTrackIDs: [String] = []
@@ -184,7 +184,7 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
     }
 
-    private struct ReconcilingPlaylistProvider: MusicSourceConnector, MusicSourcePlaylistReconciling {
+    private struct ReconcilingPlaylistProvider: MusicSourceLibrarySyncing, MusicSourcePlaylistReconciling {
         let base: RecordingPlaylistProvider
         var sourceIdentifier: MusicSourceIdentifier { base.sourceIdentifier }
 

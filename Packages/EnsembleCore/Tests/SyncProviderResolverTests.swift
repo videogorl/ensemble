@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class SyncProviderResolverTests: XCTestCase {
-    private struct MockProvider: MusicSourceConnector, @unchecked Sendable {
+    private struct MockProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
 
         func syncLibrary(to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
@@ -18,7 +18,7 @@ final class SyncProviderResolverTests: XCTestCase {
         var marker: String { get }
     }
 
-    private struct CapableProvider: MusicSourceConnector, MusicSourceArtistResolving, TestCapability, @unchecked Sendable {
+    private struct CapableProvider: MusicSourceLibrarySyncing, MusicSourceArtistResolving, TestCapability, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         let marker: String
 

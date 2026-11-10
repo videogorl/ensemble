@@ -161,7 +161,7 @@ import MusicKit
 
 @available(iOS 18, *)
 public actor AppleMusicConnector:
-    MusicSourceConnector,
+    MusicSourceLibrarySyncing,
     MusicSourcePlaybackResolving,
     MusicSourceRatingMutating,
     MusicSourcePlaylistReconciling,

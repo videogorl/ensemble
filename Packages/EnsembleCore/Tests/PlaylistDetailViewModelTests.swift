@@ -54,10 +54,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func removeOrphanedAlbums(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
         func removeOrphanedTracks(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
         func removeOrphanedGenres(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
-        func fetchTrackRatings(forSource sourceKey: String) async throws -> [String: Int16] { [:] }
         func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
-        func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
-        func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
         func batchUpsertArtists(_ inputs: [ArtistUpsertInput], sourceCompositeKey: String) async throws {}
         func batchUpsertAlbums(_ inputs: [AlbumUpsertInput], sourceCompositeKey: String) async throws {}
         func batchUpsertTracks(_ inputs: [TrackUpsertInput], sourceCompositeKey: String) async throws {}
@@ -168,7 +165,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func countPendingMutations() async throws -> Int { pending.count }
     }
 
-    private actor RecordingPlaylistProvider: MusicSourceConnector, MusicSourcePlaylistMutating, MusicSourceCollectionRatingMutating {
+    private actor RecordingPlaylistProvider: MusicSourceLibrarySyncing, MusicSourcePlaylistMutating, MusicSourceCollectionRatingMutating {
         enum Event: Equatable {
             case create(title: String, trackIDs: [String])
             case add(playlistID: String, trackIDs: [String])
@@ -275,7 +272,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         }
     }
 
-    private actor RecordingRatingProvider: MusicSourceConnector, MusicSourceRatingMutating {
+    private actor RecordingRatingProvider: MusicSourceLibrarySyncing, MusicSourceRatingMutating {
         struct Invocation: Sendable {
             let track: Track
             let rating: Int?

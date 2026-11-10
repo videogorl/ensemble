@@ -76,18 +76,18 @@ final class SyncCursorRepositoryTests: XCTestCase {
         let fullSyncDate = Date(timeIntervalSince1970: 1_000)
         try await repository.recordFullSync(
             scopeKey: scopeKey,
-            scopeType: .plexLibrary,
+            scopeType: .library,
             at: fullSyncDate
         )
 
         try await repository.invalidateInventorySync(
             scopeKey: scopeKey,
-            scopeType: .plexLibrary
+            scopeType: .library
         )
 
         let cursor = try await repository.fetchCursor(
             scopeKey: scopeKey,
-            scopeType: .plexLibrary
+            scopeType: .library
         )
         XCTAssertNil(cursor?.lastInventorySyncAt)
         XCTAssertEqual(cursor?.lastFullSyncAt, fullSyncDate)

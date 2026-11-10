@@ -1275,14 +1275,10 @@ final class LibraryRepositoryTests: XCTestCase {
         ], sourceCompositeKey: sourceB)
 
         let artistMetadata = try await repository.fetchArtistSyncMetadata(forSource: sourceA)
-        let albumTimestamps = try await repository.fetchAlbumTimestamps(forSource: sourceA)
-        let trackTimestamps = try await repository.fetchTrackTimestamps(forSource: sourceA)
-        let trackRatings = try await repository.fetchTrackRatings(forSource: sourceA)
+        let trackSummaries = try await repository.fetchTrackSummaries(forSource: sourceA)
 
         XCTAssertEqual(artistMetadata, ["artist": ArtistSyncMetadata(artistInputA)])
-        XCTAssertEqual(albumTimestamps, ["album": dateA])
-        XCTAssertEqual(trackTimestamps, ["track": dateA])
-        XCTAssertEqual(trackRatings, ["track": 5])
+        XCTAssertEqual(trackSummaries, ["track": TrackSyncSummary(dateModified: dateA, rating: 5, albumRatingKey: nil)])
     }
 
     func testGenreCoverageAndCleanupUseDirectSourceScope() async throws {

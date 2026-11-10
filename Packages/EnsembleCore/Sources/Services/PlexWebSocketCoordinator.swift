@@ -16,6 +16,15 @@ struct PlexLibraryChange: Hashable, Sendable {
     let state: Int
 
     var isDeletion: Bool { state == 9 }
+
+    var hint: LibraryChangeHint {
+        let hintKind: LibraryChangeHint.Kind = switch kind {
+        case .artist: .artist
+        case .album: .album
+        case .track: .track
+        }
+        return LibraryChangeHint(itemID: ratingKey, kind: hintKind, isDeleted: isDeletion)
+    }
 }
 
 /// Coordinates WebSocket connections to all active Plex servers.
