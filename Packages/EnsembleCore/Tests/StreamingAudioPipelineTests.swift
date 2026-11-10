@@ -186,6 +186,168 @@ final class StreamingAudioPipelineTests: XCTestCase {
         }
     }
 
+    // MARK: - Dropped downloads
+
+    private enum Outcome { case resumed, failsAfterReserve, failsAtOnce }
+
+    /// A drop after startup keeps the buffered audio playing and resumes from the right byte; a resume that
+    /// cannot be proved safe, a transcode, or a dead connection plays the reserve out and then fails.
+    func testDroppedDownloadResumesOrFailsAfterTheReserve() async throws {
+        let wav = Self.wavFixture(seconds: 4)
+        let baseline = try await run(payload: wav, replies: [.ranged(dropAfter: nil)]).samples
+        XCTAssertGreaterThan(baseline.count, 80_000)
+        let drop = wav.count * 2 / 5
+        let rows: [(name: String, etag: String?, replies: [ScriptedURLProtocol.Reply], outcome: Outcome, requests: Int)] = [
+            ("drop, resumes from the byte it stopped at", "\"v1\"", [.ranged(dropAfter: drop), .ranged(dropAfter: nil)], .resumed, 2),
+            ("two drops in a row", "\"v1\"", [.ranged(dropAfter: drop), .ranged(dropAfter: 20_000), .ranged(dropAfter: nil)], .resumed, 3),
+            ("ETag changed", "\"v1\"", [.ranged(dropAfter: drop), .changedETag], .failsAfterReserve, 2),
+            ("server answers 200 to the Range request", "\"v1\"", [.ranged(dropAfter: drop), .full], .failsAfterReserve, 2),
+            ("Content-Range does not match", "\"v1\"", [.ranged(dropAfter: drop), .wrongRange], .failsAfterReserve, 2),
+            ("transcode: no ETag or length", nil, [.ranged(dropAfter: drop)], .failsAfterReserve, 1),
+            ("dead connection: attempts time out until the window ends", "\"v1\"", [.ranged(dropAfter: drop), .timesOut, .timesOut], .failsAfterReserve, 3),
+            ("drop before any byte is not resumed", "\"v1\"", [.timesOut], .failsAtOnce, 1),
+        ]
+        for row in rows {
+            let result = try await run(payload: wav, etag: row.etag, replies: row.replies)
+            XCTAssertEqual(result.requests.count, row.requests, row.name)
+            switch row.outcome {
+            case .resumed:
+                XCTAssertNil(result.failure, row.name)
+                XCTAssertEqual(result.samples, baseline, "\(row.name): decoded audio is continuous and complete")
+                XCTAssertTrue(result.completed, row.name)
+                let range = result.requests[1].value(forHTTPHeaderField: "Range")
+                XCTAssertEqual(range, "bytes=\(drop)-", row.name)
+            case .failsAfterReserve:
+                XCTAssertNotNil(result.failure, row.name)
+                XCTAssertGreaterThan(result.samples.count, 0, "\(row.name): the reserve plays before the failure")
+                XCTAssertEqual(result.samples, Array(baseline.prefix(result.samples.count)), "\(row.name): reserve is the start of the track")
+            case .failsAtOnce:
+                XCTAssertNotNil(result.failure, row.name)
+                XCTAssertEqual(result.samples.count, 0, row.name)
+            }
+        }
+    }
+
+    /// Every request is bounded by the idle timeout, not URLSession's 60 s.
+    func testRequestsGiveUpOnADeadConnectionAfterFifteenSeconds() async throws {
+        let result = try await run(payload: Self.wavFixture(seconds: 1), replies: [.ranged(dropAfter: nil)], idleTimeout: nil)
+        XCTAssertEqual(result.requests.first?.timeoutInterval, 15)
+    }
+
+    /// A path change restarts the ranged download at once; the retry pause is far longer than the test.
+    func testPathChangeResumesWithoutWaitingForTheTaskToFail() async throws {
+        let wav = Self.wavFixture(seconds: 4)
+        let baseline = try await run(payload: wav, replies: [.ranged(dropAfter: nil)]).samples
+        let stall = wav.count / 2
+        let result = try await run(payload: wav, replies: [.stalls(afterBytes: stall), .ranged(dropAfter: nil)], retryInterval: 60) { pipeline in
+            while pipeline.diagnostics().receivedBytes < stall { try await Task.sleep(nanoseconds: 5_000_000) }
+            pipeline.networkPathChanged()
+        }
+        XCTAssertNil(result.failure)
+        XCTAssertEqual(result.samples, baseline)
+        XCTAssertEqual(result.requests.last?.value(forHTTPHeaderField: "Range"), "bytes=\(stall)-")
+    }
+
+    /// Next, seek, Pause's refresh and a new play cancel the pipeline: a pending resume never starts.
+    func testCancelDuringResumeStartsNoRequest() async throws {
+        let wav = Self.wavFixture(seconds: 4)
+        let result = try await run(payload: wav, replies: [.ranged(dropAfter: wav.count / 2), .timesOut], retryInterval: 0.3) { pipeline in
+            while ScriptedURLProtocol.requests.count < 2 { try await Task.sleep(nanoseconds: 5_000_000) }
+            pipeline.cancel()
+            try await Task.sleep(nanoseconds: 500_000_000)
+        }
+        XCTAssertEqual(result.requests.count, 2)
+        XCTAssertEqual((result.failure as NSError?)?.code, NSURLErrorCancelled)
+    }
+
+    private struct RunResult {
+        var samples: [Float]
+        var requests: [URLRequest]
+        var failure: Error?
+        var completed: Bool
+    }
+
+    /// Plays one stubbed stream the way the engine's render callback does, until it completes or fails.
+    private func run(
+        payload: Data,
+        etag: String? = "\"v1\"",
+        replies: [ScriptedURLProtocol.Reply],
+        idleTimeout: TimeInterval? = 15,
+        retryInterval: TimeInterval = 0.01,
+        during: ((StreamingAudioPipeline) async throws -> Void)? = nil
+    ) async throws -> RunResult {
+        let clock = ScriptedURLProtocol.configure(payload: payload, etag: etag, replies: replies)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScriptedURLProtocol.self]
+        let cacheURL = FileManager.default.temporaryDirectory.appendingPathComponent("resume-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+        let pipeline = StreamingAudioPipeline(configuration: .init(
+            request: URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/file.wav"))),
+            fileExtension: "wav",
+            cacheURL: cacheURL,
+            sessionConfiguration: configuration,
+            idleTimeout: idleTimeout ?? 15,
+            resumeWindow: 30,
+            resumeRetryInterval: retryInterval,
+            now: { clock.now }
+        ))
+        let state = RunState()
+        pipeline.onFormatReady = { state.format = $0 }
+        pipeline.onFailure = { state.failure = $0 }
+        pipeline.onComplete = { _ in state.completed = true }
+        pipeline.start()
+        let during = Task { try await during?(pipeline) }
+        defer { pipeline.cancel() }
+
+        var samples: [Float] = []
+        let deadline = Date().addingTimeInterval(10)
+        var drained = false
+        while Date() < deadline, !drained {
+            guard let format = state.format,
+                  let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 512) else {
+                drained = state.finished
+                try await Task.sleep(nanoseconds: 2_000_000)
+                continue
+            }
+            buffer.frameLength = 512
+            let read = pipeline.render(into: buffer.mutableAudioBufferList, frameCount: 512)
+            samples += UnsafeBufferPointer(start: buffer.floatChannelData![0], count: read)
+            if read == 0 {
+                drained = state.finished
+                try await Task.sleep(nanoseconds: 2_000_000)
+            }
+        }
+        try await during.value
+        return RunResult(samples: samples, requests: ScriptedURLProtocol.requests, failure: state.failure, completed: state.completed)
+    }
+
+    private final class RunState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _format: AVAudioFormat?
+        private var _failure: Error?
+        private var _completed = false
+        var format: AVAudioFormat? { get { lock.lock(); defer { lock.unlock() }; return _format } set { lock.lock(); _format = newValue; lock.unlock() } }
+        var failure: Error? { get { lock.lock(); defer { lock.unlock() }; return _failure } set { lock.lock(); _failure = newValue; lock.unlock() } }
+        var completed: Bool { get { lock.lock(); defer { lock.unlock() }; return _completed } set { lock.lock(); _completed = newValue; lock.unlock() } }
+        var finished: Bool { failure != nil || completed }
+    }
+
+    /// 22.05 kHz mono 16-bit PCM WAV of a deterministic tone.
+    private static func wavFixture(seconds: Int) -> Data {
+        let rate = 22_050
+        var pcm = Data()
+        for index in 0 ..< rate * seconds {
+            let value = Int16(12_000 * sin(Double(index) * 0.05) * (1 + 0.3 * sin(Double(index) * 0.0007)))
+            withUnsafeBytes(of: value.littleEndian) { pcm.append(contentsOf: $0) }
+        }
+        func le32(_ value: Int) -> Data { withUnsafeBytes(of: UInt32(value).littleEndian) { Data($0) } }
+        func le16(_ value: Int) -> Data { withUnsafeBytes(of: UInt16(value).littleEndian) { Data($0) } }
+        var header = Data("RIFF".utf8) + le32(36 + pcm.count) + Data("WAVEfmt ".utf8) + le32(16)
+        header += le16(1) + le16(1) + le32(rate) + le32(rate * 2) + le16(2) + le16(16)
+        header += Data("data".utf8) + le32(pcm.count)
+        return header + pcm
+    }
+
     private final class LockedEnds: @unchecked Sendable {
         private let lock = NSLock()
         private var value = 0
@@ -258,4 +420,101 @@ private final class DelayedAudioURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+}
+
+private final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: TimeInterval = 0
+    var now: TimeInterval { lock.lock(); defer { lock.unlock() }; return value }
+    func advance(by seconds: TimeInterval) { lock.lock(); value += seconds; lock.unlock() }
+}
+
+/// Serves a payload with a strong ETag and byte ranges, and a scripted reply per request.
+private final class ScriptedURLProtocol: URLProtocol {
+    enum Reply {
+        case ranged(dropAfter: Int?)   // 200 for a whole-file request, 206 for a Range request; optionally ends in a drop
+        case full                      // ignores Range: 200 with the whole file
+        case changedETag, wrongRange
+        case stalls(afterBytes: Int)   // sends bytes, then holds the connection open
+        case timesOut                  // 15 simulated seconds pass, then NSURLErrorTimedOut
+    }
+
+    private static let lock = NSLock()
+    private static var payload = Data()
+    private static var etag: String?
+    private static var replies: [Reply] = []
+    private static var recorded: [URLRequest] = []
+    private static var clock = TestClock()
+
+    static var requests: [URLRequest] { lock.lock(); defer { lock.unlock() }; return recorded }
+
+    static func configure(payload: Data, etag: String?, replies: [Reply]) -> TestClock {
+        lock.lock()
+        defer { lock.unlock() }
+        self.payload = payload
+        self.etag = etag
+        self.replies = replies
+        recorded = []
+        clock = TestClock()
+        return clock
+    }
+
+    override class func canInit(with _: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        let index = Self.recorded.count
+        Self.recorded.append(request)
+        let payload = Self.payload
+        let etag = Self.etag
+        let reply = index < Self.replies.count ? Self.replies[index] : .ranged(dropAfter: nil)
+        let clock = Self.clock
+        Self.lock.unlock()
+
+        let offset = request.value(forHTTPHeaderField: "Range")
+            .flatMap { $0.dropFirst("bytes=".count).dropLast().description }.flatMap(Int.init) ?? 0
+        var status = offset > 0 ? 206 : 200
+        var tag = etag
+        var headers = ["Content-Type": "audio/wav", "Accept-Ranges": "bytes"]
+        var sent = offset
+        var end = payload.count
+        var failure: URLError.Code?
+        var holds = false
+        switch reply {
+        case let .ranged(dropAfter):
+            if let dropAfter { end = min(payload.count, offset + dropAfter); failure = .networkConnectionLost }
+        case .full: status = 200; sent = 0
+        case .changedETag: tag = "\"v2\""
+        case .wrongRange: break
+        case let .stalls(afterBytes): end = min(payload.count, afterBytes); holds = true
+        case .timesOut: clock.advance(by: 15); client?.urlProtocol(self, didFailWithError: URLError(.timedOut)); return
+        }
+        if let tag { headers["ETag"] = tag }
+        if etag != nil {
+            headers["Content-Length"] = "\(payload.count - sent)"
+            if status == 206 {
+                headers["Content-Range"] = "bytes \(offset + (reply.isWrongRange ? 1 : 0))-\(payload.count - 1)/\(payload.count)"
+            }
+        }
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        DispatchQueue.global(qos: .utility).async {
+            for start in stride(from: sent, to: end, by: 8192) {
+                self.client?.urlProtocol(self, didLoad: payload[start ..< min(start + 8192, end)])
+                Thread.sleep(forTimeInterval: 0.001)
+            }
+            if let failure {
+                self.client?.urlProtocol(self, didFailWithError: URLError(failure))
+            } else if !holds {
+                self.client?.urlProtocolDidFinishLoading(self)
+            }
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+private extension ScriptedURLProtocol.Reply {
+    var isWrongRange: Bool { if case .wrongRange = self { return true } else { return false } }
 }
