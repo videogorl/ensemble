@@ -51,6 +51,10 @@ final class CoreDataMigrationTests: XCTestCase {
         membership(order: 3, item: "item-4", ratingKey: "track-4", linked: false)
         membership(order: 5, item: nil, ratingKey: nil, linked: true)
         membership(order: 5, item: nil, ratingKey: nil, linked: true)
+        // Different namespaces that print alike: item ID "42" with track "99", and no item ID
+        // with track "42". They are not duplicates; both must survive.
+        membership(order: 6, item: "42", ratingKey: "99", linked: false)
+        membership(order: 6, item: nil, ratingKey: "42", linked: false)
         try legacyContext.save()
         try detachStores(from: legacyContainer)
 
@@ -60,7 +64,7 @@ final class CoreDataMigrationTests: XCTestCase {
         let stack = CoreDataStack.onDisk(at: storeURL)
         XCTAssertEqual(
             logged.filter { $0.contains("membership backfill") },
-            ["Playlist membership backfill: keysFilled=6 duplicateRowsRemoved=2 playlists=1"]
+            ["Playlist membership backfill: keysFilled=8 duplicateRowsRemoved=2 playlists=1"]
         )
         let migrated = try await stack.performViewContext { context in
             try context.fetch(CDPlaylistTrack.fetchRequest()).sorted { $0.order < $1.order }.map { (row) -> [String?] in
@@ -73,7 +77,9 @@ final class CoreDataMigrationTests: XCTestCase {
             ["playlist-1", source, "item-2", "2"],
             ["playlist-1", source, "item-3", "3"],
             ["playlist-1", source, nil, "5"],
-            ["playlist-1", source, "item-4", "6"],  // a different item at an occupied position moves to the end
+            ["playlist-1", source, nil, "6"],  // track "42", no item ID
+            ["playlist-1", source, "item-4", "10"],  // a different item at an occupied position moves past the last one
+            ["playlist-1", source, "42", "13"],  // item ID "42" is not track "42": kept, moved
         ])
 
         let secondPass = try await stack.performBackgroundContext { try PlaylistMembershipBackfill.run(in: $0) }
@@ -139,6 +145,76 @@ final class CoreDataMigrationTests: XCTestCase {
             XCTAssertEqual(Set(rows.compactMap(\.playlistItemID)).count, 6)
             XCTAssertEqual(try PlaylistMembershipBackfill.run(in: context), PlaylistMembershipBackfill.Summary())
         }
+    }
+
+    /// Deleting a track nullifies `track` on membership rows. Saved with nil keys, two such
+    /// rows at one position in different playlists merge into one (observed), so after an
+    /// interrupted backfill track deletion retries the pass first and is skipped if it fails.
+    func testTrackDeletionWaitsForTheMembershipBackfill() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ensemble-unkeyed-delete-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let storeURL = directory.appendingPathComponent("Ensemble.sqlite")
+        let modelDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/CoreData/Compiled/SwiftPMEnsemble.momd", isDirectory: true)
+        let version11 = try XCTUnwrap(NSManagedObjectModel(contentsOf: modelDirectory.appendingPathComponent("Ensemble 11.mom")))
+
+        let legacy = try await loadContainer(model: version11, storeURL: storeURL)
+        let track = NSEntityDescription.insertNewObject(forEntityName: "CDTrack", into: legacy.viewContext)
+        track.setValue("track-1", forKey: "ratingKey")
+        track.setValue("/library/metadata/track-1", forKey: "key")
+        track.setValue("Track", forKey: "title")
+        for playlistKey in ["playlist-a", "playlist-b"] {
+            let playlist = NSEntityDescription.insertNewObject(forEntityName: "CDPlaylist", into: legacy.viewContext)
+            playlist.setValue(playlistKey, forKey: "ratingKey")
+            playlist.setValue("/playlists/\(playlistKey)", forKey: "key")
+            playlist.setValue(playlistKey, forKey: "title")
+            let row = NSEntityDescription.insertNewObject(forEntityName: "CDPlaylistTrack", into: legacy.viewContext)
+            row.setValue(Int32(0), forKey: "order")
+            row.setValue(playlist, forKey: "playlist")
+            row.setValue(track, forKey: "track")
+        }
+        try legacy.viewContext.save()
+        try detachStores(from: legacy)
+
+        // Model 12 without the backfill: the state after an interrupted pass.
+        let stack = CoreDataStack.onDiskWithoutBackfill(at: storeURL)
+        let repository = LibraryRepository(coreDataStack: stack)
+        func memberships() async throws -> [(keyed: Bool, linked: Bool)] {
+            try await stack.performBackgroundContext { context in
+                try context.fetch(CDPlaylistTrack.fetchRequest()).map { ($0.playlistRatingKey != nil, $0.track != nil) }
+            }
+        }
+        func trackCount() async throws -> Int {
+            try await stack.performBackgroundContext { try $0.count(for: CDTrack.fetchRequest()) }
+        }
+
+        // While the pass cannot finish, the deletion is skipped and nothing changes.
+        struct Injected: Error {}
+        stack.membershipBackfillStatementHook = { throw Injected() }
+        try await repository.deleteTrack(ratingKey: "track-1", sourceCompositeKey: nil)
+        let skippedTrackCount = try await trackCount()
+        XCTAssertEqual(skippedTrackCount, 1)
+        var rows = try await memberships()
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertTrue(rows.allSatisfy { !$0.keyed && $0.linked })
+        do {
+            try await repository.deleteAllLibraryData()
+            XCTFail("an explicit removal must not be skipped silently")
+        } catch is CoreDataStack.MembershipBackfillPendingError {}
+
+        // Once it can finish, the pass runs before the deletion: both rows survive, keyed.
+        stack.membershipBackfillStatementHook = {}
+        try await repository.deleteTrack(ratingKey: "track-1", sourceCompositeKey: nil)
+        let deletedTrackCount = try await trackCount()
+        XCTAssertEqual(deletedTrackCount, 0)
+        rows = try await memberships()
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertTrue(rows.allSatisfy { $0.keyed && !$0.linked })
     }
 
     func testEnsemble10StoreMigratesToEnsemble11WithCollectionRatings() async throws {

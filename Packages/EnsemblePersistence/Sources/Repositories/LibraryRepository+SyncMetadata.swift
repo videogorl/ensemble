@@ -81,6 +81,7 @@ extension LibraryRepository {
     }
 
     public func deleteAllData(forSourceCompositeKey sourceKey: String) async throws {
+        guard coreDataStack.finishMembershipBackfill() else { throw CoreDataStack.MembershipBackfillPendingError() }
         try await coreDataStack.performBackgroundContext { context in
             for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDMood", "CDPlaylist"] {
                 let request = NSFetchRequest<NSManagedObject>(entityName: entityName)
@@ -159,6 +160,7 @@ extension LibraryRepository {
     }
 
     public func deleteAllLibraryData() async throws {
+        guard coreDataStack.finishMembershipBackfill() else { throw CoreDataStack.MembershipBackfillPendingError() }
         do {
             try await coreDataStack.performBackgroundContext { context in
                 // Delete all library/cache entities regardless of source.
@@ -236,7 +238,9 @@ extension LibraryRepository {
         artworkType: ArtworkType,
         ratingKey: @escaping (Item) -> String
     ) async throws -> Int {
-        try await coreDataStack.performBackgroundContext { context in
+        // Cleanup: defer it while membership keys are unfinished (see finishMembershipBackfill).
+        guard coreDataStack.finishMembershipBackfill() else { return 0 }
+        return try await coreDataStack.performBackgroundContext { context in
             request.predicate = RepositoryPredicates.sourceScopedOrphan(
                 sourceKey: sourceKey,
                 validRatingKeys: validRatingKeys

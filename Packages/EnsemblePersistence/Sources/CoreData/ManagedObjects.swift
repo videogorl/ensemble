@@ -234,15 +234,19 @@ extension CDPlaylist {
     }
 
     /// Rows in position order. A store that has not finished its membership backfill can
-    /// still hold exact duplicates of the same item at one position; show each once.
+    /// still hold exact duplicates of one item at one position; show each once.
     public var playlistItemsArray: [CDPlaylistTrack] {
-        var seen = Set<String>()
-        return (playlistTracks as? Set<CDPlaylistTrack> ?? []).sorted { $0.order < $1.order }.filter { membership in
-            let itemIdentity = membership.playlistItemID
-                ?? membership.trackRatingKey
-                ?? membership.track?.ratingKey
-                ?? membership.objectID.uriRepresentation().absoluteString
-            return seen.insert("\(membership.order)|\(itemIdentity)").inserted
+        var seen = Set<PlaylistMembershipPosition>()
+        return (playlistTracks as? Set<CDPlaylistTrack> ?? []).sorted { $0.order < $1.order }.filter {
+            seen.insert(PlaylistMembershipPosition(
+                order: $0.order,
+                item: PlaylistMembershipItem(
+                    itemID: $0.playlistItemID,
+                    trackRatingKey: $0.trackRatingKey,
+                    linkedTrackRatingKey: $0.track?.ratingKey,
+                    objectID: $0.objectID.uriRepresentation().absoluteString
+                )
+            )).inserted
         }
     }
 
@@ -266,6 +270,30 @@ extension CDPlaylist {
 }
 
 // MARK: - CDPlaylistTrack
+
+/// What a membership row says about its item. The fields are different namespaces (an item
+/// ID "42" is not track rating key "42"), so they are compared field by field. Two rows at
+/// one position are the same item only when every field is equal, which is what the old
+/// concurrent writer produced; rows that might describe one item through different fields
+/// are not treated as duplicates. A row with no item information is unique.
+struct PlaylistMembershipItem: Hashable {
+    let itemID: String?
+    let trackRatingKey: String?
+    let linkedTrackRatingKey: String?
+    let objectID: String?
+
+    init(itemID: String?, trackRatingKey: String?, linkedTrackRatingKey: String?, objectID: String) {
+        self.itemID = itemID
+        self.trackRatingKey = trackRatingKey
+        self.linkedTrackRatingKey = linkedTrackRatingKey
+        self.objectID = itemID == nil && trackRatingKey == nil && linkedTrackRatingKey == nil ? objectID : nil
+    }
+}
+
+struct PlaylistMembershipPosition: Hashable {
+    let order: Int32
+    let item: PlaylistMembershipItem
+}
 
 @objc(CDPlaylistTrack)
 public class CDPlaylistTrack: NSManagedObject {

@@ -4,8 +4,9 @@ import Foundation
 /// Finishes the move to model 12 for stores created before it: fills the key fields
 /// behind the (`playlistSourceCompositeKey`, `playlistRatingKey`, `order`) uniqueness
 /// constraint and removes duplicate rows at one position. A row is a duplicate only
-/// when it repeats the item at its position; a different item keeps its row, moved
-/// after the playlist's last position. Rows without a playlist are unreachable cache.
+/// when every item field equals another row's at that position (`PlaylistMembershipItem`);
+/// any other row keeps its place or is moved past the playlist's last position, never
+/// deleted. Rows without a playlist are unreachable cache.
 ///
 /// Rows missing keys are the durable record of unfinished work, so a pass that fails
 /// is repeated at the next launch and a finished store costs one cheap query.
@@ -20,7 +21,7 @@ enum PlaylistMembershipBackfill {
         var rowsRemoved = 0
     }
 
-    private static let deleteChunkSize = 500
+    private static let statementChunkSize = 2000
 
     /// `afterStatement` runs after every batch statement; tests throw from it to
     /// simulate a failure midway.
@@ -58,7 +59,7 @@ enum PlaylistMembershipBackfill {
         let id: NSManagedObjectID
         let order: Int32
         let itemID: String?
-        let identity: String
+        let item: PlaylistMembershipItem
         let isLinked: Bool
     }
 
@@ -93,7 +94,12 @@ enum PlaylistMembershipBackfill {
                 id: id,
                 order: (dictionary["order"] as? NSNumber)?.int32Value ?? 0,
                 itemID: itemID,
-                identity: itemID ?? dictionary["trackRatingKey"] as? String ?? linked ?? id.uriRepresentation().absoluteString,
+                item: PlaylistMembershipItem(
+                    itemID: itemID,
+                    trackRatingKey: dictionary["trackRatingKey"] as? String,
+                    linkedTrackRatingKey: linked,
+                    objectID: id.uriRepresentation().absoluteString
+                ),
                 isLinked: linked != nil
             )
         }.sorted {
@@ -102,33 +108,36 @@ enum PlaylistMembershipBackfill {
             return ($0.itemID ?? "") < ($1.itemID ?? "")
         }
 
-        var nextOrder = (rows.last?.order ?? -1) + 1
-        var usedOrders = Set<Int32>()
-        var seenItems = Set<String>()
+        // Rows that repeat an item at its position go. A different item at an occupied
+        // position keeps its row and is shifted past the last position: the n-th extra item
+        // of a position moves by n * (highest order + 1), so every new order is unused.
+        let stride = (rows.last?.order ?? 0) + 1
+        var seen = Set<PlaylistMembershipPosition>()
+        var rankAtPosition: [Int32: Int] = [:]
         var duplicates: [NSManagedObjectID] = []
-        var moves: [(id: NSManagedObjectID, order: Int32)] = []
+        var displacedByRank: [Int: [NSManagedObjectID]] = [:]
         for row in rows {
-            guard seenItems.insert("\(row.order)|\(row.identity)").inserted else {
+            guard seen.insert(PlaylistMembershipPosition(order: row.order, item: row.item)).inserted else {
                 duplicates.append(row.id)
                 continue
             }
-            if !usedOrders.insert(row.order).inserted {
-                moves.append((row.id, nextOrder))
-                usedOrders.insert(nextOrder)
-                nextOrder += 1
-            }
+            let rank = rankAtPosition[row.order, default: 0]
+            rankAtPosition[row.order] = rank + 1
+            if rank > 0 { displacedByRank[rank, default: []].append(row.id) }
         }
 
-        for chunk in stride(from: 0, to: duplicates.count, by: deleteChunkSize) {
-            _ = try context.execute(NSBatchDeleteRequest(objectIDs: Array(duplicates[chunk..<min(chunk + deleteChunkSize, duplicates.count)])))
+        try forEachChunk(of: duplicates) { ids in
+            _ = try context.execute(NSBatchDeleteRequest(objectIDs: ids))
             try afterStatement()
         }
-        for move in moves {
-            let update = NSBatchUpdateRequest(entityName: "CDPlaylistTrack")
-            update.predicate = NSPredicate(format: "SELF == %@", move.id)
-            update.propertiesToUpdate = ["order": move.order]
-            _ = try context.execute(update)
-            try afterStatement()
+        for (rank, ids) in displacedByRank.sorted(by: { $0.key < $1.key }) {
+            try forEachChunk(of: ids) { chunk in
+                let update = NSBatchUpdateRequest(entityName: "CDPlaylistTrack")
+                update.predicate = NSPredicate(format: "SELF IN %@", chunk)
+                update.propertiesToUpdate = ["order": NSExpression(format: "order + %d", Int(stride) * rank)]
+                _ = try context.execute(update)
+                try afterStatement()
+            }
         }
         let keys = NSBatchUpdateRequest(entityName: "CDPlaylistTrack")
         keys.predicate = NSPredicate(format: "playlist == %@ AND playlistRatingKey == nil", playlistID)
@@ -140,6 +149,12 @@ enum PlaylistMembershipBackfill {
         let keyed = try count(context.execute(keys))
         try afterStatement()
         return (duplicates.count, keyed)
+    }
+
+    private static func forEachChunk(of ids: [NSManagedObjectID], _ body: ([NSManagedObjectID]) throws -> Void) rethrows {
+        for start in Swift.stride(from: 0, to: ids.count, by: statementChunkSize) {
+            try body(Array(ids[start..<min(start + statementChunkSize, ids.count)]))
+        }
     }
 
     private static func count(_ result: NSPersistentStoreResult) -> Int {
