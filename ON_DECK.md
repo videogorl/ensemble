@@ -86,3 +86,37 @@ An entry does not authorize the work; Felicity picks what gets done.
 
 - Evidence: reported by a Mac check worker; not looked at again.
 - Next step: open Favorites on the Mac and compare the header spacing with Album detail.
+
+## Audit, 2026-11-10: custom machinery a native API might replace
+
+From a read-only audit; none of these is a confirmed defect. Ranked by expected stability
+gain per unit of work. Sizes are S, M or L.
+
+- **Account loading polls every 25 ms** (`AccountManager.swift:268`, S). A detached Keychain
+  read is followed by a poll for up to 1 s (commit `8ab31f92`, Keychain can block at macOS
+  startup). Next step: await the task's value and race it against one deadline; keep the
+  timeout and the cached-source fallback.
+- **AirPlay menu item presses a private button** (`AirPlayButton.swift:28`, S). After a menu
+  action it waits 200 ms, finds the button inside `AVRoutePickerView` and fires it; if absent
+  it shows the picker for 8 s (commit `09a1bcc0`). There is no public API to open the picker.
+  Next step: decide with Felicity whether the overflow menu item is worth it, or whether the
+  visible native control is enough.
+- **Scroll index stops momentum by toggling scrolling** (`ScrollIndex.swift:141`, S/M). A
+  UIKit probe finds the enclosing `UIScrollView` and turns scrolling off and on before a jump
+  (commit `fdb0d4cc`). Next step: try `.scrollPosition(id:anchor:)` (iOS 17) in the scroll
+  owner and see whether a jump during momentum behaves acceptably.
+- **StageFlow is a `UICollectionView` cover flow** (`StageFlowCarousel.swift`, 196 lines, M).
+  Next step: prototype `ScrollView` with `.scrollTargetBehavior(.viewAligned)` and
+  `.scrollTransition` (iOS 17); keep UIKit if the 3D transform or cell reuse is lost.
+- **Artwork has its own resolved-image cache beside Nuke's** (`ArtworkLoader.swift`, 988
+  lines, M). Next step: check whether Nuke's pipeline cache can hold the resolved images
+  while keeping stable identity, offline fallback and targeted invalidation.
+- **Siri AirPlay handoff polls the audio route every 250 ms** (`AppDelegate+Siri.swift:463`,
+  M). Next step: observe `AVAudioSession.routeChangeNotification` with one timeout; needs a
+  HomePod check on a physical phone.
+- **Toasts use a separate window** (`ToastView.swift`, 588 lines, M/L) so they appear above
+  sheets (commit `405ecc4f`). A root `.overlay` is simpler but hides toasts behind a sheet.
+  Low gain unless that behaviour is relaxed.
+
+Checked and left alone: the visible AirPlay control, artwork's persistent cache and retry
+rules, the Plex WebSocket polling fallback, and the size of `WatchRootView.swift`.
