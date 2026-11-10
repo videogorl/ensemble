@@ -226,8 +226,8 @@ public struct QueueTableView: UIViewRepresentable {
     
     public func updateUIView(_ tableView: UITableView, context: Context) {
         // Rows are queue items, so duplicates of one track stay distinct. Any
-        // change to the shown items or sections reloads; rows carry no other
-        // state, so there is nothing to redraw in place.
+        // change to the shown items or sections reloads. A row shows only its
+        // item's track and source, so there is no in-place redraw.
         let dataChanged: Bool
         if context.coordinator.showHistory != showHistory {
             dataChanged = true
