@@ -361,10 +361,22 @@ public final class MergedPlaylistDetailViewModel: MediaDetailViewModelProtocol {
     }
 
     private func selectedTrack(for track: Track, displayIndex: Int?) -> Track {
-        guard let displayIndex, filteredTracks.indices.contains(displayIndex) else {
+        guard let displayIndex = currentDisplayIndex(displayIndex, for: track) else {
             return track
         }
         return filteredTracks[displayIndex]
+    }
+
+    /// A row index captured when a menu opened can be stale by the time its
+    /// action runs. Trust it only while that row still shows the same track;
+    /// the source may differ, since the index is what picks the constituent.
+    private func currentDisplayIndex(_ displayIndex: Int?, for track: Track) -> Int? {
+        guard let displayIndex,
+              filteredTracks.indices.contains(displayIndex),
+              filteredTracks[displayIndex].id == track.id else {
+            return nil
+        }
+        return displayIndex
     }
 
     private func playlistOwningTrack(_ track: Track) -> Playlist? {
@@ -379,7 +391,7 @@ public final class MergedPlaylistDetailViewModel: MediaDetailViewModelProtocol {
     }
 
     private func playlistTrackIndex(for track: Track, displayIndex: Int?, in targetTracks: [Track]) -> Int? {
-        if let displayIndex, filteredTracks.indices.contains(displayIndex) {
+        if let displayIndex = currentDisplayIndex(displayIndex, for: track) {
             let selected = filteredTracks[displayIndex]
             let precedingVisibleMatches = filteredTracks[..<displayIndex]
                 .filter { sameTrackIdentity($0, selected) }
@@ -397,7 +409,7 @@ public final class MergedPlaylistDetailViewModel: MediaDetailViewModelProtocol {
     }
 
     private func mergedTrackIndex(for track: Track, displayIndex: Int?) -> Int? {
-        if let displayIndex, filteredTracks.indices.contains(displayIndex) {
+        if let displayIndex = currentDisplayIndex(displayIndex, for: track) {
             let selected = filteredTracks[displayIndex]
             let precedingVisibleMatches = filteredTracks[..<displayIndex]
                 .filter { sameTrackIdentity($0, selected) }

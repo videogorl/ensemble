@@ -100,7 +100,7 @@ Build identity:
 | Playlist detail "The Greatest": rows with artwork | PASS | PASS | `iphone4/shots/iphone-playlist-rows.png` |
 | Artist "Au4" favourited tracks (embedded table) | PASS | PASS (rerun with rows scrolled clear of the mini player) | `iphone3`, `ipad2` |
 | Mood "Acerbic", Search songs "Au4", Favorites | PASS | PASS | `iphone3`, `ipad` |
-| Each surface: long-press context menu opens; Play Next from it runs | PASS | PASS | logs, `*-context-menu.png` |
+| Each surface: long-press context menu opens; tapping Play Next dismisses it (queue effect not checked) | PASS | PASS | logs, `*-context-menu.png` |
 | Each surface: trailing swipe reveals Favorite and Add to Playlist; Add to Playlist opens its sheet (cancelled) | PASS | PASS | logs, `*-swipe*.png` |
 | Each surface: tap plays (mini player shows Pause); the row's duration gives way to the play-state indicator | PASS | PASS | logs, `*-playing.png` |
 | `PhoneBrowseAcceptanceUITests` | PASS 5/5 | n/a | `iphone3/run.log` |
