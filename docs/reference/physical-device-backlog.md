@@ -508,3 +508,18 @@ simulator with the DEBUG drop hook and in unit tests; a real network change is n
 | A real Wi-Fi to cellular switch mid-track at original quality (needs a phone with a SIM; the SE has none): playback continues without buffering while the reserve lasts, the session log shows `resumeRequested` right after the path change, and the audio after the switch is the original file, not an MP3 transcode | Owed |
 | Plex log for the SE run: no `Client stopped playback` for the in-flight part, and the ranged request is answered 206 | Passed on 2026-11-10: `range: bytes=1015808-` answered 206 with 49,683,522 bytes (the exact remainder); the only terminations fall on downloads that had already closed |
 
+## iPhone SE — damaged original falls back to a transcode (step e)
+
+Applies to the commit "Fall back to a forced transcode when a direct original's media is damaged". Unit tests and
+the iPhone 17 Pro Max simulator cover the decision, keys, prefetch check and a played damaged original; the
+audible result is not proven. Owner's server tracks: 11631 (original ends at 2:14 of 4:39; its transcode is as
+short), 14291, 14292 and 14300 (twenty one pilots; the original is damaged, the transcode is complete),
+11700 (zeroed header; Plex answers HTTP 400).
+
+| Check | Status |
+| --- | --- |
+| iPhone SE, original quality: `TEST_RUNNER_ENSEMBLE_PHONE_PLAYBACK=1` with `PhonePlaybackAcceptanceUITests.testG2e1_DamagedOriginalFallsBackWhenPlaybackReachesTheDamage` and `TEST_RUNNER_ENSEMBLE_DAMAGED_TRACK=14291` (default). The track plays on past the damage point as a transcode; you hear a short gap at most, a "Playing at reduced quality" notice shows once with no Retry, the probe reports `fb=forced`, and the session log has one forced decision (`directStream=0`) and no second fallback | Owed |
+| `testG2e2_SeekAfterTheDownloadCompletedLoadsTheTranscode` (default track 11631, `TEST_RUNNER_ENSEMBLE_DAMAGED_SEEK` sets the seek target): the download has finished, a seek past the damage loads the transcode, and an item that has nothing past 2:14 is skipped (probe `skip=1`), which is distinguishable from a normal end | Owed |
+| A damaged original in the queue behind a good track (queue 11741, 14291): at the boundary the prefetch fetches the transcode, the track plays gaplessly as a transcode, and the notice shows when it starts, not while 11741 plays | Owed |
+| Pause 14291 at original quality a few seconds before 2:27 and wait past it: nothing plays and no notice shows; Play then continues it as a transcode | Owed |
+

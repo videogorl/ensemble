@@ -13,6 +13,7 @@ final class GrowingAudioFile {
     private var availableByteCount: UInt64 = 0
     private var readOffset: UInt64 = 0
     private var terminalError: Error?
+    private var earlyEnd: Error?
     private var reachedEOF = false
     private var writerClosed = false
     private var drainsBeforeError = false
@@ -213,6 +214,9 @@ final class StreamingAudioPipeline: NSObject {
     var onFirstPCM: (() -> Void)?
     var onBufferedProgress: ((Double) -> Void)?
     var onDownloadComplete: ((URL) -> Void)?
+    /// The finished original is damaged while its audio plays. Reported once, so later loads of the
+    /// track can resolve to a transcode.
+    var onDamageFound: ((Error) -> Void)?
     /// Called once when the download ends, however it ends: complete, failed or cancelled.
     var onDownloadEnd: (() -> Void)?
     var onComplete: ((URL) -> Void)?
@@ -259,6 +263,7 @@ final class StreamingAudioPipeline: NSObject {
     /// when the PCM reserve runs out, so the engine reloads only after the reserve is played.
     private var deferredError: Error?
     private var drainedFailure: Error?
+    private var earlyEnd: Error?
     #if DEBUG
         private var didApplyAutomationNetworkDelay = false
         private var didApplyAutomationDrop = false
@@ -276,6 +281,15 @@ final class StreamingAudioPipeline: NSObject {
         stateLock.lock()
         defer { stateLock.unlock() }
         return completed
+    }
+
+    /// Set when an original's audio decoded cleanly but ran out far short of the length its own
+    /// container states. The stream still completes, so what decoded plays out; the player then
+    /// reports this as the failure.
+    var earlyEndError: Error? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return earlyEnd
     }
 
     var isDownloadComplete: Bool {
@@ -567,12 +581,75 @@ final class StreamingAudioPipeline: NSObject {
         }
         // Close the writer for validation, then expose EOF only after registration succeeds.
         growingFile?.closeWriter()
+        if let key = configuration.artifactKey, key.delivery == .direct, key.isCompleteTrack {
+            // An original is decoded start to end before it is registered or reported complete. The
+            // decoder reads to the end of the file meanwhile, so the audio never waits for the check.
+            growingFile?.finish()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                let result = Result {
+                    try OriginalMediaCheck.verify(at: self.configuration.cacheURL, fileExtension: key.fileExtension) { [weak self] in
+                        guard let self else { return false }
+                        self.stateLock.lock()
+                        defer { self.stateLock.unlock() }
+                        return !self.cancelled
+                    }
+                }
+                self.finishMediaCheck(result, receivedByteCount: receivedByteCount)
+            }
+            stateLock.unlock()
+            DispatchQueue.global(qos: .utility).async(execute: work)
+            return
+        }
+        completeDownloadLocked(mediaVerified: false, receivedByteCount: receivedByteCount)
+    }
+
+    /// The verified original is registered and reported. A damaged one is never cached. Before the
+    /// decoder has started (a prefetch) the download fails with the damage; while it plays, the audio
+    /// from the good part keeps playing, the damage is reported for later loads, and the decoder's own
+    /// end raises the fallback when it reaches it.
+    private func finishMediaCheck(_ result: Result<Void, Error>, receivedByteCount: Int64) {
+        stateLock.lock()
+        guard downloadResult == nil, !cancelled else {
+            stateLock.unlock()
+            return
+        }
+        switch result {
+        case .success:
+            completeDownloadLocked(mediaVerified: true, receivedByteCount: receivedByteCount)
+        case .failure(let error) where error is CancellationError:
+            stateLock.unlock()
+        case .failure(let error):
+            guard decoderStarted else {
+                stateLock.unlock()
+                fail(error)
+                return
+            }
+            downloadResult = .failure(error)
+            let waiters = Array(downloadWaiters.values)
+            downloadWaiters.removeAll()
+            let timeout = downloadTimeoutWorkItem
+            downloadTimeoutWorkItem = nil
+            stateLock.unlock()
+            timeout?.cancel()
+            session?.finishTasksAndInvalidate()
+            EnsembleLogger.info("[StreamingPipeline] originalFlagged trackId=\(configuration.trackID ?? "unknown") \(error.localizedDescription)")
+            onDamageFound?(error)
+            for waiter in waiters { waiter.resume(throwing: error) }
+            onDownloadEnd?()
+        }
+    }
+
+    /// Registers the file, ends the download and reports it. Called with `stateLock` held; releases it.
+    private func completeDownloadLocked(mediaVerified: Bool, receivedByteCount: Int64) {
         do {
             if let key = configuration.artifactKey, key.isCompleteTrack {
                 try configuration.artifactCache.recordCompleted(
                     fileURL: configuration.cacheURL,
                     key: key,
-                    expectedDuration: configuration.duration
+                    // Library metadata never judges an original; its own media does.
+                    expectedDuration: key.delivery == .direct ? nil : configuration.duration,
+                    mediaVerified: mediaVerified
                 )
             }
         } catch {
@@ -616,26 +693,72 @@ final class StreamingAudioPipeline: NSObject {
     private func completeDecodedStream() {
         startupTimeoutWorkItem?.cancel()
         startupTimeoutWorkItem = nil
+        let earlyEnd = earlyEndOfDecodedAudio()
         stateLock.lock()
+        let discardsArtifact = earlyEnd != nil && hasRegisteredArtifactLocked
         let hasFormat = pcmBuffer != nil
         let receivedByteCount = self.receivedByteCount
         let shouldNotify = hasFormat && !completed && !cancelled
-        if shouldNotify { completed = true }
+        if shouldNotify {
+            completed = true
+            self.earlyEnd = earlyEnd
+        }
         let pcmBuffer = self.pcmBuffer
         stateLock.unlock()
+        if discardsArtifact { configuration.artifactCache.removeArtifact(at: configuration.cacheURL) }
         guard hasFormat else {
-            fail(ProgressiveStreamError.invalidPayload(bytesReceived: receivedByteCount))
+            // A complete download that never formed an audio format is not audio.
+            fail(configuration.artifactKey?.delivery == .direct
+                ? ProgressiveStreamError.damagedOriginal(reason: "no audio format")
+                : ProgressiveStreamError.invalidPayload(bytesReceived: receivedByteCount))
             return
         }
         pcmBuffer?.wakeWaiters()
-        if shouldNotify {
+        if shouldNotify, earlyEnd == nil {
             onBufferedProgress?(1)
             onComplete?(configuration.cacheURL)
         }
     }
 
+    /// What decoding an original to its end says about it (see `OriginalMediaCheck`). Library metadata
+    /// never judges it, and a stream that starts at an offset is not checked. A transcode is never
+    /// checked: it cannot fall back.
+    private func earlyEndOfDecodedAudio() -> Error? {
+        stateLock.lock()
+        let decodedFrames = decodedFrameCount
+        let sampleRate = pcmBuffer?.format.sampleRate
+        stateLock.unlock()
+        guard let key = configuration.artifactKey, key.delivery == .direct, key.isCompleteTrack,
+              let sampleRate else { return nil }
+        return OriginalMediaCheck.classify(
+            decodedFrames: Int64(decodedFrames),
+            sampleRate: sampleRate,
+            containerSeconds: OriginalMediaCheck.containerSeconds(of: configuration.cacheURL)
+        )
+    }
+
+    /// Network EOF registered this stream's file for replay. Read with `stateLock` held: a file
+    /// whose audio is then rejected must be removed, and registration also happens under the lock.
+    private var hasRegisteredArtifactLocked: Bool {
+        guard case .success = downloadResult else { return false }
+        return configuration.artifactKey?.isCompleteTrack == true
+    }
+
     private func fail(_ error: Error) {
         stateLock.lock()
+        // Bytes the decoder rejected are never replayed from the cache. Decided under the lock
+        // that stops registration, so a registration racing this failure is still undone.
+        // A decoder error counts as media damage only on bytes that could be media: an error page or a
+        // tiny body is a bad delivery, a network condition, and keeps the plain failure.
+        let couldBeMedia = receivedByteCount >= 256
+            && !EnsembleAudioPayloadValidator.isClearlyInvalidLeadingText(payloadPrefix, rejectingServiceUnavailable: true)
+        let classified = configuration.artifactKey?.delivery == .direct && couldBeMedia
+            ? OriginalMediaCheck.classify(decoderError: error) : nil
+        let isDamage = classified != nil
+        let error: Error = classified
+            ?? (configuration.artifactKey?.delivery == .direct && !couldBeMedia && error is StreamingAudioDecoder.DecoderError
+                ? ProgressiveStreamError.invalidPayload(bytesReceived: receivedByteCount) : error)
+        let discardsArtifact = isDamage && hasRegisteredArtifactLocked
         let shouldNotify = !cancelled && !completed
         cancelled = true
         if terminalError == nil { terminalError = error }
@@ -653,6 +776,7 @@ final class StreamingAudioPipeline: NSObject {
         let resumeWork = resumeWorkItem
         resumeWorkItem = nil
         stateLock.unlock()
+        if discardsArtifact { configuration.artifactCache.removeArtifact(at: configuration.cacheURL) }
         timeout?.cancel()
         downloadTimeout?.cancel()
         resumeWork?.cancel()

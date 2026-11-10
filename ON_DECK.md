@@ -246,3 +246,43 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Impact: a possible audible gap or no crossfade at the boundary after a track that was still streaming; unmeasured.
 - Next step: measure the boundary after a short original-quality track on a slow link, then decide whether the successor's prefetch needs to start earlier or the handoff needs a streaming path. Not authorized to change.
 
+
+## Suspected: stream-cache entries from before the damage check still play a damaged original short (2026-11-10)
+
+- Evidence: a direct original is judged by its own media only while it streams (decoded length against its
+  container) or is prefetched (decoded start to end). A stream-cache hit (`completedArtifact(requireDirect:)`)
+  plays the stored file without either check. Builds before the fallback registered 11631-style files whose
+  container states the full length, so a cached copy of a damaged original would play to its short end and
+  advance. Not reproduced on a cache that held one.
+- Impact: a damaged original streamed by an older build keeps playing short from the cache, with no fallback,
+  until the entry is trimmed.
+- Next step: on a cache hit for a direct original, run the same decode check once and drop the entry on damage,
+  or purge direct entries when this build first launches.
+
+## Suspected: two metadata-duration truncation checks still judge a direct original (2026-11-10)
+
+- Evidence: `PlaybackService+Loading.swift` (the cached-file probe in `playCurrentQueueItem` and the prefetch
+  probe) compare a file's container length with the library's duration and evict and re-download on a mismatch.
+  The investigation's step e said library metadata must not judge a direct original. The stream's own check
+  (`recordCompleted`) no longer does; these two were left, since they re-download rather than fail.
+- Impact: an honest file whose metadata duration is wrong is downloaded twice, then plays. No fallback is
+  involved.
+- Next step: for a direct original, drop both comparisons and rely on the media check.
+
+## Confirmed: the streaming decoder cannot stream ALAC or a moov-at-end M4A (2026-11-10)
+
+- Evidence: a review decoded `afconvert -d alac` output and an ffmpeg fast-start file to 0 frames through
+  `StreamingAudioDecoder`; the converter error is only logged (`StreamingAudioDecoder.swift` near line 330).
+  A moov-at-end M4A fails with `parseFailed('optm')`.
+- Impact: such an original now falls back to a lower-quality transcode (step e) instead of playing at its
+  own quality, with the neutral "Playing at reduced quality" notice.
+- Next step: find why AVAudioConverter yields no frames for ALAC; separately, play a completed non-streamable
+  original from its downloaded file through the native engine so it stays at original quality.
+
+## Confirmed: at original quality a seek while the direct download is in flight restarts as a transcode (2026-11-10)
+
+- Evidence: simulator run on track 14291; the seek past the downloaded range loads a transcode instead of
+  waiting for or resuming the direct stream.
+- Impact: quality drops silently on a seek; not part of step e.
+- Next step: decide whether a seek past the buffered end should wait for the download or range-request the
+  original.

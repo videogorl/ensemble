@@ -251,6 +251,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
             pipeline.networkPathChanged()
         }
         XCTAssertNil(stalled.failure, "stalled")
+        XCTAssertEqual(stalled.samples.count, baseline.count, "stalled count")
         XCTAssertEqual(stalled.samples, baseline, "stalled")
         XCTAssertEqual(stalled.requests.last?.value(forHTTPHeaderField: "Range"), "bytes=\(stall)-")
 
@@ -294,6 +295,116 @@ final class StreamingAudioPipelineTests: XCTestCase {
         XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: cached.path))[.size] as? Int, wav.count)
     }
 
+    /// Only an original is judged by its media, and only the media judges it: bytes the decoder
+    /// rejects, and audio ending under half of what the file's own container states, are damage;
+    /// a transcode is never reported as damaged, so it can never fall back.
+    func testOriginalMediaDamageIsReportedAndATranscodeIsNeverJudged() async throws {
+        let whole = try AudioFixtures.flac(seconds: 24)
+        // The FLAC header states 24 s; a quarter of the bytes arrive.
+        let truncated = Data(whole.prefix(whole.count / 4))
+        let cache = PlaybackArtifactCache(
+            directory: FileManager.default.temporaryDirectory.appendingPathComponent("damage-cache-\(UUID().uuidString)"),
+            byteBudget: 1 << 26
+        )
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let cases: [(name: String, delivery: PlaybackArtifactDelivery, payload: Data, damaged: Bool)] = [
+            ("original, audio ends early", .direct, truncated, true),
+            ("original, whole file", .direct, whole, false),
+            ("original, bytes are not audio", .direct, Data(repeating: 0, count: 600), true),
+            ("original, an HTML error page is a bad delivery", .direct, Data(("<html><body>" + String(repeating: "Bad gateway. ", count: 40) + "</body></html>").utf8), false),
+            ("transcode, audio ends early", .transcode, truncated, false),
+            ("transcode, bytes are not audio", .transcode, Data(repeating: 0, count: 600), false),
+        ]
+        for (index, item) in cases.enumerated() {
+            let key = PlaybackArtifactKey(trackIdentity: "damage-\(index)", sourceFingerprint: "fp", requestedQuality: "original",
+                                          delivery: item.delivery, fileExtension: "flac", startTime: 0)
+            let result = try await run(
+                payload: item.payload, replies: [.ranged(dropAfter: nil)],
+                duration: 24, artifactKey: key, artifactCache: cache, fileExtension: "flac"
+            )
+            var isDamage = false
+            if case ProgressiveStreamError.damagedOriginal? = result.failure ?? result.earlyEnd { isDamage = true }
+            XCTAssertEqual(isDamage, item.damaged, "\(item.name): \(String(describing: result.failure ?? result.earlyEnd))")
+            if item.damaged {
+                XCTAssertNil(cache.completedArtifact(
+                    trackIdentity: key.trackIdentity, sourceFingerprint: "fp", requestedQuality: "original", requireDirect: false
+                ), "\(item.name): a damaged original is not replayed from the cache")
+            }
+        }
+    }
+
+    /// Healthy files are never called damaged, and a file the streaming decoder cannot stream is a separate
+    /// reason with the same fallback: ALAC decodes to nothing and an M4A with its index at the end cannot
+    /// be parsed progressively. The prefetch check and the played stream give the same verdict.
+    func testClassificationOfRealEncodedFilesAgreesBetweenCheckAndPlayedStream() async throws {
+        enum Verdict: Equatable { case healthy, unstreamable }
+        let cases: [(name: String, ext: String, data: Data, verdict: Verdict)] = [
+            ("FLAC", "flac", try AudioFixtures.flac(seconds: 12), .healthy),
+            ("WAV", "wav", Self.wavFixture(seconds: 2), .healthy),
+            ("MP3", "mp3", EncodedFixtures.mp3, .healthy),
+            ("AAC (ADTS)", "aac", EncodedFixtures.aacADTS, .healthy),
+            ("AAC M4A, index first", "m4a", EncodedFixtures.aacFastStart, .healthy),
+            ("ALAC M4A", "m4a", EncodedFixtures.alac, .unstreamable),
+            ("ALAC M4A, index first", "m4a", EncodedFixtures.alacFastStart, .unstreamable),
+            ("AAC M4A, index at the end", "m4a", EncodedFixtures.aacMoovAtEnd, .unstreamable),
+        ]
+        let cache = PlaybackArtifactCache(
+            directory: FileManager.default.temporaryDirectory.appendingPathComponent("classify-cache-\(UUID().uuidString)"),
+            byteBudget: 1 << 26
+        )
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        func verdict(of error: Error?) -> Verdict {
+            switch error {
+            case ProgressiveStreamError.unstreamableOriginal?: return .unstreamable
+            case ProgressiveStreamError.damagedOriginal?: XCTFail("a healthy file was called damaged"); return .unstreamable
+            default: return .healthy
+            }
+        }
+        for (index, item) in cases.enumerated() {
+            // The prefetch check.
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("classify-\(UUID().uuidString).\(item.ext)")
+            try item.data.write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+            var checkError: Error?
+            do { try OriginalMediaCheck.verify(at: url, fileExtension: item.ext) } catch { checkError = error }
+            XCTAssertEqual(verdict(of: checkError), item.verdict, "\(item.name): check")
+            // The played stream.
+            let key = PlaybackArtifactKey(trackIdentity: "classify-\(index)", sourceFingerprint: "fp", requestedQuality: "original",
+                                          delivery: .direct, fileExtension: item.ext, startTime: 0)
+            let result = try await run(
+                payload: item.data, replies: [.ranged(dropAfter: nil)], duration: 2,
+                artifactKey: key, artifactCache: cache, fileExtension: item.ext
+            )
+            XCTAssertEqual(verdict(of: result.failure ?? result.earlyEnd), item.verdict, "\(item.name): played stream")
+        }
+    }
+
+    /// A played original is decoded start to end when its download finishes, before it is registered: a
+    /// whole file is cached as verified; a damaged one is never cached, is reported once, and the audio
+    /// of its good part keeps playing.
+    func testFinishedOriginalIsVerifiedBeforeItIsCached() async throws {
+        let whole = try AudioFixtures.flac(seconds: 24)
+        let cache = PlaybackArtifactCache(
+            directory: FileManager.default.temporaryDirectory.appendingPathComponent("verify-cache-\(UUID().uuidString)"),
+            byteBudget: 1 << 26
+        )
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        for (name, payload, damaged) in [("whole", whole, false), ("truncated", Data(whole.prefix(whole.count / 4)), true)] {
+            let key = PlaybackArtifactKey(trackIdentity: "verify-\(name)", sourceFingerprint: "fp", requestedQuality: "original",
+                                          delivery: .direct, fileExtension: "flac", startTime: 0)
+            let result = try await run(
+                payload: payload, replies: [.ranged(dropAfter: nil)], duration: 24,
+                artifactKey: key, artifactCache: cache, fileExtension: "flac"
+            ) { _ in try await Task.sleep(nanoseconds: 1_500_000_000) }
+            XCTAssertEqual(result.damageFound, damaged, name)
+            XCTAssertGreaterThan(result.samples.count, 22_050, "\(name): the good part plays")
+            let cached = cache.completedArtifact(
+                trackIdentity: key.trackIdentity, sourceFingerprint: "fp", requestedQuality: "original", requireDirect: true
+            )
+            XCTAssertEqual(cached != nil, !damaged, "\(name): only a verified original is cached")
+        }
+    }
+
     /// Next, seek, Pause's refresh and a new play cancel the pipeline: a pending resume never starts.
     func testCancelDuringResumeStartsNoRequest() async throws {
         let wav = Self.wavFixture(seconds: 4)
@@ -312,6 +423,8 @@ final class StreamingAudioPipelineTests: XCTestCase {
         var requests: [URLRequest]
         var failure: Error?
         var completed: Bool
+        var earlyEnd: Error?
+        var damageFound: Bool
     }
 
     /// Plays one stubbed stream the way the engine's render callback does, until it completes or fails.
@@ -325,6 +438,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
         duration: TimeInterval? = nil,
         artifactKey: PlaybackArtifactKey? = nil,
         artifactCache: PlaybackArtifactCache = .shared,
+        fileExtension: String = "wav",
         during: ((StreamingAudioPipeline) async throws -> Void)? = nil
     ) async throws -> RunResult {
         let clock = ScriptedURLProtocol.configure(payload: payload, etag: etag, replies: replies)
@@ -334,8 +448,8 @@ final class StreamingAudioPipelineTests: XCTestCase {
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("resume-\(UUID().uuidString).wav")
         defer { if artifactKey == nil { try? FileManager.default.removeItem(at: cacheURL) } }
         let pipeline = StreamingAudioPipeline(configuration: .init(
-            request: URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/file.wav"))),
-            fileExtension: "wav",
+            request: URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/file.\(fileExtension)"))),
+            fileExtension: fileExtension,
             cacheURL: cacheURL,
             duration: duration,
             sessionConfiguration: configuration,
@@ -351,6 +465,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
         pipeline.onFormatReady = { state.format = $0 }
         pipeline.onFailure = { state.failure = $0 }
         pipeline.onComplete = { _ in state.completed = true }
+        pipeline.onDamageFound = { _ in state.damageFound = true }
         pipeline.start()
         let during = Task { try await during?(pipeline) }
         defer { pipeline.cancel() }
@@ -361,7 +476,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
         while Date() < deadline, !drained {
             guard let format = state.format,
                   let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 512) else {
-                drained = state.finished
+                drained = state.finished || pipeline.isComplete
                 try await Task.sleep(nanoseconds: 2_000_000)
                 continue
             }
@@ -369,12 +484,15 @@ final class StreamingAudioPipelineTests: XCTestCase {
             let read = pipeline.render(into: buffer.mutableAudioBufferList, frameCount: 512)
             samples += UnsafeBufferPointer(start: buffer.floatChannelData![0], count: read)
             if read == 0 {
-                drained = state.finished
+                drained = state.finished || pipeline.isComplete
                 try await Task.sleep(nanoseconds: 2_000_000)
             }
         }
         try await during.value
-        return RunResult(samples: samples, requests: ScriptedURLProtocol.requests, failure: state.failure, completed: state.completed)
+        return RunResult(
+            samples: samples, requests: ScriptedURLProtocol.requests, failure: state.failure,
+            completed: state.completed, earlyEnd: pipeline.earlyEndError, damageFound: state.damageFound
+        )
     }
 
     private final class RunState: @unchecked Sendable {
@@ -385,6 +503,8 @@ final class StreamingAudioPipelineTests: XCTestCase {
         var format: AVAudioFormat? { get { lock.lock(); defer { lock.unlock() }; return _format } set { lock.lock(); _format = newValue; lock.unlock() } }
         var failure: Error? { get { lock.lock(); defer { lock.unlock() }; return _failure } set { lock.lock(); _failure = newValue; lock.unlock() } }
         var completed: Bool { get { lock.lock(); defer { lock.unlock() }; return _completed } set { lock.lock(); _completed = newValue; lock.unlock() } }
+        var damageFound: Bool { get { lock.lock(); defer { lock.unlock() }; return _damageFound } set { lock.lock(); _damageFound = newValue; lock.unlock() } }
+        private var _damageFound = false
         var finished: Bool { failure != nil || completed }
     }
 

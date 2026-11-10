@@ -14,7 +14,7 @@ final class PlaybackTransportCoordinator {
         let isClearlyInvalidLocalPayload: @Sendable (URL) -> Bool
         let ensureServerConnection: @Sendable (Track) async throws -> Void
         let serverFailureMessage: @Sendable (Track) async -> String?
-        let makeStreamDecision: @Sendable (Track, StreamingQuality, TimeInterval) async throws -> StreamDecision
+        let makeStreamDecision: @Sendable (Track, StreamingQuality, TimeInterval, _ forceTranscode: Bool) async throws -> StreamDecision
         let assembleStreamResolution: @Sendable (Track, StreamDecision) async throws -> StreamResolution
         let refreshConnection: @Sendable () async throws -> Void
         let shouldRetryStreamURLRequest: @Sendable (Error) -> Bool
@@ -36,6 +36,11 @@ final class PlaybackTransportCoordinator {
         let pipeline: StreamingAudioPipeline
     }
     private var preparedStreams: [String: PreparedStream] = [:]
+    /// Tracks whose original was found damaged. They resolve to a forced transcode, a quality below
+    /// the original, and never back to the original.
+    private var transcodeFallbackTrackIDs: Set<String> = []
+    /// Tracks whose fallback decision was taken (for the automation probe).
+    private var spentFallbackTrackIDs: Set<String> = []
     /// Plex ends a client's direct download when it requests another direct file, so one
     /// direct download runs per server at a time: the one in flight, by server and track. An
     /// entry without a pipeline is a reservation: a track about to play, or a prefetch being
@@ -123,6 +128,46 @@ final class PlaybackTransportCoordinator {
         throw PlaybackError.streamURLUnavailable
     }
 
+    /// A finished download proved the original damaged while its audio still plays from the good part.
+    /// Every later load of the track resolves to the forced transcode; the playing original is left alone.
+    func markOriginalDamaged(trackId: String) {
+        withLock {
+            transcodeFallbackTrackIDs.insert(trackId)
+            cachedStreamDecisions.removeValue(forKey: trackId)
+        }
+    }
+
+    /// The one fallback decision, for a played or a prefetched track: true when `error` says the track's
+    /// original is damaged or cannot be streamed. The track then resolves to a forced transcode. The
+    /// decision is idempotent, so a prefetch and the played track that adopted its download can both take
+    /// it. It cannot loop: only a direct original raises these errors and a fallen-back track never
+    /// resolves to one. Network errors, HTTP statuses and a transcode's own failure return false.
+    func fallBackToTranscode(after error: Error, trackId: String) -> Bool {
+        switch PlaybackSessionStateMachine.underlyingError(error) {
+        case ProgressiveStreamError.damagedOriginal, ProgressiveStreamError.unstreamableOriginal: break
+        default: return false
+        }
+        return withLock {
+            let isFirst = spentFallbackTrackIDs.insert(trackId).inserted
+            transcodeFallbackTrackIDs.insert(trackId)
+            if isFirst {
+                PlaybackJourneyLogger.mark("originalFallback", trackId: trackId, detail: error.localizedDescription)
+                cachedStreamDecisions.removeValue(forKey: trackId)
+                preparedStreams.removeValue(forKey: trackId)?.pipeline.cancel()
+            }
+            return true
+        }
+    }
+
+    /// For automation: "forced" once a fallback reload was made, "marked" once the damage is known.
+    func fallbackStatus(trackId: String) -> String {
+        withLock { spentFallbackTrackIDs.contains(trackId) ? "forced" : (transcodeFallbackTrackIDs.contains(trackId) ? "marked" : "") }
+    }
+
+    func hasFallenBackToTranscode(trackId: String) -> Bool {
+        withLock { transcodeFallbackTrackIDs.contains(trackId) }
+    }
+
     func cancelResolution(for trackId: String) {
         withLock {
             cancelResolutionTasksLocked(for: trackId)
@@ -175,7 +220,10 @@ final class PlaybackTransportCoordinator {
 
     private func resolvePlaybackSourceImpl(for track: Track, startTime: TimeInterval) async throws -> PlaybackSource {
         let qualityString = streamingQuality()
-        let quality = StreamingQuality(rawValue: qualityString) ?? .high
+        let configuredQuality = StreamingQuality(rawValue: qualityString) ?? .high
+        let forcesTranscode = hasFallenBackToTranscode(trackId: track.playbackIdentity)
+        // A fallback is never above the configured quality or 320 kbps.
+        let quality = forcesTranscode && configuredQuality == .original ? .high : configuredQuality
         let normalizedStartTime = normalizedStartTime(startTime)
         let sourceFingerprint = PlaybackArtifactKey.sourceFingerprint(for: track)
 
@@ -220,7 +268,7 @@ final class PlaybackTransportCoordinator {
            let cachedURL = artifactCache.completedArtifact(
                trackIdentity: track.playbackIdentity,
                sourceFingerprint: sourceFingerprint,
-               requestedQuality: quality.rawValue,
+               requestedQuality: PlaybackArtifactKey.requestedQuality(quality, forcedTranscode: forcesTranscode),
                requireDirect: quality == .original
            ) {
             return .cachedFile(cachedURL, origin: .streamCache)
@@ -257,7 +305,12 @@ final class PlaybackTransportCoordinator {
                 throw PlaybackError.serverUnavailable(message: failureMessage)
             }
 
-            let decision = try await streamDecision(for: track, quality: quality, startTime: normalizedStartTime)
+            let decision = try await streamDecision(
+                for: track,
+                quality: quality,
+                startTime: normalizedStartTime,
+                forceTranscode: forcesTranscode
+            )
             let resolution: StreamResolution
             do {
                 resolution = try await dependencies.assembleStreamResolution(track, decision)
@@ -270,6 +323,7 @@ final class PlaybackTransportCoordinator {
                     resolution,
                     for: track,
                     quality: quality,
+                    forcedTranscode: forcesTranscode,
                     startTime: normalizedStartTime
                 )
             } catch {
@@ -282,6 +336,7 @@ final class PlaybackTransportCoordinator {
                     freshResolution,
                     for: track,
                     quality: quality,
+                    forcedTranscode: forcesTranscode,
                     startTime: normalizedStartTime
                 )
             }
@@ -291,24 +346,30 @@ final class PlaybackTransportCoordinator {
         }
     }
 
-    private func streamDecision(for track: Track, quality: StreamingQuality, startTime: TimeInterval) async throws -> StreamDecision {
+    private func streamDecision(
+        for track: Track,
+        quality: StreamingQuality,
+        startTime: TimeInterval,
+        forceTranscode: Bool
+    ) async throws -> StreamDecision {
         let trackIdentity = track.playbackIdentity
-        if startTime > 0 {
-            return try await dependencies.makeStreamDecision(track, quality, startTime)
+        // Offset and forced decisions are not cached: the cache holds the track's original decision.
+        if startTime > 0 || forceTranscode {
+            return try await dependencies.makeStreamDecision(track, quality, startTime, forceTranscode)
         }
         if let cached = withLock({ cachedStreamDecisions[trackIdentity] }) {
             return cached
         }
 
         do {
-            let decision = try await dependencies.makeStreamDecision(track, quality, 0)
+            let decision = try await dependencies.makeStreamDecision(track, quality, 0, false)
             withLock { cachedStreamDecisions[trackIdentity] = decision }
             return decision
         } catch {
             if dependencies.shouldRetryStreamURLRequest(error) {
                 do {
                     try await dependencies.refreshConnection()
-                    let retried = try await dependencies.makeStreamDecision(track, quality, 0)
+                    let retried = try await dependencies.makeStreamDecision(track, quality, 0, false)
                     withLock { cachedStreamDecisions[trackIdentity] = retried }
                     return retried
                 } catch {
@@ -323,6 +384,7 @@ final class PlaybackTransportCoordinator {
         _ resolution: StreamResolution,
         for track: Track,
         quality: StreamingQuality,
+        forcedTranscode: Bool,
         startTime: TimeInterval
     ) async throws -> PlaybackSource {
         let sourceFingerprint = PlaybackArtifactKey.sourceFingerprint(for: track)
@@ -345,7 +407,7 @@ final class PlaybackTransportCoordinator {
                 artifactKey: PlaybackArtifactKey(
                     trackIdentity: track.playbackIdentity,
                     sourceFingerprint: sourceFingerprint,
-                    requestedQuality: quality.rawValue,
+                    requestedQuality: PlaybackArtifactKey.requestedQuality(quality, forcedTranscode: forcedTranscode),
                     delivery: .direct,
                     fileExtension: fileExtension,
                     startTime: 0
@@ -364,7 +426,7 @@ final class PlaybackTransportCoordinator {
                 artifactKey: PlaybackArtifactKey(
                     trackIdentity: track.playbackIdentity,
                     sourceFingerprint: sourceFingerprint,
-                    requestedQuality: quality.rawValue,
+                    requestedQuality: PlaybackArtifactKey.requestedQuality(quality, forcedTranscode: forcedTranscode),
                     delivery: .transcode,
                     fileExtension: "mp3",
                     startTime: config.startTime > 0 ? config.startTime : startTime
@@ -505,6 +567,7 @@ final class PlaybackTransportCoordinator {
             }
             // The pipeline registers the validated artifact at network EOF, before
             // waking file consumers or handing completion to active playback.
+            // An original is decoded start to end first, so a damaged one raises the damage here.
             return try await pipeline.downloadedFile()
         }
     }

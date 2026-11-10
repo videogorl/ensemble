@@ -579,6 +579,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// The current session. See `beginSession()`.
     var sessionGeneration: UInt64 = 0
     var playbackPreparationShouldStart = true
+    /// Tracks the reduced-quality notice was shown for this session.
+    var reducedQualityNotifiedTrackIDs: Set<String> = []
     var appleMusicQueueMutationGeneration: UInt64 = 0
     /// Timestamps of recent handleQueueExhausted calls for rapid-advance rate limiting
     var queueExhaustedTimestamps: [Date] = []
@@ -603,11 +605,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 guard let self else { return nil }
                 return await self.syncCoordinator.serverFailureMessage(for: track)
             },
-            makeStreamDecision: { [weak self] track, quality, startTime in
+            makeStreamDecision: { [weak self] track, quality, startTime, forceTranscode in
                 guard let self else {
                     throw PlaybackError.unknown(NSError(domain: "PlaybackService", code: -1))
                 }
-                return try await self.syncCoordinator.makeStreamDecision(for: track, quality: quality, startTime: startTime)
+                return try await self.syncCoordinator.makeStreamDecision(
+                    for: track, quality: quality, startTime: startTime, forceTranscode: forceTranscode
+                )
             },
             assembleStreamResolution: { [weak self] track, decision in
                 guard let self else {
@@ -797,6 +801,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         engine.onStreamingPipelineCreated = { [weak self] pipeline, metadata in
             self?.transportCoordinator.registerDirectDownload(pipeline, metadata: metadata)
+            pipeline.onDamageFound = { [weak self] error in
+                PlaybackJourneyLogger.mark("originalFlagged", trackId: metadata.trackId, detail: error.localizedDescription)
+                self?.transportCoordinator.markOriginalDamaged(trackId: metadata.trackId)
+            }
         }
         // A prefetch deferred behind a direct download is re-evaluated from the queue as it ends.
         transportCoordinator.onDirectDownloadEnded = { [weak self] in

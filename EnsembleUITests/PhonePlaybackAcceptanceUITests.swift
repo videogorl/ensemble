@@ -28,6 +28,9 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
 
     struct Probe {
         let state: String, id: String, pos: Double, dur: Double, idx: Int, count: Int, err: String, pid: Int, mix: Bool, net: String
+        /// `marked` once the current track's original is known damaged, `forced` once it fell back to a
+        /// transcode; `skip` is set for an item reached by skipping a failure; `toast` is the toast on screen.
+        let fb: String, skip: Bool, toast: String
 
         init?(_ value: String?) {
             guard let value else { return nil }
@@ -47,9 +50,12 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
             pid = Int(fields["pid"] ?? "") ?? 0
             mix = fields["mix"] == "1"
             net = fields["net"] ?? ""
+            fb = fields["fb"] ?? ""
+            skip = fields["skip"] == "1"
+            toast = fields["toast"] ?? ""
         }
 
-        var text: String { "pid=\(pid) net=\(net) mix=\(mix) state=\(state) id=\(id) pos=\(pos) dur=\(dur) idx=\(idx)/\(count) err=\(err)" }
+        var text: String { "pid=\(pid) net=\(net) mix=\(mix) state=\(state) id=\(id) pos=\(pos) dur=\(dur) idx=\(idx)/\(count) err=\(err) fb=\(fb) skip=\(skip) toast=\(toast)" }
     }
 
     static let clock: DateFormatter = {
@@ -211,6 +217,88 @@ final class PhonePlaybackAcceptanceUITests: XCTestCase {
         XCTAssertNotNil(failed, "11700 did not report an error")
         let recovered = wait(30, "no loop") { $0.state != "failed" }
         XCTAssertNil(recovered, "11700 left the failed state (loop?)")
+    }
+
+    /// The damaged-original fallback, proven by the probe's `fb` field, not by playback carrying on: `fb=marked`
+    /// when a finished download is decoded and found damaged, `fb=forced` once the fallback reload was made.
+    /// The key defaults to 14291 (twenty one pilots: its original decodes 2:27 of 4:52, its transcode is
+    /// complete); `TEST_RUNNER_ENSEMBLE_DAMAGED_TRACK` picks another (14292, 14300, or 11631, whose
+    /// transcode is as short as its original). No seek: playback reaches the damage, the decoder ends
+    /// early, the track falls back to a transcode at the playhead and the "Playing at reduced quality"
+    /// toast shows. Pass: `fb=forced` while the damaged track is current, the toast was seen, and the
+    /// track then plays on (or, when Plex has nothing past the damage, is skipped with `skip=1`).
+    func testG2e1_DamagedOriginalFallsBackWhenPlaybackReachesTheDamage() throws {
+        let key = ProcessInfo.processInfo.environment["ENSEMBLE_DAMAGED_TRACK"] ?? Key.twentyOnePilots[0]
+        launch(quality: "original", forceStream: true)
+        play([key, Key.flac])
+        var forcedAt: Double?
+        var sawToast = false
+        var outcome = "unsettled"
+        var furthest = 0.0
+        let limit = Date().addingTimeInterval(420)
+        while Date() < limit, outcome == "unsettled" {
+            guard let p = read() else { continue }
+            note(p)
+            sawToast = sawToast || p.toast == "Playing at reduced quality"
+            if p.id == key {
+                furthest = max(furthest, p.pos)
+                if p.fb == "forced", forcedAt == nil { forcedAt = p.pos; log("FALLBACK at \(p.pos) s") }
+                if let forcedAt, p.state == "playing", p.pos >= forcedAt + 15 { outcome = "played on as a transcode: \(Int(p.pos)) s of \(Int(p.dur))" }
+                if p.state == "failed" { outcome = "HALTED: \(p.err)" }
+            } else if p.id == Key.flac, p.state == "playing" {
+                outcome = p.skip ? "skipped to the successor after \(Int(furthest)) s (item failed)" : "successor played (track ended)"
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        log("OUTCOME \(key): \(outcome); fallback at \(forcedAt.map { String($0) } ?? "never"); toast seen \(sawToast)")
+        attachText("outcome-\(key)", "\(outcome); fallback at \(forcedAt.map { String($0) } ?? "never"); toast seen \(sawToast)")
+        XCTAssertNotNil(forcedAt, "The fallback never fired (fb never `forced` on \(key)): \(outcome)")
+        XCTAssertTrue(sawToast, "The reduced-quality toast never showed")
+        XCTAssertFalse(outcome.hasPrefix("HALTED") || outcome == "unsettled", outcome)
+        XCTAssertEqual(app.state, .runningForeground, "App left the foreground (crash?)")
+    }
+
+    /// The 11631 sequence from the first SE run: on a fast link the whole download finishes seconds in,
+    /// then a seek restarts the stream. Before the finished file was decoded, that seek was served from
+    /// the stream cache and the track ended at 2:14 like a normal end. Pass: `fb=marked` appears first
+    /// (the finished download was decoded and found damaged, so it was not cached); after the seek the
+    /// track loads as the forced transcode ("Playing at reduced quality" toast, which only a forced
+    /// load raises) and never plays the damaged original's cached file. 11631's transcode is as short as
+    /// its original, so it then ends at about 2:14: the outcome says whether that was a skip (`skip=1`)
+    /// or a normal end. `TEST_RUNNER_ENSEMBLE_DAMAGED_TRACK` and `_DAMAGED_SEEK` (default 120 s) override.
+    func testG2e2_SeekAfterTheDownloadCompletedLoadsTheTranscode() throws {
+        let env = ProcessInfo.processInfo.environment
+        let key = env["ENSEMBLE_DAMAGED_TRACK"] ?? Key.christmasInJune
+        let seek = Double(env["ENSEMBLE_DAMAGED_SEEK"] ?? "") ?? 120
+        launch(quality: "original", forceStream: true)
+        play([key, Key.flac])
+        let marked = wait(120, "damage found by the finished download") { $0.id == key && $0.fb != "" }
+        XCTAssertNotNil(marked, "The finished download was never found damaged (fb stayed empty): is the link too slow for it to finish?")
+        let before = read()
+        XCTAssertNotEqual(before?.fb, "forced", "The fallback already fired before the seek; the seek would prove nothing")
+        transport("seek", to: seek)
+        var sawToast = false
+        var outcome = "unsettled"
+        var furthest = 0.0
+        let limit = Date().addingTimeInterval(240)
+        while Date() < limit, outcome == "unsettled" {
+            guard let p = read() else { continue }
+            note(p)
+            sawToast = sawToast || p.toast == "Playing at reduced quality"
+            if p.id == key {
+                furthest = max(furthest, p.pos)
+                if p.state == "failed" { outcome = "HALTED: \(p.err)" }
+                if p.state == "playing", p.pos >= seek + 40 { outcome = "played on as a transcode: \(Int(p.pos)) s" }
+            } else if p.id == Key.flac, p.state == "playing" {
+                outcome = p.skip ? "skipped to the successor after \(Int(furthest)) s (item failed)" : "ended normally after \(Int(furthest)) s, successor played"
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        log("OUTCOME \(key): \(outcome); toast seen \(sawToast)")
+        attachText("outcome-\(key)", "\(outcome); toast seen \(sawToast)")
+        XCTAssertTrue(sawToast, "After the seek the track did not load as the forced transcode (no toast)")
+        XCTAssertFalse(outcome.hasPrefix("HALTED") || outcome == "unsettled", outcome)
+        XCTAssertEqual(app.state, .runningForeground, "App left the foreground (crash?)")
     }
 
     /// twenty one pilots self-titled at original quality: record what each track does, observed to its

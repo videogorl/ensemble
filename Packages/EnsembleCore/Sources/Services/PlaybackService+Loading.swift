@@ -440,6 +440,21 @@ extension PlaybackService {
             return
         }
 
+        // A damaged original falls back once to a transcode, from where it stopped. Network
+        // errors, HTTP statuses and a transcode's own failures never do.
+        if let lastError, transportCoordinator.fallBackToTranscode(after: lastError, trackId: trackIdentity) {
+            EnsembleLogger.playback("TRACK: original cannot be played as it is -- falling back to a transcode (\(lastError.localizedDescription))")
+            endTrackTransitionBackgroundTask(for: requestGeneration)
+            await playCurrentQueueItem(
+                forcingFreshItem: true,
+                seekTo: request.recoverySeekTime,
+                shouldStartPlayback: shouldStartPlayback,
+                caller: "damaged-original-startup",
+                recoverySlotRelease: recoverySlotRelease
+            )
+            return
+        }
+
         // A reload of a stream that was playing stays in its recovery window: a network failure
         // while resolving or starting it is another failure of the same recovery, not a failed
         // first load, so the window (not the two attempts above) decides when the item fails.
@@ -667,6 +682,23 @@ extension PlaybackService {
         return fileURL
     }
 
+    /// A prefetch gets the played track's fallback decision: a damaged original is fetched again
+    /// as a forced transcode, once.
+    func resolveAudioFileFallingBack(
+        for track: Track,
+        shouldContinue: @Sendable () async -> Bool = { true }
+    ) async throws -> URL {
+        do {
+            return try await resolveAudioFile(for: track, shouldContinue: shouldContinue)
+        } catch where transportCoordinator.fallBackToTranscode(after: error, trackId: track.playbackIdentity) {
+            // The played track may have taken the same decision from the same download: a stale prefetch
+            // does not go on to fetch the transcode.
+            guard await shouldContinue() else { throw CancellationError() }
+            EnsembleLogger.debug("[prefetch] Original of '\(track.title)' cannot be played as it is -- fetching a transcode (\(error.localizedDescription))")
+            return try await resolveAudioFile(for: track, shouldContinue: shouldContinue)
+        }
+    }
+
     nonisolated func shouldRetryStreamURLRequest(after error: Error) -> Bool {
         if let plexError = error as? PlexAPIError {
             switch plexError {
@@ -691,6 +723,8 @@ extension PlaybackService {
                 return .serverUnavailable(message: "Server returned HTTP \(code)")
             case .invalidPayload:
                 return .serverUnavailable(message: "Server returned invalid audio data")
+            case .damagedOriginal, .unstreamableOriginal:
+                return .unknown(streamError)
             }
         }
 
@@ -989,7 +1023,7 @@ extension PlaybackService {
             {
                 fileURL = cachedURL
             } else {
-                fileURL = try await resolveAudioFile(for: track, shouldContinue: shouldContinue)
+                fileURL = try await resolveAudioFileFallingBack(for: track, shouldContinue: shouldContinue)
             }
 
             // Validate file duration against metadata to catch truncated cached files.
@@ -1002,7 +1036,7 @@ extension PlaybackService {
                 if PlaybackLocalFilePolicy.shouldTreatAsTruncated(fileDuration: fileDuration, expectedDuration: expectedDuration) {
                     EnsembleLogger.debug("[prefetch] Truncated file for '\(track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — evicting and re-downloading")
                     await evictTruncatedFile(fileURL: fileURL, track: track, fileDuration: fileDuration, expectedDuration: expectedDuration)
-                    fileURL = try await resolveAudioFile(for: track, shouldContinue: shouldContinue)
+                    fileURL = try await resolveAudioFileFallingBack(for: track, shouldContinue: shouldContinue)
                 }
             }
 

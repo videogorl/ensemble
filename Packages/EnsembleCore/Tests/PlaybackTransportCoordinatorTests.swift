@@ -21,6 +21,210 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         }
     }
 
+    private func fallbackTrack(_ id: String = "damaged") -> Track {
+        Track(id: id, key: "/library/metadata/\(id)", title: id, duration: 180, sourceCompositeKey: "plex:test")
+    }
+
+    /// One decision for a played and a prefetched track: only damage in an original, and only once.
+    func testFallBackToTranscodeDecisionIsOnceAndOnlyForDamagedOriginals() {
+        let damaged = ProgressiveStreamError.damagedOriginal(reason: "test")
+        let cases: [(name: String, error: Error, falls: Bool)] = [
+            ("damaged original", damaged, true),
+            ("damage inside a wrapped playback error", PlaybackError.unknown(damaged), true),
+            ("an original that cannot be streamed", ProgressiveStreamError.unstreamableOriginal(reason: "test"), true),
+            ("network error", URLError(.networkConnectionLost), false),
+            ("timeout", URLError(.timedOut), false),
+            ("Plex refuses the file (400)", ProgressiveStreamError.httpError(statusCode: 400, bodySnippet: nil), false),
+            ("transcode's own invalid audio", ProgressiveStreamError.invalidPayload(bytesReceived: 12), false),
+            ("cancellation", CancellationError(), false),
+        ]
+        for item in cases {
+            let coordinator = makeFallbackCoordinator()
+            XCTAssertEqual(coordinator.fallBackToTranscode(after: item.error, trackId: "t"), item.falls, item.name)
+            XCTAssertEqual(coordinator.hasFallenBackToTranscode(trackId: "t"), item.falls, item.name)
+            // The decision is idempotent: a prefetch and the played track that adopted its download can both take it.
+            XCTAssertEqual(coordinator.fallBackToTranscode(after: damaged, trackId: "t"), true, item.name)
+        }
+    }
+
+    /// A fallen-back track resolves to a forced transcode at the lower of 320 kbps and the configured
+    /// quality, under a key that differs from the original's and from a transcode PMS chose itself.
+    func testFallenBackTrackResolvesToAForcedTranscodeUnderItsOwnKey() async throws {
+        let track = fallbackTrack()
+        let cases: [(configured: String, expected: StreamingQuality)] = [
+            ("original", .high), ("high", .high), ("medium", .medium), ("low", .low),
+        ]
+        for item in cases {
+            let calls = DecisionCalls()
+            let coordinator = makeFallbackCoordinator(quality: item.configured, calls: calls)
+            let first = try await coordinator.resolvePlaybackSource(for: track)
+            let firstKey = try XCTUnwrap(first.artifactKeyForTesting)
+            XCTAssertEqual(firstKey.requestedQuality, item.configured)
+            XCTAssertEqual(calls.recorded.last?.force, false)
+
+            XCTAssertTrue(coordinator.fallBackToTranscode(after: ProgressiveStreamError.damagedOriginal(reason: "x"), trackId: track.playbackIdentity))
+            let forced = try await coordinator.resolvePlaybackSource(for: track, startTime: 40)
+            guard case let .transcodedHTTP(_, metadata) = forced else { return XCTFail("\(item.configured): expected a transcode") }
+            XCTAssertEqual(calls.recorded.last?.quality, item.expected, item.configured)
+            XCTAssertEqual(calls.recorded.last?.force, true, item.configured)
+            let forcedKey = try XCTUnwrap(metadata.artifactKey)
+            XCTAssertEqual(forcedKey.requestedQuality, "\(item.expected.rawValue)+forced")
+            XCTAssertEqual(forcedKey.delivery, .transcode)
+            XCTAssertNotEqual(forcedKey.requestedQuality, firstKey.requestedQuality)
+            XCTAssertNotEqual(forcedKey.requestedQuality, item.expected.rawValue, "not a transcode PMS chose itself")
+            // From the beginning, too: never back to the original while the fallback stands.
+            let again = try await coordinator.resolvePlaybackSource(for: track)
+            guard case .transcodedHTTP = again else { return XCTFail("\(item.configured): fell back up to the original") }
+            XCTAssertEqual(calls.recorded.last?.force, true)
+        }
+    }
+
+    /// Damage proved by a finished download marks the track: every later load is the forced transcode, the
+    /// playing original is left alone, and the fallback is still spent once, when the decoder reaches the damage.
+    func testMarkedTrackLoadsForcedAndStillFallsBackOnce() async throws {
+        let track = fallbackTrack()
+        let calls = DecisionCalls()
+        let coordinator = makeFallbackCoordinator(calls: calls)
+        coordinator.markOriginalDamaged(trackId: track.playbackIdentity)
+        XCTAssertEqual(coordinator.fallbackStatus(trackId: track.playbackIdentity), "marked")
+        guard case .transcodedHTTP = try await coordinator.resolvePlaybackSource(for: track) else {
+            return XCTFail("a marked track resolved to its original")
+        }
+        XCTAssertEqual(calls.recorded.last?.force, true)
+        let damage = ProgressiveStreamError.damagedOriginal(reason: "x")
+        XCTAssertTrue(coordinator.fallBackToTranscode(after: damage, trackId: track.playbackIdentity))
+        XCTAssertEqual(coordinator.fallbackStatus(trackId: track.playbackIdentity), "forced")
+        // A prefetch took the decision first: the played track that reaches the damage still falls back.
+        XCTAssertTrue(coordinator.fallBackToTranscode(after: damage, trackId: track.playbackIdentity))
+    }
+
+    /// A forced transcode is never served as the cached original, and the original never as it.
+    func testStreamCacheKeepsTheOriginalAndTheForcedTranscodeApart() async throws {
+        let track = fallbackTrack()
+        let cache = PlaybackArtifactCache(
+            directory: FileManager.default.temporaryDirectory.appendingPathComponent("fallback-cache-\(UUID().uuidString)"),
+            byteBudget: 1 << 20
+        )
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        func register(_ quality: String, _ delivery: PlaybackArtifactDelivery) throws -> URL {
+            let key = PlaybackArtifactKey(
+                trackIdentity: track.playbackIdentity, sourceFingerprint: PlaybackArtifactKey.sourceFingerprint(for: track),
+                requestedQuality: quality, delivery: delivery, fileExtension: "mp3", startTime: 0
+            )
+            let url = try cache.partialURL(for: key)
+            try Data(repeating: 1, count: 1_000).write(to: url)
+            return try cache.recordCompleted(fileURL: url, key: key, expectedDuration: nil, mediaVerified: true)
+        }
+        let original = try register("original", .direct)
+        let coordinator = makeFallbackCoordinator(cache: cache)
+
+        guard case let .cachedFile(servedFirst, _) = try await coordinator.resolvePlaybackSource(for: track) else {
+            return XCTFail("expected the cached original")
+        }
+        XCTAssertEqual(servedFirst, original)
+        XCTAssertTrue(coordinator.fallBackToTranscode(after: ProgressiveStreamError.damagedOriginal(reason: "x"), trackId: track.playbackIdentity))
+        let notCached = try await coordinator.resolvePlaybackSource(for: track)
+        guard case .transcodedHTTP = notCached else { return XCTFail("the original was served to a fallen-back track") }
+        let forced = try register("high+forced", .transcode)
+        guard case let .cachedFile(servedForced, _) = try await coordinator.resolvePlaybackSource(for: track) else {
+            return XCTFail("expected the cached forced transcode")
+        }
+        XCTAssertEqual(servedForced, forced)
+        XCTAssertNotEqual(servedForced, original)
+    }
+
+    /// A prefetched original gets the played one's media check: a damaged file raises the damage
+    /// error (the one fallback decision then applies), leaves the cache, and a good one passes.
+    func testPrefetchedOriginalIsJudgedByItsMedia() async throws {
+        let whole = try AudioFixtures.flac(seconds: 24)
+        PayloadProtocol.payloads = [
+            "/library/parts/good/file.flac": whole,
+            "/library/parts/short/file.flac": Data(whole.prefix(whole.count / 4)),
+            "/library/parts/zeros/file.flac": Data(repeating: 0, count: 4_096),
+        ]
+        let cache = PlaybackArtifactCache(
+            directory: FileManager.default.temporaryDirectory.appendingPathComponent("prefetch-cache-\(UUID().uuidString)"),
+            byteBudget: 1 << 26
+        )
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PayloadProtocol.self]
+        let coordinator = makeFallbackCoordinator(quality: "original", cache: cache, session: configuration, partKeyIsFLAC: true)
+
+        let good = try await coordinator.resolveAudioFile(for: fallbackTrack("good"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: good.path))
+        for id in ["short", "zeros"] {
+            let track = fallbackTrack(id)
+            do {
+                _ = try await coordinator.resolveAudioFile(for: track)
+                XCTFail("\(id): expected damage")
+            } catch {
+                XCTAssertTrue(coordinator.fallBackToTranscode(after: error, trackId: track.playbackIdentity), "\(id): \(error)")
+            }
+            XCTAssertNil(cache.completedArtifact(
+                trackIdentity: track.playbackIdentity, sourceFingerprint: PlaybackArtifactKey.sourceFingerprint(for: track),
+                requestedQuality: "original", requireDirect: true
+            ), "\(id): a damaged original leaves the cache")
+        }
+    }
+
+    private final class DecisionCalls: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [(quality: StreamingQuality, force: Bool)] = []
+        var recorded: [(quality: StreamingQuality, force: Bool)] { lock.lock(); defer { lock.unlock() }; return storage }
+        func record(_ quality: StreamingQuality, _ force: Bool) { lock.lock(); storage.append((quality, force)); lock.unlock() }
+    }
+
+    private func makeFallbackCoordinator(
+        quality: String = "original",
+        calls: DecisionCalls = DecisionCalls(),
+        cache: PlaybackArtifactCache = PlaybackArtifactCache(
+            directory: FileManager.default.temporaryDirectory.appendingPathComponent("fallback-\(UUID().uuidString)"),
+            byteBudget: 1 << 20
+        ),
+        session: URLSessionConfiguration? = nil,
+        partKeyIsFLAC: Bool = false
+    ) -> PlaybackTransportCoordinator {
+        PlaybackTransportCoordinator(
+            dependencies: .init(
+                networkState: { .online(.wifi) },
+                preparedLocalPlaybackURL: { URL(fileURLWithPath: $0) },
+                isClearlyInvalidLocalPayload: { _ in false },
+                ensureServerConnection: { _ in },
+                serverFailureMessage: { _ in nil },
+                makeStreamDecision: { track, streamQuality, startTime, force in
+                    calls.record(streamQuality, force)
+                    if !force, streamQuality == .original, startTime == 0 {
+                        return .directStream(partKey: "/library/parts/\(track.id)/file.\(partKeyIsFLAC ? "flac" : "mp3")")
+                    }
+                    return .progressiveTranscode(TranscodeStreamDecision(
+                        path: "/music/:/transcode/universal/start.mp3", queryItems: [], ratingKey: track.id,
+                        estimatedContentLength: 1_024, metadataDuration: track.duration, startTime: startTime
+                    ))
+                },
+                assembleStreamResolution: { track, decision in
+                    switch decision {
+                    case let .directStream(partKey):
+                        return .directStream(try XCTUnwrap(URL(string: "https://pms.test\(partKey)")))
+                    case let .progressiveTranscode(transcode):
+                        return .progressiveTranscode(ProgressiveStreamConfig(
+                            streamRequest: URLRequest(url: try XCTUnwrap(URL(string: "https://pms.test/transcode/\(track.id)"))),
+                            ratingKey: track.id, estimatedContentLength: 1_024,
+                            metadataDuration: track.duration, startTime: transcode.startTime
+                        ))
+                    }
+                },
+                refreshConnection: {},
+                shouldRetryStreamURLRequest: { _ in false },
+                mapToPlaybackError: { .unknown($0) }
+            ),
+            streamingQuality: { quality },
+            downloadQuality: { "original" },
+            artifactCache: cache,
+            streamSessionConfiguration: session
+        )
+    }
+
     func testResolveAudioFileUsesPreparedLocalFileWithoutServerCalls() async throws {
         let tempDir = FileManager.default.temporaryDirectory
         let localURL = tempDir.appendingPathComponent("transport-local-\(UUID().uuidString).mp3")
@@ -58,7 +262,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in _ = ensureCalls.increment() },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { _, _, _ in XCTFail("should not request stream decision"); throw PlexAPIError.invalidURL },
+                makeStreamDecision: { _, _, _, _ in XCTFail("should not request stream decision"); throw PlexAPIError.invalidURL },
                 assembleStreamResolution: { _, _ in XCTFail("should not assemble resolution"); throw PlexAPIError.invalidURL },
                 refreshConnection: { XCTFail("should not refresh connection") },
                 shouldRetryStreamURLRequest: { _ in false },
@@ -97,7 +301,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in _ = ensureCalls.increment() },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { _, _, _ in XCTFail("should not request stream decision"); throw PlexAPIError.invalidURL },
+                makeStreamDecision: { _, _, _, _ in XCTFail("should not request stream decision"); throw PlexAPIError.invalidURL },
                 assembleStreamResolution: { _, _ in XCTFail("should not assemble resolution"); throw PlexAPIError.invalidURL },
                 refreshConnection: { XCTFail("should not refresh connection") },
                 shouldRetryStreamURLRequest: { _ in false },
@@ -142,7 +346,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                         if !streamAvailable { throw PlexAPIError.invalidURL }
                     },
                     serverFailureMessage: { _ in nil },
-                    makeStreamDecision: { _, quality, _ in
+                    makeStreamDecision: { _, quality, _, _ in
                         XCTAssertEqual(quality, .high)
                         return .directStream(partKey: "/library/parts/quality/file.mp3")
                     },
@@ -196,7 +400,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                     isClearlyInvalidLocalPayload: { _ in false },
                     ensureServerConnection: { _ in _ = ensureCalls.increment() },
                     serverFailureMessage: { _ in nil },
-                    makeStreamDecision: { _, _, _ in
+                    makeStreamDecision: { _, _, _, _ in
                         XCTFail("should not request stream decision")
                         throw PlexAPIError.invalidURL
                     },
@@ -251,7 +455,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { _, _, _ in .directStream(partKey: "/library/parts/direct/file.mp3") },
+                makeStreamDecision: { _, _, _, _ in .directStream(partKey: "/library/parts/direct/file.mp3") },
                 assembleStreamResolution: { _, _ in .directStream(remoteURL) },
                 refreshConnection: {},
                 shouldRetryStreamURLRequest: { _ in false },
@@ -288,7 +492,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { _, _, _ in
+                makeStreamDecision: { _, _, _, _ in
                     .progressiveTranscode(TranscodeStreamDecision(
                         path: "/music/:/transcode/universal/start.mp3",
                         queryItems: [],
@@ -339,7 +543,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { _, _, startTime in
+                makeStreamDecision: { _, _, startTime, _ in
                     XCTAssertEqual(startTime, 184)
                     return .progressiveTranscode(TranscodeStreamDecision(
                         path: "/music/:/transcode/universal/start.mp3",
@@ -410,7 +614,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { _, _, _ in
+                makeStreamDecision: { _, _, _, _ in
                     _ = decisionCalls.increment()
                     return .directStream(partKey: "/library/parts/2/file.mp3")
                 },
@@ -464,7 +668,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { track, _, _ in
+                makeStreamDecision: { track, _, _, _ in
                     _ = decisionCalls.increment()
                     return .directStream(partKey: "/library/parts/\(track.sourceScopedID)/file.mp3")
                 },
@@ -668,7 +872,7 @@ private struct DirectRig {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { track, _, _ in .directStream(partKey: "/library/parts/\(track.id)/file.mp3") },
+                makeStreamDecision: { track, _, _, _ in .directStream(partKey: "/library/parts/\(track.id)/file.mp3") },
                 assembleStreamResolution: { track, _ in
                     .directStream(try XCTUnwrap(URL(string: "https://pms.test/library/parts/\(track.id)/file.mp3")))
                 },
@@ -722,6 +926,33 @@ private struct DirectRig {
         } catch is DirectDownloadBusy {
         } catch {
             XCTFail("unexpected error \(error)", file: file, line: line)
+        }
+    }
+}
+
+/// Serves a payload per request path, and a 404 for any other.
+private final class PayloadProtocol: URLProtocol {
+    nonisolated(unsafe) static var payloads: [String: Data] = [:]
+    override class func canInit(with _: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let data = Self.payloads[request.url?.path ?? ""]
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: data == nil ? 404 : 200, httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Length": "\(data?.count ?? 0)"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if let data { client?.urlProtocol(self, didLoad: data) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private extension PlaybackSource {
+    var artifactKeyForTesting: PlaybackArtifactKey? {
+        switch self {
+        case let .directHTTP(_, metadata), let .transcodedHTTP(_, metadata): metadata.artifactKey
+        case .localFile, .cachedFile: nil
         }
     }
 }

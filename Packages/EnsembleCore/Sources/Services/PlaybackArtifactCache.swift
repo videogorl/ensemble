@@ -17,6 +17,12 @@ struct PlaybackArtifactKey: Codable, Equatable, Sendable {
 
     var isCompleteTrack: Bool { startTime == 0 }
 
+    /// The quality part of a key. A forced transcode is never served as, or cached over, the
+    /// original or a transcode PMS chose itself, so the forcing is part of it.
+    static func requestedQuality(_ quality: StreamingQuality, forcedTranscode: Bool) -> String {
+        forcedTranscode ? "\(quality.rawValue)+forced" : quality.rawValue
+    }
+
     static func sourceFingerprint(for track: Track) -> String {
         let modified = track.dateModified.map { String($0.timeIntervalSince1970) } ?? "unknown"
         return "\(track.streamKey ?? track.key)|\(modified)|\(track.duration)"
@@ -30,6 +36,13 @@ struct PlaybackArtifactManifest: Codable, Equatable, Sendable {
     let expectedDuration: TimeInterval?
     let completedAt: Date
     var lastAccessedAt: Date
+    /// A direct original whose media was decoded start to end before it was registered. Entries from
+    /// before this check have none, and are not served.
+    var mediaVerified: Bool?
+
+    /// An unverified direct original is a miss: it may be damaged, and the next play streams it again
+    /// and decodes it before registering it.
+    var isServable: Bool { key.delivery != .direct || mediaVerified == true }
 }
 
 /// Persistent, purgeable playback artifacts. Download records and files remain
@@ -98,6 +111,7 @@ final class PlaybackArtifactCache: @unchecked Sendable {
                     && manifest.key.requestedQuality == requestedQuality
                     && manifest.key.isCompleteTrack
                     && (!requireDirect || manifest.key.delivery == .direct)
+                    && manifest.isServable
             })
             .max(by: { $0.lastAccessedAt < $1.lastAccessedAt })
         else { return nil }
@@ -126,6 +140,7 @@ final class PlaybackArtifactCache: @unchecked Sendable {
                 && manifest.key.requestedQuality == requestedQuality
                 && manifest.key.isCompleteTrack
                 && (!requireDirect || manifest.key.delivery == .direct)
+                && manifest.isServable
         }) else { return false }
         let fileURL = directory.appendingPathComponent(match.fileName)
         guard (try? fileSize(at: fileURL)) == match.byteCount else {
@@ -139,7 +154,8 @@ final class PlaybackArtifactCache: @unchecked Sendable {
     func recordCompleted(
         fileURL: URL,
         key: PlaybackArtifactKey,
-        expectedDuration: TimeInterval?
+        expectedDuration: TimeInterval?,
+        mediaVerified: Bool = false
     ) throws -> URL {
         guard key.isCompleteTrack else { return fileURL }
         Self.fileLock.lock()
@@ -159,8 +175,16 @@ final class PlaybackArtifactCache: @unchecked Sendable {
             byteCount: byteCount,
             expectedDuration: expectedDuration,
             completedAt: now,
-            lastAccessedAt: now
+            lastAccessedAt: now,
+            mediaVerified: mediaVerified
         ))
+        // A verified entry replaces any unverified one of the same key.
+        if mediaVerified {
+            for stale in loadValidManifestsLocked() ?? []
+            where stale.key == key && stale.fileName != fileURL.lastPathComponent && !stale.isServable {
+                removeArtifactLocked(fileURL: directory.appendingPathComponent(stale.fileName))
+            }
+        }
         Self.activePartialURLs.remove(fileURL.standardizedFileURL)
         trimLocked(keepingTrackIdentities: [key.trackIdentity])
         notifyChange()
