@@ -102,9 +102,6 @@ gain per unit of work. Sizes are S, M or L.
 - **Artwork has its own resolved-image cache beside Nuke's** (`ArtworkLoader.swift`, 988
   lines, M). Next step: check whether Nuke's pipeline cache can hold the resolved images
   while keeping stable identity, offline fallback and targeted invalidation.
-- **Siri AirPlay handoff polls the audio route every 250 ms** (`AppDelegate+Siri.swift:463`,
-  M). Next step: observe `AVAudioSession.routeChangeNotification` with one timeout; needs a
-  HomePod check on a physical phone.
 - **Toasts use a separate window** (`ToastView.swift`, 588 lines, M/L) so they appear above
   sheets (commit `405ecc4f`). A root `.overlay` is simpler but hides toasts behind a sheet.
   Low gain unless that behaviour is relaxed.
