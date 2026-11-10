@@ -224,10 +224,38 @@ final class PlaybackServiceFlowTests: XCTestCase {
         XCTAssertEqual(service.currentQueueIndex, 0)
         await service.stallRecoveryTask?.value
 
+        // A prefetch of this track took the decision first (the race): the played track reaching the
+        // damage still reloads as the transcode, it is not treated as invalid audio.
         service.playbackState = .playing
         service.recoverCurrentStream(after: ProgressiveStreamError.damagedOriginal(reason: "again"))
+        XCTAssertEqual(service.playbackState, .buffering)
         await service.stallRecoveryTask?.value
-        XCTAssertEqual(service.currentQueueIndex, 1, "damage after the fallback fails the item, which is skipped")
+        XCTAssertEqual(service.currentQueueIndex, 0, "the fallback reload is not a failure")
+        service.audioEngine?.stop()
+    }
+
+    /// Damage found while paused is taken before the refresh flag is set, so Play reloads the forced
+    /// transcode, and nothing starts meanwhile. The notice shows once per track.
+    func testDamageFoundWhilePausedMarksTheTrackAndTheNoticeShowsOnce() async throws {
+        let toasts = ToastCenter()
+        let service = await makeService(toastCenter: toasts)
+        let track = try makeTrack("p")
+        service.queue = [QueueItem(track: track)]
+        service.currentQueueIndex = 0
+        service.currentTrack = track
+        service.playbackState = .paused
+
+        service.handlePausedStreamFailure(ProgressiveStreamError.damagedOriginal(reason: "test"))
+        XCTAssertTrue(service.pausedStreamNeedsRefresh)
+        XCTAssertEqual(service.playbackState, .paused, "damage found while paused starts nothing")
+        XCTAssertTrue(service.transportCoordinator.hasFallenBackToTranscode(trackId: track.playbackIdentity))
+
+        service.noteReducedQuality(trackID: track.playbackIdentity)
+        XCTAssertEqual(toasts.currentToast?.title, "Playing at reduced quality")
+        XCTAssertFalse(toasts.currentToast?.message?.contains("damaged") ?? true, "the notice never says damaged")
+        toasts.dismissCurrent()
+        service.noteReducedQuality(trackID: track.playbackIdentity)
+        XCTAssertNil(toasts.currentToast, "the notice shows once per track")
         service.audioEngine?.stop()
     }
 

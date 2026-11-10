@@ -579,6 +579,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// The current session. See `beginSession()`.
     var sessionGeneration: UInt64 = 0
     var playbackPreparationShouldStart = true
+    /// Tracks the reduced-quality notice was shown for this session.
+    var reducedQualityNotifiedTrackIDs: Set<String> = []
     var appleMusicQueueMutationGeneration: UInt64 = 0
     /// Timestamps of recent handleQueueExhausted calls for rapid-advance rate limiting
     var queueExhaustedTimestamps: [Date] = []
@@ -800,7 +802,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         engine.onStreamingPipelineCreated = { [weak self] pipeline, metadata in
             self?.transportCoordinator.registerDirectDownload(pipeline, metadata: metadata)
             pipeline.onDamageFound = { [weak self] error in
-                PlaybackJourneyLogger.mark("damagedOriginalFound", trackId: metadata.trackId, detail: error.localizedDescription)
+                PlaybackJourneyLogger.mark("originalFlagged", trackId: metadata.trackId, detail: error.localizedDescription)
                 self?.transportCoordinator.markOriginalDamaged(trackId: metadata.trackId)
             }
         }

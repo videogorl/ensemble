@@ -31,6 +31,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         let cases: [(name: String, error: Error, falls: Bool)] = [
             ("damaged original", damaged, true),
             ("damage inside a wrapped playback error", PlaybackError.unknown(damaged), true),
+            ("an original that cannot be streamed", ProgressiveStreamError.unstreamableOriginal(reason: "test"), true),
             ("network error", URLError(.networkConnectionLost), false),
             ("timeout", URLError(.timedOut), false),
             ("Plex refuses the file (400)", ProgressiveStreamError.httpError(statusCode: 400, bodySnippet: nil), false),
@@ -41,8 +42,8 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
             let coordinator = makeFallbackCoordinator()
             XCTAssertEqual(coordinator.fallBackToTranscode(after: item.error, trackId: "t"), item.falls, item.name)
             XCTAssertEqual(coordinator.hasFallenBackToTranscode(trackId: "t"), item.falls, item.name)
-            // The fallback never repeats for one track, so it never loops.
-            XCTAssertFalse(coordinator.fallBackToTranscode(after: damaged, trackId: "t") && item.falls, item.name)
+            // The decision is idempotent: a prefetch and the played track that adopted its download can both take it.
+            XCTAssertEqual(coordinator.fallBackToTranscode(after: damaged, trackId: "t"), true, item.name)
         }
     }
 
@@ -93,7 +94,8 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         let damage = ProgressiveStreamError.damagedOriginal(reason: "x")
         XCTAssertTrue(coordinator.fallBackToTranscode(after: damage, trackId: track.playbackIdentity))
         XCTAssertEqual(coordinator.fallbackStatus(trackId: track.playbackIdentity), "forced")
-        XCTAssertFalse(coordinator.fallBackToTranscode(after: damage, trackId: track.playbackIdentity))
+        // A prefetch took the decision first: the played track that reaches the damage still falls back.
+        XCTAssertTrue(coordinator.fallBackToTranscode(after: damage, trackId: track.playbackIdentity))
     }
 
     /// A forced transcode is never served as the cached original, and the original never as it.

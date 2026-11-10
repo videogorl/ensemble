@@ -104,16 +104,16 @@ extension PlaybackService {
         let now = streamRecoveryClock()
         let known = streamRecovery?.itemID == itemID ? streamRecovery : nil
         let startedAt = known?.startedAt ?? now
-        // Invalid audio fails at once. A damaged original falls back once, to a transcode: the
-        // reload below resolves to it. A second damage, or any other media failure, fails.
+        // Invalid audio fails at once. A damaged or unstreamable original falls back to a transcode:
+        // the reload below resolves to it.
         var isInvalidAudio = false
         switch error as? ProgressiveStreamError {
         case .invalidPayload?:
             isInvalidAudio = true
-        case .damagedOriginal?:
-            isInvalidAudio = currentTrack.map {
-                !transportCoordinator.fallBackToTranscode(after: error, trackId: $0.playbackIdentity)
-            } ?? true
+        case .damagedOriginal?, .unstreamableOriginal?:
+            isInvalidAudio = !(currentTrack.map {
+                transportCoordinator.fallBackToTranscode(after: error, trackId: $0.playbackIdentity)
+            } ?? false)
         default:
             break
         }
@@ -524,8 +524,7 @@ extension PlaybackService {
     @MainActor
     func handleEngineFailure(_ error: Error, session: PlaybackSessionID) {
         if audioEngine?.isStreamingSourceActive == true, playbackState == .paused {
-            EnsembleLogger.playback("ENGINE: paused stream failed -- refreshing on Play (\(error.localizedDescription))")
-            pausedStreamNeedsRefresh = true
+            handlePausedStreamFailure(error)
             return
         }
         if audioEngine?.isStreamingSourceActive == true,
@@ -537,6 +536,17 @@ extension PlaybackService {
         guard playbackState == .playing || playbackState == .loading,
               stallRecoveryTask == nil, let binding = currentRetryBinding else { return }
         scheduleItemFailure(error, binding: binding)
+    }
+
+    /// A stream that fails while paused is refreshed by Play, never started by the failure. A damaged or
+    /// unstreamable original is marked first, so that reload is the forced transcode.
+    @MainActor
+    func handlePausedStreamFailure(_ error: Error) {
+        EnsembleLogger.playback("ENGINE: paused stream failed -- refreshing on Play (\(error.localizedDescription))")
+        if let track = currentTrack {
+            _ = transportCoordinator.fallBackToTranscode(after: error, trackId: track.playbackIdentity)
+        }
+        pausedStreamNeedsRefresh = true
     }
 
     enum ItemFailureResponse: Equatable {
@@ -638,17 +648,18 @@ extension PlaybackService {
         public var automationToastTitle: String? { toastCenter?.currentToast?.title }
     #endif
 
-    /// Tells the user, quietly, that a track whose original is damaged is playing as a transcode.
+    /// Tells the user, quietly and once per track, that a track whose original cannot be played as it is
+    /// plays as a transcode.
     @MainActor
     func noteReducedQuality(trackID: String?) {
-        guard let trackID, transportCoordinator.hasFallenBackToTranscode(trackId: trackID) else { return }
+        guard let trackID, transportCoordinator.hasFallenBackToTranscode(trackId: trackID),
+              reducedQualityNotifiedTrackIDs.insert(trackID).inserted else { return }
         toastCenter?.show(ToastPayload(
             style: .info,
             iconSystemName: "exclamationmark.circle",
             title: "Playing at reduced quality",
-            message: "The original file is damaged, so a lower-quality copy is playing.",
-            duration: 4,
-            dedupeKey: "reduced-quality-\(trackID)"
+            message: "This file can't be played at its original quality.",
+            duration: 4
         ))
     }
 

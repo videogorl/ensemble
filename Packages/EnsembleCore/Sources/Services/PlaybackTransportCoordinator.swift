@@ -39,7 +39,7 @@ final class PlaybackTransportCoordinator {
     /// Tracks whose original was found damaged. They resolve to a forced transcode, a quality below
     /// the original, and never back to the original.
     private var transcodeFallbackTrackIDs: Set<String> = []
-    /// Tracks whose playing original has already fallen back. A track falls back once.
+    /// Tracks whose fallback decision was taken (for the automation probe).
     private var spentFallbackTrackIDs: Set<String> = []
     /// Plex ends a client's direct download when it requests another direct file, so one
     /// direct download runs per server at a time: the one in flight, by server and track. An
@@ -137,20 +137,24 @@ final class PlaybackTransportCoordinator {
         }
     }
 
-    /// The one fallback decision, for a played or a prefetched track: true when `error` is damage in
-    /// the track's original and it has not fallen back yet. The track then resolves to a forced
-    /// transcode. Network errors, HTTP statuses, a transcode's own failure, and a second damage
-    /// all return false and fail as they would without a fallback.
+    /// The one fallback decision, for a played or a prefetched track: true when `error` says the track's
+    /// original is damaged or cannot be streamed. The track then resolves to a forced transcode. The
+    /// decision is idempotent, so a prefetch and the played track that adopted its download can both take
+    /// it. It cannot loop: only a direct original raises these errors and a fallen-back track never
+    /// resolves to one. Network errors, HTTP statuses and a transcode's own failure return false.
     func fallBackToTranscode(after error: Error, trackId: String) -> Bool {
-        guard case ProgressiveStreamError.damagedOriginal = PlaybackSessionStateMachine.underlyingError(error) else {
-            return false
+        switch PlaybackSessionStateMachine.underlyingError(error) {
+        case ProgressiveStreamError.damagedOriginal, ProgressiveStreamError.unstreamableOriginal: break
+        default: return false
         }
         return withLock {
-            guard spentFallbackTrackIDs.insert(trackId).inserted else { return false }
-            PlaybackJourneyLogger.mark("damagedOriginalFallback", trackId: trackId, detail: error.localizedDescription)
+            let isFirst = spentFallbackTrackIDs.insert(trackId).inserted
             transcodeFallbackTrackIDs.insert(trackId)
-            cachedStreamDecisions.removeValue(forKey: trackId)
-            preparedStreams.removeValue(forKey: trackId)?.pipeline.cancel()
+            if isFirst {
+                PlaybackJourneyLogger.mark("originalFallback", trackId: trackId, detail: error.localizedDescription)
+                cachedStreamDecisions.removeValue(forKey: trackId)
+                preparedStreams.removeValue(forKey: trackId)?.pipeline.cancel()
+            }
             return true
         }
     }

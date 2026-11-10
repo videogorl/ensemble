@@ -443,7 +443,7 @@ extension PlaybackService {
         // A damaged original falls back once to a transcode, from where it stopped. Network
         // errors, HTTP statuses and a transcode's own failures never do.
         if let lastError, transportCoordinator.fallBackToTranscode(after: lastError, trackId: trackIdentity) {
-            EnsembleLogger.playback("TRACK: original damaged at startup -- falling back to a transcode (\(lastError.localizedDescription))")
+            EnsembleLogger.playback("TRACK: original cannot be played as it is -- falling back to a transcode (\(lastError.localizedDescription))")
             endTrackTransitionBackgroundTask(for: requestGeneration)
             await playCurrentQueueItem(
                 forcingFreshItem: true,
@@ -691,7 +691,10 @@ extension PlaybackService {
         do {
             return try await resolveAudioFile(for: track, shouldContinue: shouldContinue)
         } catch where transportCoordinator.fallBackToTranscode(after: error, trackId: track.playbackIdentity) {
-            EnsembleLogger.debug("[prefetch] Original of '\(track.title)' is damaged -- fetching a transcode (\(error.localizedDescription))")
+            // The played track may have taken the same decision from the same download: a stale prefetch
+            // does not go on to fetch the transcode.
+            guard await shouldContinue() else { throw CancellationError() }
+            EnsembleLogger.debug("[prefetch] Original of '\(track.title)' cannot be played as it is -- fetching a transcode (\(error.localizedDescription))")
             return try await resolveAudioFile(for: track, shouldContinue: shouldContinue)
         }
     }
@@ -720,7 +723,7 @@ extension PlaybackService {
                 return .serverUnavailable(message: "Server returned HTTP \(code)")
             case .invalidPayload:
                 return .serverUnavailable(message: "Server returned invalid audio data")
-            case .damagedOriginal:
+            case .damagedOriginal, .unstreamableOriginal:
                 return .unknown(streamError)
             }
         }
