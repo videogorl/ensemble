@@ -97,7 +97,7 @@ final class QueueItemCell: UITableViewCell {
         with item: QueueItem,
         content: TrackRowContent,
         artworkLoader: ArtworkLoaderProtocol,
-        contextMenu: UIMenu?
+        contextMenu: @escaping () -> UIMenu?
     ) {
         titleLabel.text = content.title
         subtitleLabel.text = content.subtitle
@@ -108,8 +108,11 @@ final class QueueItemCell: UITableViewCell {
         autoplayIndicator.isHidden = !isAutoplay
         autoplayWidthConstraint?.constant = isAutoplay ? TrackListLayoutMetrics.queueGeneratedBadgeDimension : 0
 
-        contextMenuButton.menu = contextMenu
-        contextMenuButton.isHidden = contextMenu == nil
+        // Resolved when the menu opens: a drag reorder moves cells without reconfiguring them.
+        contextMenuButton.menu = UIMenu(children: [
+            UIDeferredMenuElement.uncached { completion in completion(contextMenu()?.children ?? []) }
+        ])
+        contextMenuButton.isHidden = contextMenu() == nil
 
         artwork.show(item.track, artworkLoader: artworkLoader) { [weak artworkImageView] image in
             artworkImageView?.image = image
@@ -441,7 +444,7 @@ public struct QueueTableView: UIViewRepresentable {
                 with: item,
                 content: TrackRowContent(queueTrack: item.track),
                 artworkLoader: artworkLoader,
-                contextMenu: contextMenu(for: item.track, absoluteIndex: absoluteQueueIndex(for: indexPath))
+                contextMenu: { [weak self] in self?.contextMenu(forItemId: item.id) }
             )
             return cell
         }
@@ -544,24 +547,26 @@ public struct QueueTableView: UIViewRepresentable {
             }
 
             guard let item = item(at: indexPath) else { return nil }
-            let absoluteIndex = absoluteQueueIndex(for: indexPath)
-            if !isHistorySection(section), absoluteIndex == nil {
+            if !isHistorySection(section), absoluteQueueIndex(for: indexPath) == nil {
                 return nil
             }
             
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-                self?.contextMenu(for: item.track, absoluteIndex: absoluteIndex)
+                self?.contextMenu(forItemId: item.id)
             }
         }
 
-        func contextMenu(for track: Track, absoluteIndex: Int?) -> UIMenu? {
+        /// Builds the menu for a row from the current queue, so it stays correct after local reorders.
+        func contextMenu(forItemId itemId: String) -> UIMenu? {
+            let queueIndex = showHistory ? nil : queueItems.firstIndex(where: { $0.id == itemId })
+            guard let track = (sections.lazy.flatMap(\.items).first { $0.id == itemId })?.track else { return nil }
             let resolvedActions = interactionModel.resolve(for: track)
 
             return NativeMediaTableActionBuilder.contextMenu(
                 for: track,
                 resolvedActions: resolvedActions,
-                context: absoluteIndex == nil ? .history : .queue(canRemove: true),
-                onRemoveFromQueue: absoluteIndex.map { index in
+                context: queueIndex == nil ? .history : .queue(canRemove: true),
+                onRemoveFromQueue: queueIndex.map { index in
                     { [weak self] in
                         self?.onRemoveFromQueue(index)
                     }
