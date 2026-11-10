@@ -224,6 +224,9 @@ extension PlaybackService {
             return
         }
         let requestBinding = RetryBinding(generation: requestGeneration, itemID: queue[currentQueueIndex].id)
+        // Some callers move the index without setting the track, which happens only after the
+        // lookup below; a load cancelled during it must still end the previous item's markers.
+        reconcileItemFailureMarkers()
 
         #if os(iOS)
             if #available(iOS 18, *), queue[currentQueueIndex].track.isAppleMusic {

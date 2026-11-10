@@ -505,6 +505,35 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.audioEngine?.stop()
     }
 
+    /// Selecting another queue item ends the failure-skip mark even when Pause cancels that
+    /// item's load during its download lookup, before its track is shown.
+    func testSelectionCancelledDuringItsLookupStillEndsTheFailureSkipMark() async throws {
+        let service = await makeService()
+        let tracks = try ["a", "b", "c"].map { try makeTrack($0) }
+        service.queue = tracks.map { QueueItem(track: $0) }
+        service.currentQueueIndex = 1
+        service.currentTrack = tracks[1]
+        service.failureSkipItemID = service.queue[1].id
+        service.playbackState = .loading
+        service.playbackPreparationShouldStart = true
+
+        let selection = Task { await service.playQueueIndex(0) }
+        while service.currentQueueIndex != 0 { await Task.yield() }
+        service.pauseInternally(source: .user)
+        await selection.value
+        XCTAssertEqual(service.currentTrack?.id, "b", "a's load was cancelled before its track showed")
+        XCTAssertNil(service.failureSkipItemID, "a became current")
+
+        service.navigateToNextQueueItemWhilePaused()
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(service.currentQueueIndex, 1)
+        service.playbackState = .playing
+        service.playbackPreparationShouldStart = true
+        await service.handleItemFailure("b failed", binding: service.currentRetryBinding!, cause: nil)
+        XCTAssertEqual(service.currentQueueIndex, 2, "b's first failure in the new listen skips")
+        service.audioEngine?.stop()
+    }
+
     // MARK: - Harness
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"
