@@ -568,6 +568,9 @@ struct MediaTrackList: UIViewRepresentable {
 
         let newState = makeState()
         let change = TrackListChange.between(coordinator.state, newState)
+        if change != .none {
+            EnsembleLogger.debug("Track table \(change) (\(newState.rows.sections.count) sections)")
+        }
         let selectedRowIdentity = tableView.indexPathForSelectedRow
             .flatMap { coordinator.track(at: $0)?.playbackIdentity }
 

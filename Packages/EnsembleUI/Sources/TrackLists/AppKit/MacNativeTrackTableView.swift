@@ -81,6 +81,9 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         let coordinator = context.coordinator
         let newState = makeState()
         let change = TrackListChange.between(coordinator.state, newState)
+        if change != .none {
+            EnsembleLogger.debug("Track table \(change) (\(newState.rows.sections.count) sections)")
+        }
         coordinator.state = newState
         coordinator.configuration = configuration
         // Hosted cells are separate SwiftUI roots and do not inherit the environment.
