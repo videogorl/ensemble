@@ -256,7 +256,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public internal(set) var currentTrack: Track? {
         get { snapshot.currentTrack }
-        set { snapshot.currentTrack = newValue }
+        set {
+            snapshot.currentTrack = newValue
+            // Every path that makes another item current sets its track after its index.
+            reconcileItemFailureMarkers()
+        }
     }
     public internal(set) var playbackState: PlaybackState {
         get { snapshot.playbackState }

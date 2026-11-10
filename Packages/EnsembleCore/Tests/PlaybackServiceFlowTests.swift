@@ -450,6 +450,32 @@ final class PlaybackServiceFlowTests: XCTestCase {
         }
     }
 
+    /// The failure-skip mark ends when another item becomes current, even if that item's load is
+    /// cancelled before it runs: returning to the marked item is a new listen.
+    func testCancelledNavigationAwayStillEndsTheFailureSkipMark() async throws {
+        let service = await makeService()
+        let tracks = try ["a", "b", "c"].map { try makeTrack($0) }
+        service.queue = tracks.map { QueueItem(track: $0) }
+        service.currentQueueIndex = 1
+        service.currentTrack = tracks[1]
+        service.failureSkipItemID = service.queue[1].id
+        service.playbackState = .playing
+        service.playbackPreparationShouldStart = true
+
+        service.navigateToPreviousQueueItemWhilePlaying(at: 0)
+        service.pauseInternally(source: .user)
+        XCTAssertNil(service.failureSkipItemID, "a became current")
+
+        service.navigateToNextQueueItemWhilePaused()
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(service.currentQueueIndex, 1)
+        service.playbackState = .playing
+        service.playbackPreparationShouldStart = true
+        await service.handleItemFailure("b failed", binding: service.currentRetryBinding!, cause: nil)
+        XCTAssertEqual(service.currentQueueIndex, 2, "b's first failure in the new listen skips")
+        service.audioEngine?.stop()
+    }
+
     // MARK: - Harness
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"

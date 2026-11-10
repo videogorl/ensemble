@@ -717,7 +717,6 @@ extension PlaybackService {
 
         currentQueueIndex = index
         currentTrack = queue[index].track
-        reconcileItemFailureMarkers()
         updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 0
         playbackState = .paused

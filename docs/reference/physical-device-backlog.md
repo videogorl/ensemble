@@ -143,7 +143,8 @@ about 22:50 on 2026-11-09 and now decode cleanly.
 - A track reached by a skip that plays a few seconds and then fails halts
   with Retry instead of skipping on, also after removing an earlier queue
   track or toggling shuffle. Pause, Next, then Previous back to it and Play:
-  a failure now skips again.
+  a failure now skips again, also after Previous then an immediate Pause and
+  Next back to it.
 - Recovery follows the user: drop the network mid-stream, then press Next
   (the next track starts at 0:00) or Pause (stays paused; Play resumes from
   the same spot). A failure while paused starts nothing.
