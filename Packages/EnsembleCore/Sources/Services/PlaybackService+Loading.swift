@@ -440,9 +440,6 @@ extension PlaybackService {
             return
         }
 
-        // A reload of a stream that was playing stays in its recovery window: a network failure
-        // while resolving or starting it is another failure of the same recovery, not a failed
-        // first load, so the window (not the two attempts above) decides when the item fails.
         // A damaged original falls back once to a transcode, from where it stopped. Network
         // errors, HTTP statuses and a transcode's own failures never do.
         if let lastError, transportCoordinator.fallBackToTranscode(after: lastError, trackId: trackIdentity) {
@@ -458,6 +455,9 @@ extension PlaybackService {
             return
         }
 
+        // A reload of a stream that was playing stays in its recovery window: a network failure
+        // while resolving or starting it is another failure of the same recovery, not a failed
+        // first load, so the window (not the two attempts above) decides when the item fails.
         if let recoverySlotRelease, let lastError,
            PlaybackSessionStateMachine.isServerUnreachable(lastError)
             || PlaybackSessionStateMachine.isRecoverableNetworkFailure(lastError) {
