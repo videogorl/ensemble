@@ -1,6 +1,7 @@
 # Web client and CloudKit settings design
 
-Status: proposal, awaiting Felicity's approval. Written 2026-11-10 against
+Status: planning. Felicity approved decisions 1 to 3 on 2026-11-10 (section 8);
+no implementation until she says to start. Written 2026-11-10 against
 `402c9c03` on `develop`. Not part of the rearchitecture plan; schedule it
 after step 3 closes (section 7).
 
@@ -101,6 +102,37 @@ overwrite) a newer major version.
 - An empty value is written as an explicit empty payload (for pins, `[]`),
   never as a deleted record. A missing record means "not migrated yet", and a
   failed fetch means "unknown". Neither one ever clears local data.
+
+### 3.4 Synced sources list
+
+So a new device or the web app can show which sources the user has and which
+still need signing in, add one more `SyncedSetting`:
+`ensemble.sync.sources`, a JSON array with one entry per source:
+
+| Field | Meaning |
+|---|---|
+| `serverSourceKey` | `provider:accountID:serverID`, the existing `EnsembleSourceScope` key |
+| `provider` | `plex` or `appleMusic` |
+| `accountDisplayName` | What the account row shows, e.g. the Plex username |
+| `serverName` | The server's display name, when the provider has servers |
+| `addedAt` | When the source was added |
+| `removedAt` | Set when the user removes it; `null` while active |
+
+It holds no tokens or credentials. Sign-in always happens on the device.
+
+Behavior:
+
+- Settings shows every listed source with its state on this device:
+  signed in, or a **Sign in** button that starts that provider's flow
+  (Plex PIN sign-in, prefilled for the account where Plex allows it, or
+  MusicKit authorization for Apple Music). After sign-in the device matches
+  the result to the entry by account ID.
+- Only an explicit removal by the user sets `removedAt`. A device that is
+  not signed in to a source, or fails to reach it, never removes it. Entries
+  merge per `serverSourceKey`, newest change wins, like library flags.
+- On native, Plex accounts already arrive through iCloud Keychain, so the
+  list mostly helps the web app and Apple Music, which is authorized per
+  device.
 
 ## 4. Native migration
 
@@ -216,11 +248,18 @@ while the native app stays private, or if it gets a different owner.
 3. Later: gapless playback, live setting updates, home-screen install,
    limited offline caching.
 
-## 8. Decisions for Felicity
+## 8. Decisions
 
-1. Approve moving the key-value settings to a CloudKit custom zone (section 3)?
-2. Approve `CKSyncEngine` as the transport, with fetch-by-ID as the fallback?
-3. Same repository, `web/` folder?
-4. Web UI framework: React (largest ecosystem) or Svelte (smallest bundle,
-   least code). Recommendation: Svelte.
-5. Domain for the web app; it is needed for the CloudKit token's allowed origins.
+Still planning; nothing is implemented. Answers from Felicity on 2026-11-10:
+
+1. Move the key-value settings to a CloudKit custom zone: **yes**, plus the
+   synced sources list in section 3.4.
+2. `CKSyncEngine` as the transport: **yes**. Today Ensemble uses no sync
+   engine: two records go through hand-written `CKDatabase` fetch and save
+   calls with a `CKDatabaseSubscription`, and the six settings go through
+   `NSUbiquitousKeyValueStore`.
+3. Same repository, `web/` folder: **yes**.
+4. Web UI framework: open. Recommendation: Svelte. Apple Music's own web app
+   (music.apple.com) is built with Svelte; checked 2026-11-10 by its served
+   HTML, which carries thousands of Svelte-scoped class names.
+5. Domain: open. Candidate: `app.ensemble.videogorl.me`.
