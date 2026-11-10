@@ -36,18 +36,56 @@ An entry does not authorize the work; Felicity picks what gets done.
 - Next step: rerun on an idle Mac to separate load from real defects; widen the 1 s waits to
   event-based waits with a long timeout.
 
-## Suspected: an incremental track delta can blank a track's genre until the next full pass (2026-11-10)
+## Confirmed: a sync can overwrite a rating or favourite whose upload is still queued (2026-11-10)
 
-- Evidence (read, not reproduced): `PlexConnector.fetchChangedLibrary` takes a delta track's genre
-  from `albumGenres`, which holds only albums changed in the same delta; for a track whose album is
-  unchanged `genreNames` is nil, and `batchUpsertTracks` assigns `track.genreNames = input.genreNames`
-  unconditionally (`LibraryRepository+SyncMetadata.swift`), so the delta writes nil over the stored
-  genre. The same code existed before step 3b (`syncLibraryIncremental`); the 24-hour full-metadata
-  pass writes the genre back.
-- Impact: a track edited on the server (rating, title) can lose its genre in Genres until the next
-  full-metadata pass (every launch today, since launch deletes the library cursor).
-- Next step: reproduce with one disposable track edit on a test server, then take the genre from the
-  stored album when the album is not in the delta (`StoredLibrary.albums[..].genreNames`).
+- Evidence (read): `batchUpsertTracks` assigns `track.rating = Int16(input.rating ?? 0)`
+  (`LibraryRepository+SyncMetadata.swift:680`) without consulting `CDPendingMutation`.
+- Scenario: the user favourites a track offline. `TrackRatingLocalStore` writes the local rating and
+  queues a `trackRating` mutation (`TrackRatingMutationPayload`). A sync then fetches the server's
+  rating (0) and `LibraryWriter.writeRows` writes it over the local value until the queued mutation
+  uploads and a later sync reads it back.
+- Impact: the favourite flickers off, or is lost if the upload fails permanently. Not new in 3b.
+- Fix sketch (over the 40-line budget: the writer has no mutation-queue dependency): inject
+  `PendingMutationRepositoryProtocol` into `LibraryWriter`, decode pending `.trackRating` payloads for
+  the source in `writeRows`, and replace `rating`/`lastRatedAt` in matching inputs with the stored
+  values before the `matches` filter. One test: queue a rating, apply a batch with rating 0, expect
+  the stored rating kept.
+
+## Confirmed: the full library fetch and the single all-track write are unbounded (2026-11-10)
+
+- Evidence (read): `PlexConnector.fetchFullLibrary` (`PlexConnector.swift:337`) holds every artist,
+  album and track of a source, twice when the confirming read runs, and `LibraryWriter.writeRows`
+  (`LibraryWriter.swift:227`) writes them in one batch. The write predates 3b; fetching everything
+  before writing adds peak memory. Unmeasured for a 100,000-track library on a phone (the largest
+  source measured is 9,696 tracks).
+- Next step: measure peak memory on the iPhone with a synthetic large source, then chunk
+  `writeRows` by entity page if it is high.
+
+## Suspected: `applyChanges` has no stale guard (2026-11-10)
+
+- Evidence (read): `LibraryWriter.applyChanges` (`LibraryWriter.swift:195`) writes without the
+  `lastSuccessfulSyncAt` check that `apply` has; it relies on the coordinator running one pass per
+  source at a time.
+- Impact: none while that serialisation holds; a delta older than a committed pass would overwrite
+  newer rows if it ever stops holding.
+- Next step: pass the query start with live deltas and apply the same guard.
+
+## Known limit: library rows commit before the cursor advances (2026-11-10)
+
+- Evidence (read): `LibraryWriter.apply` (`LibraryWriter.swift:157`) writes rows, deletions and each
+  cursor in separate transactions.
+- Impact: an interruption leaves committed rows with the old cursor. That is safe (the next pass
+  re-fetches and finds the rows unchanged) but repeats the work.
+- Next step: only if repeated work shows up in logs; one transaction would need a persistence API
+  that writes rows and cursor together.
+
+## Suspected: hidden entries pruned by a deletion do not return when the track reappears (2026-11-10)
+
+- Evidence (read): `LibraryWriter.removeMissing` (`LibraryWriter.swift:313`) calls
+  `HiddenMediaStore.removeMissing` for artists, albums and tracks the inventory no longer lists.
+  The entry is dropped, so an item that is removed and later added again is visible again.
+- Impact: a user-hidden item that is briefly absent from the server returns unhidden. Not new in 3b.
+- Next step: decide whether hiding should survive absence; if so, prune only after a grace period.
 
 ## Confirmed: excessive disk writes on the iPhone SE 2 (2026-08-10 report, noted 2026-11-10)
 

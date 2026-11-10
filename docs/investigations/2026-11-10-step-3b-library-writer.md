@@ -147,6 +147,28 @@ real row of one source, with rating keys the server has never had. Both builds
 removed all five on the startup sync and ended with a snapshot identical to the
 run without them (other sources untouched).
 
+## Review round: deletion-safety fixes
+
+- **Moved track after the delta read.** The repair compares each delta-fetched track's parent with
+  the inventory's parent and excludes it from repair only when they agree; the inventory wins.
+  Test: `PlexConnectorLibraryFetchTests.testATrackMovedAfterTheDeltaReadSurvivesItsOldAlbumsRemoval`
+  (fake server, real connector, writer and on-disk store).
+- **Confirming read.** The inventory used for deletion is the union of both reads' identifiers, so a
+  row is deleted only when both reads omit it; the second read's data is used for everything else.
+  Test: `testADeletionNeedsAbsenceFromBothInventoryReads`.
+- **Album to artist closure.** Chosen: the writer never deletes an artist that a stored album still
+  references (`removeMissing` keeps `inventory.artistIDs` plus the stored albums' artists). Validating
+  closure in the initializer cannot work because inventory-only album entries carry no parent, and
+  failing the sync would not protect rows either; keeping the artist cannot delete a listed row.
+  Test: `testAnArtistAStoredAlbumStillReferencesIsNeverDeleted`.
+- **Genre.** A delta track takes its genre from the stored album when the album is not in the delta.
+  Test: `testATrackOnlyDeltaKeepsTheStoredAlbumGenre`.
+- **No library protocol.** A connector conforming to neither library protocol now logs an error and
+  throws `providerUnavailable` instead of reporting success (removed in 3c).
+- **Not fixed, in `ON_DECK.md`:** a pending rating overwritten by sync (over the 40-line budget),
+  unbounded full fetch and write, no stale guard on `applyChanges`, rows committed before the cursor,
+  hidden entries pruned by a deletion.
+
 ## Verification
 
 - `swift test -q --package-path Packages/EnsemblePersistence`: 102 tests, 0 failures.
