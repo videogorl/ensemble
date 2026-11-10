@@ -9,7 +9,8 @@ struct DirectDownloadBusy: Error {}
 /// PlaybackService can delegate transport concerns without owning Plex endpoint details.
 final class PlaybackTransportCoordinator {
     /// How long a seek on an original waits for its download before taking an offset transcode.
-    var seekWaitLimit: TimeInterval = 10
+    /// Thirty seconds, like the stream recovery window: a 50 MB WAV takes about 14 s on the iPhone SE over Wi-Fi.
+    var seekWaitLimit: TimeInterval = 30
     struct Dependencies {
         let networkState: @Sendable () async -> NetworkState
         let preparedLocalPlaybackURL: @Sendable (String) -> URL
