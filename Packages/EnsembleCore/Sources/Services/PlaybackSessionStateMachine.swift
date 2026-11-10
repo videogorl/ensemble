@@ -75,11 +75,12 @@ enum PlaybackSessionStateMachine {
     }
 
     /// The device or server could not be reached, so the same request may work once it is
-    /// back. Media, delivery, and HTTP status failures are not.
+    /// back: the connectivity failures the health checker also classifies, DNS included.
+    /// Media, delivery, and HTTP status failures (401, 503) are not.
     static func isServerUnreachable(_ error: Error) -> Bool {
         if case PlaybackError.offline = error { return true }
         if case PlaybackError.serverUnavailable = error { return true }
-        return isRecoverableNetworkFailure(error)
+        return PlexErrorClassification.classify(underlyingError(error)) == .connectionFailure
     }
 
     static func isRecoverableNetworkFailure(_ error: Error) -> Bool {

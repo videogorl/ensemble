@@ -224,8 +224,9 @@ final class PlaybackServiceFlowTests: XCTestCase {
     func testHealthCheckRetriesOnlyAHaltCausedByAnUnreachableServer() async throws {
         let causes: [(String, Error, Bool)] = [
             ("delivery", ProgressiveStreamError.invalidPayload(bytesReceived: 300), false),
-            ("http", ProgressiveStreamError.httpError(statusCode: 404, bodySnippet: nil), false),
+            ("http", ProgressiveStreamError.httpError(statusCode: 503, bodySnippet: nil), false),
             ("server", URLError(.timedOut), true),
+            ("dns", URLError(.cannotFindHost), true),
         ]
         for (cause, error, retries) in causes {
             let service = await makeService()
