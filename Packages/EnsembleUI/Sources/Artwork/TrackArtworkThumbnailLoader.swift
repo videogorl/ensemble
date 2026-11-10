@@ -28,7 +28,7 @@ enum TrackArtworkThumbnailLoader {
         return isCurrent() ? resolved?.image : nil
     }
 
-    private static func request(for track: Track) -> ArtworkRequest {
+    static func request(for track: Track) -> ArtworkRequest {
         ArtworkRequest(track: track, tier: .thumbnail, priority: .low)
     }
 }
@@ -37,12 +37,21 @@ enum TrackArtworkThumbnailLoader {
 ///
 /// Each load takes a new generation; a load that finishes after the cell
 /// moved on (reuse, another track, artwork hidden) sees a newer generation
-/// and is dropped. Redrawing the track already shown requests nothing.
+/// and is dropped. Redrawing the track already shown requests nothing,
+/// unless its artwork changed.
 @MainActor
 final class TrackCellArtwork {
+    /// The track and the artwork it points at; a sync can change the artwork
+    /// of a track that keeps its identity.
+    private struct Shown: Equatable {
+        let trackIdentity: String
+        let artwork: ArtworkRequest.Identity?
+        let fallbackArtwork: ArtworkRequest.Identity?
+    }
+
     private var generation: UInt = 0
     private var task: Task<Void, Never>?
-    private var trackIdentity: String?
+    private var shown: Shown?
 
     /// Shows `track`'s thumbnail through `setImage`: a cached image at once,
     /// otherwise nil and then the loaded image.
@@ -51,10 +60,15 @@ final class TrackCellArtwork {
         artworkLoader: ArtworkLoaderProtocol,
         setImage: @escaping (PlatformImage?) -> Void
     ) {
-        let identity = track.playbackIdentity
-        guard identity != trackIdentity else { return }
+        let request = TrackArtworkThumbnailLoader.request(for: track)
+        let next = Shown(
+            trackIdentity: track.playbackIdentity,
+            artwork: request.identity,
+            fallbackArtwork: request.fallbackIdentity
+        )
+        guard next != shown else { return }
         reset()
-        trackIdentity = identity
+        shown = next
 
         let cached = TrackArtworkThumbnailLoader.cachedImage(for: track, artworkLoader: artworkLoader)
         setImage(cached)
@@ -76,14 +90,14 @@ final class TrackCellArtwork {
         generation &+= 1
         task?.cancel()
         task = nil
-        trackIdentity = nil
+        shown = nil
     }
 
     /// Forgets a track whose thumbnail never arrived, so the next `show`
     /// loads it again. False when the cell already has an image.
     func prepareRetry(hasImage: Bool) -> Bool {
         guard !hasImage else { return false }
-        trackIdentity = nil
+        shown = nil
         return true
     }
 }
