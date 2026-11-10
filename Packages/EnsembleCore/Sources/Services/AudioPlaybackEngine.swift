@@ -35,7 +35,7 @@ public final class AudioPlaybackEngine {
     var onStreamingRebufferingChanged: ((Bool, UInt64) -> Void)?
     private static let streamingLowReserveSeconds: TimeInterval = 3
     private static let streamingRecoveredReserveSeconds: TimeInterval = 8
-    private static let maximumRebufferSeconds: TimeInterval = 30
+    static let maximumRebufferSeconds: TimeInterval = 30
     private var streamingBufferPressure = false
     private var streamingRebufferStartedAt: TimeInterval?
     private var reportedStreamingStall = false

@@ -65,10 +65,11 @@ final class PlaybackServiceFlowTests: XCTestCase {
         XCTAssertEqual(service.currentQueueIndex, 1)
     }
 
-    /// A stream that keeps dropping after it loaded gets a bounded number of retries, then
-    /// the item-failure contract: skip once while playing, halt if the skipped-to item fails
-    /// too. Invalid audio data (e.g. a truncated transcode) fails the item without a retry.
-    func testRepeatedPostStartupStreamFailureIsBoundedThenFailsTheItem() async throws {
+    /// A stream that keeps dropping after it loaded is retried for the engine's 30 s no-audio
+    /// limit, however many times it drops, then the item-failure contract: skip once while
+    /// playing, halt if the skipped-to item fails too. Invalid audio data (e.g. a truncated
+    /// transcode) fails the item without a retry.
+    func testPostStartupStreamFailureIsRetriedForThirtySecondsThenFailsTheItem() async throws {
         let toasts = ToastCenter()
         let service = await makeService(toastCenter: toasts)
         let tracks = try ["a", "b", "c"].map { try makeTrack($0) }
@@ -83,12 +84,15 @@ final class PlaybackServiceFlowTests: XCTestCase {
             await service.stallRecoveryTask?.value
         }
 
-        for _ in 0 ..< PlaybackService.maxStreamRecoveryAttempts {
+        for _ in 0 ..< 5 {
+            service.playbackState = .playing
             await recover()
-            XCTAssertEqual(service.currentQueueIndex, 0, "a retry keeps the same item")
+            XCTAssertEqual(service.currentQueueIndex, 0, "drops inside the window keep retrying the same item")
         }
+        service.playbackState = .playing
+        service.streamRecovery?.startedAt -= AudioPlaybackEngine.maximumRebufferSeconds
         await recover()
-        XCTAssertEqual(service.currentQueueIndex, 1, "the spent budget fails the item, which is skipped")
+        XCTAssertEqual(service.currentQueueIndex, 1, "the spent window fails the item, which is skipped")
         XCTAssertEqual(toasts.currentToast?.title, "Skipped a")
         XCTAssertNil(toasts.currentToast?.action, "a skip offers no Retry")
 
@@ -104,6 +108,29 @@ final class PlaybackServiceFlowTests: XCTestCase {
         XCTAssertTrue(toasts.currentToast?.isPersistent == true)
         service.playbackState = .paused
         XCTAssertNil(toasts.currentToast, "leaving the failed state dismisses the halt toast")
+        service.audioEngine?.stop()
+    }
+
+    /// The retry holds the playback slot only until its reload's source starts, so a failure of
+    /// that source is a new recovery rather than dropped, and the finishing reload does not
+    /// clear the newer recovery's slot.
+    func testStreamRecoverySlotIsFreedOnceTheReloadStarts() async throws {
+        let service = await makeService()
+        let track = try makeTrack("a", seconds: 200)
+        service.queue = [QueueItem(track: track)]
+        service.currentQueueIndex = 0
+        service.currentTrack = track
+        service.playbackState = .playing
+        let failure = URLError(.networkConnectionLost)
+        service.recoverCurrentStream(after: failure)
+        let reload = try XCTUnwrap(service.stallRecoveryTask)
+        while service.stallRecoveryTask == reload { await Task.yield() }
+        service.playbackState = .playing
+        service.recoverCurrentStream(after: failure)
+        let second = try XCTUnwrap(service.stallRecoveryTask, "a failure after the reload started is not dropped")
+        await reload.value
+        XCTAssertEqual(service.stallRecoveryTask, second, "the first reload finishing leaves the newer slot alone")
+        await second.value
         service.audioEngine?.stop()
     }
 
@@ -242,7 +269,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
             service.playbackPreparationShouldStart = true
             // b was reached by skipping a, and its retries are spent.
             service.failureSkipItemID = service.queue[1].id
-            service.streamRecovery = (service.queue[1].id, PlaybackService.maxStreamRecoveryAttempts, 0)
+            service.streamRecovery = (service.queue[1].id, Self.spentRecoveryStart, 0)
             service.recoverCurrentStream(after: error)
             await service.stallRecoveryTask?.value
             guard case .failed = service.playbackState else {
@@ -371,7 +398,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.playbackState = .playing
         service.playbackPreparationShouldStart = true
         func failOnAnOutage() async {
-            service.streamRecovery = (service.queue[0].id, PlaybackService.maxStreamRecoveryAttempts, 0)
+            service.streamRecovery = (service.queue[0].id, Self.spentRecoveryStart, 0)
             service.recoverCurrentStream(after: URLError(.timedOut))
             await service.stallRecoveryTask?.value
         }
@@ -410,7 +437,7 @@ final class PlaybackServiceFlowTests: XCTestCase {
         let triggers: [(String, (PlaybackService) -> Void)] = [
             ("engine failure", { $0.handleEngineFailure(URLError(.badServerResponse), session: $0.activeEngineSession) }),
             ("spent stream retries", { service in
-                service.streamRecovery = (service.queue[0].id, PlaybackService.maxStreamRecoveryAttempts, 0)
+                service.streamRecovery = (service.queue[0].id, Self.spentRecoveryStart, 0)
                 service.recoverCurrentStream(after: URLError(.timedOut))
             }),
         ]
@@ -537,6 +564,8 @@ final class PlaybackServiceFlowTests: XCTestCase {
     // MARK: - Harness
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"
+
+    private static let spentRecoveryStart = ProcessInfo.processInfo.systemUptime - AudioPlaybackEngine.maximumRebufferSeconds
 
     private func makeService(toastCenter: ToastCenter? = nil) async -> PlaybackService {
         let accountManager = AccountManager(keychain: TestKeychain())

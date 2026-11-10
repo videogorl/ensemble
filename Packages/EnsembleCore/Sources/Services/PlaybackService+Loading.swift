@@ -188,7 +188,8 @@ extension PlaybackService {
         forcingFreshItem: Bool = false,
         seekTo startTime: TimeInterval? = nil,
         shouldStartPlayback: Bool = true,
-        caller: String = #function
+        caller: String = #function,
+        onSourceStart: (@MainActor () -> Void)? = nil
     ) async {
         #if os(iOS)
             appleMusicQueueMutationGeneration &+= 1
@@ -381,6 +382,7 @@ extension PlaybackService {
                 }
 
                 try Task.checkCancellation()
+                await MainActor.run { onSourceStart?() }
                 try await launchCoordinator.completeLaunch(
                     for: request.track,
                     source: source,
@@ -499,7 +501,8 @@ extension PlaybackService {
         forceConnectionRefresh: Bool,
         reason: String,
         shouldStartPlayback: Bool = true,
-        binding: RetryBinding? = nil
+        binding: RetryBinding? = nil,
+        onSourceStart: (@MainActor () -> Void)? = nil
     ) async {
         guard let track = currentTrack, let binding = binding ?? currentRetryBinding else { return }
 
@@ -549,7 +552,8 @@ extension PlaybackService {
             forcingFreshItem: true,
             seekTo: recoveryTime,
             shouldStartPlayback: shouldStartPlayback,
-            caller: "retryCurrentTrack(\(reason))"
+            caller: "retryCurrentTrack(\(reason))",
+            onSourceStart: onSourceStart
         )
     }
 

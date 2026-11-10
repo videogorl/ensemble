@@ -83,8 +83,9 @@ extension PlaybackService {
         currentQueueItemID.map { RetryBinding(generation: sessionGeneration, itemID: $0) }
     }
 
-    /// A stream that fails after it loaded is retried from where it stopped, at most
-    /// `maxStreamRecoveryAttempts` times per item; then the item fails (G11, G12).
+    /// A stream that fails after it loaded is retried from where it stopped for
+    /// `maximumRebufferSeconds` (the engine's no-audio limit) from its first failure, so a real
+    /// network switch does not skip a good track; then the item fails (G11, G12).
     /// Invalid audio data fails the item at once: the server sends the same bytes again,
     /// and a retry from an offset has no length for the short-transcode check to judge.
     @MainActor
@@ -95,29 +96,38 @@ extension PlaybackService {
         // A failed paused load is retried paused.
         let shouldStartPlayback = playbackState == .loading ? playbackPreparationShouldStart : true
 
-        let attempts = streamRecovery?.itemID == itemID ? streamRecovery?.attempts ?? 0 : 0
+        let now = ProcessInfo.processInfo.systemUptime
+        let startedAt = streamRecovery?.itemID == itemID ? streamRecovery?.startedAt ?? now : now
         var isInvalidAudio = false
         if case .invalidPayload? = error as? ProgressiveStreamError { isInvalidAudio = true }
-        guard !isInvalidAudio, attempts < Self.maxStreamRecoveryAttempts else {
+        guard !isInvalidAudio, now - startedAt < AudioPlaybackEngine.maximumRebufferSeconds else {
             streamRecovery = nil
             scheduleItemFailure(error, binding: binding)
             return
         }
-        streamRecovery = (itemID, attempts + 1, currentTime)
-        EnsembleLogger.playback("ENGINE: stream interrupted -- retrying from \(String(format: "%.1f", currentTime))s, attempt \(attempts + 1) (\(error.localizedDescription))")
+        streamRecovery = (itemID, startedAt, currentTime)
+        EnsembleLogger.playback("ENGINE: stream interrupted -- retrying from \(String(format: "%.1f", currentTime))s, \(String(format: "%.1f", now - startedAt))s into recovery (\(error.localizedDescription))")
         audioEngine?.pause()
         playbackState = .buffering
         updateNowPlayingInfo()
 
         stallRecoveryTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.stallRecoveryTask = nil }
+            var slotReleased = false
+            // Once released, the slot may hold a newer recovery that this task must not clear.
+            defer { if !slotReleased { self.stallRecoveryTask = nil } }
             guard self.currentRetryBinding == binding else { return }
             await self.retryCurrentTrack(
                 forceConnectionRefresh: false,
                 reason: "stream-interrupted",
                 shouldStartPlayback: shouldStartPlayback,
-                binding: binding
+                binding: binding,
+                onSourceStart: {
+                    // The reload's source is starting: a new failure of it is a new recovery,
+                    // not one to drop, and Pause no longer has a pending retry to cancel.
+                    slotReleased = true
+                    self.stallRecoveryTask = nil
+                }
             )
         }
     }
@@ -511,7 +521,7 @@ extension PlaybackService {
     func noteItemStarted() {
         tlsRefreshedItemID = nil
         if let itemID = healthRetriedItemID, streamRecovery == nil {
-            streamRecovery = (itemID, 0, currentTime)
+            streamRecovery = (itemID, ProcessInfo.processInfo.systemUptime, currentTime)
         }
     }
 

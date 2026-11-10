@@ -75,13 +75,6 @@ An entry does not authorize the work; Felicity picks what gets done.
 - Impact: wrong start position in playlists that repeat a track.
 - Next step: start playback from the tapped row's index, not a lookup by track id.
 
-## Suspected: playback slot held through a stream-retry reload (2026-11-09)
-
-- Evidence: read from the code during the playback failure work; same on `develop` before it.
-- Impact: unknown; may delay a user action that arrives during the reload.
-- Next step: fold into the stream drop recovery design
-  (`docs/investigations/2026-11-10-stream-drop-recovery-and-fallback.md`, in progress).
-
 ## Unchecked: gap above the Favorites header on Mac (2026-11-09)
 
 - Evidence: reported by a Mac check worker; not looked at again.
@@ -119,3 +112,9 @@ index and Siri route polling items are scheduled as one batch.
 
 Checked and left alone: the visible AirPlay control, artwork's persistent cache and retry
 rules, the Plex WebSocket polling fallback, and the size of `WatchRootView.swift`.
+
+## Suspected: flaky `NowPlayingArtworkProjectionTests` in the full EnsembleCore run (2026-11-10)
+
+- Evidence: `testProjectionUsesCachedArtworkImmediatelyAndSkipsReloadForRatingChanges` (`NowPlayingArtworkProjectionTests.swift:31`, `XCTAssertTrue`) failed in 2 of 3 whole-package `swift test -q` runs on the stream-retry branch and passed in the third, and in 3 of 3 runs of its own filter. Playback code is not involved; it looks order- or timing-dependent on shared artwork cache state.
+- Impact: a red full-suite run with no real regression.
+- Next step: run the package a few times with `--filter 'NowPlayingArtworkProjectionTests|Artwork'` to find the sibling test that leaves the cache populated.

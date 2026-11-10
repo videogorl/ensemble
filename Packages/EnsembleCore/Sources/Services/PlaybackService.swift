@@ -465,10 +465,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     var artworkPrefetchTask: Task<Void, Never>?
     var lastObservedNetworkState: NetworkState?
     var stallRecoveryTask: Task<Void, Never>?
-    /// Retries spent on the current item after its stream failed once loaded; reset once
+    /// When (system uptime) the current item's stream first failed once loaded; reset once
     /// playback advances `streamRecoveryProgressSeconds` past `fromTime`.
-    var streamRecovery: (itemID: String, attempts: Int, fromTime: TimeInterval)?
-    nonisolated static let maxStreamRecoveryAttempts = 2
+    var streamRecovery: (itemID: String, startedAt: TimeInterval, fromTime: TimeInterval)?
     nonisolated static let streamRecoveryProgressSeconds: TimeInterval = 5
     /// Tracks the in-progress next()/previous() transition task so it can be
     /// cancelled if the user presses next/previous again before it completes.
