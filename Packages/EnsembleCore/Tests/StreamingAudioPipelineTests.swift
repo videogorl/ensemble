@@ -331,6 +331,32 @@ final class StreamingAudioPipelineTests: XCTestCase {
         }
     }
 
+    /// A played original is decoded start to end when its download finishes, before it is registered: a
+    /// whole file is cached as verified; a damaged one is never cached, is reported once, and the audio
+    /// of its good part keeps playing.
+    func testFinishedOriginalIsVerifiedBeforeItIsCached() async throws {
+        let whole = try AudioFixtures.flac(seconds: 24)
+        let cache = PlaybackArtifactCache(
+            directory: FileManager.default.temporaryDirectory.appendingPathComponent("verify-cache-\(UUID().uuidString)"),
+            byteBudget: 1 << 26
+        )
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        for (name, payload, damaged) in [("whole", whole, false), ("truncated", Data(whole.prefix(whole.count / 4)), true)] {
+            let key = PlaybackArtifactKey(trackIdentity: "verify-\(name)", sourceFingerprint: "fp", requestedQuality: "original",
+                                          delivery: .direct, fileExtension: "flac", startTime: 0)
+            let result = try await run(
+                payload: payload, replies: [.ranged(dropAfter: nil)], duration: 24,
+                artifactKey: key, artifactCache: cache, fileExtension: "flac"
+            ) { _ in try await Task.sleep(nanoseconds: 1_500_000_000) }
+            XCTAssertEqual(result.damageFound, damaged, name)
+            XCTAssertGreaterThan(result.samples.count, 22_050, "\(name): the good part plays")
+            let cached = cache.completedArtifact(
+                trackIdentity: key.trackIdentity, sourceFingerprint: "fp", requestedQuality: "original", requireDirect: true
+            )
+            XCTAssertEqual(cached != nil, !damaged, "\(name): only a verified original is cached")
+        }
+    }
+
     /// Next, seek, Pause's refresh and a new play cancel the pipeline: a pending resume never starts.
     func testCancelDuringResumeStartsNoRequest() async throws {
         let wav = Self.wavFixture(seconds: 4)
@@ -350,6 +376,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
         var failure: Error?
         var completed: Bool
         var earlyEnd: Error?
+        var damageFound: Bool
     }
 
     /// Plays one stubbed stream the way the engine's render callback does, until it completes or fails.
@@ -390,6 +417,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
         pipeline.onFormatReady = { state.format = $0 }
         pipeline.onFailure = { state.failure = $0 }
         pipeline.onComplete = { _ in state.completed = true }
+        pipeline.onDamageFound = { _ in state.damageFound = true }
         pipeline.start()
         let during = Task { try await during?(pipeline) }
         defer { pipeline.cancel() }
@@ -415,7 +443,7 @@ final class StreamingAudioPipelineTests: XCTestCase {
         try await during.value
         return RunResult(
             samples: samples, requests: ScriptedURLProtocol.requests, failure: state.failure,
-            completed: state.completed, earlyEnd: pipeline.earlyEndError
+            completed: state.completed, earlyEnd: pipeline.earlyEndError, damageFound: state.damageFound
         )
     }
 
@@ -427,6 +455,8 @@ final class StreamingAudioPipelineTests: XCTestCase {
         var format: AVAudioFormat? { get { lock.lock(); defer { lock.unlock() }; return _format } set { lock.lock(); _format = newValue; lock.unlock() } }
         var failure: Error? { get { lock.lock(); defer { lock.unlock() }; return _failure } set { lock.lock(); _failure = newValue; lock.unlock() } }
         var completed: Bool { get { lock.lock(); defer { lock.unlock() }; return _completed } set { lock.lock(); _completed = newValue; lock.unlock() } }
+        var damageFound: Bool { get { lock.lock(); defer { lock.unlock() }; return _damageFound } set { lock.lock(); _damageFound = newValue; lock.unlock() } }
+        private var _damageFound = false
         var finished: Bool { failure != nil || completed }
     }
 

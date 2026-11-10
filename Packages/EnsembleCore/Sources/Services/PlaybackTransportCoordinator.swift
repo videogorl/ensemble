@@ -1,4 +1,3 @@
-import AVFoundation
 import EnsembleAPI
 import Foundation
 
@@ -38,8 +37,10 @@ final class PlaybackTransportCoordinator {
     }
     private var preparedStreams: [String: PreparedStream] = [:]
     /// Tracks whose original was found damaged. They resolve to a forced transcode, a quality below
-    /// the original, and never back to the original. A track falls back once.
+    /// the original, and never back to the original.
     private var transcodeFallbackTrackIDs: Set<String> = []
+    /// Tracks whose playing original has already fallen back. A track falls back once.
+    private var spentFallbackTrackIDs: Set<String> = []
     /// Plex ends a client's direct download when it requests another direct file, so one
     /// direct download runs per server at a time: the one in flight, by server and track. An
     /// entry without a pipeline is a reservation: a track about to play, or a prefetch being
@@ -127,6 +128,15 @@ final class PlaybackTransportCoordinator {
         throw PlaybackError.streamURLUnavailable
     }
 
+    /// A finished download proved the original damaged while its audio still plays from the good part.
+    /// Every later load of the track resolves to the forced transcode; the playing original is left alone.
+    func markOriginalDamaged(trackId: String) {
+        withLock {
+            transcodeFallbackTrackIDs.insert(trackId)
+            cachedStreamDecisions.removeValue(forKey: trackId)
+        }
+    }
+
     /// The one fallback decision, for a played or a prefetched track: true when `error` is damage in
     /// the track's original and it has not fallen back yet. The track then resolves to a forced
     /// transcode. Network errors, HTTP statuses, a transcode's own failure, and a second damage
@@ -136,11 +146,18 @@ final class PlaybackTransportCoordinator {
             return false
         }
         return withLock {
-            guard transcodeFallbackTrackIDs.insert(trackId).inserted else { return false }
+            guard spentFallbackTrackIDs.insert(trackId).inserted else { return false }
+            PlaybackJourneyLogger.mark("damagedOriginalFallback", trackId: trackId, detail: error.localizedDescription)
+            transcodeFallbackTrackIDs.insert(trackId)
             cachedStreamDecisions.removeValue(forKey: trackId)
             preparedStreams.removeValue(forKey: trackId)?.pipeline.cancel()
             return true
         }
+    }
+
+    /// For automation: "forced" once a fallback reload was made, "marked" once the damage is known.
+    func fallbackStatus(trackId: String) -> String {
+        withLock { spentFallbackTrackIDs.contains(trackId) ? "forced" : (transcodeFallbackTrackIDs.contains(trackId) ? "marked" : "") }
     }
 
     func hasFallenBackToTranscode(trackId: String) -> Bool {
@@ -546,41 +563,9 @@ final class PlaybackTransportCoordinator {
             }
             // The pipeline registers the validated artifact at network EOF, before
             // waking file consumers or handing completion to active playback.
-            let fileURL = try await pipeline.downloadedFile()
-            guard key.delivery == .direct else { return fileURL }
-            // A prefetched original is checked like a played one, and a damaged file leaves the cache.
-            do { try Self.verifyOriginalMedia(at: fileURL) } catch {
-                artifactCache.removeArtifact(at: fileURL)
-                throw error
-            }
-            return fileURL
+            // An original is decoded start to end first, so a damaged one raises the damage here.
+            return try await pipeline.downloadedFile()
         }
-    }
-
-    /// Decodes a downloaded original start to end: a decode error, or audio holding under half of the
-    /// length its own container states, is damage. Library metadata never judges it.
-    private static func verifyOriginalMedia(at fileURL: URL) throws {
-        func damaged(_ reason: String) -> Error { ProgressiveStreamError.damagedOriginal(reason: reason) }
-        let file: AVAudioFile
-        do { file = try AVAudioFile(forReading: fileURL) } catch { throw damaged("cannot be opened") }
-        let sampleRate = file.processingFormat.sampleRate
-        guard sampleRate > 0, file.length > 0,
-              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 32_768) else { return }
-        var decoded: AVAudioFramePosition = 0
-        do {
-            while file.framePosition < file.length {
-                try file.read(into: buffer)
-                guard buffer.frameLength > 0 else { break }
-                decoded += AVAudioFramePosition(buffer.frameLength)
-            }
-        } catch {
-            // Running out of data reads as eofErr (-39); any other error is the decoder rejecting it.
-            guard (error as NSError).code == -39 else { throw damaged("decoder error") }
-        }
-        let expected = Double(file.length) / sampleRate
-        let actual = Double(decoded) / sampleRate
-        guard expected > 10, actual < expected * 0.5, actual < expected - 10 else { return }
-        throw damaged("audio ends at \(Int(actual)) of \(Int(expected)) seconds")
     }
 
     private func withLock<T>(_ body: () throws -> T) rethrows -> T {

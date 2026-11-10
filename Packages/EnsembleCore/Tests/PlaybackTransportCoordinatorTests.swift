@@ -78,6 +78,24 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         }
     }
 
+    /// Damage proved by a finished download marks the track: every later load is the forced transcode, the
+    /// playing original is left alone, and the fallback is still spent once, when the decoder reaches the damage.
+    func testMarkedTrackLoadsForcedAndStillFallsBackOnce() async throws {
+        let track = fallbackTrack()
+        let calls = DecisionCalls()
+        let coordinator = makeFallbackCoordinator(calls: calls)
+        coordinator.markOriginalDamaged(trackId: track.playbackIdentity)
+        XCTAssertEqual(coordinator.fallbackStatus(trackId: track.playbackIdentity), "marked")
+        guard case .transcodedHTTP = try await coordinator.resolvePlaybackSource(for: track) else {
+            return XCTFail("a marked track resolved to its original")
+        }
+        XCTAssertEqual(calls.recorded.last?.force, true)
+        let damage = ProgressiveStreamError.damagedOriginal(reason: "x")
+        XCTAssertTrue(coordinator.fallBackToTranscode(after: damage, trackId: track.playbackIdentity))
+        XCTAssertEqual(coordinator.fallbackStatus(trackId: track.playbackIdentity), "forced")
+        XCTAssertFalse(coordinator.fallBackToTranscode(after: damage, trackId: track.playbackIdentity))
+    }
+
     /// A forced transcode is never served as the cached original, and the original never as it.
     func testStreamCacheKeepsTheOriginalAndTheForcedTranscodeApart() async throws {
         let track = fallbackTrack()
@@ -93,7 +111,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
             )
             let url = try cache.partialURL(for: key)
             try Data(repeating: 1, count: 1_000).write(to: url)
-            return try cache.recordCompleted(fileURL: url, key: key, expectedDuration: nil)
+            return try cache.recordCompleted(fileURL: url, key: key, expectedDuration: nil, mediaVerified: true)
         }
         let original = try register("original", .direct)
         let coordinator = makeFallbackCoordinator(cache: cache)

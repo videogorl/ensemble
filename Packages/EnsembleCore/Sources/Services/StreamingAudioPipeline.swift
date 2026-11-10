@@ -214,6 +214,9 @@ final class StreamingAudioPipeline: NSObject {
     var onFirstPCM: (() -> Void)?
     var onBufferedProgress: ((Double) -> Void)?
     var onDownloadComplete: ((URL) -> Void)?
+    /// The finished original is damaged while its audio plays. Reported once, so later loads of the
+    /// track can resolve to a transcode.
+    var onDamageFound: ((Error) -> Void)?
     /// Called once when the download ends, however it ends: complete, failed or cancelled.
     var onDownloadEnd: (() -> Void)?
     var onComplete: ((URL) -> Void)?
@@ -578,13 +581,75 @@ final class StreamingAudioPipeline: NSObject {
         }
         // Close the writer for validation, then expose EOF only after registration succeeds.
         growingFile?.closeWriter()
+        if let key = configuration.artifactKey, key.delivery == .direct, key.isCompleteTrack {
+            // An original is decoded start to end before it is registered or reported complete. The
+            // decoder reads to the end of the file meanwhile, so the audio never waits for the check.
+            growingFile?.finish()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                let result = Result {
+                    try OriginalMediaCheck.verify(at: self.configuration.cacheURL) { [weak self] in
+                        guard let self else { return false }
+                        self.stateLock.lock()
+                        defer { self.stateLock.unlock() }
+                        return !self.cancelled
+                    }
+                }
+                self.finishMediaCheck(result, receivedByteCount: receivedByteCount)
+            }
+            stateLock.unlock()
+            DispatchQueue.global(qos: .utility).async(execute: work)
+            return
+        }
+        completeDownloadLocked(mediaVerified: false, receivedByteCount: receivedByteCount)
+    }
+
+    /// The verified original is registered and reported. A damaged one is never cached. Before the
+    /// decoder has started (a prefetch) the download fails with the damage; while it plays, the audio
+    /// from the good part keeps playing, the damage is reported for later loads, and the decoder's own
+    /// end raises the fallback when it reaches it.
+    private func finishMediaCheck(_ result: Result<Void, Error>, receivedByteCount: Int64) {
+        stateLock.lock()
+        guard downloadResult == nil, !cancelled else {
+            stateLock.unlock()
+            return
+        }
+        switch result {
+        case .success:
+            completeDownloadLocked(mediaVerified: true, receivedByteCount: receivedByteCount)
+        case .failure(let error) where error is CancellationError:
+            stateLock.unlock()
+        case .failure(let error):
+            guard decoderStarted else {
+                stateLock.unlock()
+                fail(error)
+                return
+            }
+            downloadResult = .failure(error)
+            let waiters = Array(downloadWaiters.values)
+            downloadWaiters.removeAll()
+            let timeout = downloadTimeoutWorkItem
+            downloadTimeoutWorkItem = nil
+            stateLock.unlock()
+            timeout?.cancel()
+            session?.finishTasksAndInvalidate()
+            EnsembleLogger.info("[StreamingPipeline] damagedOriginal trackId=\(configuration.trackID ?? "unknown") \(error.localizedDescription)")
+            onDamageFound?(error)
+            for waiter in waiters { waiter.resume(throwing: error) }
+            onDownloadEnd?()
+        }
+    }
+
+    /// Registers the file, ends the download and reports it. Called with `stateLock` held; releases it.
+    private func completeDownloadLocked(mediaVerified: Bool, receivedByteCount: Int64) {
         do {
             if let key = configuration.artifactKey, key.isCompleteTrack {
                 try configuration.artifactCache.recordCompleted(
                     fileURL: configuration.cacheURL,
                     key: key,
                     // Library metadata never judges an original; its own media does.
-                    expectedDuration: key.delivery == .direct ? nil : configuration.duration
+                    expectedDuration: key.delivery == .direct ? nil : configuration.duration,
+                    mediaVerified: mediaVerified
                 )
             }
         } catch {
