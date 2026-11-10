@@ -1,8 +1,8 @@
 # Step 6 design: browse, detail, and panes
 
-Status: approved; 6a, 6b and 6c landed (6c on 2026-11-09). 6d part 1 (one
-host and configuration) is done on its branch; part 2 (shared row model,
-queue on it) is not started.
+Status: approved; 6a, 6b and 6c landed (6c on 2026-11-09). 6d (one host
+and configuration, one row model, the queue on it) completed on 2026-11-10;
+see the [step 6d note](../investigations/2026-11-10-step-6d-track-list-host.md).
 Written 2026-11-02 against `0ed447e1`; section 1 records that starting point.
 Plan context:
 [`rearchitecture-plan.md`](rearchitecture-plan.md) sections 4.7 and 5.
@@ -12,7 +12,10 @@ Plan context:
 Since then: detail runs on `DetailScreen`/`DetailConfiguration` (6a), browse
 on `LibraryBrowseScreen` (6b), and every iPad uses `NativeBrowseSection` with
 `SidebarView` in its own file; `LargeScreenBrowseSplitView` and the legacy
-shell are deleted (6c).
+shell are deleted (6c). Every track list goes through `TrackListHost` with one
+`NativeTrackListConfiguration`; the UIKit and AppKit tables and the UIKit
+queue share `TrackRowContent` and `TrackCellArtwork` (6d). The Mac queue
+stays a SwiftUI `List`.
 
 Paths are under `Packages/EnsembleUI/Sources/` unless noted.
 

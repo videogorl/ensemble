@@ -1,11 +1,11 @@
-# Step 6d parts 1 and 2: one track-list host and one row model
+# Step 6d: one track-list host, one row model, the queue on it
 
 Date: 2026-11-10 (work on 2026-11-09). Baseline and rollback point: `e51fed2e`
 (`develop` with 6a–6c). Design:
 [`browse-detail-panes-design.md`](../reference/browse-detail-panes-design.md)
-section 2.5, first bullet. Part 2 (the shared row model) is in its own
-section below; part 3 (the queue on it) is not started. Part 1 evidence is
-under `$TMPDIR/step6d-1/` on the test Mac (temporary).
+section 2.5. Parts 2 (the shared row model) and 3 (the queue on it) are in
+their own sections below. Part 1 evidence is under `$TMPDIR/step6d-1/` on
+the test Mac (temporary).
 
 ## What changed
 
@@ -231,7 +231,8 @@ members missing from the synced library.
 
 - `QueueItemCell` bumps its generation on every configure, so redrawing the
   same item before its load finishes may drop that image (hypothesis, not
-  observed). `TrackCellArtwork` skips the same track instead. Part 3.
+  observed). `TrackCellArtwork` skips the same track instead. Settled in
+  part 3: real but unreachable.
 - The Mac track table has no artwork retry when servers come back
   (`artworkServersAvailable` is iOS-only). Not added: it would change Mac
   behaviour. Part 3 or later.
@@ -309,3 +310,133 @@ hash as `d27961ee`.
   Favorites and artist tables, iPad refresh.
 - The unavailable rows' album column at ≥ 940 pt (only reached in a wider
   pane than the playlists split gives on an 11-inch iPad).
+
+## Part 3: the queue on the shared row model
+
+Work on 2026-11-10, branch `t3/0d4101ef` from `6a77b3e9`. Evidence is under
+`$TMPDIR/step6d-3/` on the test Mac (temporary).
+
+### What changed
+
+1. **Row content and artwork** (`6dc28d59`). `QueueItemCell` takes its title
+   and artist from `TrackRowContent(queueTrack:)` and loads artwork through
+   `TrackCellArtwork`; the server-recovery retry goes through the same
+   object. The queue keeps its own table, sections (History, Up Next,
+   Continue Playing, Autoplay, "N more songs"), drag reorder within Up Next
+   with the current index + 1 offset, remove, autoplay styling (purple title
+   and badge) and menus.
+2. **Dead code removed.** `QueueCard` has always passed
+   `currentQueueIndex: -1` (since `2b8f5a3d`), because the table shows only
+   what plays after the current track. The parameter, its visible-row redraw
+   branch, the never-shown playing indicator and the always-hidden duration
+   label are gone, and the leading constraints are set once instead of on
+   every configure. The table has the accessibility identifier
+   `nowPlaying.queue.table` for automation.
+3. **Change detection kept.** `TrackListChange` does not fit the queue. It
+   compares tracks by identity, while queue rows are queue items (duplicates
+   of one track are separate rows), and its row state (playing track,
+   availability, downloads, favourites, display flags) is nothing a queue row
+   shows. The queue keeps its one rule: reload when the shown items, the
+   hidden count or the History toggle change; otherwise nothing. Adopting
+   `TrackListChange` would have needed an item-ID check and an empty row
+   state beside it, a second mechanism.
+4. **Mac queue unchanged.** Its SwiftUI row reads the title and the artist
+   (shown only when not empty) and uses `ArtworkView`. Moving that to
+   `TrackRowContent` would replace two field reads with two others and remove
+   no logic, so it stays as it was.
+
+`TrackRowContent(queueTrack:)` keeps the queue's subtitle as the artist
+only. The table initializer would add the unavailable reason ("Library not
+synced"), a visible change for such tracks if one reaches the queue.
+
+Lines: `QueueTableView.swift` 908 → 809, `TrackRowContent.swift` 67 → 87,
+`QueueCard.swift` 605 → 604; one test (+68 lines in `EnsembleUITests.swift`).
+
+### The artwork-generation hypothesis
+
+Confirmed as a latent defect, never reachable in shipped code. At
+`6a77b3e9`, `QueueItemCell.configure` incremented its generation on every
+call (lines 161–162) but started a load only when the queue item ID changed
+(line 164). A second configure of the same item while its load was in flight
+therefore made that load stale (line 180 drops it) and started none, leaving
+the grey placeholder until the cell was reused. The only caller that
+configured a visible cell again without reuse was the redraw branch for a
+changed current index (line 336), and the index was always −1, so it never
+ran. Reloads go through dequeue and `prepareForReuse`, which cleared the item
+ID and started a fresh load (UIKit's reuse behaviour; not traced at runtime).
+
+`TrackCellArtwork` skips a redraw of the track already shown and keeps its
+load. `testTrackCellArtworkKeepsLoadAcrossRedrawAndDropsItForAnotherTrack`
+holds a load in flight, redraws the same track (one request, the image
+arrives) and, separately, moves to another track (the first load is dropped,
+the second arrives once). It runs on macOS; `QueueItemCell` itself is UIKit
+and has no unit test.
+
+Artwork identity is now the track and its artwork, not the queue item, so a
+reused cell showing another item of the same track reloads from cache, and a
+cached thumbnail appears synchronously instead of after a task hop.
+
+### Results
+
+Build identity: both simulators ran Debug builds of `6dc28d59` with no
+package changes; the installed `Ensemble.debug.dylib` hash `797f679915e85246`
+equals the built one (`identity.txt`; iPad build 202611100455.6285, iPhone
+202611100455.6285). Simulator runs used a temporary UI test
+(`Step6d3QueueUITests.swift` in the evidence folder; not committed) that reads
+the queue from one accessibility snapshot per check, with seeding through
+Songs (play, then Play Next on one song twice and another once) and
+`ensemble://debug/now-playing?page=queue&shuffle=off&repeat=off&autoplay=off`.
+Artwork was checked from screenshots: each row's artwork square has a colour
+spread of 40–105 (a flat placeholder is near 0), and an 8×8 fingerprint
+compared across shots (`tools/artcheck`).
+
+| Check | iPhone 17 Pro Max | iPad Pro 11 | Evidence |
+| --- | --- | --- | --- |
+| Up Next and Continue Playing sections with titles, artists, artwork | PASS | PASS | `*/uitest.log`, `*/shots/*-queue-initial.*` |
+| Same track twice: two Up Next rows (plus a third in Continue Playing), same artwork | PASS | PASS | same |
+| Reorder within Up Next (drag the third row to the top) | PASS: "[Anthems]" moved up, keeping its artwork fingerprint; log `Moved queue item … from 32 to 30` | PASS | `*-queue-after-reorder.*`, `iphone/app.log` |
+| Remove a row (long-press menu) | PASS | NOT RUN | `iphone-queue-after-remove.*` |
+| Track change: tap the first Up Next row; it leaves Up Next | PASS | NOT RUN | `iphone/uitest.log` |
+| Scroll to the end ("15319 more songs") and back: same titles and artwork | PASS | NOT RUN | `iphone-queue-scroll-*` |
+| History section | PASS | NOT RUN | `iphone-queue-history.*` |
+| Autoplay section after Start Track Radio from Songs: purple titles, artwork | PASS | NOT RUN | `iphone-queue-autoplay.*` |
+| Long-press context menu opens (Play Next, Go to Album, Remove from Queue present; nothing chosen) | PASS | NOT RUN | `iphone/uitest.log` |
+| Swipe: no swipe actions (the queue table has none, as before) | PASS | NOT RUN | same |
+| EnsembleUI package tests | PASS 124/124 (before and after the simplify pass) | | `test-ui*.log` |
+| EnsembleCore package tests | PASS 1173/1173 (EnsembleCore is untouched) | | `test-core.log` |
+| iOS Simulator and macOS builds | PASS (before and after the simplify pass) | | `build-*.log` |
+
+Mac: NOT RUN. The built app (0.4.0 (202611100313.6285) at `6dc28d59`)
+launched with `-ApplePersistenceIgnoreState YES`; PID 61328's executable was
+that bundle's `MacOS/Ensemble` (`mac/identity.txt`). The Mac's session was
+locked (`CGSSessionScreenIsLocked = 1`, front process `loginwindow`) on both
+attempts, so its window had no accessibility tree and synthesized clicks
+could not reach it. The instance was quit without any change to the queue.
+The Mac queue code is unchanged by this part; its checks are in the
+physical-device backlog.
+
+Simplify pass (`f9ba64f0`): one comment made precise; nothing else to
+remove. Builds and both package suites were re-run on it; the simulator runs
+were not repeated for a comment change.
+
+Notes:
+
+- The queue shows no now-playing row on either platform (only what plays
+  after the current track), so "the playing row follows a track change" was
+  checked as the tapped row leaving Up Next.
+- The queue shows at most 50 upcoming rows and a "N more songs" row, so a
+  100-row scroll is not possible; the check scrolled the 50 rows end to end.
+- Play Next appends to the end of Up Next (observed).
+- Found, not fixed: after a drag reorder, a row's Track Actions button still
+  removes the item at that row's old position (recorded in `known-issues`).
+  The long-press menu is correct.
+- iPad ran in portrait, where the queue spans the full width over the
+  sidebar shell.
+
+### Not run
+
+- Physical devices and the Mac (see the backlog).
+- Artwork retry when servers come back (`artworkServersAvailable`), offline
+  rows, VoiceOver, iPad landscape and Split View, and the Now Playing wide
+  panel. The Mac still has no artwork retry in its queue or track table;
+  adding one would change Mac behaviour and is left as a question.

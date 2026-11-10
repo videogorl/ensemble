@@ -172,6 +172,12 @@ No unresolved critical issues are currently documented.
 - **Status:** On 2026-11-09 the iOS 27.0 simulator (iPhone 17 Pro Max and iPad Pro 11) showed the play-state indicator move to the tapped row in screenshots, but the row's accessibility children still exposed its duration ("28:56") instead of the indicator. Same result on the `a5c23da7` baseline, so it predates the step 6d part 2 row model. Seen only through XCUITest. Hypothesis: UIKit keeps the cell's cached accessibility elements when a visible cell is redrawn in place. VoiceOver may announce the old state.
 - **Next step:** Check with VoiceOver on a device whether the playing row announces the indicator. If confirmed, post an accessibility layout change or rebuild the cell's accessibility label on redraw.
 
+### Queue Row Actions Button Removes The Wrong Item After A Reorder
+
+- **Area:** `QueueTableView` (`QueueItemCell`'s Track Actions button), iOS/iPadOS.
+- **Status:** Confirmed on the iPhone 17 Pro Max simulator (iOS 27.0) on 2026-11-10 at `6dc28d59`. Up Next held A, A, B; dragging B to the top logged a correct move (`Moved queue item … from 32 to 30`), then the second row's Track Actions button → Remove from Queue removed B, not A. The button's menu is built when the cell is configured and captures the row's queue index; a drag reorder updates the coordinator locally and the table moves the cells, so no reload rebuilds those menus. The long-press menu resolves the index when it opens and removed the right row. Hypothesis: present before step 6d part 3 (that code is unchanged); not run on the older build. The Mac queue builds its menus from the current list.
+- **Next step:** Resolve the index when the button's menu opens (as the track tables' deferred menus do), or reconfigure visible rows after a local move; then re-run reorder followed by Remove from Queue through the button.
+
 ### iPad Search Artist Result Can Open An Empty Artists Pane
 
 - **Area:** `NavigationCoordinator` external routes, `NativeBrowseSection` Artists detail stack, iPadOS.
