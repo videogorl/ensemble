@@ -12,7 +12,8 @@ that shares the user's Ensemble settings with the native apps through iCloud
 and plays music from Plex directly.
 
 The web app runs as a static single-page app on Cloudflare Pages (free tier),
-with no backend. The browser talks to two services:
+with no backend apart from one small Worker for Apple Music (section 3.5).
+The browser talks to two services:
 
 - **CloudKit**, through CloudKit JS, for Ensemble's synced settings.
 - **Plex**, through its HTTP API, for sign-in, the library, and streams.
@@ -103,36 +104,72 @@ overwrite) a newer major version.
   never as a deleted record. A missing record means "not migrated yet", and a
   failed fetch means "unknown". Neither one ever clears local data.
 
-### 3.4 Synced sources list
+### 3.4 Synced accounts, servers and libraries
 
-So a new device or the web app can show which sources the user has and which
-still need signing in, add one more `SyncedSetting`:
-`ensemble.sync.sources`, a JSON array with one entry per source:
+Felicity asked on 2026-11-10 to sync everything about sources except the
+tokens, when the **Sources** sync switch is on. A new device or the web app
+then shows the whole setup and only asks the user to sign in.
 
-| Field | Meaning |
+Add one `SyncedSetting`, `ensemble.sync.sourceInventory`, a JSON array of
+accounts:
+
+| Level | Fields |
 |---|---|
-| `serverSourceKey` | `provider:accountID:serverID`, the existing `EnsembleSourceScope` key |
-| `provider` | `plex` or `appleMusic` |
-| `accountDisplayName` | What the account row shows, e.g. the Plex username |
-| `serverName` | The server's display name, when the provider has servers |
-| `addedAt` | When the source was added |
-| `removedAt` | Set when the user removes it; `null` while active |
+| Account | `provider` (`plex` or `appleMusic`), `accountID`, `displayName`, `addedAt`, `removedAt` |
+| Server (Plex) | `serverID`, `name`, `removedAt` |
+| Library | `libraryID`, `title`, `kind` (music only today) |
 
-It holds no tokens or credentials. Sign-in always happens on the device.
+- Which libraries are switched on stays in the existing `libraryFlags`
+  setting, keyed by source key. The inventory supplies the names to show next
+  to those switches; it does not duplicate them.
+- Server connection addresses are not synced. They change and include home
+  network addresses; each device gets fresh ones from plex.tv after sign-in.
+- No tokens, passwords, or anything that grants access.
 
 Behavior:
 
-- Settings shows every listed source with its state on this device:
-  signed in, or a **Sign in** button that starts that provider's flow
-  (Plex PIN sign-in, prefilled for the account where Plex allows it, or
-  MusicKit authorization for Apple Music). After sign-in the device matches
-  the result to the entry by account ID.
-- Only an explicit removal by the user sets `removedAt`. A device that is
-  not signed in to a source, or fails to reach it, never removes it. Entries
-  merge per `serverSourceKey`, newest change wins, like library flags.
-- On native, Plex accounts already arrive through iCloud Keychain, so the
-  list mostly helps the web app and Apple Music, which is authorized per
-  device.
+- Settings shows every account, server and library from the inventory, each
+  marked signed in on this device or with a **Sign in** button (section 3.5).
+  After sign-in the device matches the result to the entry by account ID and
+  applies the library switches.
+- Only an explicit removal by the user sets `removedAt`. A device that is not
+  signed in, or can't reach a server, never removes anything. Entries merge
+  per account and per server, newest change wins, like library flags.
+- With the Sources switch off, a device neither writes nor applies the
+  inventory, matching how the switch works today.
+- On native, Plex accounts with tokens already arrive through iCloud Keychain
+  (the existing Sources feature, `bootstrapSources`). That path stays; the
+  inventory adds the web app and Apple Music, which is authorized per device.
+- The per-feature sync switches in `SyncSettingsManager` keep working: a
+  switched-off feature neither sends nor applies its record.
+
+### 3.5 Signing in without syncing tokens
+
+Three options were considered.
+
+1. **Sign in on each device.** The baseline: Plex's PIN sign-in on the web,
+   MusicKit authorization for Apple Music. Always available as the fallback.
+2. **Approve from a signed-in device (recommended for Plex).** The web app
+   creates a short Plex PIN and shows it as a QR code and an
+   `ensemble://` link. The iPhone or Mac app, already signed in, confirms the
+   account and calls `PUT https://plex.tv/api/v2/pins/link` with the code and
+   its own token. The web app's pending PIN then returns a **new token of its
+   own**. No token crosses iCloud; the web session appears in Plex's
+   authorized devices and can be revoked there on its own. This is the call
+   plex.tv/link uses, and python-plexapi's `MyPlexAccount.link` makes it, but
+   Plex does not document it, and a forum thread reports a 403 (error 1068)
+   for some devices. Prototype it before relying on it; option 1 stays.
+3. **Store tokens in CloudKit.** Rejected. As plain fields, anyone with a
+   web session on the user's Apple Account could read a token with full Plex
+   access. CloudKit's encrypted fields would protect them, but developer
+   reports say CloudKit JS cannot read encrypted fields (Apple's docs are
+   ambiguous), so the web app could not use them anyway.
+
+Apple Music on the web needs MusicKit JS, which needs an Apple Music
+developer token: a JWT signed with a MusicKit private key, valid for up to
+six months. Either embed a token rotated by hand, or mint it from a
+Cloudflare Worker (free tier) that keeps the key as a secret. The Worker is
+the only server piece in the design; it is needed only for Apple Music.
 
 ## 4. Native migration
 
@@ -151,8 +188,11 @@ needs iOS 17 and macOS 14. The floors were raised on 2026-10-13.
 
 What `CKSyncEngine` changes for reliability:
 
-- Unsent changes are queued and survive relaunch; today a failed push is
-  dropped until the next local change or launch.
+- Unsent changes are queued and retried by the system. Today nothing is
+  lost either, because local state persists, but a failed push waits for
+  `CloudSyncCoordinator`'s own retry schedule (`firstConnectRetryDelays`),
+  the next foreground, or a manual refresh. `CKSyncEngine` replaces that
+  bootstrap and retry machinery.
 - It creates the zone and the subscription, follows change tokens, and backs
   off on rate limits and quota errors, replacing the hand-written
   `nextProfilePullAllowedAt` throttle.
@@ -280,8 +320,9 @@ while the native app stays private, or if it gets a different owner.
 
 Still planning; nothing is implemented. Answers from Felicity on 2026-11-10:
 
-1. Move the key-value settings to a CloudKit custom zone: **yes**, plus the
-   synced sources list in section 3.4.
+1. Move the key-value settings to a CloudKit custom zone: **yes**, plus
+   syncing accounts, servers and libraries without tokens (sections 3.4
+   and 3.5).
 2. `CKSyncEngine` as the transport: **yes**. Today Ensemble uses no sync
    engine: two records go through hand-written `CKDatabase` fetch and save
    calls with a `CKDatabaseSubscription`, and the six settings go through
