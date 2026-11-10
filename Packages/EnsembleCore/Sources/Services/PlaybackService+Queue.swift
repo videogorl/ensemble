@@ -717,7 +717,7 @@ extension PlaybackService {
 
         currentQueueIndex = index
         currentTrack = queue[index].track
-        reconcileFailureSkipMark()
+        reconcileItemFailureMarkers()
         updatePlaybackTimes(rawTime: 0)
         bufferedProgress = 0
         playbackState = .paused
@@ -883,7 +883,7 @@ extension PlaybackService {
         refreshAutoplay: Bool = true,
         synchronizeAppleMusicQueue: Bool = true
     ) {
-        reconcileFailureSkipMark()
+        reconcileItemFailureMarkers()
         savePlaybackState()
         if synchronizeAppleMusicQueue {
             synchronizeAppleMusicQueueAfterMutation()

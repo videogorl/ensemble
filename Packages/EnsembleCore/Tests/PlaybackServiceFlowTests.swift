@@ -357,18 +357,24 @@ final class PlaybackServiceFlowTests: XCTestCase {
     }
 
     /// A health check retries an outage halt only once the current track's server has passed it,
-    /// and only once per recovery: if that retry halts again, later checks leave it to the user.
+    /// and only once per recovery: if that retry plays and then halts again before sustained
+    /// progress, later checks leave it to the user.
     func testHealthCheckRetriesAnOutageHaltOnceItsServerIsBack() async throws {
         let service = await makeService()
-        let track = makeStreamingTrack("a")
-        service.queue = [QueueItem(track: track)]
+        // The queue item is downloaded so the offline test device can play the retry; the current
+        // track reads as streaming, so the health check treats the halt as its server's.
+        let downloaded = try makeTrack("a")
+        service.queue = [QueueItem(track: downloaded)]
         service.currentQueueIndex = 0
-        service.currentTrack = track
+        service.currentTrack = makeStreamingTrack("a")
         service.playbackState = .playing
         service.playbackPreparationShouldStart = true
-        service.streamRecovery = (service.queue[0].id, PlaybackService.maxStreamRecoveryAttempts, 0)
-        service.recoverCurrentStream(after: URLError(.timedOut))
-        await service.stallRecoveryTask?.value
+        func failOnAnOutage() async {
+            service.streamRecovery = (service.queue[0].id, PlaybackService.maxStreamRecoveryAttempts, 0)
+            service.recoverCurrentStream(after: URLError(.timedOut))
+            await service.stallRecoveryTask?.value
+        }
+        await failOnAnOutage()
         guard case .failed = service.playbackState else {
             return XCTFail("expected an outage halt, got \(service.playbackState)")
         }
@@ -386,12 +392,14 @@ final class PlaybackServiceFlowTests: XCTestCase {
         )
         let onceBack = await healthCheckRetries()
         XCTAssertTrue(onceBack, "the server is back")
-        // The test device is offline, so that retry halts on an outage again.
+        await waitUntil(timeout: 3) { service.playbackState == .playing }
+        XCTAssertEqual(service.playbackState, .playing, "the retry started audio")
+
+        await failOnAnOutage()
         guard case .failed = service.playbackState else {
             return XCTFail("expected the retry to halt, got \(service.playbackState)")
         }
-        let again = await healthCheckRetries()
-        XCTAssertFalse(again, "one automatic retry per recovery")
+        XCTAssertFalse(service.haltWaitsForServer, "one automatic retry per recovery, audio or not")
         service.audioEngine?.stop()
     }
 

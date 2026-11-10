@@ -412,7 +412,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// The current halt was caused by an unreachable server or network, so a passing health
     /// check may retry it. Any other halt waits for the user. Cleared by any state change.
     var haltWaitsForServer = false
-    /// The item a health check already retried; one automatic retry per recovery.
+    /// The item a health check already retried; one automatic retry per recovery, until the
+    /// retry makes sustained progress or another item becomes current.
     var healthRetriedItemID: String?
     /// Where playback failures are shown; nil in headless contexts.
     let toastCenter: ToastCenter?

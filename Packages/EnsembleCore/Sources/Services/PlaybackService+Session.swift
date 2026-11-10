@@ -284,6 +284,7 @@ extension PlaybackService {
         if let recovery = streamRecovery, recovery.itemID == currentQueueItemID,
            position - recovery.fromTime >= Self.streamRecoveryProgressSeconds {
             streamRecovery = nil
+            healthRetriedItemID = nil
         }
         if position < previousTime { updateNowPlayingInfo() }
         // Only the native engine schedules successors; MusicKit queues its own.
@@ -496,18 +497,23 @@ extension PlaybackService {
 
     /// An item produced audio. The item reached by a failure skip keeps its mark, so its own
     /// later failure halts (G11); the mark ends when another item starts or that item ends.
+    /// A health retry stays used until it makes the progress that resets stream recovery.
     @MainActor
     func noteItemStarted() {
-        reconcileFailureSkipMark()
+        reconcileItemFailureMarkers()
         tlsRefreshedItemID = nil
-        healthRetriedItemID = nil
+        if let itemID = healthRetriedItemID, streamRecovery == nil {
+            streamRecovery = (itemID, 0, currentTime)
+        }
     }
 
-    /// The failure-skip mark lasts while its item stays current, compared by item ID. Call
-    /// only once a queue and index change is complete: the two are written back separately.
+    /// The failure-skip mark and the health retry last while their item stays current,
+    /// compared by item ID. Call only once a queue and index change is complete: the two are
+    /// written back separately.
     @MainActor
-    func reconcileFailureSkipMark() {
+    func reconcileItemFailureMarkers() {
         if failureSkipItemID != currentQueueItemID { failureSkipItemID = nil }
+        if healthRetriedItemID != currentQueueItemID { healthRetriedItemID = nil }
     }
 
     /// The one path for an item that could not play, whichever engine or stage failed. It acts
