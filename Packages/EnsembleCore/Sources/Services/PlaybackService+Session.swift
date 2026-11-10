@@ -71,20 +71,36 @@ extension PlaybackService {
         return .reuseExisting
     }
 
+    /// A stream that fails after it loaded is retried from where it stopped, at most
+    /// `maxStreamRecoveryAttempts` times per item; then the item fails (G11, G12).
     @MainActor
     func recoverCurrentStream(after error: Error) {
-        guard stallRecoveryTask == nil, let trackId = currentTrack?.playbackIdentity else { return }
+        guard stallRecoveryTask == nil,
+              let trackId = currentTrack?.playbackIdentity,
+              let itemID = currentQueueItemID else { return }
 
-        EnsembleLogger.playback("ENGINE: stream interrupted -- retrying from \(String(format: "%.1f", currentTime))s (\(error.localizedDescription))")
-        audioEngine?.pause()
-        playbackState = .buffering
-        updateNowPlayingInfo()
+        let attempts = streamRecovery?.itemID == itemID ? streamRecovery?.attempts ?? 0 : 0
+        let isSpent = attempts >= Self.maxStreamRecoveryAttempts
+        if isSpent {
+            streamRecovery = nil
+        } else {
+            streamRecovery = (itemID, attempts + 1, currentTime)
+            EnsembleLogger.playback("ENGINE: stream interrupted -- retrying from \(String(format: "%.1f", currentTime))s, attempt \(attempts + 1) (\(error.localizedDescription))")
+            audioEngine?.pause()
+            playbackState = .buffering
+            updateNowPlayingInfo()
+        }
 
+        let generation = sessionGeneration
         stallRecoveryTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.stallRecoveryTask = nil }
             guard self.currentTrack?.playbackIdentity == trackId else { return }
-            await self.retryCurrentTrack(forceConnectionRefresh: false, reason: "stream-interrupted")
+            if isSpent {
+                await self.handleItemFailure(error.localizedDescription, generation: generation)
+            } else {
+                await self.retryCurrentTrack(forceConnectionRefresh: false, reason: "stream-interrupted")
+            }
         }
     }
 
@@ -247,6 +263,10 @@ extension PlaybackService {
             wasPlaying: playbackState == .playing
         )
         updatePlaybackTimes(rawTime: position)
+        if let recovery = streamRecovery, recovery.itemID == currentQueueItemID,
+           position - recovery.fromTime >= Self.streamRecoveryProgressSeconds {
+            streamRecovery = nil
+        }
         if position < previousTime { updateNowPlayingInfo() }
         // Only the native engine schedules successors; MusicKit queues its own.
         if engine == .native { scheduleGaplessIfNeeded() }
