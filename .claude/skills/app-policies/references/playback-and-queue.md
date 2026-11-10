@@ -49,9 +49,9 @@
   trigger recovery.
 - A failed item is skipped with a toast. If the item that skip reaches
   fails while current, playback halts on a persistent "Playback stopped"
-  toast with Retry, shown first. Pause cancels a pending Retry. A halt caused
-  by an unreachable server or network retries once when a health check finds
-  that server available; other halts wait for Retry. Failures never start a
+  toast with Retry, shown first. Pause cancels a pending Retry. A Plex track
+  halted by an unreachable server or network retries once when a health check
+  finds its server available; other halts wait for Retry. Failures never start a
   paused player.
 - Clean offset-zero playback completions remain in purgeable `Library/Caches`
   under a byte-budgeted LRU. Reuse requires exact source revision and requested
