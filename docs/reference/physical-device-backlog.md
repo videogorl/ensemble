@@ -107,9 +107,12 @@ WAV (transcoded and direct PCM), MP3, AAC and FLAC passed on the SE on
 
 - Direct-stream an AIFF track to the end (none was run).
 - Open finding: with a successor queued, the direct WAV stream of 8731 dropped
-  twice with `NSURLErrorDomain -1005` at exactly 5,242,880 bytes, then fell
-  back to a transcode and finished. Alone in the queue it played through.
-  Suspected cause is the concurrent prefetch of the next track; unconfirmed.
+  three times with `NSURLErrorDomain -1005` (at 5.2, 6.9 and 11.5 MB of
+  50.7 MB), then fell back to a transcode and finished. The first drop came
+  110 ms after the prefetch of the next track (8732, also direct WAV) opened
+  its own download. Alone in the queue the track played through. Suspected
+  cause: the second direct download on the same host ends the first.
+  Unconfirmed; reproduce on the Mac with 8731 then 8732 at original quality.
 
 ### Bounded retry of a stream that fails after loading
 
