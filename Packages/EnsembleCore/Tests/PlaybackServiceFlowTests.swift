@@ -258,6 +258,25 @@ final class PlaybackServiceFlowTests: XCTestCase {
         }
     }
 
+    /// Pause while a halted item's Retry is still waiting wins: the retry stops and nothing starts.
+    func testPauseDuringAPendingHaltRetryStaysPaused() async throws {
+        let service = await makeService()
+        let track = makeStreamingTrack("a")
+        service.queue = [QueueItem(track: track)]
+        service.currentQueueIndex = 0
+        service.currentTrack = track
+        service.playbackState = .failed("a failed")
+
+        let retry = Task { await service.retryHaltedItem(service.currentRetryBinding) }
+        await Task.yield()
+        service.pauseInternally(source: .user)
+        await retry.value
+
+        XCTAssertEqual(service.playbackState, .paused)
+        XCTAssertEqual(service.playbackPreparationCount, 0, "no load is left running")
+        service.audioEngine?.stop()
+    }
+
     // MARK: - Harness
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"

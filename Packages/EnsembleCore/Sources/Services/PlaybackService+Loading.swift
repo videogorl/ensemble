@@ -503,6 +503,12 @@ extension PlaybackService {
         switch playbackState {
         case .playing, .buffering:
             recoveryTime = currentTime
+        case .failed:
+            recoveryTime = nil
+            // Leave the halt before waiting, so Pause, Stop, or a skip during the wait
+            // starts a new session and cancels this retry.
+            guard prepareAudioEngineForPlaybackIfNeeded() else { return }
+            playbackState = .loading
         default:
             recoveryTime = nil
         }
