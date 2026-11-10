@@ -493,8 +493,15 @@ extension PlaybackService {
     /// later failure halts (G11); the mark ends when another item starts or that item ends.
     @MainActor
     func noteItemStarted() {
-        if failureSkipItemID != currentQueueItemID { failureSkipItemID = nil }
+        reconcileFailureSkipMark()
         tlsRefreshedItemID = nil
+    }
+
+    /// The failure-skip mark lasts while its item stays current, compared by item ID. Call
+    /// only once a queue and index change is complete: the two are written back separately.
+    @MainActor
+    func reconcileFailureSkipMark() {
+        if failureSkipItemID != currentQueueItemID { failureSkipItemID = nil }
     }
 
     /// The one path for an item that could not play, whichever engine or stage failed.

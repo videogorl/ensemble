@@ -318,6 +318,40 @@ final class PlaybackServiceFlowTests: XCTestCase {
         }
     }
 
+    /// A queue edit that keeps the item reached by a skip current keeps its mark, even when the
+    /// edit moves that item's index: its failure still halts instead of skipping on (G11).
+    func testQueueEditsKeepTheCurrentItemsFailureSkipMark() async throws {
+        let edits: [(String, @MainActor (PlaybackService) -> Void)] = [
+            ("remove an earlier item", { $0.removeFromQueue(at: 0) }),
+            ("shuffle", { $0.toggleShuffle() }),
+        ]
+        for (edit, perform) in edits {
+            let service = await makeService()
+            let tracks = try ["a", "b", "c", "d"].map { try makeTrack($0) }
+            service.queue = tracks.map { QueueItem(track: $0) }
+            service.currentQueueIndex = 0
+            service.currentTrack = tracks[0]
+            service.isShuffleEnabled = false
+            service.playbackState = .playing
+            service.playbackPreparationShouldStart = true
+            await service.handleItemFailure("a failed", generation: service.sessionGeneration, cause: nil)
+            let marked = service.queue[1].id
+            XCTAssertEqual(service.failureSkipItemID, marked, "\(edit): b is reached by a skip")
+
+            perform(service)
+            XCTAssertEqual(service.currentQueueItemID, marked, "\(edit): b stays current")
+            XCTAssertEqual(service.failureSkipItemID, marked, "\(edit): b keeps its mark")
+
+            service.playbackState = .playing
+            service.playbackPreparationShouldStart = true
+            await service.handleItemFailure("b failed", generation: service.sessionGeneration, cause: nil)
+            if case .failed = service.playbackState {} else {
+                XCTFail("\(edit): b's failure halts, got \(service.playbackState) at \(service.currentQueueIndex)")
+            }
+            service.audioEngine?.stop()
+        }
+    }
+
     // MARK: - Harness
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"
