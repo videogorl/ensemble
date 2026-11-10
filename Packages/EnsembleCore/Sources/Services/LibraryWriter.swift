@@ -97,6 +97,9 @@ public struct LibraryBatch: Sendable {
     public var inventory: LibraryInventory?
     /// Every row's metadata was fetched and compared, not only the changed ones.
     public var isFullMetadataPass = false
+    /// The source read everything, so the next full read waits its interval even when no inventory was
+    /// proved or applied (a withheld or empty one).
+    public var readsEverything = false
     /// Tracks whose last played date and play count the source could not read this pass; their stored
     /// values are kept instead of being cleared.
     public var tracksWithoutPlayHistory: Set<String> = []
@@ -196,6 +199,8 @@ public actor LibraryWriter {
             } else {
                 try await cursors?.recordInventorySync(scopeKey: key, scopeType: .library, at: batch.queryStartedAt)
             }
+        } else if batch.readsEverything {
+            try await cursors?.recordFullRead(scopeKey: key, scopeType: .library, at: batch.queryStartedAt)
         }
         try await cursors?.recordIncrementalSync(scopeKey: key, scopeType: .library, at: batch.queryStartedAt)
         try RefreshExecution.checkCancellation()

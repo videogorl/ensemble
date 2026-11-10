@@ -41,11 +41,16 @@ struct AppleMusicLibraryFetch: Sendable {
 ///    during the fetch cannot yield an inventory.
 /// 2. Every page of both reads arrived. A thrown error, a cancelled request or a failed page ends the
 ///    pass with no batch at all.
-/// 3. The REST total, when the API reports one, equals the number of songs received.
-/// 4. Every song MusicKit lists is also in the REST list. MusicKit being larger than REST is the only
-///    sign that a `next` chain ended early, since neither read reports a total of its own.
+/// 3. The API reported a total and it equals the number of songs received. No total means no inventory.
+/// 4. Both reads found songs, or neither did. One empty and the other not means one read is short.
+/// 5. Every song MusicKit lists is also in the REST list.
+/// 6. The two counts differ by at most `countTolerance`: they describe the same library, so a larger gap
+///    means one read stopped early.
 ///
-/// The writer separately refuses an inventory with no songs, so an empty library deletes nothing.
+/// These checks cannot prove a read complete: MusicKit's read stops at its first short page and has no
+/// total, so when both reads are short by the same songs, they agree. They make a wrongful inventory
+/// unlikely, not impossible. The writer separately refuses an inventory with no songs, so an empty
+/// library deletes nothing.
 struct AppleMusicLibraryFetcher: Sendable {
     let source: AppleMusicLibrarySource
 
@@ -59,7 +64,8 @@ struct AppleMusicLibraryFetcher: Sendable {
         // The source row's names are written with every batch, so every batch carries them.
         batch.sourceDisplayName = "Apple Music"
         batch.sourceAccountName = "This Device"
-        if plan.since != nil, !plan.inventoryDue { return AppleMusicLibraryFetch(batch: batch) }
+        // A pass that last read everything less than a day ago (inventory proved or not) reads nothing.
+        if plan.since != nil, !(plan.inventoryDue && plan.fullMetadataDue) { return AppleMusicLibraryFetch(batch: batch) }
 
         guard await source.isAuthorized() else { throw AppleMusicLibraryError.notAuthorized }
         let list = try await source.songs()
@@ -89,6 +95,7 @@ struct AppleMusicLibraryFetcher: Sendable {
         batch.tracks = tracks
         batch.inventory = Self.inventory(songs: songs, artists: artists, albums: albums, list: list, native: native)
         batch.isFullMetadataPass = true
+        batch.readsEverything = true
         batch.tracksWithoutPlayHistory = Set(songs.lazy.map(\.id).filter { native.songsByID[$0] == nil })
         return AppleMusicLibraryFetch(
             batch: batch,
@@ -99,6 +106,10 @@ struct AppleMusicLibraryFetcher: Sendable {
         )
     }
 
+    /// Both reads describe one library, so only songs added during the seconds between them, or a few
+    /// songs MusicKit does not list, may differ: 0.5% of the larger count, at least 2.
+    static func countTolerance(_ first: Int, _ second: Int) -> Int { max(2, max(first, second) / 200) }
+
     /// The complete-inventory rule from the type documentation; nil when any condition fails.
     private static func inventory(
         songs: [LibrarySong],
@@ -107,15 +118,22 @@ struct AppleMusicLibraryFetcher: Sendable {
         list: AppleMusicSongList,
         native: NativeLibraryMetadataSnapshot
     ) -> LibraryInventory? {
-        if let total = list.reportedTotal, total != list.songs.count {
-            EnsembleLogger.info("Apple Music inventory withheld: API total \(total), received \(list.songs.count)")
+        let listed = Set(songs.map(\.id))
+        let matching = native.songsByID.keys.filter(listed.contains).count
+        let nativeCount = native.songsByID.count
+        EnsembleLogger.info(
+            "Apple Music library read: API \(songs.count) songs (total \(list.reportedTotal.map(String.init) ?? "none")), MusicKit \(nativeCount), matching \(matching)"
+        )
+        func withheld(_ reason: String) -> LibraryInventory? {
+            EnsembleLogger.info("Apple Music inventory withheld: \(reason)")
             return nil
         }
-        let listed = Set(songs.map(\.id))
-        let unlisted = native.songsByID.keys.filter { !listed.contains($0) }
-        guard unlisted.isEmpty else {
-            EnsembleLogger.info("Apple Music inventory withheld: MusicKit lists \(unlisted.count) songs the API list lacks")
-            return nil
+        guard let total = list.reportedTotal else { return withheld("the API reported no total") }
+        guard total == list.songs.count else { return withheld("API total \(total), received \(list.songs.count)") }
+        guard songs.isEmpty == (nativeCount == 0) else { return withheld("one read is empty and the other is not") }
+        guard matching == nativeCount else { return withheld("MusicKit lists \(nativeCount - matching) songs the API list lacks") }
+        guard abs(songs.count - nativeCount) <= Self.countTolerance(songs.count, nativeCount) else {
+            return withheld("the reads differ by more than \(Self.countTolerance(songs.count, nativeCount)) songs")
         }
         do {
             return try LibraryInventory(

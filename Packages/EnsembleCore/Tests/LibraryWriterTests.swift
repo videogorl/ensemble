@@ -390,4 +390,18 @@ final class LibraryWriterTests: XCTestCase {
         ratings = try await f.repository.fetchTrackSummaries(forSource: sourceA.compositeKey).mapValues(\.rating)
         XCTAssertEqual(ratings["t1"], 0, "once uploaded the server's value applies")
     }
+
+    /// A batch without names leaves a source row's names alone, for Plex and Apple Music alike.
+    func testABatchWithoutNamesKeepsTheSourceRowsNames() async throws {
+        let f = try makeFixture()
+        for (source, names) in [(sourceA, ("Music", "tester")), (MusicSourceIdentifier.appleMusic, ("Apple Music", "This Device"))] {
+            _ = try await f.repository.upsertMusicSource(
+                compositeKey: source.compositeKey, type: source.type.rawValue, accountId: source.accountId,
+                serverId: source.serverId, libraryId: source.libraryId, displayName: names.0, accountName: names.1
+            )
+            try await f.writer.apply(LibraryBatch(queryStartedAt: t0), to: source)
+            let row = try await f.repository.fetchMusicSources().first { $0.compositeKey == source.compositeKey }
+            XCTAssertEqual([row?.displayName, row?.accountName], [names.0, names.1], "\(source.type)")
+        }
+    }
 }

@@ -222,6 +222,9 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         func recordFullSync(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws {
             try await repository.recordFullSync(scopeKey: scopeKey, scopeType: scopeType, at: date)
         }
+        func recordFullRead(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws {
+            try await repository.recordFullRead(scopeKey: scopeKey, scopeType: scopeType, at: date)
+        }
         func invalidateInventorySync(scopeKey: String, scopeType: SyncCursorScopeType) async throws {
             try await repository.invalidateInventorySync(scopeKey: scopeKey, scopeType: scopeType)
         }

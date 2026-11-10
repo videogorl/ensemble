@@ -144,10 +144,34 @@ final class AppleMusicLibraryFetcherTests: XCTestCase {
             }
 
             let tracks = try await storedTracks(f, apple)
-            XCTAssertEqual(tracks, ["s1", "s2", "s3"], testCase.name)
+            XCTAssertTrue(tracks.isSuperset(of: ["s1", "s2", "s3"]), "\(testCase.name): a stored song was deleted")
             let after = try await inventoryDate(f)
             XCTAssertEqual(after, before, "\(testCase.name): the inventory stays due")
         }
+    }
+
+    /// A song added between the two reads is within tolerance, so the inventory still applies.
+    func testACountGapWithinTheToleranceStillYieldsAnInventory() async throws {
+        let f = try makeFixture()
+        try await pass(f, try source(["s1", "s2", "s3"]), at: t0)
+        // MusicKit was read just before x1 was added to the library.
+        let fake = FakeSource(songs: .success(try list(["s1", "s2", "x1"])), native: .success(native(["s1", "s2"])))
+        let result = try await pass(f, fake, at: t0 + 10)
+        XCTAssertEqual(result.removedTrackRatingKeys, ["s3"])
+    }
+
+    func testAWithheldInventoryWaitsTheIntervalBeforeReadingAgain() async throws {
+        let f = try makeFixture()
+        let withheld = FakeSource(songs: .success(AppleMusicSongList(songs: try list(["s1", "s2"]).songs, reportedTotal: nil)), native: .success(native(["s1", "s2"])))
+        try await pass(f, withheld, at: t0)
+        XCTAssertEqual(withheld.songReads, 1)
+        let inventory = try await inventoryDate(f)
+        XCTAssertNil(inventory, "nothing was proved")
+
+        try await pass(f, withheld, at: t0 + 3_600, since: t0 - 5)
+        XCTAssertEqual(withheld.songReads, 1, "the withheld pass waits the interval")
+        try await pass(f, withheld, at: t0 + 86_400, since: t0 - 5)
+        XCTAssertEqual(withheld.songReads, 2)
     }
 
     func testAnEmptyLibraryDeletesNothing() async throws {
