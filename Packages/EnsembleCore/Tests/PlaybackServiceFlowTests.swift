@@ -180,6 +180,44 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.audioEngine?.stop()
     }
 
+    /// The halt toast shows ahead of an unrelated persistent toast, which returns after it, and
+    /// its Retry acts only on the item and session that halted.
+    func testHaltToastShowsFirstAndRetriesOnlyTheHaltedItem() async throws {
+        let toasts = ToastCenter()
+        let service = await makeService(toastCenter: toasts)
+        let tracks = try ["a", "b"].map { try makeTrack($0) }
+        service.queue = tracks.map { QueueItem(track: $0) }
+        service.currentQueueIndex = 0
+        service.currentTrack = tracks[0]
+        service.playbackState = .loading
+        service.playbackPreparationShouldStart = false
+        toasts.show(ToastPayload(style: .info, iconSystemName: "arrow.down", title: "Downloading", isPersistent: true))
+
+        func halt() async throws -> ToastAction {
+            await service.handleItemFailure("a failed", generation: service.sessionGeneration)
+            XCTAssertEqual(toasts.currentToast?.title, "Playback stopped", "the halt is not queued behind another toast")
+            return try XCTUnwrap(toasts.currentToast?.action)
+        }
+
+        // Retry after the user moved to another item does nothing.
+        let staleRetry = try await halt()
+        service.selectQueueItemWhilePaused(at: 1, caller: "test")
+        XCTAssertEqual(toasts.currentToast?.title, "Downloading", "the displaced toast returns")
+        staleRetry.handler()
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(service.currentQueueIndex, 1)
+        XCTAssertEqual(service.playbackState, .paused, "the stale Retry starts nothing")
+
+        // Retry on the halted item retries it.
+        service.currentQueueIndex = 0
+        service.currentTrack = tracks[0]
+        service.playbackState = .playing
+        let retry = try await halt()
+        retry.handler()
+        await waitUntil(timeout: 3) { service.playbackState == .playing }
+        service.audioEngine?.stop()
+    }
+
     // MARK: - Harness
 
     private static let sourceCompositeKey = "plex:account-1:server-1:1"

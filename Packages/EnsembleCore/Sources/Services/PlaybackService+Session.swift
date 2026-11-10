@@ -570,7 +570,8 @@ extension PlaybackService {
         dismissFailureToast()
         guard let toastCenter else { return }
         failureToastID = toast.id
-        toastCenter.show(toast)
+        // Playback errors are timely; another toast must not hold them back.
+        toastCenter.showNow(toast)
     }
 
     /// Begins a background task to keep the app alive during track transitions.
