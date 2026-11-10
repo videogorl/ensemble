@@ -398,6 +398,13 @@ final class PlaybackTransportCoordinator {
             return url
         case let .directHTTP(request, metadata), let .transcodedHTTP(request, metadata):
             guard let key = metadata.artifactKey else { throw PlaybackError.streamURLUnavailable }
+            // A prefetch of an original waits for the server's current direct download.
+            var slot: DirectDownloadSlot?
+            if key.delivery == .direct, !withLock({ preparedStreams[track.playbackIdentity]?.key == key }),
+               let gateKey = DirectDownloadGate.key(for: request) {
+                EnsembleLogger.debug("[prefetch] Waiting for the server's direct download slot trackId=\(track.playbackIdentity)")
+                slot = try await DirectDownloadGate.shared.acquire(gateKey)
+            }
             let pipeline = try withLock { () throws -> StreamingAudioPipeline in
                 if let existing = preparedStreams[track.playbackIdentity], existing.key == key {
                     return existing.pipeline
@@ -410,7 +417,8 @@ final class PlaybackTransportCoordinator {
                     duration: metadata.duration,
                     trackID: metadata.trackId,
                     artifactKey: key,
-                    artifactCache: artifactCache
+                    artifactCache: artifactCache,
+                    downloadSlot: slot
                 ))
                 preparedStreams[track.playbackIdentity] = PreparedStream(key: key, pipeline: pipeline)
                 pipeline.startDownload()

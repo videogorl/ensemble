@@ -1114,7 +1114,9 @@ public final class AudioPlaybackEngine {
                 cacheURL: cacheURL,
                 duration: metadata.duration,
                 trackID: metadata.trackId,
-                artifactKey: metadata.artifactKey
+                artifactKey: metadata.artifactKey,
+                downloadSlot: metadata.artifactKey?.delivery == .direct
+                    ? DirectDownloadGate.key(for: request).map(DirectDownloadGate.shared.enter) : nil
             ))
             if let artifactKey = metadata.artifactKey, artifactKey.isCompleteTrack {
                 pipeline.onDownloadComplete = { [weak self] fileURL in

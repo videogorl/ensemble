@@ -151,6 +151,8 @@ final class StreamingAudioPipeline: NSObject {
         let trackID: String?
         let artifactKey: PlaybackArtifactKey?
         let artifactCache: PlaybackArtifactCache
+        /// A direct download's hold on its server; released when the download ends.
+        let downloadSlot: DirectDownloadSlot?
 
         init(
             request: URLRequest,
@@ -162,7 +164,8 @@ final class StreamingAudioPipeline: NSObject {
             sessionConfiguration: URLSessionConfiguration? = nil,
             trackID: String? = nil,
             artifactKey: PlaybackArtifactKey? = nil,
-            artifactCache: PlaybackArtifactCache = .shared
+            artifactCache: PlaybackArtifactCache = .shared,
+            downloadSlot: DirectDownloadSlot? = nil
         ) {
             self.request = request
             self.fileExtension = fileExtension
@@ -174,6 +177,7 @@ final class StreamingAudioPipeline: NSObject {
             self.trackID = trackID
             self.artifactKey = artifactKey
             self.artifactCache = artifactCache
+            self.downloadSlot = downloadSlot
         }
 
         private static func defaultSessionConfiguration() -> URLSessionConfiguration {
@@ -518,6 +522,7 @@ final class StreamingAudioPipeline: NSObject {
         downloadTimeoutWorkItem = nil
         stateLock.unlock()
         timeout?.cancel()
+        configuration.downloadSlot?.release()
         session?.finishTasksAndInvalidate()
         EnsembleLogger.debug("[StreamingPipeline] downloadComplete trackId=\(configuration.trackID ?? "unknown") bytes=\(receivedByteCount)")
         onDownloadComplete?(configuration.cacheURL)
@@ -577,6 +582,7 @@ final class StreamingAudioPipeline: NSObject {
         stateLock.unlock()
         timeout?.cancel()
         downloadTimeout?.cancel()
+        configuration.downloadSlot?.release()
         pcmBuffer?.wakeWaiters()
         growingFile?.finish(error: error)
         task?.cancel()

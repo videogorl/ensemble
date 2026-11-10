@@ -156,6 +156,37 @@ final class StreamingAudioPipelineTests: XCTestCase {
         XCTAssertEqual(cachedBytes, Int64(data.count))
         XCTAssertFalse(pipeline.diagnostics().isComplete)
     }
+
+    /// A direct download holds its server's slot until it ends, however it ends, so the next
+    /// track's prefetch neither starts early nor waits forever.
+    func testDownloadSlotIsHeldUntilTheDownloadEnds() async throws {
+        let gate = DirectDownloadGate()
+        for succeeds in [true, false] {
+            DelayedAudioURLProtocol.configure(data: Data(count: 4096), chunkSize: 4096, delay: 0)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [succeeds ? DelayedAudioURLProtocol.self : StalledAudioURLProtocol.self]
+            let cacheURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("streaming-slot-\(UUID().uuidString).mp3")
+            defer { try? FileManager.default.removeItem(at: cacheURL) }
+            let pipeline = StreamingAudioPipeline(configuration: .init(
+                request: URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/slot.mp3"))),
+                fileExtension: "mp3",
+                cacheURL: cacheURL,
+                sessionConfiguration: configuration,
+                downloadSlot: gate.enter("audio.test:0")
+            ))
+            let next = Task { try await gate.acquire("audio.test:0") }
+            if succeeds {
+                _ = try await pipeline.downloadedFile()
+            } else {
+                pipeline.startDownload()
+                try await Task.sleep(nanoseconds: 100_000_000)
+                pipeline.cancel()
+            }
+            let slot = try await next.value
+            slot.release()
+        }
+    }
 }
 
 private final class StalledAudioURLProtocol: URLProtocol {
