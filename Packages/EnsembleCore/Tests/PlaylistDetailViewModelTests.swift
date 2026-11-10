@@ -1976,6 +1976,12 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             viewModel.tracks.map(\.id),
             ["server-2-track-1", "server-1-track-2", "server-2-track-2"]
         )
+
+        // A row index captured before the list changed must not pick another track.
+        let didRemoveStale = await viewModel.removeTrackFromPlaylist(secondTracks[1], displayIndex: 0)
+
+        XCTAssertTrue(didRemoveStale)
+        XCTAssertEqual(viewModel.tracks.map(\.id), ["server-2-track-1", "server-1-track-2"])
     }
 
     func testRemoveTrackFromMergedPlaylistRejectsUnknownSourceAcrossMultiplePlaylists() async {

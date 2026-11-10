@@ -971,10 +971,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     /// Base content without filter UI — shared between filtered and unfiltered modes.
-    /// iOS embeds the header in `MediaTrackList`; macOS embeds the same header in
-    /// `SongsTrackListHost`. The only safe-area override left here is the top
-    /// toolbar bleed for artwork-backed detail chrome; bottom spacing stays owned
-    /// by the native table/list inset and the root mini-player container.
+    /// The header is embedded in the `TrackListHost` table. The only safe-area
+    /// override left here is the top toolbar bleed for artwork-backed detail
+    /// chrome; bottom spacing stays owned by the native table inset and the
+    /// root mini-player container.
     private var baseContent: some View {
         DetailScreen(
             title: navigationTitle,
@@ -1008,7 +1008,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @ViewBuilder
     private var detailContent: some View {
         #if os(iOS)
-        // Always use MediaTrackList (UITableView), even with 0 tracks.
+        // Always use the native table, even with 0 tracks.
         // Loading/empty indicators are shown via tableFooterContent.
         // This keeps the header (genre chips + artwork + buttons) in a single
         // code path with consistent safe area handling. The table uses UIKit's
@@ -1497,46 +1497,16 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         )
     }
 
-    @ViewBuilder
+    /// The header (artwork and actions) is the table's first row, so it
+    /// scrolls with the tracks while the native table keeps cell recycling.
     private var tracksSection: some View {
-        #if os(iOS)
-        // Self-scrolling UITableView with the header embedded as its first row.
-        // Header (album art + action buttons) scrolls naturally with the tracks
-        // while preserving UIKit cell recycling for large track lists.
-        MediaTrackList(
+        TrackListHost(
             tracks: viewModel.filteredTracks,
-            showArtwork: showArtwork,
-            showTrackNumbers: showTrackNumbers,
-            showAlbumName: !isAlbum,
-            groupByDisc: groupByDisc,
-            currentTrackId: currentTrackId,
-            selectedTrackId: selectedTrackId,
-            availabilityGeneration: availabilityGeneration,
-            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-            managesOwnScrolling: true,
-            bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-            tableHeaderContent: AnyView(tableHeaderForTrackList),
-            tableHeaderRevision: tableHeaderRevision,
-            tableFooterContent: AnyView(VStack(spacing: EnsembleDesign.Spacing.none) {
-                emptyStateFooter
-                if let additionalFooterContent { additionalFooterContent }
-            }),
-            interactionModel: trackInteractionModel,
-            supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-            trackSourceLabels: headerData.trackSourceLabels,
-            onRemoveFromPlaylist: playlistTrackRemovalHandler
-        ) { track, _ in
-            playTrack(track)
-        }
-        #else
-        SongsTrackListHost(
-            sections: macNativeTrackSections,
             configuration: NativeTrackListConfiguration(
                 showArtwork: showArtwork,
                 showTrackNumbers: showTrackNumbers,
                 showAlbumName: !isAlbum,
                 groupByDisc: groupByDisc,
-                rowHeight: TrackListLayoutMetrics.defaultRowHeight,
                 bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
                 supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                 trackSourceLabels: headerData.trackSourceLabels,
@@ -1547,57 +1517,21 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 interactionModel: trackInteractionModel
             ),
             tableHeaderContent: AnyView(tableHeaderForTrackList),
+            tableHeaderRevision: tableHeaderRevision,
             tableFooterContent: AnyView(VStack(spacing: EnsembleDesign.Spacing.none) {
                 emptyStateFooter
                 if let additionalFooterContent { additionalFooterContent }
             }),
-            onRemoveFromPlaylist: playlistTrackRemovalHandler.map { handler in
-                { track, _ in
-                    let displayIndex = viewModel.filteredTracks.firstIndex { $0.playbackIdentity == track.playbackIdentity } ?? 0
-                    handler(track, displayIndex)
-                }
-            }
+            onRemoveFromPlaylist: playlistTrackRemovalHandler
         ) { track, _ in
             playTrack(track)
         }
-        #endif
     }
 
     private func playTrack(_ track: Track) {
         guard let selection = viewModel.playbackSelection(for: track) else { return }
         nowPlayingVM.play(tracks: selection.tracks, startingAt: selection.index)
     }
-
-    #if !os(iOS)
-    private var macNativeTrackSections: [NativeTrackListSection] {
-        macDiscTrackGroups.enumerated().map { offset, group in
-            NativeTrackListSection(
-                id: group.disc.map { "disc-\($0)" } ?? "all-\(offset)",
-                title: group.disc.map { "Disc \($0)" } ?? "",
-                tracks: group.tracks.map(\.element)
-            )
-        }
-    }
-
-    private var macDiscTrackGroups: [(disc: Int?, tracks: [(offset: Int, element: Track)])] {
-        let indexedTracks = Array(viewModel.filteredTracks.enumerated())
-        guard groupByDisc else {
-            return [(disc: nil, tracks: indexedTracks)]
-        }
-
-        let grouped = Dictionary(grouping: indexedTracks) { $0.element.discNumber }
-        let sortedDiscs = grouped.keys.sorted()
-        let shouldShowDiscHeaders = sortedDiscs.count > 1
-
-        return sortedDiscs.map { disc in
-            let tracks = grouped[disc]?.sorted { lhs, rhs in
-                lhs.offset < rhs.offset
-            } ?? []
-            return (disc: shouldShowDiscHeaders ? disc : nil, tracks: tracks)
-        }
-    }
-
-    #endif
 
     private var tableHeaderTopPadding: CGFloat {
         #if os(iOS)

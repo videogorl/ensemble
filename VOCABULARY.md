@@ -295,7 +295,7 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 |--------------|------|-------------|---------------------|
 | Track list | list | Main scrollable list of all songs | `trackListView`, `MediaTrackList` |
 | Section header | text | Alphabetical section divider (A, B, C...) | `sectionHeader` |
-| Track row | control | Individual song row with artwork, title, artist, duration | `MediaTrackList`, `SongsTrackListHost` |
+| Track row | control | Individual song row with artwork, title, artist, duration | `MediaTrackList`, `TrackListHost` |
 | Filter button | control | Toolbar button to open filter sheet (with badge) | `line.3.horizontal.decrease.circle` |
 | Filter badge | indicator | Red dot showing active filters | `hasActiveFilters` |
 | Sort menu | menu | Overflow menu with sort options and actions | `ellipsis.circle` |
@@ -382,7 +382,7 @@ Generic detail view used by Album, Playlist, merged playlist, and similar media-
 | Detail action label | component | Shared filled/secondary Play and Shuffle button label treatment | `MediaDetailSurface.ActionLabel` |
 | Detail symbol artwork | component | Shared virtual-collection artwork surface for Favorites, moods, and similar non-album headers | `MediaDetailSurface.SymbolArtwork` |
 | Detail surface policy | policy | Semantic metrics for media-style detail headers, artwork shadows, action labels, and list cards | `EnsembleScaffold.DetailSurface` |
-| Track list | list | Ordered track list (UIKit-backed on iOS, AppKit-backed on macOS for native row actions) | `tracksSection`, `MediaTrackList`, `SongsTrackListHost` |
+| Track list | list | Ordered track list (UIKit-backed on iOS, AppKit-backed on macOS for native row actions) | `tracksSection`, `TrackListHost`, `MediaTrackList` |
 | Background wash | region | Blurred artwork background fading to content | `ArtworkDetailBackground`, `MediaDetailSurface` |
 | Pin menu | menu | Toolbar overflow with pin/unpin, download, playlist actions | `pinMenuButton` |
 
@@ -952,8 +952,8 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Songs track list host | component | Large-screen native Songs list that routes to UIKit on iPadOS and AppKit on macOS while keeping one caller-facing API | `SongsTrackListHost` |
-| Adaptive track row | control | Shared playable track row with artwork, favorite heart, duration, context menu, and optional wide metadata | `MediaTrackList(supplementalMetadataWidth:)`, `SongsTrackListHost`, `MacNativeTrackTableView` |
+| Track list host | component | The one native track list: callers pass one configuration, and it routes to UIKit on iOS and iPadOS and AppKit on macOS | `TrackListHost`, `NativeTrackListConfiguration` |
+| Adaptive track row | control | Shared playable track row with artwork, favorite heart, duration, context menu, and optional wide metadata | `NativeTrackListConfiguration.supplementalMetadataWidth`, `TrackListHost`, `MacNativeTrackTableView` |
 | Native swipe row | interaction | Large-screen row hosted by UIKit `MediaTrackList` on iPad and AppKit `NSTableView` on macOS so Apple handles swipe reveal and trackpad gestures without custom drag physics | `UISwipeActionsConfiguration`, `NSTableViewRowAction` |
 | Artist metadata column | text | Artist name shown beside the title when the browser is wide enough | `showsArtistMetadataColumn` |
 | Album metadata column | text | Album name shown beside artist when the browser has additional width | `showsAlbumMetadataColumn` |

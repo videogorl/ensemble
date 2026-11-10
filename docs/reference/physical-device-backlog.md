@@ -313,6 +313,14 @@ pass before step 0 is called verified.
   each open, sort, filter, search, open a detail and play a track; Albums
   StageFlow rotation keeps the album in view and hides the nav bar; pull to
   refresh on Songs (not exercised in the simulator).
+- Step 6d part 1, one track-list host, at `ea5b1f2c` or later: on Songs,
+  album detail (track numbers, disc headers), playlist detail (artwork),
+  artist favourited tracks, Mood, Search songs and Favorites, a leading and a
+  trailing swipe action, a long-press context menu, tap to play with the
+  play-state indicator, and a 1,000+ row Songs scroll with the scroll index.
+  Also Stage Flow's track panel in landscape and pull to refresh on Songs,
+  which the simulator run did not exercise. Simulator results:
+  [step 6d note](../investigations/2026-11-10-step-6d-track-list-host.md).
 
 ## Mac
 
@@ -332,6 +340,10 @@ pass before step 0 is called verified.
 - Step 6b shared browse screen in the built Mac app (not run; the Mac launch
   check comes with 6c): the same five browse kinds and the picker columns for
   Artists, Genres and Playlists.
+- Step 6d part 1 in the built Mac app, at `ea5b1f2c` or later: Songs and
+  one album detail rendered, double-click played and context menus opened in
+  the Debug build; Mac swipe (trackpad row actions), drag-out, Search,
+  Favorites, Mood, artist and playlist track lists were not driven.
 - Step 6c panes on a physical iPad (not run): native `NavigationSplitView`
   now serves every iPad, including iPadOS 17; Artists, Genres and Playlists
   show detail in the next column, rotation and Split View resizing keep the

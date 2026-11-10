@@ -164,14 +164,14 @@ public struct FavoritesView: View {
             libraryItemInfoRequest = .track(track)
         }
 
-        SongsTrackListHost(
+        TrackListHost(
             tracks: viewModel.filteredTracks,
-            configuration: .songs(
+            configuration: NativeTrackListConfiguration(
+                bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+                supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                 currentTrackId: currentTrackId,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-                supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                 interactionModel: interactionModel
             ),
             tableHeaderContent: AnyView(favoritesHeaderSurface),

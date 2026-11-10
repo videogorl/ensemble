@@ -1089,41 +1089,21 @@ public struct ArtistDetailView: View {
                 libraryItemInfoRequest = .track(track)
             }
 
-            // Track list (UIKit table for consistent swipe actions and row height)
-            #if os(iOS)
-            let trackCount = tracks.count
-            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
-
-            return MediaTrackList(
+            // Sized to its rows inside the artist page's scroll view.
+            return TrackListHost(
                 tracks: tracks,
-                showArtwork: true,
-                showTrackNumbers: false,
-                groupByDisc: false,
-                currentTrackId: currentTrackId,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                interactionModel: interactionModel,
-                supplementalMetadataWidth: supplementalMetadataWidth,
-                onGoToArtist: nil // Already in artist view
-            ) { track, index in
-                nowPlayingVM.play(tracks: tracks, startingAt: index)
-            }
-            .frame(height: height)
-            #else
-            return SongsTrackListHost(
-                tracks: tracks,
-                configuration: .songs(
+                configuration: NativeTrackListConfiguration(
+                    managesOwnScrolling: false,
+                    supplementalMetadataWidth: supplementalMetadataWidth,
                     currentTrackId: currentTrackId,
                     availabilityGeneration: availabilityGeneration,
                     activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    supplementalMetadataWidth: supplementalMetadataWidth,
                     interactionModel: interactionModel
                 )
             ) { _, index in
                 nowPlayingVM.play(tracks: tracks, startingAt: index)
             }
             .frame(height: CGFloat(tracks.count) * TrackListLayoutMetrics.defaultRowHeight)
-            #endif
     }
 
     private func updateFavoritedTrackListWidth(_ newWidth: CGFloat) {
