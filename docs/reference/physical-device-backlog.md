@@ -119,6 +119,33 @@ than the metadata and is rejected after it loads.
 - Play a normal track and drop the network mid-stream (Airplane Mode, then back
   on). Confirm it still recovers and keeps playing.
 
+### Playback error toasts and halt recovery, `fix/playback-failure-handling`
+
+Covered on macOS by `PlaybackServiceFlowTests` only; the simulator UI and the
+phone were not run. Tracks that fail today: 11700 ("Noah's Descendants", HTTP
+400) and 11631 at a non-original quality (above). The twenty one pilots tracks
+14291, 14292 and 14300 no longer fail: their server files were replaced at
+about 22:50 on 2026-11-09 and now decode cleanly.
+
+- Skip: a bad track followed by a good one shows "Skipped <title>" and
+  playback continues. Halt: two bad tracks in a row stop on one persistent
+  "Playback stopped" toast with Retry; Retry retries, and leaving the failed
+  state any other way dismisses it. With a download progress toast showing,
+  the halt toast still appears at once. The mini player shows no error text.
+- Tap Retry on the halt toast and press Pause at once: playback stays paused.
+- After a halt on a bad track, toggle Wi-Fi off and on so a health check
+  runs: the halted track does not restart. After a halt caused by an
+  unreachable server (Wi-Fi off, or a VPN-only server with the VPN off),
+  restoring the connection retries the track once; if that retry fails, it
+  waits for Retry.
+- A track reached by a skip that plays a few seconds and then fails halts
+  with Retry instead of skipping on, also after removing an earlier queue
+  track or toggling shuffle. Pause, Next, then Previous back to it and Play:
+  a failure now skips again.
+- Recovery follows the user: drop the network mid-stream, then press Next
+  (the next track starts at 0:00) or Pause (stays paused; Play resumes from
+  the same spot). A failure while paused starts nothing.
+
 ### Customizable Now Playing secondary actions, 2026-10-13 feature commit
 
 Builds and SE/macOS/iPad evidence are in
@@ -335,15 +362,6 @@ pass before step 0 is called verified.
   Also Stage Flow's track panel in landscape and pull to refresh on Songs,
   which the simulator run did not exercise. Simulator results:
   [step 6d note](../investigations/2026-11-10-step-6d-track-list-host.md).
-
-- Playback errors as toasts (not simulator-run; only the unit test ran): with
-  a real damaged track (11700 "Noah's Descendants", HTTP 400) followed by a
-  good one, a "Skipped …" toast names the track and playback continues. With
-  two bad tracks in a row (11700 then 11631 "Christmas in June"), playback
-  stops, one persistent "Playback stopped" toast shows Retry, and Retry retries
-  (the toast disappears; leaving the failed state by any route also dismisses
-  it). A failure while paused starts nothing. In every case the mini player
-  shows the track in its normal paused state with no error text.
 
 ## Mac
 
