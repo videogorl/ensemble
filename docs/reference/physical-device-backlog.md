@@ -106,18 +106,18 @@ WAV (transcoded and direct PCM), MP3, AAC and FLAC passed on the SE on
 2026-11-10 ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)).
 
 - Direct-stream an AIFF track to the end (none was run).
-- Fixed at `a890293c`, owed one phone check: with a successor queued, the direct
-  WAV stream of 8731 dropped three times with `NSURLErrorDomain -1005` (at 5.2,
-  6.9 and 11.5 MB of 50.7 MB), then fell back to a transcode. The cause was ours:
-  the prefetch of 8732 requested its own direct file while 8731 was still
-  downloading, and Plex keeps one direct-play session per client (the Plex log
-  shows "Terminated session ... Client stopped playback"). Direct downloads are
-  now one per server at a time; the prefetch of a successor is deferred, not queued, while one is in flight, and runs again when it ends. On the
-  SE at original quality, play 8731 then 8732 on a slow link
-  (`testG1g_SuccessorPrefetchWaitsForDirectDownload` with the default WAV pair,
-  `ENSEMBLE_PHONE_PLAYBACK=1`): confirm 8731 stays `kind=directHTTP` with no
-  "failed after startup", the advance to 8732 is gapless, and the Plex log on the
-  Mac shows no "Terminated session" for the phone's client.
+- Fixed at `a890293c`, passed on the SE on 2026-11-10 (build `202611100947.9277`
+  at `d92d77e2`): with a successor queued, the direct WAV stream of 8731 used to
+  drop with `NSURLErrorDomain -1005` because the prefetch of 8732 requested its
+  own direct file and Plex keeps one direct-play session per client. Direct
+  downloads are now one per server at a time. In two runs at original quality
+  (`testG1b`, `testG1g_SuccessorPrefetchWaitsForDirectDownload`) 8731 stayed
+  `kind=directHTTP` with no "failed after startup", the prefetch of 8732 was
+  deferred and started 16 s later when 8731's download ended, and 8732 then
+  played from the stream cache. The Plex log still shows "Terminated session"
+  for the phone's client when the next request starts, but only for a download
+  that had already finished; the app saw no failure. Still owed: the same pair
+  on a slow link, where the current download is still running at the boundary.
 - Offline downloads of originals were not changed. Whether one ends a playing
   stream is unobserved (the Plex log keeps about 10 hours); see `ON_DECK.md`.
 
@@ -477,9 +477,10 @@ the installed app has not been touched.
 
 | Check | Status |
 | --- | --- |
-| Install the 3a build over the existing SE store: the app launches and the store loads | Owed |
-| Playlists show their tracks and counts after migration; offline playlist targets still list their tracks and downloaded state | Owed |
+| Install the 3a build over the existing SE store: the app launches and the store loads | Passed 2026-11-10, build `202611100947.9277` at `d92d77e2` |
+| Playlists show their tracks and counts after migration | Passed 2026-11-10 by `PhoneBrowseAcceptanceUITests.testPlaylists`; the store copied back has 5,827 rows, all keyed, no duplicate positions, same distinct playlist-track pairs as before |
+| Offline playlist targets still list their tracks and downloaded state | Owed |
 | The first launch logs `Playlist membership backfill: keysFilled=... duplicateRowsRemoved=...` and later launches do not | Owed |
-| A Plex playlist sync after migration (full and incremental) saves without error and leaves one row per position | Owed |
+| A Plex playlist sync after migration (full and incremental) saves without error and leaves one row per position | Launch syncs ran and the store has one row per position; a forced full playlist sync is owed |
 
 The iPad and watch checklist sections start with steps 5 and 6.
