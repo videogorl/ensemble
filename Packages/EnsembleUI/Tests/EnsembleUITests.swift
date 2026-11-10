@@ -309,6 +309,41 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(localRequests.first?.allowStaleIdentity, true)
     }
 
+    /// A redraw of the shown track before its thumbnail arrives keeps that
+    /// load (the queue cell used to drop it); moving to another track drops it.
+    @MainActor
+    func testTrackCellArtworkKeepsLoadAcrossRedrawAndDropsItForAnotherTrack() async throws {
+        let imageURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+        let image = try XCTUnwrap(makePlatformImage(from: imageURL))
+        func track(_ id: String) -> Track {
+            Track(id: id, key: "/library/metadata/\(id)", title: id, thumbPath: "/library/metadata/\(id)/thumb", sourceCompositeKey: "plex:server:library")
+        }
+
+        for movesToAnotherTrack in [false, true] {
+            let loader = GatedArtworkLoader(url: imageURL, image: image)
+            let artwork = TrackCellArtwork()
+            var received: [PlatformImage?] = []
+            let deadline = Date().addingTimeInterval(2)
+            artwork.show(track("a"), artworkLoader: loader) { received.append($0) }
+            while await loader.requestedPaths.isEmpty, Date() < deadline { await Task.yield() }
+            // The first load is now waiting on the loader.
+            artwork.show(track(movesToAnotherTrack ? "b" : "a"), artworkLoader: loader) { received.append($0) }
+
+            let expectedRequests = movesToAnotherTrack ? 2 : 1
+            while await loader.requestedPaths.count < expectedRequests, Date() < deadline { await Task.yield() }
+            await loader.releaseAll()
+            while received.compactMap({ $0 }).isEmpty, Date() < deadline { await Task.yield() }
+            for _ in 0..<20 { await Task.yield() }
+
+            let delivered = received.compactMap { $0 }
+            XCTAssertEqual(delivered.count, 1, "moves to another track: \(movesToAnotherTrack)")
+            let requested = await loader.requestedPaths
+            XCTAssertEqual(requested.count, expectedRequests)
+            XCTAssertEqual(requested.last, "/library/metadata/\(movesToAnotherTrack ? "b" : "a")/thumb")
+        }
+    }
+
     func testArtworkPreBlurUsesVisibleArtworkSchedulerByDefault() async throws {
         let artworkURL = try makeTemporaryPNG()
         defer { try? FileManager.default.removeItem(at: artworkURL) }
@@ -1940,6 +1975,39 @@ private final class RecordingForegroundWorkScheduler: ForegroundWorkScheduling, 
         waitCalls.append(WaitCall(kind: kind, policy: policy))
         return true
     }
+}
+
+/// Holds every resolve until `releaseAll`, so a test can act while loads are in flight.
+private actor GatedArtworkLoader: ArtworkLoaderProtocol {
+    let url: URL
+    let image: PlatformImage
+    private(set) var requestedPaths: [String?] = []
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    private var isReleased = false
+
+    init(url: URL, image: PlatformImage) {
+        self.url = url
+        self.image = image
+    }
+
+    func resolve(_ request: ArtworkRequest, policy _: ArtworkResolutionPolicy) async -> ArtworkImageResolutionOutcome {
+        requestedPaths.append(request.path)
+        if !isReleased {
+            await withCheckedContinuation { waiting.append($0) }
+        }
+        return .resolved(ArtworkResolvedImage(url: url, image: image, blurCacheKey: url.path, identityKey: url.path))
+    }
+
+    func releaseAll() {
+        isReleased = true
+        waiting.forEach { $0.resume() }
+        waiting = []
+    }
+
+    func invalidateURLCache() async {}
+
+    @MainActor
+    func clearCaches() async throws {}
 }
 
 private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
