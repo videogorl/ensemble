@@ -260,7 +260,7 @@ public enum MusicSourceLibraryAddOutcome: Sendable, Equatable {
 }
 
 /// Protocol for syncing music from a source (Plex, future Apple Music, etc.)
-public protocol MusicSourceSyncProvider: Sendable {
+public protocol MusicSourceConnector: Sendable {
     var sourceIdentifier: MusicSourceIdentifier { get }
 
     /// Sync the library content (artists, albums, tracks, genres) to CoreData
@@ -300,7 +300,7 @@ public protocol MusicSourceSyncProvider: Sendable {
     func getArtworkURL(path: String?, size: Int) async throws -> URL?
 }
 
-extension MusicSourceSyncProvider {
+extension MusicSourceConnector {
     public func getHomeHubs(limit: Int) async throws -> [Hub] { [] }
     public func getHomeHubResult(limit: Int) async throws -> MusicSourceHubFetchResult {
         MusicSourceHubFetchResult(hubs: try await getHomeHubs(limit: limit))

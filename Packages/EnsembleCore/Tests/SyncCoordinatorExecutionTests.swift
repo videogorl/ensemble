@@ -53,7 +53,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         }
     }
 
-    private final class RecordingProvider: MusicSourceSyncProvider, @unchecked Sendable {
+    private final class RecordingProvider: MusicSourceConnector, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         private let recorder: EventRecorder
         private let syncLibraryHandler: (@Sendable (LibraryRepositoryProtocol) async throws -> LibrarySyncResult)?

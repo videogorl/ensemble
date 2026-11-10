@@ -34,12 +34,12 @@ final class PlaylistRefreshController {
     struct RefreshResult {
         let sourceId: MusicSourceIdentifier
         let serverSourceKey: String
-        let provider: MusicSourceSyncProvider
+        let provider: MusicSourceConnector
         let playlistResult: PlaylistSyncResult
     }
 
     func refreshAllServers(
-        providers: [String: MusicSourceSyncProvider],
+        providers: [String: MusicSourceConnector],
         playlistRepository: PlaylistRepositoryProtocol,
         trigger: Trigger,
         allowFullFallback: Bool
@@ -78,7 +78,7 @@ final class PlaylistRefreshController {
 
     func refreshServer(
         serverSourceKey: String,
-        providers: [String: MusicSourceSyncProvider],
+        providers: [String: MusicSourceConnector],
         playlistRepository: PlaylistRepositoryProtocol,
         trigger: Trigger,
         allowFullFallback: Bool

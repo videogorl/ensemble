@@ -103,7 +103,7 @@ public final class SyncCoordinator {
     private struct SourcePersistenceOperation {
         let work: [ActiveSourcePersistenceWork]
 
-        var providers: [String: MusicSourceSyncProvider] {
+        var providers: [String: MusicSourceConnector] {
             Dictionary(uniqueKeysWithValues: work.map {
                 ($0.registration.provider.sourceIdentifier.compositeKey, $0.registration.provider)
             })
@@ -216,7 +216,7 @@ public final class SyncCoordinator {
     private static let downloadedPlaylistRefreshInterval: TimeInterval = 5 * 60
     private var lastObservedNetworkState: NetworkState
     private var hasCompletedInitialNetworkTransition = false
-    private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
+    private var syncProviders: [String: MusicSourceConnector] = [:]  // keyed by compositeKey
     private var syncProviderRevisions: [String: SourceProviderRevision] = [:]
     private var providerRegistrationRevision: UInt64 = 0
     private var enforcesSourceConfigurationForProviders = true
@@ -459,7 +459,7 @@ public final class SyncCoordinator {
     internal var sourceLibraryAddDidCoalesceForTesting: (() -> Void)?
 
     internal func setSyncProvidersForTesting(
-        _ providers: [String: MusicSourceSyncProvider],
+        _ providers: [String: MusicSourceConnector],
         enforceSourceConfiguration: Bool = false
     ) {
         syncProviders = providers
@@ -469,7 +469,7 @@ public final class SyncCoordinator {
         )
     }
 
-    internal var configuredSourceProviders: [MusicSourceSyncProvider] {
+    internal var configuredSourceProviders: [MusicSourceConnector] {
         syncProviders.values.sorted {
             $0.sourceIdentifier.compositeKey < $1.sourceIdentifier.compositeKey
         }
@@ -526,7 +526,7 @@ public final class SyncCoordinator {
         #if os(iOS)
         if accountManager.isAppleMusicEnabled {
             if #available(iOS 18, *) {
-                let provider = AppleMusicSourceProvider()
+                let provider = AppleMusicConnector()
                 syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] = provider
                 if sourceStatuses[.appleMusic] == nil {
                     sourceStatuses[.appleMusic] = MusicSourceStatus(connectionState: .connected(url: "music://local"))
@@ -551,7 +551,7 @@ public final class SyncCoordinator {
                         libraryId: library.key
                     )
 
-                    let provider = PlexMusicSourceSyncProvider(
+                    let provider = PlexConnector(
                         sourceIdentifier: sourceId,
                         apiClient: apiClient,
                         sectionKey: library.key,
@@ -985,7 +985,7 @@ public final class SyncCoordinator {
 
     private func playlistMutationProvider(
         for sourceKey: String
-    ) throws -> (provider: MusicSourceSyncProvider, capability: MusicSourcePlaylistMutating) {
+    ) throws -> (provider: MusicSourceConnector, capability: MusicSourcePlaylistMutating) {
         try providerResolver.requireCapabilityMatchingSourceScope(
             sourceKey: sourceKey,
             name: "playlist mutations",
@@ -1280,7 +1280,7 @@ public final class SyncCoordinator {
     }
 
     private func refreshProviderPlaylists(
-        _ provider: MusicSourceSyncProvider,
+        _ provider: MusicSourceConnector,
         sourceKey: String,
         persistenceOperation: SourcePersistenceOperation
     ) async {
@@ -1409,7 +1409,7 @@ public final class SyncCoordinator {
     #if os(iOS)
     @available(iOS 18, *)
     public func getAppleMusicCatalogPlaylistTracks(playlistID: String) async throws -> [Track] {
-        guard let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
+        guard let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicConnector
         else { throw PlaylistMutationError.invalidSource }
         return try await provider.getCatalogPlaylistTracks(playlistID: playlistID)
     }
@@ -1439,7 +1439,7 @@ public final class SyncCoordinator {
         } else {
             #if os(iOS)
             guard #available(iOS 18, *),
-                  let provider = syncProviders[sourceKey] as? AppleMusicSourceProvider else {
+                  let provider = syncProviders[sourceKey] as? AppleMusicConnector else {
                 throw PlaylistMutationError.invalidSource
             }
             addToLibrary = { try await provider.addToLibrary(catalogID: catalogID) }
@@ -1587,7 +1587,7 @@ public final class SyncCoordinator {
             let serverSourceKey = MediaSourceIdentity.serverSourceKey(for: provider.sourceIdentifier)
             guard invalidatedServerKeys.insert(serverSourceKey).inserted else { continue }
             UserDefaults.standard.removeObject(
-                forKey: PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey)
+                forKey: PlexConnector.playlistOrphanCheckKey(for: serverSourceKey)
             )
             do {
                 try await syncCursorRepository.invalidateInventorySync(
@@ -2038,7 +2038,7 @@ public final class SyncCoordinator {
             Playlist.clearAppleMusicPlaylistCapabilityCache()
             #if os(iOS)
             if #available(iOS 18, *) {
-                AppleMusicSourceProvider.clearLibraryInventoryState()
+                AppleMusicConnector.clearLibraryInventoryState()
             }
             #endif
             HomeHubLoader.removeFailedHubKey(forSourceCompositeKey: sourceId.compositeKey)
@@ -2141,7 +2141,7 @@ public final class SyncCoordinator {
             clearLastPlaylistTargets(forServerSourceKey: serverSourceKey)
             let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
             UserDefaults.standard.removeObject(forKey: timestampKey)
-            UserDefaults.standard.removeObject(forKey: PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey))
+            UserDefaults.standard.removeObject(forKey: PlexConnector.playlistOrphanCheckKey(for: serverSourceKey))
             try await syncCursorRepository?.deleteCursor(
                 scopeKey: serverSourceKey,
                 scopeType: .serverPlaylists
@@ -2207,7 +2207,7 @@ public final class SyncCoordinator {
 
     /// Cache library artwork before the separate playlist phase.
     /// Each helper skips items already cached at detail size, so repeat calls are lightweight.
-    private func cacheArtworkForSource(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
+    private func cacheArtworkForSource(sourceId: MusicSourceIdentifier, provider: MusicSourceConnector) async {
         async let albums: Void = cacheAlbumArtwork(sourceId: sourceId, provider: provider)
         async let artists: Void = cacheArtistArtwork(sourceId: sourceId, provider: provider)
         _ = await (albums, artists)
@@ -2215,7 +2215,7 @@ public final class SyncCoordinator {
 
     /// Cache artwork for all albums belonging to a source.
     /// Lightweight — skips albums that already have detail-grade cached artwork on disk.
-    private func cacheAlbumArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
+    private func cacheAlbumArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceConnector) async {
         do {
             let sourceAlbums = try await libraryRepository.fetchAlbums(forSource: sourceId.compositeKey)
             var cached = 0
@@ -2266,7 +2266,7 @@ public final class SyncCoordinator {
 
     /// Cache artwork for all artists belonging to a source.
     /// Lightweight — skips artists that already have detail-grade cached artwork on disk.
-    private func cacheArtistArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
+    private func cacheArtistArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceConnector) async {
         do {
             let sourceArtists = try await libraryRepository.fetchArtists(forSource: sourceId.compositeKey)
             var cached = 0
@@ -2317,7 +2317,7 @@ public final class SyncCoordinator {
 
     /// Cache composite artwork for all playlists belonging to a source.
     /// Lightweight — skips playlists that already have detail-grade cached artwork on disk.
-    private func cachePlaylistArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
+    private func cachePlaylistArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceConnector) async {
         do {
             let serverKey = MediaSourceIdentity.serverSourceKey(from: sourceId.compositeKey) ?? sourceId.compositeKey
             let playlists = try await playlistRepository.fetchPlaylists(
@@ -2858,7 +2858,7 @@ public final class SyncCoordinator {
     }
 
     internal func installSyncProviderForTesting(
-        _ provider: MusicSourceSyncProvider,
+        _ provider: MusicSourceConnector,
         status: MusicSourceStatus? = nil
     ) {
         let source = provider.sourceIdentifier
@@ -3083,7 +3083,7 @@ public final class SyncCoordinator {
                 return .failure(message: "Source configuration is unavailable.")
             }
             defer { finishSourcePersistenceOperation(operation) }
-            guard let provider = operation.providers[resolution.sourceId.compositeKey] as? PlexMusicSourceSyncProvider else {
+            guard let provider = operation.providers[resolution.sourceId.compositeKey] as? PlexConnector else {
                 return .failure(message: "Plex source is unavailable.")
             }
             do {
@@ -3772,7 +3772,7 @@ private extension SyncCoordinator {
     }
 
     private func syncPlaylistsIfNeeded(
-        provider: MusicSourceSyncProvider,
+        provider: MusicSourceConnector,
         source: MusicSourceIdentifier,
         enabled: Bool,
         incremental: Bool,

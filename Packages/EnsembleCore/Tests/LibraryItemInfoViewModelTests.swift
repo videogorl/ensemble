@@ -40,7 +40,7 @@ final class LibraryItemInfoViewModelTests: XCTestCase {
 
     func testAlbumFolderPathUsesTrackParentDirectory() {
         XCTAssertEqual(
-            PlexMusicSourceSyncProvider.albumFolderPath(from: [
+            PlexConnector.albumFolderPath(from: [
                 "/music/A/Album/01 Kiwi.flac",
                 "/music/A/Album/01 Kiwi.flac",
                 "/music/A/Album/02 Grape.flac",
@@ -51,7 +51,7 @@ final class LibraryItemInfoViewModelTests: XCTestCase {
 
     func testAlbumFolderPathUsesCommonParentForDiscSubfolders() {
         XCTAssertEqual(
-            PlexMusicSourceSyncProvider.albumFolderPath(from: [
+            PlexConnector.albumFolderPath(from: [
                 "/music/A/Album/Disc 1/01 Kiwi.flac",
                 "/music/A/Album/Disc 2/01 Grape.flac",
             ]),
@@ -61,10 +61,10 @@ final class LibraryItemInfoViewModelTests: XCTestCase {
 
     func testAlbumFolderPathIgnoresEmptyPathsAndHandlesNoFiles() {
         XCTAssertEqual(
-            PlexMusicSourceSyncProvider.albumFolderPath(from: ["", "/music/A/Album/01 Kiwi.flac"]),
+            PlexConnector.albumFolderPath(from: ["", "/music/A/Album/01 Kiwi.flac"]),
             "/music/A/Album"
         )
-        XCTAssertNil(PlexMusicSourceSyncProvider.albumFolderPath(from: ["", ""]))
+        XCTAssertNil(PlexConnector.albumFolderPath(from: ["", ""]))
     }
 
     func testResolvedTrackCountPrefersFetchedTracksWhenAvailable() {

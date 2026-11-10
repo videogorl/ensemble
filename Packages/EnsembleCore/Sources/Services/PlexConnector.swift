@@ -3,8 +3,8 @@ import EnsemblePersistence
 import Foundation
 
 /// Syncs a single Plex server+library to CoreData
-public final class PlexMusicSourceSyncProvider:
-    MusicSourceSyncProvider,
+public final class PlexConnector:
+    MusicSourceConnector,
     MusicSourceTwoPhasePlaybackResolving,
     MusicSourceRatingMutating,
     MusicSourceCollectionRatingMutating,
@@ -1783,7 +1783,7 @@ public func getStreamURL(
                 do {
                     releaseFormats = try await artistAlbumReleaseFormats(artistTitle: artistTitle)
                 } catch {
-                    EnsembleLogger.debug("PlexMusicSourceSyncProvider: Album format query failed for \(artistKey): \(error.localizedDescription)")
+                    EnsembleLogger.debug("PlexConnector: Album format query failed for \(artistKey): \(error.localizedDescription)")
                     releaseFormats = [:]
                 }
                 return sectionAlbums.map {
@@ -1795,7 +1795,7 @@ public func getStreamURL(
                 }
             }
         } catch {
-            EnsembleLogger.debug("PlexMusicSourceSyncProvider: Section artist album query failed for \(artistKey): \(error.localizedDescription)")
+            EnsembleLogger.debug("PlexConnector: Section artist album query failed for \(artistKey): \(error.localizedDescription)")
         }
 
         return childAlbums.map { Album(from: $0, sourceKey: sourceIdentifier.compositeKey) }
@@ -1809,7 +1809,7 @@ public func getStreamURL(
         do {
             return try await albumReleaseFormats()
         } catch {
-            EnsembleLogger.debug("PlexMusicSourceSyncProvider: Library album format query failed: \(error.localizedDescription)")
+            EnsembleLogger.debug("PlexConnector: Library album format query failed: \(error.localizedDescription)")
             return nil
         }
     }

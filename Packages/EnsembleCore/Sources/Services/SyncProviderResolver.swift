@@ -6,11 +6,11 @@ import Foundation
 struct SyncProviderResolver {
     struct ProviderResolution {
         let sourceKey: String?
-        let provider: MusicSourceSyncProvider
+        let provider: MusicSourceConnector
         let usedServerScope: Bool
     }
 
-    let providers: [String: MusicSourceSyncProvider]
+    let providers: [String: MusicSourceConnector]
 
     func resolve(
         sourceKey: String?,
@@ -33,7 +33,7 @@ struct SyncProviderResolver {
         return nil
     }
 
-    func requireProvider(sourceKey: String) throws -> MusicSourceSyncProvider {
+    func requireProvider(sourceKey: String) throws -> MusicSourceConnector {
         guard MediaSourceIdentity.parse(sourceKey) != nil else {
             throw MusicSourceRoutingError.invalidSourceKey(sourceKey)
         }
@@ -64,7 +64,7 @@ struct SyncProviderResolver {
         sourceKey: String,
         name: String,
         as _: Capability.Type
-    ) throws -> (provider: MusicSourceSyncProvider, capability: Capability) {
+    ) throws -> (provider: MusicSourceConnector, capability: Capability) {
         guard let identity = MediaSourceIdentity.parse(sourceKey) else {
             throw MusicSourceRoutingError.invalidSourceKey(sourceKey)
         }

@@ -12,7 +12,7 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         libraryId: "1"
     )
 
-    private final class RecordingSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
+    private final class RecordingSyncProvider: MusicSourceConnector, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         private(set) var fullLibrarySyncCount = 0
         private(set) var incrementalLibrarySyncCount = 0
@@ -290,7 +290,7 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             scopeType: .serverPlaylists,
             at: Date()
         )
-        let legacyPlaylistKey = PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey)
+        let legacyPlaylistKey = PlexConnector.playlistOrphanCheckKey(for: serverSourceKey)
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: legacyPlaylistKey)
         defer { UserDefaults.standard.removeObject(forKey: legacyPlaylistKey) }
 

@@ -91,7 +91,7 @@ final class SyncCoordinatorPlaybackReportingTests: XCTestCase {
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
         coordinator.setSyncProvidersForTesting(Dictionary(uniqueKeysWithValues: providers.map {
-            ($0.sourceIdentifier.compositeKey, $0 as MusicSourceSyncProvider)
+            ($0.sourceIdentifier.compositeKey, $0 as MusicSourceConnector)
         }))
         return coordinator
     }
@@ -113,7 +113,7 @@ private struct TimelineCall: Equatable {
     let duration: Int
 }
 
-private final class RecordingReportingProvider: MusicSourceSyncProvider, MusicSourcePlaybackReporting, @unchecked Sendable {
+private final class RecordingReportingProvider: MusicSourceConnector, MusicSourcePlaybackReporting, @unchecked Sendable {
     let sourceIdentifier: MusicSourceIdentifier
     var timelineCalls: [TimelineCall] = []
     var scrobbleRatingKeys: [String] = []

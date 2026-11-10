@@ -160,8 +160,8 @@ import EnsemblePersistence
 import MusicKit
 
 @available(iOS 18, *)
-public actor AppleMusicSourceProvider:
-    MusicSourceSyncProvider,
+public actor AppleMusicConnector:
+    MusicSourceConnector,
     MusicSourcePlaybackResolving,
     MusicSourceRatingMutating,
     MusicSourcePlaylistReconciling,

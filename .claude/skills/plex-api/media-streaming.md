@@ -230,7 +230,7 @@ curl -s -X DELETE "${PLEX_SERVER_URL}/transcode/sessions/${SESSION_KEY}?X-Plex-T
 - PMS always outputs MP3 regardless of transcode profile or start path (tested AAC-only profile, `start.m4a`, `start` — all return `audio/mpeg`)
 - Frame count duration matches Plex metadata: 195.81s vs 195.78s (previously AVPlayer reported 270.29s)
 - `effectiveDuration()` caps AVPlayer's duration to metadata when >10% over, as a safety net
-- Metadata duration is threaded from `Track.duration` through `SyncCoordinator` → `PlexMusicSourceSyncProvider` → `PlexAPIClient.makeStreamDecision()` → `ProgressiveStreamConfig`
+- Metadata duration is threaded from `Track.duration` through `SyncCoordinator` → `PlexConnector` → `PlexAPIClient.makeStreamDecision()` → `ProgressiveStreamConfig`
 
 
 ## CRITICAL: PMS start.mp3 is sensitive to query params and URL encoding

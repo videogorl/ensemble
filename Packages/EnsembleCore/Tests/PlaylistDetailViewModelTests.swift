@@ -168,7 +168,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func countPendingMutations() async throws -> Int { pending.count }
     }
 
-    private actor RecordingPlaylistProvider: MusicSourceSyncProvider, MusicSourcePlaylistMutating, MusicSourceCollectionRatingMutating {
+    private actor RecordingPlaylistProvider: MusicSourceConnector, MusicSourcePlaylistMutating, MusicSourceCollectionRatingMutating {
         enum Event: Equatable {
             case create(title: String, trackIDs: [String])
             case add(playlistID: String, trackIDs: [String])
@@ -275,7 +275,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         }
     }
 
-    private actor RecordingRatingProvider: MusicSourceSyncProvider, MusicSourceRatingMutating {
+    private actor RecordingRatingProvider: MusicSourceConnector, MusicSourceRatingMutating {
         struct Invocation: Sendable {
             let track: Track
             let rating: Int?
@@ -341,7 +341,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
     }
 
     private func makeSyncCoordinator(
-        providers: [MusicSourceSyncProvider]? = nil
+        providers: [MusicSourceConnector]? = nil
     ) -> SyncCoordinator {
         let accountManager = AccountManager(keychain: TestKeychain())
         accountManager.addPlexAccount(

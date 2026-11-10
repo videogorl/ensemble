@@ -97,7 +97,7 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
 
-    private actor ArtistDetailProvider: MusicSourceSyncProvider, MusicSourceDetailProviding {
+    private actor ArtistDetailProvider: MusicSourceConnector, MusicSourceDetailProviding {
         let sourceIdentifier: MusicSourceIdentifier
         let albums: [Album]
         private var artistAlbumRequests = 0

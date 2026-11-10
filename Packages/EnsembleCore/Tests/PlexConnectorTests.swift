@@ -3,11 +3,11 @@ import EnsemblePersistence
 import XCTest
 @testable import EnsembleCore
 
-final class PlexMusicSourceSyncProviderTests: XCTestCase {
+final class PlexConnectorTests: XCTestCase {
     func testOriginalDownloadDeclaresDownloadIntentWithoutChangingPlaybackURL() async throws {
         let client = PlexAPIClient(connection: .init(url: "https://download.invalid", token: "test", identifier: "server", name: "Test"), keychain: TestKeychain())
         let source = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "3")
-        let provider = PlexMusicSourceSyncProvider(sourceIdentifier: source, apiClient: client, sectionKey: "3")
+        let provider = PlexConnector(sourceIdentifier: source, apiClient: client, sectionKey: "3")
         let part = "/library/parts/42/file.flac"
         let playback = try await client.getStreamURL(trackKey: part)
         let download = try await provider.getDownloadURL(for: "track", trackStreamKey: part, quality: .original)
@@ -63,7 +63,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
             urlSession: session
         )
         let source = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: serverID, libraryId: "3")
-        let provider = PlexMusicSourceSyncProvider(sourceIdentifier: source, apiClient: client, sectionKey: "3")
+        let provider = PlexConnector(sourceIdentifier: source, apiClient: client, sectionKey: "3")
         let track = Track(id: "track", key: "/library/metadata/track", title: "Track", sourceCompositeKey: source.compositeKey)
         do { _ = try await provider.addTracks([track], to: "playlist"); XCTFail("Acknowledgment should be lost") }
         catch { XCTAssertTrue(PlexErrorClassification.classify(error).isRetryable) }
@@ -90,7 +90,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         let added = IncrementalItem(ratingKey: "1", updatedAt: 100, marker: "added", ratingChanged: false)
         let updated = IncrementalItem(ratingKey: "1", updatedAt: 101, marker: "updated", ratingChanged: false)
 
-        let changes = PlexMusicSourceSyncProvider.deduplicatedChangedItems(
+        let changes = PlexConnector.deduplicatedChangedItems(
             added: [added],
             updated: [updated],
             existingTimestamps: ["1": Date(timeIntervalSince1970: 100)],
@@ -111,7 +111,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
             ratingChanged: false
         )
 
-        let changes = PlexMusicSourceSyncProvider.deduplicatedChangedItems(
+        let changes = PlexConnector.deduplicatedChangedItems(
             added: [unchanged, missingTimestampExisting],
             updated: [],
             existingTimestamps: [
@@ -133,7 +133,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
             ratingChanged: false
         )
 
-        let changes = PlexMusicSourceSyncProvider.deduplicatedChangedItems(
+        let changes = PlexConnector.deduplicatedChangedItems(
             added: [missingTimestampNew],
             updated: [],
             existingTimestamps: [:],
@@ -152,7 +152,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
             ratingChanged: true
         )
 
-        let changes = PlexMusicSourceSyncProvider.deduplicatedChangedItems(
+        let changes = PlexConnector.deduplicatedChangedItems(
             added: [],
             updated: [ratingOnly],
             existingTimestamps: ["track": Date(timeIntervalSince1970: 100)],
@@ -171,7 +171,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         let renamed = makeArtistInput(ratingKey: "renamed", name: "Janelle Monáe", dateModified: staleDate)
         let newArtist = makeArtistInput(ratingKey: "new", name: "New Artist", dateModified: nil)
 
-        let changes = PlexMusicSourceSyncProvider.changedArtistInputs(
+        let changes = PlexConnector.changedArtistInputs(
             [unchanged, renamed, newArtist],
             existingMetadata: [
                 unchanged.ratingKey: ArtistSyncMetadata(unchanged),
@@ -221,7 +221,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         """.utf8)
         let track = try JSONDecoder().decode(PlexTrack.self, from: data)
 
-        let input = PlexMusicSourceSyncProvider.trackUpsertInput(from: track, genreNames: "Rock, Pop")
+        let input = PlexConnector.trackUpsertInput(from: track, genreNames: "Rock, Pop")
 
         XCTAssertEqual(input.ratingKey, "track-1")
         XCTAssertEqual(input.key, "/library/metadata/track-1")
@@ -256,7 +256,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         """.utf8)
         let album = try JSONDecoder().decode(PlexAlbum.self, from: data)
 
-        let input = PlexMusicSourceSyncProvider.albumUpsertInput(from: album)
+        let input = PlexConnector.albumUpsertInput(from: album)
 
         XCTAssertEqual(input.trackCount, 12)
     }
@@ -277,8 +277,8 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         ]
         """#.utf8))
 
-        let counts = PlexMusicSourceSyncProvider.trackCountsByAlbumRatingKey(tracks)
-        let input = PlexMusicSourceSyncProvider.albumUpsertInput(
+        let counts = PlexConnector.trackCountsByAlbumRatingKey(tracks)
+        let input = PlexConnector.albumUpsertInput(
             from: album,
             trackCount: counts[album.ratingKey]
         )
@@ -288,7 +288,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
 
     func testOrphanCheckRunsWhenItemsChanged() {
         XCTAssertTrue(
-            PlexMusicSourceSyncProvider.shouldCheckOrphans(
+            PlexConnector.shouldCheckOrphans(
                 changedItemCount: 1,
                 lastCheckedAt: Date().timeIntervalSince1970,
                 now: Date()
@@ -300,7 +300,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_000)
 
         XCTAssertFalse(
-            PlexMusicSourceSyncProvider.shouldCheckOrphans(
+            PlexConnector.shouldCheckOrphans(
                 changedItemCount: 0,
                 lastCheckedAt: 900,
                 now: now,
@@ -313,7 +313,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_000)
 
         XCTAssertTrue(
-            PlexMusicSourceSyncProvider.shouldCheckOrphans(
+            PlexConnector.shouldCheckOrphans(
                 changedItemCount: 0,
                 lastCheckedAt: 700,
                 now: now,
@@ -321,7 +321,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            PlexMusicSourceSyncProvider.shouldCheckOrphans(
+            PlexConnector.shouldCheckOrphans(
                 changedItemCount: 0,
                 lastCheckedAt: 0,
                 now: now,
@@ -333,22 +333,22 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
     func testFullMetadataReconciliationRunsWhenMissingStaleOrClockRegressed() {
         let now = Date(timeIntervalSince1970: 1_000)
 
-        XCTAssertTrue(PlexMusicSourceSyncProvider.shouldReconcileFullMetadata(
+        XCTAssertTrue(PlexConnector.shouldReconcileFullMetadata(
             lastReconciledAt: nil,
             now: now,
             interval: 200
         ))
-        XCTAssertTrue(PlexMusicSourceSyncProvider.shouldReconcileFullMetadata(
+        XCTAssertTrue(PlexConnector.shouldReconcileFullMetadata(
             lastReconciledAt: Date(timeIntervalSince1970: 700),
             now: now,
             interval: 200
         ))
-        XCTAssertTrue(PlexMusicSourceSyncProvider.shouldReconcileFullMetadata(
+        XCTAssertTrue(PlexConnector.shouldReconcileFullMetadata(
             lastReconciledAt: Date(timeIntervalSince1970: 1_100),
             now: now,
             interval: 200
         ))
-        XCTAssertFalse(PlexMusicSourceSyncProvider.shouldReconcileFullMetadata(
+        XCTAssertFalse(PlexConnector.shouldReconcileFullMetadata(
             lastReconciledAt: Date(timeIntervalSince1970: 900),
             now: now,
             interval: 200
@@ -357,7 +357,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
 
     func testPlaylistTrackSyncSkipsUnchangedPlaylist() {
         XCTAssertFalse(
-            PlexMusicSourceSyncProvider.shouldFetchPlaylistTracks(
+            PlexConnector.shouldFetchPlaylistTracks(
                 serverUpdatedAt: 100,
                 existingModifiedAt: Date(timeIntervalSince1970: 100)
             )
@@ -366,7 +366,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
 
     func testPlaylistTrackSyncFetchesChangedPlaylist() {
         XCTAssertTrue(
-            PlexMusicSourceSyncProvider.shouldFetchPlaylistTracks(
+            PlexConnector.shouldFetchPlaylistTracks(
                 serverUpdatedAt: 101,
                 existingModifiedAt: Date(timeIntervalSince1970: 100)
             )
@@ -375,7 +375,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
 
     func testPlaylistTrackSyncFetchesNewPlaylist() {
         XCTAssertTrue(
-            PlexMusicSourceSyncProvider.shouldFetchPlaylistTracks(
+            PlexConnector.shouldFetchPlaylistTracks(
                 serverUpdatedAt: 100,
                 existingModifiedAt: nil
             )
@@ -384,7 +384,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
 
     func testPlaylistTrackSyncSkipsExistingPlaylistWhenServerUpdatedAtIsMissing() {
         XCTAssertFalse(
-            PlexMusicSourceSyncProvider.shouldFetchPlaylistTracks(
+            PlexConnector.shouldFetchPlaylistTracks(
                 serverUpdatedAt: nil,
                 existingModifiedAt: Date.distantPast
             )
@@ -393,7 +393,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
 
     func testPlaylistTrackSyncRepairsEmptyLocalBodyWhenServerHasTracks() {
         XCTAssertTrue(
-            PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
+            PlexConnector.shouldRepairPlaylistTracks(
                 serverTrackCount: 12,
                 localMembershipCount: 0
             )
@@ -402,7 +402,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
 
     func testPlaylistTrackSyncPreservesPartialLocalBodyUntilServerChanges() {
         XCTAssertFalse(
-            PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
+            PlexConnector.shouldRepairPlaylistTracks(
                 serverTrackCount: 12,
                 localMembershipCount: 3
             )
@@ -411,7 +411,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
 
     func testPlaylistTrackSyncRepairsOversizedLocalBody() {
         XCTAssertTrue(
-            PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
+            PlexConnector.shouldRepairPlaylistTracks(
                 serverTrackCount: 74,
                 localMembershipCount: 148
             )
@@ -420,7 +420,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
 
     func testPlaylistTrackSyncDoesNotRepairCompleteBodyWhenItemIDsAreMissing() {
         XCTAssertFalse(
-            PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
+            PlexConnector.shouldRepairPlaylistTracks(
                 serverTrackCount: 12,
                 localMembershipCount: 12
             )
@@ -429,7 +429,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
 
     func testPlaylistTrackSyncDoesNotRepairIntentionallyEmptyPlaylist() {
         XCTAssertFalse(
-            PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
+            PlexConnector.shouldRepairPlaylistTracks(
                 serverTrackCount: 0,
                 localMembershipCount: 0
             )
@@ -439,12 +439,12 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
     func testPlexProviderExposesPlaylistMutationCapability() {
         func requirePlaylistMutator<T: MusicSourcePlaylistMutating>(_: T.Type) {}
 
-        requirePlaylistMutator(PlexMusicSourceSyncProvider.self)
+        requirePlaylistMutator(PlexConnector.self)
     }
 
     func testPlaylistSeedSectionKeysKeepPrimaryFirstAndDeduplicateEnabledSections() {
         XCTAssertEqual(
-            PlexMusicSourceSyncProvider.playlistSeedSectionKeys(
+            PlexConnector.playlistSeedSectionKeys(
                 primary: "7",
                 enabled: ["2", "", "7", "5", "2"]
             ),
@@ -463,7 +463,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
             """#.utf8))
         )
 
-        let playlist = try await PlexMusicSourceSyncProvider.pollForCreatedPlaylist(
+        let playlist = try await PlexConnector.pollForCreatedPlaylist(
             title: "Delayed Empty Playlist",
             seededEmptyPlaylist: true,
             retryDelays: [0, 1, 1],
@@ -487,7 +487,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         ]
         for cancellation in cancellations {
             do {
-                _ = try await PlexMusicSourceSyncProvider.pollForCreatedPlaylist(
+                _ = try await PlexConnector.pollForCreatedPlaylist(
                     title: "Empty Playlist",
                     seededEmptyPlaylist: true,
                     retryDelays: [0, 1],
@@ -519,7 +519,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         }
         for seeded in [true, false] {
             do {
-                let playlist = try await PlexMusicSourceSyncProvider.pollForCreatedPlaylist(
+                let playlist = try await PlexConnector.pollForCreatedPlaylist(
                     title: "Invisible Playlist", seededEmptyPlaylist: seeded, retryDelays: [0],
                     fetchPlaylists: { [] },
                     clearPlaylistItems: { _ in XCTFail("Invisible playlist cannot have acknowledged cleanup") }
@@ -551,7 +551,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         }
     }
 
-    private func playlistClearProvider(failure: URLError.Code?) -> (PlexMusicSourceSyncProvider, URLSession) {
+    private func playlistClearProvider(failure: URLError.Code?) -> (PlexConnector, URLSession) {
         PlaylistClearFixture.members = ["seed"]
         PlaylistClearFixture.clearFailure = failure
         let config = URLSessionConfiguration.ephemeral
@@ -565,7 +565,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
             urlSession: session
         )
         let source = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: serverID, libraryId: "3")
-        return (PlexMusicSourceSyncProvider(sourceIdentifier: source, apiClient: client, sectionKey: "3"), session)
+        return (PlexConnector(sourceIdentifier: source, apiClient: client, sectionKey: "3"), session)
     }
 
     private final class PlaylistClearFixture: URLProtocol {
@@ -621,17 +621,17 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
 
     func testPlaylistDeleteTreatsOnlyNotFoundAsConverged() {
         XCTAssertTrue(
-            PlexMusicSourceSyncProvider.isConvergedPlaylistDeleteError(
+            PlexConnector.isConvergedPlaylistDeleteError(
                 PlexAPIError.httpError(statusCode: 404)
             )
         )
         XCTAssertFalse(
-            PlexMusicSourceSyncProvider.isConvergedPlaylistDeleteError(
+            PlexConnector.isConvergedPlaylistDeleteError(
                 PlexAPIError.httpError(statusCode: 500)
             )
         )
         XCTAssertFalse(
-            PlexMusicSourceSyncProvider.isConvergedPlaylistDeleteError(
+            PlexConnector.isConvergedPlaylistDeleteError(
                 PlexAPIError.invalidResponse
             )
         )
@@ -651,7 +651,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         ]
 
         XCTAssertEqual(
-            try PlexMusicSourceSyncProvider.playlistEditOperations(
+            try PlexConnector.playlistEditOperations(
                 originalItems: original,
                 editedItems: edited
             ),
@@ -664,7 +664,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
 
     func testPlaylistEditOperationsRejectIncompleteOrForeignMemberships() {
         XCTAssertThrowsError(
-            try PlexMusicSourceSyncProvider.playlistEditOperations(
+            try PlexConnector.playlistEditOperations(
                 originalItems: [makePlaylistItem("a", playlistItemID: nil)],
                 editedItems: []
             )
@@ -673,7 +673,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         }
 
         XCTAssertThrowsError(
-            try PlexMusicSourceSyncProvider.playlistEditOperations(
+            try PlexConnector.playlistEditOperations(
                 originalItems: [makePlaylistItem("a")],
                 editedItems: [makePlaylistItem("foreign")]
             )

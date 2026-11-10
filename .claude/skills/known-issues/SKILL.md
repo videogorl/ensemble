@@ -115,7 +115,7 @@ No unresolved critical issues are currently documented.
 
 ### Plex Membership Reconciliation Verification
 
-- **Area:** `PlexMusicSourceSyncProvider`, persisted album metadata, `SiriMediaIndexStore`.
+- **Area:** `PlexConnector`, persisted album metadata, `SiriMediaIndexStore`.
 - **Status:** The approved complete-inventory repair is implemented. On October 8, naturally delivered physical Background Refresh discovered a new file with no parent album delta or `leafCount`, repaired the stored count, saved a changed Siri index, and queued its offline download; ordinary reopening completed it. Cold recovery healed a persisted invalid inventory cursor. Normal notifications handled removal, and the approved cancellation repair recovered a cancelled callback without reopening. See [the membership investigation](../../../docs/investigations/2026-10-08-plex-membership-reconciliation.md).
 - **Remaining verification:** Native App Group transfer blocked direct inspection of the saved Siri count; debugger/profiler attachment failed on both Wi-Fi and USB. Verify the raw Siri album count, precise interruption after delta persistence, stable-ID reparenting, zero-track albums, malformed/partial responses, and CPU/memory measurements when those observation paths are available. The persisted count and successful index save are confirmed; these remaining paths are not runtime-proven.
 
