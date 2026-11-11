@@ -38,6 +38,21 @@ final class PlaybackServiceFlowTests: XCTestCase {
         service.audioEngine?.stop()
     }
 
+    /// An intent cancelled while waiting for the launch restore stops waiting with an error, but the restore it
+    /// started still finishes for the next caller.
+    func testCancelledStartupRestorationWaitThrowsAndRestorationStillFinishes() async throws {
+        let service = await makeService()
+        let waiter = Task { try await service.waitForStartupRestoration(timeout: .seconds(5)) }
+        waiter.cancel()
+        do {
+            try await waiter.value
+            XCTFail("a cancelled wait must throw")
+        } catch is CancellationError {}
+
+        try await service.waitForStartupRestoration(timeout: .seconds(5))
+        if case .notAttempted = service.startupRestoreStatus { XCTFail("restoration never finished") }
+    }
+
     /// Removing items before the current one must keep the index on the current item.
     func testQueueRemovalsKeepTheCurrentItemCurrent() async throws {
         let service = await makeService()

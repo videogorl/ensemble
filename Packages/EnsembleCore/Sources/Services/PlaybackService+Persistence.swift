@@ -116,14 +116,16 @@ extension PlaybackService {
 
     /// Starts the one-time launch restore if nothing has, then waits up to `timeout` for it to finish reading the saved
     /// queue. A process started only to run an intent has no scene to start it, and can be asked about the current
-    /// song before the read completes. Throws when the caller is cancelled.
+    /// song before the read completes. Throws when the caller is cancelled, even if restoration has finished.
     @MainActor
     public func waitForStartupRestoration(timeout: Duration) async throws {
-        await restorePlaybackState() // a no-op when a scene or the launch already began it
         let deadline = ContinuousClock.now + timeout
+        // Restoration belongs to the service, not the caller: cancelling the caller stops only the wait.
+        Task { await restorePlaybackState() } // a no-op when a scene or the launch already began it
         while case .notAttempted = startupRestoreStatus, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(50))
         }
+        try Task.checkCancellation()
     }
 
     /// Restore local metadata before network-dependent playback preparation.
