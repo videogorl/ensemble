@@ -13,6 +13,7 @@ public enum SiriMediaIndexResolver {
     }
 
     public static let defaultMinimumMatchScore = 0.6
+    public static let crossKindMinimumMatchScore = 0.7
 
     public static func loadIndex(
         appGroupIdentifier: String = SiriSharedConstants.appGroupIdentifier,
@@ -80,6 +81,9 @@ public enum SiriMediaIndexResolver {
         guard !queryVariants.isEmpty, let index else { return [] }
 
         let normalizedArtistHint = artistHint.map { SiriPhraseNormalizer.basic($0) }
+        // With no single kind requested, a bare edit-distance resemblance ("firestorm" ~ the album "Forestry")
+        // is not enough to substitute one kind for another.
+        let minimumScore = (requestedKinds?.count ?? 4) > 1 ? max(minimumScore, crossKindMinimumMatchScore) : minimumScore
 
         return index.items
             .compactMap { item -> RankedItem? in

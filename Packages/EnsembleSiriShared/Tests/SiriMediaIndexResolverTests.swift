@@ -64,4 +64,23 @@ final class SiriMediaIndexResolverTests: XCTestCase {
 
         XCTAssertEqual(results.map(\.id), ["1"])
     }
+
+    /// With no single kind asked for, only a real match (exact, prefix, whole word) may stand in for the name.
+    func testCrossKindRankingRejectsEditDistanceOnlyMatches() {
+        let index = SiriMediaIndex(items: [
+            SiriMediaIndexItem(kind: .album, id: "1", displayName: "Forestry", sourceCompositeKey: "plex:a"),
+            SiriMediaIndexItem(kind: .track, id: "2", displayName: "Kim & Jessie", sourceCompositeKey: "plex:a"),
+            SiriMediaIndexItem(kind: .playlist, id: "3", displayName: "focus", sourceCompositeKey: "plex:a")
+        ])
+        let cases: [(query: String, kinds: Set<SiriMediaKind>?, expected: [String])] = [
+            ("Firestorm", nil, []),
+            ("Firestorm", [.track, .album, .artist, .playlist], []),
+            ("Kim and Jessie", nil, ["2"]),
+            ("Shuffle my focus playlist", nil, ["3"])
+        ]
+        for testCase in cases {
+            let ranked = SiriMediaIndexResolver.rankCandidates(for: testCase.query, requestedKinds: testCase.kinds, index: index)
+            XCTAssertEqual(ranked.map(\.item.id), testCase.expected, testCase.query)
+        }
+    }
 }
