@@ -84,7 +84,11 @@ func readyContainer() async throws -> DependencyContainer {
 func currentTrackOrThrow() async throws -> Track {
     let playback = intentContainer.playbackService
     if playback.currentTrack == nil {
-        await playback.waitForStartupRestoration(timeout: .seconds(5))
+        // Restoring resolves the saved track through its source, which needs the accounts.
+        if intentContainer.accountManager.credentialLoadState != .loaded {
+            await intentContainer.accountManager.loadAccountsAsync()
+        }
+        try await playback.waitForStartupRestoration(timeout: .seconds(5))
     }
     guard let track = playback.currentTrack else {
         throw EnsembleIntentError.nothingPlaying
