@@ -10,9 +10,60 @@ final class LibraryWriterPlaylistTests: XCTestCase {
     private let otherScope = "plex:acct:other"
     private let t0 = Date(timeIntervalSince1970: 1_000_000)
 
+    /// Forwards to a real repository and lets a test hold or observe each body write.
+    private final class HookedPlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
+        let base: PlaylistRepository
+        private let lock = NSLock()
+        private var writes = 0
+        private var hook: (@Sendable (Int) async -> Void)?
+
+        init(base: PlaylistRepository) { self.base = base }
+
+        /// Runs before each body write, with the number of that write (the first is 1).
+        func beforeBodyWrite(_ hook: @escaping @Sendable (Int) async -> Void) { lock.withLock { self.hook = hook } }
+
+        func fetchPlaylists() async throws -> [CDPlaylist] { try await base.fetchPlaylists() }
+        func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] { try await base.fetchPlaylists(sourceCompositeKey: sourceCompositeKey) }
+        func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? { try await base.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey) }
+        func searchPlaylists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDPlaylist]) -> [Value]) async throws -> [Value] { try await base.searchPlaylists(query: query, map: map) }
+        func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist] { try await base.findPlaylistsByTitle(title, sourceCompositeKeys: sourceCompositeKeys) }
+        func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist {
+            try await base.upsertPlaylist(ratingKey: ratingKey, key: key, title: title, summary: summary, compositePath: compositePath, isSmart: isSmart, duration: duration, trackCount: trackCount, dateAdded: dateAdded, dateModified: dateModified, lastPlayed: lastPlayed, sourceCompositeKey: sourceCompositeKey)
+        }
+        func upsertPlaylist(_ input: PlaylistUpsertInput, sourceCompositeKey: String?) async throws -> CDPlaylist { try await base.upsertPlaylist(input, sourceCompositeKey: sourceCompositeKey) }
+        func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws { try await base.setPlaylistTracks(trackRatingKeys, forPlaylist: playlistRatingKey, sourceCompositeKey: sourceCompositeKey) }
+        func setPlaylistTrackSnapshots(_ snapshots: [PlaylistTrackSnapshot], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws {
+            let (count, hook) = lock.withLock { writes += 1; return (writes, self.hook) }
+            await hook?(count)
+            try await base.setPlaylistTrackSnapshots(snapshots, forPlaylist: playlistRatingKey, sourceCompositeKey: sourceCompositeKey)
+        }
+        func deletePlaylists(sourceCompositeKey: String) async throws { try await base.deletePlaylists(sourceCompositeKey: sourceCompositeKey) }
+        func deletePlaylist(ratingKey: String, sourceCompositeKey: String) async throws -> Bool { try await base.deletePlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey) }
+        func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { try await base.removeOrphanedPlaylists(notIn: validRatingKeys, forSource: sourceKey) }
+        func fetchPlaylistSyncStates(forSource sourceKey: String) async throws -> [String: PlaylistSyncState] { try await base.fetchPlaylistSyncStates(forSource: sourceKey) }
+    }
+
+    /// Holds a body write until the test lets it go, so a second operation can arrive while the first is mid-write.
+    private actor Gate {
+        private var started = false
+        private var isOpen = false
+        private var startWaiters: [CheckedContinuation<Void, Never>] = []
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        func hold() async {
+            started = true
+            startWaiters.forEach { $0.resume() }
+            startWaiters.removeAll()
+            if !isOpen { await withCheckedContinuation { waiters.append($0) } }
+        }
+        func waitUntilHeld() async { if !started { await withCheckedContinuation { startWaiters.append($0) } } }
+        func release() { isOpen = true; waiters.forEach { $0.resume() }; waiters.removeAll() }
+    }
+
     private struct Fixture {
         let writer: LibraryWriter
         let playlists: PlaylistRepository
+        let hooked: HookedPlaylistRepository
         let cursors: SyncCursorRepository
         let pending: PendingMutationRepository
         let targets: OfflineDownloadTargetRepository
@@ -24,14 +75,15 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         let stack = CoreDataStack.onDisk(at: directory.appendingPathComponent("Ensemble.sqlite"))
         let playlists = PlaylistRepository(coreDataStack: stack)
+        let hooked = HookedPlaylistRepository(base: playlists)
         let cursors = SyncCursorRepository(coreDataStack: stack)
         let pending = PendingMutationRepository(coreDataStack: stack)
         return Fixture(
             writer: LibraryWriter(
-                libraryRepository: LibraryRepository(coreDataStack: stack), playlistRepository: playlists,
+                libraryRepository: LibraryRepository(coreDataStack: stack), playlistRepository: hooked,
                 syncCursorRepository: cursors, pendingMutationRepository: pending
             ),
-            playlists: playlists, cursors: cursors, pending: pending,
+            playlists: playlists, hooked: hooked, cursors: cursors, pending: pending,
             targets: OfflineDownloadTargetRepository(coreDataStack: stack)
         )
     }
@@ -299,18 +351,213 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         XCTAssertEqual(states["p1"]?.title, "Playlist p1", "once uploaded the server's title applies")
     }
 
+    /// p1 is rewritten and p2 is deleted by the inventory; a target on each keeps its row.
     func testOfflineTargetsSurviveBodyRewritesAndDeletions() async throws {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1", "p2"], bodies: ["p1": tracks("a"), "p2": tracks("b")], at: t0), for: scope)
-        let key = "offline:playlist:\(scope):*:p1"
-        _ = try await f.targets.upsertTarget(key: key, kind: .playlist, ratingKey: "p1", sourceCompositeKey: scope, displayName: "Playlist p1")
+        let keys = ["p1", "p2"].map { "offline:playlist:\(scope):*:\($0)" }
+        for (key, id) in zip(keys, ["p1", "p2"]) {
+            _ = try await f.targets.upsertTarget(key: key, kind: .playlist, ratingKey: id, sourceCompositeKey: scope, displayName: "Playlist \(id)")
+        }
 
-        try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a", "c")], at: t0 + 10, modified: 200), for: scope)
+        let result = try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a", "c")], at: t0 + 10, modified: 200), for: scope)
 
-        let target = try await f.targets.fetchTarget(key: key)
-        XCTAssertNotNil(target)
+        XCTAssertEqual(result.removedPlaylists, 1)
         let ids = try await storedIDs(f, scope)
         XCTAssertEqual(ids, ["p1"])
+        for key in keys {
+            let target = try await f.targets.fetchTarget(key: key)
+            XCTAssertNotNil(target, key)
+        }
+    }
+
+    // MARK: - Reads that finish out of order
+
+    /// A read that began before the newest committed list read describes older state, so it changes nothing:
+    /// it cannot delete a playlist the newer read listed or bring back one it removed, and a targeted read
+    /// cannot overwrite a newer body. A read that began after it applies.
+    func testAnOlderReadFinishingLateChangesNothing() async throws {
+        let older = t0 + 10
+        let cases: [(name: String, batch: PlaylistBatch)] = [
+            ("older list that still has the removed playlist", try list(["p1", "p2"], bodies: ["p2": tracks("c")], at: older, modified: 150)),
+            ("older list lacking a listed playlist", try list(["p2"], at: older)),
+            ("older unproven list", try list(["p1", "p2"], complete: false, at: older, modified: 300)),
+            ("older targeted read of the removed playlist", PlaylistBatch(entries: [PlaylistEntry(header: header("p2", at: 150, count: 1), body: tracks("c"))], queryStartedAt: older)),
+            ("older targeted read with a newer date and another body", PlaylistBatch(entries: [PlaylistEntry(header: header("p1", at: 300, count: 1), body: tracks("z"))], queryStartedAt: older)),
+        ]
+        for testCase in cases {
+            let f = try makeFixture()
+            try await f.writer.apply(list(["p1", "p2"], bodies: ["p1": tracks("a"), "p2": tracks("b")], at: t0), for: scope)
+            try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a", "b")], at: t0 + 20, modified: 200), for: scope)
+
+            let result = try await f.writer.apply(testCase.batch, for: scope)
+
+            XCTAssertEqual(result, PlaylistSyncResult(), testCase.name)
+            let ids = try await storedIDs(f, scope)
+            XCTAssertEqual(ids, ["p1"], testCase.name)
+            let rows = try await body(f, "p1")
+            XCTAssertEqual(rows, ["a", "b"], testCase.name)
+            let record = try await cursor(f)
+            XCTAssertEqual(record?.lastInventorySyncAt, t0 + 20, testCase.name)
+        }
+
+        let f = try makeFixture()
+        try await f.writer.apply(list(["p1", "p2"], bodies: ["p1": tracks("a")], at: t0), for: scope)
+        try await f.writer.apply(PlaylistBatch(
+            entries: [PlaylistEntry(header: header("p1", at: 300, count: 2), body: tracks("a", "c")), PlaylistEntry(header: header("p3", at: 100, count: 1), body: tracks("x"))],
+            queryStartedAt: t0 + 30
+        ), for: scope)
+        let rows = try await body(f, "p1")
+        XCTAssertEqual(rows, ["a", "c"], "a targeted read that began later applies")
+        let created = try await body(f, "p3")
+        XCTAssertEqual(created, ["x"])
+    }
+
+    /// An operation that arrives while a pass is mid-write waits for it, so the local edit is the last write
+    /// instead of being overwritten by the pass's body.
+    func testALocalEditArrivingMidPassWaitsForThePass() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0), for: scope)
+        let gate = Gate()
+        f.hooked.beforeBodyWrite { count in if count == 2 { await gate.hold() } }   // 1 was the seed above
+
+        let pass = Task { try await f.writer.apply(self.list(["p1"], bodies: ["p1": self.tracks("x")], at: Date(), modified: 200), for: self.scope) }
+        await gate.waitUntilHeld()
+        let edit = Task { try await f.writer.applyLocalEdit(PlaylistEntry(header: self.header("p1", at: 200, count: 2), body: self.tracks("a", "b")), for: self.scope) }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        await gate.release()
+        _ = try await pass.value
+        try await edit.value
+
+        let rows = try await body(f, "p1")
+        XCTAssertEqual(rows, ["a", "b"])
+    }
+
+    /// Two passes started together apply one after the other: the older read is ignored whichever arrives first.
+    func testOverlappingPassesEndInTheNewerReadsState() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(list(["p1", "p2"], bodies: ["p1": tracks("a"), "p2": tracks("b")], at: t0), for: scope)
+        f.hooked.beforeBodyWrite { _ in try? await Task.sleep(nanoseconds: 20_000_000) }
+        let now = Date()   // reads began in the past: a cursor dated in the future reads as a clock that went backwards
+
+        let newer = Task { try await f.writer.apply(self.list(["p1", "p3"], bodies: ["p1": self.tracks("a", "n"), "p3": self.tracks("c")], at: now - 5, modified: 200), for: self.scope) }
+        let older = Task { try await f.writer.apply(self.list(["p1", "p2"], bodies: ["p1": self.tracks("o"), "p2": self.tracks("b")], at: now - 10, modified: 150), for: self.scope) }
+        _ = try await (newer.value, older.value)
+
+        let ids = try await storedIDs(f, scope)
+        XCTAssertEqual(ids, ["p1", "p3"])
+        let rows = try await body(f, "p1")
+        XCTAssertEqual(rows, ["a", "n"])
+        let record = try await cursor(f)
+        XCTAssertEqual(record?.lastInventorySyncAt, now - 5)
+    }
+
+    /// A pass cancelled between playlists keeps the playlists it finished, deletes nothing and leaves the cursor.
+    func testACancelledPassKeepsFinishedPlaylistsAndDeletesNothing() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(list(["p1", "p2", "p3"], bodies: ["p1": tracks("a"), "p2": tracks("b"), "p3": tracks("c")], at: t0), for: scope)
+        let gate = Gate()
+        f.hooked.beforeBodyWrite { count in if count == 5 { await gate.hold() } }   // 1 to 3 were the seed; 4 is p1
+
+        let pass = Task { try await f.writer.apply(self.list(["p1", "p2"], bodies: ["p1": self.tracks("a", "n"), "p2": self.tracks("b", "n")], at: self.t0 + 10, modified: 200), for: self.scope) }
+        await gate.waitUntilHeld()
+        pass.cancel()
+        await gate.release()
+        do { _ = try await pass.value; XCTFail("expected cancellation") } catch is CancellationError {}
+
+        let finished = try await body(f, "p1")
+        XCTAssertEqual(finished, ["a", "n"])
+        let states = try await f.playlists.fetchPlaylistSyncStates(forSource: scope)
+        XCTAssertEqual(states["p1"]?.dateModified, Date(timeIntervalSince1970: 200), "p1 committed its body and date")
+        XCTAssertEqual(states["p2"]?.dateModified, Date(timeIntervalSince1970: 100), "p2's date did not move, so the next pass reads it again")
+        XCTAssertEqual(Set(states.keys), ["p1", "p2", "p3"], "the inventory deleted nothing")
+        let record = try await cursor(f)
+        XCTAssertEqual(record?.lastInventorySyncAt, t0)
+    }
+
+    // MARK: - Unresolved bodies
+
+    /// A header that needed a body and got none is reported, whether it is new or changed, and keeps the
+    /// stored body and date; unchanged, older and locally edited playlists are not.
+    func testPlaylistsWhoseBodyWasNeededButMissingAreReportedUnresolved() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(list(["p1", "p3", "p4", "p5"], bodies: ["p1": tracks("a"), "p3": tracks("c"), "p4": tracks("d"), "p5": tracks("e")], at: t0, modified: 100), for: scope)
+        try await f.writer.apply(PlaylistBatch(entries: [PlaylistEntry(header: header("p4", at: 300, count: 1), body: tracks("d"))], queryStartedAt: t0 + 5), for: scope)
+        let readBegan = Date().addingTimeInterval(-5)
+        try await f.writer.applyLocalEdit(PlaylistEntry(header: header("p5", at: 100, count: 2), body: tracks("e", "f")), for: scope)
+
+        let result = try await f.writer.apply(PlaylistBatch(
+            entries: [
+                PlaylistEntry(header: header("p1", at: 200, count: 1)),    // changed, body unread
+                PlaylistEntry(header: header("p2", at: 100, count: 1)),    // new, body unread
+                PlaylistEntry(header: header("p3", at: 100, count: 1)),    // unchanged
+                PlaylistEntry(header: header("p4", at: 100, count: 1)),    // older than stored
+                PlaylistEntry(header: header("p5", at: 400, count: 1)),    // edited after the read began
+            ],
+            readsFullList: true, queryStartedAt: readBegan
+        ), for: scope)
+
+        XCTAssertEqual(result.unresolvedPlaylists.sorted(), ["p1", "p2"])
+        XCTAssertTrue(result.isPartial)
+        let states = try await f.playlists.fetchPlaylistSyncStates(forSource: scope)
+        XCTAssertEqual(states["p1"]?.dateModified, Date(timeIntervalSince1970: 100), "the stored date stays so the body is read again")
+        XCTAssertNil(states["p2"]?.dateModified)
+        let kept = try await body(f, "p1")
+        XCTAssertEqual(kept, ["a"])
+
+        let retry = try await f.writer.apply(PlaylistBatch(
+            entries: [PlaylistEntry(header: header("p1", at: 200, count: 1), body: tracks("a2")), PlaylistEntry(header: header("p2", at: 100, count: 1), body: tracks("b"))],
+            readsFullList: true, queryStartedAt: Date().addingTimeInterval(5)
+        ), for: scope)
+        XCTAssertFalse(retry.isPartial)
+    }
+
+    // MARK: - Local mutations
+
+    /// Adds made together all land: each reads, merges and saves the body inside one serialized operation.
+    func testConcurrentAppendsAllLand() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0), for: scope)
+        f.hooked.beforeBodyWrite { _ in try? await Task.sleep(nanoseconds: 5_000_000) }
+        let source = MusicSourceIdentifier(type: .plex, accountId: "acct", serverId: "srv", libraryId: "1").compositeKey
+        func track(_ id: String) -> Track { Track(id: id, key: id, title: id, sourceCompositeKey: source) }
+
+        let counts = try await withThrowingTaskGroup(of: Int?.self) { group in
+            for index in 0..<8 { group.addTask { try await f.writer.appendLocally([track("t\(index)")], toPlaylist: "p1", for: self.scope) } }
+            // A track the playlist already holds adds nothing.
+            group.addTask { try await f.writer.appendLocally([track("a")], toPlaylist: "p1", for: self.scope) }
+            return try await group.reduce(into: [Int?]()) { $0.append($1) }
+        }
+
+        let rows = try await body(f, "p1")
+        XCTAssertEqual(rows.count, 9)
+        XCTAssertEqual(Set(rows), Set(["a"] + (0..<8).map { "t\($0)" }))
+        XCTAssertEqual(counts.compactMap { $0 }.max(), 9)
+        let missing = try await f.writer.appendLocally([track("x")], toPlaylist: "gone", for: scope)
+        XCTAssertNil(missing, "a playlist that is not stored reports so")
+    }
+
+    /// The server confirmed the delete: the playlist goes even when it was the scope's last, where the
+    /// empty list that follows deletes nothing. An older read cannot bring it back.
+    func testDeletingTheLastPlaylistRemovesItAndAnOlderReadCannotRestoreIt() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0), for: scope)
+        try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0), for: otherScope)
+
+        try await f.writer.removePlaylist("p1", for: scope)
+        try await f.writer.removePlaylist("never-stored", for: scope)
+
+        var mine = try await storedIDs(f, scope)
+        XCTAssertEqual(mine, [])
+        let theirs = try await storedIDs(f, otherScope)
+        XCTAssertEqual(theirs, ["p1"])
+
+        // The empty list a refresh reads next deletes nothing and brings nothing back.
+        try await f.writer.apply(list([], at: Date().addingTimeInterval(1)), for: scope)
+        // A list read before the delete still shows the playlist.
+        try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0 + 10), for: scope)
+        mine = try await storedIDs(f, scope)
+        XCTAssertEqual(mine, [])
     }
 
     // MARK: - Cursors

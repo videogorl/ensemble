@@ -87,3 +87,22 @@ extension PlaylistUpsertInput {
         )
     }
 }
+
+extension PlaylistTrackSnapshot {
+    /// A track as a playlist body row; nil when the track names no valid source.
+    init?(_ track: Track, playlistItemID: String?) {
+        guard let sourceCompositeKey = track.sourceCompositeKey,
+              MusicSourceIdentifier(compositeKey: sourceCompositeKey) != nil else { return nil }
+        self.init(
+            ratingKey: track.id,
+            playlistItemID: playlistItemID,
+            key: track.key,
+            title: track.title,
+            artistName: track.artistName,
+            albumName: track.albumName,
+            duration: track.duration,
+            thumbPath: track.thumbPath ?? track.fallbackThumbPath,
+            sourceCompositeKey: sourceCompositeKey
+        )
+    }
+}

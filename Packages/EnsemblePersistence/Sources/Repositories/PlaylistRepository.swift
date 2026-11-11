@@ -219,6 +219,9 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
     func setPlaylistTrackSnapshots(_ snapshots: [PlaylistTrackSnapshot], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
     func deletePlaylists(sourceCompositeKey: String) async throws
+    /// Deletes one playlist of one source. Returns whether a row was removed.
+    @discardableResult
+    func deletePlaylist(ratingKey: String, sourceCompositeKey: String) async throws -> Bool
     func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
 
     /// Every stored header of a source, for sync change detection. Reads no membership rows.
@@ -1060,6 +1063,32 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         }
     }
     
+    @discardableResult
+    public func deletePlaylist(ratingKey: String, sourceCompositeKey: String) async throws -> Bool {
+        try await withCheckedThrowingContinuation { continuation in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request: NSFetchRequest<CDPlaylist> = CDPlaylist.fetchRequest()
+                    request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
+                    let playlists = try context.fetch(request)
+                    for playlist in playlists {
+                        self.recordArtworkInvalidation(ArtworkInvalidationInfo(
+                            ratingKey: playlist.ratingKey,
+                            type: .playlist,
+                            reason: .removed,
+                            sourceCompositeKey: sourceCompositeKey
+                        ))
+                        context.delete(playlist)
+                    }
+                    if !playlists.isEmpty { try context.save() }
+                    continuation.resume(returning: !playlists.isEmpty)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
         try await withCheckedThrowingContinuation { continuation in
             coreDataStack.performBackgroundTask { context in

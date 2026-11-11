@@ -137,14 +137,17 @@ public struct LibraryBatch: Sendable {
 }
 
 /// The only code that writes synced library rows, deletes from an inventory or
-/// moves a library sync cursor. One batch is applied at a time, so sync paths
-/// cannot race a fetch against an insert.
+/// moves a library sync cursor. Library batches are not serialized here: an actor
+/// lets another call in at every `await`, and `SyncCoordinator`'s per-source single
+/// flight is what keeps two library applies for one source apart. Playlist
+/// operations, which run alongside library syncs, are serialized by `serialized`.
 ///
 /// Deletion contract: rows are deleted only from a complete inventory. An empty
 /// inventory deletes only when its connector marked it authoritative, a stale batch is ignored whole, and a failed,
 /// partial or cancelled pass leaves the cursor due.
 ///
-/// Playlists follow the same contract, with two differences: an empty playlist inventory never
+/// Playlists follow the same contract, with these differences: a batch whose read began before the newest
+/// committed list read is ignored whole; an empty playlist inventory never
 /// deletes (decision 2), and a body deletes membership rows only when the connector attached it,
 /// which it does only for a complete read. An empty body is a complete read of an empty playlist.
 public actor LibraryWriter {
@@ -247,6 +250,26 @@ public actor LibraryWriter {
 
     // MARK: - Playlists
 
+    // Every playlist operation below runs on one serial chain. An actor does not run a call to its end
+    // before starting the next: each `await` lets another call in, so a list apply, a local edit and an
+    // append would interleave their reads and writes. The chain is separate from the library's, so a
+    // long library write never delays a local playlist edit.
+
+    private var playlistChain: Task<Void, Never>?
+
+    /// Runs `operation` after every earlier playlist operation finished, in call order. A cancelled caller
+    /// cancels its own operation; the chain goes on.
+    private func serialized<Value: Sendable>(_ operation: @escaping () async throws -> Value) async throws -> Value {
+        let previous = playlistChain
+        let task = Task { () throws -> Value in
+            await previous?.value
+            try RefreshExecution.checkCancellation()
+            return try await operation()
+        }
+        playlistChain = Task { _ = await task.result }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+    }
+
     /// The listed playlists whose bodies must be read: new ones, ones whose date changed or is missing,
     /// and ones with no stored body under a non-empty header. A header older than the stored one needs none.
     public func playlistsNeedingBodies(_ headers: [PlaylistUpsertInput], for scope: String) async throws -> [PlaylistUpsertInput] {
@@ -254,14 +277,27 @@ public actor LibraryWriter {
         return headers.filter { Self.needsBody($0, stored: stored[$0.ratingKey]) }
     }
 
-    /// Applies a playlist read. A header with a needed but missing body keeps its stored date, so the next
-    /// read tries again; the date advances only in the save after its body. Deletion needs the batch's
-    /// complete, non-empty inventory.
+    /// Applies a playlist read. A batch whose read began before the newest committed full-list read is
+    /// ignored whole, so an older read finishing late can neither delete nor resurrect a playlist, and a
+    /// targeted read cannot overwrite what a newer pass wrote. A header with a needed but missing body
+    /// keeps its stored date, so the next read tries again, and is reported as unresolved; the date
+    /// advances only in the save after its body. Deletion needs the batch's complete, non-empty inventory.
     @discardableResult
     public func apply(_ batch: PlaylistBatch, for scope: String) async throws -> PlaylistSyncResult {
+        try await serialized { try await self.applyBatch(batch, for: scope) }
+    }
+
+    private func applyBatch(_ batch: PlaylistBatch, for scope: String) async throws -> PlaylistSyncResult {
+        // A cursor dated in the future means the clock went backwards, not that this batch is old.
+        if let newest = try await cursors?.fetchCursor(scopeKey: scope, scopeType: .serverPlaylists)?.lastSuccessfulSyncAt,
+           batch.queryStartedAt <= newest, newest <= Date() {
+            EnsembleLogger.info("Ignoring a stale playlist batch for \(scope): query started before the last committed list read")
+            return PlaylistSyncResult()
+        }
         let stored = try await playlistRepository.fetchPlaylistSyncStates(forSource: scope)
         let queuedRenames = try await playlistsWithQueuedRename(in: scope)
         var changed = 0
+        var unresolved: [String] = []
         for entry in batch.entries {
             try RefreshExecution.checkCancellation()
             let id = entry.header.ratingKey
@@ -272,6 +308,7 @@ public actor LibraryWriter {
 
             var header = entry.header
             let body = Self.provenBody(entry.body)
+            if body == nil, Self.needsBody(entry.header, stored: existing) { unresolved.append(id) }
             if let existing {
                 if queuedRenames.contains(id) { header = header.replacing(title: existing.title) }
                 if body == nil {
@@ -311,16 +348,62 @@ public actor LibraryWriter {
             }
         }
         if changed + removed > 0 { EnsembleLogger.debug("🎵 Playlists \(scope): wrote \(changed), removed \(removed)") }
-        return PlaylistSyncResult(changedPlaylists: changed, removedPlaylists: removed)
+        if !unresolved.isEmpty { EnsembleLogger.info("Playlists \(scope): \(unresolved.count) body reads unresolved, to retry next pass") }
+        return PlaylistSyncResult(changedPlaylists: changed, removedPlaylists: removed, unresolvedPlaylists: unresolved)
     }
 
     /// Writes a playlist the user just created or changed, before the server shows it. Reads that began
     /// earlier cannot undo it, and an inventory read earlier cannot delete it.
     public func applyLocalEdit(_ entry: PlaylistEntry, for scope: String) async throws {
-        let existing = try await playlistRepository.fetchPlaylistSyncStates(forSource: scope)[entry.header.ratingKey]
-        localEdits = localEdits.filter { $0.value.timeIntervalSinceNow > -Self.localEditProtection }
-        localEdits[Self.editKey(entry.header.ratingKey, in: scope)] = Date()
-        try await write(entry.header, body: entry.body, scope: scope, existing: existing)
+        try await serialized {
+            let existing = try await self.playlistRepository.fetchPlaylistSyncStates(forSource: scope)[entry.header.ratingKey]
+            self.noteLocalEdit(entry.header.ratingKey, in: scope)
+            try await self.write(entry.header, body: entry.body, scope: scope, existing: existing)
+        }
+    }
+
+    /// Appends tracks the user just added to a playlist, before the server shows them. The stored body is
+    /// read, merged and saved inside one serialized operation, so two adds in a row both survive. Tracks the
+    /// playlist already holds are skipped. Returns the track count afterwards, or nil when the playlist is not stored.
+    public func appendLocally(_ tracks: [Track], toPlaylist id: String, for scope: String) async throws -> Int? {
+        try await serialized {
+            guard let cached = try await self.playlistRepository.fetchPlaylist(ratingKey: id, sourceCompositeKey: scope) else { return nil }
+            // The object belongs to the main-queue context.
+            let (header, items) = await MainActor.run {
+                (PlaylistUpsertInput(
+                    ratingKey: cached.ratingKey, key: cached.key, title: cached.title, summary: cached.summary,
+                    compositePath: cached.compositePath, isSmart: cached.isSmart, duration: nil, trackCount: nil,
+                    dateAdded: cached.dateAdded,
+                    // The server's date stays, so the next read of the changed playlist replaces this body.
+                    dateModified: cached.dateModified, lastPlayed: cached.lastPlayed
+                ), cached.playlistItemsArray.map(PlaylistItem.init(from:)))
+            }
+            let newTracks = PlaylistActionService().tracks(tracks, excluding: items.map(\.track))
+            guard !newTracks.isEmpty else { return items.count }
+
+            let snapshots = items.compactMap { PlaylistTrackSnapshot($0.track, playlistItemID: $0.playlistItemID) }
+                + newTracks.compactMap { PlaylistTrackSnapshot($0, playlistItemID: nil) }
+            let existing = try await self.playlistRepository.fetchPlaylistSyncStates(forSource: scope)[id]
+            self.noteLocalEdit(id, in: scope)
+            try await self.write(
+                header.replacing(duration: Int(snapshots.reduce(0) { $0 + $1.duration } * 1_000), trackCount: snapshots.count),
+                body: snapshots, scope: scope, existing: existing
+            )
+            return snapshots.count
+        }
+    }
+
+    /// Removes a playlist the server just confirmed deleted. The inventory cannot do it when it was the
+    /// scope's last playlist, because an empty list deletes nothing. Reads that began earlier cannot bring it back.
+    public func removePlaylist(_ id: String, for scope: String) async throws {
+        try await serialized {
+            self.noteLocalEdit(id, in: scope)
+            try await self.playlistRepository.deletePlaylist(ratingKey: id, sourceCompositeKey: scope)
+            let survivors = Set(try await self.playlistRepository.fetchPlaylistSyncStates(forSource: scope).keys)
+            await MainActor.run {
+                HiddenMediaStore.shared.removeMissing(kind: .playlist, sourceKey: scope, survivingItemIDs: survivors)
+            }
+        }
     }
 
     /// The last complete playlist inventory of a scope.
@@ -330,7 +413,7 @@ public actor LibraryWriter {
 
     /// Forgets a scope's playlist cursor.
     public func removePlaylistCursor(_ scope: String) async throws {
-        try await cursors?.deleteCursor(scopeKey: scope, scopeType: .serverPlaylists)
+        try await serialized { try await self.cursors?.deleteCursor(scopeKey: scope, scopeType: .serverPlaylists) }
     }
 
     @discardableResult
@@ -361,6 +444,11 @@ public actor LibraryWriter {
     }
 
     private static func editKey(_ id: String, in scope: String) -> String { "\(scope)\u{0}\(id)" }
+
+    private func noteLocalEdit(_ id: String, in scope: String) {
+        localEdits = localEdits.filter { $0.value.timeIntervalSinceNow > -Self.localEditProtection }
+        localEdits[Self.editKey(id, in: scope)] = Date()
+    }
 
     private func isEditedLocally(_ id: String, in scope: String, since date: Date) -> Bool {
         localEdits[Self.editKey(id, in: scope)].map { $0 > date } ?? false

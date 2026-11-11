@@ -167,13 +167,15 @@ final class PlexConnectorPlaylistSyncTests: XCTestCase {
         // The server says three items and sends none: a short read, not an emptied playlist.
         server.playlists[0] = Playlist(id: "p1", updatedAt: 200, leafCount: 3, items: [], bodySize: 3)
         install(server)
-        _ = try await sync(f)
+        let short = try await sync(f)
         let kept = try await body(f, "p1")
         XCTAssertEqual(kept, ["a", "b"])
+        XCTAssertEqual(short.unresolvedPlaylists, ["p1"], "the pass reports the playlist it could not read")
 
         server.playlists[0] = Playlist(id: "p1", updatedAt: 200, leafCount: 3, items: ["a", "b", "c"])
         install(server)
-        _ = try await sync(f)
+        let repair = try await sync(f)
+        XCTAssertFalse(repair.isPartial)
         let repaired = try await body(f, "p1")
         XCTAssertEqual(repaired, ["a", "b", "c"], "the date stayed, so the next pass read it again")
     }

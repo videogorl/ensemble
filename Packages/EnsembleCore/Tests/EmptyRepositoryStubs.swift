@@ -56,8 +56,8 @@ final class EmptyPlaylistRepository: PlaylistRepositoryProtocol, @unchecked Send
     func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist] { [] }
     func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist { throw EmptyRepositoryError.unimplemented }
     func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws {}
-    func deletePlaylist(ratingKey: String) async throws {}
     func deletePlaylists(sourceCompositeKey: String) async throws {}
+    func deletePlaylist(ratingKey: String, sourceCompositeKey: String) async throws -> Bool { false }
     func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
 }
 

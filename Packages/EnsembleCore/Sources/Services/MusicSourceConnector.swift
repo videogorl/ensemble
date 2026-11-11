@@ -44,11 +44,17 @@ public struct LibrarySyncResult: Sendable, Equatable {
 public struct PlaylistSyncResult: Sendable, Equatable {
     public let changedPlaylists: Int
     public let removedPlaylists: Int
+    /// Playlists whose body was needed and could not be read or proven complete. Their stored rows and
+    /// dates are untouched, so the next pass tries them again; the pass is partial until this is empty.
+    public let unresolvedPlaylists: [String]
 
-    public init(changedPlaylists: Int = 0, removedPlaylists: Int = 0) {
+    public init(changedPlaylists: Int = 0, removedPlaylists: Int = 0, unresolvedPlaylists: [String] = []) {
         self.changedPlaylists = changedPlaylists
         self.removedPlaylists = removedPlaylists
+        self.unresolvedPlaylists = unresolvedPlaylists
     }
+
+    public var isPartial: Bool { !unresolvedPlaylists.isEmpty }
 
     public var hasMaterialChanges: Bool {
         changedPlaylists > 0 || removedPlaylists > 0
