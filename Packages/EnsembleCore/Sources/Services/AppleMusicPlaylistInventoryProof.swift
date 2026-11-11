@@ -33,6 +33,12 @@ enum AppleMusicPlaylistInventoryProof {
 /// When an Apple Music playlist body may replace the stored one. A body that cannot be proven complete
 /// is dropped, so the stored body and its date stay and the next pass reads it again.
 enum AppleMusicPlaylistBodyProof {
+    /// A body read that could not be proven complete. It is never a reason to try another read: the entry is
+    /// withheld, so the stored body and date stay and the playlist is reported unresolved.
+    struct Unproven: Error, LocalizedError {
+        var errorDescription: String? { "Apple Music returned a playlist that could not be confirmed complete." }
+    }
+
     enum RESTVerdict: Equatable {
         /// The API's total equals the items received.
         case complete
@@ -47,6 +53,44 @@ enum AppleMusicPlaylistBodyProof {
         case .reported(let reported): reported == itemCount ? .complete : .unproven
         case .absent: .needsWitness
         case .contradictory: .unproven
+        }
+    }
+
+    /// Throws `Unproven` unless the REST pages are the whole playlist: the total agrees, or with no total
+    /// MusicKit's read (`witnessSongCount`, nil when it has none) agrees on the song count.
+    static func verifyREST(
+        itemCount: Int,
+        songCount: Int,
+        total: AppleMusicReportedTotal,
+        witnessSongCount: () async throws -> Int?
+    ) async throws {
+        switch restVerdict(itemCount: itemCount, total: total) {
+        case .complete: return
+        case .unproven: throw Unproven()
+        case .needsWitness:
+            guard let native = try await witnessSongCount(), witnessed(restSongCount: songCount, nativeSongCount: native)
+            else { throw Unproven() }
+        }
+    }
+
+    /// REST first, then MusicKit when REST is unavailable (a shared playlist has no related resources). Only an
+    /// unavailable read falls back: a REST body that failed its proof is withheld, because the MusicKit read
+    /// would then be accepted on its own against a REST read that says it is wrong. When both fail, REST's error stands.
+    static func withNativeFallback<Value>(
+        rest: () async throws -> Value,
+        native: (Error) async throws -> Value
+    ) async throws -> Value {
+        do {
+            return try await rest()
+        } catch let unproven as Unproven {
+            throw unproven
+        } catch {
+            let restError = error
+            do {
+                return try await native(restError)
+            } catch {
+                throw restError
+            }
         }
     }
 

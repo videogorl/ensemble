@@ -283,8 +283,9 @@ public actor AppleMusicConnector:
     }
 
     /// Reads each playlist's body: REST first, then MusicKit when REST has none (a shared playlist has
-    /// no related resources). A playlist whose read fails, or whose REST pages disagree with their own
-    /// total, is left out so its stored body stays.
+    /// no related resources). A playlist whose read fails, or whose body fails its completeness proof (REST
+    /// pages that disagree with their total or with MusicKit), is left out so its stored body and date stay
+    /// and the writer reports it unresolved. A failed proof never falls back to MusicKit.
     public func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] {
         var entries: [PlaylistEntry] = []
         for header in headers {
@@ -293,7 +294,7 @@ public actor AppleMusicConnector:
             do {
                 let body: PlaylistBody
                 if let rest = listed.rest {
-                    body = try await Self.withNativePlaylistBodyFallback {
+                    body = try await AppleMusicPlaylistBodyProof.withNativeFallback {
                         try await restBody(rest, witness: listed.native)
                     } native: { restError in
                         guard let native = listed.native else { throw restError }
@@ -963,22 +964,6 @@ public actor AppleMusicConnector:
         [musicKit, library].compactMap { $0 }.max()
     }
 
-    static func withNativePlaylistBodyFallback<Value>(
-        rest: () async throws -> Value,
-        native: (Error) async throws -> Value
-    ) async throws -> Value {
-        do {
-            return try await rest()
-        } catch {
-            let restError = error
-            do {
-                return try await native(restError)
-            } catch {
-                throw restError
-            }
-        }
-    }
-
     private static func playlistInput(
         _ playlist: MusicKit.Playlist,
         artworkURL: String?,
@@ -1149,7 +1134,7 @@ public actor AppleMusicConnector:
         }
     }
 
-    /// MusicKit's read of a playlist's songs. Throws `incompletePlaylistBody` unless the whole read arrived:
+    /// MusicKit's read of a playlist's songs. Throws `Unproven` unless the whole read arrived:
     /// a playlist whose tracks did not load, or whose further batches did, is not an empty playlist.
     private func nativeBody(_ playlist: MusicKit.Playlist) async throws -> PlaylistBody {
         let sourceKey = sourceIdentifier.compositeKey
@@ -1163,7 +1148,7 @@ public actor AppleMusicConnector:
                 musicTracks += next
                 return true
             }
-        ) else { throw AppleMusicSourceError.incompletePlaylistBody }
+        ) else { throw AppleMusicPlaylistBodyProof.Unproven() }
         let songs = musicTracks.compactMap { track -> Song? in
             guard case .song(let song) = track else { return nil }
             return song
@@ -1188,7 +1173,7 @@ public actor AppleMusicConnector:
 
     /// Reads every page of the playlist's tracks. `AppleMusicPlaylistBodyProof` decides whether they are
     /// the whole playlist: a total that disagrees, or pages that contradict each other, throw
-    /// `incompletePlaylistBody`; with no total, MusicKit's read of the playlist (`witness`) must agree on the song count.
+    /// `Unproven` (withheld, not retried through MusicKit); with no total, MusicKit's read of the playlist (`witness`) must agree on the song count.
     private func restBody(_ playlist: LibraryPlaylist, witness: MusicKit.Playlist?) async throws -> PlaylistBody {
         let sourceKey = sourceIdentifier.compositeKey
         let encodedID = playlist.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? playlist.id
@@ -1196,14 +1181,13 @@ public actor AppleMusicConnector:
             path: "/v1/me/library/playlists/\(encodedID)/tracks?limit=100&include=catalog"
         )
         let songs = fetched.filter(\.isSong)
-        switch AppleMusicPlaylistBodyProof.restVerdict(itemCount: fetched.count, total: total) {
-        case .complete: break
-        case .unproven: throw AppleMusicSourceError.incompletePlaylistBody
-        case .needsWitness:
-            guard let witness,
-                  AppleMusicPlaylistBodyProof.witnessed(restSongCount: songs.count, nativeSongCount: try await nativeBody(witness).snapshots.count)
-            else { throw AppleMusicSourceError.incompletePlaylistBody }
-        }
+        try await AppleMusicPlaylistBodyProof.verifyREST(
+            itemCount: fetched.count, songCount: songs.count, total: total,
+            witnessSongCount: {
+                guard let witness else { return nil }
+                return try await self.nativeBody(witness).snapshots.count
+            }
+        )
         return PlaylistBody(
             snapshots: songs.map {
                 PlaylistTrackSnapshot(
@@ -1298,7 +1282,6 @@ public enum AppleMusicSourceError: LocalizedError {
     case playlistNotFound
     case catalogSongNotFound
     case repeatedPaginationCursor
-    case incompletePlaylistBody
     case http(Int)
 
     public var errorDescription: String? {
@@ -1309,7 +1292,6 @@ public enum AppleMusicSourceError: LocalizedError {
         case .playlistNotFound: "The Apple Music playlist could not be found."
         case .catalogSongNotFound: "The Apple Music song could not be found."
         case .repeatedPaginationCursor: "Apple Music returned a repeated library page. Please try again."
-        case .incompletePlaylistBody: "Apple Music returned a playlist that could not be confirmed complete. Please try again."
         case .http(let status): "Apple Music returned HTTP \(status)."
         }
     }

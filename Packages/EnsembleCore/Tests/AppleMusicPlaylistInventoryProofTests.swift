@@ -79,4 +79,58 @@ final class AppleMusicPlaylistInventoryProofTests: XCTestCase {
             XCTAssertEqual(complete, testCase.complete, testCase.name)
         }
     }
+
+    /// The fallback decision as the connector uses it: MusicKit is tried only when REST was unavailable. A REST
+    /// body that failed its proof is withheld, so a MusicKit read is never committed against REST's evidence.
+    func testOnlyAnUnavailableRESTReadFallsBackToMusicKit() async throws {
+        struct Unavailable: Error, Equatable {}
+        struct NativeFailed: Error, Equatable {}
+        enum Native { case returns, fails }
+        struct Case {
+            let name: String
+            /// REST's pages: nil when the read itself failed.
+            let rest: (items: Int, songs: Int, total: AppleMusicReportedTotal)?
+            let witnessSongs: Int?
+            let witnessThrows: Bool
+            let native: Native
+            let expected: String?        // the body committed, or nil when withheld
+            let nativeRead: Bool
+        }
+        let cases = [
+            Case(name: "REST proven by its total", rest: (100, 100, .reported(100)), witnessSongs: nil, witnessThrows: false, native: .returns, expected: "rest", nativeRead: false),
+            Case(name: "no total, MusicKit agrees", rest: (100, 100, .absent), witnessSongs: 100, witnessThrows: false, native: .returns, expected: "rest", nativeRead: false),
+            Case(name: "no total, MusicKit disagrees (100 against 80)", rest: (100, 100, .absent), witnessSongs: 80, witnessThrows: false, native: .returns, expected: nil, nativeRead: false),
+            Case(name: "no total and no MusicKit playlist", rest: (3, 3, .absent), witnessSongs: nil, witnessThrows: false, native: .returns, expected: nil, nativeRead: false),
+            Case(name: "total above the items", rest: (2, 2, .reported(3)), witnessSongs: 3, witnessThrows: false, native: .returns, expected: nil, nativeRead: false),
+            Case(name: "pages contradict each other", rest: (100, 100, .contradictory), witnessSongs: 100, witnessThrows: false, native: .returns, expected: nil, nativeRead: false),
+            Case(name: "no total and MusicKit's own read is unproven", rest: (3, 3, .absent), witnessSongs: nil, witnessThrows: true, native: .returns, expected: nil, nativeRead: false),
+            Case(name: "REST unavailable, MusicKit complete", rest: nil, witnessSongs: nil, witnessThrows: false, native: .returns, expected: "native", nativeRead: true),
+            Case(name: "REST unavailable and MusicKit fails", rest: nil, witnessSongs: nil, witnessThrows: false, native: .fails, expected: nil, nativeRead: true),
+        ]
+        for testCase in cases {
+            var nativeRead = false
+            let body: String?
+            do {
+                body = try await AppleMusicPlaylistBodyProof.withNativeFallback {
+                    guard let rest = testCase.rest else { throw Unavailable() }
+                    try await AppleMusicPlaylistBodyProof.verifyREST(
+                        itemCount: rest.items, songCount: rest.songs, total: rest.total,
+                        witnessSongCount: {
+                            if testCase.witnessThrows { throw AppleMusicPlaylistBodyProof.Unproven() }
+                            return testCase.witnessSongs
+                        }
+                    )
+                    return "rest"
+                } native: { _ in
+                    nativeRead = true
+                    if case .fails = testCase.native { throw NativeFailed() }
+                    return "native"
+                }
+            } catch {
+                body = nil
+            }
+            XCTAssertEqual(body, testCase.expected, testCase.name)
+            XCTAssertEqual(nativeRead, testCase.nativeRead, testCase.name)
+        }
+    }
 }

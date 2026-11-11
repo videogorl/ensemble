@@ -509,44 +509,5 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         )
         XCTAssertNil(AppleMusicConnector.effectivePlaylistModifiedDate(musicKit: nil, library: nil))
     }
-
-    @available(iOS 18, *)
-    func testAppleMusicEmptySharedPlaylistFallsBackToNativeBody() async throws {
-        let tracks: [String] = try await AppleMusicConnector.withNativePlaylistBodyFallback {
-            throw PlaylistBodyTestError.noRelatedResources
-        } native: { restError in
-            XCTAssertEqual(restError as? PlaylistBodyTestError, .noRelatedResources)
-            return [String]()
-        }
-
-        XCTAssertTrue(tracks.isEmpty)
-    }
-
-    @available(iOS 18, *)
-    func testAppleMusicPlaylistFallbackPreservesRESTErrorWhenNativeAlsoFails() async throws {
-        do {
-            _ = try await AppleMusicConnector.withNativePlaylistBodyFallback {
-                throw PlaylistBodyTestError.server
-            } native: { _ in
-                throw PlaylistBodyTestError.native
-            }
-            XCTFail("Expected the original REST error")
-        } catch {
-            XCTAssertEqual(error as? PlaylistBodyTestError, .server)
-        }
-
-        let tracks: [String] = try await AppleMusicConnector.withNativePlaylistBodyFallback {
-            throw PlaylistBodyTestError.server
-        } native: { _ in
-            return ["native-track"]
-        }
-        XCTAssertEqual(tracks, ["native-track"])
-    }
-
-    private enum PlaylistBodyTestError: Error, Equatable {
-        case noRelatedResources
-        case server
-        case native
-    }
     #endif
 }
