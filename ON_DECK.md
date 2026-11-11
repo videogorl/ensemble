@@ -536,3 +536,15 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
 - Decided by the lead on 2026-11-11: no durable marker for now. Next step if it is ever seen: write a
   pending-mutation record with a `localCleanupOwed` status after the remote delete (no schema change; replay
   filters on `pending`, so the remote delete is not re-sent) and consume it on the next playlist pass.
+
+
+## Suspected: playlist favourite writes run outside the writer's playlist chain (2026-11-11)
+
+- Evidence: `MutationCoordinator+CollectionFavorites.swift` writes a playlist's rating through
+  `storeCollectionRating` (direct `performBackgroundContext`) and enqueues the `.collectionRating`
+  pending mutation, neither inside `LibraryWriter.performPlaylistEdit`. Renames, adds, removes and deletes
+  now run in the chain. Inherited from before step 3d; found by Codex review #3.
+- Impact: a playlist pass fetched before a favourite toggle can overwrite the local rating for a window,
+  and a toggle that fails restores the previous rating outside any ordering with a pass.
+- Next step: route the playlist case through `performPlaylistEdit(editing:)` and teach the writer's
+  playlist apply to keep a locally edited rating for the retention window. Not authorized by this entry.
