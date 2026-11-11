@@ -49,8 +49,8 @@ struct AppleMusicLibraryFetch: Sendable {
 ///
 /// These checks cannot prove a read complete: MusicKit's read stops at its first short page and has no
 /// total, so when both reads are short by the same songs, they agree. They make a wrongful inventory
-/// unlikely, not impossible. The writer separately refuses an inventory with no songs, so an empty
-/// library deletes nothing.
+/// unlikely, not impossible. When both reads agree the library is empty, the inventory vouches for
+/// it (`emptyIsAuthoritative`) and the writer removes this source's rows (Felicity, 2026-11-10).
 struct AppleMusicLibraryFetcher: Sendable {
     let source: AppleMusicLibrarySource
 

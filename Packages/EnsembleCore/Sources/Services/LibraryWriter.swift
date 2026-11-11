@@ -353,10 +353,14 @@ public actor LibraryWriter {
         try RefreshExecution.checkCancellation()
         let recounted = try await libraryRepository.batchUpdateAlbumTrackCounts(inventory.trackCounts, forSource: key)
 
-        await MainActor.run {
-            HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: key, survivingItemIDs: keptArtistIDs)
-            HiddenMediaStore.shared.removeMissing(kind: .album, sourceKey: key, survivingItemIDs: inventory.albumIDs)
-            HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: key, survivingItemIDs: trackIDs)
+        // Hidden choices sync to the user's other devices and no later sync can rebuild them, so a
+        // library that went wholly empty (Sync Library off, a lapsed subscription) keeps them for its return.
+        if !trackIDs.isEmpty {
+            await MainActor.run {
+                HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: key, survivingItemIDs: keptArtistIDs)
+                HiddenMediaStore.shared.removeMissing(kind: .album, sourceKey: key, survivingItemIDs: inventory.albumIDs)
+                HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: key, survivingItemIDs: trackIDs)
+            }
         }
         if removedArtists + removedAlbums + removedTracks + removedGenres > 0 {
             EnsembleLogger.debug(
