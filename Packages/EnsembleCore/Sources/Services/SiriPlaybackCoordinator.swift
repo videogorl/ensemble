@@ -299,8 +299,12 @@ public final class SiriPlaybackCoordinator {
             ) else {
                 throw SiriPlaybackCoordinatorError.mediaNotFound(.playlist)
             }
-            tracks = playlist.tracksArray
-                .map(Track.init(from:))
+            // Memberships, as the playlist screen reads them: an Apple Music playlist can hold catalog songs
+            // that are not library rows, and those still play.
+            tracks = playlist.playlistItemsArray
+                .map { PlaylistItem(from: $0) }
+                .filter(\.isAvailable)
+                .map(\.track)
                 .filter { sourceMatches(requestSource: request.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
                 .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
             context = playbackContext(
@@ -375,7 +379,7 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = try Array(await libraryRepository.fetchSiriEligibleTracks().prefix(800))
+        let fuzzyPool = try await libraryRepository.fetchSiriEligibleTracks()
         let fuzzyCandidates = fuzzyCandidates(
             from: fuzzyPool,
             request: request,
@@ -443,7 +447,7 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = try Array(await libraryRepository.fetchAlbums().prefix(800))
+        let fuzzyPool = try await libraryRepository.fetchAlbums()
         let fuzzyMatches = fuzzyCandidates(
             from: fuzzyPool,
             request: request,
@@ -556,7 +560,7 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = try Array(await playlistRepository.fetchPlaylists().prefix(600))
+        let fuzzyPool = try await playlistRepository.fetchPlaylists()
         let fuzzyMatches = fuzzyCandidates(
             from: fuzzyPool,
             request: request,
