@@ -162,6 +162,40 @@ final class AppleMusicLibraryFetcherTests: XCTestCase {
         XCTAssertEqual(result.removedTrackRatingKeys, ["s3"])
     }
 
+    /// A list that repeats a song is malformed: its total can match while a real song is missing, so it
+    /// proves nothing and deletes nothing.
+    func testAListThatRepeatsASongDeletesNothing() async throws {
+        let f = try makeFixture()
+        try await pass(f, try source(["s1", "s2", "s3"]), at: t0)
+        let repeated = FakeSource(
+            songs: .success(AppleMusicSongList(songs: try list(["s1", "s1", "s2"]).songs, reportedTotal: 3)),
+            native: .success(native(["s1", "s2"]))
+        )
+        let result = try await pass(f, repeated, at: t0 + 10)
+        XCTAssertEqual(result.removedTrackRatingKeys, [])
+        let inventory = try await inventoryDate(f)
+        XCTAssertEqual(inventory, t0, "the earlier inventory stands; this pass proved nothing")
+    }
+
+    /// The API's total is kept only while every page agrees with the first and no empty page points onward.
+    func testPageTotalsThatDisagreeWithdrawTheTotal() {
+        typealias Page = (count: Int, total: Int?, hasNext: Bool)
+        let cases: [(name: String, pages: [Page], total: Int?)] = [
+            ("one page", [(2, 2, false)], 2),
+            ("pages agree", [(2, 3, true), (1, 3, false)], 3),
+            ("later pages omit the total", [(2, 3, true), (1, nil, false)], 3),
+            ("empty library", [(0, 0, false)], 0),
+            ("a later page states another total", [(0, 0, true), (0, 1, false)], nil),
+            ("an empty page points onward", [(0, 0, true), (0, 0, false)], nil),
+            ("no total on the first page", [(2, nil, true), (1, 3, false)], nil),
+        ]
+        for item in cases {
+            var tally = AppleMusicPageTally()
+            for page in item.pages { tally.add(itemCount: page.count, total: page.total, hasNext: page.hasNext) }
+            XCTAssertEqual(tally.total, item.total, item.name)
+        }
+    }
+
     func testAWithheldInventoryWaitsTheIntervalBeforeReadingAgain() async throws {
         let f = try makeFixture()
         let withheld = FakeSource(songs: .success(AppleMusicSongList(songs: try list(["s1", "s2"]).songs, reportedTotal: nil)), native: .success(native(["s1", "s2"])))

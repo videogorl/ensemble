@@ -431,3 +431,20 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
 - A TV or external display, an iPad and the Apple Watch: Screen Mirroring Now Playing, step 6c panes, the watch
   mirror.
 - The Mac: rating and download redraw, swipe, drag-out, and a real mouse click on the queue's context button.
+
+## Codex review of step 3c (2026-11-11, at `aecf4a2c`): fixed and deferred
+
+- Fixed before the merge: an Apple Music list that repeats a song, or whose pages state different totals or
+  include an empty page that points onward, no longer yields an inventory, so it deletes nothing.
+- Deferred, confirmed by code path: **a rating made during a sync's write can be overwritten locally.**
+  `LibraryWriter.writeRows` reads stored tracks, then the queued ratings, then writes; a rating saved in
+  between is rewritten with the server's older value while its upload stays queued. The upload still succeeds
+  and the next sync restores the value. Fix: keep the queued rating inside `batchUpsertTracks`' own
+  transaction, with a gated interleaving test.
+- Deferred, confirmed by code path, inherited from step 3b: **a full pass interrupted between its delete
+  saves is not retried until the daily interval.** Tracks, albums and artists are deleted in separate saves;
+  a kill after the tracks leaves an empty album until the next inventory. Fix: mark a full apply unfinished
+  before its first write and let recovery bypass the daily throttle.
+- Known limit, predates the branch: Apple Music has one source key (`appleMusic:device:system:library`), so a
+  different Apple Account signed in on the device reconciles against the same cached rows.
+- Unmeasured: memory on a library of many thousands of songs (whole-library arrays, one track transaction).

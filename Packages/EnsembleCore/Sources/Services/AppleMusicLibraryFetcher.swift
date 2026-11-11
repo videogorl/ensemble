@@ -130,6 +130,7 @@ struct AppleMusicLibraryFetcher: Sendable {
         }
         guard let total = list.reportedTotal else { return withheld("the API reported no total") }
         guard total == list.songs.count else { return withheld("API total \(total), received \(list.songs.count)") }
+        guard songs.count == list.songs.count else { return withheld("the API list repeats \(list.songs.count - songs.count) songs") }
         guard songs.isEmpty == (nativeCount == 0) else { return withheld("one read is empty and the other is not") }
         guard matching == nativeCount else { return withheld("MusicKit lists \(nativeCount - matching) songs the API list lacks") }
         guard abs(songs.count - nativeCount) <= Self.countTolerance(songs.count, nativeCount) else {
@@ -361,4 +362,21 @@ extension DateFormatter {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
+}
+
+/// The API's own count for a paged list, kept only while the pages agree with each other: a later
+/// page stating a different total, or an empty page that still points onward, withdraws it, so
+/// nothing downstream treats the list as complete.
+struct AppleMusicPageTally {
+    private var first: Int?
+    private var pageCount = 0
+    private var consistent = true
+
+    var total: Int? { consistent ? first : nil }
+
+    mutating func add(itemCount: Int, total: Int?, hasNext: Bool) {
+        pageCount += 1
+        if pageCount == 1 { first = total } else if let total, total != first { consistent = false }
+        if itemCount == 0, hasNext { consistent = false }
+    }
 }

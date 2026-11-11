@@ -800,12 +800,12 @@ public actor AppleMusicConnector:
     }
 
     /// Follows the `next` chain to its end. Any failed page throws, so a result is every page of the
-    /// chain; `total` is the API's own count from the first page, when it reports one.
+    /// chain; `total` is the API's own count from the first page, when it reports one and no page contradicts it.
     private func fetchPages<Resource: Decodable>(path: String) async throws -> (items: [Resource], total: Int?) {
         let initialPath = path
         var path: String? = path
         var result: [Resource] = []
-        var total: Int?
+        var tally = AppleMusicPageTally()
         var fetchedPaths = Set<String>()
         while let current = path {
             try RefreshExecution.checkCancellation()
@@ -820,11 +820,11 @@ public actor AppleMusicConnector:
                 throw error
             }
             let page = try JSONDecoder().decode(Page<Resource>.self, from: data)
-            if fetchedPaths.count == 1 { total = page.meta?.total }
+            tally.add(itemCount: page.data.count, total: page.meta?.total, hasNext: page.next != nil)
             result.append(contentsOf: page.data)
             path = page.next.map { Self.continuationPath($0, preservingQueryFrom: initialPath) }
         }
-        return (result, total)
+        return (result, tally.total)
     }
 
     private nonisolated static func fetchNativeLibraryMetadata() async throws
