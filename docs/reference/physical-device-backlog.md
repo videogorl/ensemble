@@ -199,16 +199,34 @@ not on the phone or AirPlay.
 - AirPlay then interruption (`9aaf9815`): switch to AirPlay, let several tracks
   advance gaplessly, then trigger an interruption (call or Siri). The paused
   scrubber and the resumed position match the current track, not the track
-  that was playing at the switch.
+  that was playing at the switch. Partly run on the SE on 2026-11-11 with
+  the Mac mini as the AirPlay receiver (build `202611111034.1182`): a Next and
+  one natural gapless advance on AirPlay, and switches to and from the iPhone
+  speaker, kept the position continuous. Still owed: the interruption itself
+  (a call or Siri) after the advances.
 - Pause and resume after gapless advances (`ae391278`) passed on the SE on
   2026-11-10, also from the system media controls with the app in the
-  background ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)). Still owed: a later AirPlay switch logs a `render=` close to
-  `observed=` and never `Ignoring render clock`.
+  background ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)). The AirPlay part passed on the SE on 2026-11-11: two
+  switches made while playing (speaker to AirPlay at 21.8 s, back at 53.7 s)
+  logged `render=` equal to `observed=`, with `presentation route=airPlay
+  latency=2.023s`, and never `Ignoring render clock`. A switch made while
+  paused logs `render=nil`, as expected.
 - Relaunch and resume (`62e82bac`) passed on the SE on 2026-11-10 by the log
   and scrubber. Still owed: the Lock Screen follows the new track.
 - Early segment end (`9ee8cf42`, diagnostic only): keep AirPlay playing a
   stream-cached queue. If a track ends early, read the `Segment ended early`
-  line for the playhead, duration, frame counts, and file size.
+  line for the playhead, duration, frame counts, and file size. On 2026-11-11
+  one natural end and one Next on AirPlay (SE to the Mac mini) logged no
+  `Segment ended early`; the row stays open for a longer queue.
+
+AirPlay from the SE to the Mac mini needs the Mac's "Allow AirPlay for" set to
+"Anyone on the Same Network" and the Mac's Accept banner clicked within a few
+seconds; keep the phone's volume for that route at 0%. Still not run there:
+Screen Mirroring (no automated swipe opens Control Center on the SE), the
+visible AirPlay fallback (nothing forces it), and a suspected miss: three taps
+on Pause in the Lock Screen media controls did nothing while on AirPlay
+(possibly the tool's tap; recheck by hand). Report:
+`$TMPDIR/ensemble-devmcp-checks/group-airplay.md`.
 
 ### Sweep fixes, at `4dfcae14` or later
 
