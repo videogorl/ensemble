@@ -594,8 +594,10 @@ The iPad and watch checklist sections start with steps 5 and 6.
 Applies to the commits that move playlist list and body sync onto `LibraryWriter`
 (branch `refactor/playlists-on-library-writer`). The simulator proved the writer rules
 (on-disk store tests, including overlapping passes, stale reads and cancellation) and
-the Plex connector against a fake server. Nothing has run on the iPhone, and nothing
-touched live Plex or Apple Music.
+the Plex connector against a fake server. On 2026-11-11 the Plex rows below were run on the iPhone SE
+with Device MCP on build `202611111150.4978` (the step 3d branch before its merge; the only later commit
+adds a log line), against the live PMS on the disposable playlist "ZZ Test 3d" (deleted afterwards, 41
+playlists before and after). Apple Music playlists and everything a finger is needed for are still owed.
 
 How to read the log for the repeated-read checks (`EnsembleLogger`, in the session log):
 
@@ -610,10 +612,10 @@ How to read the log for the repeated-read checks (`EnsembleLogger`, in the sessi
 
 | Check | Status |
 | --- | --- |
-| An unchanged Plex playlist pass makes no `/playlists/{id}/items` request (issue #98: a playlist whose stored rows are below the server count is no longer refetched) | Owed |
-| No Plex playlist lacks `updatedAt` (such a playlist would be read again every pass: the `wrote N` line above on an idle server) | Owed |
-| Plex, on a disposable playlist (needs Felicity's approval): create, add, rename, reorder and delete. The list matches the server after each; after the rename, Date Modified sort moves it up once the refresh lands | Owed |
-| Plex: rename while offline, then reconnect. The new title shows throughout, uploads once, and the server's header applies afterwards | Owed |
+| An unchanged Plex playlist pass makes no `/playlists/{id}/items` request (issue #98: a playlist whose stored rows are below the server count is no longer refetched) | Partly: four launches on 2026-11-11 (41 playlists) logged no `wrote` line and no `unresolved` line on idle passes, so no body was rewritten; the server request count itself was not read. Owed: a request count against the issue #98 playlist |
+| No Plex playlist lacks `updatedAt` (such a playlist would be read again every pass: the `wrote N` line above on an idle server) | Passed on the SE, 41 playlists: no `wrote` line on idle passes |
+| Plex, on a disposable playlist (needs Felicity's approval): create, add, rename, reorder and delete. The list matches the server after each; after the rename, Date Modified sort moves it up once the refresh lands | Create, add (3 songs), rename, remove (Edit Playlist, Save) and delete passed on the SE: each showed at once, held after a refresh and a relaunch, and logged `wrote 1, removed 0` per pass; delete left 41 playlists. Reorder not run: Device MCP's drag does not move rows in Edit Playlist (a finger is needed). Date Modified sort after a rename not checked |
+| Plex: rename while offline, then reconnect. The new title shows throughout, uploads once, and the server's header applies afterwards | Passed on the SE (Wi-Fi off): the title changed at once, `Enqueued playlistRename`, replayed once about 57 s after Wi-Fi returned (the first drain timed out), and the title held through a refresh and a relaunch |
 | A playlist edited from another Plex client reaches the phone through the WebSocket and the body changes | Owed |
 | A playlist with repeated tracks, and one emptied on the server, keep their order and count | Owed |
 | Apple Music: `/v1/me/library/playlists/{id}/tracks` reports `meta.total`. Without it the REST body counts only when MusicKit's song count agrees | Owed |
@@ -621,7 +623,19 @@ How to read the log for the repeated-read checks (`EnsembleLogger`, in the sessi
 | Apple Music: the playlist list and bodies match the Music app; a playlist deleted in Music disappears; no `Apple Music playlist inventory withheld` line on a healthy library | Owed |
 | Delete of a scope's last playlist removes its row even though the list that follows is empty. Not runnable on a real library without deleting every playlist; covered by `testDeletingTheLastPlaylistRemovesItsRow` and `testDeletingTheLastPlaylistRemovesItAndAnOlderReadCannotRestoreIt` only. Run it on a disposable Plex server or a fresh test account if one exists | Owed |
 | `.partial` keeps background recovery outstanding: make one playlist body fail (disposable server, or a throttled network for one request), run a background refresh, and see the handoff stay pending (`Refresh pending sources=` in the log, `hasPendingBackgroundRefresh` true) and the next foreground recovery clear it once the body reads. No test drives this path (it writes the real handoff file) | Owed |
-| Offline: a queued playlist add, remove or delete is not overwritten or deleted by a sync before it uploads; last-playlist offline targets keep their tracks | Owed |
+| Offline: a queued playlist add, remove or delete is not overwritten or deleted by a sync before it uploads; last-playlist offline targets keep their tracks | Partly: a queued add survived a pull-to-refresh offline and replayed 3 s after reconnect (`Enqueued playlistAdd`, `Replayed playlistAdd`, one copy of the song after a relaunch). A queued remove and delete, and offline targets, not run. A queued add shows no change or toast until it uploads (`ON_DECK.md`) |
+
+## iPhone SE 2 and iPhone 16 Pro — step 3 close-out (3e)
+
+What step 3 as a whole still owes the phones; the sub-step sections above hold the per-feature rows, which are
+not repeated here. See the
+[close-out note](../investigations/2026-11-11-step-3-close-out.md).
+
+| Check | Status |
+| --- | --- |
+| The iPhone SE 2, which froze on 2026-08-08 while opening a playlist on a build before the duplicate-membership fix, opens a merged playlist (two sources) and a large single-source playlist on the current build without freezing; the first launch's `Playlist membership backfill:` line says how many duplicates it removed | Owed. Needs the SE 2 and its session log |
+| Felicity's iPhone 16 Pro, with her own store: the update migrates it (model 12) and launches, then one pass of every step 3 row above for the sources she has. This is the physical acceptance that step 3 still lacks; until it is done step 3 is closed but not verified | Owed |
+| The Apple Music row of `MusicSourceCapabilityAgreementTests` (flags against `AppleMusicConnector` conformance) runs and passes. The package test command runs on the Mac, where that row is compiled out; run it on an iOS destination (the `EnsembleCore` package scheme has no test action) | Owed; not a phone check, listed so it is not lost |
 
 ## iPhone SE and a phone with a SIM — stream drop resume (steps c and d)
 

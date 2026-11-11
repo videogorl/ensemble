@@ -472,7 +472,7 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
   log: whether the task was cancelled before or after the timeout.
 - Impact: the status is restored silently and no error is shown; retry treats it as a user cancel. No partial
   fetch is committed (`fetchPages` throws on any failed page).
-- Next step: classify by the error first, then by task state. Sync code is frozen until step 3e closes.
+- Next step: classify by the error first, then by task state. The sync freeze ended with step 3e.
 
 ## Suspected: a local playlist edit is protected only inside the process that made it (2026-11-11)
 
@@ -582,3 +582,16 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Impact: small; a second tap fixes it.
 - Next step: try by hand right as the sheet settles; if it reproduces, look at the page selection racing the
   open animation.
+
+## Suspected: repository seed helpers and one decoded field have no production caller (2026-11-11)
+
+- Evidence (step 3e caller search across `Packages/`, `Ensemble/`, `EnsembleWatch/`, the Siri extension and
+  tests): `LibraryRepository.upsertTrack` and `upsertGenre`, and `PlaylistRepository.setPlaylistTracks`, have
+  no production caller since 3b to 3d moved every sync write onto `LibraryWriter`'s batch methods. About 20
+  test call sites seed stores through them, and about a dozen test fakes implement them for the protocols.
+  `fetchGenres` is called only by a protocol-extension default and by tests. Separately,
+  `AppleMusicConnector.Attributes.hasCatalog` is decoded and never read (since `a387ff2c`), and
+  `PlaylistViewModel.isPlaylistPendingCreation` is read only by a test (since `3fd55d25`, 2026-09-30).
+- Impact: dead surface the tests keep alive; nothing wrong at runtime.
+- Next step: seed tests through `batchUpsertTracks`/`setPlaylistTrackSnapshots`, then drop the three
+  protocol requirements and their fakes. Not authorized by this entry.

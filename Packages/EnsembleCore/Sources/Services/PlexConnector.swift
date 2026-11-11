@@ -587,10 +587,6 @@ public final class PlexConnector:
     struct IncrementalChangeSet<Item> {
         let uniqueItems: [Item]
         let changedItems: [Item]
-
-        var uniqueCount: Int {
-            uniqueItems.count
-        }
     }
 
     static func deduplicatedChangedItems<Item>(
