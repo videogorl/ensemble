@@ -194,6 +194,13 @@ rules, the Plex WebSocket polling fallback, and the size of `WatchRootView.swift
   and `Content-Range` checks stay. It needs the `Track` kept alongside the pipeline, an async `beginResume`
   with a guard against a second resume starting during the await, and a test, which was judged over the
   50 source lines allowed for it.
+- **Codex review of steps c and d (through `32a7bff9`, delivered 2026-11-11).** Two races it found are fixed:
+  a second `beginResume` no longer starts a request beside one in flight, and a stale response's validation
+  failure no longer abandons the task that replaced it. Its third finding (a path change cancelling a healthy
+  download) was already fixed at `6c352019`. Left open, none demonstrated: a resumed response is not rejected
+  for a `Content-Encoding` (the request asks for `identity`); Play after a deferred failure resumes buffered
+  audio before recovery starts, so `pausedStreamNeedsRefresh` is not set; there is no fixed deadline from a
+  drop to the item failing while bytes keep trickling. No test covers the two races.
 - **A resume with no route waits indefinitely** (confirmed from the code, S). The pipeline's session uses
   `waitsForConnectivity = true`, so a resume requested while offline does not time out and the 30 s window
   does not bound an offline period. While playing, the engine's rebuffer timeout still ends the stream;
@@ -344,3 +351,83 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Impact: on a slow link, a seek into audio that is already downloaded shows buffering until the whole file is down.
 - Next step: only if the phone shows long waits, make the growing file seekable (WAV/FLAC offsets), which is a
   decoder change, not a seek-path change.
+
+## Confirmed: a browse list's saved filter text keeps filtering with the field hidden (2026-11-11)
+
+- Evidence: on the iPhone SE the Artists tab showed "1 artist" and Playlists "1 playlist" across relaunches while
+  the store held 674 artists and 50 playlists. `Ensemble.FilterOptions.Artists` and `.Playlists` held
+  `searchText` "Metric" and "Foc" (typed in an earlier test run). The filter field only appears after a pull
+  down, and the Filters sheet showed nothing active.
+- Impact: a forgotten filter makes the library look almost empty, with no visible sign of why.
+- Next step: decide whether filter text should persist across launches at all; if it does, show the field (or an
+  active-filter mark on the Filter button) whenever text is set.
+
+## Suspected: pressing Next while offline halts and the track does not start when the network returns (2026-11-11)
+
+- Evidence: SE, build `202611110741.9140`: with Wi-Fi off mid-stream, Next halted on the next track at 0:00 with
+  "No internet connection"; turning Wi-Fi back on did not start it; Retry did. The backlog's contract says a
+  halt caused by an unreachable server retries once when the connection returns.
+- Impact: the user has to press Retry after a brief drop.
+- Next step: read the session log in `$TMPDIR/ensemble-devmcp-checks/logs1` for the halt reason and whether the
+  health check fired; compare with `PlaybackServiceFlowTests`' reconnect case.
+
+## Suspected: Pause pressed right after Retry on the halt toast is lost (2026-11-11)
+
+- Evidence: SE, same build: Retry on a halt at 11700, then Pause at once; playback skipped to the next track and
+  played. 11700 always fails, so this may be the ordinary skip after the retry failed, with the pause dropped.
+- Impact: breaks "never start playback while paused" if the pause was registered before the skip.
+- Next step: script it with the playback probe (a test beside `testG...` halt cases) to see whether the pause
+  arrived before the skip.
+
+## Confirmed: small findings from the 2026-11-11 SE pass
+
+- A track row's "Get Info…" context-menu item does nothing (three tries); album Get Info works.
+- The offline toast for an uncached track shows the raw text "Network error: The operation couldn't be
+  completed. (NSURLErrorDomain error -1004.)".
+- Share Link… on an Apple Music track gives a `music.apple.com` URL, not a song.link URL.
+- Suspected: Songs did not re-sort after switching the sort back to Date Added until the screen was reopened.
+- Suspected: Repeat read All twice without being set (after `repeat=off` by debug link).
+- Suspected: a "replace queue?" confirmation after tapping a Search song row was not visible or in the
+  accessibility tree and blocked touches (`queueReplacementConfirmationRequested queueCount=7` in the log).
+- Automation launch-argument overrides (shuffle, streaming quality) are written back to preferences.
+- Next step for each: reproduce by hand or with a scripted test before fixing.
+
+## Confirmed: the queue row's drag handle is narrow (2026-11-11)
+
+- Evidence: on the iPhone SE the reorder handle is 24 pt wide (Apple's minimum is 44). It is `UITableView`'s own
+  reorder control (`QueueTableView.swift`, editing mode). The context button beside it had the same problem and
+  now has a 44 pt wide, full-row-height touch area (`QueueRowActionsButton`), so the gap between the two no
+  longer plays the row.
+- Impact: a drag that starts just left of the handle can still open the actions menu instead of reordering.
+- Next step: only if it still annoys in use; widening the system control means replacing it. The other track
+  rows' overflow buttons (`overflowControlDimension` 25) were not measured.
+
+## Suspected: a queue drag reorder drops the row in the wrong place (2026-11-11)
+
+- Evidence: Device MCP drags from row 2's handle to row 4 swapped rows 1 and 2 (three times, 0.2 s and 0.6 s
+  holds). May be the tool's synthesized path rather than the app.
+- Next step: repeat with a finger; if it reproduces, look at `moveRowAt` and the drag delegate both being
+  enabled in `QueueTableView.swift`.
+
+## Suspected: Siri may pick a suggested shortcut item on a misheard request (2026-11-11)
+
+- Evidence: the shortcut queries returned no suggestions on purpose ("Siri may auto-pick an unrelated entry when
+  speech capture is incomplete"). They now suggest the six most recently played items of each kind so the
+  shortcuts list in Shortcuts and Spotlight (Felicity, 2026-11-11). The voice path was not re-tested.
+- Next step: by voice, ask for an album or playlist that does not exist and one spoken unclearly; Siri should
+  ask or fail, not play a suggested item.
+
+## Owed checks that need hardware the iPhone SE does not have (2026-11-11)
+
+Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not forgotten.
+
+- A SIM: a Wi-Fi to cellular switch mid-track at original quality; G18 (pause, switch network, Play); "stream
+  on cellular" off makes non-downloaded tracks unavailable.
+- An AirPlay receiver or HomePod: AirPlay then interruption, the `render=` clock line after an AirPlay switch,
+  early segment end on AirPlay, the HomePod Siri route, the visible AirPlay fallback.
+- A phone call and a Bluetooth device: a call during a load (G14); Bluetooth disconnect during a load.
+- Felicity's own iPhone: an Apple Music library of many thousands of songs (step 3c); an uploaded library-only
+  Apple Music track; the iCloud layout round trip between two devices.
+- A TV or external display, an iPad and the Apple Watch: Screen Mirroring Now Playing, step 6c panes, the watch
+  mirror.
+- The Mac: rating and download redraw, swipe, drag-out, and a real mouse click on the queue's context button.
