@@ -120,6 +120,14 @@ public final class BackgroundRefreshCoordinator {
         }
     }
 
+    /// Keeps the existing description for the result and logs the failure's type and
+    /// code, never its message, which can carry titles, URLs, or tokens.
+    private func record(_ step: String, _ error: Error, in errors: inout [String]) {
+        errors.append("\(step): \(error.localizedDescription)")
+        let nsError = error as NSError
+        EnsembleLogger.info("Background refresh step failed step=\(step) type=\(type(of: error)) domain=\(nsError.domain) code=\(nsError.code)")
+    }
+
     @MainActor
     private func run(initialDelay: TimeInterval) async -> BackgroundRefreshResult {
         if isRefreshInFlight {
@@ -158,7 +166,7 @@ public final class BackgroundRefreshCoordinator {
             try RefreshExecution.checkCancellation()
             try await prepareLocalData()
         } catch {
-            errors.append("preparation: \(error.localizedDescription)")
+            record("preparation", error, in: &errors)
         }
 
         guard handoffReady, isNetworkAvailable(), !Task.isCancelled else {
@@ -182,7 +190,7 @@ public final class BackgroundRefreshCoordinator {
             try RefreshExecution.checkCancellation()
             didRunEndpointRefresh = true
         } catch {
-            errors.append("endpoint: \(error.localizedDescription)")
+            record("endpoint", error, in: &errors)
         }
 
         do {
@@ -191,14 +199,14 @@ public final class BackgroundRefreshCoordinator {
             try RefreshExecution.checkCancellation()
             didRunIncrementalSync = true
         } catch {
-            errors.append("sync: \(error.localizedDescription)")
+            record("sync", error, in: &errors)
         }
 
         do {
             try RefreshExecution.checkCancellation()
             didRefreshFeedSnapshot = try await feedRefresh()
         } catch {
-            errors.append("feed: \(error.localizedDescription)")
+            record("feed", error, in: &errors)
         }
 
         do {
@@ -206,7 +214,7 @@ public final class BackgroundRefreshCoordinator {
             didRebuildSiriIndex = try await siriIndexRefresh()
             if !didRebuildSiriIndex { errors.append("siri-index: deferred") }
         } catch {
-            errors.append("siri-index: \(error.localizedDescription)")
+            record("siri-index", error, in: &errors)
         }
 
         do {
@@ -214,7 +222,7 @@ public final class BackgroundRefreshCoordinator {
             try await siriContextRefresh()
             didUpdateSiriContext = true
         } catch {
-            errors.append("siri-context: \(error.localizedDescription)")
+            record("siri-context", error, in: &errors)
         }
 
         let completedAt = Date()

@@ -109,6 +109,19 @@ store comparisons: `ensemble://debug/sync?mode=full` (`syncAll`) or
 `?mode=incremental` (`syncAllIncremental`). The journey log records
 `syncStarted` and `syncFinished`.
 
+Start a background refresh without lldb (iOS Debug builds only):
+`ensemble://debug/background-refresh?budget=<s>&delay=<s>&wait=<s>`. It runs
+the same handler as the system's `BGAppRefreshTask` (reschedule, handoff,
+`performAppRefresh`, `Background refresh returned …`). With no parameters it
+runs a normal refresh. `budget=3` replaces the 25 s time budget, so the refresh
+hits its deadline mid-sync as an iOS expiry does and returns
+`succeeded=false … needsRecovery=true`. `delay` pauses after the handoff is
+saved and counts against the budget. `wait` pauses before the handler starts,
+outside the budget, so the tester can press Home first. The app logs
+`Background refresh started by debug route budget=… delay=… wait=…` and, per
+failed step, `Background refresh step failed step=… type=… domain=… code=…`.
+macOS and release builds ignore or reject it.
+
 Use media deep links for known artist, album, and playlist identifiers. Confirm
 accepted commands through `USER_JOURNEY context=automation` logs and confirm
 rendering through a settled hierarchy or screenshot.

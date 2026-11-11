@@ -303,7 +303,6 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Next step: none required; if the full re-read after every cold launch proves
   costly on large libraries, revisit that startup rule.
 
-
 ## Confirmed: originals cached by an older build cannot be played offline until replayed online (2026-11-10)
 
 - Evidence: the stream cache now serves a direct original only when its manifest entry is marked verified.
@@ -475,23 +474,6 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
   fetch is committed (`fetchPages` throws on any failed page).
 - Next step: classify by the error first, then by task state. Sync code is frozen until step 3e closes.
 
-## Confirmed: a failed background refresh logs no reason (2026-11-11)
-
-- Evidence (iPhone SE, build `202611111034.1182`): at 11:47:04 a system-delivered refresh logged `finished
-  syncComplete=false feed=true cancelled=false errors=1` and `returned succeeded=false pendingSources=4
-  needsRecovery=true errors=1`, with no `phase=` line and no line naming the error. Suspected cause, not
-  verified: three endpoints were in transport cooldown and failover had picked a relay.
-- Impact: none on data (the handoff stayed and the next launch recovered it in 14 s), but the failure cannot
-  be diagnosed from the log.
-- Next step: log the error (privacy-safe) where `BackgroundRefreshCoordinator` counts it.
-
-## Suggested: a debug route that starts a background refresh (2026-11-11)
-
-- Evidence: forcing a refresh needs lldb attached to the phone; attach took 20 to 120 s and the simulated
-  launch fired only once in about nine attempts, so the expiry and resume-without-relaunch checks stay not run.
-- Next step: an `ensemble://debug/` route that runs the refresh handler with `debugNextTimeBudget` and
-  `debugNextDelay`, so a scripted test can cut it off mid-sync.
-
 ## Suspected: a local playlist edit is protected only inside the process that made it (2026-11-11)
 
 - Evidence: `LibraryWriter.localEdits` (create, optimistic add, local delete) is an in-memory map. It
@@ -554,7 +536,6 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
 - Next step: give `MusicSourceSyncStatus` a partial state (or a detail line) and show it, or hold the
   playlist cursor's incremental date back while a body is unresolved.
 
-
 ## Suspected: a local delete that keeps failing leaves the last playlist's row (2026-11-11)
 
 - Evidence: after the server acknowledges a playlist delete, `LibraryWriter.removePlaylist` retries the local
@@ -565,7 +546,6 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
 - Decided by the lead on 2026-11-11: no durable marker for now. Next step if it is ever seen: write a
   pending-mutation record with a `localCleanupOwed` status after the remote delete (no schema change; replay
   filters on `pending`, so the remote delete is not re-sent) and consume it on the next playlist pass.
-
 
 ## Suspected: playlist favourite writes run outside the writer's playlist chain (2026-11-11)
 

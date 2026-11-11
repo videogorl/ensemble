@@ -406,6 +406,43 @@ public enum SyncAutomationMode: String, Equatable, Sendable {
     case incremental
 }
 
+/// `ensemble://debug/background-refresh?budget=3&delay=0&wait=0` runs the app's
+/// background refresh handler (the one iOS runs for the refresh task) once.
+/// `budget` replaces the 25 s time budget, so a short one makes the refresh hit
+/// its deadline mid-sync as an iOS expiry would; `delay` pauses after the
+/// handoff is saved and counts against the budget; `wait` pauses before the
+/// handler starts, outside the budget, so a tester can press Home first.
+public struct BackgroundRefreshAutomationRequest: Equatable, Sendable {
+    public var budget: TimeInterval?
+    public var delay: TimeInterval = 0
+    public var wait: TimeInterval = 0
+
+    public init(budget: TimeInterval? = nil, delay: TimeInterval = 0, wait: TimeInterval = 0) {
+        self.budget = budget
+        self.delay = delay
+        self.wait = wait
+    }
+
+    /// Nil unless every value is a finite number of seconds (budget above zero).
+    init?(queryItems: [URLQueryItem]) {
+        for item in queryItems {
+            guard let seconds = item.value.flatMap(Double.init), seconds.isFinite, seconds >= 0 else { return nil }
+            switch item.name {
+            case "budget":
+                guard seconds > 0 else { return nil }
+                budget = seconds
+            case "delay": delay = seconds
+            case "wait": wait = seconds
+            default: return nil
+            }
+        }
+    }
+
+    var logDetails: [String: String] {
+        ["budget": budget.map { "\($0)" } ?? "default", "delay": "\(delay)", "wait": "\(wait)"]
+    }
+}
+
 public enum AutomationIdentifiers {
     /// DEBUG-only invisible element whose value mirrors playback state for UI tests.
     public static let playbackProbe = "automation.playback.probe"

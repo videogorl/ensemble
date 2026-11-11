@@ -144,6 +144,8 @@ public final class NavigationCoordinator {
     public var pendingPlaybackRequest: PlaybackAutomationRequest?
     /// Set by the `debug/sync` route; the root view applies and clears it.
     public var pendingSyncMode: SyncAutomationMode?
+    /// Set by the `debug/background-refresh` route; the app scene applies and clears it.
+    public var pendingBackgroundRefreshRequest: BackgroundRefreshAutomationRequest?
     /// Set by the `debug/open` route; the root view applies and clears it, since
     /// the layout's aliases and browse selections live there.
     public var pendingAutomationSurface: AutomationSurface?
@@ -575,6 +577,25 @@ public final class NavigationCoordinator {
                 details: ["route": Self.routeLogDescription(from: url), "mode": mode.rawValue]
             )
             pendingSyncMode = mode
+            return true
+        }
+
+        if routeComponents.dropFirst().first == "background-refresh" {
+            let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            guard let request = BackgroundRefreshAutomationRequest(queryItems: queryItems) else {
+                UserJourneyLogger.log(
+                    context: "automation",
+                    event: "deepLinkRejected",
+                    details: ["route": Self.routeLogDescription(from: url), "reason": "unsupportedBackgroundRefreshValue"]
+                )
+                return true
+            }
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "deepLinkAccepted",
+                details: request.logDetails.merging(["route": Self.routeLogDescription(from: url)]) { $1 }
+            )
+            pendingBackgroundRefreshRequest = request
             return true
         }
 

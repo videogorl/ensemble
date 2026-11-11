@@ -89,6 +89,13 @@ Now Playing page and modes (each parameter optional):
 xcrun simctl openurl "$ENSEMBLE_SIMULATOR_UDID" 'ensemble://debug/now-playing?page=queue&shuffle=off&repeat=one&autoplay=on'
 ```
 
+Background refresh through the system task's handler; `budget=3` cuts it off
+mid-sync (optional `delay`, `wait`; see `docs/reference/agent-runtime-testing.md`):
+
+```bash
+xcrun simctl openurl "$ENSEMBLE_SIMULATOR_UDID" 'ensemble://debug/background-refresh?budget=3'
+```
+
 Media deep links:
 
 ```bash
