@@ -156,14 +156,23 @@ public enum SiriPhraseNormalizer {
 public enum SiriMatchScorer {
     public static let prefixScore = 0.84
     public static let containmentScore = 0.7
+    /// The shorter of query and title must be at least this share of the longer's words to match by containment.
+    public static let minimumContainedShare = 0.5
 
     /// Scores one normalized query against one normalized candidate.
     public static func scoreMatch(query: String, candidate: String) -> Double {
         guard !query.isEmpty, !candidate.isEmpty else { return 0 }
         if candidate == query { return 1.0 }
-        // A short title inside a longer phrase counts only as whole words ("rest" is not in "firestorm").
-        if candidate.hasPrefix(query) || query.hasPrefix(candidate + " ") { return prefixScore }
-        if candidate.contains(query) || " \(query) ".contains(" \(candidate) ") { return containmentScore }
+        // "&" reads as "and", which carries no title: a bare "and" matches only itself, never by containment or resemblance.
+        if query == "and" || candidate == "and" { return 0 }
+        // A short title inside a longer phrase counts only as whole words ("rest" is not in "firestorm"), and only when
+        // it is a real share of it: the one-word "Kim" is not the request "kim and jessie".
+        let queryWords = query.split(separator: " ").count
+        let candidateWords = candidate.split(separator: " ").count
+        if Double(min(queryWords, candidateWords)) / Double(max(queryWords, candidateWords)) >= minimumContainedShare {
+            if candidate.hasPrefix(query) || query.hasPrefix(candidate + " ") { return prefixScore }
+            if candidate.contains(query) || " \(query) ".contains(" \(candidate) ") { return containmentScore }
+        }
 
         var score = 0.0
         let overlap = tokenOverlapScore(query: query, candidate: candidate)

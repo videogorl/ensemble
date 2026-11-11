@@ -94,4 +94,42 @@ final class SiriMediaIndexResolverTests: XCTestCase {
             XCTAssertEqual(ranked.map(\.item.id), testCase.expected, testCase.query)
         }
     }
+
+    /// Phone findings (16 Pro, typed Siri): "kim and jessie" played the one-word "Kim"; "remains of rock and roll"
+    /// played the track whose whole title is "&". A title matches inside a request only when it covers a real share of it,
+    /// and a title that is only "and" matches only exactly.
+    func testShortOrConnectorOnlyTitlesDoNotWinAgainstLongerRequests() {
+        func track(_ id: String, _ title: String, _ artist: String) -> SiriMediaIndexItem {
+            SiriMediaIndexItem(kind: .track, id: id, displayName: title, sourceCompositeKey: "plex:a", secondaryText: artist)
+        }
+        let index = SiriMediaIndex(items: [
+            track("kim", "Kim", "Steve Hackett"),
+            track("amp", "&", "Tally Hall"),
+            track("remains", "The Remains of Rock & Roll", "Broken Bells"),
+            track("rest", "Rest", "Dispatch"),
+            track("pretty", "Pretty, Odd", "Panic! At The Disco"),
+            track("shes", "She's A Handsome Woman", "Panic! At The Disco"),
+            track("intense", "Intense Focus", "Someone"),
+            SiriMediaIndexItem(kind: .playlist, id: "focus", displayName: "focus", sourceCompositeKey: "plex:a")
+        ])
+        let cases: [(query: String, artist: String?, kinds: Set<SiriMediaKind>?, expected: [String])] = [
+            ("kim and jessie", nil, [.track], []),
+            ("remains of rock and roll", nil, [.track], ["remains"]),
+            ("remains of rock and roll", "Broken Bells", [.track], ["remains"]),
+            ("the remains of rock & roll", "Broken Bells", [.track], ["remains"]),
+            ("Rest", nil, [.track], ["rest"]),
+            ("Pretty, Odd", nil, [.track], ["pretty"]),
+            ("She's A Handsome Woman", nil, [.track], ["shes"]),
+            ("Intense Focus", nil, [.track], ["intense"]),
+            ("focus", nil, [.playlist], ["focus"]),
+            ("&", nil, [.track], ["amp"]),
+            ("and", nil, [.track], ["amp"])
+        ]
+        for testCase in cases {
+            let ranked = SiriMediaIndexResolver.rankCandidates(
+                for: testCase.query, requestedKinds: testCase.kinds, index: index, artistHint: testCase.artist
+            )
+            XCTAssertEqual(ranked.map(\.item.id), testCase.expected, testCase.query)
+        }
+    }
 }
