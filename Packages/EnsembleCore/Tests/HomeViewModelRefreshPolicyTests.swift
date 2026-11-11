@@ -134,9 +134,9 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         case unimplemented
     }
 
-    private struct MockSyncProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
+    private struct MockSyncProvider: MusicSourceConnector, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
-        var libraryResult: Result<LibrarySyncResult, Error> = .success(LibrarySyncResult())
+        var libraryResult: Result<LibraryBatch, Error> = .success(LibraryBatch(queryStartedAt: Date()))
         var playlistResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
         var homeHubs: [Hub] = []
         var homeFetchFails = false
@@ -156,22 +156,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             )
         }
 
-        func syncLibrary(
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            progressHandler(1.0)
-            return try libraryResult.get()
-        }
-
-        func syncLibraryIncremental(
-            since timestamp: TimeInterval,
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            progressHandler(1.0)
-            return try libraryResult.get()
-        }
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { try libraryResult.get() }
 
         func syncPlaylists(
             to repository: PlaylistRepositoryProtocol,
@@ -238,7 +223,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         let coordinator = SyncCoordinator(
             accountManager: accountManager,
-            libraryRepository: EmptyLibraryRepository(),
+            libraryRepository: LibraryRepository(coreDataStack: .inMemory()),
             playlistRepository: EmptyPlaylistRepository(),
             artworkDownloadManager: EmptyArtworkDownloadManager(),
             networkMonitor: networkMonitor,
@@ -331,7 +316,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         let coordinator = SyncCoordinator(
             accountManager: accountManager,
-            libraryRepository: EmptyLibraryRepository(),
+            libraryRepository: LibraryRepository(coreDataStack: .inMemory()),
             playlistRepository: EmptyPlaylistRepository(),
             artworkDownloadManager: EmptyArtworkDownloadManager(),
             networkMonitor: networkMonitor,
@@ -2044,7 +2029,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         coordinator.installSyncProviderForTesting(
             MockSyncProvider(
                 sourceIdentifier: source,
-                libraryResult: .success(LibrarySyncResult(changedTracks: 1))
+                libraryResult: .success(.writing(tracks: 1))
             ),
             status: MusicSourceStatus(
                 syncStatus: .lastSynced(Date(timeIntervalSince1970: 1_000)),

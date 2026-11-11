@@ -163,7 +163,7 @@ struct WebSocketSyncControllerTests {
     }
 }
 
-private final class MockWebSocketProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
+private final class MockWebSocketProvider: MusicSourceConnector, @unchecked Sendable {
     let sourceIdentifier: MusicSourceIdentifier
     let incrementalPlaylistResult: PlaylistSyncResult
 
@@ -175,20 +175,7 @@ private final class MockWebSocketProvider: MusicSourceLibrarySyncing, @unchecked
         self.incrementalPlaylistResult = incrementalPlaylistResult
     }
 
-    func syncLibrary(
-        to repository: LibraryRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> LibrarySyncResult {
-        LibrarySyncResult()
-    }
-
-    func syncLibraryIncremental(
-        since timestamp: TimeInterval,
-        to repository: LibraryRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> LibrarySyncResult {
-        LibrarySyncResult()
-    }
+    func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
 
     func syncPlaylists(
         to repository: PlaylistRepositoryProtocol,

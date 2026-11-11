@@ -94,7 +94,7 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
 
-    private actor ArtistDetailProvider: MusicSourceLibrarySyncing, MusicSourceDetailProviding {
+    private actor ArtistDetailProvider: MusicSourceConnector, MusicSourceDetailProviding {
         let sourceIdentifier: MusicSourceIdentifier
         let albums: [Album]
         private var artistAlbumRequests = 0
@@ -104,20 +104,7 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
             self.albums = albums
         }
 
-        func syncLibrary(
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            LibrarySyncResult()
-        }
-
-        func syncLibraryIncremental(
-            since timestamp: TimeInterval,
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            LibrarySyncResult()
-        }
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
 
         func syncPlaylists(
             to repository: PlaylistRepositoryProtocol,

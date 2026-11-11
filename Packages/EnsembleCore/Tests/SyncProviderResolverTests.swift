@@ -4,11 +4,10 @@ import XCTest
 
 @MainActor
 final class SyncProviderResolverTests: XCTestCase {
-    private struct MockProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
+    private struct MockProvider: MusicSourceConnector, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
 
-        func syncLibrary(to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
-        func syncLibraryIncremental(since timestamp: TimeInterval, to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
         func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
         func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, forceOrphanCheck: Bool, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
@@ -18,14 +17,13 @@ final class SyncProviderResolverTests: XCTestCase {
         var marker: String { get }
     }
 
-    private struct CapableProvider: MusicSourceLibrarySyncing, MusicSourceArtistResolving, TestCapability, @unchecked Sendable {
+    private struct CapableProvider: MusicSourceConnector, MusicSourceArtistResolving, TestCapability, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         let marker: String
 
         func getArtist(artistKey: String?, name: String?) async throws -> Artist? { nil }
 
-        func syncLibrary(to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
-        func syncLibraryIncremental(since timestamp: TimeInterval, to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
         func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
         func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, forceOrphanCheck: Bool, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }

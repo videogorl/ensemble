@@ -4,7 +4,7 @@ import Foundation
 
 /// Syncs a single Plex server+library to CoreData
 public final class PlexConnector:
-    MusicSourceLibraryFetching,
+    MusicSourceConnector,
     MusicSourceChangeFetching,
     MusicSourceTwoPhasePlaybackResolving,
     MusicSourceRatingMutating,

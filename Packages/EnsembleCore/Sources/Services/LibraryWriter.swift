@@ -51,6 +51,10 @@ public struct LibraryInventory: Sendable, Equatable {
     public let trackParents: [String: String]
     /// Nil when the source does not list genres in this pass.
     public let genreIDs: Set<String>?
+    /// The connector vouches that an empty library is the true state, not a fault: it read the whole
+    /// library and independent counts agree on zero. Plex never sets this, since an empty section
+    /// there is far more likely a server fault.
+    public let emptyIsAuthoritative: Bool
 
     /// Track count per album, including albums with no tracks.
     public var trackCounts: [String: Int] {
@@ -65,7 +69,8 @@ public struct LibraryInventory: Sendable, Equatable {
         artistIDs: [String],
         albumIDs: [String],
         tracks: [(id: String, albumID: String?)],
-        genreIDs: [String]? = nil
+        genreIDs: [String]? = nil,
+        emptyIsAuthoritative: Bool = false
     ) throws {
         func isBlank(_ id: String) -> Bool { id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !artistIDs.contains(where: isBlank) else { throw LibraryWriterError.invalidInventory("blank artist ID") }
@@ -84,6 +89,7 @@ public struct LibraryInventory: Sendable, Equatable {
         self.albumIDs = albums
         self.trackParents = parents
         self.genreIDs = genreIDs.map(Set.init)
+        self.emptyIsAuthoritative = emptyIsAuthoritative
     }
 }
 
@@ -97,6 +103,15 @@ public struct LibraryBatch: Sendable {
     public var inventory: LibraryInventory?
     /// Every row's metadata was fetched and compared, not only the changed ones.
     public var isFullMetadataPass = false
+    /// The source read everything, so the next full read waits its interval even when no inventory was
+    /// proved or applied (a withheld or empty one).
+    public var readsEverything = false
+    /// Tracks whose last played date and play count the source could not read this pass; their stored
+    /// values are kept instead of being cleared.
+    public var tracksWithoutPlayHistory: Set<String> = []
+    /// Names to store on the source row; nil leaves the row's names empty, as for Plex.
+    public var sourceDisplayName: String?
+    public var sourceAccountName: String?
     /// When the connector began its queries; the cursors record this date.
     public var queryStartedAt: Date
 
@@ -107,6 +122,7 @@ public struct LibraryBatch: Sendable {
         genres: [GenreUpsertInput]? = nil,
         inventory: LibraryInventory? = nil,
         isFullMetadataPass: Bool = false,
+        tracksWithoutPlayHistory: Set<String> = [],
         queryStartedAt: Date
     ) {
         self.artists = artists
@@ -115,6 +131,7 @@ public struct LibraryBatch: Sendable {
         self.genres = genres
         self.inventory = inventory
         self.isFullMetadataPass = isFullMetadataPass
+        self.tracksWithoutPlayHistory = tracksWithoutPlayHistory
         self.queryStartedAt = queryStartedAt
     }
 }
@@ -124,17 +141,23 @@ public struct LibraryBatch: Sendable {
 /// cannot race a fetch against an insert.
 ///
 /// Deletion contract: rows are deleted only from a complete inventory. An empty
-/// inventory never deletes, a stale batch is ignored whole, and a failed,
+/// inventory deletes only when its connector marked it authoritative, a stale batch is ignored whole, and a failed,
 /// partial or cancelled pass leaves the cursor due.
 public actor LibraryWriter {
     static let inventoryInterval: TimeInterval = 24 * 60 * 60
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let cursors: SyncCursorRepositoryProtocol?
+    private let pendingMutations: PendingMutationRepositoryProtocol?
 
-    public init(libraryRepository: LibraryRepositoryProtocol, syncCursorRepository: SyncCursorRepositoryProtocol?) {
+    public init(
+        libraryRepository: LibraryRepositoryProtocol,
+        syncCursorRepository: SyncCursorRepositoryProtocol?,
+        pendingMutationRepository: PendingMutationRepositoryProtocol? = nil
+    ) {
         self.libraryRepository = libraryRepository
         self.cursors = syncCursorRepository
+        self.pendingMutations = pendingMutationRepository
     }
 
     /// Plans a fetch. A nil `since` plans a full library fetch.
@@ -162,7 +185,7 @@ public actor LibraryWriter {
             EnsembleLogger.info("Ignoring a stale library batch for \(key): query started before the last committed pass")
             return LibrarySyncResult()
         }
-        try await ensureSource(source)
+        try await ensureSource(source, batch: batch)
         var result = try await writeRows(batch, key: key)
 
         var inventoryApplied = false
@@ -182,6 +205,8 @@ public actor LibraryWriter {
             } else {
                 try await cursors?.recordInventorySync(scopeKey: key, scopeType: .library, at: batch.queryStartedAt)
             }
+        } else if batch.readsEverything {
+            try await cursors?.recordFullRead(scopeKey: key, scopeType: .library, at: batch.queryStartedAt)
         }
         try await cursors?.recordIncrementalSync(scopeKey: key, scopeType: .library, at: batch.queryStartedAt)
         try RefreshExecution.checkCancellation()
@@ -193,7 +218,7 @@ public actor LibraryWriter {
     /// except to mark the inventory due.
     @discardableResult
     public func applyChanges(_ batch: LibraryBatch, to source: MusicSourceIdentifier) async throws -> LibrarySyncResult {
-        try await ensureSource(source)
+        try await ensureSource(source, batch: batch)
         return try await writeRows(batch, key: source.compositeKey)
     }
 
@@ -209,15 +234,15 @@ public actor LibraryWriter {
 
     // MARK: - Rows
 
-    private func ensureSource(_ source: MusicSourceIdentifier) async throws {
+    private func ensureSource(_ source: MusicSourceIdentifier, batch: LibraryBatch) async throws {
         _ = try await libraryRepository.upsertMusicSource(
             compositeKey: source.compositeKey,
             type: source.type.rawValue,
             accountId: source.accountId,
             serverId: source.serverId,
             libraryId: source.libraryId,
-            displayName: nil,
-            accountName: nil
+            displayName: batch.sourceDisplayName,
+            accountName: batch.sourceAccountName
         )
     }
 
@@ -240,7 +265,15 @@ public actor LibraryWriter {
 
         let artists = batch.artists.filter { existingArtists[$0.ratingKey]?.matches($0) != true }
         let albums = batch.albums.filter { existingAlbums[$0.ratingKey]?.matches($0) != true }
-        let tracks = batch.tracks.filter { existingTracks[$0.ratingKey]?.matches($0) != true }
+        // A rating or favourite still waiting to upload is newer than the server's value.
+        let queuedRatings = try await trackKeysWithQueuedRating(source: key)
+        let tracks = batch.tracks.map { input -> TrackUpsertInput in
+            guard let stored = existingTracks[input.ratingKey] else { return input }
+            return input.keeping(
+                ratingOf: queuedRatings.contains(input.ratingKey) ? stored : nil,
+                playHistoryOf: batch.tracksWithoutPlayHistory.contains(input.ratingKey) ? stored : nil
+            )
+        }.filter { existingTracks[$0.ratingKey]?.matches($0) != true }
 
         let membershipChanged = tracks.contains { existingTracks[$0.ratingKey]?.albumRatingKey != $0.albumRatingKey }
             || albums.contains { album in
@@ -268,6 +301,17 @@ public actor LibraryWriter {
             changedTracks: tracks.count,
             changedGenres: batch.genres?.count ?? 0
         )
+    }
+
+    private func trackKeysWithQueuedRating(source key: String) async throws -> Set<String> {
+        guard let pendingMutations else { return [] }
+        return Set(try await pendingMutations.fetchPendingMutationRecords().compactMap { record in
+            guard record.mutationType == .trackRating,
+                  let payload = try? JSONDecoder().decode(TrackRatingMutationPayload.self, from: record.payload),
+                  payload.sourceCompositeKey == key
+            else { return nil }
+            return payload.trackRatingKey
+        })
     }
 
     /// An empty key set would read the whole source, so no keys reads nothing.
@@ -309,10 +353,14 @@ public actor LibraryWriter {
         try RefreshExecution.checkCancellation()
         let recounted = try await libraryRepository.batchUpdateAlbumTrackCounts(inventory.trackCounts, forSource: key)
 
-        await MainActor.run {
-            HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: key, survivingItemIDs: keptArtistIDs)
-            HiddenMediaStore.shared.removeMissing(kind: .album, sourceKey: key, survivingItemIDs: inventory.albumIDs)
-            HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: key, survivingItemIDs: trackIDs)
+        // Hidden choices sync to the user's other devices and no later sync can rebuild them, so a
+        // library that went wholly empty (Sync Library off, a lapsed subscription) keeps them for its return.
+        if !trackIDs.isEmpty {
+            await MainActor.run {
+                HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: key, survivingItemIDs: keptArtistIDs)
+                HiddenMediaStore.shared.removeMissing(kind: .album, sourceKey: key, survivingItemIDs: inventory.albumIDs)
+                HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: key, survivingItemIDs: trackIDs)
+            }
         }
         if removedArtists + removedAlbums + removedTracks + removedGenres > 0 {
             EnsembleLogger.debug(
@@ -339,7 +387,29 @@ public actor LibraryWriter {
     }
 }
 
+extension TrackUpsertInput {
+    /// The input with the stored rating, favourite flag and rating date, and/or the stored last played
+    /// date and play count, in place of the fetched ones.
+    func keeping(ratingOf ratingStored: TrackSyncMetadata?, playHistoryOf historyStored: TrackSyncMetadata?) -> TrackUpsertInput {
+        TrackUpsertInput(
+            ratingKey: ratingKey, key: key, title: title, artistName: artistName, albumName: albumName,
+            albumRatingKey: albumRatingKey, trackNumber: trackNumber, discNumber: discNumber, duration: duration,
+            thumbPath: thumbPath, streamKey: streamKey, streamId: streamId, dateAdded: dateAdded,
+            dateModified: dateModified, lastPlayed: historyStored.map(\.lastPlayed) ?? lastPlayed,
+            lastRatedAt: ratingStored.map(\.lastRatedAt) ?? lastRatedAt,
+            rating: ratingStored?.rating ?? rating, isFavorite: ratingStored.map(\.isFavorite) ?? isFavorite,
+            playCount: historyStored?.playCount ?? playCount, genreNames: genreNames,
+            updatesDateAdded: updatesDateAdded, actionCapabilitiesData: actionCapabilitiesData
+        )
+    }
+}
+
 extension LibraryInventory {
-    /// An inventory with no artists, albums or tracks cannot show that a stored row is gone.
-    var cannotProveDeletion: Bool { artistIDs.isEmpty || albumIDs.isEmpty || trackParents.isEmpty }
+    /// An inventory with no artists, albums or tracks cannot show that a stored row is gone, unless the
+    /// connector vouches for a library that is empty throughout. A partly empty one never deletes.
+    var cannotProveDeletion: Bool {
+        let isEmpty = artistIDs.isEmpty && albumIDs.isEmpty && trackParents.isEmpty
+        if isEmpty && emptyIsAuthoritative { return false }
+        return artistIDs.isEmpty || albumIDs.isEmpty || trackParents.isEmpty
+    }
 }

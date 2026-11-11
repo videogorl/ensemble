@@ -25,6 +25,10 @@
   page must agree on boundaries/total, and an inventory that would remove data
   must satisfy the owning safety check. Failure, incompleteness, malformed data,
   or unavailable credentials preserves rows and files.
+- An empty inventory deletes nothing unless its connector proved the read
+  complete and vouches for it. Apple Music's complete, agreeing, empty library
+  clears that source's rows; Plex's empty section never does (approved by
+  Felicity, 2026-11-10).
 - WebSocket events accelerate exact-item reconciliation but are safe to miss.
   Cold start, foreground/background lifecycle, polling, manual refresh, and
   periodic authoritative reconciliation remain correctness paths.

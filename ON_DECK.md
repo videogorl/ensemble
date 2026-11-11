@@ -36,21 +36,6 @@ An entry does not authorize the work; Felicity picks what gets done.
 - Next step: rerun on an idle Mac to separate load from real defects; widen the 1 s waits to
   event-based waits with a long timeout.
 
-## Confirmed: a sync can overwrite a rating or favourite whose upload is still queued (2026-11-10)
-
-- Evidence (read): `batchUpsertTracks` assigns `track.rating = Int16(input.rating ?? 0)`
-  (`LibraryRepository+SyncMetadata.swift:680`) without consulting `CDPendingMutation`.
-- Scenario: the user favourites a track offline. `TrackRatingLocalStore` writes the local rating and
-  queues a `trackRating` mutation (`TrackRatingMutationPayload`). A sync then fetches the server's
-  rating (0) and `LibraryWriter.writeRows` writes it over the local value until the queued mutation
-  uploads and a later sync reads it back.
-- Impact: the favourite flickers off, or is lost if the upload fails permanently. Not new in 3b.
-- Fix sketch (over the 40-line budget: the writer has no mutation-queue dependency): inject
-  `PendingMutationRepositoryProtocol` into `LibraryWriter`, decode pending `.trackRating` payloads for
-  the source in `writeRows`, and replace `rating`/`lastRatedAt` in matching inputs with the stored
-  values before the `matches` filter. One test: queue a rating, apply a batch with rating 0, expect
-  the stored rating kept.
-
 ## Confirmed: the full library fetch and the single all-track write are unbounded (2026-11-10)
 
 - Evidence (read): `PlexConnector.fetchFullLibrary` (`PlexConnector.swift:337`) holds every artist,
@@ -277,6 +262,47 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Impact: a possible audible gap or no crossfade at the boundary after a track that was still streaming; unmeasured.
 - Next step: measure the boundary after a short original-quality track on a slow link, then decide whether the successor's prefetch needs to start earlier or the handoff needs a streaming path. Not authorized to change.
 
+## Confirmed: deleting a track loses Hidden choices and leaves dangling IDs (2026-11-10)
+
+- Evidence (read): `LibraryWriter.removeMissing` calls `HiddenMediaStore.removeMissing` for artists, albums
+  and tracks, which prunes their Hidden entries for good, and removing a track cascades its playlist
+  membership rows. The queue, play history, pins and the Siri index keep the removed IDs.
+- Impact: a temporary wrongful removal (a short inventory that passed the checks) loses the user's Hidden
+  choices even after the track returns on the next pass, and leaves queue, history, pin and Siri entries
+  pointing at rows that no longer exist.
+- Next step: decide whether deletion should keep Hidden entries (prune only on a later pass that confirms the
+  absence) and which owners should drop dangling IDs when `removedTrackRatingKeys` is reported. Not fixed.
+
+## Apple Music sync failure shows an opaque error (suspected)
+
+- Evidence: on the iPhone SE with Media & Apple Music revoked, the log line was
+  `Sync failed for appleMusic:device:system:library: The operation couldn’t be completed. (EnsembleCore.AppleMusicLibraryError error 0.)`
+  (session `2026-11-10-131550`, step 3c). `AppleMusicLibraryError` has no
+  `LocalizedError` description, and `AppleMusicSourceDetailView` shows
+  `syncErrorMessage` verbatim in red.
+- Impact: suspected; a user who revokes access sees that raw text on the Apple
+  Music source page instead of a "Allow Apple Music access in Settings" message.
+  Not confirmed on screen.
+- Next step: read the Apple Music source page after a revoked sync (UI text) and,
+  if it is the raw text, give `notAuthorized` a localized description.
+
+## A Plex library cursor vanishes when its server is unreachable after launch (explained, by design)
+
+- Evidence: on the iPhone SE (`$TMPDIR/se-playback/results/n12` and `n14`,
+  2026-11-10 15:40 to 15:56) server `…3ccca` library 7 failed four full syncs
+  with `NSURLErrorDomain -1004` and its library cursor row was gone afterwards;
+  its 9696 tracks stayed. Code read only: `SyncCoordinator.performStartupSync`
+  calls `invalidatePlexReconciliationCursors`, which `removeCursor`s every Plex
+  library cursor on each cold launch to force an authoritative pass. The
+  UI-test runs relaunched the app, so the cursor was cleared at launch and the
+  failed fetch never recreated it. Not a writer fault.
+- Impact: confirmed explanation. While a Plex server is unreachable after a
+  launch its library has no cursor, so the next successful sync is a full one.
+  No rows are lost. It reads like data loss in a store comparison, so compare
+  Plex cursors only across runs that did not relaunch the app.
+- Next step: none required; if the full re-read after every cold launch proves
+  costly on large libraries, revisit that startup rule.
+
 
 ## Confirmed: originals cached by an older build cannot be played offline until replayed online (2026-11-10)
 
@@ -419,3 +445,20 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
   file. Next step: decide whether a converter error mid-play should trigger the fallback at once.
 - Coverage the review asked for and nothing provides: both resume races under deterministic scheduling, and
   Pause, Next or Stop while a seek wait is pending.
+
+## Codex review of step 3c (2026-11-11, at `aecf4a2c`): fixed and deferred
+
+- Fixed before the merge: an Apple Music list that repeats a song, or whose pages state different totals or
+  include an empty page that points onward, no longer yields an inventory, so it deletes nothing.
+- Deferred, confirmed by code path: **a rating made during a sync's write can be overwritten locally.**
+  `LibraryWriter.writeRows` reads stored tracks, then the queued ratings, then writes; a rating saved in
+  between is rewritten with the server's older value while its upload stays queued. The upload still succeeds
+  and the next sync restores the value. Fix: keep the queued rating inside `batchUpsertTracks`' own
+  transaction, with a gated interleaving test.
+- Deferred, confirmed by code path, inherited from step 3b: **a full pass interrupted between its delete
+  saves is not retried until the daily interval.** Tracks, albums and artists are deleted in separate saves;
+  a kill after the tracks leaves an empty album until the next inventory. Fix: mark a full apply unfinished
+  before its first write and let recovery bypass the daily throttle.
+- Known limit, predates the branch: Apple Music has one source key (`appleMusic:device:system:library`), so a
+  different Apple Account signed in on the device reconciles against the same cached rows.
+- Unmeasured: memory on a library of many thousands of songs (whole-library arrays, one track transaction).

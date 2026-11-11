@@ -19,7 +19,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
     }
 
-    private final class MockProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
+    private final class MockProvider: MusicSourceConnector, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         var incrementalResult: Result<PlaylistSyncResult, Error>
         var fullResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
@@ -35,8 +35,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
             self.fullResult = fullResult
         }
 
-        func syncLibrary(to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
-        func syncLibraryIncremental(since timestamp: TimeInterval, to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
         func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult {
             try fullResult.get()
         }

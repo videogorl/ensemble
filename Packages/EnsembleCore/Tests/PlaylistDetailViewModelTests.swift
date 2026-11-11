@@ -165,7 +165,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func countPendingMutations() async throws -> Int { pending.count }
     }
 
-    private actor RecordingPlaylistProvider: MusicSourceLibrarySyncing, MusicSourcePlaylistMutating, MusicSourceCollectionRatingMutating {
+    private actor RecordingPlaylistProvider: MusicSourceConnector, MusicSourcePlaylistMutating, MusicSourceCollectionRatingMutating {
         enum Event: Equatable {
             case create(title: String, trackIDs: [String])
             case add(playlistID: String, trackIDs: [String])
@@ -193,20 +193,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         func eventsSnapshot() -> [Event] { events }
 
-        func syncLibrary(
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            LibrarySyncResult()
-        }
-
-        func syncLibraryIncremental(
-            since timestamp: TimeInterval,
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            LibrarySyncResult()
-        }
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
 
         func syncPlaylists(
             to repository: PlaylistRepositoryProtocol,
@@ -272,7 +259,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         }
     }
 
-    private actor RecordingRatingProvider: MusicSourceLibrarySyncing, MusicSourceRatingMutating {
+    private actor RecordingRatingProvider: MusicSourceConnector, MusicSourceRatingMutating {
         struct Invocation: Sendable {
             let track: Track
             let rating: Int?
@@ -292,20 +279,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         func invocationSnapshot() -> Invocation? { invocation }
 
-        func syncLibrary(
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            LibrarySyncResult()
-        }
-
-        func syncLibraryIncremental(
-            since timestamp: TimeInterval,
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            LibrarySyncResult()
-        }
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
 
         func syncPlaylists(
             to repository: PlaylistRepositoryProtocol,

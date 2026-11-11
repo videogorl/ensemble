@@ -467,9 +467,10 @@ rewrite. 3a is unchanged.
   migrates on the Mac before 3a lands (decision 6).
 - **One place to get deletion wrong.** A writer bug hits both sources; the 3b
   table tests are the guard, and the test policy allows them.
-- **Behaviour shifts.** Apple Music gains the empty guard, Plex gains the
-  stale-response guard, and the body rule drops a repair. Felicity approved
-  all three on 2026-11-10.
+- **Behaviour shifts.** Apple Music gains the empty guard (revised
+  2026-11-10: a complete empty Apple Music inventory now deletes, see decision
+  2), Plex gains the stale-response guard, and the body rule drops a repair.
+  Felicity approved all three on 2026-11-10.
 - **Rename friction.** The 3b rename touches files other branches may hold.
   It lands as its own commit right after 3a merges, before the writer code,
   so a rebase meets only renames.
@@ -488,10 +489,18 @@ Felicity approved the design and agreed with every recommendation:
 1. **Writes outside sync.** Optimistic playlist creates and adds go through
    the writer. Title and rating edits stay with their current owners
    (`MutationCoordinator`, `MetadataMutationService`). Lands in 3d.
-2. **Empty inventory.** A complete but empty inventory deletes nothing, for
-   library and playlists. Removing the source stays the only way to clear
+2. **Empty inventory.** For Plex, and for playlists, a complete but empty
+   inventory deletes nothing; removing the source stays the only way to clear
    it. Accepted cost: a last playlist deleted on another client lingers until
    the server has a playlist again or it is deleted in Ensemble.
+   **Revised 2026-11-10 (Felicity: "Always trust an empty library") for the
+   Apple Music library:** a read the connector proved complete (REST total and
+   MusicKit witness agree) that is empty deletes that source's rows. The
+   connector says so with `LibraryInventory.emptyIsAuthoritative`; the writer
+   honours it and has no source-type check. A failed, denied, partial,
+   cancelled or disagreeing read still deletes nothing, and a vouched inventory
+   that is empty only in part is refused. Found on the iPhone SE, where the last
+   song removed from the library never left Ensemble.
 3. **Apple Music removals.** No second confirming read for now; rely on the
    writer's structural checks. Revisit if a wrongful delete is seen.
 4. **Body refresh rule.** Drop "local count above server count" once the

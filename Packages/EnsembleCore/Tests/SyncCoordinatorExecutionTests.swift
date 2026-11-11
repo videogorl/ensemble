@@ -53,11 +53,10 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         }
     }
 
-    private final class RecordingProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
+    private final class RecordingProvider: MusicSourceConnector, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         private let recorder: EventRecorder
-        private let syncLibraryHandler: (@Sendable (LibraryRepositoryProtocol) async throws -> LibrarySyncResult)?
-        private let syncLibraryIncrementalHandler: (@Sendable (LibraryRepositoryProtocol) async throws -> LibrarySyncResult)?
+        private let fetchLibraryHandler: (@Sendable (LibrarySyncPlan) async throws -> LibraryBatch)?
         private let syncPlaylistsHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)?
         private let syncPlaylistsIncrementalHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)?
         private(set) var lastIncrementalSince: TimeInterval?
@@ -65,43 +64,22 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         init(
             sourceIdentifier: MusicSourceIdentifier,
             recorder: EventRecorder,
-            syncLibraryHandler: (@Sendable (LibraryRepositoryProtocol) async throws -> LibrarySyncResult)? = nil,
-            syncLibraryIncrementalHandler: (@Sendable (LibraryRepositoryProtocol) async throws -> LibrarySyncResult)? = nil,
+            fetchLibraryHandler: (@Sendable (LibrarySyncPlan) async throws -> LibraryBatch)? = nil,
             syncPlaylistsHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)? = nil,
             syncPlaylistsIncrementalHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)? = nil
         ) {
             self.sourceIdentifier = sourceIdentifier
             self.recorder = recorder
-            self.syncLibraryHandler = syncLibraryHandler
-            self.syncLibraryIncrementalHandler = syncLibraryIncrementalHandler
+            self.fetchLibraryHandler = fetchLibraryHandler
             self.syncPlaylistsHandler = syncPlaylistsHandler
             self.syncPlaylistsIncrementalHandler = syncPlaylistsIncrementalHandler
         }
 
-        func syncLibrary(
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            progressHandler(1)
-            await recorder.record("library")
-            if let syncLibraryHandler {
-                return try await syncLibraryHandler(repository)
-            }
-            return LibrarySyncResult(changedAlbums: 1)
-        }
-
-        func syncLibraryIncremental(
-            since timestamp: TimeInterval,
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            progressHandler(1)
-            lastIncrementalSince = timestamp
-            await recorder.record("library-incremental")
-            if let syncLibraryIncrementalHandler {
-                return try await syncLibraryIncrementalHandler(repository)
-            }
-            return LibrarySyncResult(changedAlbums: 1)
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch {
+            if let since = plan.since { lastIncrementalSince = since.timeIntervalSince1970 }
+            await recorder.record(plan.since == nil ? "library" : "library-incremental")
+            if let fetchLibraryHandler { return try await fetchLibraryHandler(plan) }
+            return .writing(albums: 1)
         }
 
         func syncPlaylists(
@@ -244,6 +222,9 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         func recordFullSync(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws {
             try await repository.recordFullSync(scopeKey: scopeKey, scopeType: scopeType, at: date)
         }
+        func recordFullRead(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws {
+            try await repository.recordFullRead(scopeKey: scopeKey, scopeType: scopeType, at: date)
+        }
         func invalidateInventorySync(scopeKey: String, scopeType: SyncCursorScopeType) async throws {
             try await repository.invalidateInventorySync(scopeKey: scopeKey, scopeType: scopeType)
         }
@@ -267,8 +248,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
             let recorder = EventRecorder()
             let noOp = RecordingProvider(
                 sourceIdentifier: source, recorder: recorder,
-                syncLibraryHandler: { _ in LibrarySyncResult() },
-                syncLibraryIncrementalHandler: { _ in LibrarySyncResult() }
+                fetchLibraryHandler: { _ in LibraryBatch(queryStartedAt: Date()) }
             )
             coordinator.setSyncProvidersForTesting([source.compositeKey: noOp])
             if incremental { await coordinator.syncIncremental(source: source) }
@@ -279,8 +259,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
 
             let changed = RecordingProvider(
                 sourceIdentifier: source, recorder: recorder,
-                syncLibraryHandler: { _ in LibrarySyncResult(changedTracks: 1) },
-                syncLibraryIncrementalHandler: { _ in LibrarySyncResult(changedTracks: 1) }
+                fetchLibraryHandler: { _ in .writing(tracks: 1) }
             )
             coordinator.setSyncProvidersForTesting([source.compositeKey: changed])
             if incremental { await coordinator.syncIncremental(source: source) }
@@ -304,7 +283,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         try await cursors.recordIncrementalSync(scopeKey: source.compositeKey, scopeType: .library, at: queryStartedAt)
         let provider = RecordingProvider(
             sourceIdentifier: source, recorder: EventRecorder(),
-            syncLibraryIncrementalHandler: { _ in LibrarySyncResult() }
+            fetchLibraryHandler: { _ in LibraryBatch(queryStartedAt: Date()) }
         )
         coordinator.setSyncProvidersForTesting([source.compositeKey: provider])
 
@@ -312,6 +291,36 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
 
         let since = try XCTUnwrap(provider.lastIncrementalSince)
         XCTAssertEqual(since, queryStartedAt.timeIntervalSince1970 - 5, accuracy: 1)
+    }
+
+    /// Removing a source clears its rows and library cursor, whatever its type, and no other source's.
+    func testSourceRemovalClearsRowsAndCursorsForThatSourceOnly() async throws {
+        for (removed, retained) in [(MusicSourceIdentifier.appleMusic, makeSourceIdentifier()), (makeSourceIdentifier(), MusicSourceIdentifier.appleMusic)] {
+            let stack = CoreDataStack.inMemory()
+            let library = LibraryRepository(coreDataStack: stack)
+            let cursors = SyncCursorRepository(coreDataStack: stack)
+            // The removed source is not configured (another Plex library keeps the configuration
+            // authoritative), so removing it is a real removal.
+            let configured = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "other")
+            let coordinator = makeCoordinator(stack: stack, sources: retained.type == .plex ? [retained, configured] : [configured], cursors: cursors)
+            for source in [removed, retained] {
+                try await recordPreviousSync(stack: stack, source: source)
+                try await library.batchUpsertAlbums(albumInputs(thumb: "/album"), sourceCompositeKey: source.compositeKey)
+                try await cursors.recordFullSync(scopeKey: source.compositeKey, scopeType: .library, at: Date())
+            }
+
+            let cleaned = await coordinator.cleanupRemovedSource(removed)
+
+            XCTAssertTrue(cleaned)
+            let removedCursor = try await cursors.fetchCursor(scopeKey: removed.compositeKey, scopeType: .library)
+            let retainedCursor = try await cursors.fetchCursor(scopeKey: retained.compositeKey, scopeType: .library)
+            XCTAssertNil(removedCursor, "\(removed.type) cursor cleared")
+            XCTAssertNotNil(retainedCursor, "\(retained.type) cursor kept")
+            let removedAlbums = try await library.fetchAlbumSyncMetadata(forSource: removed.compositeKey)
+            let retainedAlbums = try await library.fetchAlbumSyncMetadata(forSource: retained.compositeKey)
+            XCTAssertTrue(removedAlbums.isEmpty)
+            XCTAssertEqual(retainedAlbums.count, 2)
+        }
     }
 
     func testPlaylistFailurePreservesCommittedLibraryAndTruthfulStatus() async throws {
@@ -324,14 +333,12 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
                 let libraryChanges = LibraryChanges()
                 let coordinator = makeCoordinator(stack: stack, sources: [source], libraryChanges: libraryChanges)
                 try await recordPreviousSync(stack: stack, source: source)
-                let libraryCommit: @Sendable (LibraryRepositoryProtocol) async throws -> LibrarySyncResult = { repository in
-                    try await self.upsertAlbums(in: repository, source: source, thumb: "/album/committed")
-                    return LibrarySyncResult(changedAlbums: 2)
+                let libraryCommit: @Sendable (LibrarySyncPlan) async throws -> LibraryBatch = { _ in
+                    LibraryBatch(albums: self.albumInputs(thumb: "/album/committed"), queryStartedAt: Date())
                 }
                 let provider = RecordingProvider(
                     sourceIdentifier: source, recorder: EventRecorder(),
-                    syncLibraryHandler: libraryCommit,
-                    syncLibraryIncrementalHandler: libraryCommit,
+                    fetchLibraryHandler: libraryCommit,
                     syncPlaylistsHandler: { _ in
                         if cancelled { throw CancellationError() }
                         throw TestError.playlistSync
@@ -370,9 +377,9 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
             let coordinator = makeCoordinator(sources: [source])
             let old = RecordingProvider(
                 sourceIdentifier: source, recorder: recorder,
-                syncLibraryHandler: { _ in
+                fetchLibraryHandler: { _ in
                     await gate.enterAndWait()
-                    return LibrarySyncResult(changedAlbums: 1)
+                    return .writing(albums: 1)
                 }
             )
             coordinator.setSyncProvidersForTesting([source.compositeKey: old])
@@ -473,8 +480,8 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
             let source = makeSourceIdentifier()
             let library = LibraryRepository(coreDataStack: stack)
             let playlists = PlaylistRepository(coreDataStack: stack)
-            try await upsertAlbums(in: library, source: source, thumb: "/album/old")
-            try await upsertTrack(in: library, source: source, album: "album-old")
+            try await library.batchUpsertAlbums(albumInputs(thumb: "/album/old"), sourceCompositeKey: source.compositeKey)
+            try await library.batchUpsertTracks([trackInput(album: "album-old")], sourceCompositeKey: source.compositeKey)
             try await upsertPlaylist(in: playlists, source: source, path: "/playlist/old", modified: 1000)
             XCTAssertTrue(library.drainTrackReparentInfo().isEmpty)
             _ = library.drainArtworkInvalidationInfo()
@@ -496,10 +503,12 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
                     await recorder.record("invalidate-\(change.type.rawValue)")
                 }
             }
-            let libraryUpdate: @Sendable (LibraryRepositoryProtocol) async throws -> LibrarySyncResult = { repository in
-                try await self.upsertAlbums(in: repository, source: source, thumb: "/album/new")
-                try await self.upsertTrack(in: repository, source: source, album: "album-new")
-                return LibrarySyncResult(changedAlbums: 1, changedTracks: 1)
+            let libraryUpdate: @Sendable (LibrarySyncPlan) async throws -> LibraryBatch = { _ in
+                LibraryBatch(
+                    albums: self.albumInputs(thumb: "/album/new"),
+                    tracks: [self.trackInput(album: "album-new")],
+                    queryStartedAt: Date()
+                )
             }
             let playlistUpdate: @Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult = { repository in
                 try await self.upsertPlaylist(in: repository, source: source, path: "/playlist/new", modified: 1001)
@@ -507,7 +516,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
             }
             let provider = RecordingProvider(
                 sourceIdentifier: source, recorder: recorder,
-                syncLibraryHandler: libraryUpdate, syncLibraryIncrementalHandler: libraryUpdate,
+                fetchLibraryHandler: libraryUpdate,
                 syncPlaylistsHandler: playlistUpdate, syncPlaylistsIncrementalHandler: playlistUpdate
             )
             coordinator.setSyncProvidersForTesting([source.compositeKey: provider])
@@ -584,24 +593,23 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: source.compositeKey)
     }
 
-    private func upsertAlbums(in repository: LibraryRepositoryProtocol, source: MusicSourceIdentifier, thumb: String) async throws {
-        try await repository.batchUpsertAlbums(["album-old", "album-new"].map { id in
+    private nonisolated func albumInputs(thumb: String) -> [AlbumUpsertInput] {
+        ["album-old", "album-new"].map { id in
             AlbumUpsertInput(
                 ratingKey: id, key: "/library/metadata/\(id)", title: id,
                 artistName: nil, albumArtist: nil, artistRatingKey: nil, summary: nil,
                 thumbPath: id == "album-old" ? thumb : nil, artPath: nil, year: nil,
                 trackCount: nil, dateAdded: nil, dateModified: Date(timeIntervalSince1970: 1000), rating: nil
             )
-        }, sourceCompositeKey: source.compositeKey)
+        }
     }
 
-    private func upsertTrack(in repository: LibraryRepositoryProtocol, source: MusicSourceIdentifier, album: String) async throws {
-        _ = try await repository.upsertTrack(
+    private nonisolated func trackInput(album: String) -> TrackUpsertInput {
+        TrackUpsertInput(
             ratingKey: "track", key: "/library/metadata/track", title: "Track",
             artistName: nil, albumName: album, albumRatingKey: album, trackNumber: nil,
             discNumber: nil, duration: nil, thumbPath: nil, streamKey: nil,
-            dateAdded: nil, dateModified: nil, lastPlayed: nil, lastRatedAt: nil, rating: nil,
-            playCount: nil, genreNames: nil, sourceCompositeKey: source.compositeKey
+            dateAdded: nil, dateModified: nil, lastPlayed: nil, rating: nil, playCount: nil
         )
     }
 

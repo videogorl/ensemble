@@ -12,7 +12,7 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         libraryId: "1"
     )
 
-    private final class RecordingSyncProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
+    private final class RecordingSyncProvider: MusicSourceConnector, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         private(set) var fullLibrarySyncCount = 0
         private(set) var incrementalLibrarySyncCount = 0
@@ -23,25 +23,15 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             self.sourceIdentifier = sourceIdentifier
         }
 
-        func syncLibrary(
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            fullLibrarySyncCount += 1
-            onFullLibrarySync?()
-            progressHandler(1.0)
-            return LibrarySyncResult(changedAlbums: 10, changedTracks: 50, changedGenres: 5)
-        }
-
-        func syncLibraryIncremental(
-            since timestamp: TimeInterval,
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch {
+            if plan.since == nil {
+                fullLibrarySyncCount += 1
+                onFullLibrarySync?()
+                return .writing(albums: 10, tracks: 50, genres: 5)
+            }
             incrementalLibrarySyncCount += 1
             onIncrementalLibrarySync?()
-            progressHandler(1.0)
-            return LibrarySyncResult()
+            return LibraryBatch(queryStartedAt: Date())
         }
 
         func syncPlaylists(
@@ -316,7 +306,9 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             scopeKey: sourceKey,
             scopeType: .library
         )
-        XCTAssertNil(cursor)
+        // The pass after the invalidation owes a complete inventory and records only its own date.
+        XCTAssertNil(cursor?.lastInventorySyncAt)
+        XCTAssertNil(cursor?.lastFullSyncAt)
         let playlistCursor = try await syncCursorRepository.fetchCursor(
             scopeKey: serverSourceKey,
             scopeType: .serverPlaylists

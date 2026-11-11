@@ -113,7 +113,7 @@ private struct TimelineCall: Equatable {
     let duration: Int
 }
 
-private final class RecordingReportingProvider: MusicSourceLibrarySyncing, MusicSourcePlaybackReporting, @unchecked Sendable {
+private final class RecordingReportingProvider: MusicSourceConnector, MusicSourcePlaybackReporting, @unchecked Sendable {
     let sourceIdentifier: MusicSourceIdentifier
     var timelineCalls: [TimelineCall] = []
     var scrobbleRatingKeys: [String] = []
@@ -124,13 +124,7 @@ private final class RecordingReportingProvider: MusicSourceLibrarySyncing, Music
         self.sourceIdentifier = sourceIdentifier
     }
 
-    func syncLibrary(to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult {
-        throw PlexAPIError.noServerSelected
-    }
-
-    func syncLibraryIncremental(since timestamp: TimeInterval, to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult {
-        throw PlexAPIError.noServerSelected
-    }
+    func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
 
     func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult {
         throw PlexAPIError.noServerSelected

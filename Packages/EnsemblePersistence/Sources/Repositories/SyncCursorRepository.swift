@@ -40,6 +40,8 @@ public protocol SyncCursorRepositoryProtocol: Sendable {
     func recordIncrementalSync(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws
     func recordInventorySync(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws
     func recordFullSync(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws
+    /// Records that everything was read without proving an inventory, so the next full read waits its interval.
+    func recordFullRead(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws
     func invalidateInventorySync(scopeKey: String, scopeType: SyncCursorScopeType) async throws
     func deleteCursor(scopeKey: String, scopeType: SyncCursorScopeType) async throws
 }
@@ -75,6 +77,13 @@ public final class SyncCursorRepository: SyncCursorRepositoryProtocol, @unchecke
         try await updateCursor(scopeKey: scopeKey, scopeType: scopeType, at: date) { cursor in
             cursor.lastFullSyncAt = max(cursor.lastFullSyncAt ?? .distantPast, date)
             cursor.lastInventorySyncAt = max(cursor.lastInventorySyncAt ?? .distantPast, date)
+            cursor.lastSuccessfulSyncAt = max(cursor.lastSuccessfulSyncAt ?? .distantPast, date)
+        }
+    }
+
+    public func recordFullRead(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws {
+        try await updateCursor(scopeKey: scopeKey, scopeType: scopeType, at: date) { cursor in
+            cursor.lastFullSyncAt = max(cursor.lastFullSyncAt ?? .distantPast, date)
             cursor.lastSuccessfulSyncAt = max(cursor.lastSuccessfulSyncAt ?? .distantPast, date)
         }
     }
