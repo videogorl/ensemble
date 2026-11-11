@@ -20,6 +20,15 @@ public enum NowPlayingPage: Int, CaseIterable {
         case .info: return EnsembleDesign.Icon.info
         }
     }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .queue: return "Queue"
+        case .controls: return "Now Playing"
+        case .lyrics: return "Lyrics"
+        case .info: return "Info"
+        }
+    }
 }
 
 public struct PageIndicator: View {
@@ -32,17 +41,28 @@ public struct PageIndicator: View {
     }
 
     public var body: some View {
-        HStack(spacing: TrackListLayoutMetrics.rowHorizontalPadding) {
+        // Each item's tap area takes its share of the spacing and the vertical padding, so the 20-point
+        // glyphs are hit as 36 points or more without moving or growing on screen.
+        HStack(spacing: 0) {
             ForEach(NowPlayingPage.allCases, id: \.rawValue) { page in
-                pageIndicatorItem(for: page, isCurrent: page.rawValue == currentPage)
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
-                            currentPage = page.rawValue
-                        }
+                Button {
+                    withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
+                        currentPage = page.rawValue
                     }
+                } label: {
+                    pageIndicatorItem(for: page, isCurrent: page.rawValue == currentPage)
+                        .frame(
+                            width: EnsembleScaffold.NowPlaying.PageIndicator.itemSize + TrackListLayoutMetrics.rowHorizontalPadding,
+                            height: EnsembleScaffold.NowPlaying.PageIndicator.itemSize
+                                + EnsembleScaffold.NowPlaying.PageIndicator.verticalPadding * 2
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(page.accessibilityLabel)
+                .accessibilityAddTraits(page.rawValue == currentPage ? .isSelected : [])
             }
         }
-        .padding(.vertical, EnsembleScaffold.NowPlaying.PageIndicator.verticalPadding)
     }
 
     // MARK: - Helpers
@@ -68,6 +88,5 @@ public struct PageIndicator: View {
             width: EnsembleScaffold.NowPlaying.PageIndicator.itemSize,
             height: EnsembleScaffold.NowPlaying.PageIndicator.itemSize
         )
-        .contentShape(Rectangle()) // Expand tap area
     }
 }
