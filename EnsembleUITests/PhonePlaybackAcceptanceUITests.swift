@@ -1248,7 +1248,8 @@ extension PhonePlaybackAcceptanceUITests {
     /// Scrolls the current Settings list until `label` is hittable, then taps it. Returns false when it never appears.
     @discardableResult
     func tapSettingsRow(_ label: String, in settings: XCUIApplication) -> Bool {
-        let row = settings.cells.containing(.staticText, identifier: label).firstMatch
+        let cell = settings.cells.containing(.staticText, identifier: label).firstMatch
+        let row = cell.exists ? cell : settings.staticTexts[label].firstMatch
         for _ in 0..<12 {
             if row.exists, row.isHittable { row.tap(); Thread.sleep(forTimeInterval: 2); return true }
             settings.swipeUp(velocity: .default)
@@ -1364,5 +1365,162 @@ extension PhonePlaybackAcceptanceUITests {
         let after = labels(of: music, limit: 120)
         attachText("music-after-add", after)
         for dismiss in ["Cancel", "Not Now", "Close"] where music.buttons[dismiss].exists { music.buttons[dismiss].tap(); break }
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Opens Settings > Apps > Music and dumps it. Discovery only.
+    func testM7_DiscoverMusicSettings() throws {
+        let settings = preferences
+        settings.terminate()
+        settings.launch()
+        Thread.sleep(forTimeInterval: 3)
+        attachText("root", labels(of: settings, limit: 60))
+        let found = tapSettingsRow("Apps", in: settings)
+        attachText("apps-pane", labels(of: settings, limit: 400))
+        XCTAssertTrue(found, "no Apps row")
+        XCTAssertTrue(tapSettingsRow("Music", in: settings), "no Music row")
+        attachText("music-pane", labels(of: settings, limit: 120))
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Opens Settings > Apps > Music and returns the Sync Library switch.
+    func musicSyncLibrarySwitch(_ settings: XCUIApplication) -> XCUIElement {
+        settings.terminate()
+        settings.launch()
+        Thread.sleep(forTimeInterval: 3)
+        if !settings.staticTexts["Allow Music to Access"].exists {
+            tapSettingsRow("Apps", in: settings)
+            tapSettingsRow("Music", in: settings)
+        }
+        return settings.switches["Sync Library"].firstMatch
+    }
+
+    func promptText(_ settings: XCUIApplication) -> String {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        return "settings alerts: \(settings.alerts.count) sheets: \(settings.sheets.count)\n" + labels(of: settings, limit: 80)
+            + "\n--- springboard alerts: \(springboard.alerts.count)\n" + labels(of: springboard, limit: 40)
+    }
+
+    /// Turns Sync Library on, taps nothing but the switch, and records any prompt text without answering it.
+    func testM8_TurnOnSyncLibrary() throws {
+        let settings = preferences
+        let toggle = musicSyncLibrarySwitch(settings)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "no Sync Library switch")
+        attachText("sync-before", "value=\(toggle.value as? String ?? "nil")")
+        guard toggle.value as? String == "0" else { return }
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        for second in [2, 4, 8] {
+            Thread.sleep(forTimeInterval: Double(second))
+            attachText("sync-after-\(second)s", "value=\(toggle.value as? String ?? "nil")\n" + promptText(settings))
+        }
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Reads Music's Library > Songs footer ("N songs"), swiping to the end of the list; nil if not reached.
+    func musicSongCountFooter(_ music: XCUIApplication, maxSwipes: Int = 60) -> String? {
+        let footer = music.staticTexts.matching(NSPredicate(format: "label MATCHES '.*[0-9,]+ Songs?.*'")).firstMatch
+        for _ in 0..<maxSwipes {
+            if footer.exists { return footer.label }
+            music.swipeUp(velocity: .fast)
+        }
+        return footer.exists ? footer.label : nil
+    }
+
+    /// Watches Music's Library while the cloud library arrives; dumps top-of-screen text each round.
+    func testM9_WatchLibraryArrive() throws {
+        let music = XCUIApplication(bundleIdentifier: "com.apple.Music")
+        music.launch()
+        Thread.sleep(forTimeInterval: 4)
+        music.tabBars.buttons["Library"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 3)
+        attachText("library-root-0", labels(of: music, limit: 120))
+        music.buttons["Songs"].firstMatch.tap()
+        for round in 1...8 {
+            Thread.sleep(forTimeInterval: 45)
+            attachText("songs-round-\(round)", labels(of: music, limit: 40))
+        }
+        attachText("songs-footer", musicSongCountFooter(music) ?? "footer not reached")
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Runs `rounds` full syncs through the production coordinator, `gap` seconds apart; the session log carries the counts.
+    func fullSyncRounds(_ rounds: Int, gap: TimeInterval = 100) {
+        launchEnsemble(surface: "profile", settle: 8)
+        for round in 1...rounds {
+            openLink("sync?mode=full")
+            Thread.sleep(forTimeInterval: gap)
+            attachText("sync-round-\(round)", "done \(Self.clock.string(from: Date()))")
+        }
+    }
+
+    func testM10_FullSyncSettle() throws { fullSyncRounds(4) }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// The row's trailing "More" button: the one whose vertical centre matches `row`.
+    func moreButton(beside row: XCUIElement, in app: XCUIApplication) -> XCUIElement? {
+        let target = row.frame.midY
+        return app.buttons.matching(identifier: "More").allElementsBoundByIndex
+            .first { abs($0.frame.midY - target) < 30 && $0.frame.minX > row.frame.midX }
+    }
+
+    /// Adds the one allowed song to the library from catalog search (menu "Add to Library"; never Download or Play).
+    func testM11_AddOneSongToLibrary() throws {
+        let music = XCUIApplication(bundleIdentifier: "com.apple.Music")
+        music.launch()
+        Thread.sleep(forTimeInterval: 4)
+        music.tabBars.buttons["Search"].firstMatch.tap()
+        let field = music.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("Never Gonna Give You Up\n")
+        Thread.sleep(forTimeInterval: 6)
+        attachText("search-results", labels(of: music, limit: 200))
+        let row = music.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Never Gonna Give You Up, Song' AND label ENDSWITH 'Rick Astley'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "song row missing")
+        let more = try XCTUnwrap(moreButton(beside: row, in: music), "no More button beside the row")
+        more.tap()
+        Thread.sleep(forTimeInterval: 2)
+        attachText("song-menu", labels(of: music, limit: 120))
+        let add = music.buttons["Add"].firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "no Add item in the song menu")
+        add.tap()
+        Thread.sleep(forTimeInterval: 6)
+        attachText("after-add", labels(of: music, limit: 120))
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Removes the one song testM11 added, from Library > Songs (menu "Delete from Library", then its confirmation).
+    func testM13_RemoveTheAddedSong() throws {
+        let music = XCUIApplication(bundleIdentifier: "com.apple.Music")
+        music.launch()
+        Thread.sleep(forTimeInterval: 4)
+        music.tabBars.buttons["Library"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 2)
+        music.buttons["Songs"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 4)
+        attachText("songs-before-delete", labels(of: music, limit: 100))
+        let row = music.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Never Gonna Give You Up'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "added song not listed in Songs")
+        let more = try XCTUnwrap(moreButton(beside: row, in: music), "no More beside the song")
+        more.tap()
+        Thread.sleep(forTimeInterval: 2)
+        attachText("song-menu", labels(of: music, limit: 120))
+        let delete = music.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Delete from Library' OR label BEGINSWITH 'Remove from Library'")).firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "no delete item")
+        delete.tap()
+        Thread.sleep(forTimeInterval: 2)
+        attachText("delete-confirmation", labels(of: music, limit: 400))
+        // The confirmation popup repeats the item label; its button is the last "Delete from Library".
+        let confirms = music.buttons.matching(identifier: "Delete from Library").allElementsBoundByIndex
+        XCTAssertGreaterThanOrEqual(confirms.count, 2, "no confirmation button")
+        confirms.last?.tap()
+        Thread.sleep(forTimeInterval: 6)
+        attachText("songs-after-delete", labels(of: music, limit: 100))
     }
 }

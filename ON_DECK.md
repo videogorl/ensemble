@@ -238,3 +238,28 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
   Not confirmed on screen.
 - Next step: read the Apple Music source page after a revoked sync (UI text) and,
   if it is the raw text, give `notAuthorized` a localized description.
+
+## A Plex library cursor vanished after repeated failed full syncs (suspected)
+
+- Evidence: on the iPhone SE (session logs `$TMPDIR/se-playback/results/n12` and
+  `n14`, 2026-11-10 15:40 to 15:56) server `…3ccca` library 7 failed four full
+  syncs in a row with `Network error … NSURLErrorDomain error -1004`. Store reads
+  before (`post12`) show 3 `plex-library` cursors; after (`post14`) the `…:7`
+  cursor row is gone, while its 9696 tracks stayed.
+- Impact: suspected; a failed full sync appears to clear the cursor first, so the
+  next sync starts from scratch. Tracks are not deleted. Not confirmed whether the
+  server was down or the app mis-handled the connection.
+- Next step: read the Plex full-sync entry in `SyncCoordinator` for where the
+  cursor is reset relative to the fetch, and re-run when the server is reachable.
+
+## Removing the last song from an Apple Music library never reaches Ensemble (confirmed)
+
+- Evidence: step 3c on the iPhone SE; after the only song was deleted in Music,
+  four full syncs logged `API 0 songs (total 0), MusicKit 0, matching 0` and
+  `A complete but empty library inventory for appleMusic:device:system:library deletes nothing`;
+  the song, album and artist stayed (store read 1/1/1).
+- Impact: a user who empties their Apple Music library keeps ghost rows until they
+  remove the source. This follows the writer's "empty inventory deletes nothing"
+  rule, so changing it is a policy decision.
+- Next step: decide whether an empty list is trusted when the REST total and the
+  MusicKit count both say 0 and authorization is current.

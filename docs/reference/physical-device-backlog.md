@@ -502,25 +502,29 @@ library (a bare MusicKit probe on the simulator returned `denied` for the
 library and REST requests), so the writer and fetcher behaviour is proved only by
 `AppleMusicLibraryFetcherTests` with a fake source.
 
-Run on the iPhone SE, build `202611101258.4629` of `d46a299e` (2026-11-10), with
-scripted tests `testM0` to `testM6` in `PhonePlaybackAcceptanceUITests`. The SE's
-Apple Account has an Apple Music subscription (Ensemble's add-source check,
-`canPlayCatalogContent`, passed) and the Media & Apple Music permission is on for
-Ensemble, but **Sync Library is off in Music, so the on-device library holds 0
-songs**: Music's Library > Songs shows "Sync Library Is Off. To add music and
-sync your library on all your devices, turn on Sync Library", and Ensemble's read
-logs `API 0 songs (total 0), MusicKit 0, matching 0`. Rows that need songs stay
-Owed until Sync Library is turned on (a Settings change the owner has to make),
-or they run on Felicity's own iPhone.
+Run on the iPhone SE with scripted tests `testM0` to `testM13` in
+`PhonePlaybackAcceptanceUITests`: build `202611101258.4629` of `d46a299e` for the
+first pass (rows 6 and 7 on an empty library), build `202611101534.1456` of the
+same commit for the rest (2026-11-10). The SE's Apple Account has an Apple Music
+subscription (Ensemble's add-source check passed) and Ensemble has Media & Apple
+Music permission. Sync Library was turned on in Settings > Apps > Music (no
+prompt appeared) and stayed on, but **the account's cloud library is empty**:
+15 minutes after turning it on, Music's Library, Songs, Albums, Artists and
+Playlists all show their empty states, and Ensemble reads `API 0 songs (total 0),
+MusicKit 0, matching 0`. No healthy large library has been available on the SE,
+so rows 1, 4 and 5 stay Owed; they need Felicity's own iPhone or an account with
+a real library. Evidence for the one-song cycle is in the rows below. The
+song used was "Never Gonna Give You Up" by Rick Astley (album "Whenever You Need
+Somebody"); library count 0 before the add, 0 after the removal.
 
 | Check | Status |
 | --- | --- |
-| First sync after the update (no library cursor yet) reads the whole library, writes no rows that differ, deletes nothing, and records the cursor; the log has no `Apple Music inventory withheld` line | Owed. Empty-library half passed (SE, `202611101258.4629`): `Apple Music library read: API 0 songs (total 0), MusicKit 0, matching 0`, `A complete but empty library inventory for appleMusic:device:system:library deletes nothing`, no `withheld` line, cursor row written (store read: full/incremental/success set, inventory null), 0 Apple rows. A non-empty library is still unproved |
-| Add a song to the Apple Music library, sync: the song, its album and artist appear; the album count is right | Owed. Blocked: Sync Library is off, so Music cannot add to a library; song rows in Music search offer only "More", and the Library tab offers only "Turn On". Nothing was added |
-| Remove that song, sync: the song leaves, and its album and artist leave when it was their last song | Owed. Needs the add above |
-| A library of many thousands of songs is not mistaken for incomplete: no `inventory withheld` line, which would mean the REST total or the MusicKit witness check disagrees on a healthy library | Owed. The SE's library has 0 songs; needs a large library (Felicity's iPhone, or Sync Library on with a large iCloud library) |
-| Play counts and last played dates survive a sync that cannot read MusicKit history for a song (stored values kept) | Owed. No songs to hold stored play counts; needs a non-empty library |
-| Toggle Apple Music off in Settings: its rows and its library cursor go, a Plex source's rows and cursor stay; turn it back on and the first sync rebuilds | Passed (SE, `202611101258.4629`; Apple library was empty, so "rows go" is trivially 0): Profile > Apple Music > Remove Source removed the `appleMusic:device:system:library` cursor and source row (store read), logged `Cleaning up data for removed source`; Plex tracks/albums/artists (13732/1255/670) and its 3 cursors unchanged; re-adding logged a fresh `Apple Music library read` and recorded a new cursor |
-| Revoke Media & Apple Music access in iOS Settings mid-use, then sync: the sync fails and the library is unchanged | Passed (SE, `202611101258.4629`; library empty, so "unchanged" is trivially 0 rows): with the switch off, `debug/sync?mode=full` logged `Sync failed for appleMusic:device:system:library: ... AppleMusicLibraryError error 0` (`notAuthorized`, no `library read` line) while Plex synced; the switch back on and a full sync read the library normally |
+| First sync after the update (no library cursor yet) reads the whole library, writes no rows that differ, deletes nothing, and records the cursor; the log has no `Apple Music inventory withheld` line | Owed. Passed only for an empty library and for a 1-song library: first read after enable, empty: `API 0 songs (total 0)`, `A complete but empty library inventory … deletes nothing`, cursor recorded. A 1-song cursorless first sync was not exercised (the song was added after the cursor existed). A large library is unproved |
+| Add a song to the Apple Music library, sync: the song, its album and artist appear; the album count is right | Passed (SE, `202611101534.1456`): after adding one song in Music, the next full sync logged `Apple Music library read: API 1 songs (total 1), MusicKit 1, matching 1` and wrote 1 track, 1 album (`trackCount` 1) and 1 artist (store read: 0/0/0 before, 1/1/1 after); stable across 3 further syncs; no `withheld` line |
+| Remove that song, sync: the song leaves, and its album and artist leave when it was their last song | **Failed for a library emptied to zero**: after deleting the only song in Music (Songs shows its empty state), four full syncs logged `API 0 songs (total 0), MusicKit 0, matching 0` and `A complete but empty library inventory for appleMusic:device:system:library deletes nothing`, so the song, album and artist stayed in Ensemble (store read 1/1/1) and the inventory cursor stopped advancing. That follows the "empty inventory deletes nothing" rule in `LibraryWriter`, but means the last song's removal never propagates. The non-last-song removal path is Owed (needs two or more songs, beyond the one-song allowance) |
+| A library of many thousands of songs is not mistaken for incomplete: no `inventory withheld` line, which would mean the REST total or the MusicKit witness check disagrees on a healthy library | Owed. The SE's library has 0 to 1 songs; no `inventory withheld` line appeared in any of ~20 syncs, but none was large |
+| Play counts and last played dates survive a sync that cannot read MusicKit history for a song (stored values kept) | Owed. The only song had no history (stored play count 0, last played empty, and it stayed that way across 3 syncs). Whether stored history survives a sync where MusicKit has none could not be observed without playing songs, which was not allowed |
+| Toggle Apple Music off in Settings: its rows and its library cursor go, a Plex source's rows and cursor stay; turn it back on and the first sync rebuilds | Passed (SE, `202611101534.1456`): with the leftover 1/1/1 Apple rows, Remove Source logged `Cleaning up data for removed source: appleMusic:device:system:library` and `Successfully cleaned up source`; Apple tracks/albums/artists went 1/1/1 to 0/0/0, the Apple cursor and source row went, Plex tracks (13732), albums (1255), artists (670) and its remaining 2 cursors were unchanged; re-adding logged a fresh `Apple Music library read` and a new cursor. The Plex server `…:7` library cursor was already missing before this check; see `ON_DECK.md` |
+| Revoke Media & Apple Music access in iOS Settings mid-use, then sync: the sync fails and the library is unchanged | Passed (SE, `202611101534.1456`): with the switch off and 1/1/1 Apple rows present, `debug/sync?mode=full` logged `Sync failed for appleMusic:device:system:library: … AppleMusicLibraryError error 0` (`notAuthorized`) and the rows stayed 1/1/1; the permission and a normal sync were restored afterwards |
 
 The iPad and watch checklist sections start with steps 5 and 6.
