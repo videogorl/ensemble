@@ -17,7 +17,7 @@ private func nowPlayingViewModel(for container: DependencyContainer) -> NowPlayi
 @MainActor
 func setCurrentSongFavorite(_ favorite: Bool) async throws -> IntentDialog {
     let container = try await readyContainer()
-    let track = try currentTrackOrThrow()
+    let track = try await currentTrackOrThrow()
     if track.isAppleMusic {
         guard favorite else { throw EnsembleIntentError.appleMusicUnfavorite }
         if container.syncCoordinator.isOffline { throw EnsembleIntentError.offline }
@@ -131,7 +131,7 @@ struct GetCurrentEnsembleSongIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<EnsembleTrackEntity> & ProvidesDialog {
-        let song = EnsembleTrackEntity(item: SiriMediaIndexItem(track: try currentTrackOrThrow()))
+        let song = EnsembleTrackEntity(item: SiriMediaIndexItem(track: try await currentTrackOrThrow()))
         return .result(value: song, dialog: IntentDialog("\(song.title) is current. Ensemble is \(playbackStatus)."))
     }
 }
@@ -160,7 +160,7 @@ struct AddCurrentSongToEnsemblePlaylistIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        .result(dialog: try await add([try currentTrackOrThrow()], to: playlist))
+        .result(dialog: try await add([try await currentTrackOrThrow()], to: playlist))
     }
 }
 
@@ -325,7 +325,7 @@ struct TogglePlayPauseEnsembleIntent: AudioPlaybackIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let playback = intentContainer.playbackService
-        _ = try currentTrackOrThrow()
+        _ = try await currentTrackOrThrow()
         switch playback.playbackState {
         case .playing, .buffering, .loading:
             playback.pause()
@@ -357,7 +357,7 @@ struct NextEnsembleSongIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let before = try currentTrackOrThrow()
+        let before = try await currentTrackOrThrow()
         _ = try await readyContainer()
         let playback = intentContainer.playbackService
         playback.next()
@@ -376,7 +376,7 @@ struct PreviousEnsembleSongIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let before = try currentTrackOrThrow()
+        let before = try await currentTrackOrThrow()
         _ = try await readyContainer()
         let playback = intentContainer.playbackService
         playback.previous()

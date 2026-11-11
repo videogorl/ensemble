@@ -79,9 +79,14 @@ func readyContainer() async throws -> DependencyContainer {
     return AppRoot.container
 }
 
+/// The current song. A cold-started intent process may not have read the saved queue yet, so this waits for that first.
 @MainActor
-func currentTrackOrThrow() throws -> Track {
-    guard let track = intentContainer.playbackService.currentTrack else {
+func currentTrackOrThrow() async throws -> Track {
+    let playback = intentContainer.playbackService
+    if playback.currentTrack == nil {
+        await playback.waitForStartupRestoration(timeout: .seconds(5))
+    }
+    guard let track = playback.currentTrack else {
         throw EnsembleIntentError.nothingPlaying
     }
     return track
@@ -146,7 +151,7 @@ func startRadio(from song: EnsembleTrackEntity?) async throws -> IntentDialog {
         }
         return IntentDialog("Starting a radio from \(song.title).")
     }
-    let track = try currentTrackOrThrow()
+    let track = try await currentTrackOrThrow()
     if !container.playbackService.isAutoplayEnabled {
         container.playbackService.toggleAutoplay()
     }

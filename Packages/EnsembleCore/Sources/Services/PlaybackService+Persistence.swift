@@ -114,6 +114,16 @@ extension PlaybackService {
         queueController.flushSnapshot()
     }
 
+    /// Waits, up to `timeout`, for the launch restore to finish reading the saved queue. A process started only to run an
+    /// intent can be asked about the current song before that read completes.
+    @MainActor
+    public func waitForStartupRestoration(timeout: Duration) async {
+        let deadline = ContinuousClock.now + timeout
+        while case .notAttempted = startupRestoreStatus, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
     /// Restore local metadata before network-dependent playback preparation.
     @MainActor
     public func restorePlaybackState() async {
