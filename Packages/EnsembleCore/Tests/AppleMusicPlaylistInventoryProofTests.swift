@@ -92,6 +92,7 @@ final class AppleMusicPlaylistInventoryProofTests: XCTestCase {
             let rest: (items: Int, songs: Int, total: AppleMusicReportedTotal)?
             let witnessSongs: Int?
             let witnessThrows: Bool
+            var witnessTransportError = false
             let native: Native
             let expected: String?        // the body committed, or nil when withheld
             let nativeRead: Bool
@@ -104,6 +105,7 @@ final class AppleMusicPlaylistInventoryProofTests: XCTestCase {
             Case(name: "total above the items", rest: (2, 2, .reported(3)), witnessSongs: 3, witnessThrows: false, native: .returns, expected: nil, nativeRead: false),
             Case(name: "pages contradict each other", rest: (100, 100, .contradictory), witnessSongs: 100, witnessThrows: false, native: .returns, expected: nil, nativeRead: false),
             Case(name: "no total and MusicKit's own read is unproven", rest: (3, 3, .absent), witnessSongs: nil, witnessThrows: true, native: .returns, expected: nil, nativeRead: false),
+            Case(name: "no total and MusicKit's read fails with a transport error", rest: (3, 3, .absent), witnessSongs: 3, witnessThrows: false, witnessTransportError: true, native: .returns, expected: nil, nativeRead: false),
             Case(name: "REST unavailable, MusicKit complete", rest: nil, witnessSongs: nil, witnessThrows: false, native: .returns, expected: "native", nativeRead: true),
             Case(name: "REST unavailable and MusicKit fails", rest: nil, witnessSongs: nil, witnessThrows: false, native: .fails, expected: nil, nativeRead: true),
         ]
@@ -116,6 +118,7 @@ final class AppleMusicPlaylistInventoryProofTests: XCTestCase {
                     try await AppleMusicPlaylistBodyProof.verifyREST(
                         itemCount: rest.items, songCount: rest.songs, total: rest.total,
                         witnessSongCount: {
+                            if testCase.witnessTransportError { throw Unavailable() }
                             if testCase.witnessThrows { throw AppleMusicPlaylistBodyProof.Unproven() }
                             return testCase.witnessSongs
                         }

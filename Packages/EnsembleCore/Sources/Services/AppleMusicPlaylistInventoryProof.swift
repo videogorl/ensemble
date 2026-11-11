@@ -57,7 +57,8 @@ enum AppleMusicPlaylistBodyProof {
     }
 
     /// Throws `Unproven` unless the REST pages are the whole playlist: the total agrees, or with no total
-    /// MusicKit's read (`witnessSongCount`, nil when it has none) agrees on the song count.
+    /// MusicKit's read (`witnessSongCount`, nil when it has none) agrees on the song count. A witness read that
+    /// fails is `Unproven`; only cancellation passes through.
     static func verifyREST(
         itemCount: Int,
         songCount: Int,
@@ -68,8 +69,12 @@ enum AppleMusicPlaylistBodyProof {
         case .complete: return
         case .unproven: throw Unproven()
         case .needsWitness:
-            guard let native = try await witnessSongCount(), witnessed(restSongCount: songCount, nativeSongCount: native)
-            else { throw Unproven() }
+            // A witness read that fails for any reason leaves the REST body unconfirmed; it is not a REST failure.
+            let native: Int?
+            do { native = try await witnessSongCount() }
+            catch is CancellationError { throw CancellationError() }
+            catch { throw Unproven() }
+            guard let native, witnessed(restSongCount: songCount, nativeSongCount: native) else { throw Unproven() }
         }
     }
 
