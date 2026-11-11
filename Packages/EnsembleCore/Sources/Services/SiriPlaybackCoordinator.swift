@@ -116,184 +116,178 @@ public final class SiriPlaybackCoordinator {
 
     /// Resolves and plays a single track.
     public func executePlayTrack(request: SiriPlaybackRequest) async throws {
+        try await play(.track, request: request)
+    }
+
+    /// Resolves an album and queues all playable tracks from track 1.
+    public func executePlayAlbum(request: SiriPlaybackRequest) async throws {
+        try await play(.album, request: request)
+    }
+
+    /// Resolves an artist and queues all playable tracks in shuffled order.
+    public func executePlayArtist(request: SiriPlaybackRequest) async throws {
+        try await play(.artist, request: request)
+    }
+
+    /// Resolves a playlist and queues tracks using saved playlist ordering.
+    public func executePlayPlaylist(request: SiriPlaybackRequest) async throws {
+        try await play(.playlist, request: request)
+    }
+
+    /// Adds a track, album, artist or playlist after the current item or at the end of the queue.
+    /// Returns the number of tracks added.
+    @discardableResult
+    public func enqueue(
+        kind: SiriMediaKind,
+        request: SiriPlaybackRequest,
+        playNext: Bool
+    ) async throws -> Int {
+        let media = try await resolveMedia(kind: kind, request: request)
+        if playNext {
+            playbackService.playNext(media.tracks)
+        } else {
+            playbackService.playLast(media.tracks)
+        }
+        return media.tracks.count
+    }
+
+    /// Plays every playable track in the enabled libraries, as the Songs screen's Shuffle does.
+    public func playLibrary(shuffle: Bool) async throws {
+        let enabledSourceKeys = enabledLibrarySourceKeys()
+        guard !enabledSourceKeys.isEmpty else { throw SiriPlaybackCoordinatorError.noEnabledSources }
+        let tracks = try await libraryRepository.fetchTracks().map(Track.init(from:))
+        try await play(tracks, shuffle: shuffle, enabledSourceKeys: enabledSourceKeys, name: "Library")
+    }
+
+    /// Plays the favourite tracks of every enabled library, as the Favorites screen does.
+    public func playFavorites(shuffle: Bool) async throws {
+        let enabledSourceKeys = enabledLibrarySourceKeys()
+        guard !enabledSourceKeys.isEmpty else { throw SiriPlaybackCoordinatorError.noEnabledSources }
+        let tracks = try await libraryRepository.fetchFavoriteTracks().map(Track.init(from:))
+        try await play(tracks, shuffle: shuffle, enabledSourceKeys: enabledSourceKeys, name: "Favorites")
+    }
+
+    /// Plays a track with Autoplay on, which is how the app starts a track radio.
+    public func startTrackRadio(request: SiriPlaybackRequest) async throws {
+        let media = try await resolveMedia(kind: .track, request: request)
+        guard let track = media.tracks.first else { return }
+        await playbackService.play(track: track, context: media.context)
+        guard playbackService.currentTrack?.sourceScopedID == track.sourceScopedID,
+              !playbackService.isAutoplayEnabled else { return }
+        playbackService.toggleAutoplay()
+    }
+
+    private struct ResolvedMedia {
+        let tracks: [Track]
+        let context: PlaybackStartContext
+    }
+
+    private func play(_ kind: SiriMediaKind, request: SiriPlaybackRequest) async throws {
+        let media = try await resolveMedia(kind: kind, request: request)
+        if kind == .track, let track = media.tracks.first {
+            await playbackService.play(track: track, context: media.context)
+        } else if request.shuffle {
+            await playbackService.shufflePlay(
+                tracks: kind == .playlist ? media.tracks : orderedArtistShuffleTracks(media.tracks),
+                context: media.context
+            )
+        } else {
+            await playbackService.play(tracks: media.tracks, startingAt: 0, context: media.context)
+        }
+    }
+
+    private func play(
+        _ tracks: [Track],
+        shuffle: Bool,
+        enabledSourceKeys: Set<String>,
+        name: String
+    ) async throws {
+        let playable = tracks.filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
+        guard !playable.isEmpty else { throw SiriPlaybackCoordinatorError.noPlayableTracks(.track) }
+        let context = PlaybackStartContext(origin: .appShortcut, source: .unknown)
+        EnsembleLogger.debug("Siri playback coordinator playing \(name) tracks=\(playable.count) shuffle=\(shuffle)")
+        if shuffle {
+            await playbackService.shufflePlay(tracks: playable, context: context)
+        } else {
+            await playbackService.play(tracks: playable, startingAt: 0, context: context)
+        }
+    }
+
+    /// Resolves a request to its playable tracks and the start context describing the item.
+    private func resolveMedia(kind: SiriMediaKind, request: SiriPlaybackRequest) async throws -> ResolvedMedia {
         let enabledSourceKeys = enabledLibrarySourceKeys()
         guard !enabledSourceKeys.isEmpty else {
             throw SiriPlaybackCoordinatorError.noEnabledSources
         }
 
-        guard let resolved = try await resolveTrack(
-            request: request,
-            enabledSourceKeys: enabledSourceKeys
-        ) else {
-            throw SiriPlaybackCoordinatorError.mediaNotFound(.track)
-        }
-
-        let track = Track(from: resolved)
-        guard isPlayable(track: track, enabledSourceKeys: enabledSourceKeys) else {
-            throw SiriPlaybackCoordinatorError.noPlayableTracks(.track)
-        }
-
-        await playbackService.play(
-            track: track,
-            context: playbackContext(
+        let tracks: [Track]
+        let context: PlaybackStartContext
+        switch kind {
+        case .track:
+            guard let resolved = try await resolveTrack(request: request, enabledSourceKeys: enabledSourceKeys) else {
+                throw SiriPlaybackCoordinatorError.mediaNotFound(.track)
+            }
+            tracks = [Track(from: resolved)].filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
+            context = playbackContext(
                 kind: .track,
                 id: resolved.ratingKey,
                 sourceCompositeKey: resolved.sourceCompositeKey,
                 displayName: resolved.title,
                 secondaryText: resolved.artistName
             )
-        )
-    }
-
-    /// Resolves an album and queues all playable tracks from track 1.
-    public func executePlayAlbum(request: SiriPlaybackRequest) async throws {
-        let enabledSourceKeys = enabledLibrarySourceKeys()
-        guard !enabledSourceKeys.isEmpty else {
-            throw SiriPlaybackCoordinatorError.noEnabledSources
-        }
-
-        guard let resolvedAlbum = try await resolveAlbum(
-            request: request,
-            enabledSourceKeys: enabledSourceKeys
-        ) else {
-            throw SiriPlaybackCoordinatorError.mediaNotFound(.album)
-        }
-
-        let playableTracks = try await playableTracksForAlbum(
-            album: resolvedAlbum,
-            request: request,
-            enabledSourceKeys: enabledSourceKeys
-        )
-        guard !playableTracks.isEmpty else {
-            throw SiriPlaybackCoordinatorError.noPlayableTracks(.album)
-        }
-
-        if request.shuffle {
-            await playbackService.shufflePlay(
-                tracks: orderedArtistShuffleTracks(playableTracks),
-                context: playbackContext(
-                    kind: .album,
-                    id: resolvedAlbum.ratingKey,
-                    sourceCompositeKey: resolvedAlbum.sourceCompositeKey,
-                    displayName: resolvedAlbum.title,
-                    secondaryText: resolvedAlbum.artistName
-                )
+        case .album:
+            guard let album = try await resolveAlbum(request: request, enabledSourceKeys: enabledSourceKeys) else {
+                throw SiriPlaybackCoordinatorError.mediaNotFound(.album)
+            }
+            tracks = try await playableTracksForAlbum(
+                album: album, request: request, enabledSourceKeys: enabledSourceKeys
             )
-        } else {
-            await playbackService.play(
-                tracks: playableTracks,
-                startingAt: 0,
-                context: playbackContext(
-                    kind: .album,
-                    id: resolvedAlbum.ratingKey,
-                    sourceCompositeKey: resolvedAlbum.sourceCompositeKey,
-                    displayName: resolvedAlbum.title,
-                    secondaryText: resolvedAlbum.artistName
-                )
+            context = playbackContext(
+                kind: .album,
+                id: album.ratingKey,
+                sourceCompositeKey: album.sourceCompositeKey,
+                displayName: album.title,
+                secondaryText: album.artistName
+            )
+        case .artist:
+            guard let artist = try await resolveArtist(request: request, enabledSourceKeys: enabledSourceKeys) else {
+                throw SiriPlaybackCoordinatorError.mediaNotFound(.artist)
+            }
+            tracks = try await playableTracksForArtist(
+                artist: artist, request: request, enabledSourceKeys: enabledSourceKeys
+            )
+            context = playbackContext(
+                kind: .artist,
+                id: artist.ratingKey,
+                sourceCompositeKey: artist.sourceCompositeKey,
+                displayName: artist.name,
+                secondaryText: nil
+            )
+        case .playlist:
+            let playlistSourceKeys = playlistSearchSourceKeys(from: enabledSourceKeys)
+            guard let playlist = try await resolvePlaylist(
+                request: request,
+                playlistSearchSourceKeys: playlistSourceKeys
+            ) else {
+                throw SiriPlaybackCoordinatorError.mediaNotFound(.playlist)
+            }
+            tracks = playlist.tracksArray
+                .map(Track.init(from:))
+                .filter { sourceMatches(requestSource: request.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
+                .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
+            context = playbackContext(
+                kind: .playlist,
+                id: playlist.ratingKey,
+                sourceCompositeKey: playlist.sourceCompositeKey,
+                displayName: playlist.title,
+                secondaryText: nil
             )
         }
-    }
 
-    /// Resolves an artist and queues all playable tracks in shuffled order.
-    public func executePlayArtist(request: SiriPlaybackRequest) async throws {
-        let enabledSourceKeys = enabledLibrarySourceKeys()
-        guard !enabledSourceKeys.isEmpty else {
-            throw SiriPlaybackCoordinatorError.noEnabledSources
+        guard !tracks.isEmpty else {
+            throw SiriPlaybackCoordinatorError.noPlayableTracks(kind)
         }
-
-        guard let resolvedArtist = try await resolveArtist(
-            request: request,
-            enabledSourceKeys: enabledSourceKeys
-        ) else {
-            throw SiriPlaybackCoordinatorError.mediaNotFound(.artist)
-        }
-
-        let playableTracks = try await playableTracksForArtist(
-            artist: resolvedArtist,
-            request: request,
-            enabledSourceKeys: enabledSourceKeys
-        )
-        guard !playableTracks.isEmpty else {
-            throw SiriPlaybackCoordinatorError.noPlayableTracks(.artist)
-        }
-
-        if request.shuffle {
-            await playbackService.shufflePlay(
-                tracks: orderedArtistShuffleTracks(playableTracks),
-                context: playbackContext(
-                    kind: .artist,
-                    id: resolvedArtist.ratingKey,
-                    sourceCompositeKey: resolvedArtist.sourceCompositeKey,
-                    displayName: resolvedArtist.name,
-                    secondaryText: nil
-                )
-            )
-        } else {
-            await playbackService.play(
-                tracks: playableTracks,
-                startingAt: 0,
-                context: playbackContext(
-                    kind: .artist,
-                    id: resolvedArtist.ratingKey,
-                    sourceCompositeKey: resolvedArtist.sourceCompositeKey,
-                    displayName: resolvedArtist.name,
-                    secondaryText: nil
-                )
-            )
-        }
-    }
-
-    /// Resolves a playlist and queues tracks using saved playlist ordering.
-    public func executePlayPlaylist(request: SiriPlaybackRequest) async throws {
-        let enabledSourceKeys = enabledLibrarySourceKeys()
-        guard !enabledSourceKeys.isEmpty else {
-            throw SiriPlaybackCoordinatorError.noEnabledSources
-        }
-
-        let playlistSourceKeys = playlistSearchSourceKeys(from: enabledSourceKeys)
-
-        let playlist = try await resolvePlaylist(
-            request: request,
-            playlistSearchSourceKeys: playlistSourceKeys
-        )
-
-        guard let playlist else {
-            throw SiriPlaybackCoordinatorError.mediaNotFound(.playlist)
-        }
-
-        let playableTracks = playlist.tracksArray
-            .map(Track.init(from:))
-            .filter { sourceMatches(requestSource: request.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
-            .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
-
-        guard !playableTracks.isEmpty else {
-            throw SiriPlaybackCoordinatorError.noPlayableTracks(.playlist)
-        }
-
-        if request.shuffle {
-            await playbackService.shufflePlay(
-                tracks: playableTracks,
-                context: playbackContext(
-                    kind: .playlist,
-                    id: playlist.ratingKey,
-                    sourceCompositeKey: playlist.sourceCompositeKey,
-                    displayName: playlist.title,
-                    secondaryText: nil
-                )
-            )
-        } else {
-            await playbackService.play(
-                tracks: playableTracks,
-                startingAt: 0,
-                context: playbackContext(
-                    kind: .playlist,
-                    id: playlist.ratingKey,
-                    sourceCompositeKey: playlist.sourceCompositeKey,
-                    displayName: playlist.title,
-                    secondaryText: nil
-                )
-            )
-        }
+        return ResolvedMedia(tracks: tracks, context: context)
     }
 
     private func playbackContext(

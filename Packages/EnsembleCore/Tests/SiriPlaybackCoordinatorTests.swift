@@ -148,10 +148,13 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         func seek(to time: TimeInterval) {}
         func addToQueue(_ track: Track) {}
         func addToQueue(_ tracks: [Track]) {}
-        func playNext(_ track: Track) {}
-        func playNext(_ tracks: [Track]) {}
-        func playLast(_ track: Track) {}
-        func playLast(_ tracks: [Track]) {}
+        private(set) var insertedNext: [Track] = []
+        private(set) var insertedLast: [Track] = []
+
+        func playNext(_ track: Track) { insertedNext += [track] }
+        func playNext(_ tracks: [Track]) { insertedNext += tracks }
+        func playLast(_ track: Track) { insertedLast += [track] }
+        func playLast(_ tracks: [Track]) { insertedLast += tracks }
         func removeFromQueue(at index: Int) {}
         func clearQueue() {}
         func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int, destinationSource: QueueItemSource?) {}
@@ -206,6 +209,24 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-1", "track-2"])
         XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
+    }
+
+    func testEnqueueAddsResolvedTracksNextOrLastWithoutReplacingTheQueue() async throws {
+        let fixture = try await makeFixture()
+        let album = SiriPlaybackRequest(
+            entityID: "album-1",
+            sourceCompositeKey: fixture.librarySourceKey,
+            displayName: "Album One"
+        )
+
+        let nextCount = try await fixture.coordinator.enqueue(kind: .album, request: album, playNext: true)
+        let lastCount = try await fixture.coordinator.enqueue(kind: .album, request: album, playNext: false)
+
+        XCTAssertGreaterThan(nextCount, 0)
+        XCTAssertEqual(nextCount, lastCount)
+        XCTAssertEqual(fixture.playbackService.insertedNext.count, nextCount)
+        XCTAssertEqual(fixture.playbackService.insertedLast.map(\.id), fixture.playbackService.insertedNext.map(\.id))
+        XCTAssertTrue(fixture.playbackService.lastQueuedTracks.isEmpty)
     }
 
     func testExecutePlayAlbumFallsBackToFuzzyDisplayNameMatch() async throws {
