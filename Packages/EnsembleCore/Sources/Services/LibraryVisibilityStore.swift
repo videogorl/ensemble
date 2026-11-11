@@ -58,7 +58,8 @@ public final class LibraryVisibilityStore {
     public func playlistSourceVisibility(in configuration: SourceConfigurationSnapshot) -> @Sendable (String?) -> Bool {
         let hiddenSourceKeys = effectiveHiddenSourceCompositeKeys(enabledSourceCompositeKeys: configuration.enabledSourceKeys)
         return { sourceKey in
-            guard let sourceKey else { return false }
+            // As the playlist screen: a source the configuration no longer holds (disabled, removed) is not shown.
+            guard let sourceKey, configuration.shouldPreserveSourceKey(sourceKey) else { return false }
             return !LibraryVisibilityFiltering.isHiddenSourceKey(
                 sourceKey, hiddenSourceCompositeKeys: hiddenSourceKeys, sourceConfiguration: configuration
             )

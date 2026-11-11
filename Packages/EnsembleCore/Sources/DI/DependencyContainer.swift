@@ -694,7 +694,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 visibilityStore: core.libraryVisibilityStore,
                 accountManager: network.accountManager,
                 indexStore: siriMediaIndexStore,
-                libraryChanges: core.libraryChanges
+                hiddenMediaStore: core.hiddenMediaStore
             )
         }
 
@@ -709,9 +709,7 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         MainActor.assumeIsolated {
-            systemMediaIntegrationService.playlistPresentation = { [siriPlaylistPresentationPublisher] in
-                await siriPlaylistPresentationPublisher.currentPresentation()
-            }
+            systemMediaIntegrationService.playlistPresentationPublisher = siriPlaylistPresentationPublisher
             siriPlaylistPresentationPublisher.onChange = { [weak systemMediaIntegrationService] in
                 await systemMediaIntegrationService?.refreshSpotlightIndex()
             }

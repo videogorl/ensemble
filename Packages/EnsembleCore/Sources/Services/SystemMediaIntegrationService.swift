@@ -293,9 +293,14 @@ public final class SystemMediaIntegrationService {
     private let spotlightIndex: SystemSpotlightIndexing
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var catalogSubscription: StreamSubscription?
-    /// How the playlist screen presents playlists now; Spotlight indexes the same rows.
-    var playlistPresentation: (@MainActor () async -> SiriPlaylistPresentation)?
-    private var spotlightRefreshTask: Task<Void, Never>?
+    /// How the playlist screen presents playlists; Spotlight indexes the same rows, and each completed catalog
+    /// refresh publishes it for the Siri extension together with the index it was computed for.
+    var playlistPresentationPublisher: SiriPlaylistPresentationPublisher?
+    /// A merge or visibility change that arrives while Spotlight is indexing runs one more pass afterwards.
+    private lazy var spotlightRefresher = TrailingRefreshRunner { [weak self] in
+        await self?.performSpotlightIndexRefresh()
+        return true
+    }
     private lazy var siriCatalogRefresher = TrailingRefreshRunner { [weak self] in
         await self?.performSiriCatalogRefresh() ?? false
     }
@@ -417,23 +422,7 @@ public final class SystemMediaIntegrationService {
     }
 
     public func refreshSpotlightIndex() async {
-        if let spotlightRefreshTask {
-            EnsembleLogger.debug("[SystemMedia] Spotlight refresh coalesced with active refresh")
-            await spotlightRefreshTask.value
-            return
-        }
-
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.performSpotlightIndexRefresh()
-        }
-        spotlightRefreshTask = task
-        await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
-        spotlightRefreshTask = nil
+        _ = await spotlightRefresher.run()
     }
 
     /// Refreshes the shared local catalog used by Siri and App Shortcuts.
@@ -457,6 +446,7 @@ public final class SystemMediaIntegrationService {
                 return false
             }
             try RefreshExecution.checkCancellation()
+            await playlistPresentationPublisher?.publish(for: refreshedIndex)
             refreshSiriVocabulary(from: refreshedIndex)
             return true
         } catch {
@@ -482,7 +472,10 @@ public final class SystemMediaIntegrationService {
         }
         // Spotlight lists playlists as the app does, so its applied baseline is the presented index and the diff
         // below removes per-source items a merge or visibility change makes redundant.
-        let index = Self.spotlightIndex(from: fullIndex, presentation: await playlistPresentation?() ?? SiriPlaylistPresentation())
+        let index = Self.spotlightIndex(
+            from: fullIndex,
+            presentation: playlistPresentationPublisher?.presentation(for: fullIndex) ?? SiriPlaylistPresentation()
+        )
 
         let appliedIndex = await siriMediaIndexStore.loadSpotlightAppliedIndex()
         let staleReferences = Self.staleSystemMediaReferences(previous: appliedIndex, current: index)
@@ -617,15 +610,20 @@ public final class SystemMediaIntegrationService {
         #endif
     }
 
-    /// The index as Spotlight should hold it: playlists per `SiriPlaylistRows`, everything else unchanged.
+    /// The index as Spotlight should hold it: playlists per `SiriPlaylistRows`, every other kind exactly as indexed.
     static func spotlightIndex(from index: SiriMediaIndex, presentation: SiriPlaylistPresentation) -> SiriMediaIndex {
-        let presented = SiriPlaylistRows.deduplicated(SiriPlaylistRows.presented(
-            index.items,
-            among: index.items,
-            preferences: presentation.preferences,
-            isSourceVisible: presentation.isSourceVisible
-        ))
-        return SiriMediaIndex(schemaVersion: index.schemaVersion, generatedAt: index.generatedAt, items: presented)
+        let playlists = index.items.filter { $0.kind == .playlist }
+        let presented = Dictionary(
+            SiriPlaylistRows.deduplicated(SiriPlaylistRows.presented(
+                playlists,
+                among: playlists,
+                preferences: presentation.preferences,
+                isSourceVisible: presentation.isSourceVisible
+            )).map { ($0.reference.sourceScopedIdentifier, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let items = index.items.compactMap { $0.kind == .playlist ? presented[$0.reference.sourceScopedIdentifier] : $0 }
+        return SiriMediaIndex(schemaVersion: index.schemaVersion, generatedAt: index.generatedAt, items: items)
     }
 
     static func makeSpotlightItems(

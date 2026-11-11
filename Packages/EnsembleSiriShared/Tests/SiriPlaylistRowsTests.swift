@@ -69,4 +69,12 @@ final class SiriPlaylistRowsTests: XCTestCase {
         let shown = SiriPlaylistRows.presented([twinA, twinB], among: all, preferences: off, isSourceVisible: { _ in true })
         XCTAssertEqual(shown.map(\.id), ["twin-a", "twin-b"], "servers sharing a friendly name still give two rows")
     }
+
+    /// A presentation published for an older index does not cover a rebuilt one, so a reader treats it as unavailable.
+    func testPresentationCoversOnlyItsOwnIndexGeneration() {
+        let index = SiriMediaIndex(generatedAt: Date(timeIntervalSince1970: 10), items: [])
+        XCTAssertTrue(SiriPlaylistPresentation(indexGeneratedAt: index.generatedAt).covers(index))
+        XCTAssertFalse(SiriPlaylistPresentation(indexGeneratedAt: Date(timeIntervalSince1970: 9)).covers(index))
+        XCTAssertFalse(SiriPlaylistPresentation().covers(index))
+    }
 }

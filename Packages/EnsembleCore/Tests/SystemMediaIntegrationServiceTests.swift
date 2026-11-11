@@ -16,16 +16,20 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
             )
         }
         let track = SiriMediaIndexItem(kind: .track, id: "t", displayName: "focus", sourceCompositeKey: "plex:account:one")
-        let full = SiriMediaIndex(items: [playlist("p1", "one"), playlist("p2", "two"), track])
+        // Only playlists are transformed: two same-named, same-artist albums stay two items.
+        let albums = ["a1", "a2"].map {
+            SiriMediaIndexItem(kind: .album, id: $0, displayName: "Twin", sourceCompositeKey: "plex:account:\($0)", secondaryText: "Artist")
+        }
+        let full = SiriMediaIndex(items: [playlist("p1", "one"), albums[0], playlist("p2", "two"), albums[1], track])
         var off = EnsembleMergingPreferences.default
         off.mergePlaylists = false
 
         let merged = SystemMediaIntegrationService.spotlightIndex(from: full, presentation: .init())
         let perSource = SystemMediaIntegrationService.spotlightIndex(from: full, presentation: .init(preferences: off))
 
-        XCTAssertEqual(merged.items.map(\.id), ["p1", "t"])
-        XCTAssertEqual(perSource.items.map(\.id), ["p1", "p2", "t"])
-        XCTAssertEqual(perSource.items.compactMap(\.secondaryText), ["one", "two"])
+        XCTAssertEqual(merged.items.map(\.id), ["p1", "a1", "a2", "t"])
+        XCTAssertEqual(perSource.items.map(\.id), ["p1", "a1", "p2", "a2", "t"])
+        XCTAssertEqual(perSource.items.filter { $0.kind == .playlist }.compactMap(\.secondaryText), ["one", "two"])
         XCTAssertEqual(
             SystemMediaIntegrationService.staleSystemMediaReferences(previous: perSource, current: merged).map(\.id),
             ["p2"]

@@ -85,21 +85,34 @@ public struct SiriPlaylistPresentation: Codable, Sendable, Equatable {
 
     public var preferences: EnsembleMergingPreferences
     public var hiddenSourceKeys: Set<String>
+    /// The generation of the media index this was computed for. An index the app has rebuilt since (new sources) is
+    /// not covered, so a reader treats the presentation as unavailable until the app publishes the matching one.
+    public var indexGeneratedAt: Date?
 
-    public init(preferences: EnsembleMergingPreferences = .default, hiddenSourceKeys: Set<String> = []) {
+    public init(
+        preferences: EnsembleMergingPreferences = .default,
+        hiddenSourceKeys: Set<String> = [],
+        indexGeneratedAt: Date? = nil
+    ) {
         self.preferences = preferences
         self.hiddenSourceKeys = hiddenSourceKeys
+        self.indexGeneratedAt = indexGeneratedAt
     }
 
-    /// The published presentation, or the defaults (merging on, nothing hidden) before the app has written one.
+    /// Whether this was published for `index`.
+    public func covers(_ index: SiriMediaIndex) -> Bool {
+        indexGeneratedAt == index.generatedAt
+    }
+
+    /// The published presentation, or nil before the app has written one (or when the file is unreadable).
     public static func load(
         appGroupIdentifier: String = SiriSharedConstants.appGroupIdentifier,
         fileManager: FileManager = .default
-    ) -> SiriPlaylistPresentation {
+    ) -> SiriPlaylistPresentation? {
         guard let url = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)?
                 .appendingPathComponent(filename),
               let data = try? Data(contentsOf: url),
-              let presentation = try? JSONDecoder().decode(Self.self, from: data) else { return SiriPlaylistPresentation() }
+              let presentation = try? JSONDecoder().decode(Self.self, from: data) else { return nil }
         return presentation
     }
 
