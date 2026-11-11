@@ -260,6 +260,17 @@ See [the step note](../investigations/2026-10-21-step-2-composition-observation.
   shows the same Now Playing model (lyrics, queue page, pause and skip stay in
   sync). The scene now receives the container from the app root (2b) and the
   model from `RootScreenModels` (2e).
+  Run on the SE on 2026-11-11, mirroring to the Mac mini (reached through
+  AssistiveTouch, since no automated swipe opens Control Center). Build
+  `202611111307.4033` crashed 2 s after mirroring connected, and at launch
+  while mirroring (`EnvironmentValues.subscript.getter`: the external view is
+  the root of its own scene and did not provide the navigation coordinator or
+  the source-action presenter its cards read). Fixed; on build
+  `202611111332.2379` it passed: no crash in either order, the mirrored view
+  follows the phone's panel (Queue, Lyrics, Info), the scrubber advances, and
+  stopping mirroring leaves the app running. The layout is drawn at 1024x768
+  and scaled to the display again (it was tiny on a 2560x1440 receiver).
+  Still owed: a real TV or Apple TV, and an interruption while mirroring.
 - App Shortcuts: run Play Album and one other from Ensemble's section of the
   Shortcuts app; Device Hub could not scroll to it on 2026-10-26. Siri
   playlist and artist requests and a Play Track shortcut passed that day.
