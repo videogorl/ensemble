@@ -40,8 +40,14 @@ func add(_ tracks: [Track], to playlist: EnsemblePlaylistEntity) async throws ->
         ) else {
             throw EnsembleIntentError.playlistNotFound
         }
+        let target = Playlist(from: stored)
+        // Playlists take only tracks from their own server, so name that cause rather than "no compatible tracks".
+        if !tracks.isEmpty,
+           PlaylistActionService().tracks(tracks, compatibleWithServerSourceKey: target.sourceCompositeKey).isEmpty {
+            throw EnsembleIntentError.differentSources
+        }
         let outcome = try await nowPlayingViewModel(for: container)
-            .addTracksOptimistically(tracks, to: Playlist(from: stored))
+            .addTracksOptimistically(tracks, to: target)
         // The optimistic path filters incompatible and duplicate tracks and reports only the outcome, so the
         // dialog does not claim a count.
         return outcome == .queued

@@ -11,6 +11,7 @@ enum EnsembleIntentError: Error, CustomLocalizedStringResourceConvertible {
     case playlistNotFound
     case readOnlyPlaylist
     case incompatibleSource
+    case differentSources
     case appleMusicUnfavorite
     case offline
     case favoriteFailed
@@ -22,6 +23,7 @@ enum EnsembleIntentError: Error, CustomLocalizedStringResourceConvertible {
         case .nothingPlaying: return "Nothing is playing in Ensemble."
         case .playlistNotFound: return "That playlist could not be found."
         case .readOnlyPlaylist: return "That playlist can't be changed. Smart playlists are read-only."
+        case .differentSources: return "The song and the playlist are on different music sources, so it can't be added. Pick a playlist on the same server as the song."
         case .incompatibleSource: return "That song and playlist come from music sources that can't be combined."
         case .appleMusicUnfavorite: return "Apple Music favorites can't be removed from Ensemble."
         case .offline: return "That isn't available while you're offline."
@@ -260,6 +262,8 @@ struct ShuffleEnsemblePlaylistIntent: AudioPlaybackIntent {
 
 struct ShuffleEnsembleLibraryIntent: AudioPlaybackIntent {
     static var title: LocalizedStringResource = "Shuffle Library in Ensemble"
+    // Replaced by Play Collection; kept so saved shortcuts still run.
+    static var isDiscoverable: Bool = false
     static var description = IntentDescription("Shuffles every song in your enabled Ensemble libraries.")
     static var parameterSummary: some ParameterSummary { Summary("Shuffle my Ensemble library") }
 
@@ -271,6 +275,8 @@ struct ShuffleEnsembleLibraryIntent: AudioPlaybackIntent {
 
 struct PlayEnsembleFavoritesIntent: AudioPlaybackIntent {
     static var title: LocalizedStringResource = "Play Favorites in Ensemble"
+    // Replaced by Play Collection; kept so saved shortcuts still run.
+    static var isDiscoverable: Bool = false
     static var description = IntentDescription("Plays the songs you have favorited in Ensemble, in order or shuffled.")
     static var parameterSummary: some ParameterSummary { Summary("Play my Ensemble favorites") { \.$shuffle } }
 
