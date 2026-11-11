@@ -239,15 +239,19 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Next step: read the Apple Music source page after a revoked sync (UI text) and,
   if it is the raw text, give `notAuthorized` a localized description.
 
-## A Plex library cursor vanished after repeated failed full syncs (suspected)
+## A Plex library cursor vanishes when its server is unreachable after launch (explained, by design)
 
-- Evidence: on the iPhone SE (session logs `$TMPDIR/se-playback/results/n12` and
-  `n14`, 2026-11-10 15:40 to 15:56) server `…3ccca` library 7 failed four full
-  syncs in a row with `Network error … NSURLErrorDomain error -1004`. Store reads
-  before (`post12`) show 3 `plex-library` cursors; after (`post14`) the `…:7`
-  cursor row is gone, while its 9696 tracks stayed.
-- Impact: suspected; a failed full sync appears to clear the cursor first, so the
-  next sync starts from scratch. Tracks are not deleted. Not confirmed whether the
-  server was down or the app mis-handled the connection.
-- Next step: read the Plex full-sync entry in `SyncCoordinator` for where the
-  cursor is reset relative to the fetch, and re-run when the server is reachable.
+- Evidence: on the iPhone SE (`$TMPDIR/se-playback/results/n12` and `n14`,
+  2026-11-10 15:40 to 15:56) server `…3ccca` library 7 failed four full syncs
+  with `NSURLErrorDomain -1004` and its library cursor row was gone afterwards;
+  its 9696 tracks stayed. Code read only: `SyncCoordinator.performStartupSync`
+  calls `invalidatePlexReconciliationCursors`, which `removeCursor`s every Plex
+  library cursor on each cold launch to force an authoritative pass. The
+  UI-test runs relaunched the app, so the cursor was cleared at launch and the
+  failed fetch never recreated it. Not a writer fault.
+- Impact: confirmed explanation. While a Plex server is unreachable after a
+  launch its library has no cursor, so the next successful sync is a full one.
+  No rows are lost. It reads like data loss in a store comparison, so compare
+  Plex cursors only across runs that did not relaunch the app.
+- Next step: none required; if the full re-read after every cold launch proves
+  costly on large libraries, revisit that startup rule.

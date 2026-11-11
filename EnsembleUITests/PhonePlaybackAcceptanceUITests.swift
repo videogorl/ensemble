@@ -1524,3 +1524,160 @@ extension PhonePlaybackAcceptanceUITests {
         attachText("songs-after-delete", labels(of: music, limit: 100))
     }
 }
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Searches Apple Music for `query`, opens the first result whose label matches `resultPredicate`, and adds it
+    /// to the library with the page's Add button (adds every song of an album, EP or single). Dumps each step.
+    func addCatalogResult(_ music: XCUIApplication, query: String, resultContains: String, tag: String) throws {
+        music.tabBars.buttons["Search"].firstMatch.tap()
+        let field = music.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        if music.buttons["Clear text"].firstMatch.exists { music.buttons["Clear text"].firstMatch.tap() }
+        field.typeText(query + "\n")
+        Thread.sleep(forTimeInterval: 6)
+        let result = music.buttons.matching(NSPredicate(format: "label CONTAINS %@", resultContains)).firstMatch
+        guard result.waitForExistence(timeout: 15) else {
+            attachText("\(tag)-no-result", labels(of: music, limit: 200)); XCTFail("\(tag): no result"); return
+        }
+        attachText("\(tag)-result-label", result.label)
+        result.tap()
+        Thread.sleep(forTimeInterval: 5)
+        attachText("\(tag)-page", labels(of: music, limit: 200))
+        let add = music.buttons.matching(NSPredicate(format: "label == 'Add' OR label BEGINSWITH 'Add to Library'")).firstMatch
+        guard add.waitForExistence(timeout: 8) else { XCTFail("\(tag): no Add button"); return }
+        add.tap()
+        Thread.sleep(forTimeInterval: 4)
+        attachText("\(tag)-after-add", labels(of: music, limit: 200))
+        let back = music.navigationBars.buttons.firstMatch
+        if back.exists { back.tap() }
+        Thread.sleep(forTimeInterval: 2)
+    }
+
+    /// Adds one catalog song from search results through its More menu (never Download or Play).
+    func addCatalogSong(_ music: XCUIApplication, query: String, title: String, artist: String) throws {
+        music.tabBars.buttons["Search"].firstMatch.tap()
+        let field = music.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        if music.buttons["Clear text"].firstMatch.exists { music.buttons["Clear text"].firstMatch.tap() }
+        field.typeText(query + "\n")
+        Thread.sleep(forTimeInterval: 6)
+        let row = music.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "\(title), Song", artist)).firstMatch
+        guard row.waitForExistence(timeout: 15), let more = moreButton(beside: row, in: music) else {
+            attachText("\(title)-no-row", labels(of: music, limit: 200)); XCTFail("\(title): no song row"); return
+        }
+        attachText("\(title)-row", row.label)
+        more.tap()
+        let add = music.buttons["Add"].firstMatch
+        guard add.waitForExistence(timeout: 6) else { attachText("\(title)-no-add", labels(of: music, limit: 120)); XCTFail("\(title): no Add"); return }
+        add.tap()
+        Thread.sleep(forTimeInterval: 3)
+    }
+
+    /// Adds the rest of the test catalogue after `testM14` stopped at the second song.
+    func testM15_AddRemainingSongs() throws {
+        let music = XCUIApplication(bundleIdentifier: "com.apple.Music")
+        music.launch()
+        Thread.sleep(forTimeInterval: 4)
+        try addCatalogSong(music, query: "Take On Me a-ha", title: "Take On Me", artist: "a-ha")
+        try addCatalogSong(music, query: "Bohemian Rhapsody Queen", title: "Bohemian Rhapsody", artist: "Queen")
+        music.tabBars.buttons["Library"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 3)
+        music.buttons["Songs"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 4)
+        attachText("library-songs", labels(of: music, limit: 200))
+    }
+
+    /// Adds the test catalogue: one whole album and three single songs by other artists.
+    func testM14_AddTestCatalogue() throws {
+        let music = XCUIApplication(bundleIdentifier: "com.apple.Music")
+        music.launch()
+        Thread.sleep(forTimeInterval: 4)
+        try addCatalogResult(music, query: "The Beatles Abbey Road", resultContains: ", Album", tag: "abbey")
+        try addCatalogSong(music, query: "Hotel California Eagles", title: "Hotel California", artist: "Eagles")
+        try addCatalogSong(music, query: "Take On Me a-ha", title: "Take On Me", artist: "a-ha")
+        try addCatalogSong(music, query: "Bohemian Rhapsody Queen", title: "Bohemian Rhapsody", artist: "Queen")
+        music.tabBars.buttons["Library"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 3)
+        music.buttons["Songs"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 4)
+        attachText("library-songs", labels(of: music, limit: 200))
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Plays one library song in Music for about 35 seconds, then pauses it, so it gains a play count and last played date.
+    func testM16_PlayOneSongBriefly() throws {
+        let music = XCUIApplication(bundleIdentifier: "com.apple.Music")
+        music.launch()
+        Thread.sleep(forTimeInterval: 4)
+        music.tabBars.buttons["Library"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 2)
+        music.buttons["Songs"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 4)
+        let row = music.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Take On Me'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "Take On Me not in Songs")
+        row.tap()
+        Thread.sleep(forTimeInterval: 35)
+        attachText("playing", labels(of: music, limit: 60))
+        let pause = music.buttons["Pause"].firstMatch
+        XCTAssertTrue(pause.waitForExistence(timeout: 5), "no Pause control")
+        pause.tap()
+        Thread.sleep(forTimeInterval: 3)
+        attachText("paused", labels(of: music, limit: 60))
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    /// Deletes one named song from the Music library (menu "Delete from Library", then its confirmation).
+    func deleteLibrarySong(titlePrefix: String) throws {
+        let music = XCUIApplication(bundleIdentifier: "com.apple.Music")
+        music.launch()
+        Thread.sleep(forTimeInterval: 4)
+        music.tabBars.buttons["Library"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 2)
+        music.buttons["Songs"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 4)
+        let row = music.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", titlePrefix)).firstMatch
+        // The list is lazy: scroll until the row is realised and on screen.
+        for _ in 0..<12 where !(row.exists && row.isHittable) { music.swipeUp(); Thread.sleep(forTimeInterval: 0.8) }
+        XCTAssertTrue(row.exists, "\(titlePrefix) not listed in Songs")
+        let more = try XCTUnwrap(moreButton(beside: row, in: music), "no More beside \(titlePrefix)")
+        more.tap()
+        let delete = music.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Delete from Library'")).firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 6), "no delete item")
+        delete.tap()
+        Thread.sleep(forTimeInterval: 2)
+        let confirms = music.buttons.matching(identifier: "Delete from Library").allElementsBoundByIndex
+        XCTAssertGreaterThanOrEqual(confirms.count, 2, "no confirmation button")
+        confirms.last?.tap()
+        Thread.sleep(forTimeInterval: 6)
+        attachText("songs-after-delete", labels(of: music, limit: 200))
+    }
+
+    /// A song from a multi-song album: its album and artist must stay.
+    func testM17a_DeleteHerMajesty() throws { try deleteLibrarySong(titlePrefix: "Her Majesty") }
+
+    /// The only song of its album and artist: both must leave with it.
+    func testM17b_DeleteBohemianRhapsody() throws { try deleteLibrarySong(titlePrefix: "Bohemian Rhapsody") }
+
+    /// Restores the library to the 20 test songs: the Abbey Road album page adds any of its missing songs, and
+    /// Bohemian Rhapsody is searched again.
+    func testM18_RestoreTestCatalogue() throws {
+        let music = XCUIApplication(bundleIdentifier: "com.apple.Music")
+        music.launch()
+        Thread.sleep(forTimeInterval: 4)
+        try addCatalogSong(music, query: "Bohemian Rhapsody Queen", title: "Bohemian Rhapsody", artist: "Queen")
+        try addCatalogResult(music, query: "The Beatles Abbey Road", resultContains: ", Album", tag: "abbey")
+        music.tabBars.buttons["Library"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 3)
+        music.buttons["Songs"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 4)
+        attachText("library-songs", labels(of: music, limit: 200))
+    }
+}
+
+extension PhonePlaybackAcceptanceUITests {
+    func testM19_TwoSyncRounds() throws { fullSyncRounds(2) }
+}
