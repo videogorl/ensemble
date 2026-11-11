@@ -108,6 +108,45 @@ final class NetworkMonitorTests: XCTestCase {
         XCTAssertTrue(sut.isConstrained)
     }
 
+    /// A route change on the same interface type leaves the snapshot alone but is still a path change,
+    /// reported once after the debounce however many updates arrive.
+    func testPathChangeIsDebouncedAndIndependentOfTheSnapshot() async {
+        let sut = NetworkMonitor(
+            debounceNanoseconds: 30_000_000,
+            monitorQueue: DispatchQueue(label: "test.network.path"),
+            monitorFactory: { FakePathMonitor() }
+        )
+        sut.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        var changes = sut.pathChanges().makeAsyncIterator()
+
+        sut.injectNetworkStateForTesting(.online(.wifi), pathChanged: true)
+        sut.injectNetworkStateForTesting(.online(.wifi), pathChanged: true)
+        let first = await changes.next()
+        XCTAssertEqual(first, 1)
+        XCTAssertEqual(sut.networkState, .online(.wifi))
+
+        sut.injectNetworkStateForTesting(.online(.cellular))
+        sut.injectNetworkStateForTesting(.online(.wifi), pathChanged: true)
+        let second = await changes.next()
+        XCTAssertEqual(second, 2)
+        XCTAssertEqual(sut.pathGeneration, 2)
+    }
+
+    /// Only a different status or preferred interface is a different route: another interface appearing
+    /// behind the same primary one is not.
+    func testPathSignatureIgnoresInterfacesThatAreNotPrimary() {
+        let wifi = PathSignature(status: .satisfied, primaryInterfaceType: .wifi, primaryInterfaceName: "en0")
+        let rows: [(name: String, other: PathSignature, differs: Bool)] = [
+            ("same primary interface", PathSignature(status: .satisfied, primaryInterfaceType: .wifi, primaryInterfaceName: "en0"), false),
+            ("primary becomes cellular", PathSignature(status: .satisfied, primaryInterfaceType: .cellular, primaryInterfaceName: "pdp_ip0"), true),
+            ("primary Wi-Fi interface changes", PathSignature(status: .satisfied, primaryInterfaceType: .wifi, primaryInterfaceName: "en1"), true),
+            ("path becomes unsatisfied", PathSignature(status: .unsatisfied, primaryInterfaceType: nil, primaryInterfaceName: nil), true),
+        ]
+        for row in rows {
+            XCTAssertEqual(wifi != row.other, row.differs, row.name)
+        }
+    }
+
     func testSnapshotStreamTransitions() async {
         let base = NetworkSnapshot(state: .online(.wifi))
         let sentinel = NetworkSnapshot(state: .limited, isConstrained: true)

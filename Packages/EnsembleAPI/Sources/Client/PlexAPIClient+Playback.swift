@@ -58,15 +58,19 @@ extension PlexAPIClient {
     // MARK: - Two-Phase Stream Resolution
 
     /// Phase 1: Make a streaming decision without embedding the server endpoint URL.
+    /// `forceTranscode` re-encodes the audio even when PMS could pass the original through,
+    /// for an original whose own bytes cannot be decoded.
     public func makeStreamDecision(
         ratingKey: String,
         trackStreamKey: String?,
         quality: StreamingQuality,
         metadataDurationSeconds: Double?,
-        startTime: TimeInterval = 0
+        startTime: TimeInterval = 0,
+        forceTranscode: Bool = false
     ) async throws -> StreamDecision {
         let normalizedStartTime = Self.normalizedTranscodeOffset(startTime)
-        if normalizedStartTime == 0, quality == .original, let streamKey = trackStreamKey, !streamKey.isEmpty {
+        if !forceTranscode, normalizedStartTime == 0, quality == .original,
+           let streamKey = trackStreamKey, !streamKey.isEmpty {
             if let track = try? await getTrack(trackKey: ratingKey),
                PlexAudioFormatSupport.supportsIncrementalPlayback(track) {
                 EnsembleLogger.debug("[makeStreamDecision] compatible original → directStream(partKey)")
@@ -81,14 +85,15 @@ extension PlexAPIClient {
                 ratingKey: ratingKey,
                 quality: quality,
                 sessionId: sessionId,
-                startTime: normalizedStartTime
+                startTime: normalizedStartTime,
+                forceTranscode: forceTranscode
             )
 
             let decision = try await callTranscodeDecision(queryItems: queryItems)
 
             switch decision.decision {
-            case .directplay where normalizedStartTime == 0,
-                 .copy where normalizedStartTime == 0:
+            case .directplay where normalizedStartTime == 0 && !forceTranscode,
+                 .copy where normalizedStartTime == 0 && !forceTranscode:
                 let partKey = decision.directStreamPartKey ?? streamKey
                 EnsembleLogger.debug("[makeStreamDecision] decision=\(decision.decision.rawValue) → directStream(partKey)")
                 return .directStream(partKey: partKey)
@@ -112,7 +117,8 @@ extension PlexAPIClient {
             ratingKey: ratingKey,
             quality: quality,
             sessionId: sessionId,
-            startTime: normalizedStartTime
+            startTime: normalizedStartTime,
+            forceTranscode: forceTranscode
         )
         try await callTranscodeDecision(queryItems: queryItems)
         let estimated = estimateTranscodeSize(quality: quality, durationSeconds: metadataDurationSeconds)
@@ -165,7 +171,8 @@ extension PlexAPIClient {
         ratingKey: String,
         quality: StreamingQuality,
         sessionId: String,
-        startTime: TimeInterval = 0
+        startTime: TimeInterval = 0,
+        forceTranscode: Bool = false
     ) -> [URLQueryItem] {
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "path", value: "/library/metadata/\(ratingKey)"),
@@ -177,6 +184,14 @@ extension PlexAPIClient {
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
         queryItems.append(contentsOf: transcodeClientQueryItems(sessionId: sessionId))
+        if forceTranscode {
+            // With direct streaming on, PMS copies a compatible original's audio stream (an
+            // MP3 at 320 kbps decides "copy"); off, it re-encodes. curl-verified 2026-11-09.
+            queryItems = queryItems.map { item in
+                ["directStream", "directStreamAudio"].contains(item.name)
+                    ? URLQueryItem(name: item.name, value: "0") : item
+            }
+        }
 
         switch quality {
         case .original:

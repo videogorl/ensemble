@@ -288,3 +288,31 @@ mostly away from home, sometimes at home.
 4. The engine split stays; only its network handling is repaired.
 5. Joining a new transcode onto the buffered end is deferred unless the phone
    test shows audible gaps.
+
+## Step e as built (2026-11-10)
+
+- Damage is raised by the stream pipeline for a direct original only: a decoder error, bytes that are not
+  audio, or decoded audio under half of what the file's own container states (11631 decodes 2:14 of a
+  declared 4:39). A transcode, a network error and an HTTP status never raise it, so they never fall back.
+  The stream's metadata-duration check no longer applies to an original.
+- The fallback starts at the playhead, not at 0. Replaying heard audio is worse than the alternative, and
+  an offset transcode has no length for the short-transcode check, so only decoder errors judge it. A
+  fallback that starts from the beginning (damage found before any audio) is judged by that check as before.
+- A prefetched original is decoded start to end before it is scheduled, and takes the same decision.
+- Saved real bytes: 11631 ends at 2:14 and its transcode is as short (the fallback has nothing past 2:14, so
+  the item fails and is skipped); 14291, 14292 and 14300 have a damaged original (decodes 2:27, 0:01 and
+  0:08) and a complete transcode (the fallback plays on). 11700's zeroed header is damage; Plex answers
+  its transcode with HTTP 400 and the item fails.
+
+### Review round (2026-11-10)
+
+- A played direct download is decoded once, off the audio path, before it is cached; the cache manifest
+  records `mediaVerified`, and every lookup serves a verified direct artifact only. Older unverified entries
+  count as misses and are downloaded again once.
+- A healthy original that Core Audio cannot stream progressively (ALAC, an M4A with `moov` at the end) is
+  reported as `unstreamableOriginal`, never as damage. It takes the same fallback and the same neutral toast
+  ("Playing at reduced quality"). A prefetch and a played pipeline reach the same decision.
+- A non-audio 200 response (HTML, under 256 bytes) is a plain failure, not damage.
+- Known limit: the half-length rule compares decoded audio with the container's stated length. Core Audio
+  scans an MP3's length from its frames, so a truncated MP3 states the shorter length and is not caught. A
+  truncated MP3 is only caught by a decoder error.

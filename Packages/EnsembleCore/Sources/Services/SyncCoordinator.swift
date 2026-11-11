@@ -1743,7 +1743,8 @@ public final class SyncCoordinator {
     public func makeStreamDecision(
         for track: Track,
         quality: StreamingQuality = .original,
-        startTime: TimeInterval = 0
+        startTime: TimeInterval = 0,
+        forceTranscode: Bool = false
     ) async throws -> StreamDecision {
         let (provider, _) = try await resolveTrackCapability(
             for: track,
@@ -1755,7 +1756,8 @@ public final class SyncCoordinator {
             trackStreamKey: track.streamKey,
             quality: quality,
             metadataDurationSeconds: track.duration,
-            startTime: startTime
+            startTime: startTime,
+            forceTranscode: forceTranscode
         )
     }
 

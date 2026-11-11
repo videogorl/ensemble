@@ -437,6 +437,30 @@ pass before step 0 is called verified.
   list renders with artwork, follows a track change, and reorder and remove
   work. Its code is unchanged by part 3; not driven
   because the Mac's session was locked during the run.
+- Mac smoke, 2026-11-10, build 202611101933.9772 (Debug, `develop` at `f97addb7`,
+  driven with Cua Driver; the Mac was heavily loaded):
+  - Launch after the account-polling cleanup at `82b1928e`: Passed with a caveat. The
+    window, sidebar and library rendered and no sign-in prompt appeared, but the log has
+    `AccountManager: credential read timed out; preserving cached source data` at start
+    (see ON_DECK.md); Home showed "Loading..." on the first read.
+  - Step 6b browse: Passed. Songs, Artists, Albums, Genres and Playlists listed items;
+    picking ABBA, Electronic (145 albums) and "am test" showed their contents.
+  - Step 6 detail: Passed. Album detail (10 tracks), artist detail inside the split
+    (ABBA, 1 album, 12 songs), playlist detail (14 songs) and genre detail rendered.
+  - Step 6d parts 1 and 2: part 1 Passed (double-click on "(Anesthesia) – Pulling
+    Teeth" logged `STATE: loading → playing`; the context menu listed Start Track
+    Radio, Play Next, Add to Playlist, Go to Album and more, Escape closed it).
+    Part 2 (rating or download redraw, swipe, drag-out) not run.
+  - Step 1c playback: Passed. Pause, resume, Next, a scrubber seek (`seekRequested`
+    then `seekCompleted` at 221.68 s) and a gapless advance at a track boundary.
+  - Step 6d part 3 queue: Passed. Rows showed artwork and followed track changes; a
+    foreground drag of a handle moved a row from position 1 to 3 (a background drag
+    did nothing). The row-menu remove at `3d9b9443` removed "(One Of Those) Crazy
+    Girls", the row whose ⋯ was pressed, not a neighbour. Pressing ⋯ was done through
+    the accessibility action, not a mouse click.
+  - Favorites header gap: Confirmed, see ON_DECK.md (about 97 px extra above).
+  - Window without `-ApplePersistenceIgnoreState YES`: a window appeared within 20 s,
+    so the ON_DECK item did not reproduce.
 - Step 6c panes on a physical iPad (not run): native `NavigationSplitView`
   now serves every iPad, including iPadOS 17; Artists, Genres and Playlists
   show detail in the next column, rotation and Split View resizing keep the
@@ -526,3 +550,43 @@ thousands of songs and stays Owed for Felicity's own iPhone.
 | Revoke Media & Apple Music access in iOS Settings mid-use, then sync: the sync fails and the library is unchanged | Passed (`202611101916.0576`) on the 20-song library, which matters now that an empty read deletes: with the switch off the sync logged `Sync failed for appleMusic:device:system:library: … AppleMusicLibraryError error 0` and no `library read` line; the store stayed 20/4/4; permission and a normal sync were restored (`API 20 songs`) |
 
 The iPad and watch checklist sections start with steps 5 and 6.
+
+## iPhone SE and a phone with a SIM — stream drop resume (steps c and d)
+
+Applies to the commits "Resume a dropped direct download with a Range request..." and
+"Restart a ranged download as soon as the network path changes". Proven on the iPhone 17 Pro Max
+simulator with the DEBUG drop hook and in unit tests; a real network change is not proven.
+
+| Check | Status |
+| --- | --- |
+| iPhone SE, WAV pair 8731/8732 at original quality: `PhonePlaybackAcceptanceUITests.testG1h_ConnectionDropMidDownloadKeepsPlaying`. The probe stays `playing`, position keeps advancing through the drop, the track ends and 8732 plays; the session log has `injectedStreamDrop` and `[StreamingPipeline] resumed` | Passed on the SE on 2026-11-10 (build 202611101056.9843): dropped at 1,015,808 of 50,699,330 bytes, resumed 0.26 s later at the same offset, state stayed `playing`, 8732 followed from the stream cache |
+| A real Wi-Fi to cellular switch mid-track at original quality (needs a phone with a SIM; the SE has none): playback continues without buffering while the reserve lasts, the session log shows `resumeRequested` right after the path change, and the audio after the switch is the original file, not an MP3 transcode | Owed |
+| Plex log for the SE run: no `Client stopped playback` for the in-flight part, and the ranged request is answered 206 | Passed on 2026-11-10: `range: bytes=1015808-` answered 206 with 49,683,522 bytes (the exact remainder); the only terminations fall on downloads that had already closed |
+
+## iPhone SE — damaged original falls back to a transcode (step e)
+
+Applies to the step e merge (`fix/damaged-original-transcode-fallback`, HEAD `01811c88`). Owner's server
+tracks: 11631 (original ends at 2:14 of 4:39; its transcode is as short) and 11700 (zeroed header; Plex
+answers HTTP 400). 14291 is healthy: it played all 4:52 at original quality, unflagged, on the SE on
+2026-11-10, so the earlier "damaged" saved copies of the twenty one pilots tracks were truncated downloads.
+No track on the server has a damaged original with a complete transcode, so "plays on past the damage" is
+covered by unit tests only.
+
+| Check | Status |
+| --- | --- |
+| `testG2e1_DamagedOriginalFallsBackWhenPlaybackReachesTheDamage` with 11631: flagged when the download completes, plays the original to the damage, reloads as a forced transcode at the playhead, then moves on when the transcode has nothing more | Passed on the SE on 2026-11-10: `originalFlagged ... audio ends at 133 of 279 seconds` 5.6 s in, `retrying from 133.9s`, `forceTranscode=true` with `kind=transcodedHTTP start=133.00`, next track 1 s later; no halt |
+| `testG2e2_SeekAfterTheDownloadCompletedLoadsTheTranscode` with 11631: after the download finished, a seek loads the transcode, not the cached damaged file | Passed on the SE on 2026-11-10: seek to 120 resolved `kind=transcodedHTTP start=120.00` with `forceTranscode=true`; the first run of this sequence (before the verified-cache fix) had served `kind=cachedFile` |
+| A healthy original is not flagged, and the verified cache still serves the successor after drop-and-resume | Passed on the SE on 2026-11-10: 14291 played in full with no `originalFlagged`; `testG1h` passed with the successor from the stream cache |
+| The "Playing at reduced quality" notice is raised when the fallback loads | Passed on the SE on 2026-11-10 as app state: both `testG2e1` and `testG2e2` assert the probe's `toast` field equals "Playing at reduced quality". Not read from the pixels |
+| A damaged original in the queue behind a good track: the prefetch fetches the transcode and the notice shows when the track starts | Owed: needs a damaged original whose transcode is complete; none is on the server |
+| `testG2e3_DamageReachedWhilePausedWaitsForPlay` (11631, pauses at 129 s): stays paused for 20 s with no notice; Play continues to the damage and reloads as the forced transcode with the notice | Passed on the SE on 2026-11-10: paused 13:51:20 to 13:51:42 with no state change, then `retrying from 133.9s`, `forceTranscode=true`, `kind=transcodedHTTP start=133.00`. The decoder had not reached the damage during the pause, so the paused-damage branch itself is still unit-test only |
+
+
+## iPhone SE — a seek keeps the original (`fix/seek-keeps-original-quality`)
+
+Proven on the iPhone 17 Pro Max simulator and in unit tests; the phone's real link and decoder timing are not.
+
+| Check | Status |
+| --- | --- |
+| `PhonePlaybackAcceptanceUITests.testG1i_SeekDuringDirectDownloadStaysOriginal` on the SE with `TEST_RUNNER_ENSEMBLE_PHONE_PLAYBACK=1` (optional `TEST_RUNNER_ENSEMBLE_SERIAL_TRACKS=8731`, `TEST_RUNNER_ENSEMBLE_SEEK_TO=90`): a seek made while the original's download is held in flight waits, then plays from the file. The probe shows `src=stream` before and `src=file` after, `fb=` empty; the session log has `seek requires stream restart`, then `sourceDecisionCompleted kind=cachedFile`, never `kind=transcodedHTTP`, and one request for the part in the Plex log | Passed on the SE on 2026-11-10 (develop with the 30 s limit): WAV 8731, seek to 90 s 4.8 s in, `downloadComplete bytes=50699330` then `kind=cachedFile origin=streamCache`, no `transcodedHTTP`. The wait was 18 s (8 s of it the test's injected delay). With the first 10 s limit the same run fell to `transcodedHTTP` |
+| Real link, no delay injection: seek to 120 s a few seconds into 14291 at original quality; the track shows buffering until its download finishes and then plays the original from 120 s | Owed |

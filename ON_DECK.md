@@ -94,13 +94,30 @@ An entry does not authorize the work; Felicity picks what gets done.
 - Next step: per the plan's test policy, list tests that pin internals or duplicate another
   test's behaviour class, by file, and propose deletions or table-driven merges.
 
-## Confirmed: the Mac app opens no window without `-ApplePersistenceIgnoreState YES` (2026-11-09)
+## Suspected, not reproduced 2026-11-10: the Mac app opens no window without `-ApplePersistenceIgnoreState YES` (2026-11-09)
 
 - Evidence: launching the built `.app` on this Mac showed no window until that flag was
-  passed; stale window-restoration state is the suspected cause.
+  passed (2026-11-09); stale window-restoration state is the suspected cause. On 2026-11-10
+  (build 202611101933.9772, Debug, launched with `open -n <built .app>` and no flag, right
+  after quitting a flagged run) a 1100x612 window was on screen within 20 s with the Home
+  tree populated, so the failure did not reproduce.
 - Impact: a user with the same saved state would see the app launch with nothing on screen.
-- Next step: reproduce with the saved state kept, then check the scene and
-  restoration setup.
+- Next step: reproduce with the saved state kept from the failing launch (copy
+  `~/Library/Saved Application State/com.videogorl.ensemble.savedState` aside when it
+  happens), then check the scene and restoration setup.
+
+## Suspected: Mac app logs a credential-read timeout at every launch and Home stays on "Loading..." for the first seconds (2026-11-10)
+
+- Evidence: both launches of build 202611101933.9772 logged `[ERROR] AccountManager:
+  credential read timed out; preserving cached source data` within 1 s of start, with
+  `WebSocketCoordinator: Starting — accounts=0`. The library still loaded from cached source
+  keys (`LibraryViewModel: using provider-authoritative cached source keys while credentials
+  are unresolved`); Home showed "Loading..." on the first read and was populated on the second
+  launch. `MattPlex` also logged offline websocket errors.
+- Impact: unknown; sign-in never prompted and no data was lost, but a slow Keychain read on
+  this loaded Mac delays Home and starts websockets with zero accounts.
+- Next step: time the credential read at launch on an idle Mac to see whether it is load or a
+  real regression from the account-polling cleanup at `82b1928e`.
 
 ## Confirmed: a track that appears twice in a detail list plays its first occurrence (2026-11-09)
 
@@ -109,10 +126,17 @@ An entry does not authorize the work; Felicity picks what gets done.
 - Impact: wrong start position in playlists that repeat a track.
 - Next step: start playback from the tapped row's index, not a lookup by track id.
 
-## Unchecked: gap above the Favorites header on Mac (2026-11-09)
+## Confirmed: Favorites header has an extra gap on Mac (2026-11-10)
 
-- Evidence: reported by a Mac check worker; not looked at again.
-- Next step: open Favorites on the Mac and compare the header spacing with Album detail.
+- Evidence: build 202611101933.9772, 1100 pt wide window, window-screenshot pixels (1366 px
+  wide, so 1 px is about 0.8 pt; the accessibility tree gives no frames). Toolbar bottom at
+  y=55 in both. Album detail: artwork top at y=94, a 39 px gap, and 73 px between the
+  artwork bottom and the first track row. Favorites: artwork top at y=191, a 136 px gap
+  (about 97 px more), and about 166 px between the artwork bottom (365) and the first row
+  (531), against 73 px on Album detail.
+- Impact: Favorites wastes about 100 px above and about 90 px below its header on Mac.
+- Next step: compare the Favorites header container's top and bottom padding with Album
+  detail's header in the shared detail screen.
 
 ## Audit, 2026-11-10: custom machinery a native API might replace
 
@@ -159,19 +183,35 @@ rules, the Plex WebSocket polling fallback, and the size of `WatchRootView.swift
 - Impact: a download running while a track streams at original quality could cut the stream (-1005) the same way the prefetch did.
 - Next step: in one simulator run, start an offline download of an original while a delayed stream plays, then search the Plex log for "Terminated session" on that client. Only if it appears, make downloads of originals wait behind a stream download (Felicity's decision 2 in the proposal).
 
+## Confirmed gaps in stream drop resume (2026-11-10, review of steps c and d)
+
+- **A resume re-requests the original URL** (confirmed, M). `StreamingAudioPipeline.beginResume` uses
+  `configuration.request`, so after leaving home mid-track a resume goes to the LAN address and fails to
+  connect (up to 15 s). Mitigation in place: after a path change, a resume that fails to connect is not
+  retried, so the service reload (which selects a fresh endpoint) follows one attempt later. Fix: the
+  transport coordinator hands the pipeline an async closure that rebuilds the track's stream request from
+  its cached decision and the server's currently selected endpoint (`assembleStreamResolution`); the ETag
+  and `Content-Range` checks stay. It needs the `Track` kept alongside the pipeline, an async `beginResume`
+  with a guard against a second resume starting during the await, and a test, which was judged over the
+  50 source lines allowed for it.
+- **A resume with no route waits indefinitely** (confirmed from the code, S). The pipeline's session uses
+  `waitsForConnectivity = true`, so a resume requested while offline does not time out and the 30 s window
+  does not bound an offline period. While playing, the engine's rebuffer timeout still ends the stream;
+  while paused, the pipeline holds its direct-download server slot until Play or the network returns (only
+  prefetch consults the slot). Next step: decide whether a paused stream should release the slot or give up
+  after a long offline period.
+
 ## Audit, 2026-11-10: network and server health checking
 
 From a read-only audit; nothing here is a reproduced defect. One `NWPathMonitor`
 (`NetworkMonitor.swift`) owns device state; `PlexAPIClient` and its
 `ConnectionFailoverManager` own per-server state. Ranked by stability gain per unit of work.
 
-- **Suspected: a route change on the same interface is invisible** (M). The monitor publishes
-  only network type and Low Data Mode, so Wi-Fi to Wi-Fi or a cellular route change does not
-  invalidate the chosen server endpoint or trigger a health check. Next step: publish a
-  debounced path-change generation and have routing and stream recovery (step d of
-  `docs/investigations/2026-11-10-stream-drop-recovery-and-fallback.md`) use it.
-- **No timing data for a stream's connection** (S). Next step: record `URLSessionTaskMetrics`
-  and retry/probe timing per stream, without URLs or tokens.
+- **Suspected: a route change on the same interface is invisible to routing** (M). The monitor now
+  publishes a debounced `pathGeneration` / `pathChanges()` and stream resume uses it (step d), but
+  server endpoint selection and health checks still do not: Wi-Fi to Wi-Fi or a cellular route change
+  does not invalidate the chosen endpoint. Next step: have `AccountManager`/health checking use
+  `pathChanges()` too.
 - **Stale "offline" can show while a fresh check runs** (M). Next step: move server state to
   `checking` on a routing change.
 - **A recently healthy endpoint gets a sequential head start of up to 3 s** before the other
@@ -255,3 +295,52 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
   Plex cursors only across runs that did not relaunch the app.
 - Next step: none required; if the full re-read after every cold launch proves
   costly on large libraries, revisit that startup rule.
+
+
+## Confirmed: originals cached by an older build cannot be played offline until replayed online (2026-11-10)
+
+- Evidence: the stream cache now serves a direct original only when its manifest entry is marked verified.
+  Entries written before step e have no mark, so the lookup misses (`PlaybackTransportCoordinator.swift:266`)
+  and, offline, throws "offline" (`:276`); `resolveOfflinePlayableTrack` and the availability resolver miss the
+  same way. Found by the round-two review, by reading.
+- Impact: once, after updating: recently streamed original-quality tracks that are not offline downloads will
+  not play without a connection until they are streamed again. Offline downloads are unaffected.
+- Next step: verify an unmarked direct entry on first use (the check takes well under a second) and mark it,
+  instead of treating it as a miss; that also saves the one re-download.
+
+## Suspected: a prefetched download adopted mid-check never reports damage early (2026-11-10)
+
+- Evidence: `onDamageFound` is attached only to downloads the engine creates (`PlaybackService.swift:804`); a
+  prefetched one it adopts (`AudioPlaybackEngine.swift:1101`) never gets it. By reading; not reproduced.
+- Impact: low. The prefetch's own wait normally records the fallback, and playing into the damage still falls
+  back; only the early switch for a later seek is lost.
+- Next step: attach `onDamageFound` when the engine adopts a prefetched download.
+
+## Suspected: two metadata-duration truncation checks still judge a direct original (2026-11-10)
+
+- Evidence: `PlaybackService+Loading.swift` (the cached-file probe in `playCurrentQueueItem` and the prefetch
+  probe) compare a file's container length with the library's duration and evict and re-download on a mismatch.
+  The investigation's step e said library metadata must not judge a direct original. The stream's own check
+  (`recordCompleted`) no longer does; these two were left, since they re-download rather than fail.
+- Impact: an honest file whose metadata duration is wrong is downloaded twice, then plays. No fallback is
+  involved.
+- Next step: for a direct original, drop both comparisons and rely on the media check.
+
+## Confirmed: the streaming decoder cannot stream ALAC or a moov-at-end M4A (2026-11-10)
+
+- Evidence: a review decoded `afconvert -d alac` output and an ffmpeg fast-start file to 0 frames through
+  `StreamingAudioDecoder`; the converter error is only logged (`StreamingAudioDecoder.swift` near line 330).
+  A moov-at-end M4A fails with `parseFailed('optm')`.
+- Impact: such an original now falls back to a lower-quality transcode (step e) instead of playing at its
+  own quality, with the neutral "Playing at reduced quality" notice.
+- Next step: find why AVAudioConverter yields no frames for ALAC; separately, play a completed non-streamable
+  original from its downloaded file through the native engine so it stays at original quality.
+
+## Suspected: a seek inside already-downloaded bytes of a direct original still waits for the whole download (2026-11-10)
+
+- Evidence: the progressive decoder (`StreamingAudioDecoder`) is not seekable, so `AudioPlaybackEngine.seek` throws
+  `streamingSeekUnavailable` for every streaming source. The seek fix waits for the in-flight download and then
+  plays the verified file from the target; it cannot jump inside bytes that are on disk but not yet complete.
+- Impact: on a slow link, a seek into audio that is already downloaded shows buffering until the whole file is down.
+- Next step: only if the phone shows long waits, make the growing file seekable (WAV/FLAC offsets), which is a
+  decoder change, not a seek-path change.
