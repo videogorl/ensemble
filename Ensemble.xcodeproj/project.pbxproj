@@ -14,7 +14,13 @@
 		E0001007 /* IntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001010 /* IntentHandler.swift */; };
 		E0001008 /* PlayMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001011 /* PlayMediaIntentHandler.swift */; };
 		E0001009 /* EnsembleSiriIntentsExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = E0000003 /* EnsembleSiriIntentsExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		E0001016 /* EnsembleAppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001015 /* EnsembleAppShortcuts.swift */; };
+		E01A0000 /* MediaEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = E01B0000 /* MediaEntities.swift */; };
+		E01A0001 /* PlaybackIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E01B0001 /* PlaybackIntents.swift */; };
+		E01A0002 /* NowPlayingIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E01B0002 /* NowPlayingIntents.swift */; };
+		E01A0003 /* OpenAndShareIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E01B0003 /* OpenAndShareIntents.swift */; };
+		E01A0004 /* FocusFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E01B0004 /* FocusFilter.swift */; };
+		E01A0005 /* SystemSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = E01B0005 /* SystemSurfaces.swift */; };
+		E01A0006 /* AppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E01B0006 /* AppShortcuts.swift */; };
 		E0001017 /* UpdateMediaAffinityIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001020 /* UpdateMediaAffinityIntentHandler.swift */; };
 		E0001018 /* AddMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001021 /* AddMediaIntentHandler.swift */; };
 		E0001019 /* SiriMatchingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001022 /* SiriMatchingHelpers.swift */; };
@@ -111,7 +117,13 @@
 		E0001012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E0001013 /* Ensemble.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ensemble.entitlements; sourceTree = "<group>"; };
 		E0001014 /* EnsembleSiriIntentsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = EnsembleSiriIntentsExtension.entitlements; sourceTree = "<group>"; };
-		E0001015 /* EnsembleAppShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleAppShortcuts.swift; sourceTree = "<group>"; };
+		E01B0000 /* MediaEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaEntities.swift; sourceTree = "<group>"; };
+		E01B0001 /* PlaybackIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackIntents.swift; sourceTree = "<group>"; };
+		E01B0002 /* NowPlayingIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingIntents.swift; sourceTree = "<group>"; };
+		E01B0003 /* OpenAndShareIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAndShareIntents.swift; sourceTree = "<group>"; };
+		E01B0004 /* FocusFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusFilter.swift; sourceTree = "<group>"; };
+		E01B0005 /* SystemSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemSurfaces.swift; sourceTree = "<group>"; };
+		E01B0006 /* AppShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShortcuts.swift; sourceTree = "<group>"; };
 		E0001020 /* UpdateMediaAffinityIntentHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateMediaAffinityIntentHandler.swift; sourceTree = "<group>"; };
 		E0001021 /* AddMediaIntentHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddMediaIntentHandler.swift; sourceTree = "<group>"; };
 		E0001022 /* SiriMatchingHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriMatchingHelpers.swift; sourceTree = "<group>"; };
@@ -291,7 +303,7 @@
 				E0001044 /* AppDelegate+SceneOrientation.swift */,
 				E0001060 /* WatchCompanionBridge.swift */,
 				E0001031 /* ExternalDisplaySceneDelegate.swift */,
-				E0001015 /* EnsembleAppShortcuts.swift */,
+				E0100030 /* AppIntents */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -340,6 +352,20 @@
 				E0002010 /* WatchCompanionModels.swift */,
 			);
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		E0100030 /* AppIntents */ = {
+			isa = PBXGroup;
+			children = (
+				E01B0000 /* MediaEntities.swift */,
+				E01B0001 /* PlaybackIntents.swift */,
+				E01B0002 /* NowPlayingIntents.swift */,
+				E01B0003 /* OpenAndShareIntents.swift */,
+				E01B0004 /* FocusFilter.swift */,
+				E01B0005 /* SystemSurfaces.swift */,
+				E01B0006 /* AppShortcuts.swift */,
+			);
+			path = AppIntents;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -593,7 +619,13 @@
 				E0001045 /* AppDelegate+SceneOrientation.swift in Sources */,
 				E0001061 /* WatchCompanionBridge.swift in Sources */,
 				E0001030 /* ExternalDisplaySceneDelegate.swift in Sources */,
-				E0001016 /* EnsembleAppShortcuts.swift in Sources */,
+				E01A0000 /* MediaEntities.swift in Sources */,
+				E01A0001 /* PlaybackIntents.swift in Sources */,
+				E01A0002 /* NowPlayingIntents.swift in Sources */,
+				E01A0003 /* OpenAndShareIntents.swift in Sources */,
+				E01A0004 /* FocusFilter.swift in Sources */,
+				E01A0005 /* SystemSurfaces.swift in Sources */,
+				E01A0006 /* AppShortcuts.swift in Sources */,
 				E0002011 /* WatchCompanionModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
