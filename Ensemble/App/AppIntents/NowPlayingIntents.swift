@@ -357,15 +357,36 @@ struct NextEnsembleSongIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let before = try await currentTrackOrThrow()
+        _ = try await currentTrackOrThrow()
         _ = try await readyContainer()
         let playback = intentContainer.playbackService
+        let before = QueuePosition(playback)
+        let titleBefore = playback.currentTrack?.title ?? "this song"
         playback.next()
-        let moved = await playbackReaches { playback.currentTrack?.sourceScopedID != before.sourceScopedID }
-        guard moved, let now = playback.currentTrack else {
-            return .result(dialog: IntentDialog("There is no next song, so Ensemble stayed on \(before.title)."))
+        let moved = await playbackReaches { QueuePosition(playback).item != before.item || QueuePosition(playback).index != before.index }
+        if moved, let now = playback.currentTrack { return .result(dialog: IntentDialog("Skipped to \(now.title).")) }
+        // Only the queue's shape can say there is nothing next; a slow transition says nothing.
+        if before.isLast, playback.repeatMode == .off, !playback.isAutoplayEnabled {
+            return .result(dialog: IntentDialog("There is no next song, so Ensemble stayed on \(titleBefore)."))
         }
-        return .result(dialog: IntentDialog("Skipped to \(now.title)."))
+        return .result(dialog: IntentDialog("Asked Ensemble to skip."))
+    }
+}
+
+/// Where the queue is: the entry (not the track, which can repeat), its index and the playback position.
+@MainActor
+private struct QueuePosition {
+    let item: String?
+    let index: Int
+    let isLast: Bool
+    let time: TimeInterval
+
+    init(_ playback: PlaybackService) {
+        let queue = playback.queue
+        index = playback.currentQueueIndex
+        item = queue.indices.contains(index) ? queue[index].id : nil
+        isLast = index >= queue.count - 1
+        time = playback.currentTimeValue
     }
 }
 
@@ -376,14 +397,23 @@ struct PreviousEnsembleSongIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let before = try await currentTrackOrThrow()
+        _ = try await currentTrackOrThrow()
         _ = try await readyContainer()
         let playback = intentContainer.playbackService
+        let before = QueuePosition(playback)
+        let titleBefore = playback.currentTrack?.title ?? "this song"
         playback.previous()
-        // Previous restarts the song when it has played a while, so an unchanged track is a valid outcome.
-        let moved = await playbackReaches { playback.currentTrack?.sourceScopedID != before.sourceScopedID }
-        guard moved, let now = playback.currentTrack else {
-            return .result(dialog: IntentDialog("Went back to the start of \(before.title)."))
+        // Previous restarts the song when it has played a while, so an unchanged entry can be a valid outcome.
+        let changed = await playbackReaches {
+            let now = QueuePosition(playback)
+            return now.item != before.item || now.index != before.index || now.time < before.time
+        }
+        guard changed, let now = playback.currentTrack else {
+            return .result(dialog: IntentDialog("Asked Ensemble to go back."))
+        }
+        let after = QueuePosition(playback)
+        if after.item == before.item, after.index == before.index {
+            return .result(dialog: IntentDialog("Went back to the start of \(titleBefore)."))
         }
         return .result(dialog: IntentDialog("Went back to \(now.title)."))
     }
