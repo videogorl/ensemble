@@ -826,8 +826,8 @@ final class StreamingAudioPipeline: NSObject {
         let resumeFailedAfterPathChange = resumeOffset != nil && pathChangedAwaitingBytes
         guard let validator = resumeValidator, !resumeFailedAfterPathChange,
               now - startedAt < configuration.resumeWindow else {
-            stateLock.unlock()
-            failAfterDraining(error)
+            // Decided under the lock: a path change must not slip a replacement in before the give-up.
+            failAfterDrainingAndUnlock(error)
             return
         }
         EnsembleLogger.info("[StreamingPipeline] dropped trackId=\(configuration.trackID ?? "unknown") bytes=\(receivedByteCount)/\(validator.totalBytes) error=\((error as NSError).domain):\((error as NSError).code)")
@@ -849,7 +849,8 @@ final class StreamingAudioPipeline: NSObject {
     private func beginResume() {
         stateLock.lock()
         resumeWorkItem = nil
-        guard !cancelled, downloadResult == nil, deferredError == nil, let session, resumeValidator != nil else {
+        // A resume already in flight stays the only request: Plex ends one direct download when another starts.
+        guard task == nil, !cancelled, downloadResult == nil, deferredError == nil, let session, resumeValidator != nil else {
             stateLock.unlock()
             return
         }
@@ -895,8 +896,18 @@ final class StreamingAudioPipeline: NSObject {
     }
 
     /// Gives up on the download without cutting off audio already on disk or in the PCM reserve.
-    private func failAfterDraining(_ error: Error) {
+    /// A failure reported for `failedTask` is dropped if a path change has replaced that task meanwhile.
+    private func failAfterDraining(_ error: Error, from failedTask: URLSessionTask? = nil) {
         stateLock.lock()
+        if let failedTask, failedTask !== task {
+            stateLock.unlock()
+            return
+        }
+        failAfterDrainingAndUnlock(error)
+    }
+
+    /// Called with the lock held; releases it.
+    private func failAfterDrainingAndUnlock(_ error: Error) {
         guard decoderStarted, pcmBuffer != nil, !completed, !cancelled else {
             stateLock.unlock()
             fail(error)
@@ -1032,7 +1043,7 @@ extension StreamingAudioPipeline: URLSessionDataDelegate {
                   ResumableDownload.validContentRange(http.value(forHTTPHeaderField: "Content-Range"), offset: resumeOffset, total: validator.totalBytes),
                   response.expectedContentLength == validator.totalBytes - resumeOffset else {
                 completionHandler(.cancel)
-                failAfterDraining(URLError(.badServerResponse))
+                failAfterDraining(URLError(.badServerResponse), from: dataTask)
                 return
             }
         } else if let http, !(200 ... 299).contains(http.statusCode) {

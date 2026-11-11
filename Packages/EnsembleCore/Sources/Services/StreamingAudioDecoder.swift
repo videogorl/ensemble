@@ -31,6 +31,8 @@ final class StreamingAudioDecoder {
     private var pendingInputBuffers: [AVAudioBuffer] = []
     private var hasReportedFirstPacket = false
     private var hasReportedFirstPCM = false
+    /// The converter rejected at least one packet; that packet's audio is missing from the output.
+    private(set) var conversionFailed = false
     private var isReadyForPackets = false
 
     init(fileExtension: String) throws {
@@ -328,6 +330,7 @@ final class StreamingAudioDecoder {
             }
 
             if status == .error {
+                conversionFailed = true
                 EnsembleLogger.debug("[StreamingAudioDecoder] conversion failed: \(conversionError?.localizedDescription ?? "unknown")")
                 return
             }

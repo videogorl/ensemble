@@ -52,8 +52,8 @@ extension LibraryRepository {
             source.accountId = accountId
             source.serverId = serverId
             source.libraryId = libraryId
-            source.displayName = displayName
-            source.accountName = accountName
+            if let displayName { source.displayName = displayName }
+            if let accountName { source.accountName = accountName }
 
             try context.save()
         }

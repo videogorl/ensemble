@@ -379,6 +379,31 @@ final class StreamingAudioPipelineTests: XCTestCase {
         }
     }
 
+    /// Decoded length against the container's own: under half is damage at any length over a second, and
+    /// once the converter has rejected a packet, any missing second is.
+    func testDecodedLengthVerdicts() {
+        let cases: [(name: String, decoded: Double, container: Double?, conversionFailed: Bool, damaged: Bool)] = [
+            ("whole file", 240, 240, false, false),
+            ("just over half", 130, 240, false, false),
+            ("under half", 110, 240, false, true),
+            ("short file, a third decoded", 4, 12, false, true),
+            ("under a second", 0.2, 0.9, false, false),
+            ("no container length", 4, nil, false, false),
+            ("converter error, nothing missing", 239.5, 240, true, false),
+            ("converter error, seconds missing", 200, 240, true, true),
+            ("converter error, no container length", 200, nil, true, true),
+        ]
+        for item in cases {
+            let verdict = OriginalMediaCheck.classify(
+                decodedFrames: Int64(item.decoded * 44100), sampleRate: 44100,
+                containerSeconds: item.container, conversionFailed: item.conversionFailed
+            )
+            var isDamage = false
+            if case .damagedOriginal? = verdict { isDamage = true }
+            XCTAssertEqual(isDamage, item.damaged, item.name)
+        }
+    }
+
     /// A played original is decoded start to end when its download finishes, before it is registered: a
     /// whole file is cached as verified; a damaged one is never cached, is reported once, and the audio
     /// of its good part keeps playing.

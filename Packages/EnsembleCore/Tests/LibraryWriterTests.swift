@@ -13,6 +13,7 @@ final class LibraryWriterTests: XCTestCase {
         let writer: LibraryWriter
         let repository: LibraryRepository
         let cursors: SyncCursorRepository
+        let pending: PendingMutationRepository
     }
 
     private func makeFixture() throws -> Fixture {
@@ -22,10 +23,12 @@ final class LibraryWriterTests: XCTestCase {
         let stack = CoreDataStack.onDisk(at: directory.appendingPathComponent("Ensemble.sqlite"))
         let repository = LibraryRepository(coreDataStack: stack)
         let cursors = SyncCursorRepository(coreDataStack: stack)
+        let pending = PendingMutationRepository(coreDataStack: stack)
         return Fixture(
-            writer: LibraryWriter(libraryRepository: repository, syncCursorRepository: cursors),
+            writer: LibraryWriter(libraryRepository: repository, syncCursorRepository: cursors, pendingMutationRepository: pending),
             repository: repository,
-            cursors: cursors
+            cursors: cursors,
+            pending: pending
         )
     }
 
@@ -46,11 +49,11 @@ final class LibraryWriterTests: XCTestCase {
         )
     }
 
-    private func track(_ id: String, album: String, title: String? = nil) -> TrackUpsertInput {
+    private func track(_ id: String, album: String, title: String? = nil, rating: Int = 0) -> TrackUpsertInput {
         TrackUpsertInput(
             ratingKey: id, key: "/track/\(id)", title: title ?? "Track \(id)", artistName: nil, albumName: nil,
             albumRatingKey: album, trackNumber: 1, discNumber: 1, duration: 1_000, thumbPath: nil, streamKey: nil,
-            dateAdded: nil, dateModified: Date(timeIntervalSince1970: 100), lastPlayed: nil, rating: 0, playCount: 0
+            dateAdded: nil, dateModified: Date(timeIntervalSince1970: 100), lastPlayed: nil, rating: rating, playCount: 0
         )
     }
 
@@ -128,7 +131,8 @@ final class LibraryWriterTests: XCTestCase {
         XCTAssertEqual([result.removedArtists, result.removedAlbums, result.removedTracks], [0, 0, 0])
     }
 
-    /// Rows a response did not list must survive unless a complete inventory says they are gone.
+    /// Rows a response did not list must survive unless a complete inventory says they are gone. An empty
+    /// inventory counts only when its connector vouches for it (Apple Music); Plex never does.
     func testNothingIsDeletedWithoutACompleteNonEmptyInventory() async throws {
         let cases: [(name: String, batch: LibraryBatch)] = [
             ("delta with fewer rows than stored", LibraryBatch(tracks: [track("t1", album: "b1")], queryStartedAt: t0 + 10)),
@@ -136,6 +140,12 @@ final class LibraryWriterTests: XCTestCase {
             ("complete but empty inventory", LibraryBatch(
                 genres: [], inventory: try LibraryInventory(artistIDs: [], albumIDs: [], tracks: [], genreIDs: []),
                 isFullMetadataPass: true, queryStartedAt: t0 + 10
+            )),
+            ("vouched inventory that is empty only in part", LibraryBatch(
+                inventory: try LibraryInventory(
+                    artistIDs: [], albumIDs: ["b1", "b2"], tracks: [("t1", "b1")], emptyIsAuthoritative: true
+                ),
+                queryStartedAt: t0 + 10
             )),
             ("inventory without tracks", LibraryBatch(
                 inventory: try LibraryInventory(artistIDs: ["a1", "a2"], albumIDs: ["b1", "b2"], tracks: []),
@@ -161,6 +171,34 @@ final class LibraryWriterTests: XCTestCase {
             let record = try await cursor(f, sourceA)
             XCTAssertEqual(record?.lastFullSyncAt, self.t0, testCase.name)
         }
+    }
+
+    /// A connector-vouched empty library is the true state: it clears that source's rows, records the
+    /// cursor, and leaves every other source alone.
+    func testAVouchedEmptyInventoryDeletesOnlyItsOwnSourcesRows() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(fullBatch(at: t0), to: sourceA)
+        try await f.writer.apply(fullBatch(at: t0), to: sourceB)
+
+        let result = try await f.writer.apply(LibraryBatch(
+            genres: [],
+            inventory: try LibraryInventory(artistIDs: [], albumIDs: [], tracks: [], emptyIsAuthoritative: true),
+            isFullMetadataPass: true,
+            queryStartedAt: t0 + 10
+        ), to: sourceA)
+
+        let a = try await stored(f, sourceA)
+        XCTAssertEqual([a.artists.count, a.albums.count, a.tracks.count], [0, 0, 0])
+        let b = try await stored(f, sourceB)
+        XCTAssertEqual(b.artists, everything.artists)
+        XCTAssertEqual(b.albums, everything.albums)
+        XCTAssertEqual(b.tracks, everything.tracks)
+        XCTAssertEqual([result.removedArtists, result.removedAlbums, result.removedTracks], [2, 2, 3])
+        XCTAssertEqual(result.removedTrackRatingKeys, everything.tracks)
+        let record = try await cursor(f, sourceA)
+        XCTAssertEqual(record?.lastFullSyncAt, t0 + 10)
+        let other = try await cursor(f, sourceB)
+        XCTAssertEqual(other?.lastFullSyncAt, t0)
     }
 
     func testAStaleBatchArrivingAfterANewerOneChangesNothing() async throws {
@@ -355,5 +393,50 @@ final class LibraryWriterTests: XCTestCase {
         XCTAssertTrue(clockBehind.fullMetadataDue, "a cursor in the future is due")
         let full = try await f.writer.libraryPlan(for: sourceA, since: nil, now: t0 + 3_600)
         XCTAssertTrue(full.inventoryDue && full.fullMetadataDue && full.since == nil)
+    }
+
+    /// A favourite whose upload is still queued is newer than the server's rating; sync must not undo it.
+    func testASyncDoesNotReplaceARatingWhoseUploadIsStillQueued() async throws {
+        let f = try makeFixture()
+        let rated = LibraryBatch(
+            albums: [album("b1", artist: "a1")],
+            tracks: [track("t1", album: "b1", rating: 10), track("t2", album: "b1", rating: 10)],
+            queryStartedAt: t0
+        )
+        try await f.writer.apply(rated, to: sourceA)
+        let payload = try JSONEncoder().encode(
+            TrackRatingMutationPayload(trackRatingKey: "t1", sourceCompositeKey: sourceA.compositeKey, rating: 10)
+        )
+        try await f.pending.enqueueMutation(id: "m1", type: .trackRating, payload: payload, sourceCompositeKey: sourceA.compositeKey)
+
+        // The server has not seen the favourite yet and reports 0 for both tracks.
+        let server = LibraryBatch(
+            tracks: [track("t1", album: "b1", rating: 0), track("t2", album: "b1", rating: 0)],
+            queryStartedAt: t0 + 10
+        )
+        try await f.writer.apply(server, to: sourceA)
+
+        var ratings = try await f.repository.fetchTrackSummaries(forSource: sourceA.compositeKey).mapValues(\.rating)
+        XCTAssertEqual(ratings["t1"], 10, "queued favourite kept")
+        XCTAssertEqual(ratings["t2"], 0, "no queued mutation, the server's value applies")
+
+        try await f.pending.deleteMutation(id: "m1")
+        try await f.writer.apply(LibraryBatch(tracks: server.tracks, queryStartedAt: t0 + 20), to: sourceA)
+        ratings = try await f.repository.fetchTrackSummaries(forSource: sourceA.compositeKey).mapValues(\.rating)
+        XCTAssertEqual(ratings["t1"], 0, "once uploaded the server's value applies")
+    }
+
+    /// A batch without names leaves a source row's names alone, for Plex and Apple Music alike.
+    func testABatchWithoutNamesKeepsTheSourceRowsNames() async throws {
+        let f = try makeFixture()
+        for (source, names) in [(sourceA, ("Music", "tester")), (MusicSourceIdentifier.appleMusic, ("Apple Music", "This Device"))] {
+            _ = try await f.repository.upsertMusicSource(
+                compositeKey: source.compositeKey, type: source.type.rawValue, accountId: source.accountId,
+                serverId: source.serverId, libraryId: source.libraryId, displayName: names.0, accountName: names.1
+            )
+            try await f.writer.apply(LibraryBatch(queryStartedAt: t0), to: source)
+            let row = try await f.repository.fetchMusicSources().first { $0.compositeKey == source.compositeKey }
+            XCTAssertEqual([row?.displayName, row?.accountName], [names.0, names.1], "\(source.type)")
+        }
     }
 }

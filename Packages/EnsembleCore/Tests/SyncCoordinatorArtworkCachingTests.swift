@@ -48,7 +48,7 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
 
-    private final class RecordingSyncProvider: MusicSourceLibrarySyncing, @unchecked Sendable {
+    private final class RecordingSyncProvider: MusicSourceConnector, @unchecked Sendable {
         struct ArtworkRequest: Equatable {
             let path: String?
             let size: Int
@@ -66,21 +66,8 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
             self.sourceIdentifier = sourceIdentifier
         }
 
-        func syncLibrary(
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            progressHandler(1)
-            return LibrarySyncResult(changedArtists: 1, changedAlbums: 1)
-        }
-
-        func syncLibraryIncremental(
-            since timestamp: TimeInterval,
-            to repository: LibraryRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> LibrarySyncResult {
-            progressHandler(1)
-            return LibrarySyncResult()
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch {
+            plan.since == nil ? .writing(artists: 1, albums: 1) : LibraryBatch(queryStartedAt: Date())
         }
 
         func syncPlaylists(

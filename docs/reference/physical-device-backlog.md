@@ -527,6 +527,37 @@ incremental Plex library syncs against the live server (store comparison in
 | Background Refresh delivers the same library change through the writer: add or remove a file in the owned album, wait for a Background Refresh, then see the album count, the Siri index save and the offline download follow | Owed |
 | A Background Refresh near its deadline stops without leaving a partial inventory: the next launch's sync completes and counts match the server (the writer queues WebSocket batches behind a running one) | Owed |
 
+## iPhone with Apple Music — step 3c, Apple Music library on the writer
+
+Applies to the commits that move Apple Music library sync onto `LibraryWriter`
+(`d9150fee` and its follow-up). The iOS Simulator cannot authorize a MusicKit
+library (a bare MusicKit probe on the simulator returned `denied` for the
+library and REST requests), so the writer and fetcher behaviour is proved only by
+`AppleMusicLibraryFetcherTests` with a fake source.
+
+Run on the iPhone SE with scripted tests `testM0` to `testM19` in
+`PhonePlaybackAcceptanceUITests`, 2026-11-10. Earlier passes ran on builds
+`202611101258.4629` and `202611101534.1456`; the rows below were finished on
+`202611101916.0576` (`0576ff63`: step 3c plus the "trust an empty Apple Music
+library" change), confirmed with `devicectl` after the run. The SE's Apple
+Account is a test account with an Apple Music subscription and Sync Library on;
+its cloud library started empty. It now holds 20 songs added for these checks
+(left in place for later tests): all 17 songs of "Abbey Road (2019 Mix)" by The
+Beatles, "Hotel California" (Eagles), "Take On Me" (a-ha, album "25 (Deluxe
+Version)") and "Bohemian Rhapsody" (Queen, album "A Night At The Opera (Deluxe
+Edition)"), which is 4 albums and 4 artists. Row 4 needs a library of many
+thousands of songs and stays Owed for Felicity's own iPhone.
+
+| Check | Status |
+| --- | --- |
+| First sync after the update (no library cursor yet) reads the whole library, writes no rows that differ, deletes nothing, and records the cursor; the log has no `Apple Music inventory withheld` line | Passed (`202611101916.0576`): Remove Source cleared the Apple rows and cursor (store 0/0/0, no Apple cursor); re-adding logged `Apple Music library read: API 20 songs (total 20), MusicKit 20, matching 20`, wrote 20 tracks, 4 albums and 4 artists, recorded the cursor, and no `withheld` line appeared in any sync of the day |
+| Add a song to the Apple Music library, sync: the song, its album and artist appear; the album count is right | Passed (`202611101534.1456`, `202611101916.0576`): one song took the store from 0/0/0 to 1/1/1 (album trackCount 1); the 20-song library synced to 20 tracks, 4 albums, 4 artists, with Abbey Road's 17 songs on one album |
+| Remove that song, sync: the song leaves, and its album and artist leave when it was their last song | Passed (`202611101916.0576`), each in the first sync: deleting "Her Majesty" from Abbey Road logged `API 19 songs … Removed from appleMusic:device:system:library: 0 artists, 0 albums, 1 tracks` (store 19/4/4); deleting Queen's only song logged `API 18 songs … Removed … 1 artists, 1 albums, 1 tracks` (store 18/3/3). A second sync changed nothing. Both songs were added back (20/4/4). The empty-library case is covered by the unit table test, not the phone, to avoid deleting the 20 songs |
+| A library of many thousands of songs is not mistaken for incomplete: no `inventory withheld` line, which would mean the REST total or the MusicKit witness check disagrees on a healthy library | Owed. The largest library on the SE was 20 songs; REST total and MusicKit agreed every time, no `withheld` line in about 40 syncs |
+| Play counts and last played dates survive a sync that cannot read MusicKit history for a song (stored values kept) | Partly passed on 2026-11-11: "Her Majesty" read 6 plays and "Hotel California" 1 after a full sync, so counts are stored and a sync does not lower them. The cannot-read-history branch itself is unit-tested only. Earlier note: "Take On Me" played in Music for about 35 s and paused; MusicKit never reported a play for it (Ensemble stored play count 0 and no last played date after more than 25 syncs over about 80 minutes, with the app relaunched in between). A 35 s play apparently does not count, so there was no history to keep or lose. Needs a song played to its end, or Felicity's own iPhone |
+| Toggle Apple Music off in Settings: its rows and its library cursor go, a Plex source's rows and cursor stay; turn it back on and the first sync rebuilds | Passed (`202611101916.0576`) on the 20-song library: Remove Source logged `Cleaning up data for removed source` and `Successfully cleaned up source`; Apple 20/4/4 went to 0/0/0, the Apple cursor and source row went; Plex stayed at 13732 tracks and its 2 cursors (the third was cleared at launch by design while its server was unreachable, see `ON_DECK.md`); re-adding rebuilt 20/4/4 |
+| Revoke Media & Apple Music access in iOS Settings mid-use, then sync: the sync fails and the library is unchanged | Passed (`202611101916.0576`) on the 20-song library, which matters now that an empty read deletes: with the switch off the sync logged `Sync failed for appleMusic:device:system:library: … AppleMusicLibraryError error 0` and no `library read` line; the store stayed 20/4/4; permission and a normal sync were restored (`API 20 songs`) |
+
 The iPad and watch checklist sections start with steps 5 and 6.
 
 ## iPhone SE and a phone with a SIM — stream drop resume (steps c and d)
