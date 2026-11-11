@@ -1,3 +1,4 @@
+import EnsembleDomain
 import Foundation
 
 /// Shared playlist action rules used by UI presentation surfaces and view models.
@@ -61,6 +62,25 @@ public struct PlaylistActionService {
                 DisplayPlaylist.normalizedTitle($0.title) == normalizedTitle &&
                 MediaSourceIdentity.playlistScopeKey(from: $0.sourceCompositeKey) == sourceKey
         }
+    }
+
+    /// Where "add these tracks to `playlist`" lands. When merging is on and the playlist belongs to a merged group, it is
+    /// the group's copy on the tracks' own server, as the Add to Playlist sheet picks it; nil when that server has no
+    /// copy (the sheet then offers to create one, which a voice or Shortcuts request cannot confirm). Smart groups,
+    /// standalone playlists and merging off keep the named playlist.
+    public func addTarget(
+        for playlist: Playlist,
+        tracks: [Track],
+        currentTrack: Track?,
+        among visible: [Playlist],
+        preferences: EnsembleMergingPreferences
+    ) -> Playlist? {
+        guard let group = DisplayPlaylist.mergedGroupOpening(playlist, among: visible, preferences: preferences),
+              !group.isSmart else { return playlist }
+        guard let serverSourceKey = defaultServerSourceKey(for: tracks, currentTrack: currentTrack) else {
+            return tracks.isEmpty ? playlist : nil
+        }
+        return self.playlist(named: group.title, forServerSourceKey: serverSourceKey, in: group.playlists)
     }
 
     private func tracksMatch(_ first: Track, _ second: Track) -> Bool {

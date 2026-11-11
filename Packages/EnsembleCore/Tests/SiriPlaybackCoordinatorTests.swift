@@ -335,7 +335,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         off.mergePlaylists = false
         let cases: [(name: String, preferences: EnsembleMergingPreferences, hidden: HiddenMediaStore?, expected: [String])] = [
             ("merged, whitespace variant, smart one apart", .default, nil, ["track-1", "other-1"]),
-            ("merge setting off", off, nil, ["track-1"]),
+            ("merge setting off: a shortcut saved against the merged row quietly plays that row's own copy", off, nil, ["track-1"]),
             ("hidden sibling", .default, hidden, ["track-1"]),
             ("named copy hidden: plays what the screen shows for the group", .default, hiddenNamed, ["other-1"])
         ]

@@ -1,3 +1,4 @@
+import EnsembleDomain
 import XCTest
 @testable import EnsembleCore
 
@@ -17,6 +18,43 @@ final class PlaylistActionServiceTests: XCTestCase {
             "plex:account:server-b"
         )
         XCTAssertNil(service.defaultServerSourceKey(for: [], currentTrack: nil))
+    }
+
+    /// "Add to <merged playlist>" lands on the group's copy on the song's own server, as the Add to Playlist sheet
+    /// picks it; with merging off, or for a standalone playlist, on the named playlist.
+    func testAddTargetFollowsTheSheetRuleForMergedGroups() {
+        let apple = MusicSourceIdentifier.appleMusic.compositeKey
+        let a = Playlist(id: "a", key: "/a", title: "Focus", sourceCompositeKey: "plex:account:server-a")
+        let b = Playlist(id: "b", key: "/b", title: "focus", sourceCompositeKey: "plex:account:server-b")
+        let am = Playlist(id: "am", key: "am", title: "Focus", sourceCompositeKey: apple)
+        let solo = Playlist(id: "solo", key: "/solo", title: "Solo", sourceCompositeKey: "plex:account:server-a")
+        let onlyPlex = [a, b, solo]
+        let withApple = [a, b, am]
+        var off = EnsembleMergingPreferences.default
+        off.mergePlaylists = false
+
+        let songA = makeTrack(id: "t", sourceCompositeKey: "plex:account:server-a:library")
+        let songB = makeTrack(id: "t", sourceCompositeKey: "plex:account:server-b:library")
+        let songC = makeTrack(id: "t", sourceCompositeKey: "plex:account:server-c:library")
+        let songApple = makeTrack(id: "t", sourceCompositeKey: apple)
+
+        let cases: [(name: String, named: Playlist, song: Track, visible: [Playlist], preferences: EnsembleMergingPreferences, expected: String?)] = [
+            ("song on the representative's server", a, songA, onlyPlex, .default, "a"),
+            ("song on the other server", a, songB, onlyPlex, .default, "b"),
+            ("named copy is on the other server", b, songA, onlyPlex, .default, "a"),
+            ("song's server has no copy", a, songC, onlyPlex, .default, nil),
+            ("Apple Music song with an Apple Music copy", a, songApple, withApple, .default, "am"),
+            ("Plex song with an Apple Music copy present", am, songA, withApple, .default, "a"),
+            ("Apple Music song, Plex copies only", a, songApple, onlyPlex, .default, nil),
+            ("merging off keeps the named playlist", a, songB, onlyPlex, off, "a"),
+            ("standalone playlist keeps itself", solo, songB, onlyPlex, .default, "solo")
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                service.addTarget(for: testCase.named, tracks: [testCase.song], currentTrack: nil, among: testCase.visible, preferences: testCase.preferences)?.id,
+                testCase.expected, testCase.name
+            )
+        }
     }
 
     func testCompatibleTrackCountUsesServerIdentityStrictly() {

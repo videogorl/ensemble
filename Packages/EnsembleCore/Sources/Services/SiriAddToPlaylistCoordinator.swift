@@ -9,17 +9,20 @@ public final class SiriAddToPlaylistCoordinator {
     private let mutationCoordinator: MutationCoordinator
     private let playlistRepository: PlaylistRepositoryProtocol
     private let toastCenter: ToastCenter
+    private let addTarget: @MainActor (Playlist, [Track]) async throws -> Playlist?
 
     public init(
         playbackService: PlaybackServiceProtocol,
         mutationCoordinator: MutationCoordinator,
         playlistRepository: PlaylistRepositoryProtocol,
-        toastCenter: ToastCenter
+        toastCenter: ToastCenter,
+        addTarget: @escaping @MainActor (Playlist, [Track]) async throws -> Playlist?
     ) {
         self.playbackService = playbackService
         self.mutationCoordinator = mutationCoordinator
         self.playlistRepository = playlistRepository
         self.toastCenter = toastCenter
+        self.addTarget = addTarget
     }
 
     /// Decodes and executes a Siri add-to-playlist payload routed through NSUserActivity.
@@ -70,7 +73,16 @@ public final class SiriAddToPlaylistCoordinator {
             return
         }
 
-        let playlist = Playlist(from: cdPlaylist)
+        // A merged group takes the song on its own server, as the Add to Playlist sheet does.
+        guard let playlist = try await addTarget(Playlist(from: cdPlaylist), [currentTrack]) else {
+            toastCenter.show(ToastPayload(
+                style: .warning,
+                iconSystemName: "exclamationmark.triangle",
+                title: "Can't add to that playlist",
+                message: "The song and the playlist are on different music sources. Pick a playlist on the same server as the song."
+            ))
+            return
+        }
 
         let (_, outcome) = try await mutationCoordinator.addTracksToPlaylist(
             [currentTrack],

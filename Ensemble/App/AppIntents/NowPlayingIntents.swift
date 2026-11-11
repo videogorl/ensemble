@@ -40,7 +40,10 @@ func add(_ tracks: [Track], to playlist: EnsemblePlaylistEntity) async throws ->
         ) else {
             throw EnsembleIntentError.playlistNotFound
         }
-        let target = Playlist(from: stored)
+        // A merged group takes the song on its own server, as the Add to Playlist sheet does.
+        guard let target = try await container.siriPlaybackCoordinator.addTarget(for: Playlist(from: stored), tracks: tracks) else {
+            throw EnsembleIntentError.differentSources
+        }
         // Playlists take only tracks from their own server, so name that cause rather than "no compatible tracks".
         if !tracks.isEmpty,
            PlaylistActionService().tracks(tracks, compatibleWithServerSourceKey: target.sourceCompositeKey).isEmpty {

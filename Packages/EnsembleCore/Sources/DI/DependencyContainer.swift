@@ -675,7 +675,10 @@ public final class DependencyContainer: @unchecked Sendable {
                 playbackService: playback.playbackService,
                 mutationCoordinator: mutation.mutationCoordinator,
                 playlistRepository: core.playlistRepository,
-                toastCenter: core.toastCenter
+                toastCenter: core.toastCenter,
+                addTarget: { [siriPlaybackCoordinator] playlist, tracks in
+                    try await siriPlaybackCoordinator.addTarget(for: playlist, tracks: tracks)
+                }
             )
         }
         let siriMediaUserContextManager = MainActor.assumeIsolated {

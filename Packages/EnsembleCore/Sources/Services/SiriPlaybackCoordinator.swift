@@ -637,12 +637,8 @@ public final class SiriPlaybackCoordinator {
         )
     }
 
-    /// The playlists the playlist screen shows together with this one, in its order: the same grouping, the same
-    /// merge setting, the same hidden-media and hidden-source rules. Just the playlist when the screen would not merge it.
-    private func displayedConstituents(of playlist: CDPlaylist) async throws -> [CDPlaylist] {
-        let preferences = mergingPreferences()
-        guard preferences.isEnabled, preferences.mergePlaylists else { return [playlist] }
-
+    /// The playlists the playlist screen shows: its hidden-media and hidden-source rules, with their stored rows.
+    private func visiblePlaylists() async throws -> (visible: [Playlist], stored: [String: CDPlaylist]) {
         let isSourceVisible = visibilityStore.playlistSourceVisibility(in: accountManager.sourceConfigurationSnapshot)
         var storedBySourceID: [String: CDPlaylist] = [:]
         var visible: [Playlist] = []
@@ -652,7 +648,16 @@ public final class SiriPlaybackCoordinator {
             storedBySourceID[candidate.sourceScopedID] = stored
             visible.append(candidate)
         }
+        return (visible, storedBySourceID)
+    }
 
+    /// The playlists the playlist screen shows together with this one, in its order: the same grouping, the same
+    /// merge setting, the same hidden-media and hidden-source rules. Just the playlist when the screen would not merge it.
+    private func displayedConstituents(of playlist: CDPlaylist) async throws -> [CDPlaylist] {
+        let preferences = mergingPreferences()
+        guard preferences.isEnabled, preferences.mergePlaylists else { return [playlist] }
+
+        let (visible, storedBySourceID) = try await visiblePlaylists()
         // The group the screen shows for this title, even when this very copy is hidden and the screen leads with another.
         let own = Playlist(from: playlist)
         let ownKey = PlexPlaylistMergeRules.key(title: own.title, isSmart: own.isSmartForPlaylistGrouping)
@@ -660,6 +665,20 @@ public final class SiriPlaybackCoordinator {
             .first(where: { PlexPlaylistMergeRules.key(title: $0.title, isSmart: $0.playlists[0].isSmartForPlaylistGrouping) == ownKey })
         else { return [playlist] }
         return group.playlists.compactMap { storedBySourceID[$0.sourceScopedID] }
+    }
+
+    /// The playlist "add these tracks to `playlist`" lands on, by the Add to Playlist sheet's rule: for a merged group
+    /// with merging on, the group's copy on the tracks' own server. Nil when that server has no copy in the group.
+    public func addTarget(for playlist: Playlist, tracks: [Track]) async throws -> Playlist? {
+        let preferences = mergingPreferences()
+        guard preferences.isEnabled, preferences.mergePlaylists else { return playlist }
+        return PlaylistActionService().addTarget(
+            for: playlist,
+            tracks: tracks,
+            currentTrack: nil,
+            among: try await visiblePlaylists().visible,
+            preferences: preferences
+        )
     }
 
     private func prioritizeExactPlaylistMatches(
