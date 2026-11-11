@@ -850,8 +850,7 @@ final class PlaylistRepositoryTests: XCTestCase {
         try await playlistRepository.updatePlaylistTitle(
             ratingKey: "playlist-1",
             sourceCompositeKey: sourceKey,
-            title: "Renamed Playlist",
-            dateModified: Date(timeIntervalSince1970: 200)
+            title: "Renamed Playlist"
         )
 
         let fetchedPlaylist = try await playlistRepository.fetchPlaylist(
@@ -860,6 +859,7 @@ final class PlaylistRepositoryTests: XCTestCase {
         )
         let playlist = try XCTUnwrap(fetchedPlaylist)
         XCTAssertEqual(playlist.title, "Renamed Playlist")
+        XCTAssertEqual(playlist.dateModified, Date(timeIntervalSince1970: 100), "a rename leaves the server's date alone")
         XCTAssertEqual(playlist.trackCount, 1)
         XCTAssertEqual(playlist.tracksArray.map(\.ratingKey), ["track-1"])
         XCTAssertEqual(playlist.compositePath, "/playlists/playlist-1/composite")

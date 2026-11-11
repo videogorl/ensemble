@@ -471,8 +471,7 @@ public final class MutationCoordinator {
             try await playlistRepository.updatePlaylistTitle(
                 ratingKey: playlist.id,
                 sourceCompositeKey: playlist.sourceCompositeKey,
-                title: title,
-                dateModified: Date()
+                title: title
             )
             syncCoordinator.emit(.playlistRenamedLocally(sourceKey: sourceKey))
         } catch {

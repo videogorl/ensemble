@@ -883,4 +883,68 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         let other = try await repository.fetchPlaylistSyncStates(forSource: "plex:account-2:server-1")
         XCTAssertEqual(Set(other.keys), ["playlist-1"], "another server's playlist is untouched")
     }
+
+    /// A rename stores no date of its own, so `dateModified` is always the server's. While the rename is queued a
+    /// header of any date keeps the new title, and a newer one still advances the date; once it uploads, the
+    /// server's header applies, whatever its date.
+    func testAQueuedRenameKeepsItsTitleAgainstServerHeadersOfAnyDateUntilItUploads() async throws {
+        let stack = CoreDataStack.inMemory()
+        let playlists = PlaylistRepository(coreDataStack: stack)
+        let pending = PendingMutationRepository(coreDataStack: stack)
+        let scope = "plex:account-1:server-1"
+        let coordinator = makeCoordinator(playlistRepository: playlists)
+        let writer = LibraryWriter(
+            libraryRepository: LibraryRepository(coreDataStack: stack), playlistRepository: playlists,
+            syncCursorRepository: SyncCursorRepository(coreDataStack: stack), pendingMutationRepository: pending
+        )
+        func header(_ title: String, at seconds: TimeInterval) -> PlaylistUpsertInput {
+            PlaylistUpsertInput(
+                ratingKey: "p1", key: "/playlists/p1", title: title, summary: nil, compositePath: nil, isSmart: false,
+                duration: 0, trackCount: 0, dateAdded: nil, dateModified: Date(timeIntervalSince1970: seconds), lastPlayed: nil
+            )
+        }
+        var readAt = 0.0
+        func read(_ title: String, at seconds: TimeInterval) async throws {
+            readAt += 1
+            try await writer.apply(PlaylistBatch(entries: [PlaylistEntry(header: header(title, at: seconds), body: [])], queryStartedAt: Date(timeIntervalSince1970: 1_000 + readAt)), for: scope)
+        }
+        func stored() async throws -> (title: String?, date: Date?) {
+            let state = try await playlists.fetchPlaylistSyncStates(forSource: scope)["p1"]
+            return (state?.title, state?.dateModified)
+        }
+        try await read("Original", at: 100)
+
+        // The production path: rename while offline queues the mutation and renames the cached row.
+        await coordinator.handleObservedNetworkStateForTesting(.offline)
+        let mutations = MutationCoordinator(
+            repository: pending, coreDataStack: stack, toastCenter: ToastCenter(), networkMonitor: NetworkMonitor(),
+            syncCoordinator: coordinator, playlistRepository: playlists
+        )
+        let playlist = Playlist(
+            id: "p1", key: "/playlists/p1", title: "Original", summary: nil, isSmart: false, trackCount: 0, duration: 0,
+            compositePath: nil, dateAdded: nil, dateModified: Date(timeIntervalSince1970: 100), lastPlayed: nil, sourceCompositeKey: scope
+        )
+        let outcome = try await mutations.renamePlaylist(playlist, to: "Renamed")
+        XCTAssertEqual(outcome, .queued)
+        let queued = try await pending.fetchPendingMutationRecords()
+        XCTAssertEqual(queued.map(\.mutationType), [.playlistRename])
+        var now = try await stored()
+        XCTAssertEqual(now.title, "Renamed")
+        XCTAssertEqual(now.date, Date(timeIntervalSince1970: 100), "the rename stamped no date of its own")
+
+        // Queued: a server header older, equal and newer than the stored date.
+        for (seconds, expectedDate) in [(50.0, 100.0), (100, 100), (200, 200)] {
+            try await read("Server title", at: seconds)
+            now = try await stored()
+            XCTAssertEqual(now.title, "Renamed", "server date \(seconds)")
+            XCTAssertEqual(now.date, Date(timeIntervalSince1970: expectedDate), "server date \(seconds)")
+        }
+
+        // Uploaded: the record is gone, and the server's header applies with the same date it already stored.
+        try await pending.deleteMutation(id: try XCTUnwrap(queued.first).id)
+        try await read("Server title", at: 200)
+        now = try await stored()
+        XCTAssertEqual(now.title, "Server title")
+        XCTAssertEqual(now.date, Date(timeIntervalSince1970: 200))
+    }
 }

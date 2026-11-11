@@ -210,11 +210,11 @@ public protocol PlaylistRepositoryProtocol: Sendable {
         sourceCompositeKey: String?
     ) async throws -> CDPlaylist
     func upsertPlaylist(_ input: PlaylistUpsertInput, sourceCompositeKey: String?) async throws -> CDPlaylist
+    /// Renames the cached playlist. `dateModified` stays the server's value: only a server read changes it.
     func updatePlaylistTitle(
         ratingKey: String,
         sourceCompositeKey: String?,
-        title: String,
-        dateModified: Date
+        title: String
     ) async throws
     func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
     func setPlaylistTrackSnapshots(_ snapshots: [PlaylistTrackSnapshot], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
@@ -275,8 +275,7 @@ public extension PlaylistRepositoryProtocol {
     func updatePlaylistTitle(
         ratingKey: String,
         sourceCompositeKey: String?,
-        title: String,
-        dateModified: Date
+        title: String
     ) async throws {
         guard let playlist = try await fetchPlaylist(
             ratingKey: ratingKey,
@@ -292,7 +291,7 @@ public extension PlaylistRepositoryProtocol {
             duration: Int(playlist.duration),
             trackCount: Int(playlist.trackCount),
             dateAdded: playlist.dateAdded,
-            dateModified: dateModified,
+            dateModified: playlist.dateModified,
             lastPlayed: playlist.lastPlayed,
             sourceCompositeKey: sourceCompositeKey
         )
@@ -870,8 +869,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
     public func updatePlaylistTitle(
         ratingKey: String,
         sourceCompositeKey: String?,
-        title: String,
-        dateModified: Date
+        title: String
     ) async throws {
         try await coreDataStack.performBackgroundContext { context in
             let request = CDPlaylist.fetchRequest()
@@ -888,7 +886,6 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
             }
 
             playlist.title = title
-            playlist.dateModified = dateModified
             playlist.updatedAt = Date()
             try context.save()
         }

@@ -334,23 +334,6 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         XCTAssertEqual(needed.map(\.ratingKey), ["p1"])
     }
 
-    func testAQueuedRenameKeepsTheLocalTitleUntilItUploads() async throws {
-        let f = try makeFixture()
-        try await f.writer.apply(list(["p1"], at: t0), for: scope)
-        try await f.playlists.updatePlaylistTitle(ratingKey: "p1", sourceCompositeKey: scope, title: "Renamed", dateModified: Date(timeIntervalSince1970: 100))
-        let payload = try JSONEncoder().encode(PlaylistRenameMutationPayload(playlistRatingKey: "p1", playlistSourceCompositeKey: scope, newTitle: "Renamed"))
-        try await f.pending.enqueueMutation(id: "m1", type: .playlistRename, payload: payload, sourceCompositeKey: scope)
-
-        try await f.writer.apply(list(["p1"], at: t0 + 10, modified: 100), for: scope)
-        var states = try await f.playlists.fetchPlaylistSyncStates(forSource: scope)
-        XCTAssertEqual(states["p1"]?.title, "Renamed")
-
-        try await f.pending.deleteMutation(id: "m1")
-        try await f.writer.apply(list(["p1"], at: t0 + 20, modified: 100), for: scope)
-        states = try await f.playlists.fetchPlaylistSyncStates(forSource: scope)
-        XCTAssertEqual(states["p1"]?.title, "Playlist p1", "once uploaded the server's title applies")
-    }
-
     /// p1 is rewritten and p2 is deleted by the inventory; a target on each keeps its row.
     func testOfflineTargetsSurviveBodyRewritesAndDeletions() async throws {
         let f = try makeFixture()
