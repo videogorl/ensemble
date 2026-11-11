@@ -1167,15 +1167,22 @@ final class TrailingRefreshRunner {
         if let task {
             EnsembleLogger.debug("[SystemMedia] Siri catalog refresh coalesced with active refresh")
             needsRerun = true
-            return await task.value
+            let result = await task.value
+            // The pass has cleared itself. A request still pending means the caller driving it was cancelled
+            // before it could run it again, so this live caller does.
+            if needsRerun, self.task == nil, !Task.isCancelled { return await run() }
+            return result
         }
         var result = false
         repeat {
             needsRerun = false
-            let pass = Task { @MainActor [work] in await work() }
+            let pass = Task { @MainActor [work] in
+                let result = await work()
+                self.task = nil
+                return result
+            }
             task = pass
             result = await withTaskCancellationHandler { await pass.value } onCancel: { pass.cancel() }
-            task = nil
         } while needsRerun && !Task.isCancelled
         return result
     }

@@ -25,4 +25,25 @@ final class TrailingRefreshRunnerTests: XCTestCase {
         _ = await runner.run()
         XCTAssertEqual(started, 3)
     }
+
+    /// When the caller driving a pass is cancelled, a request another caller made during it is still run.
+    func testCancelledDriverHandsPendingRequestToALiveCaller() async {
+        var started = 0
+        var gate: CheckedContinuation<Void, Never>?
+        let runner = TrailingRefreshRunner {
+            started += 1
+            if started == 1 { await withCheckedContinuation { gate = $0 } }
+            return true
+        }
+
+        let driver = Task { await runner.run() }
+        while gate == nil { await Task.yield() }
+        let requester = Task { await runner.run() }
+        await Task.yield()
+        driver.cancel()
+        gate?.resume()
+        _ = await (driver.value, requester.value)
+
+        XCTAssertEqual(started, 2)
+    }
 }
