@@ -44,7 +44,6 @@ final class DisplayPlaylistResolvedTracksTests: XCTestCase {
         func deletePlaylist(ratingKey: String) async throws {}
         func deletePlaylists(sourceCompositeKey: String) async throws {}
         func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
-        func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
 
         static func lookupKey(ratingKey: String, sourceCompositeKey: String?) -> String {
             "\(sourceCompositeKey ?? "")|\(ratingKey)"

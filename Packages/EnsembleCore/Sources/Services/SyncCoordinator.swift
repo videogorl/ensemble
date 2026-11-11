@@ -505,6 +505,7 @@ public final class SyncCoordinator {
         self.syncCursorRepository = syncCursorRepository
         self.libraryWriter = LibraryWriter(
             libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
             syncCursorRepository: syncCursorRepository,
             pendingMutationRepository: pendingMutationRepository
         )
@@ -562,8 +563,7 @@ public final class SyncCoordinator {
                         sourceIdentifier: sourceId,
                         apiClient: apiClient,
                         sectionKey: library.key,
-                        enabledSectionKeys: server.libraries.filter(\.isEnabled).map(\.key),
-                        syncCursorRepository: syncCursorRepository
+                        enabledSectionKeys: server.libraries.filter(\.isEnabled).map(\.key)
                     )
 
                     syncProviders[sourceId.compositeKey] = provider
@@ -964,9 +964,8 @@ public final class SyncCoordinator {
 
         let results = await playlistRefreshController.refreshAllServers(
             providers: persistenceOperation.providers,
-            playlistRepository: playlistRepository,
-            trigger: .playlistOnly,
-            allowFullFallback: false
+            writer: libraryWriter,
+            trigger: .playlistOnly
         )
 
         for result in results {
@@ -1183,27 +1182,25 @@ public final class SyncCoordinator {
         let snapshots = tracks.compactMap {
             Self.playlistTrackSnapshot($0, playlistItemID: nil)
         }
-        _ = try await playlistRepository.upsertPlaylist(
-            PlaylistUpsertInput(
-                ratingKey: playlist.id,
-                key: playlist.key,
-                title: playlist.title,
-                summary: playlist.summary,
-                compositePath: playlist.compositePath,
-                isSmart: playlist.isSmart,
-                duration: Int(playlist.duration * 1_000),
-                trackCount: snapshots.count,
-                dateAdded: playlist.dateAdded,
-                dateModified: playlist.dateModified,
-                lastPlayed: playlist.lastPlayed,
-                actionCapabilities: playlist.actionCapabilities
+        try await libraryWriter.applyLocalEdit(
+            PlaylistEntry(
+                header: PlaylistUpsertInput(
+                    ratingKey: playlist.id,
+                    key: playlist.key,
+                    title: playlist.title,
+                    summary: playlist.summary,
+                    compositePath: playlist.compositePath,
+                    isSmart: playlist.isSmart,
+                    duration: Int(playlist.duration * 1_000),
+                    trackCount: snapshots.count,
+                    dateAdded: playlist.dateAdded,
+                    dateModified: playlist.dateModified,
+                    lastPlayed: playlist.lastPlayed,
+                    actionCapabilities: playlist.actionCapabilities
+                ),
+                body: snapshots
             ),
-            sourceCompositeKey: sourceKey
-        )
-        try await playlistRepository.setPlaylistTrackSnapshots(
-            snapshots,
-            forPlaylist: playlist.id,
-            sourceCompositeKey: sourceKey
+            for: sourceKey
         )
         notifyPlaylistRefreshCompleted(serverSourceKey: sourceKey)
     }
@@ -1241,24 +1238,25 @@ public final class SyncCoordinator {
                 playlistItemID: nil
             )
         }
-        try await playlistRepository.setPlaylistTrackSnapshots(
-            snapshots,
-            forPlaylist: playlist.id,
-            sourceCompositeKey: sourceKey
-        )
-        _ = try await playlistRepository.upsertPlaylist(
-            ratingKey: cachedPlaylist.ratingKey,
-            key: cachedPlaylist.key,
-            title: cachedPlaylist.title,
-            summary: cachedPlaylist.summary,
-            compositePath: cachedPlaylist.compositePath,
-            isSmart: cachedPlaylist.isSmart,
-            duration: Int(snapshots.reduce(0) { $0 + $1.duration } * 1_000),
-            trackCount: snapshots.count,
-            dateAdded: cachedPlaylist.dateAdded,
-            dateModified: cachedPlaylist.dateModified,
-            lastPlayed: cachedPlaylist.lastPlayed,
-            sourceCompositeKey: sourceKey
+        try await libraryWriter.applyLocalEdit(
+            PlaylistEntry(
+                header: PlaylistUpsertInput(
+                    ratingKey: cachedPlaylist.ratingKey,
+                    key: cachedPlaylist.key,
+                    title: cachedPlaylist.title,
+                    summary: cachedPlaylist.summary,
+                    compositePath: cachedPlaylist.compositePath,
+                    isSmart: cachedPlaylist.isSmart,
+                    duration: Int(snapshots.reduce(0) { $0 + $1.duration } * 1_000),
+                    trackCount: snapshots.count,
+                    dateAdded: cachedPlaylist.dateAdded,
+                    // The server's date stays, so the next read of the changed playlist replaces this body.
+                    dateModified: cachedPlaylist.dateModified,
+                    lastPlayed: cachedPlaylist.lastPlayed
+                ),
+                body: snapshots
+            ),
+            for: sourceKey
         )
         notifyPlaylistRefreshCompleted(serverSourceKey: sourceKey)
         EnsembleLogger.info(
@@ -1298,27 +1296,14 @@ public final class SyncCoordinator {
         guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
         let result: PlaylistSyncResult
         do {
-            result = try await provider.syncPlaylistsIncremental(
-                to: playlistRepository,
-                forceOrphanCheck: true,
-                progressHandler: { _ in }
-            )
+            result = try await playlistRefreshController.sync(provider: provider, writer: libraryWriter)
         } catch is CancellationError {
             return
         } catch {
-            do {
-                result = try await provider.syncPlaylists(
-                    to: playlistRepository,
-                    progressHandler: { _ in }
-                )
-            } catch is CancellationError {
-                return
-            } catch {
-                EnsembleLogger.error(
-                    "Playlist refresh failed source=\(sourceKey): \(error.localizedDescription)"
-                )
-                return
-            }
+            EnsembleLogger.error(
+                "Playlist refresh failed source=\(sourceKey): \(error.localizedDescription)"
+            )
+            return
         }
         guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
         await cachePlaylistArtwork(sourceId: provider.sourceIdentifier, provider: provider)
@@ -1387,14 +1372,15 @@ public final class SyncCoordinator {
                 }
                 guard isCurrentProviderRevision(expectedRevision, sourceKey: providerSourceKey),
                       isSourcePersistenceWorkCurrent(persistenceWork) else { return }
-                guard let trackCount = try await provider.reconcilePlaylist(
+                guard let batch = try await provider.reconcilePlaylist(
                     id: playlistID,
                     minimumTrackCount: minimumTrackCount,
-                    requiredTracks: requiredTracks,
-                    to: playlistRepository
+                    requiredTracks: requiredTracks
                 ) else { continue }
                 guard isCurrentProviderRevision(expectedRevision, sourceKey: providerSourceKey),
                       isSourcePersistenceWorkCurrent(persistenceWork) else { return }
+                try await libraryWriter.apply(batch, for: sourceKey)
+                let trackCount = batch.entries.first?.body?.count ?? 0
                 notifyPlaylistRefreshCompleted(serverSourceKey: sourceKey)
                 EnsembleLogger.info(
                     "Playlist reconciliation completed source=\(sourceKey) playlist=\(playlistID) tracks=\(trackCount) attempts=\(attempt) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
@@ -1578,29 +1564,12 @@ public final class SyncCoordinator {
     private func invalidatePlexReconciliationCursors() async {
         guard let syncCursorRepository else { return }
 
-        var invalidatedServerKeys = Set<String>()
         for provider in syncProviders.values where provider.sourceIdentifier.type == .plex {
             do {
                 try await libraryWriter.removeCursor(for: provider.sourceIdentifier)
             } catch {
                 EnsembleLogger.error(
                     "Failed to prepare authoritative Plex reconciliation for \(provider.sourceIdentifier.compositeKey): \(error.localizedDescription)"
-                )
-            }
-
-            let serverSourceKey = MediaSourceIdentity.serverSourceKey(for: provider.sourceIdentifier)
-            guard invalidatedServerKeys.insert(serverSourceKey).inserted else { continue }
-            UserDefaults.standard.removeObject(
-                forKey: PlexConnector.playlistOrphanCheckKey(for: serverSourceKey)
-            )
-            do {
-                try await syncCursorRepository.invalidateInventorySync(
-                    scopeKey: serverSourceKey,
-                    scopeType: .serverPlaylists
-                )
-            } catch {
-                EnsembleLogger.error(
-                    "Failed to prepare authoritative Plex playlist reconciliation for \(serverSourceKey): \(error.localizedDescription)"
                 )
             }
         }
@@ -2135,13 +2104,7 @@ public final class SyncCoordinator {
             playlistRepository.discardArtworkInvalidations(forSourceCompositeKey: serverSourceKey)
             try await playlistRepository.deletePlaylists(sourceCompositeKey: serverSourceKey)
             clearLastPlaylistTargets(forServerSourceKey: serverSourceKey)
-            let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
-            UserDefaults.standard.removeObject(forKey: timestampKey)
-            UserDefaults.standard.removeObject(forKey: PlexConnector.playlistOrphanCheckKey(for: serverSourceKey))
-            try await syncCursorRepository?.deleteCursor(
-                scopeKey: serverSourceKey,
-                scopeType: .serverPlaylists
-            )
+            try await libraryWriter.removePlaylistCursor(serverSourceKey)
             if let sourceCacheCleanupService {
                 _ = try await sourceCacheCleanupService.cleanupSource(serverSourceKey)
             }
@@ -2427,8 +2390,7 @@ public final class SyncCoordinator {
     /// Refresh playlists for a specific server after a mutation so CoreData stays in sync.
     private func refreshServerPlaylists(
         serverSourceKey: String,
-        trigger: PlaylistRefreshController.Trigger = .mutationRefresh,
-        allowFullFallback: Bool = true
+        trigger: PlaylistRefreshController.Trigger = .mutationRefresh
     ) async {
         guard let persistenceOperation = beginSourcePersistenceOperation(sourceKey: serverSourceKey) else {
             return
@@ -2439,9 +2401,8 @@ public final class SyncCoordinator {
             guard let result = try await playlistRefreshController.refreshServer(
                 serverSourceKey: serverSourceKey,
                 providers: persistenceOperation.providers,
-                playlistRepository: playlistRepository,
-                trigger: trigger,
-                allowFullFallback: allowFullFallback
+                writer: libraryWriter,
+                trigger: trigger
             ) else {
                 return
             }
@@ -3004,13 +2965,9 @@ public final class SyncCoordinator {
         for serverSourceKey in serverSourceKeys.sorted() {
             guard !Task.isCancelled else { return }
             do {
-                let cursor = try await syncCursorRepository?.fetchCursor(
-                    scopeKey: serverSourceKey,
-                    scopeType: .serverPlaylists
-                )
-                // An incremental query can miss deletions. Only a successful complete
-                // inventory satisfies this fallback, including manual/WebSocket refreshes.
-                if let lastInventory = [cursor?.lastInventorySyncAt, cursor?.lastFullSyncAt].compactMap({ $0 }).max() {
+                // Only a successful complete inventory satisfies this fallback, including
+                // manual/WebSocket refreshes.
+                if let lastInventory = try await libraryWriter.lastPlaylistInventoryAt(serverSourceKey) {
                     let age = nowProviderForTesting().timeIntervalSince(lastInventory)
                     if age >= 0, age < Self.downloadedPlaylistRefreshInterval { continue }
                 }
@@ -3018,8 +2975,7 @@ public final class SyncCoordinator {
                       downloadedPlaylistServerSourceKeys?().contains(serverSourceKey) == true else { continue }
                 await refreshServerPlaylists(
                     serverSourceKey: serverSourceKey,
-                    trigger: .downloadedPlaylist,
-                    allowFullFallback: false
+                    trigger: .downloadedPlaylist
                 )
             } catch {
                 EnsembleLogger.debug("Downloaded-playlist freshness read failed: \(error.localizedDescription)")
@@ -3134,7 +3090,7 @@ public final class SyncCoordinator {
             guard let result = try await webSocketSyncController.refreshServerPlaylists(
                 serverKey: serverKey,
                 providers: persistenceOperation.providers,
-                playlistRepository: playlistRepository,
+                writer: libraryWriter,
                 playlistRefreshController: playlistRefreshController
             ) else {
                 EnsembleLogger.error("🔌 SyncCoordinator: No playlist refresh result for server \(serverKey)")
@@ -3547,7 +3503,6 @@ private extension SyncCoordinator {
                 provider: provider,
                 source: source,
                 enabled: shouldSyncPlaylists,
-                incremental: false,
                 progressBase: playlistProgressBase,
                 progressWeight: playlistProgressWeight,
                 sourceWork: sourceWork
@@ -3709,7 +3664,6 @@ private extension SyncCoordinator {
                 provider: provider,
                 source: source,
                 enabled: shouldSyncPlaylists,
-                incremental: true,
                 progressBase: 0.9,
                 progressWeight: 0.1,
                 sourceWork: sourceWork
@@ -3791,28 +3745,14 @@ private extension SyncCoordinator {
         provider: MusicSourceConnector,
         source: MusicSourceIdentifier,
         enabled: Bool,
-        incremental: Bool,
         progressBase: Double,
         progressWeight: Double,
         sourceWork: (revision: SourceProviderRevision, lease: SourcePersistenceLease)
     ) async throws -> PlaylistSyncResult? {
         guard enabled else { return nil }
-
-        if incremental {
-            return try await provider.syncPlaylistsIncremental(
-                to: playlistRepository,
-                forceOrphanCheck: false,
-                progressHandler: { [self] progress in
-                    Task { @MainActor in
-                        guard isSourcePersistenceWorkCurrent(sourceKey: source.compositeKey, revision: sourceWork.revision, lease: sourceWork.lease) else { return }
-                        throttledProgressUpdate(for: source, mappedProgress: progressBase + (progress * progressWeight))
-                    }
-                }
-            )
-        }
-
-        return try await provider.syncPlaylists(
-            to: playlistRepository,
+        return try await playlistRefreshController.sync(
+            provider: provider,
+            writer: libraryWriter,
             progressHandler: { [self] progress in
                 Task { @MainActor in
                     guard isSourcePersistenceWorkCurrent(sourceKey: source.compositeKey, revision: sourceWork.revision, lease: sourceWork.lease) else { return }

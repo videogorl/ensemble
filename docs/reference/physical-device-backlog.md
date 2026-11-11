@@ -560,6 +560,23 @@ thousands of songs and stays Owed for Felicity's own iPhone.
 
 The iPad and watch checklist sections start with steps 5 and 6.
 
+## iPhone — step 3d, playlists on the writer (Plex and Apple Music)
+
+Applies to the commits that move playlist list and body sync onto `LibraryWriter`.
+The simulator proved the writer rules (on-disk store tests) and the Plex connector
+against a fake server; nothing has run on the iPhone.
+
+| Check | Status |
+| --- | --- |
+| An unchanged Plex playlist pass makes no `/playlists/{id}/items` request (issue #98: a playlist whose stored rows are below the server count is no longer refetched) | Owed |
+| Plex: create, add, rename, reorder and delete on a disposable playlist; the list matches the server after each | Owed (needs Felicity's approval) |
+| A playlist edited from another Plex client reaches the phone through the WebSocket and the body changes | Owed |
+| A playlist with repeated tracks and one emptied on the server keep their order and count | Owed |
+| No Plex playlist lacks `updatedAt` (such a playlist would refetch its body every pass) | Owed |
+| Apple Music: `/v1/me/library/playlists/{id}/tracks` reports `meta.total`; without it a body is accepted unverified | Owed |
+| Apple Music: playlists list, bodies match, a playlist deleted in Music disappears; no `inventory withheld` playlist log on a healthy library | Owed |
+| Offline: queued rename survives a sync; last-playlist offline targets keep their tracks | Owed |
+
 ## iPhone SE and a phone with a SIM — stream drop resume (steps c and d)
 
 Applies to the commits "Resume a dropped direct download with a Range request..." and

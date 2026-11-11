@@ -80,7 +80,6 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         func deletePlaylist(ratingKey: String) async throws {}
         func deletePlaylists(sourceCompositeKey: String) async throws {}
         func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
-        func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
     }
 
     private final class ArtworkDownloadManagerMock: ArtworkDownloadManagerProtocol, @unchecked Sendable {
@@ -106,21 +105,8 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
 
         func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
 
-        func syncPlaylists(
-            to repository: PlaylistRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            PlaylistSyncResult()
-        }
-
-        func syncPlaylistsIncremental(
-            to repository: PlaylistRepositoryProtocol,
-            forceOrphanCheck: Bool,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            PlaylistSyncResult()
-        }
-
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList { PlaylistHeaderList(headers: [], inventory: nil, queryStartedAt: Date()) }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
         func getAlbumTracks(albumKey: String) async throws -> [Track] { [] }
 

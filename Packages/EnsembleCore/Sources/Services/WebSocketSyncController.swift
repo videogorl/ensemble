@@ -35,15 +35,14 @@ final class WebSocketSyncController {
     func refreshServerPlaylists(
         serverKey: String,
         providers: [String: MusicSourceConnector],
-        playlistRepository: PlaylistRepositoryProtocol,
+        writer: LibraryWriter,
         playlistRefreshController: PlaylistRefreshController
     ) async throws -> PlaylistRefreshController.RefreshResult? {
         try await playlistRefreshController.refreshServer(
             serverSourceKey: "plex:\(serverKey)",
             providers: providers,
-            playlistRepository: playlistRepository,
-            trigger: .webSocket,
-            allowFullFallback: false
+            writer: writer,
+            trigger: .webSocket
         )
     }
 }

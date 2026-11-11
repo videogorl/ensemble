@@ -567,10 +567,6 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func removeOrphanedPlaylists(notIn _: Set<String>, forSource _: String) async throws -> Int {
             0
         }
-
-        func fetchPlaylistTimestamps(forSource _: String) async throws -> [String: Date] {
-            [:]
-        }
     }
 
     private final class MockArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {

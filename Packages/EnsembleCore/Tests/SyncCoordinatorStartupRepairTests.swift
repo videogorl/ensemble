@@ -34,23 +34,8 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             return LibraryBatch(queryStartedAt: Date())
         }
 
-        func syncPlaylists(
-            to repository: PlaylistRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            progressHandler(1.0)
-            return PlaylistSyncResult()
-        }
-
-        func syncPlaylistsIncremental(
-            to repository: PlaylistRepositoryProtocol,
-            forceOrphanCheck: Bool,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            progressHandler(1.0)
-            return PlaylistSyncResult()
-        }
-
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList { PlaylistHeaderList(headers: [], inventory: nil, queryStartedAt: Date()) }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
         func getStreamURL(
             for trackRatingKey: String,
             trackStreamKey: String?,
@@ -274,15 +259,6 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             scopeType: .library,
             at: Date()
         )
-        let serverSourceKey = MediaSourceIdentity.serverSourceKey(for: sourceId)
-        try await syncCursorRepository.recordFullSync(
-            scopeKey: serverSourceKey,
-            scopeType: .serverPlaylists,
-            at: Date()
-        )
-        let legacyPlaylistKey = PlexConnector.playlistOrphanCheckKey(for: serverSourceKey)
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: legacyPlaylistKey)
-        defer { UserDefaults.standard.removeObject(forKey: legacyPlaylistKey) }
 
         let provider = RecordingSyncProvider(sourceIdentifier: sourceId)
         var syncObservedCompletedHealthChecks = false
@@ -309,11 +285,5 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         // The pass after the invalidation owes a complete inventory and records only its own date.
         XCTAssertNil(cursor?.lastInventorySyncAt)
         XCTAssertNil(cursor?.lastFullSyncAt)
-        let playlistCursor = try await syncCursorRepository.fetchCursor(
-            scopeKey: serverSourceKey,
-            scopeType: .serverPlaylists
-        )
-        XCTAssertNil(playlistCursor?.lastInventorySyncAt)
-        XCTAssertNil(UserDefaults.standard.object(forKey: legacyPlaylistKey))
     }
 }

@@ -79,7 +79,7 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         }
         func deletePlaylists(sourceCompositeKey: String) async throws { try await base.deletePlaylists(sourceCompositeKey: sourceCompositeKey) }
         func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { try await base.removeOrphanedPlaylists(notIn: validRatingKeys, forSource: sourceKey) }
-        func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { try await base.fetchPlaylistTimestamps(forSource: sourceKey) }
+        func fetchPlaylistSyncStates(forSource sourceKey: String) async throws -> [String: PlaylistSyncState] { try await base.fetchPlaylistSyncStates(forSource: sourceKey) }
     }
 
     private actor RecordingPlaylistProvider: MusicSourceConnector, MusicSourcePlaylistMutating, MusicSourceRatingMutating {
@@ -155,22 +155,12 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
 
         func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
 
-        func syncPlaylists(
-            to repository: PlaylistRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList {
             events.append("refresh")
-            return PlaylistSyncResult()
+            return PlaylistHeaderList(headers: [], inventory: nil, queryStartedAt: Date())
         }
 
-        func syncPlaylistsIncremental(
-            to repository: PlaylistRepositoryProtocol,
-            forceOrphanCheck: Bool,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            events.append("refresh")
-            return PlaylistSyncResult()
-        }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
 
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
     }
@@ -186,12 +176,12 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         func replacePlaylistContents(_ playlistID: String, tracks: [Track]) async throws { try await base.replacePlaylistContents(playlistID, tracks: tracks) }
         func editPlaylistItems(_ playlistID: String, originalItems: [PlaylistItem], editedItems: [PlaylistItem]) async throws { try await base.editPlaylistItems(playlistID, originalItems: originalItems, editedItems: editedItems) }
         func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
-        func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { try await base.syncPlaylists(to: repository, progressHandler: progressHandler) }
-        func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, forceOrphanCheck: Bool, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { try await base.syncPlaylistsIncremental(to: repository, forceOrphanCheck: forceOrphanCheck, progressHandler: progressHandler) }
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList { try await base.fetchPlaylistHeaders() }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { try await base.fetchPlaylistBodies(for: headers) }
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
-        func reconcilePlaylist(id: String, minimumTrackCount: Int, requiredTracks: [Track], to repository: PlaylistRepositoryProtocol) async throws -> Int? {
+        func reconcilePlaylist(id: String, minimumTrackCount: Int, requiredTracks: [Track]) async throws -> PlaylistBatch? {
             await base.recordReconciliation()
-            return minimumTrackCount
+            return PlaylistBatch(entries: [], queryStartedAt: Date())
         }
     }
 

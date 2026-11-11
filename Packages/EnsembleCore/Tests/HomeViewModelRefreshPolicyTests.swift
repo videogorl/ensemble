@@ -137,7 +137,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     private struct MockSyncProvider: MusicSourceConnector, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         var libraryResult: Result<LibraryBatch, Error> = .success(LibraryBatch(queryStartedAt: Date()))
-        var playlistResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
+        var playlistResult: Result<PlaylistHeaderList, Error> = .success(.writing())
         var homeHubs: [Hub] = []
         var homeFetchFails = false
         var failedHomeHubKinds: Set<HubSemanticKind> = []
@@ -158,22 +158,8 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
 
         func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { try libraryResult.get() }
 
-        func syncPlaylists(
-            to repository: PlaylistRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            progressHandler(1.0)
-            return try playlistResult.get()
-        }
-
-        func syncPlaylistsIncremental(
-            to repository: PlaylistRepositoryProtocol,
-            forceOrphanCheck: Bool,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            progressHandler(1.0)
-            return try playlistResult.get()
-        }
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList { try playlistResult.get() }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
 
         func getStreamURL(
             for trackRatingKey: String,

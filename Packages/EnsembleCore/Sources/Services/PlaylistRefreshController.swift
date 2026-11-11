@@ -22,13 +22,6 @@ final class PlaylistRefreshController {
                 return "downloaded-playlist sync"
             }
         }
-
-        var forcesPlaylistOrphanCheck: Bool {
-            switch self {
-            case .mutationRefresh, .playlistOnly, .webSocket, .downloadedPlaylist:
-                return true
-            }
-        }
     }
 
     struct RefreshResult {
@@ -38,11 +31,31 @@ final class PlaylistRefreshController {
         let playlistResult: PlaylistSyncResult
     }
 
+    /// Reads a source's playlist list, then the bodies the writer says it needs, and hands both to the
+    /// writer as one batch. Every pass reads the whole list, so a missing cursor needs no separate full sync.
+    func sync(
+        provider: MusicSourceConnector,
+        writer: LibraryWriter,
+        progressHandler: @Sendable (Double) -> Void = { _ in }
+    ) async throws -> PlaylistSyncResult {
+        guard let scope = MediaSourceIdentity.playlistScopeKey(from: provider.sourceIdentifier.compositeKey) else {
+            throw PlaylistMutationError.invalidSource
+        }
+        progressHandler(0.1)
+        let list = try await provider.fetchPlaylistHeaders()
+        progressHandler(0.4)
+        let needed = try await writer.playlistsNeedingBodies(list.headers, for: scope)
+        let bodies = try await provider.fetchPlaylistBodies(for: needed)
+        progressHandler(0.8)
+        let result = try await writer.apply(PlaylistBatch(list: list, bodies: bodies), for: scope)
+        progressHandler(1)
+        return result
+    }
+
     func refreshAllServers(
         providers: [String: MusicSourceConnector],
-        playlistRepository: PlaylistRepositoryProtocol,
-        trigger: Trigger,
-        allowFullFallback: Bool
+        writer: LibraryWriter,
+        trigger: Trigger
     ) async -> [RefreshResult] {
         var refreshedServerKeys = Set<String>()
         var results: [RefreshResult] = []
@@ -58,9 +71,8 @@ final class PlaylistRefreshController {
                 if let result = try await refreshServer(
                     serverSourceKey: serverKey,
                     providers: providers,
-                    playlistRepository: playlistRepository,
-                    trigger: trigger,
-                    allowFullFallback: allowFullFallback
+                    writer: writer,
+                    trigger: trigger
                 ) {
                     results.append(result)
                 }
@@ -79,62 +91,31 @@ final class PlaylistRefreshController {
     func refreshServer(
         serverSourceKey: String,
         providers: [String: MusicSourceConnector],
-        playlistRepository: PlaylistRepositoryProtocol,
-        trigger: Trigger,
-        allowFullFallback: Bool
+        writer: LibraryWriter,
+        trigger: Trigger
     ) async throws -> RefreshResult? {
-        guard let parsed = MediaSourceIdentity.parse(serverSourceKey) else {
+        guard let parsed = MediaSourceIdentity.parse(serverSourceKey),
+              let provider = providers.values.first(where: {
+                  MediaSourceIdentity.isSameServer($0.sourceIdentifier.compositeKey, parsed.serverSourceKey)
+              })
+        else { return nil }
+        let sourceId = provider.sourceIdentifier
+
+        do {
+            return RefreshResult(
+                sourceId: sourceId,
+                serverSourceKey: MediaSourceIdentity.serverSourceKey(for: sourceId),
+                provider: provider,
+                playlistResult: try await sync(provider: provider, writer: writer)
+            )
+        } catch is CancellationError {
+            EnsembleLogger.debug("⏹️ PlaylistRefreshController: \(trigger.description) cancelled for \(serverSourceKey)")
+            throw CancellationError()
+        } catch {
+            EnsembleLogger.debug(
+                "⚠️ PlaylistRefreshController: \(trigger.description) failed for \(serverSourceKey): \(error.localizedDescription)"
+            )
             return nil
         }
-
-        for (_, provider) in providers where
-            MediaSourceIdentity.isSameServer(provider.sourceIdentifier.compositeKey, parsed.serverSourceKey) {
-            let sourceId = provider.sourceIdentifier
-
-            do {
-                let playlistResult = try await provider.syncPlaylistsIncremental(
-                    to: playlistRepository,
-                    forceOrphanCheck: trigger.forcesPlaylistOrphanCheck,
-                    progressHandler: { _ in }
-                )
-                return RefreshResult(
-                    sourceId: sourceId,
-                    serverSourceKey: MediaSourceIdentity.serverSourceKey(for: sourceId),
-                    provider: provider,
-                    playlistResult: playlistResult
-                )
-            } catch is CancellationError {
-                EnsembleLogger.debug("⏹️ PlaylistRefreshController: \(trigger.description) cancelled for \(serverSourceKey)")
-                throw CancellationError()
-            } catch {
-                guard allowFullFallback else {
-                    EnsembleLogger.debug(
-                        "⚠️ PlaylistRefreshController: \(trigger.description) incremental refresh failed for \(serverSourceKey): \(error.localizedDescription)"
-                    )
-                    return nil
-                }
-
-                do {
-                    let playlistResult = try await provider.syncPlaylists(
-                        to: playlistRepository,
-                        progressHandler: { _ in }
-                    )
-                    return RefreshResult(
-                        sourceId: sourceId,
-                        serverSourceKey: MediaSourceIdentity.serverSourceKey(for: sourceId),
-                        provider: provider,
-                        playlistResult: playlistResult
-                    )
-                } catch {
-                    EnsembleLogger.debug(
-                        "⚠️ PlaylistRefreshController: \(trigger.description) full fallback failed for \(serverSourceKey): \(error.localizedDescription)"
-                    )
-                    return nil
-                }
-            }
-        }
-
-        return nil
     }
-
 }
