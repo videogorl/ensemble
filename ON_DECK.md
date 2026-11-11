@@ -548,3 +548,21 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
   and a toggle that fails restores the previous rating outside any ordering with a pass.
 - Next step: route the playlist case through `performPlaylistEdit(editing:)` and teach the writer's
   playlist apply to keep a locally edited rating for the retention window. Not authorized by this entry.
+
+## Side findings from the step 3d phone test (2026-11-11, iPhone SE, build `202611111150.4978`)
+
+Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from step 3d.
+
+- Confirmed: after a playlist is renamed, a track row's menu still offers "Add to <old name>". The recent
+  target is observed by id (`PlaylistActionPresentationHost`, `TrackListRuntimeObservation`), so a title change
+  does not refresh it. Next step: include the title in the observed projection.
+- Confirmed: a song added to a playlist while offline is queued (`Enqueued playlistAdd`) but the playlist's
+  count and rows do not change until the upload replays, and no toast or pending mark was visible. It landed
+  3 s after reconnect. Next step: decide whether a queued add should show at once like a queued rename does.
+- Suspected: adding a song already in a Plex playlist does nothing and says nothing (count stays, no toast, no
+  `Enqueued`). Probably Plex ignoring the duplicate. Next step: confirm against the endpoint and decide whether
+  to tell the user.
+- Noted: for a track on another server the Add to Playlist sheet offers "<name>, Create on <server>…", which is
+  how same-named playlists on two servers arise.
+- Not run: reordering a playlist by dragging. Device MCP's drag moves neither playlist rows nor queue rows;
+  needs a finger.

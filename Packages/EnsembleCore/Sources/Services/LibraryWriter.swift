@@ -438,6 +438,7 @@ public actor LibraryWriter {
                     EnsembleLogger.info("Local delete of playlist \(id) failed, retrying: \(error.localizedDescription)")
                 }
             }
+            EnsembleLogger.debug("🎵 Playlists \(scope): removed playlist \(id) after its remote delete")
             let survivors = Set(try await self.playlistRepository.fetchPlaylistSyncStates(forSource: scope).keys)
             await MainActor.run {
                 HiddenMediaStore.shared.removeMissing(kind: .playlist, sourceKey: scope, survivingItemIDs: survivors)
