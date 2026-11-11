@@ -117,7 +117,11 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var isInstrumentalModeActive: Bool { false }
         func setInstrumentalMode(_ enabled: Bool) {}
 
+        /// When set, a start leaves the service in `.failed`, as `PlaybackService` does offline.
+        var failStartMessage: String?
+
         func play(track: Track, context: PlaybackStartContext) async {
+            if let failStartMessage { playbackStateSubject.send(.failed(failStartMessage)); return }
             lastPlayedTrack = track
             lastQueuedTracks = [track]
             lastQueuedStartIndex = 0
@@ -125,6 +129,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         }
 
         func play(tracks: [Track], startingAt index: Int, context: PlaybackStartContext) async {
+            if let failStartMessage { playbackStateSubject.send(.failed(failStartMessage)); return }
             lastPlayedTrack = tracks.indices.contains(index) ? tracks[index] : nil
             lastQueuedTracks = tracks
             lastQueuedStartIndex = index
@@ -132,6 +137,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         }
 
         func shufflePlay(tracks: [Track], context: PlaybackStartContext) async {
+            if let failStartMessage { playbackStateSubject.send(.failed(failStartMessage)); return }
             lastShufflePlayRequested = true
             lastQueuedTracks = tracks
             lastQueuedStartIndex = 0
@@ -227,6 +233,38 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.playbackService.insertedNext.count, nextCount)
         XCTAssertEqual(fixture.playbackService.insertedLast.map(\.id), fixture.playbackService.insertedNext.map(\.id))
         XCTAssertTrue(fixture.playbackService.lastQueuedTracks.isEmpty)
+    }
+
+    func testAStartThatLeavesPlaybackFailedThrowsInsteadOfSucceeding() async throws {
+        let fixture = try await makeFixture()
+        fixture.playbackService.failStartMessage = "Offline"
+        let album = SiriPlaybackRequest(
+            entityID: "album-1",
+            sourceCompositeKey: fixture.librarySourceKey,
+            displayName: "Album One"
+        )
+
+        do {
+            try await fixture.coordinator.executePlayAlbum(request: album)
+            XCTFail("A failed start must not report success")
+        } catch {
+            XCTAssertEqual(error as? SiriPlaybackCoordinatorError, .playbackFailed("Offline"))
+        }
+        do {
+            try await fixture.coordinator.playLibrary(shuffle: true)
+            XCTFail("A failed start must not report success")
+        } catch {
+            XCTAssertEqual(error as? SiriPlaybackCoordinatorError, .playbackFailed("Offline"))
+        }
+    }
+
+    func testPlayLibraryQueuesTracksOfEnabledSourcesOnly() async throws {
+        let fixture = try await makeFixture()
+
+        try await fixture.coordinator.playLibrary(shuffle: false)
+
+        XCTAssertFalse(fixture.playbackService.lastQueuedTracks.isEmpty)
+        XCTAssertTrue(fixture.playbackService.lastQueuedTracks.allSatisfy { $0.sourceCompositeKey == fixture.librarySourceKey })
     }
 
     func testExecutePlayAlbumFallsBackToFuzzyDisplayNameMatch() async throws {

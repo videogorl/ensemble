@@ -25,6 +25,7 @@ public enum SiriPlaybackCoordinatorError: Error, LocalizedError, Equatable {
     case noEnabledSources
     case mediaNotFound(SiriMediaKind)
     case noPlayableTracks(SiriMediaKind)
+    case playbackFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -36,6 +37,8 @@ public enum SiriPlaybackCoordinatorError: Error, LocalizedError, Equatable {
             return "\(kind.rawValue.capitalized) could not be found."
         case let .noPlayableTracks(kind):
             return "No playable tracks were found for this \(kind.rawValue)."
+        case let .playbackFailed(message):
+            return message
         }
     }
 }
@@ -152,10 +155,13 @@ public final class SiriPlaybackCoordinator {
     }
 
     /// Plays every playable track in the enabled libraries, as the Songs screen's Shuffle does.
+    /// Rows are read from the enabled sources only, in bounded batches.
     public func playLibrary(shuffle: Bool) async throws {
         let enabledSourceKeys = enabledLibrarySourceKeys()
         guard !enabledSourceKeys.isEmpty else { throw SiriPlaybackCoordinatorError.noEnabledSources }
-        let tracks = try await libraryRepository.fetchTracks().map(Track.init(from:))
+        let tracks = try await libraryRepository.mapTracks(forSources: enabledSourceKeys, batchSize: 500) {
+            Track(from: $0)
+        }
         try await play(tracks, shuffle: shuffle, enabledSourceKeys: enabledSourceKeys, name: "Library")
     }
 
@@ -167,11 +173,24 @@ public final class SiriPlaybackCoordinator {
         try await play(tracks, shuffle: shuffle, enabledSourceKeys: enabledSourceKeys, name: "Favorites")
     }
 
+    /// Plays tracks a caller already gathered for a library collection (a genre, a mood, recently added).
+    public func playCollection(_ tracks: [Track], name: String, shuffle: Bool) async throws {
+        let enabledSourceKeys = enabledLibrarySourceKeys()
+        guard !enabledSourceKeys.isEmpty else { throw SiriPlaybackCoordinatorError.noEnabledSources }
+        try await play(tracks, shuffle: shuffle, enabledSourceKeys: enabledSourceKeys, name: name)
+    }
+
+    /// The playable tracks of a track, album, artist or playlist, for actions that add them elsewhere.
+    public func resolveTracks(kind: SiriMediaKind, request: SiriPlaybackRequest) async throws -> [Track] {
+        try await resolveMedia(kind: kind, request: request).tracks
+    }
+
     /// Plays a track with Autoplay on, which is how the app starts a track radio.
     public func startTrackRadio(request: SiriPlaybackRequest) async throws {
         let media = try await resolveMedia(kind: .track, request: request)
         guard let track = media.tracks.first else { return }
         await playbackService.play(track: track, context: media.context)
+        try throwIfPlaybackFailed()
         guard playbackService.currentTrack?.sourceScopedID == track.sourceScopedID,
               !playbackService.isAutoplayEnabled else { return }
         playbackService.toggleAutoplay()
@@ -194,6 +213,14 @@ public final class SiriPlaybackCoordinator {
         } else {
             await playbackService.play(tracks: media.tracks, startingAt: 0, context: media.context)
         }
+        try throwIfPlaybackFailed()
+    }
+
+    /// `PlaybackService` reports a failed start through its state and returns normally.
+    private func throwIfPlaybackFailed() throws {
+        if case let .failed(message) = playbackService.playbackState {
+            throw SiriPlaybackCoordinatorError.playbackFailed(message)
+        }
     }
 
     private func play(
@@ -211,6 +238,7 @@ public final class SiriPlaybackCoordinator {
         } else {
             await playbackService.play(tracks: playable, startingAt: 0, context: context)
         }
+        try throwIfPlaybackFailed()
     }
 
     /// Resolves a request to its playable tracks and the start context describing the item.
@@ -491,13 +519,6 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         playlistSearchSourceKeys: Set<String>
     ) async throws -> CDPlaylist? {
-        if let favorites = try await resolveFavoritesPlaylistIfNeeded(
-            request: request,
-            playlistSearchSourceKeys: playlistSearchSourceKeys
-        ) {
-            return favorites
-        }
-
         if let sourceCompositeKey = request.sourceCompositeKey,
            let direct = try await playlistRepository.fetchPlaylist(
                ratingKey: request.entityID,
@@ -505,6 +526,13 @@ public final class SiriPlaybackCoordinator {
            )
         {
             return direct
+        }
+
+        if let favorites = try await resolveFavoritesPlaylistIfNeeded(
+            request: request,
+            playlistSearchSourceKeys: playlistSearchSourceKeys
+        ) {
+            return favorites
         }
 
         guard let displayName = bestQueryVariant(for: request.displayName) else {
@@ -575,6 +603,7 @@ public final class SiriPlaybackCoordinator {
         return try await playlistRepository.fetchPlaylists().first {
             $0.isSmart &&
                 playlistSearchSourceKeys.contains($0.sourceCompositeKey ?? "") &&
+                sourceMatches(requestSource: request.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) &&
                 Self.favoritesPlaylistNames.contains(normalize($0.title) ?? "")
         }
     }

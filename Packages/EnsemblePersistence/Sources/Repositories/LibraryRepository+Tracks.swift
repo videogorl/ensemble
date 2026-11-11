@@ -42,6 +42,36 @@ extension LibraryRepository {
         }
     }
 
+    public func mapTracks<Value: Sendable>(
+        forSources sourceCompositeKeys: Set<String>,
+        batchSize: Int,
+        _ transform: @escaping @Sendable (CDTrack) -> Value
+    ) async throws -> [Value] {
+        let context = coreDataStack.newBackgroundContext()
+        let keys = Array(sourceCompositeKeys)
+        return try await context.perform {
+            var values: [Value] = []
+            var offset = 0
+            while true {
+                let request = CDTrack.fetchRequest()
+                request.predicate = NSPredicate(format: "sourceCompositeKey IN %@", keys)
+                request.sortDescriptors = [
+                    NSSortDescriptor(key: "sourceCompositeKey", ascending: true),
+                    NSSortDescriptor(key: "ratingKey", ascending: true)
+                ]
+                request.fetchOffset = offset
+                request.fetchLimit = batchSize
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
+                let page = try context.fetch(request)
+                values.append(contentsOf: page.map(transform))
+                offset += page.count
+                context.reset()
+                if page.count < batchSize { break }
+            }
+            return values
+        }
+    }
+
     public func fetchTracksBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDTrack] {
         guard !references.isEmpty else { return [:] }
         return try await withCheckedThrowingContinuation { continuation in
