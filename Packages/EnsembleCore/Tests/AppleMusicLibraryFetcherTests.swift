@@ -44,7 +44,7 @@ final class AppleMusicLibraryFetcherTests: XCTestCase {
         let repository = LibraryRepository(coreDataStack: stack)
         let cursors = SyncCursorRepository(coreDataStack: stack)
         return Fixture(
-            writer: LibraryWriter(libraryRepository: repository, syncCursorRepository: cursors),
+            writer: LibraryWriter(libraryRepository: repository, playlistRepository: PlaylistRepository(coreDataStack: stack), syncCursorRepository: cursors),
             repository: repository,
             cursors: cursors
         )

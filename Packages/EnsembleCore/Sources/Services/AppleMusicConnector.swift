@@ -217,31 +217,25 @@ public actor AppleMusicConnector:
         }
     }
 
-    public func syncPlaylists(
-        to repository: PlaylistRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> PlaylistSyncResult {
-        try await syncPlaylists(
-            to: repository,
-            refreshAllBodies: false,
-            progressHandler: progressHandler
-        )
+    // MARK: - Playlist fetch
+
+    /// A playlist as the last list read saw it: the REST resource, MusicKit's, or both.
+    private struct ListedPlaylist {
+        let rest: LibraryPlaylist?
+        let native: MusicKit.Playlist?
     }
 
-    private func syncPlaylists(
-        to repository: PlaylistRepositoryProtocol,
-        refreshAllBodies: Bool,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> PlaylistSyncResult {
-        let sourceKey = sourceIdentifier.compositeKey
-        let libraryPlaylists: [LibraryPlaylist] = try await fetchAll(path: Self.libraryPlaylistsPath)
-        let libraryPlaylistsByID = Dictionary(
-            libraryPlaylists.map { ($0.id, $0) },
-            uniquingKeysWith: { _, latest in latest }
-        )
-        let existingStates = try await repository.fetchPlaylistSyncStates(forSource: sourceKey)
-        var playlists: [MusicKit.Playlist] = []
-        var seenPlaylistIDs = Set<String>()
+    /// The last list read, so the bodies that follow it read the playlists it found.
+    private var listedPlaylists: [String: ListedPlaylist] = [:]
+
+    /// Reads the playlist list twice, through the REST API (which reports a total) and through MusicKit.
+    /// The list is complete only when `AppleMusicPlaylistInventoryProof` accepts both reads.
+    public func fetchPlaylistHeaders() async throws -> PlaylistHeaderList {
+        let queryStartedAt = Date()
+        guard MusicAuthorization.currentStatus == .authorized else { throw AppleMusicLibraryError.notAuthorized }
+        let (libraryPlaylists, restTotal): ([LibraryPlaylist], Int?) = try await fetchPages(path: Self.libraryPlaylistsPath)
+        var nativeIDs: [String] = []
+        var native: [MusicKit.Playlist] = []
         var offset = 0
         while true {
             try RefreshExecution.checkCancellation()
@@ -250,190 +244,91 @@ public actor AppleMusicConnector:
             request.offset = offset
             let page = Array(try await request.response().items)
             try RefreshExecution.checkCancellation()
-            playlists.append(contentsOf: page.filter {
-                seenPlaylistIDs.insert(String(describing: $0.id)).inserted
-            })
+            nativeIDs.append(contentsOf: page.map { String(describing: $0.id) })
+            native.append(contentsOf: page)
             guard page.count == request.limit else { break }
             offset += page.count
         }
-        let musicKitPlaylistIDs = Set(playlists.map { String(describing: $0.id) })
-        let restOnlyPlaylists = Self.restOnlyPlaylists(
-            libraryPlaylists,
-            excluding: musicKitPlaylistIDs
-        )
-        let validIDs = Set(libraryPlaylistsByID.keys).union(musicKitPlaylistIDs)
-        let inventoryCount = playlists.count + restOnlyPlaylists.count
-        var changedPlaylists = 0
-        var fetchedBodies = 0
-        var rewrittenBodies = 0
-        var headerWrites = 0
-        var ignoredStaleBodies = 0
+        guard MusicAuthorization.currentStatus == .authorized else { throw AppleMusicLibraryError.notAuthorized }
 
-        for (index, playlist) in playlists.enumerated() {
-            try RefreshExecution.checkCancellation()
+        let restByID = Dictionary(libraryPlaylists.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        var listed: [String: ListedPlaylist] = [:]
+        var headers: [PlaylistUpsertInput] = []
+        for playlist in native {
             let id = String(describing: playlist.id)
-            let libraryPlaylist = libraryPlaylistsByID[id]
-            let canEdit = libraryPlaylist?.attributes.canEdit == true
-            let artworkURL = libraryPlaylist?.attributes.artwork?.url
-            let existing = existingStates[id]
-            let effectiveModifiedAt = Self.effectivePlaylistModifiedDate(
-                musicKit: playlist.lastModifiedDate,
-                library: libraryPlaylist?.dateModified
-            )
-            if Self.shouldRefreshPlaylistBody(
-                existing: existing,
-                modifiedAt: effectiveModifiedAt,
-                refreshAllBodies: refreshAllBodies
-            ) {
-                let result: PlaylistPersistenceResult
-                do {
-                    if let libraryPlaylist {
-                        result = try await Self.withNativePlaylistBodyFallback {
-                            try await persistLibraryPlaylist(
-                                libraryPlaylist,
-                                musicKitPlaylist: playlist,
-                                existing: existing,
-                                to: repository
-                            )
-                        } native: { restError in
-                            EnsembleLogger.info(
-                                "🎵 Apple Music REST playlist body unavailable; trying MusicKit id=\(id) title=\(playlist.name) \(Self.requestErrorDetails(restError))"
-                            )
-                            do {
-                                guard let result = try await persistPlaylist(
-                                    playlist,
-                                    artworkURL: artworkURL,
-                                    canEdit: canEdit,
-                                    dateModified: effectiveModifiedAt,
-                                    existing: existing,
-                                    to: repository
-                                ) else { throw PlaylistMutationError.incompletePlaylistContents }
-                                return result
-                            } catch {
-                                EnsembleLogger.error(
-                                    "🎵 Apple Music native playlist fallback failed id=\(id) title=\(playlist.name) \(Self.requestErrorDetails(error))"
-                                )
-                                throw error
-                            }
-                        }
-                    } else {
-                        guard let persisted = try await persistPlaylist(
-                            playlist,
-                            artworkURL: artworkURL,
-                            canEdit: canEdit,
-                            existing: existing,
-                            to: repository
-                        ) else { throw PlaylistMutationError.incompletePlaylistContents }
-                        result = persisted
-                    }
-                } catch {
-                    Self.logPlaylistBodyFailure(id: id, title: playlist.name, error: error)
-                    throw error
-                }
-                fetchedBodies += 1
-                changedPlaylists += result.plan.hasChanges ? 1 : 0
-                headerWrites += result.plan.writesHeader ? 1 : 0
-                rewrittenBodies += result.plan.writesBody ? 1 : 0
-                ignoredStaleBodies += result.plan.ignoresStaleResponse ? 1 : 0
-            } else {
-                let input = Self.playlistInput(
-                    playlist,
-                    artworkURL: artworkURL,
-                    canEdit: canEdit,
-                    dateModified: effectiveModifiedAt,
-                    duration: existing?.duration ?? 0,
-                    trackCount: existing?.trackCount ?? 0
-                )
-                if existing?.headerMatches(input) != true {
-                    _ = try await repository.upsertPlaylist(input, sourceCompositeKey: sourceKey)
-                    changedPlaylists += 1
-                    headerWrites += 1
-                }
-            }
-            progressHandler(Double(index + 1) / Double(max(inventoryCount, 1)))
+            guard listed[id] == nil else { continue }
+            let rest = restByID[id]
+            listed[id] = ListedPlaylist(rest: rest, native: playlist)
+            headers.append(Self.playlistInput(
+                playlist,
+                artworkURL: rest?.attributes.artwork?.url,
+                canEdit: rest?.attributes.canEdit == true,
+                dateModified: Self.effectivePlaylistModifiedDate(musicKit: playlist.lastModifiedDate, library: rest?.dateModified),
+                duration: nil,
+                trackCount: nil
+            ))
         }
-
-        for (index, playlist) in restOnlyPlaylists.enumerated() {
-            try RefreshExecution.checkCancellation()
-            let existing = existingStates[playlist.id]
-            if Self.shouldRefreshPlaylistBody(
-                existing: existing,
-                modifiedAt: playlist.dateModified,
-                refreshAllBodies: refreshAllBodies
-            ) {
-                let result: PlaylistPersistenceResult
-                do {
-                    result = try await persistLibraryPlaylist(
-                        playlist,
-                        existing: existing,
-                        to: repository
-                    )
-                } catch {
-                    Self.logPlaylistBodyFailure(
-                        id: playlist.id,
-                        title: playlist.attributes.name ?? "Untitled Playlist",
-                        error: error
-                    )
-                    throw error
-                }
-                fetchedBodies += 1
-                changedPlaylists += result.plan.hasChanges ? 1 : 0
-                headerWrites += result.plan.writesHeader ? 1 : 0
-                rewrittenBodies += result.plan.writesBody ? 1 : 0
-                ignoredStaleBodies += result.plan.ignoresStaleResponse ? 1 : 0
-            } else {
-                let input = Self.playlistInput(
-                    playlist,
-                    duration: existing?.duration ?? 0,
-                    trackCount: existing?.trackCount ?? 0
-                )
-                if existing?.headerMatches(input) != true {
-                    _ = try await repository.upsertPlaylist(input, sourceCompositeKey: sourceKey)
-                    changedPlaylists += 1
-                    headerWrites += 1
-                }
-            }
-            progressHandler(Double(playlists.count + index + 1) / Double(max(inventoryCount, 1)))
+        for playlist in Self.restOnlyPlaylists(libraryPlaylists, excluding: Set(listed.keys)) {
+            listed[playlist.id] = ListedPlaylist(rest: playlist, native: nil)
+            headers.append(Self.playlistInput(playlist, duration: nil, trackCount: nil))
         }
-
-        EnsembleLogger.debug(
-            "🎵 Apple Music playlist inventory \(validIDs.count); fetched \(fetchedBodies) bodies, rewrote \(rewrittenBodies) bodies, wrote \(headerWrites) headers, ignored \(ignoredStaleBodies) stale responses"
+        listedPlaylists = listed
+        return PlaylistHeaderList(
+            headers: headers,
+            inventory: AppleMusicPlaylistInventoryProof.inventory(
+                restIDs: libraryPlaylists.map(\.id), restTotal: restTotal, nativeIDs: nativeIDs
+            ),
+            queryStartedAt: queryStartedAt
         )
-        try RefreshExecution.checkCancellation()
-        let removed = try await repository.removeOrphanedPlaylists(notIn: validIDs, forSource: sourceKey)
-        await MainActor.run {
-            HiddenMediaStore.shared.removeMissing(kind: .playlist, sourceKey: sourceKey, survivingItemIDs: validIDs)
+    }
+
+    /// Reads each playlist's body: REST first, then MusicKit when REST has none (a shared playlist has
+    /// no related resources). A playlist whose read fails, or whose REST pages disagree with their own
+    /// total, is left out so its stored body stays.
+    public func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] {
+        var entries: [PlaylistEntry] = []
+        for header in headers {
+            try RefreshExecution.checkCancellation()
+            guard let listed = listedPlaylists[header.ratingKey] else { continue }
+            do {
+                let body: PlaylistBody
+                if let rest = listed.rest {
+                    body = try await Self.withNativePlaylistBodyFallback {
+                        try await restBody(rest)
+                    } native: { restError in
+                        guard let native = listed.native else { throw restError }
+                        EnsembleLogger.info(
+                            "🎵 Apple Music REST playlist body unavailable; trying MusicKit id=\(header.ratingKey) title=\(header.title) \(Self.requestErrorDetails(restError))"
+                        )
+                        return try await nativeBody(native)
+                    }
+                } else if let native = listed.native {
+                    body = try await nativeBody(native)
+                } else { continue }
+                entries.append(PlaylistEntry(header: body.completing(header), body: body.snapshots))
+            } catch {
+                try RefreshExecution.checkCancellation()
+                Self.logPlaylistBodyFailure(id: header.ratingKey, title: header.title, error: error)
+            }
         }
-        progressHandler(1)
-        return PlaylistSyncResult(changedPlaylists: changedPlaylists, removedPlaylists: removed)
+        return entries
     }
 
     public func reconcilePlaylist(
         id: String,
         minimumTrackCount: Int,
-        requiredTracks: [Track],
-        to repository: PlaylistRepositoryProtocol
-    ) async throws -> Int? {
-        try await persistPlaylist(
-            try await libraryPlaylist(id: id),
-            artworkURL: nil,
-            canEdit: true,
-            minimumTrackCount: minimumTrackCount,
-            requiredTracks: requiredTracks,
-            to: repository
-        ).map(\.trackCount)
-    }
-
-    public func syncPlaylistsIncremental(
-        to repository: PlaylistRepositoryProtocol,
-        forceOrphanCheck _: Bool,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> PlaylistSyncResult {
-        try await syncPlaylists(
-            to: repository,
-            refreshAllBodies: false,
-            progressHandler: progressHandler
-        )
+        requiredTracks: [Track]
+    ) async throws -> PlaylistBatch? {
+        let queryStartedAt = Date()
+        let playlist = try await libraryPlaylist(id: id)
+        let body = try await nativeBody(playlist)
+        guard body.snapshots.count >= minimumTrackCount,
+              PlaylistActionService().tracks(requiredTracks, excluding: body.tracks).isEmpty
+        else { return nil }
+        let header = body.completing(Self.playlistInput(
+            playlist, artworkURL: nil, canEdit: true, dateModified: playlist.lastModifiedDate, duration: nil, trackCount: nil
+        ))
+        return PlaylistBatch(entries: [PlaylistEntry(header: header, body: body.snapshots)], queryStartedAt: queryStartedAt)
     }
 
     public func getStreamURL(
@@ -1066,57 +961,6 @@ public actor AppleMusicConnector:
         }
     }
 
-    static func shouldRefreshPlaylistBody(
-        existing: PlaylistSyncState?,
-        modifiedAt: Date?,
-        refreshAllBodies: Bool
-    ) -> Bool {
-        refreshAllBodies
-            || modifiedAt == nil
-            || existing == nil
-            || existing?.dateModified != modifiedAt
-            || existing.map { $0.trackCount != $0.membershipSnapshots.count } == true
-    }
-
-    struct PlaylistPersistencePlan: Sendable, Equatable {
-        let writesHeader: Bool
-        let writesBody: Bool
-        let ignoresStaleResponse: Bool
-
-        var hasChanges: Bool { writesHeader || writesBody }
-    }
-
-    private struct PlaylistPersistenceResult {
-        let trackCount: Int
-        let plan: PlaylistPersistencePlan
-    }
-
-    static func playlistPersistencePlan(
-        existing: PlaylistSyncState?,
-        input: PlaylistUpsertInput,
-        membershipSnapshots: [PlaylistTrackSnapshot]
-    ) -> PlaylistPersistencePlan {
-        if let existingModifiedAt = existing?.dateModified,
-           let incomingModifiedAt = input.dateModified,
-           incomingModifiedAt < existingModifiedAt {
-            return PlaylistPersistencePlan(
-                writesHeader: false,
-                writesBody: false,
-                ignoresStaleResponse: true
-            )
-        }
-
-        let existingBodyIsComplete = existing.map {
-            $0.trackCount == $0.membershipRatingKeys.count
-        } ?? false
-        return PlaylistPersistencePlan(
-            writesHeader: existing?.headerMatches(input) != true,
-            writesBody: !existingBodyIsComplete
-                || existing?.membershipSnapshots != membershipSnapshots,
-            ignoresStaleResponse: false
-        )
-    }
-
     static func effectivePlaylistModifiedDate(musicKit: Date?, library: Date?) -> Date? {
         [musicKit, library].compactMap { $0 }.max()
     }
@@ -1142,8 +986,8 @@ public actor AppleMusicConnector:
         artworkURL: String?,
         canEdit: Bool,
         dateModified: Date?,
-        duration: Int,
-        trackCount: Int
+        duration: Int?,
+        trackCount: Int?
     ) -> PlaylistUpsertInput {
         let isSmart = isSmartPlaylist(playlist.kind, canEdit: canEdit)
         let capabilities = playlistActionCapabilities(
@@ -1169,8 +1013,8 @@ public actor AppleMusicConnector:
 
     static func playlistInput(
         _ playlist: LibraryPlaylist,
-        duration: Int,
-        trackCount: Int
+        duration: Int?,
+        trackCount: Int?
     ) -> PlaylistUpsertInput {
         let isSmart = isSmartPlaylist(playlist)
         let canEdit = playlist.attributes.canEdit == true
@@ -1294,17 +1138,20 @@ public actor AppleMusicConnector:
         return playlist
     }
 
-    private func persistPlaylist(
-        _ playlist: MusicKit.Playlist,
-        artworkURL: String?,
-        canEdit: Bool,
-        dateModified: Date? = nil,
-        existing: PlaylistSyncState? = nil,
-        minimumTrackCount: Int = 0,
-        requiredTracks: [Track] = [],
-        to repository: PlaylistRepositoryProtocol
-    ) async throws -> PlaylistPersistenceResult? {
-        let id = String(describing: playlist.id)
+    /// One playlist's complete body. `durationMillis` and the song count complete a header that could not
+    /// state them.
+    private struct PlaylistBody {
+        let snapshots: [PlaylistTrackSnapshot]
+        let durationMillis: Int
+        /// Tracks as the playlist lists them; used to check a mutation's result.
+        let tracks: [Track]
+
+        func completing(_ header: PlaylistUpsertInput) -> PlaylistUpsertInput {
+            header.replacing(duration: durationMillis, trackCount: snapshots.count)
+        }
+    }
+
+    private func nativeBody(_ playlist: MusicKit.Playlist) async throws -> PlaylistBody {
         let sourceKey = sourceIdentifier.compositeKey
         let detailed = try await playlist.with([.tracks])
         var musicTracks = detailed.tracks ?? []
@@ -1315,107 +1162,50 @@ public actor AppleMusicConnector:
             guard case .song(let song) = track else { return nil }
             return song
         }
-        let fetchedTracks = songs.map { Self.domainTrack($0, key: Self.playlistTrackKey($0)) }
-        guard songs.count >= minimumTrackCount,
-              PlaylistActionService().tracks(requiredTracks, excluding: fetchedTracks).isEmpty
-        else { return nil }
-        let input = Self.playlistInput(
-            playlist,
-            artworkURL: artworkURL,
-            canEdit: canEdit,
-            dateModified: dateModified ?? playlist.lastModifiedDate,
-            duration: Int(songs.reduce(0) { $0 + ($1.duration ?? 0) } * 1000),
-            trackCount: songs.count
+        return PlaylistBody(
+            snapshots: songs.map {
+                PlaylistTrackSnapshot(
+                    ratingKey: String(describing: $0.id),
+                    key: Self.playlistTrackKey($0),
+                    title: $0.title,
+                    artistName: $0.artistName,
+                    albumName: $0.albumTitle,
+                    duration: $0.duration ?? 0,
+                    thumbPath: $0.artwork?.ensembleResolvableURL(),
+                    sourceCompositeKey: sourceKey
+                )
+            },
+            durationMillis: Int(songs.reduce(0) { $0 + ($1.duration ?? 0) } * 1000),
+            tracks: songs.map { Self.domainTrack($0, key: Self.playlistTrackKey($0)) }
         )
-        let snapshots = songs.map {
-            PlaylistTrackSnapshot(
-                ratingKey: String(describing: $0.id),
-                key: Self.playlistTrackKey($0),
-                title: $0.title,
-                artistName: $0.artistName,
-                albumName: $0.albumTitle,
-                duration: $0.duration ?? 0,
-                thumbPath: $0.artwork?.ensembleResolvableURL(),
-                sourceCompositeKey: sourceKey
-            )
-        }
-        let plan = Self.playlistPersistencePlan(
-            existing: existing,
-            input: input,
-            membershipSnapshots: snapshots
-        )
-        if plan.writesHeader {
-            _ = try await repository.upsertPlaylist(input, sourceCompositeKey: sourceKey)
-        }
-        if plan.writesBody {
-            try await repository.setPlaylistTrackSnapshots(
-                snapshots,
-                forPlaylist: id,
-                sourceCompositeKey: sourceKey
-            )
-        }
-        return PlaylistPersistenceResult(trackCount: songs.count, plan: plan)
     }
 
-    private func persistLibraryPlaylist(
-        _ playlist: LibraryPlaylist,
-        musicKitPlaylist: MusicKit.Playlist? = nil,
-        existing: PlaylistSyncState? = nil,
-        to repository: PlaylistRepositoryProtocol
-    ) async throws -> PlaylistPersistenceResult {
+    /// Reads every page of the playlist's tracks. When the API reports a total, it must equal the items
+    /// received, or the body is short and not proof.
+    private func restBody(_ playlist: LibraryPlaylist) async throws -> PlaylistBody {
         let sourceKey = sourceIdentifier.compositeKey
         let encodedID = playlist.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? playlist.id
-        let fetchedTracks: [LibrarySong] = try await fetchAll(
+        let (fetched, total): ([LibrarySong], Int?) = try await fetchPages(
             path: "/v1/me/library/playlists/\(encodedID)/tracks?limit=100&include=catalog"
         )
-        let songs = fetchedTracks.filter(\.isSong)
-        let duration = songs.reduce(0) { $0 + ($1.attributes.durationInMillis ?? 0) }
-        let input = if let musicKitPlaylist {
-            Self.playlistInput(
-                musicKitPlaylist,
-                artworkURL: playlist.attributes.artwork?.url,
-                canEdit: playlist.attributes.canEdit == true,
-                dateModified: Self.effectivePlaylistModifiedDate(
-                    musicKit: musicKitPlaylist.lastModifiedDate,
-                    library: playlist.dateModified
-                ),
-                duration: duration,
-                trackCount: songs.count
-            )
-        } else {
-            Self.playlistInput(playlist, duration: duration, trackCount: songs.count)
-        }
-        let snapshots = songs.map {
-            PlaylistTrackSnapshot(
-                ratingKey: $0.id,
-                key: $0.trackKey,
-                title: $0.attributes.name,
-                artistName: $0.attributes.artistName,
-                albumName: $0.attributes.albumName,
-                duration: TimeInterval($0.attributes.durationInMillis ?? 0) / 1000,
-                thumbPath: $0.artworkURL,
-                sourceCompositeKey: sourceKey
-            )
-        }
-        let plan = Self.playlistPersistencePlan(
-            existing: existing,
-            input: input,
-            membershipSnapshots: snapshots
+        if let total, total != fetched.count { throw AppleMusicSourceError.incompletePlaylistBody }
+        let songs = fetched.filter(\.isSong)
+        return PlaylistBody(
+            snapshots: songs.map {
+                PlaylistTrackSnapshot(
+                    ratingKey: $0.id,
+                    key: $0.trackKey,
+                    title: $0.attributes.name,
+                    artistName: $0.attributes.artistName,
+                    albumName: $0.attributes.albumName,
+                    duration: TimeInterval($0.attributes.durationInMillis ?? 0) / 1000,
+                    thumbPath: $0.artworkURL,
+                    sourceCompositeKey: sourceKey
+                )
+            },
+            durationMillis: songs.reduce(0) { $0 + ($1.attributes.durationInMillis ?? 0) },
+            tracks: []
         )
-        if plan.writesHeader {
-            _ = try await repository.upsertPlaylist(
-                input,
-                sourceCompositeKey: sourceKey
-            )
-        }
-        if plan.writesBody {
-            try await repository.setPlaylistTrackSnapshots(
-                snapshots,
-                forPlaylist: playlist.id,
-                sourceCompositeKey: sourceKey
-            )
-        }
-        return PlaylistPersistenceResult(trackCount: songs.count, plan: plan)
     }
 
     private func request(path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Data {
@@ -1494,6 +1284,7 @@ public enum AppleMusicSourceError: LocalizedError {
     case playlistNotFound
     case catalogSongNotFound
     case repeatedPaginationCursor
+    case incompletePlaylistBody
     case http(Int)
 
     public var errorDescription: String? {
@@ -1504,6 +1295,7 @@ public enum AppleMusicSourceError: LocalizedError {
         case .playlistNotFound: "The Apple Music playlist could not be found."
         case .catalogSongNotFound: "The Apple Music song could not be found."
         case .repeatedPaginationCursor: "Apple Music returned a repeated library page. Please try again."
+        case .incompletePlaylistBody: "Apple Music returned fewer playlist songs than it reported. Please try again."
         case .http(let status): "Apple Music returned HTTP \(status)."
         }
     }
