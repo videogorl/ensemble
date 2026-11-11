@@ -209,6 +209,13 @@ rules, the Plex WebSocket polling fallback, and the size of `WatchRootView.swift
   and `Content-Range` checks stay. It needs the `Track` kept alongside the pipeline, an async `beginResume`
   with a guard against a second resume starting during the await, and a test, which was judged over the
   50 source lines allowed for it.
+- **Codex review of steps c and d (through `32a7bff9`, delivered 2026-11-11).** Two races it found are fixed:
+  a second `beginResume` no longer starts a request beside one in flight, and a stale response's validation
+  failure no longer abandons the task that replaced it. Its third finding (a path change cancelling a healthy
+  download) was already fixed at `6c352019`. Left open, none demonstrated: a resumed response is not rejected
+  for a `Content-Encoding` (the request asks for `identity`); Play after a deferred failure resumes buffered
+  audio before recovery starts, so `pausedStreamNeedsRefresh` is not set; there is no fixed deadline from a
+  drop to the item failing while bytes keep trickling. No test covers the two races.
 - **A resume with no route waits indefinitely** (confirmed from the code, S). The pipeline's session uses
   `waitsForConnectivity = true`, so a resume requested while offline does not time out and the 30 s window
   does not bound an offline period. While playing, the engine's rebuffer timeout still ends the stream;
