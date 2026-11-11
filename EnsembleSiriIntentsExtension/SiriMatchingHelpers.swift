@@ -39,7 +39,22 @@ enum SiriMatchingHelpers {
         for query: String,
         index: SiriMediaIndex
     ) -> [RankedItem] {
-        SiriMediaIndexResolver.rankPlaylistCandidates(for: query, index: index)
+        presented(SiriMediaIndexResolver.rankPlaylistCandidates(for: query, index: index), index: index)
+    }
+
+    /// Playlists as the app's playlist screen shows them (merge setting, hidden sources). When the app has not published
+    /// a presentation for this index, no playlist is offered: nothing can be shown to be visible. A name request still
+    /// reaches the app, which applies the rules itself.
+    static func presented(_ ranked: [RankedItem], index: SiriMediaIndex) -> [RankedItem] {
+        guard let presentation = SiriPlaylistPresentation.load(), presentation.covers(index) else {
+            return ranked.filter { $0.item.kind != .playlist }
+        }
+        return SiriPlaylistRows.presented(
+            ranked,
+            among: SiriMediaIndexResolver.items(in: index, kind: .playlist),
+            preferences: presentation.preferences,
+            isSourceVisible: presentation.isSourceVisible
+        )
     }
 }
 

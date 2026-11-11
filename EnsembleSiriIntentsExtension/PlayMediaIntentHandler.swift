@@ -94,7 +94,12 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return
         }
 
-        let allowDisambiguation = requestedMediaType == .unknown
+        // With merging off, equal playlists on several servers are a real choice, told apart by server name.
+        let tiedPlaylists = ranked.count > 1
+            && top.item.kind == .playlist && ranked[1].item.kind == .playlist
+            && SiriPhraseNormalizer.basic(top.item.displayName) == SiriPhraseNormalizer.basic(ranked[1].item.displayName)
+            && SiriPlaylistPresentation.load().map { !($0.preferences.isEnabled && $0.preferences.mergePlaylists) } == true
+        let allowDisambiguation = requestedMediaType == .unknown || tiedPlaylists
         if allowDisambiguation && ranked.count > 1 {
             let second = ranked[1]
             if abs(top.score - second.score) <= Self.disambiguationThreshold {
@@ -287,13 +292,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             artistHint: artistHint
         )
         // Playlists as the app's playlist screen shows them: with merging on, one candidate per merged group.
-        let presentation = SiriPlaylistPresentation.load()
-        return SiriPlaylistRows.presented(
-            ranked,
-            among: SiriMediaIndexResolver.items(in: index, kind: .playlist),
-            preferences: presentation.preferences,
-            isSourceVisible: presentation.isSourceVisible
-        )
+        return SiriMatchingHelpers.presented(ranked, index: index)
     }
 
     private func kindsFor(mediaType: INMediaItemType) -> Set<SiriMediaKind> {
