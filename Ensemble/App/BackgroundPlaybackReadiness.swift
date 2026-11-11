@@ -26,14 +26,7 @@ func prepareForBackgroundPlayback(origin: String, timeout: Duration = .seconds(8
     container.networkMonitor.startMonitoring()
 
     await waitBounded(timeout) {
-        // Join the health checks the launch pipeline already started instead of running a second set.
-        #if os(iOS)
-        if let earlyTask = (UIApplication.shared.delegate as? AppDelegate)?.earlyHealthCheckTask {
-            AppLogger.info("SIRI_APP: [origin=\(origin)] Awaiting early health checks from didFinishLaunching...")
-            await earlyTask.value
-        }
-        #endif
-
+        // Offline needs no server, so decide that before joining a health check that cannot succeed.
         let network = container.networkMonitor
         for _ in 0..<10 where network.networkState == .unknown {
             try? await Task.sleep(nanoseconds: 100_000_000)
@@ -42,6 +35,15 @@ func prepareForBackgroundPlayback(origin: String, timeout: Duration = .seconds(8
             AppLogger.info("SIRI_APP: [origin=\(origin)] Offline — skipping server health checks")
             return
         }
+
+        // Join the health checks the launch pipeline already started instead of running a second set.
+        #if os(iOS)
+        if let earlyTask = (UIApplication.shared.delegate as? AppDelegate)?.earlyHealthCheckTask {
+            AppLogger.info("SIRI_APP: [origin=\(origin)] Awaiting early health checks from didFinishLaunching...")
+            await earlyTask.value
+        }
+        #endif
+
         if !container.serverHealthChecker.serverStates.values.contains(where: \.isAvailable) {
             AppLogger.info("SIRI_APP: [origin=\(origin)] No connected servers — running health checks")
             await container.syncCoordinator.refreshServerHealthStates()
