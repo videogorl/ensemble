@@ -71,6 +71,17 @@ private enum SiriIndexLookup {
         loadIndex()?.items ?? []
     }
 
+    /// The few most recently played items of a kind (any kind when nil). Shortcuts and Spotlight list an
+    /// App Shortcut only for the values its parameter suggests.
+    static func recentItems(kind: SiriMediaKind?, limit: Int = 6) -> [SiriMediaIndexItem] {
+        let items = kind.map { fetchItems(kind: $0) } ?? fetchItems()
+        let recent = items.sorted {
+            ($0.lastPlayed ?? .distantPast, $0.playCount ?? 0) > ($1.lastPlayed ?? .distantPast, $1.playCount ?? 0)
+        }
+        // The same item from two sources counts once; a few spares cover those duplicates.
+        return Array(SiriMediaIndexResolver.deduplicateEquivalentItems(Array(recent.prefix(limit * 4))).prefix(limit))
+    }
+
     static func findItems(kind: SiriMediaKind, matching rawQuery: String, limit: Int = 10) -> [SiriMediaIndexItem] {
         let results = SiriMediaIndexResolver.findItems(
             in: loadIndex(),
@@ -173,7 +184,15 @@ struct EnsembleTrackEntityQuery: EntityStringQuery {
     }
 
     func suggestedEntities() async throws -> [EnsembleTrackEntity] {
-        []
+        SiriIndexLookup.recentItems(kind: .track).map { item in
+            EnsembleTrackEntity(
+                    id: makeCompositeEntityID(ratingKey: item.id, sourceCompositeKey: item.sourceCompositeKey),
+                    ratingKey: item.id,
+                    title: item.displayName,
+                    subtitle: item.secondaryText,
+                    sourceCompositeKey: item.sourceCompositeKey
+                )
+        }
     }
 }
 
@@ -224,7 +243,14 @@ struct EnsembleArtistEntityQuery: EntityStringQuery {
     }
 
     func suggestedEntities() async throws -> [EnsembleArtistEntity] {
-        []
+        SiriIndexLookup.recentItems(kind: .artist).map { item in
+            EnsembleArtistEntity(
+                    id: makeCompositeEntityID(ratingKey: item.id, sourceCompositeKey: item.sourceCompositeKey),
+                    ratingKey: item.id,
+                    title: item.displayName,
+                    sourceCompositeKey: item.sourceCompositeKey
+                )
+        }
     }
 }
 
@@ -275,9 +301,14 @@ struct EnsembleAlbumEntityQuery: EntityStringQuery {
     }
 
     func suggestedEntities() async throws -> [EnsembleAlbumEntity] {
-        // Avoid broad fallback suggestions for albums because Siri may auto-pick
-        // an unrelated entry when speech capture is incomplete.
-        []
+        SiriIndexLookup.recentItems(kind: .album).map { item in
+            EnsembleAlbumEntity(
+                    id: makeCompositeEntityID(ratingKey: item.id, sourceCompositeKey: item.sourceCompositeKey),
+                    ratingKey: item.id,
+                    title: item.displayName,
+                    sourceCompositeKey: item.sourceCompositeKey
+                )
+        }
     }
 }
 
@@ -328,8 +359,14 @@ struct EnsemblePlaylistEntityQuery: EntityStringQuery {
     }
 
     func suggestedEntities() async throws -> [EnsemblePlaylistEntity] {
-        // Keep playlist resolution strict for voice use; show no generic list on low confidence.
-        []
+        SiriIndexLookup.recentItems(kind: .playlist).map { item in
+            EnsemblePlaylistEntity(
+                    id: makeCompositeEntityID(ratingKey: item.id, sourceCompositeKey: item.sourceCompositeKey),
+                    ratingKey: item.id,
+                    title: item.displayName,
+                    sourceCompositeKey: item.sourceCompositeKey
+                )
+        }
     }
 }
 
@@ -633,7 +670,7 @@ struct EnsembleMediaEntityQuery: EntityStringQuery {
     }
 
     func suggestedEntities() async throws -> [EnsembleMediaEntity] {
-        []
+        SiriIndexLookup.recentItems(kind: nil).map(EnsembleMediaEntity.init(item:))
     }
 }
 

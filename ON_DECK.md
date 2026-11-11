@@ -376,15 +376,13 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Next step: repeat with a finger; if it reproduces, look at `moveRowAt` and the drag delegate both being
   enabled in `QueueTableView.swift`.
 
-## Confirmed: Ensemble's App Shortcuts do not appear in the Shortcuts app (2026-11-11)
+## Suspected: Siri may pick a suggested shortcut item on a misheard request (2026-11-11)
 
-- Evidence: iPhone SE, Shortcuts freshly installed: Library > Apps did not list Ensemble. Every shortcut phrase
-  carries a parameter and every `suggestedEntities()` in `Ensemble/App/EnsembleAppShortcuts.swift` returns `[]`
-  (on purpose, so Siri cannot auto-pick an unrelated item). A trial build whose playlist query suggested five
-  playlists made Ensemble appear with those five tiles, and tapping one played the playlist.
-- Impact: the shortcuts work by voice only; nothing is listed in Shortcuts or Spotlight. The surface checklist's
-  "all five listed" cannot pass as written.
-- Next step: Felicity's choice between suggesting a few items per kind and keeping them voice-only.
+- Evidence: the shortcut queries returned no suggestions on purpose ("Siri may auto-pick an unrelated entry when
+  speech capture is incomplete"). They now suggest the six most recently played items of each kind so the
+  shortcuts list in Shortcuts and Spotlight (Felicity, 2026-11-11). The voice path was not re-tested.
+- Next step: by voice, ask for an album or playlist that does not exist and one spoken unclearly; Siri should
+  ask or fail, not play a suggested item.
 
 ## Owed checks that need hardware the iPhone SE does not have (2026-11-11)
 
