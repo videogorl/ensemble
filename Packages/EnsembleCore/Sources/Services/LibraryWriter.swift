@@ -143,19 +143,32 @@ public struct LibraryBatch: Sendable {
 /// Deletion contract: rows are deleted only from a complete inventory. An empty
 /// inventory deletes only when its connector marked it authoritative, a stale batch is ignored whole, and a failed,
 /// partial or cancelled pass leaves the cursor due.
+///
+/// Playlists follow the same contract, with two differences: an empty playlist inventory never
+/// deletes (decision 2), and a body deletes membership rows only when the connector attached it,
+/// which it does only for a complete read. An empty body is a complete read of an empty playlist.
 public actor LibraryWriter {
     static let inventoryInterval: TimeInterval = 24 * 60 * 60
 
+    /// Playlists edited locally before a server read could show the edit stay untouched by older reads.
+    static let localEditProtection: TimeInterval = 60 * 60
+
     private let libraryRepository: LibraryRepositoryProtocol
+    private let playlistRepository: PlaylistRepositoryProtocol
     private let cursors: SyncCursorRepositoryProtocol?
     private let pendingMutations: PendingMutationRepositoryProtocol?
+    /// When each playlist (scope and ID) was last edited locally, in memory only: a restart forgets it,
+    /// and the optimistic row then waits for the next read like any other.
+    private var localEdits: [String: Date] = [:]
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
+        playlistRepository: PlaylistRepositoryProtocol,
         syncCursorRepository: SyncCursorRepositoryProtocol?,
         pendingMutationRepository: PendingMutationRepositoryProtocol? = nil
     ) {
         self.libraryRepository = libraryRepository
+        self.playlistRepository = playlistRepository
         self.cursors = syncCursorRepository
         self.pendingMutations = pendingMutationRepository
     }
@@ -230,6 +243,152 @@ public actor LibraryWriter {
     /// Forgets the library cursor, so the next pass is authoritative.
     public func removeCursor(for source: MusicSourceIdentifier) async throws {
         try await cursors?.deleteCursor(scopeKey: source.compositeKey, scopeType: .library)
+    }
+
+    // MARK: - Playlists
+
+    /// The listed playlists whose bodies must be read: new ones, ones whose date changed or is missing,
+    /// and ones with no stored body under a non-empty header. A header older than the stored one needs none.
+    public func playlistsNeedingBodies(_ headers: [PlaylistUpsertInput], for scope: String) async throws -> [PlaylistUpsertInput] {
+        let stored = try await playlistRepository.fetchPlaylistSyncStates(forSource: scope)
+        return headers.filter { Self.needsBody($0, stored: stored[$0.ratingKey]) }
+    }
+
+    /// Applies a playlist read. A header with a needed but missing body keeps its stored date, so the next
+    /// read tries again; the date advances only in the save after its body. Deletion needs the batch's
+    /// complete, non-empty inventory.
+    @discardableResult
+    public func apply(_ batch: PlaylistBatch, for scope: String) async throws -> PlaylistSyncResult {
+        let stored = try await playlistRepository.fetchPlaylistSyncStates(forSource: scope)
+        let queuedRenames = try await playlistsWithQueuedRename(in: scope)
+        var changed = 0
+        for entry in batch.entries {
+            try RefreshExecution.checkCancellation()
+            let id = entry.header.ratingKey
+            let existing = stored[id]
+            guard !Self.isBlank(id), !isEditedLocally(id, in: scope, since: batch.queryStartedAt),
+                  existing.map({ !Self.isStale(entry.header, stored: $0) }) ?? true
+            else { continue }
+
+            var header = entry.header
+            let body = Self.provenBody(entry.body)
+            if let existing {
+                if queuedRenames.contains(id) { header = header.replacing(title: existing.title) }
+                if body == nil {
+                    // Nothing new was read: keep what the header cannot state, and the date of the stored body.
+                    header = header.replacing(duration: header.duration ?? existing.duration, trackCount: header.trackCount ?? existing.trackCount)
+                    if Self.needsBody(entry.header, stored: existing) { header = header.replacing(dateModified: .some(existing.dateModified)) }
+                }
+            } else if body == nil {
+                header = header.replacing(dateModified: .some(nil))
+            }
+            if try await write(header, body: body, scope: scope, existing: existing) { changed += 1 }
+        }
+
+        var removed = 0
+        var inventoryApplied = false
+        if let inventory = batch.inventory {
+            if inventory.playlistIDs.isEmpty {
+                EnsembleLogger.info("A complete but empty playlist inventory for \(scope) deletes nothing")
+            } else {
+                // A playlist created or edited after this read began may not be in it yet.
+                let survivors = inventory.playlistIDs.union(idsEditedLocally(in: scope, since: batch.queryStartedAt))
+                try RefreshExecution.checkCancellation()
+                removed = try await playlistRepository.removeOrphanedPlaylists(notIn: survivors, forSource: scope)
+                await MainActor.run {
+                    HiddenMediaStore.shared.removeMissing(kind: .playlist, sourceKey: scope, survivingItemIDs: survivors)
+                }
+                inventoryApplied = true
+            }
+        }
+
+        if batch.readsFullList {
+            try RefreshExecution.checkCancellation()
+            if inventoryApplied {
+                try await cursors?.recordInventorySync(scopeKey: scope, scopeType: .serverPlaylists, at: batch.queryStartedAt)
+            } else {
+                try await cursors?.recordIncrementalSync(scopeKey: scope, scopeType: .serverPlaylists, at: batch.queryStartedAt)
+            }
+        }
+        if changed + removed > 0 { EnsembleLogger.debug("🎵 Playlists \(scope): wrote \(changed), removed \(removed)") }
+        return PlaylistSyncResult(changedPlaylists: changed, removedPlaylists: removed)
+    }
+
+    /// Writes a playlist the user just created or changed, before the server shows it. Reads that began
+    /// earlier cannot undo it, and an inventory read earlier cannot delete it.
+    public func applyLocalEdit(_ entry: PlaylistEntry, for scope: String) async throws {
+        let existing = try await playlistRepository.fetchPlaylistSyncStates(forSource: scope)[entry.header.ratingKey]
+        localEdits = localEdits.filter { $0.value.timeIntervalSinceNow > -Self.localEditProtection }
+        localEdits[Self.editKey(entry.header.ratingKey, in: scope)] = Date()
+        try await write(entry.header, body: entry.body, scope: scope, existing: existing)
+    }
+
+    /// The last complete playlist inventory of a scope.
+    public func lastPlaylistInventoryAt(_ scope: String) async throws -> Date? {
+        try await cursors?.fetchCursor(scopeKey: scope, scopeType: .serverPlaylists)?.lastInventorySyncAt
+    }
+
+    /// Forgets a scope's playlist cursor.
+    public func removePlaylistCursor(_ scope: String) async throws {
+        try await cursors?.deleteCursor(scopeKey: scope, scopeType: .serverPlaylists)
+    }
+
+    @discardableResult
+    private func write(_ header: PlaylistUpsertInput, body: [PlaylistTrackSnapshot]?, scope: String, existing: PlaylistSyncState?) async throws -> Bool {
+        if let body {
+            // A body needs its playlist row; the final save carries the date.
+            if existing == nil { _ = try await playlistRepository.upsertPlaylist(header.replacing(dateModified: .some(nil)), sourceCompositeKey: scope) }
+            try RefreshExecution.checkCancellation()
+            try await playlistRepository.setPlaylistTrackSnapshots(body, forPlaylist: header.ratingKey, sourceCompositeKey: scope)
+            try RefreshExecution.checkCancellation()
+            _ = try await playlistRepository.upsertPlaylist(header, sourceCompositeKey: scope)
+            return true
+        }
+        guard existing?.headerMatches(header) != true else { return false }
+        _ = try await playlistRepository.upsertPlaylist(header, sourceCompositeKey: scope)
+        return true
+    }
+
+    private func playlistsWithQueuedRename(in scope: String) async throws -> Set<String> {
+        guard let pendingMutations else { return [] }
+        return Set(try await pendingMutations.fetchPendingMutationRecords().compactMap { record in
+            guard record.mutationType == .playlistRename,
+                  let payload = try? JSONDecoder().decode(PlaylistRenameMutationPayload.self, from: record.payload),
+                  payload.playlistSourceCompositeKey == scope
+            else { return nil }
+            return payload.playlistRatingKey
+        })
+    }
+
+    private static func editKey(_ id: String, in scope: String) -> String { "\(scope)\u{0}\(id)" }
+
+    private func isEditedLocally(_ id: String, in scope: String, since date: Date) -> Bool {
+        localEdits[Self.editKey(id, in: scope)].map { $0 > date } ?? false
+    }
+
+    private func idsEditedLocally(in scope: String, since date: Date) -> Set<String> {
+        let prefix = Self.editKey("", in: scope)
+        return Set(localEdits.compactMap { $0.value > date && $0.key.hasPrefix(prefix) ? String($0.key.dropFirst(prefix.count)) : nil })
+    }
+
+    private static func isBlank(_ id: String) -> Bool { id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// A body whose tracks all have IDs; a blank ID shows the read was malformed, so it is not proof.
+    static func provenBody(_ body: [PlaylistTrackSnapshot]?) -> [PlaylistTrackSnapshot]? {
+        body.flatMap { $0.contains { isBlank($0.ratingKey) } ? nil : $0 }
+    }
+
+    /// An older header describes an older server state than the one stored.
+    static func isStale(_ header: PlaylistUpsertInput, stored: PlaylistSyncState) -> Bool {
+        guard let incoming = header.dateModified, let existing = stored.dateModified else { return false }
+        return incoming < existing
+    }
+
+    static func needsBody(_ header: PlaylistUpsertInput, stored: PlaylistSyncState?) -> Bool {
+        guard let stored else { return true }
+        guard !isStale(header, stored: stored) else { return false }
+        if header.dateModified == nil || header.dateModified != stored.dateModified { return true }
+        return !stored.hasMemberships && (header.trackCount ?? 0) > 0
     }
 
     // MARK: - Rows

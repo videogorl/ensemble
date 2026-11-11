@@ -25,7 +25,7 @@ final class LibraryWriterTests: XCTestCase {
         let cursors = SyncCursorRepository(coreDataStack: stack)
         let pending = PendingMutationRepository(coreDataStack: stack)
         return Fixture(
-            writer: LibraryWriter(libraryRepository: repository, syncCursorRepository: cursors, pendingMutationRepository: pending),
+            writer: LibraryWriter(libraryRepository: repository, playlistRepository: PlaylistRepository(coreDataStack: stack), syncCursorRepository: cursors, pendingMutationRepository: pending),
             repository: repository,
             cursors: cursors,
             pending: pending
