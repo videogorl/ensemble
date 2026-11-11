@@ -462,3 +462,19 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
 - Known limit, predates the branch: Apple Music has one source key (`appleMusic:device:system:library`), so a
   different Apple Account signed in on the device reconciles against the same cached rows.
 - Unmeasured: memory on a library of many thousands of songs (whole-library arrays, one track transaction).
+
+## Suspected: a local playlist edit is protected only inside the process that made it (2026-11-11)
+
+- Evidence: `LibraryWriter.localEdits` (create, optimistic add, local delete) is an in-memory map. It
+  protects the edit from a read that began before it, in the same process; a relaunch forgets it. The
+  durable `PendingMutationRecord`s cover queued renames, adds, removes and deletes, but creates and
+  reorders are never queued (`MutationCoordinator` throws offline for both), so nothing durable names them.
+  After a relaunch, an optimistic body whose server date is unchanged survives (no body read), but a
+  just-created playlist with no server date can be replaced by a lagging server's complete-empty body.
+  Not reproduced; Plex applies a create at once, so this is mostly an Apple Music window of seconds.
+- Impact: a playlist created, then the app killed before its first refresh, may show empty until the
+  server catches up and its date changes.
+- Next step (Option B): a nullable `CDPlaylist.localEditAt` and a tombstone store for deletes (a new
+  Core Data model version, lightweight migration), consulted like the queued-mutation records. Do it only
+  if the window shows up in the log: a created playlist's body read back empty right after a relaunch.
+

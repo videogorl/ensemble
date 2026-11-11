@@ -153,15 +153,17 @@ public struct LibraryBatch: Sendable {
 public actor LibraryWriter {
     static let inventoryInterval: TimeInterval = 24 * 60 * 60
 
-    /// Playlists edited locally before a server read could show the edit stay untouched by older reads.
-    static let localEditProtection: TimeInterval = 60 * 60
+    /// How long a local edit stays in `localEdits` before it is pruned. The map only matters to a read that
+    /// began before the edit, and no read stays in flight this long.
+    static let localEditRetention: TimeInterval = 60 * 60
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let cursors: SyncCursorRepositoryProtocol?
     private let pendingMutations: PendingMutationRepositoryProtocol?
-    /// When each playlist (scope and ID) was last edited locally, in memory only: a restart forgets it,
-    /// and the optimistic row then waits for the next read like any other.
+    /// When each playlist (scope and ID) was last edited locally. It protects the edit from reads that began
+    /// before it, in this process only: a restart forgets it, and the optimistic row then waits for the next
+    /// read like any other (see ON_DECK.md).
     private var localEdits: [String: Date] = [:]
 
     public init(
@@ -295,7 +297,7 @@ public actor LibraryWriter {
             return PlaylistSyncResult()
         }
         let stored = try await playlistRepository.fetchPlaylistSyncStates(forSource: scope)
-        let queuedRenames = try await playlistsWithQueuedRename(in: scope)
+        let queued = try await queuedPlaylistMutations(in: scope)
         var changed = 0
         var unresolved: [String] = []
         for entry in batch.entries {
@@ -303,6 +305,7 @@ public actor LibraryWriter {
             let id = entry.header.ratingKey
             let existing = stored[id]
             guard !Self.isBlank(id), !isEditedLocally(id, in: scope, since: batch.queryStartedAt),
+                  !queued.edited.contains(id),
                   existing.map({ !Self.isStale(entry.header, stored: $0) }) ?? true
             else { continue }
 
@@ -310,7 +313,7 @@ public actor LibraryWriter {
             let body = Self.provenBody(entry.body)
             if body == nil, Self.needsBody(entry.header, stored: existing) { unresolved.append(id) }
             if let existing {
-                if queuedRenames.contains(id) { header = header.replacing(title: existing.title) }
+                if queued.renamed.contains(id) { header = header.replacing(title: existing.title) }
                 if body == nil {
                     // Nothing new was read: keep what the header cannot state, and the date of the stored body.
                     header = header.replacing(duration: header.duration ?? existing.duration, trackCount: header.trackCount ?? existing.trackCount)
@@ -328,8 +331,10 @@ public actor LibraryWriter {
             if inventory.playlistIDs.isEmpty {
                 EnsembleLogger.info("A complete but empty playlist inventory for \(scope) deletes nothing")
             } else {
-                // A playlist created or edited after this read began may not be in it yet.
-                let survivors = inventory.playlistIDs.union(idsEditedLocally(in: scope, since: batch.queryStartedAt))
+                // A playlist edited after this read began, or with an edit still queued to upload, may not be in it yet.
+                let survivors = inventory.playlistIDs
+                    .union(idsEditedLocally(in: scope, since: batch.queryStartedAt))
+                    .union(queued.edited).union(queued.renamed)
                 try RefreshExecution.checkCancellation()
                 removed = try await playlistRepository.removeOrphanedPlaylists(notIn: survivors, forSource: scope)
                 await MainActor.run {
@@ -432,21 +437,36 @@ public actor LibraryWriter {
         return true
     }
 
-    private func playlistsWithQueuedRename(in scope: String) async throws -> Set<String> {
-        guard let pendingMutations else { return [] }
-        return Set(try await pendingMutations.fetchPendingMutationRecords().compactMap { record in
-            guard record.mutationType == .playlistRename,
-                  let payload = try? JSONDecoder().decode(PlaylistRenameMutationPayload.self, from: record.payload),
-                  payload.playlistSourceCompositeKey == scope
-            else { return nil }
-            return payload.playlistRatingKey
-        })
+    /// Playlists with a mutation still queued to upload, from the durable pending-mutation records (which
+    /// name the playlist in their payload). A queued rename keeps its local title; a queued add, remove or
+    /// delete leaves the playlist's header and body alone, so a read of the server cannot undo it, and
+    /// none of them can be deleted by an inventory. Creates and reorders are never queued.
+    private func queuedPlaylistMutations(in scope: String) async throws -> (renamed: Set<String>, edited: Set<String>) {
+        guard let pendingMutations else { return ([], []) }
+        var renamed = Set<String>(), edited = Set<String>()
+        for record in try await pendingMutations.fetchPendingMutationRecords() {
+            let decoder = JSONDecoder()
+            switch record.mutationType {
+            case .playlistRename:
+                if let payload = try? decoder.decode(PlaylistRenameMutationPayload.self, from: record.payload),
+                   payload.playlistSourceCompositeKey == scope { renamed.insert(payload.playlistRatingKey) }
+            case .playlistAdd, .playlistRemove:
+                if let payload = try? decoder.decode(PlaylistMutationPayload.self, from: record.payload),
+                   payload.playlistSourceCompositeKey == scope { edited.insert(payload.playlistRatingKey) }
+            case .playlistDelete:
+                if let payload = try? decoder.decode(PlaylistDeleteMutationPayload.self, from: record.payload),
+                   payload.playlistSourceCompositeKey == scope { edited.insert(payload.playlistRatingKey) }
+            default:
+                continue
+            }
+        }
+        return (renamed, edited)
     }
 
     private static func editKey(_ id: String, in scope: String) -> String { "\(scope)\u{0}\(id)" }
 
     private func noteLocalEdit(_ id: String, in scope: String) {
-        localEdits = localEdits.filter { $0.value.timeIntervalSinceNow > -Self.localEditProtection }
+        localEdits = localEdits.filter { $0.value.timeIntervalSinceNow > -Self.localEditRetention }
         localEdits[Self.editKey(id, in: scope)] = Date()
     }
 

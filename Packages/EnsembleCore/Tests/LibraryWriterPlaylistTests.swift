@@ -334,6 +334,59 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         XCTAssertEqual(needed.map(\.ratingKey), ["p1"])
     }
 
+    /// A queued add, remove or delete is an edit the server has not seen: a read leaves that playlist's header and
+    /// body alone, reports nothing unresolved, and an inventory that lacks it cannot delete it. A queued rename
+    /// is no different for deletion. Once the record is gone the server's state applies.
+    func testAPlaylistWithAQueuedMutationIsNotOverwrittenOrDeleted() async throws {
+        struct Case { let type: CDPendingMutation.MutationType; let payload: Data }
+        func data<T: Encodable>(_ value: T) throws -> Data { try JSONEncoder().encode(value) }
+        let reference = OfflineTrackReference(trackRatingKey: "t", trackSourceCompositeKey: "plex:acct:srv:1")
+        let cases = [
+            Case(type: .playlistAdd, payload: try data(PlaylistMutationPayload(playlistRatingKey: "p1", playlistSourceCompositeKey: scope, trackReferences: [reference]))),
+            Case(type: .playlistRemove, payload: try data(PlaylistMutationPayload(playlistRatingKey: "p1", playlistSourceCompositeKey: scope, trackReferences: [reference]))),
+            Case(type: .playlistDelete, payload: try data(PlaylistDeleteMutationPayload(playlistRatingKey: "p1", playlistSourceCompositeKey: scope))),
+        ]
+        for testCase in cases {
+            let f = try makeFixture()
+            try await f.writer.apply(list(["p1", "p2"], bodies: ["p1": tracks("a"), "p2": tracks("b")], at: t0), for: scope)
+            try await f.pending.enqueueMutation(id: "m1", type: testCase.type, payload: testCase.payload, sourceCompositeKey: scope)
+            // The record names another scope's playlist too, which must not protect this scope.
+            try await f.pending.enqueueMutation(
+                id: "m2", type: .playlistDelete,
+                payload: try data(PlaylistDeleteMutationPayload(playlistRatingKey: "p2", playlistSourceCompositeKey: otherScope)), sourceCompositeKey: otherScope
+            )
+
+            // The server's complete list holds only p3: p2 goes, p1 (queued) stays although the list lacks it.
+            let changed = try await f.writer.apply(PlaylistBatch(
+                entries: [PlaylistEntry(header: header("p3", at: 100, count: 0), body: [])],
+                inventory: try PlaylistInventory(playlistIDs: ["p3"]), readsFullList: true, queryStartedAt: t0 + 10
+            ), for: scope)
+            var ids = try await storedIDs(f, scope)
+            XCTAssertEqual(ids, ["p1", "p3"], "\(testCase.type): p1 is queued, so the inventory keeps it; p2 is not")
+            XCTAssertEqual(changed.removedPlaylists, 1, "\(testCase.type)")
+
+            let read = try await f.writer.apply(PlaylistBatch(
+                entries: [PlaylistEntry(header: header("p1", at: 200, count: 2, title: "Server"), body: tracks("x", "y"))],
+                readsFullList: true, queryStartedAt: t0 + 20
+            ), for: scope)
+            let rows = try await body(f, "p1")
+            XCTAssertEqual(rows, ["a"], "\(testCase.type): the read cannot overwrite the body")
+            let states = try await f.playlists.fetchPlaylistSyncStates(forSource: scope)
+            XCTAssertEqual(states["p1"]?.title, "Playlist p1", "\(testCase.type)")
+            XCTAssertEqual(read, PlaylistSyncResult(), "\(testCase.type): skipped, not unresolved")
+
+            try await f.pending.deleteMutation(id: "m1")
+            try await f.writer.apply(PlaylistBatch(
+                entries: [PlaylistEntry(header: header("p1", at: 200, count: 2, title: "Server"), body: tracks("x", "y"))],
+                inventory: try PlaylistInventory(playlistIDs: ["p1"]), readsFullList: true, queryStartedAt: t0 + 30
+            ), for: scope)
+            let after = try await body(f, "p1")
+            XCTAssertEqual(after, ["x", "y"], "\(testCase.type): once uploaded the server's state applies")
+            ids = try await storedIDs(f, scope)
+            XCTAssertEqual(ids, ["p1"], "\(testCase.type)")
+        }
+    }
+
     /// p1 is rewritten and p2 is deleted by the inventory; a target on each keeps its row.
     func testOfflineTargetsSurviveBodyRewritesAndDeletions() async throws {
         let f = try makeFixture()

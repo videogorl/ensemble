@@ -565,6 +565,8 @@ public actor AppleMusicConnector:
             title: title,
             trackCount: tracks.count,
             duration: tracks.reduce(0) { $0 + $1.duration },
+            // The date MusicKit returned, so the next read of an unchanged playlist keeps this row's body.
+            dateModified: playlist.lastModifiedDate,
             sourceCompositeKey: sourceIdentifier.compositeKey,
             actionCapabilities: Self.playlistActionCapabilities(
                 id: playlistID,
