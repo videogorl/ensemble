@@ -109,13 +109,30 @@ An entry does not authorize the work; Felicity picks what gets done.
 - Next step: per the plan's test policy, list tests that pin internals or duplicate another
   test's behaviour class, by file, and propose deletions or table-driven merges.
 
-## Confirmed: the Mac app opens no window without `-ApplePersistenceIgnoreState YES` (2026-11-09)
+## Suspected, not reproduced 2026-11-10: the Mac app opens no window without `-ApplePersistenceIgnoreState YES` (2026-11-09)
 
 - Evidence: launching the built `.app` on this Mac showed no window until that flag was
-  passed; stale window-restoration state is the suspected cause.
+  passed (2026-11-09); stale window-restoration state is the suspected cause. On 2026-11-10
+  (build 202611101933.9772, Debug, launched with `open -n <built .app>` and no flag, right
+  after quitting a flagged run) a 1100x612 window was on screen within 20 s with the Home
+  tree populated, so the failure did not reproduce.
 - Impact: a user with the same saved state would see the app launch with nothing on screen.
-- Next step: reproduce with the saved state kept, then check the scene and
-  restoration setup.
+- Next step: reproduce with the saved state kept from the failing launch (copy
+  `~/Library/Saved Application State/com.videogorl.ensemble.savedState` aside when it
+  happens), then check the scene and restoration setup.
+
+## Suspected: Mac app logs a credential-read timeout at every launch and Home stays on "Loading..." for the first seconds (2026-11-10)
+
+- Evidence: both launches of build 202611101933.9772 logged `[ERROR] AccountManager:
+  credential read timed out; preserving cached source data` within 1 s of start, with
+  `WebSocketCoordinator: Starting — accounts=0`. The library still loaded from cached source
+  keys (`LibraryViewModel: using provider-authoritative cached source keys while credentials
+  are unresolved`); Home showed "Loading..." on the first read and was populated on the second
+  launch. `MattPlex` also logged offline websocket errors.
+- Impact: unknown; sign-in never prompted and no data was lost, but a slow Keychain read on
+  this loaded Mac delays Home and starts websockets with zero accounts.
+- Next step: time the credential read at launch on an idle Mac to see whether it is load or a
+  real regression from the account-polling cleanup at `82b1928e`.
 
 ## Confirmed: a track that appears twice in a detail list plays its first occurrence (2026-11-09)
 
@@ -124,10 +141,17 @@ An entry does not authorize the work; Felicity picks what gets done.
 - Impact: wrong start position in playlists that repeat a track.
 - Next step: start playback from the tapped row's index, not a lookup by track id.
 
-## Unchecked: gap above the Favorites header on Mac (2026-11-09)
+## Confirmed: Favorites header has an extra gap on Mac (2026-11-10)
 
-- Evidence: reported by a Mac check worker; not looked at again.
-- Next step: open Favorites on the Mac and compare the header spacing with Album detail.
+- Evidence: build 202611101933.9772, 1100 pt wide window, window-screenshot pixels (1366 px
+  wide, so 1 px is about 0.8 pt; the accessibility tree gives no frames). Toolbar bottom at
+  y=55 in both. Album detail: artwork top at y=94, a 39 px gap, and 73 px between the
+  artwork bottom and the first track row. Favorites: artwork top at y=191, a 136 px gap
+  (about 97 px more), and about 166 px between the artwork bottom (365) and the first row
+  (531), against 73 px on Album detail.
+- Impact: Favorites wastes about 100 px above and about 90 px below its header on Mac.
+- Next step: compare the Favorites header container's top and bottom padding with Album
+  detail's header in the shared detail screen.
 
 ## Audit, 2026-11-10: custom machinery a native API might replace
 

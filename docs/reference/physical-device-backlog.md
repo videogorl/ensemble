@@ -437,6 +437,30 @@ pass before step 0 is called verified.
   list renders with artwork, follows a track change, and reorder and remove
   work. Its code is unchanged by part 3; not driven
   because the Mac's session was locked during the run.
+- Mac smoke, 2026-11-10, build 202611101933.9772 (Debug, `develop` at `f97addb7`,
+  driven with Cua Driver; the Mac was heavily loaded):
+  - Launch after the account-polling cleanup at `82b1928e`: Passed with a caveat. The
+    window, sidebar and library rendered and no sign-in prompt appeared, but the log has
+    `AccountManager: credential read timed out; preserving cached source data` at start
+    (see ON_DECK.md); Home showed "Loading..." on the first read.
+  - Step 6b browse: Passed. Songs, Artists, Albums, Genres and Playlists listed items;
+    picking ABBA, Electronic (145 albums) and "am test" showed their contents.
+  - Step 6 detail: Passed. Album detail (10 tracks), artist detail inside the split
+    (ABBA, 1 album, 12 songs), playlist detail (14 songs) and genre detail rendered.
+  - Step 6d parts 1 and 2: part 1 Passed (double-click on "(Anesthesia) – Pulling
+    Teeth" logged `STATE: loading → playing`; the context menu listed Start Track
+    Radio, Play Next, Add to Playlist, Go to Album and more, Escape closed it).
+    Part 2 (rating or download redraw, swipe, drag-out) not run.
+  - Step 1c playback: Passed. Pause, resume, Next, a scrubber seek (`seekRequested`
+    then `seekCompleted` at 221.68 s) and a gapless advance at a track boundary.
+  - Step 6d part 3 queue: Passed. Rows showed artwork and followed track changes; a
+    foreground drag of a handle moved a row from position 1 to 3 (a background drag
+    did nothing). The row-menu remove at `3d9b9443` removed "(One Of Those) Crazy
+    Girls", the row whose ⋯ was pressed, not a neighbour. Pressing ⋯ was done through
+    the accessibility action, not a mouse click.
+  - Favorites header gap: Confirmed, see ON_DECK.md (about 97 px extra above).
+  - Window without `-ApplePersistenceIgnoreState YES`: a window appeared within 20 s,
+    so the ON_DECK item did not reproduce.
 - Step 6c panes on a physical iPad (not run): native `NavigationSplitView`
   now serves every iPad, including iPadOS 17; Artists, Genres and Playlists
   show detail in the next column, rotation and Split View resizing keep the
