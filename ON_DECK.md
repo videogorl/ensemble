@@ -562,7 +562,5 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Suspected: adding a song already in a Plex playlist does nothing and says nothing (count stays, no toast, no
   `Enqueued`). Probably Plex ignoring the duplicate. Next step: confirm against the endpoint and decide whether
   to tell the user.
-- Noted: for a track on another server the Add to Playlist sheet offers "<name>, Create on <server>…", which is
-  how same-named playlists on two servers arise.
 - Not run: reordering a playlist by dragging. Device MCP's drag moves neither playlist rows nor queue rows;
   needs a finger.
