@@ -136,4 +136,32 @@ final class AppleMusicPlaylistInventoryProofTests: XCTestCase {
             XCTAssertEqual(nativeRead, testCase.nativeRead, testCase.name)
         }
     }
+
+    /// A cancelled read is cancellation: it neither starts the MusicKit fallback nor hides behind REST's error.
+    func testCancellationNeverFallsBackOrIsReplaced() async {
+        struct Unavailable: Error {}
+        enum Cancelled { case rest, witness, native }
+        for cancelled in [Cancelled.rest, .witness, .native] {
+            var nativeRead = false
+            do {
+                _ = try await AppleMusicPlaylistBodyProof.withNativeFallback {
+                    if cancelled == .rest { throw CancellationError() }
+                    if cancelled == .native { throw Unavailable() }
+                    try await AppleMusicPlaylistBodyProof.verifyREST(
+                        itemCount: 3, songCount: 3, total: .absent,
+                        witnessSongCount: { throw CancellationError() }
+                    )
+                    return "rest"
+                } native: { _ in
+                    nativeRead = true
+                    if cancelled == .native { throw CancellationError() }
+                    return "native"
+                }
+                XCTFail("expected cancellation (\(cancelled))")
+            } catch {
+                XCTAssertTrue(error is CancellationError, "\(cancelled): \(error)")
+            }
+            XCTAssertEqual(nativeRead, cancelled == .native, "\(cancelled)")
+        }
+    }
 }

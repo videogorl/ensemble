@@ -307,6 +307,8 @@ public actor AppleMusicConnector:
                     body = try await nativeBody(native)
                 } else { continue }
                 entries.append(PlaylistEntry(header: body.completing(header), body: body.snapshots))
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 try RefreshExecution.checkCancellation()
                 Self.logPlaylistBodyFailure(id: header.ratingKey, title: header.title, error: error)

@@ -81,6 +81,7 @@ enum AppleMusicPlaylistBodyProof {
     /// REST first, then MusicKit when REST is unavailable (a shared playlist has no related resources). Only an
     /// unavailable read falls back: a REST body that failed its proof is withheld, because the MusicKit read
     /// would then be accepted on its own against a REST read that says it is wrong. When both fail, REST's error stands.
+    /// Cancellation of either read is rethrown and never starts or hides behind the other.
     static func withNativeFallback<Value>(
         rest: () async throws -> Value,
         native: (Error) async throws -> Value
@@ -89,10 +90,14 @@ enum AppleMusicPlaylistBodyProof {
             return try await rest()
         } catch let unproven as Unproven {
             throw unproven
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             let restError = error
             do {
                 return try await native(restError)
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 throw restError
             }

@@ -182,7 +182,11 @@ final class PlaylistRefreshControllerTests: XCTestCase {
             for (index, gate) in gates.enumerated() {
                 let deadline = Date().addingTimeInterval(10)
                 while !(await gate.isHeld), Date() < deadline { try await Task.sleep(nanoseconds: 1_000_000) }
-                guard await gate.isHeld else { XCTFail("read \(index + 1) was never started (overtaken \(overtaken))"); break }
+                guard await gate.isHeld else {
+                    // Leave at once so the deferred release runs; a late read must not wait on a held gate.
+                    recovery.cancel()
+                    return XCTFail("read \(index + 1) was never started (overtaken \(overtaken))")
+                }
                 // A WebSocket pass that began after this read commits first, then this read is let go.
                 let competitor = max(Date(), provider.started[index].addingTimeInterval(0.001))
                 _ = try await writer.apply(PlaylistBatch(

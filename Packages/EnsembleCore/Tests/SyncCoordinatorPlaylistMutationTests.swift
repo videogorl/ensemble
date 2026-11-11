@@ -397,7 +397,10 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
 
         let firstCount = try await coordinator.persistOptimisticPlaylistAdd([espresso], playlist: playlist)
         // An open playlist detail reloads on this event, so the optimistic body shows without a later refresh.
-        guard case .playlistsRefreshed(let refreshedKey)? = await events.next() else { return XCTFail("expected playlistsRefreshed") }
+        let waiting = Task { await events.next() }
+        let timeout = Task { try await Task.sleep(nanoseconds: 10_000_000_000); waiting.cancel() }
+        defer { timeout.cancel() }
+        guard case .playlistsRefreshed(let refreshedKey)? = await waiting.value else { return XCTFail("expected playlistsRefreshed") }
         XCTAssertEqual(refreshedKey, sourceKey)
         let duplicateCount = try await coordinator.persistOptimisticPlaylistAdd([espresso], playlist: playlist)
         XCTAssertEqual(firstCount, 3)
