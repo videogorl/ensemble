@@ -251,15 +251,3 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
   server was down or the app mis-handled the connection.
 - Next step: read the Plex full-sync entry in `SyncCoordinator` for where the
   cursor is reset relative to the fetch, and re-run when the server is reachable.
-
-## Removing the last song from an Apple Music library never reaches Ensemble (confirmed)
-
-- Evidence: step 3c on the iPhone SE; after the only song was deleted in Music,
-  four full syncs logged `API 0 songs (total 0), MusicKit 0, matching 0` and
-  `A complete but empty library inventory for appleMusic:device:system:library deletes nothing`;
-  the song, album and artist stayed (store read 1/1/1).
-- Impact: a user who empties their Apple Music library keeps ghost rows until they
-  remove the source. This follows the writer's "empty inventory deletes nothing"
-  rule, so changing it is a policy decision.
-- Next step: decide whether an empty list is trusted when the REST total and the
-  MusicKit count both say 0 and authorization is current.
