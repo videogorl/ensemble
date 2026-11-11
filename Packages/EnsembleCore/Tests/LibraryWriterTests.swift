@@ -131,7 +131,8 @@ final class LibraryWriterTests: XCTestCase {
         XCTAssertEqual([result.removedArtists, result.removedAlbums, result.removedTracks], [0, 0, 0])
     }
 
-    /// Rows a response did not list must survive unless a complete inventory says they are gone.
+    /// Rows a response did not list must survive unless a complete inventory says they are gone. An empty
+    /// inventory counts only when its connector vouches for it (Apple Music); Plex never does.
     func testNothingIsDeletedWithoutACompleteNonEmptyInventory() async throws {
         let cases: [(name: String, batch: LibraryBatch)] = [
             ("delta with fewer rows than stored", LibraryBatch(tracks: [track("t1", album: "b1")], queryStartedAt: t0 + 10)),
@@ -139,6 +140,12 @@ final class LibraryWriterTests: XCTestCase {
             ("complete but empty inventory", LibraryBatch(
                 genres: [], inventory: try LibraryInventory(artistIDs: [], albumIDs: [], tracks: [], genreIDs: []),
                 isFullMetadataPass: true, queryStartedAt: t0 + 10
+            )),
+            ("vouched inventory that is empty only in part", LibraryBatch(
+                inventory: try LibraryInventory(
+                    artistIDs: [], albumIDs: ["b1", "b2"], tracks: [("t1", "b1")], emptyIsAuthoritative: true
+                ),
+                queryStartedAt: t0 + 10
             )),
             ("inventory without tracks", LibraryBatch(
                 inventory: try LibraryInventory(artistIDs: ["a1", "a2"], albumIDs: ["b1", "b2"], tracks: []),
@@ -164,6 +171,34 @@ final class LibraryWriterTests: XCTestCase {
             let record = try await cursor(f, sourceA)
             XCTAssertEqual(record?.lastFullSyncAt, self.t0, testCase.name)
         }
+    }
+
+    /// A connector-vouched empty library is the true state: it clears that source's rows, records the
+    /// cursor, and leaves every other source alone.
+    func testAVouchedEmptyInventoryDeletesOnlyItsOwnSourcesRows() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(fullBatch(at: t0), to: sourceA)
+        try await f.writer.apply(fullBatch(at: t0), to: sourceB)
+
+        let result = try await f.writer.apply(LibraryBatch(
+            genres: [],
+            inventory: try LibraryInventory(artistIDs: [], albumIDs: [], tracks: [], emptyIsAuthoritative: true),
+            isFullMetadataPass: true,
+            queryStartedAt: t0 + 10
+        ), to: sourceA)
+
+        let a = try await stored(f, sourceA)
+        XCTAssertEqual([a.artists.count, a.albums.count, a.tracks.count], [0, 0, 0])
+        let b = try await stored(f, sourceB)
+        XCTAssertEqual(b.artists, everything.artists)
+        XCTAssertEqual(b.albums, everything.albums)
+        XCTAssertEqual(b.tracks, everything.tracks)
+        XCTAssertEqual([result.removedArtists, result.removedAlbums, result.removedTracks], [2, 2, 3])
+        XCTAssertEqual(result.removedTrackRatingKeys, everything.tracks)
+        let record = try await cursor(f, sourceA)
+        XCTAssertEqual(record?.lastFullSyncAt, t0 + 10)
+        let other = try await cursor(f, sourceB)
+        XCTAssertEqual(other?.lastFullSyncAt, t0)
     }
 
     func testAStaleBatchArrivingAfterANewerOneChangesNothing() async throws {

@@ -51,6 +51,10 @@ public struct LibraryInventory: Sendable, Equatable {
     public let trackParents: [String: String]
     /// Nil when the source does not list genres in this pass.
     public let genreIDs: Set<String>?
+    /// The connector vouches that an empty library is the true state, not a fault: it read the whole
+    /// library and independent counts agree on zero. Plex never sets this, since an empty section
+    /// there is far more likely a server fault.
+    public let emptyIsAuthoritative: Bool
 
     /// Track count per album, including albums with no tracks.
     public var trackCounts: [String: Int] {
@@ -65,7 +69,8 @@ public struct LibraryInventory: Sendable, Equatable {
         artistIDs: [String],
         albumIDs: [String],
         tracks: [(id: String, albumID: String?)],
-        genreIDs: [String]? = nil
+        genreIDs: [String]? = nil,
+        emptyIsAuthoritative: Bool = false
     ) throws {
         func isBlank(_ id: String) -> Bool { id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !artistIDs.contains(where: isBlank) else { throw LibraryWriterError.invalidInventory("blank artist ID") }
@@ -84,6 +89,7 @@ public struct LibraryInventory: Sendable, Equatable {
         self.albumIDs = albums
         self.trackParents = parents
         self.genreIDs = genreIDs.map(Set.init)
+        self.emptyIsAuthoritative = emptyIsAuthoritative
     }
 }
 
@@ -135,7 +141,7 @@ public struct LibraryBatch: Sendable {
 /// cannot race a fetch against an insert.
 ///
 /// Deletion contract: rows are deleted only from a complete inventory. An empty
-/// inventory never deletes, a stale batch is ignored whole, and a failed,
+/// inventory deletes only when its connector marked it authoritative, a stale batch is ignored whole, and a failed,
 /// partial or cancelled pass leaves the cursor due.
 public actor LibraryWriter {
     static let inventoryInterval: TimeInterval = 24 * 60 * 60
@@ -395,6 +401,11 @@ extension TrackUpsertInput {
 }
 
 extension LibraryInventory {
-    /// An inventory with no artists, albums or tracks cannot show that a stored row is gone.
-    var cannotProveDeletion: Bool { artistIDs.isEmpty || albumIDs.isEmpty || trackParents.isEmpty }
+    /// An inventory with no artists, albums or tracks cannot show that a stored row is gone, unless the
+    /// connector vouches for a library that is empty throughout. A partly empty one never deletes.
+    var cannotProveDeletion: Bool {
+        let isEmpty = artistIDs.isEmpty && albumIDs.isEmpty && trackParents.isEmpty
+        if isEmpty && emptyIsAuthoritative { return false }
+        return artistIDs.isEmpty || albumIDs.isEmpty || trackParents.isEmpty
+    }
 }

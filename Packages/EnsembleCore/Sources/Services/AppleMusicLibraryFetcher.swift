@@ -139,7 +139,9 @@ struct AppleMusicLibraryFetcher: Sendable {
             return try LibraryInventory(
                 artistIDs: artists.map(\.ratingKey),
                 albumIDs: albums.map(\.ratingKey),
-                tracks: songs.map { ($0.id, $0.albumKey) }
+                tracks: songs.map { ($0.id, $0.albumKey) },
+                // Reaching here means the REST total and MusicKit's witness both agree, so zero is the library.
+                emptyIsAuthoritative: true
             )
         } catch {
             EnsembleLogger.error("Apple Music inventory withheld: \(error)")

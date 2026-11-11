@@ -125,6 +125,8 @@ final class AppleMusicLibraryFetcherTests: XCTestCase {
             ("MusicKit lists a song the list lacks (list ended early)",
              FakeSource(songs: .success(try list(["s1", "s2"])), native: .success(native(["s1", "s2", "s3"]))), false),
             ("API total larger than the songs received", try source(["s1", "s2"], total: 3), false),
+            ("API empty but MusicKit lists songs", FakeSource(songs: .success(try list([])), native: .success(native(["s1"]))), false),
+            ("API empty and the MusicKit read failed", FakeSource(songs: .success(try list([])), native: .failure(Failure.page)), true),
             ("a page failed", FakeSource(songs: .failure(Failure.page), native: .success(native([]))), true),
             ("request cancelled", FakeSource(songs: .failure(CancellationError()), native: .success(native([]))), true),
             ("MusicKit read failed", FakeSource(songs: .success(try list(["s1", "s2"])), native: .failure(Failure.page)), true),
@@ -174,15 +176,22 @@ final class AppleMusicLibraryFetcherTests: XCTestCase {
         XCTAssertEqual(withheld.songReads, 2)
     }
 
-    func testAnEmptyLibraryDeletesNothing() async throws {
+    /// Both reads agreeing on zero is the library, so every stored row goes (an unproved read, above, deletes nothing).
+    func testALibraryBothReadsAgreeIsEmptyDeletesTheSourcesRows() async throws {
         let f = try makeFixture()
         try await pass(f, try source(["s1", "s2", "s3"]), at: t0)
 
         let result = try await pass(f, try source([]), at: t0 + 10)
 
         let tracks = try await storedTracks(f, apple)
-        XCTAssertEqual(tracks, ["s1", "s2", "s3"])
-        XCTAssertEqual(result.removedTracks + result.removedAlbums + result.removedArtists, 0)
+        XCTAssertTrue(tracks.isEmpty)
+        let albums = try await f.repository.fetchAlbumSyncMetadata(forSource: apple.compositeKey)
+        XCTAssertTrue(albums.isEmpty)
+        let artists = try await f.repository.fetchArtistSyncMetadata(forSource: apple.compositeKey)
+        XCTAssertTrue(artists.isEmpty)
+        XCTAssertEqual(result.removedTrackRatingKeys, ["s1", "s2", "s3"])
+        let inventory = try await inventoryDate(f)
+        XCTAssertEqual(inventory, t0 + 10)
     }
 
     func testAnApplePassAndAPlexPassNeverTouchEachOthersRows() async throws {
