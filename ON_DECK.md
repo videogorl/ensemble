@@ -405,3 +405,17 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
 - A TV or external display, an iPad and the Apple Watch: Screen Mirroring Now Playing, step 6c panes, the watch
   mirror.
 - The Mac: rating and download redraw, swipe, drag-out, and a real mouse click on the queue's context button.
+
+## Codex review of step e, the seek fix and the resume follow-ups (2026-11-11, at `4db0c641`)
+
+- Fixed the same day: an original is no longer marked verified when the converter rejected a packet and audio is
+  missing, or when a short file decodes under half its container length (the 10-second exemptions are gone);
+  the give-up after a failed resume is decided under the lock, so a path change cannot slip a replacement in.
+- Declined, by the lead's judgment: "a seek to 0 during the original's own download should wait for it". A
+  seek to the start restarts the direct stream at once at original quality; waiting up to 30 s for the download
+  would be worse. The cost is the bytes already downloaded. Revisit if Plex is seen ending the new request.
+- Suspected, open: during playback a converter error is still only logged (`StreamingAudioDecoder.decode`), so
+  a mid-file bad packet is a silent gap; the fallback fires only if the end-of-download check then flags the
+  file. Next step: decide whether a converter error mid-play should trigger the fallback at once.
+- Coverage the review asked for and nothing provides: both resume races under deterministic scheduling, and
+  Pause, Next or Stop while a seek wait is pending.

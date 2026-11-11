@@ -826,8 +826,8 @@ final class StreamingAudioPipeline: NSObject {
         let resumeFailedAfterPathChange = resumeOffset != nil && pathChangedAwaitingBytes
         guard let validator = resumeValidator, !resumeFailedAfterPathChange,
               now - startedAt < configuration.resumeWindow else {
-            stateLock.unlock()
-            failAfterDraining(error)
+            // Decided under the lock: a path change must not slip a replacement in before the give-up.
+            failAfterDrainingAndUnlock(error)
             return
         }
         EnsembleLogger.info("[StreamingPipeline] dropped trackId=\(configuration.trackID ?? "unknown") bytes=\(receivedByteCount)/\(validator.totalBytes) error=\((error as NSError).domain):\((error as NSError).code)")
@@ -903,6 +903,11 @@ final class StreamingAudioPipeline: NSObject {
             stateLock.unlock()
             return
         }
+        failAfterDrainingAndUnlock(error)
+    }
+
+    /// Called with the lock held; releases it.
+    private func failAfterDrainingAndUnlock(_ error: Error) {
         guard decoderStarted, pcmBuffer != nil, !completed, !cancelled else {
             stateLock.unlock()
             fail(error)

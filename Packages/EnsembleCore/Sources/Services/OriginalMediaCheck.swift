@@ -15,13 +15,19 @@ enum OriginalMediaCheck {
     }
 
     /// What decoding to the end says: nothing decoded from a stream that formed a format cannot be
-    /// streamed; audio holding under half of the length the container states is damage.
-    static func classify(decodedFrames: Int64, sampleRate: Double, containerSeconds: TimeInterval?) -> ProgressiveStreamError? {
+    /// streamed; audio holding under half of the length the container states is damage, and so is any
+    /// missing audio when the converter rejected part of the file.
+    static func classify(
+        decodedFrames: Int64, sampleRate: Double, containerSeconds: TimeInterval?, conversionFailed: Bool = false
+    ) -> ProgressiveStreamError? {
         guard sampleRate > 0 else { return nil }
         if decodedFrames == 0 { return .unstreamableOriginal(reason: "the decoder produced no audio") }
-        guard let expected = containerSeconds, expected > 10 else { return nil }
         let decoded = Double(decodedFrames) / sampleRate
-        guard decoded < expected * 0.5, decoded < expected - 10 else { return nil }
+        if conversionFailed, decoded < (containerSeconds ?? .infinity) - 1 {
+            return .damagedOriginal(reason: "the decoder rejected part of the audio")
+        }
+        // Under a second, a container's stated length is too coarse to judge by.
+        guard let expected = containerSeconds, expected > 1, decoded < expected * 0.5 else { return nil }
         return .damagedOriginal(reason: "audio ends at \(Int(decoded)) of \(Int(expected)) seconds")
     }
 
@@ -51,7 +57,10 @@ enum OriginalMediaCheck {
             do { try decoder.append(chunk) } catch { throw classify(decoderError: error) ?? error }
         }
         guard sampleRate > 0 else { throw ProgressiveStreamError.damagedOriginal(reason: "no audio format") }
-        if let verdict = classify(decodedFrames: frames, sampleRate: sampleRate, containerSeconds: containerSeconds(of: fileURL)) {
+        if let verdict = classify(
+            decodedFrames: frames, sampleRate: sampleRate, containerSeconds: containerSeconds(of: fileURL),
+            conversionFailed: decoder.conversionFailed
+        ) {
             throw verdict
         }
     }
