@@ -282,9 +282,17 @@ public actor LibraryWriter {
     /// Runs a local playlist edit, such as queueing a playlist mutation and caching its effect, in the
     /// chain: after every earlier playlist operation and before the next. A pass reads the queued mutations
     /// once, at its start, so an edit that ran inside it would go unprotected from that pass's last write.
-    /// The edit must not call this writer's other playlist operations.
-    public func performPlaylistEdit<Value: Sendable>(_ edit: @escaping () async throws -> Value) async throws -> Value {
-        try await serialized(edit)
+    /// With `editing`, the playlist is also marked edited locally inside the same operation, so a pass whose
+    /// read began earlier but enters the chain later leaves it alone. The edit must not call this writer's
+    /// other playlist operations.
+    public func performPlaylistEdit<Value: Sendable>(
+        editing target: (id: String, scope: String)? = nil,
+        _ edit: @escaping () async throws -> Value
+    ) async throws -> Value {
+        try await serialized {
+            if let target { self.noteLocalEdit(target.id, in: target.scope) }
+            return try await edit()
+        }
     }
 
     /// The listed playlists whose bodies must be read: new ones, ones whose date changed or is missing,

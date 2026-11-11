@@ -70,16 +70,13 @@ final class LibraryWriterPlaylistTests: XCTestCase {
     private actor Gate {
         private var started = false
         private var isOpen = false
-        private var startWaiters: [CheckedContinuation<Void, Never>] = []
         private var waiters: [CheckedContinuation<Void, Never>] = []
 
         func hold() async {
             started = true
-            startWaiters.forEach { $0.resume() }
-            startWaiters.removeAll()
             if !isOpen { await withCheckedContinuation { waiters.append($0) } }
         }
-        func waitUntilHeld() async { if !started { await withCheckedContinuation { startWaiters.append($0) } } }
+        var isHeld: Bool { started }
         func release() { isOpen = true; waiters.forEach { $0.resume() }; waiters.removeAll() }
     }
 
@@ -122,8 +119,22 @@ final class LibraryWriterPlaylistTests: XCTestCase {
 
     /// Waits until the writer has been handed `count` playlist operations in all: the call has arrived, and
     /// either waits its turn in the chain or runs.
-    private func waitForSubmissions(_ f: Fixture, _ count: Int) async {
-        while await f.writer.playlistOperationsSubmitted < count { await Task.yield() }
+    private func waitForSubmissions(_ f: Fixture, _ count: Int, file: StaticString = #filePath, line: UInt = #line) async {
+        await wait("the writer to be handed \(count) playlist operations", file: file, line: line) { await f.writer.playlistOperationsSubmitted >= count }
+    }
+
+    /// Waits for `gate` to hold a call. A hold that never comes fails the test instead of hanging the suite.
+    private func waitHeld(_ gate: Gate, file: StaticString = #filePath, line: UInt = #line) async {
+        await wait("a call to reach the gate", file: file, line: line) { await gate.isHeld }
+    }
+
+    /// Polls `condition` until it holds or ten seconds pass; a timeout is a test failure.
+    private func wait(_ what: String, file: StaticString, line: UInt, _ condition: () async -> Bool) async {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !(await condition()) {
+            if ContinuousClock.now > deadline { return XCTFail("Timed out waiting for \(what)", file: file, line: line) }
+            await Task.yield()
+        }
     }
 
     /// Gives work that must NOT run yet the chance to run if it wrongly would: polls (each poll is a real store
@@ -503,11 +514,12 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0), for: scope)
         let gate = Gate()
+        defer { Task { await gate.release() } }   // a regression must fail, not hang the suite
         f.hooked.onCall { event in if event == "body:x" { await gate.hold() } }
         let submitted = await f.writer.playlistOperationsSubmitted
 
         let pass = Task { try await f.writer.apply(self.list(["p1"], bodies: ["p1": self.tracks("x")], at: Date(), modified: 200), for: self.scope) }
-        await gate.waitUntilHeld()
+        await waitHeld(gate)
         let edit = Task { try await f.writer.applyLocalEdit(PlaylistEntry(header: self.header("p1", at: 200, count: 2), body: self.tracks("a", "b")), for: self.scope) }
         await waitForSubmissions(f, submitted + 2)
         let reads = f.hooked.count("read")
@@ -531,12 +543,13 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1"], at: t0), for: scope)
         let gate = Gate()
+        defer { Task { await gate.release() } }   // a regression must fail, not hang the suite
         f.hooked.onCall { event in if event == "upsert:Server title" { await gate.hold() } }   // the pass's header save
         let submitted = await f.writer.playlistOperationsSubmitted
         let payload = try JSONEncoder().encode(PlaylistRenameMutationPayload(playlistRatingKey: "p1", playlistSourceCompositeKey: scope, newTitle: "Renamed"))
 
         let pass = Task { try await f.writer.apply(self.list(["p1"], at: Date(), modified: 200, title: "Server title"), for: self.scope) }
-        await gate.waitUntilHeld()
+        await waitHeld(gate)
         let editRan = Flag()
         let edit = Task {
             try await f.writer.performPlaylistEdit {
@@ -562,18 +575,50 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         XCTAssertEqual(after["p1"]?.title, "Renamed")
     }
 
+    /// An online rename leaves no queued record, so its chained title write marks the playlist edited instead: a
+    /// pass whose read began earlier but reaches the chain after the rename leaves the new title alone.
+    func testAPassFetchedBeforeAnOnlineRenameCannotOverwriteItsTitle() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0), for: scope)
+        let gate = Gate()
+        defer { Task { await gate.release() } }
+        f.hooked.onCall { event in if event == "body:z" { await gate.hold() } }
+        let submitted = await f.writer.playlistOperationsSubmitted
+
+        // The chain is busy; the rename is submitted first, then a pass whose read began before the rename.
+        let busy = Task { try await f.writer.apply(self.list(["p1"], bodies: ["p1": self.tracks("z")], at: Date().addingTimeInterval(-10), modified: 150), for: self.scope) }
+        await waitHeld(gate)
+        let rename = Task {
+            try await f.writer.performPlaylistEdit(editing: ("p1", self.scope)) {
+                try await f.playlists.updatePlaylistTitle(ratingKey: "p1", sourceCompositeKey: self.scope, title: "Renamed")
+            }
+        }
+        await waitForSubmissions(f, submitted + 2)
+        let earlier = Task { try await f.writer.apply(self.list(["p1"], at: Date().addingTimeInterval(-5), modified: 200, title: "Server title"), for: self.scope) }
+        await waitForSubmissions(f, submitted + 3)
+        await gate.release()
+        _ = try await busy.value
+        try await rename.value
+        _ = try await earlier.value
+
+        let states = try await f.playlists.fetchPlaylistSyncStates(forSource: scope)
+        XCTAssertEqual(states["p1"]?.title, "Renamed")
+        XCTAssertEqual(states["p1"]?.dateModified, Date(timeIntervalSince1970: 150), "the date stays the server's")
+    }
+
     /// Two passes started together apply one after the other: the older read, held mid-write, is rejected by the
     /// newer pass's cursor instead of overwriting it afterwards.
     func testOverlappingPassesEndInTheNewerReadsState() async throws {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1", "p2"], bodies: ["p1": tracks("a"), "p2": tracks("b")], at: t0), for: scope)
         let gate = Gate()
+        defer { Task { await gate.release() } }   // a regression must fail, not hang the suite
         f.hooked.onCall { event in if event == "body:o" { await gate.hold() } }
         let submitted = await f.writer.playlistOperationsSubmitted
         let now = Date()   // reads began in the past: a cursor dated in the future reads as a clock that went backwards
 
         let older = Task { try await f.writer.apply(self.list(["p1", "p2"], bodies: ["p1": self.tracks("o"), "p2": self.tracks("b")], at: now - 10, modified: 150), for: self.scope) }
-        await gate.waitUntilHeld()
+        await waitHeld(gate)
         let newer = Task { try await f.writer.apply(self.list(["p1", "p3"], bodies: ["p1": self.tracks("a", "n"), "p3": self.tracks("c")], at: now - 5, modified: 200), for: self.scope) }
         await waitForSubmissions(f, submitted + 2)
         await letOtherWorkRun(f) { f.hooked.count("body:a,n") > 0 }   // the newer pass's write, if it ran unchained
@@ -594,10 +639,11 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1", "p2", "p3"], bodies: ["p1": tracks("a"), "p2": tracks("b"), "p3": tracks("c")], at: t0), for: scope)
         let gate = Gate()
+        defer { Task { await gate.release() } }   // a regression must fail, not hang the suite
         f.hooked.onCall { event in if event == "body:b,n" { await gate.hold() } }   // p2's body: p1 has committed by now
 
         let pass = Task { try await f.writer.apply(self.list(["p1", "p2"], bodies: ["p1": self.tracks("a", "n"), "p2": self.tracks("b", "n")], at: self.t0 + 10, modified: 200), for: self.scope) }
-        await gate.waitUntilHeld()
+        await waitHeld(gate)
         pass.cancel()
         await gate.release()
         do { _ = try await pass.value; XCTFail("expected cancellation") } catch is CancellationError {}
@@ -617,6 +663,7 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0), for: scope)
         let gate = Gate()
+        defer { Task { await gate.release() } }   // a regression must fail, not hang the suite
         f.hooked.onCall { event in
             if event == "body:held" { await gate.hold() }
             if event == "body:fails" { throw Injected() }
@@ -627,7 +674,7 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         }
 
         let running = edit("held")                               // runs, then is cancelled while held
-        await gate.waitUntilHeld()
+        await waitHeld(gate)
         let queuedThenCancelled = edit("never")                  // cancelled while it waits its turn
         let storeError = edit("fails")                           // fails when it runs
         let survivor = edit("a", "survivor")                     // must still run
@@ -694,6 +741,7 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0), for: scope)
         let gate = Gate()
+        defer { Task { await gate.release() } }   // a regression must fail, not hang the suite
         let writes = LockedCounter()
         f.hooked.onCall { event in if event.hasPrefix("body:"), writes.next() == 0 { await gate.hold() } }
         let submitted = await f.writer.playlistOperationsSubmitted
@@ -702,7 +750,7 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         func append(_ id: String) -> Task<Int?, Error> { Task { try await f.writer.appendLocally([track(id)], toPlaylist: "p1", for: self.scope) } }
 
         var tasks = [append("t0")]
-        await gate.waitUntilHeld()
+        await waitHeld(gate)
         tasks += (1..<8).map { append("t\($0)") }
         tasks.append(append("a"))                               // already in the playlist: adds nothing
         await waitForSubmissions(f, submitted + 9)

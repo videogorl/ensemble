@@ -438,7 +438,7 @@ public final class MutationCoordinator {
             let payload = PlaylistRenameMutationPayload(
                 playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey, newTitle: newTitle
             )
-            let queued = try await playlistEdit {
+            let queued = try await playlistEdit(editing: (playlist.id, sourceKey)) {
                 guard await self.enqueueMutation(type: .playlistRename, payload: payload, sourceCompositeKey: sourceKey) else { return false }
                 await self.persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
                 return true
@@ -449,13 +449,13 @@ public final class MutationCoordinator {
 
         do {
             try await syncCoordinator.renamePlaylist(playlist, to: newTitle)
-            try await playlistEdit { await self.persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey) }
+            try await playlistEdit(editing: (playlist.id, sourceKey)) { await self.persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey) }
             return .completed
         } catch where isConnectionFailure(error) && supportsQueuedMutations {
             let payload = PlaylistRenameMutationPayload(
                 playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey, newTitle: newTitle
             )
-            let queued = try await playlistEdit {
+            let queued = try await playlistEdit(editing: (playlist.id, sourceKey)) {
                 guard await self.enqueueMutation(type: .playlistRename, payload: payload, sourceCompositeKey: sourceKey) else { return false }
                 await self.persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
                 return true
@@ -718,8 +718,12 @@ public final class MutationCoordinator {
 
     /// Runs a local playlist edit (queueing its mutation and caching its effect) in the writer's serial chain,
     /// so a playlist pass that read the queued mutations at its start sees them unchanged to its end.
-    private func playlistEdit<Value: Sendable>(_ edit: @escaping () async -> Value) async throws -> Value {
-        try await syncCoordinator.performPlaylistEdit(edit)
+    /// With `editing`, the playlist is also marked edited locally in the same operation (see `LibraryWriter.performPlaylistEdit`).
+    private func playlistEdit<Value: Sendable>(
+        editing target: (id: String, scope: String)? = nil,
+        _ edit: @escaping () async -> Value
+    ) async throws -> Value {
+        try await syncCoordinator.performPlaylistEdit(editing: target, edit)
     }
 
     /// Generic enqueue method for any Codable payload

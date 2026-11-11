@@ -136,8 +136,13 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             mutationTitle = title
         }
 
+        private var cancelsCallerAfterDelete = false
+        /// Makes the next `deletePlaylist` acknowledge, then cancel the task that called it.
+        func cancelCallerAfterDelete() { cancelsCallerAfterDelete = true }
+
         func deletePlaylist(_ playlistID: String) async throws {
             events.append("delete")
+            if cancelsCallerAfterDelete { withUnsafeCurrentTask { $0?.cancel() } }
         }
 
         func replacePlaylistContents(_ playlistID: String, tracks: [Track]) async throws {
@@ -388,8 +393,12 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             sourceCompositeKey: sourceKey
         )
         let coordinator = makeCoordinator(withServer: false, playlistRepository: repository)
+        var events = coordinator.events().makeAsyncIterator()
 
         let firstCount = try await coordinator.persistOptimisticPlaylistAdd([espresso], playlist: playlist)
+        // An open playlist detail reloads on this event, so the optimistic body shows without a later refresh.
+        guard case .playlistsRefreshed(let refreshedKey)? = await events.next() else { return XCTFail("expected playlistsRefreshed") }
+        XCTAssertEqual(refreshedKey, sourceKey)
         let duplicateCount = try await coordinator.persistOptimisticPlaylistAdd([espresso], playlist: playlist)
         XCTAssertEqual(firstCount, 3)
         XCTAssertEqual(duplicateCount, 3)
@@ -1018,5 +1027,56 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         XCTAssertEqual(script.readCount, 2)
         let stored = try await repository.fetchPlaylist(ratingKey: "playlist-1", sourceCompositeKey: sourceKey)
         XCTAssertEqual(stored?.playlistItemsArray.compactMap(\.trackRatingKey), ["fresh"], "the superseded read wrote nothing; the fresh one applied")
+    }
+
+    /// The server acknowledged the delete; a cancellation that arrives afterwards only leaves the local cleanup
+    /// unfinished. The interactive delete still succeeds, and a queued delete's replay is acknowledged and its
+    /// record removed instead of being deferred, which would send the DELETE again.
+    func testCancellationAfterAnAcknowledgedDeleteIsNotAFailureOrAReplay() async throws {
+        let scope = "plex:account-1:server-1"
+        func seeded() async throws -> (CoreDataStack, PlaylistRepository, RecordingPlaylistProvider, SyncCoordinator) {
+            let stack = CoreDataStack.inMemory()
+            let repository = PlaylistRepository(coreDataStack: stack)
+            _ = try await repository.upsertPlaylist(
+                ratingKey: "playlist-1", key: "/playlists/playlist-1", title: "Only", summary: nil, compositePath: nil, isSmart: false,
+                duration: nil, trackCount: 0, dateAdded: nil, dateModified: nil, lastPlayed: nil, sourceCompositeKey: scope
+            )
+            let provider = RecordingPlaylistProvider()
+            let coordinator = makeCoordinator(playlistRepository: repository)
+            coordinator.setSyncProvidersForTesting([provider.sourceIdentifier.compositeKey: provider])
+            await provider.cancelCallerAfterDelete()
+            return (stack, repository, provider, coordinator)
+        }
+        let playlist = Playlist(
+            id: "playlist-1", key: "/playlists/playlist-1", title: "Only", summary: nil, isSmart: false, trackCount: 0,
+            duration: 0, compositePath: nil, dateAdded: nil, dateModified: nil, lastPlayed: nil, sourceCompositeKey: scope
+        )
+
+        // Interactive: the delete reports success.
+        let (_, repository, provider, coordinator) = try await seeded()
+        let interactive = Task { try await coordinator.deletePlaylist(playlist) }
+        try await interactive.value
+        let sent = await provider.recordedEvents().filter { $0 == "delete" }.count
+        XCTAssertEqual(sent, 1)
+        let kept = try await repository.fetchPlaylistSyncStates(forSource: scope)
+        XCTAssertEqual(Set(kept.keys), ["playlist-1"], "the cancelled cleanup is the accepted limit: the row waits for a later pass")
+
+        // Replay of a queued delete: acknowledged, record gone, the DELETE sent once.
+        let (stack, _, replayProvider, replayCoordinator) = try await seeded()
+        let pending = PendingMutationRepository(coreDataStack: stack)
+        try await pending.enqueueMutation(
+            id: "delete-1", type: .playlistDelete,
+            payload: try JSONEncoder().encode(PlaylistDeleteMutationPayload(playlistRatingKey: "playlist-1", playlistSourceCompositeKey: scope)),
+            sourceCompositeKey: scope
+        )
+        let network = NetworkMonitor(debounceNanoseconds: 0, monitorQueue: DispatchQueue(label: "delete-replay"), monitorFactory: { SystemNetworkPathMonitor() })
+        network.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        let mutations = MutationCoordinator(repository: pending, coreDataStack: stack, toastCenter: ToastCenter(), networkMonitor: network, syncCoordinator: replayCoordinator)
+        let drain = Task { await mutations.drainQueue() }
+        await drain.value
+        let remaining = try await pending.fetchPendingMutationRecords()
+        XCTAssertTrue(remaining.isEmpty, "acknowledged, not deferred")
+        let replaySent = await replayProvider.recordedEvents().filter { $0 == "delete" }.count
+        XCTAssertEqual(replaySent, 1)
     }
 }

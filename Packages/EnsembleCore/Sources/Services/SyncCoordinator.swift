@@ -1167,12 +1167,12 @@ public final class SyncCoordinator {
         guard !playlist.isSmart else { throw PlaylistMutationError.smartPlaylistReadOnly }
         try await provider.capability.deletePlaylist(playlist.id)
         // The server confirmed it. The refresh below cannot remove the scope's last playlist, since an empty list deletes nothing.
+        // Whatever happens next, the delete is acknowledged: a cancelled or failed local cleanup leaves the row
+        // for a later pass (a known limit) and never turns the delete into a failure, which would send it again.
         do {
             try await libraryWriter.removePlaylist(playlist.id, for: sourceKey)
-        } catch is CancellationError {
-            throw CancellationError()
         } catch {
-            EnsembleLogger.error("Could not remove deleted playlist \(playlist.id) locally: \(error.localizedDescription)")
+            EnsembleLogger.error("Local cleanup of deleted playlist \(playlist.id) unfinished (\(error is CancellationError ? "cancelled" : error.localizedDescription))")
         }
         clearLastPlaylistTargetIfNeeded(deletedPlaylist: playlist)
         artworkDownloadManager.deleteArtwork(ratingKey: playlist.id, type: .playlist, sourceCompositeKey: sourceKey)
@@ -1183,8 +1183,11 @@ public final class SyncCoordinator {
     }
 
     /// Runs a local playlist edit in the library writer's serial chain (see `LibraryWriter.performPlaylistEdit`).
-    internal func performPlaylistEdit<Value: Sendable>(_ edit: @escaping () async throws -> Value) async throws -> Value {
-        try await libraryWriter.performPlaylistEdit(edit)
+    internal func performPlaylistEdit<Value: Sendable>(
+        editing target: (id: String, scope: String)? = nil,
+        _ edit: @escaping () async throws -> Value
+    ) async throws -> Value {
+        try await libraryWriter.performPlaylistEdit(editing: target, edit)
     }
 
     internal func persistCreatedPlaylist(
@@ -1235,6 +1238,7 @@ public final class SyncCoordinator {
         EnsembleLogger.info(
             "Playlist optimistic cache updated source=\(sourceKey) playlist=\(playlist.id) tracks=\(count)"
         )
+        notifyPlaylistRefreshCompleted(serverSourceKey: sourceKey)
         return count
     }
 
