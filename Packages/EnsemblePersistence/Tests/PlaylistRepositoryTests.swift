@@ -668,7 +668,7 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(playlist.tracksArray.map(\.title), ["Right Account"])
     }
 
-    func testFetchPlaylistLocalTrackStatesReportsLinkedTrackCount() async throws {
+    func testFetchPlaylistSyncStatesReportsHeaderAndWhetherMembershipsExist() async throws {
         let stack = CoreDataStack.inMemory()
         let playlistRepository = PlaylistRepository(coreDataStack: stack)
         let libraryRepository = LibraryRepository(coreDataStack: stack)
@@ -691,11 +691,10 @@ final class PlaylistRepositoryTests: XCTestCase {
             trackCount: 2
         )
 
-        var states = try await playlistRepository.fetchPlaylistLocalTrackStates(forSource: playlistSource)
+        var states = try await playlistRepository.fetchPlaylistSyncStates(forSource: playlistSource)
         XCTAssertEqual(states["playlist-1"]?.trackCount, 2)
-        XCTAssertEqual(states["playlist-1"]?.membershipCount, 0)
-        XCTAssertEqual(states["playlist-1"]?.linkedTrackCount, 0)
-        XCTAssertEqual(states["playlist-1"]?.modifiedAt, modifiedAt)
+        XCTAssertEqual(states["playlist-1"]?.hasMemberships, false)
+        XCTAssertEqual(states["playlist-1"]?.dateModified, modifiedAt)
 
         try await playlistRepository.setPlaylistTracks(
             ["track-1"],
@@ -703,10 +702,9 @@ final class PlaylistRepositoryTests: XCTestCase {
             sourceCompositeKey: playlistSource
         )
 
-        states = try await playlistRepository.fetchPlaylistLocalTrackStates(forSource: playlistSource)
+        states = try await playlistRepository.fetchPlaylistSyncStates(forSource: playlistSource)
         XCTAssertEqual(states["playlist-1"]?.trackCount, 2)
-        XCTAssertEqual(states["playlist-1"]?.membershipCount, 1)
-        XCTAssertEqual(states["playlist-1"]?.linkedTrackCount, 1)
+        XCTAssertEqual(states["playlist-1"]?.hasMemberships, true)
     }
 
     func testDisablingTrackLibraryRetainsHiddenPlaylistMembership() async throws {
@@ -776,10 +774,6 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(hiddenMembership.trackDuration, 200)
         XCTAssertEqual(hiddenMembership.trackThumbPath, "/thumb/2")
         XCTAssertTrue(playlist.hasUnavailableTracks)
-        let localState = try await playlistRepository.fetchPlaylistLocalTrackStates(forSource: playlistSource)
-        XCTAssertEqual(localState["playlist-1"]?.membershipCount, 2)
-        XCTAssertEqual(localState["playlist-1"]?.linkedTrackCount, 1)
-        XCTAssertEqual(localState["playlist-1"]?.identifiedMembershipCount, 2)
 
         try await seedTrack(
             ratingKey: "christian-track",
@@ -986,8 +980,7 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(state.title, "Playlist")
         XCTAssertEqual(state.trackCount, 2)
         XCTAssertTrue(state.actionCapabilities?.canAddItems == true)
-        XCTAssertEqual(state.membershipRatingKeys, ["second", "first"])
-        XCTAssertEqual(state.membershipSnapshots, snapshots)
+        XCTAssertTrue(state.hasMemberships)
     }
 
     func testPlaylistRootBackfillsFallbackArtworkWithoutRealizingMemberships() async throws {

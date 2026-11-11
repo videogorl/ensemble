@@ -74,15 +74,12 @@ public struct PlaylistUpsertInput: Sendable, Equatable {
     }
 }
 
-/// Lightweight persisted playlist header and ordered body identity.
+/// A stored playlist header, and whether it holds any membership rows, for sync change detection.
 public struct PlaylistSyncState: Sendable, Equatable {
     public let key: String
     public let title: String
     public let summary: String?
     public let compositePath: String?
-    public let fallbackArtworkPath: String?
-    public let fallbackArtworkRatingKey: String?
-    public let fallbackArtworkSourceCompositeKey: String?
     public let isSmart: Bool
     public let duration: Int
     public let trackCount: Int
@@ -92,20 +89,13 @@ public struct PlaylistSyncState: Sendable, Equatable {
     public let lastRatedAt: Date?
     public let rating: Int
     public let actionCapabilities: PlaylistActionCapabilities?
-    public let membershipSnapshots: [PlaylistTrackSnapshot]
-
-    public var membershipRatingKeys: [String] {
-        membershipSnapshots.map(\.ratingKey)
-    }
+    public let hasMemberships: Bool
 
     public init(
         key: String,
         title: String,
         summary: String?,
         compositePath: String?,
-        fallbackArtworkPath: String?,
-        fallbackArtworkRatingKey: String?,
-        fallbackArtworkSourceCompositeKey: String? = nil,
         isSmart: Bool,
         duration: Int,
         trackCount: Int,
@@ -115,16 +105,12 @@ public struct PlaylistSyncState: Sendable, Equatable {
         lastRatedAt: Date? = nil,
         rating: Int = 0,
         actionCapabilities: PlaylistActionCapabilities?,
-        membershipRatingKeys: [String] = [],
-        membershipSnapshots: [PlaylistTrackSnapshot]? = nil
+        hasMemberships: Bool
     ) {
         self.key = key
         self.title = title
         self.summary = summary
         self.compositePath = compositePath
-        self.fallbackArtworkPath = fallbackArtworkPath
-        self.fallbackArtworkRatingKey = fallbackArtworkRatingKey
-        self.fallbackArtworkSourceCompositeKey = fallbackArtworkSourceCompositeKey
         self.isSmart = isSmart
         self.duration = duration
         self.trackCount = trackCount
@@ -134,8 +120,7 @@ public struct PlaylistSyncState: Sendable, Equatable {
         self.lastRatedAt = lastRatedAt
         self.rating = rating
         self.actionCapabilities = actionCapabilities
-        self.membershipSnapshots = membershipSnapshots
-            ?? membershipRatingKeys.map { PlaylistTrackSnapshot(ratingKey: $0) }
+        self.hasMemberships = hasMemberships
     }
 
     /// Compares a header input using the repository's merge semantics.
@@ -153,28 +138,6 @@ public struct PlaylistSyncState: Sendable, Equatable {
             lastRatedAt == input.lastRatedAt &&
             rating == (input.rating ?? 0) &&
             (input.actionCapabilities == nil || actionCapabilities == input.actionCapabilities)
-    }
-}
-
-public struct PlaylistLocalTrackState: Sendable, Equatable {
-    public let modifiedAt: Date?
-    public let trackCount: Int
-    public let membershipCount: Int
-    public let linkedTrackCount: Int
-    public let identifiedMembershipCount: Int
-
-    public init(
-        modifiedAt: Date?,
-        trackCount: Int,
-        membershipCount: Int,
-        linkedTrackCount: Int,
-        identifiedMembershipCount: Int
-    ) {
-        self.modifiedAt = modifiedAt
-        self.trackCount = trackCount
-        self.membershipCount = membershipCount
-        self.linkedTrackCount = linkedTrackCount
-        self.identifiedMembershipCount = identifiedMembershipCount
     }
 }
 
@@ -258,9 +221,7 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     func deletePlaylists(sourceCompositeKey: String) async throws
     func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
 
-    // Bulk timestamp lookup (for incremental sync change detection)
-    func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date]
-    func fetchPlaylistLocalTrackStates(forSource sourceKey: String) async throws -> [String: PlaylistLocalTrackState]
+    /// Every stored header of a source, for sync change detection. Reads no membership rows.
     func fetchPlaylistSyncStates(forSource sourceKey: String) async throws -> [String: PlaylistSyncState]
 
     /// Returns and clears artwork invalidations accumulated during playlist upserts.
@@ -356,62 +317,9 @@ public extension PlaylistRepositoryProtocol {
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
     func discardArtworkInvalidations(forSourceCompositeKey sourceCompositeKey: String) {}
 
-    func fetchPlaylistLocalTrackStates(forSource sourceKey: String) async throws -> [String: PlaylistLocalTrackState] {
-        let playlists = try await fetchPlaylists(sourceCompositeKey: sourceKey)
-        var states: [String: PlaylistLocalTrackState] = [:]
-        states.reserveCapacity(playlists.count)
-        for playlist in playlists {
-            let memberships = playlist.playlistTracks as? Set<CDPlaylistTrack> ?? []
-            states[playlist.ratingKey] = PlaylistLocalTrackState(
-                modifiedAt: playlist.dateModified,
-                trackCount: Int(playlist.trackCount),
-                membershipCount: memberships.count,
-                linkedTrackCount: memberships.count(where: { $0.track != nil }),
-                identifiedMembershipCount: memberships.count(where: { $0.playlistItemID != nil })
-            )
-        }
-        return states
-    }
-
     func fetchPlaylistSyncStates(forSource sourceKey: String) async throws -> [String: PlaylistSyncState] {
         let playlists = try await fetchPlaylists(sourceCompositeKey: sourceKey)
-        return Dictionary(uniqueKeysWithValues: playlists.map { playlist in
-            let memberships = playlist.playlistItemsArray
-            return (playlist.ratingKey, PlaylistSyncState(
-                key: playlist.key,
-                title: playlist.title,
-                summary: playlist.summary,
-                compositePath: playlist.compositePath,
-                fallbackArtworkPath: playlist.fallbackArtworkPath,
-                fallbackArtworkRatingKey: playlist.fallbackArtworkRatingKey,
-                fallbackArtworkSourceCompositeKey: playlist.fallbackArtworkSourceCompositeKey,
-                isSmart: playlist.isSmart,
-                duration: Int(playlist.duration),
-                trackCount: Int(playlist.trackCount),
-                dateAdded: playlist.dateAdded,
-                dateModified: playlist.dateModified,
-                lastPlayed: playlist.lastPlayed,
-                lastRatedAt: playlist.lastRatedAt,
-                rating: Int(playlist.rating),
-                actionCapabilities: playlist.persistedActionCapabilities,
-                membershipSnapshots: memberships.compactMap { membership in
-                    guard let ratingKey = membership.trackRatingKey ?? membership.track?.ratingKey else {
-                        return nil
-                    }
-                    return PlaylistTrackSnapshot(
-                        ratingKey: ratingKey,
-                        playlistItemID: membership.playlistItemID,
-                        key: membership.trackKey ?? "",
-                        title: membership.trackTitle ?? "",
-                        artistName: membership.trackArtistName,
-                        albumName: membership.trackAlbumName,
-                        duration: membership.trackDuration,
-                        thumbPath: membership.trackThumbPath,
-                        sourceCompositeKey: membership.trackSourceCompositeKey
-                    )
-                }
-            ))
-        })
+        return Dictionary(uniqueKeysWithValues: playlists.map { ($0.ratingKey, PlaylistSyncState($0)) })
     }
 
     func fetchPlaylistHeaders(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
@@ -642,112 +550,19 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         }
     }
 
-    public func fetchPlaylistLocalTrackStates(forSource sourceKey: String) async throws -> [String: PlaylistLocalTrackState] {
+    public func fetchPlaylistSyncStates(forSource sourceKey: String) async throws -> [String: PlaylistSyncState] {
         try await coreDataStack.performBackgroundContext { context in
             let request = CDPlaylist.fetchRequest()
             request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-            request.relationshipKeyPathsForPrefetching = ["playlistTracks"]
-
+            request.fetchBatchSize = 100
             let playlists = try context.fetch(request)
-            var states: [String: PlaylistLocalTrackState] = [:]
-            states.reserveCapacity(playlists.count)
-            for playlist in playlists {
-                let memberships = playlist.playlistTracks as? Set<CDPlaylistTrack> ?? []
-                states[playlist.ratingKey] = PlaylistLocalTrackState(
-                    modifiedAt: playlist.dateModified,
-                    trackCount: Int(playlist.trackCount),
-                    membershipCount: memberships.count,
-                    linkedTrackCount: memberships.count(where: { $0.track != nil }),
-                    identifiedMembershipCount: memberships.count(where: { $0.playlistItemID != nil })
-                )
-            }
-            return states
-        }
-    }
-
-    public func fetchPlaylistSyncStates(forSource sourceKey: String) async throws -> [String: PlaylistSyncState] {
-        try await coreDataStack.performBackgroundContext { context in
-            let playlistRequest = CDPlaylist.fetchRequest()
-            playlistRequest.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-            playlistRequest.fetchBatchSize = 100
-            let playlists = try context.fetch(playlistRequest)
-
-            let playlistID = NSExpressionDescription()
-            playlistID.name = "playlistID"
-            playlistID.expression = NSExpression(forKeyPath: "playlist.ratingKey")
-            playlistID.expressionResultType = .stringAttributeType
-
-            let linkedTrackID = NSExpressionDescription()
-            linkedTrackID.name = "linkedTrackID"
-            linkedTrackID.expression = NSExpression(forKeyPath: "track.ratingKey")
-            linkedTrackID.expressionResultType = .stringAttributeType
-
-            let membershipRequest = NSFetchRequest<NSDictionary>(entityName: "CDPlaylistTrack")
-            membershipRequest.resultType = .dictionaryResultType
-            membershipRequest.predicate = NSPredicate(format: "playlist.sourceCompositeKey == %@", sourceKey)
-            membershipRequest.propertiesToFetch = [
-                playlistID,
-                "trackRatingKey",
-                linkedTrackID,
-                "order",
-                "playlistItemID",
-                "trackSourceCompositeKey",
-                "trackKey",
-                "trackTitle",
-                "trackArtistName",
-                "trackAlbumName",
-                "trackDuration",
-                "trackThumbPath"
-            ]
-            membershipRequest.sortDescriptors = [
-                NSSortDescriptor(key: "playlist.ratingKey", ascending: true),
-                NSSortDescriptor(key: "order", ascending: true)
-            ]
-            var membershipSnapshotsByPlaylist: [String: [PlaylistTrackSnapshot]] = [:]
-            for row in try context.fetch(membershipRequest) {
-                let trackID = (row["trackRatingKey"] as? String) ?? (row["linkedTrackID"] as? String)
-                guard let playlistID = row["playlistID"] as? String, let trackID else {
-                    continue
-                }
-                membershipSnapshotsByPlaylist[playlistID, default: []].append(
-                    PlaylistTrackSnapshot(
-                        ratingKey: trackID,
-                        playlistItemID: row["playlistItemID"] as? String,
-                        key: row["trackKey"] as? String ?? "",
-                        title: row["trackTitle"] as? String ?? "",
-                        artistName: row["trackArtistName"] as? String,
-                        albumName: row["trackAlbumName"] as? String,
-                        duration: (row["trackDuration"] as? NSNumber)?.doubleValue ?? 0,
-                        thumbPath: row["trackThumbPath"] as? String,
-                        sourceCompositeKey: row["trackSourceCompositeKey"] as? String
-                    )
-                )
-            }
-
-            var result: [String: PlaylistSyncState] = [:]
-            result.reserveCapacity(playlists.count)
-            for playlist in playlists {
-                result[playlist.ratingKey] = PlaylistSyncState(
-                    key: playlist.key,
-                    title: playlist.title,
-                    summary: playlist.summary,
-                    compositePath: playlist.compositePath,
-                    fallbackArtworkPath: playlist.fallbackArtworkPath,
-                    fallbackArtworkRatingKey: playlist.fallbackArtworkRatingKey,
-                    fallbackArtworkSourceCompositeKey: playlist.fallbackArtworkSourceCompositeKey,
-                    isSmart: playlist.isSmart,
-                    duration: Int(playlist.duration),
-                    trackCount: Int(playlist.trackCount),
-                    dateAdded: playlist.dateAdded,
-                    dateModified: playlist.dateModified,
-                    lastPlayed: playlist.lastPlayed,
-                    lastRatedAt: playlist.lastRatedAt,
-                    rating: Int(playlist.rating),
-                    actionCapabilities: playlist.persistedActionCapabilities,
-                    membershipSnapshots: membershipSnapshotsByPlaylist[playlist.ratingKey] ?? []
-                )
-            }
-            return result
+            let withoutMemberships = NSFetchRequest<NSManagedObjectID>(entityName: "CDPlaylist")
+            withoutMemberships.predicate = NSPredicate(format: "sourceCompositeKey == %@ AND playlistTracks.@count == 0", sourceKey)
+            withoutMemberships.resultType = .managedObjectIDResultType
+            let emptyIDs = Set(try context.fetch(withoutMemberships))
+            return Dictionary(uniqueKeysWithValues: playlists.map {
+                ($0.ratingKey, PlaylistSyncState($0, hasMemberships: !emptyIDs.contains($0.objectID)))
+            })
         }
     }
 
@@ -1280,29 +1095,25 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
             }
         }
     }
+}
 
-    // MARK: - Bulk Timestamp Lookup
-
-    /// Fetch all playlist ratingKey → dateModified pairs for a source (single query for change detection)
-    public func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
-        try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request: NSFetchRequest<CDPlaylist> = CDPlaylist.fetchRequest()
-                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-                    request.propertiesToFetch = ["ratingKey", "dateModified"]
-                    let playlists = try context.fetch(request)
-                    var result: [String: Date] = [:]
-                    result.reserveCapacity(playlists.count)
-                    for playlist in playlists {
-                        // Use distantPast for nil dateModified so we can detect existence
-                        result[playlist.ratingKey] = playlist.dateModified ?? Date.distantPast
-                    }
-                    continuation.resume(returning: result)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+extension PlaylistSyncState {
+    init(_ playlist: CDPlaylist, hasMemberships: Bool? = nil) {
+        self.init(
+            key: playlist.key,
+            title: playlist.title,
+            summary: playlist.summary,
+            compositePath: playlist.compositePath,
+            isSmart: playlist.isSmart,
+            duration: Int(playlist.duration),
+            trackCount: Int(playlist.trackCount),
+            dateAdded: playlist.dateAdded,
+            dateModified: playlist.dateModified,
+            lastPlayed: playlist.lastPlayed,
+            lastRatedAt: playlist.lastRatedAt,
+            rating: Int(playlist.rating),
+            actionCapabilities: playlist.persistedActionCapabilities,
+            hasMemberships: hasMemberships ?? !(playlist.playlistTracks?.count == 0)
+        )
     }
 }

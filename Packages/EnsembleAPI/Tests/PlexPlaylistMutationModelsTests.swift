@@ -62,3 +62,36 @@ final class PlexPlaylistMutationModelsTests: XCTestCase {
         XCTAssertEqual(PlexPlaylistMergeRules.interleaved([["a1", "a2"], ["b1"], ["c1", "c2"]]), ["a1", "b1", "c1", "a2", "c2"])
     }
 }
+
+final class PlexPlaylistListCompletenessTests: XCTestCase {
+    /// A playlist list may delete only when its container proves it: a size equal to the rows, no
+    /// contradicting total or offset, and no repeated playlist.
+    func testWhenAPlaylistListIsProvenComplete() throws {
+        func row(_ id: String) -> String { #"{"ratingKey":"\#(id)","key":"/playlists/\#(id)","title":"P\#(id)"}"# }
+        func body(container: String, rows: [String]) -> Data {
+            Data(#"{"MediaContainer":{\#(container)"Metadata":[\#(rows.map(row).joined(separator: ","))]}}"#.utf8)
+        }
+        let cases: [(name: String, data: Data, complete: Bool, count: Int)] = [
+            ("size matches", body(container: #""size":2,"#, rows: ["1", "2"]), true, 2),
+            ("size and total match", body(container: #""size":2,"totalSize":2,"#, rows: ["1", "2"]), true, 2),
+            ("no size", body(container: "", rows: ["1", "2"]), false, 2),
+            ("size short of the rows", body(container: #""size":1,"#, rows: ["1", "2"]), false, 2),
+            ("total above the rows", body(container: #""size":2,"totalSize":5,"#, rows: ["1", "2"]), false, 2),
+            ("not the first page", body(container: #""size":2,"offset":2,"#, rows: ["1", "2"]), false, 2),
+            ("repeated playlist", body(container: #""size":2,"#, rows: ["1", "1"]), false, 1),
+        ]
+        for testCase in cases {
+            let list = try PlexAPIClient.decodePlaylistList(testCase.data)
+            XCTAssertEqual(list.isComplete, testCase.complete, testCase.name)
+            XCTAssertEqual(list.playlists.count, testCase.count, testCase.name)
+        }
+    }
+
+    func testAnEmptyPlaylistListIsCompleteWhenTheContainerSaysSoAndNotOtherwise() throws {
+        let empty = try PlexAPIClient.decodePlaylistList(Data(#"{"MediaContainer":{"size":0}}"#.utf8))
+        XCTAssertTrue(empty.isComplete)
+        XCTAssertTrue(empty.playlists.isEmpty)
+        let unsized = try PlexAPIClient.decodePlaylistList(Data(#"{"MediaContainer":{}}"#.utf8))
+        XCTAssertFalse(unsized.isComplete)
+    }
+}
