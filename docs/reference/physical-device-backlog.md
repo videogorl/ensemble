@@ -666,3 +666,18 @@ matching "owed" lines in the sections above. Network checks used Wi-Fi off and o
 | Queue row actions button: a near miss opens the menu instead of playing the row | Passed on the SE on 2026-11-11 (trial build `202611110900.4703`): taps 8 pt left of the glyph and in the gap before the handle near the row's top edge both opened the menu; before the fix, taps 5 pt outside played the row 4 of 4 times |
 | Focus filter offered in Settings | Passed: Do Not Disturb → Add Filter lists "Ensemble, Playback & Libraries" |
 | Step 3a: offline playlist targets list their tracks and state | Not applicable on the SE: Downloads holds three library targets and no playlist target |
+
+## iPhone SE — forced and system background refresh, 2026-11-11 (build `202611111034.1182`)
+
+Run from the Mac with lldb attached (`_simulateLaunchForTaskWithIdentifier:` for
+`com.videogorl.ensemble.refresh`). Report: `$TMPDIR/ensemble-devmcp-checks/group-bgrefresh.md`.
+
+| Check | Result |
+| --- | --- |
+| A forced refresh runs to completion | Passed: triggered 11:22:10, next refresh scheduled at the start, `handoff saved sources=4`, library and playlist phases for each source, `handoff cleared`, `returned succeeded=true pendingSources=0 needsRecovery=false errors=0` after 18.8 s |
+| iOS delivers a refresh on its own | Passed: runs at 11:47:04 and 12:18:14, about 15 to 17 minutes after each request was scheduled; the 12:18 run completed in 12 s |
+| A failed refresh is recovered on the next launch | Passed: the 11:47:04 run returned `succeeded=false pendingSources=4 needsRecovery=true errors=1` and left the handoff; a cold launch at 11:53:30 logged `Resuming background refresh handoff on launch` and `handoff cleared` 14 s later |
+| A refresh expired by iOS mid-sync | Not run: the simulated launch would not fire a second time under a scripted lldb (about 8 attempts). To unblock: a debug route that starts a refresh with a short time budget (the coordinator already has `debugNextTimeBudget` and `debugNextDelay`), or attach, wait about 15 minutes for a real refresh, then send the expiry |
+| An interrupted refresh resumes when the app is brought forward without a relaunch | Not run: needs the expiry case |
+
+Owed again on the step 3d build, where a partial playlist pass must keep recovery outstanding.

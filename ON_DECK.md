@@ -474,3 +474,20 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
 - Impact: the status is restored silently and no error is shown; retry treats it as a user cancel. No partial
   fetch is committed (`fetchPages` throws on any failed page).
 - Next step: classify by the error first, then by task state. Sync code is frozen until step 3e closes.
+
+## Confirmed: a failed background refresh logs no reason (2026-11-11)
+
+- Evidence (iPhone SE, build `202611111034.1182`): at 11:47:04 a system-delivered refresh logged `finished
+  syncComplete=false feed=true cancelled=false errors=1` and `returned succeeded=false pendingSources=4
+  needsRecovery=true errors=1`, with no `phase=` line and no line naming the error. Suspected cause, not
+  verified: three endpoints were in transport cooldown and failover had picked a relay.
+- Impact: none on data (the handoff stayed and the next launch recovered it in 14 s), but the failure cannot
+  be diagnosed from the log.
+- Next step: log the error (privacy-safe) where `BackgroundRefreshCoordinator` counts it.
+
+## Suggested: a debug route that starts a background refresh (2026-11-11)
+
+- Evidence: forcing a refresh needs lldb attached to the phone; attach took 20 to 120 s and the simulated
+  launch fired only once in about nine attempts, so the expiry and resume-without-relaunch checks stay not run.
+- Next step: an `ensemble://debug/` route that runs the refresh handler with `debugNextTimeBudget` and
+  `debugNextDelay`, so a scripted test can cut it off mid-sync.
