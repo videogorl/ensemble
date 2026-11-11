@@ -330,16 +330,15 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
 
         var off = EnsembleMergingPreferences.default
         off.mergePlaylists = false
-        let cases: [(name: String, preferences: EnsembleMergingPreferences, hidden: HiddenMediaStore?, scoped: Bool, expected: [String])] = [
-            ("merged, whitespace variant, smart one apart", .default, nil, false, ["track-1", "other-1"]),
-            ("merge setting off", off, nil, false, ["track-1"]),
-            ("hidden sibling", .default, hidden, false, ["track-1"]),
-            ("explicitly selected source", .default, nil, true, ["track-1"])
+        let cases: [(name: String, preferences: EnsembleMergingPreferences, hidden: HiddenMediaStore?, expected: [String])] = [
+            ("merged, whitespace variant, smart one apart", .default, nil, ["track-1", "other-1"]),
+            ("merge setting off", off, nil, ["track-1"]),
+            ("hidden sibling", .default, hidden, ["track-1"])
         ]
         for testCase in cases {
             let fixture = try await makeFixture(mergingPreferences: testCase.preferences, hiddenMediaStore: testCase.hidden)
             try await fixture.coordinator.executePlayPlaylist(request: SiriPlaybackRequest(
-                entityID: "focus-a", sourceCompositeKey: fixture.serverSourceKey, displayName: "Focus Mix", scopedToSource: testCase.scoped
+                entityID: "focus-a", sourceCompositeKey: fixture.serverSourceKey, displayName: "Focus Mix"
             ))
             XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id).sorted(), testCase.expected.sorted(), testCase.name)
         }

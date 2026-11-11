@@ -26,27 +26,35 @@ enum SiriIndexLookup {
         let recent = fetchItems(kind: kind).sorted {
             ($0.lastPlayed ?? .distantPast, $0.playCount ?? 0) > ($1.lastPlayed ?? .distantPast, $1.playCount ?? 0)
         }
-        // The same item from two sources counts once; a few spares cover those duplicates.
-        return Array(SiriMediaIndexResolver.deduplicateEquivalentItems(Array(recent.prefix(limit * 4))).prefix(limit))
+        // The same item from two sources counts once.
+        return Array(SiriMediaIndexResolver.deduplicateEquivalentItems(presentingPlaylists(recent)).prefix(limit))
     }
 
     static func findItems(kind: SiriMediaKind?, matching rawQuery: String, limit: Int = 10) -> [SiriMediaIndexItem] {
-        let results: [SiriMediaIndexItem]
-        if let kind {
-            results = SiriMediaIndexResolver.findItems(in: loadIndex(), kind: kind, matching: rawQuery, limit: limit)
-        } else {
-            let ranked = SiriMediaIndexResolver.rankCandidates(
-                for: rawQuery,
-                requestedKinds: nil,
-                index: loadIndex(),
-                minimumScore: SiriMediaIndexResolver.defaultMinimumMatchScore
-            )
-            results = Array(SiriMediaIndexResolver.deduplicateEquivalentItems(ranked.map(\.item)).prefix(limit))
-        }
+        let ranked = SiriMediaIndexResolver.rankCandidates(
+            for: rawQuery,
+            requestedKinds: kind.map { [$0] },
+            index: loadIndex(),
+            minimumScore: SiriMediaIndexResolver.defaultMinimumMatchScore
+        )
+        let results = Array(
+            SiriMediaIndexResolver.deduplicateEquivalentItems(presentingPlaylists(ranked.map(\.item))).prefix(limit)
+        )
         AppIntentsLog.logger.info(
             "SIRI_SHORTCUT: findItems kind=\(kind?.rawValue ?? "any", privacy: .public) raw='\(rawQuery, privacy: .private)' matches=\(results.count, privacy: .public)"
         )
         return results
+    }
+
+    /// Playlists as the playlist screen shows them under the current merge setting, read when the picker asks so a
+    /// changed setting shows at once.
+    private static func presentingPlaylists(_ items: [SiriMediaIndexItem]) -> [SiriMediaIndexItem] {
+        guard items.contains(where: { $0.kind == .playlist }) else { return items }
+        return SiriPlaylistRows.presented(
+            items,
+            among: fetchItems(kind: .playlist),
+            preferences: SettingsManager.storedMergingPreferences()
+        )
     }
 
     private static func loadIndex() -> SiriMediaIndex? {
@@ -102,8 +110,7 @@ extension IndexItemEntity {
             entityID: item.id,
             sourceCompositeKey: item.sourceCompositeKey,
             displayName: item.displayName,
-            shuffle: shuffle,
-            scopedToSource: true
+            shuffle: shuffle
         )
     }
 }
@@ -115,7 +122,9 @@ extension IndexItemEntityQuery {
     func entities(for identifiers: [Entity.ID]) async throws -> [Entity] {
         let wanted = Set(identifiers)
         guard !wanted.isEmpty else { return [] }
-        return SiriIndexLookup.fetchItems(kind: Entity.indexKind).map(Entity.init(item:)).filter { wanted.contains($0.id) }
+        let items = SiriIndexLookup.fetchItems(kind: Entity.indexKind)
+        // Saved identifiers resolve whichever row is shown, so only the server label is added here.
+        return SiriPlaylistRows.labeled(items, among: items).map(Entity.init(item:)).filter { wanted.contains($0.id) }
     }
 
     func entities(matching string: String) async throws -> [Entity] {

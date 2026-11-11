@@ -11,19 +11,14 @@ public struct SiriPlaybackRequest: Sendable, Equatable {
     public let displayName: String?
     public let artistHint: String?
     public let shuffle: Bool
-    /// True when the caller picked one source's item (an entity or a saved shortcut), so it is never widened to
-    /// the same-named playlists on other servers.
-    public let scopedToSource: Bool
 
     public init(
         entityID: String,
         sourceCompositeKey: String? = nil,
         displayName: String? = nil,
         artistHint: String? = nil,
-        shuffle: Bool = false,
-        scopedToSource: Bool = false
+        shuffle: Bool = false
     ) {
-        self.scopedToSource = scopedToSource
         self.entityID = entityID
         self.sourceCompositeKey = sourceCompositeKey
         self.displayName = displayName
@@ -325,7 +320,7 @@ public final class SiriPlaybackCoordinator {
                 throw SiriPlaybackCoordinatorError.mediaNotFound(.playlist)
             }
             // Plex playlists of one name on several servers are one playlist in the app, so they play as one.
-            let constituents = mergesSamePlaylists && !request.scopedToSource
+            let constituents = mergesSamePlaylists
                 ? try await displayedConstituents(of: playlist)
                 : [playlist]
             // Memberships, as the playlist screen reads them: an Apple Music playlist can hold catalog songs
@@ -426,7 +421,7 @@ public final class SiriPlaybackCoordinator {
                 lastPlayed: track.lastPlayed,
                 playCount: Int(track.playCount)
             )
-        }.compactMap { $0 }
+        }
         try Task.checkCancellation()
         let fuzzy = preferByArtist(
             fuzzyCandidates(

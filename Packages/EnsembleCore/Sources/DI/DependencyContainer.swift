@@ -644,7 +644,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 libraryRepository: core.libraryRepository,
                 playlistRepository: core.playlistRepository,
                 enabledSourceKeysProvider: enabledSystemMediaSourceKeys,
-                hiddenMediaStore: core.hiddenMediaStore
+                hiddenMediaStore: core.hiddenMediaStore,
+                sourceNameProvider: { [accountManager = network.accountManager] in accountManager.serverName(for: $0) }
             )
         }
         let siriPlaybackCoordinator = MainActor.assumeIsolated {

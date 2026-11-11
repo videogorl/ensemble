@@ -339,7 +339,7 @@ public final class SettingsManager {
     nonisolated private static let focusScrobblingOverrideKey = "focusScrobblingOverride"
     nonisolated private static let noFocusScrobblingOverride = -1
 
-    public static func storedMergingPreferences(
+    nonisolated public static func storedMergingPreferences(
         in defaults: UserDefaults = .standard
     ) -> EnsembleMergingPreferences {
         guard let data = defaults.data(forKey: mergingPreferencesKey),

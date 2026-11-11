@@ -40,17 +40,20 @@ public final class SiriMediaIndexStore {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider?
     private let hiddenMediaStore: HiddenMediaStore
+    private let sourceNameProvider: (@MainActor (String) -> String?)?
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider? = nil,
-        hiddenMediaStore: HiddenMediaStore? = nil
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        sourceNameProvider: (@MainActor (String) -> String?)? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.enabledSourceKeysProvider = enabledSourceKeysProvider
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
+        self.sourceNameProvider = sourceNameProvider
     }
 
     /// Loads a fresh-enough Siri index from disk.
@@ -215,7 +218,8 @@ public final class SiriMediaIndexStore {
                         isSmartPlaylist: playlist.isSmart,
                         artworkPath: playlist.compositePath,
                         artworkCacheKey: playlist.ratingKey,
-                        artworkCacheType: .playlist
+                        artworkCacheType: .playlist,
+                        sourceName: playlist.sourceCompositeKey.flatMap { sourceNameProvider?($0) }
                     )
                 )
             }
