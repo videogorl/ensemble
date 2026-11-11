@@ -712,10 +712,11 @@ public struct SidebarView: View {
         case .library(let tab):
             sidebarContentView(for: tab)
         case .playlist(let id, let sourceKey):
-            PlaylistDetailLoader(
+            PlaylistOpenLoader(
                 playlistId: id,
                 playlistSourceKey: sourceKey,
-                nowPlayingVM: nowPlayingVM
+                nowPlayingVM: nowPlayingVM,
+                playlistsVM: playlistsVM
             )
         case .mergedPlaylist(let title, let isSmart):
             MergedPlaylistDetailLoader(

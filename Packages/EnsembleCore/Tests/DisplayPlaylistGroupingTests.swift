@@ -181,6 +181,29 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         XCTAssertEqual(displayPlaylists[0].title, "Café Mix")
     }
 
+    /// A playlist opened from outside the app lands where the playlist list would send it: the merged group when
+    /// merging is on, even for a copy the list does not show; alone otherwise.
+    func testOpeningPlaylistFromOutsideLandsOnTheMergedGroupOnlyWhenMerging() {
+        let a = Playlist(id: "a", key: "/a", title: "Focus", sourceCompositeKey: "plex:a:s:l")
+        let b = Playlist(id: "b", key: "/b", title: "focus", sourceCompositeKey: "plex:b:s:l")
+        let hidden = Playlist(id: "h", key: "/h", title: "Focus", sourceCompositeKey: "plex:h:s:l")
+        let solo = Playlist(id: "solo", key: "/solo", title: "Solo", sourceCompositeKey: "plex:a:s:l")
+        var off = EnsembleMergingPreferences.default
+        off.mergePlaylists = false
+        let visible = [a, b, solo]
+
+        let cases: [(name: String, playlist: Playlist, preferences: EnsembleMergingPreferences, groupIDs: [String]?)] = [
+            ("merging, a member", b, .default, ["a", "b"]),
+            ("merging, a hidden copy", hidden, .default, ["a", "b"]),
+            ("merging, not in a group", solo, .default, nil),
+            ("merging off", b, off, nil)
+        ]
+        for testCase in cases {
+            let group = DisplayPlaylist.mergedGroupOpening(testCase.playlist, among: visible, preferences: testCase.preferences)
+            XCTAssertEqual(group?.playlists.map(\.id), testCase.groupIDs, testCase.name)
+        }
+    }
+
     func testGroupMergesAppleMusicAndPlexPlaylistsByTitle() {
         let playlists = [
             Playlist(id: "plex-a", key: "/plex-a", title: "Road Trip", sourceCompositeKey: "plex:a:s:l"),

@@ -5,18 +5,6 @@ API that would replace custom machinery. Each entry gives evidence, impact and a
 step, and says whether it is suspected or confirmed. Remove an entry when it is fixed.
 An entry does not authorize the work; Felicity picks what gets done.
 
-## Suspected: an Apple Music playlist merges with a same-named Plex playlist (2026-11-11)
-
-- Evidence: `DisplayPlaylist.group` (`Packages/EnsembleCore/Sources/Models/DisplayPlaylist.swift:96`) groups with
-  `PlexPlaylistMergeRules.grouped` on normalised title and `isSmartForPlaylistGrouping` alone
-  (`DomainModels.swift:905` returns `isSmart`); the key (`PlexPlaylistMergeRules.key`) holds no source type, and
-  `DisplayPlaylistGroupingTests` has no Apple Music case. `PlaylistViewModel.swift:446` passes every playlist through it.
-  Read from the code, not reproduced in the app. The Siri/App Intents picker and playback follow the screen, so they agree.
-- Impact: with Merging > Playlists on, a regular Apple Music playlist and a regular Plex playlist with one name would show
-  and play as one merged playlist, although Apple Music playlists are device-local and write differently.
-- Next step: add an Apple Music and a Plex playlist of one name in a test library and open the playlist list. If they
-  merge and that is unwanted, key the group on the source type (a product decision).
-
 ## Suspected: the iCloud profile subscription never fires (2026-11-10)
 
 - Evidence: `CloudSyncService` registers a `CKDatabaseSubscription` (`profile-changes`), but

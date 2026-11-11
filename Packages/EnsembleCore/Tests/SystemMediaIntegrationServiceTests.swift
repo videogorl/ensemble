@@ -1,4 +1,5 @@
 import CoreSpotlight
+import EnsembleDomain
 import EnsemblePersistence
 import EnsembleSiriShared
 import XCTest
@@ -6,6 +7,31 @@ import XCTest
 
 @MainActor
 final class SystemMediaIntegrationServiceTests: XCTestCase {
+    /// Spotlight holds one item per displayed playlist: merging collapses same-named playlists to one, switching it
+    /// off brings back one per source with the server name, and the per-source items that go away are the stale ones.
+    func testSpotlightIndexFollowsPlaylistMergeSetting() {
+        func playlist(_ id: String, _ server: String) -> SiriMediaIndexItem {
+            SiriMediaIndexItem(
+                kind: .playlist, id: id, displayName: "focus", sourceCompositeKey: "plex:account:\(server)", sourceName: server
+            )
+        }
+        let track = SiriMediaIndexItem(kind: .track, id: "t", displayName: "focus", sourceCompositeKey: "plex:account:one")
+        let full = SiriMediaIndex(items: [playlist("p1", "one"), playlist("p2", "two"), track])
+        var off = EnsembleMergingPreferences.default
+        off.mergePlaylists = false
+
+        let merged = SystemMediaIntegrationService.spotlightIndex(from: full, presentation: .init())
+        let perSource = SystemMediaIntegrationService.spotlightIndex(from: full, presentation: .init(preferences: off))
+
+        XCTAssertEqual(merged.items.map(\.id), ["p1", "t"])
+        XCTAssertEqual(perSource.items.map(\.id), ["p1", "p2", "t"])
+        XCTAssertEqual(perSource.items.compactMap(\.secondaryText), ["one", "two"])
+        XCTAssertEqual(
+            SystemMediaIntegrationService.staleSystemMediaReferences(previous: perSource, current: merged).map(\.id),
+            ["p2"]
+        )
+    }
+
     func testSiriIndexMaterialChangeIgnoresGenerationTimeButDetectsContentAndSchema() {
         let item = SiriMediaIndexItem(kind: .track, id: "track", displayName: "Original")
         let previous = SiriMediaIndex(

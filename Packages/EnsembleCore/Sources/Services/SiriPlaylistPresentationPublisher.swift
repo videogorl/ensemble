@@ -13,6 +13,8 @@ public final class SiriPlaylistPresentationPublisher {
     private let indexStore: SiriMediaIndexStore
     private var subscriptions: [StreamSubscription] = []
     private var lastPublished: SiriPlaylistPresentation?
+    /// Called after a changed presentation is published, so Spotlight can follow it.
+    var onChange: (@MainActor () async -> Void)?
 
     public init(
         settingsManager: SettingsManager,
@@ -35,23 +37,29 @@ public final class SiriPlaylistPresentationPublisher {
         }
     }
 
+    /// The merge setting and hidden playlist sources now. Hidden is decided per source the index holds playlists for.
+    func currentPresentation() async -> SiriPlaylistPresentation {
+        let sourceKeys = Set((await indexStore.loadIndexUnbounded()?.items ?? [])
+            .filter { $0.kind == .playlist }.compactMap(\.sourceCompositeKey))
+        let isVisible = visibilityStore.playlistSourceVisibility(in: accountManager.sourceConfigurationSnapshot)
+        return SiriPlaylistPresentation(
+            preferences: settingsManager.mergingPreferences,
+            hiddenSourceKeys: sourceKeys.filter { !isVisible($0) }
+        )
+    }
+
     private func publish() {
         Task {
-            // Hidden is decided per source the index holds playlists for.
-            let sourceKeys = Set((await indexStore.loadIndexUnbounded()?.items ?? [])
-                .filter { $0.kind == .playlist }.compactMap(\.sourceCompositeKey))
-            let isVisible = visibilityStore.playlistSourceVisibility(in: accountManager.sourceConfigurationSnapshot)
-            let presentation = SiriPlaylistPresentation(
-                preferences: settingsManager.mergingPreferences,
-                hiddenSourceKeys: sourceKeys.filter { !isVisible($0) }
-            )
+            let presentation = await currentPresentation()
             guard presentation != lastPublished else { return }
             do {
                 try presentation.write()
                 lastPublished = presentation
             } catch {
                 EnsembleLogger.error("Siri playlist presentation could not be published: \(error)")
+                return
             }
+            await onChange?()
         }
     }
 }

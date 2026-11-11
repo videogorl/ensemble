@@ -685,6 +685,16 @@ public final class DependencyContainer: @unchecked Sendable {
                 enabledSourceKeysProvider: enabledSystemMediaSourceKeys
             )
         }
+        let siriPlaylistPresentationPublisher = MainActor.assumeIsolated {
+            SiriPlaylistPresentationPublisher(
+                settingsManager: core.settingsManager,
+                visibilityStore: core.libraryVisibilityStore,
+                accountManager: network.accountManager,
+                indexStore: siriMediaIndexStore,
+                libraryChanges: core.libraryChanges
+            )
+        }
+
         let systemMediaIntegrationService = MainActor.assumeIsolated {
             SystemMediaIntegrationService(
                 siriMediaIndexStore: siriMediaIndexStore,
@@ -695,14 +705,13 @@ public final class DependencyContainer: @unchecked Sendable {
             )
         }
 
-        let siriPlaylistPresentationPublisher = MainActor.assumeIsolated {
-            SiriPlaylistPresentationPublisher(
-                settingsManager: core.settingsManager,
-                visibilityStore: core.libraryVisibilityStore,
-                accountManager: network.accountManager,
-                indexStore: siriMediaIndexStore,
-                libraryChanges: core.libraryChanges
-            )
+        MainActor.assumeIsolated {
+            systemMediaIntegrationService.playlistPresentation = { [siriPlaylistPresentationPublisher] in
+                await siriPlaylistPresentationPublisher.currentPresentation()
+            }
+            siriPlaylistPresentationPublisher.onChange = { [weak systemMediaIntegrationService] in
+                await systemMediaIntegrationService?.refreshSpotlightIndex()
+            }
         }
 
         return SiriBootstrap(
