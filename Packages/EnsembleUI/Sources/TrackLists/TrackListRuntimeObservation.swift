@@ -53,7 +53,8 @@ private enum LastPlaylistProjection {
         case .title:
             return target?.title
         case .id:
-            return target?.id
+            // The title rides along so a rename of the target refreshes its "Add to <playlist>" label.
+            return target.map { "\($0.id)\u{0}\($0.title)" }
         }
     }
 

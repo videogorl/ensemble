@@ -2416,6 +2416,20 @@ public final class SyncCoordinator {
         persistLastPlaylistTarget(from: playlist)
     }
 
+    /// Keeps the "Add to <playlist>" quick action's name in step with a rename of its playlist.
+    public func renameLastPlaylistTarget(id: String, sourceCompositeKey: String?, title: String) {
+        guard let sourceCompositeKey else { return }
+        let renamed = LastPlaylistTarget(id: id, title: title, sourceCompositeKey: sourceCompositeKey)
+        if lastPlaylistTargetsByServer[sourceCompositeKey]?.id == id {
+            lastPlaylistTargetsByServer[sourceCompositeKey] = renamed
+            Self.saveLastPlaylistTargetsByServer(lastPlaylistTargetsByServer)
+        }
+        if lastPlaylistTarget?.id == id, lastPlaylistTarget?.sourceCompositeKey == sourceCompositeKey {
+            Self.saveLastPlaylistTarget(renamed)
+            lastPlaylistTarget = renamed
+        }
+    }
+
     private func clearLastPlaylistTargetIfNeeded(deletedPlaylist: Playlist) {
         guard let deletedSourceKey = deletedPlaylist.sourceCompositeKey else { return }
 

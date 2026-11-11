@@ -477,6 +477,7 @@ public final class MutationCoordinator {
                 sourceCompositeKey: playlist.sourceCompositeKey,
                 title: title
             )
+            syncCoordinator.renameLastPlaylistTarget(id: playlist.id, sourceCompositeKey: playlist.sourceCompositeKey, title: title)
             syncCoordinator.emit(.playlistRenamedLocally(sourceKey: sourceKey))
         } catch {
             EnsembleLogger.debug("Playlist rename succeeded but local cache update failed: \(error.localizedDescription)")

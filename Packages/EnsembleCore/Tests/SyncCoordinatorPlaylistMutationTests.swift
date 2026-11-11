@@ -265,6 +265,23 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         return coordinator
     }
 
+    /// The "Add to <playlist>" quick action reads this title, so a rename has to reach it.
+    func testRenamingThePlaylistRenamesTheRecentTarget() {
+        let scope = "plex:account-1:server-1"
+        let coordinator = makeCoordinator(withServer: false)
+        defer { coordinator.setLastPlaylistTargetForTesting(nil, serverSourceKey: scope) }
+        coordinator.setLastPlaylistTargetForTesting(
+            LastPlaylistTarget(id: "p1", title: "Old", sourceCompositeKey: scope), serverSourceKey: scope
+        )
+
+        coordinator.renameLastPlaylistTarget(id: "other", sourceCompositeKey: scope, title: "Wrong")
+        XCTAssertEqual(coordinator.lastPlaylistTarget?.title, "Old")
+
+        coordinator.renameLastPlaylistTarget(id: "p1", sourceCompositeKey: scope, title: "New")
+        XCTAssertEqual(coordinator.lastPlaylistTarget?.title, "New")
+        XCTAssertEqual(coordinator.lastPlaylistTarget(forServerSourceKey: scope)?.title, "New")
+    }
+
     func testAgedOfflineMutationSurvivesStoreReopenAndLostAcknowledgment() async throws {
         let storeURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".sqlite")
         defer {
