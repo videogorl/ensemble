@@ -57,22 +57,19 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         let sourceIdentifier: MusicSourceIdentifier
         private let recorder: EventRecorder
         private let fetchLibraryHandler: (@Sendable (LibrarySyncPlan) async throws -> LibraryBatch)?
-        private let syncPlaylistsHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)?
-        private let syncPlaylistsIncrementalHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)?
+        private let playlistListHandler: (@Sendable () async throws -> PlaylistHeaderList)?
         private(set) var lastIncrementalSince: TimeInterval?
 
         init(
             sourceIdentifier: MusicSourceIdentifier,
             recorder: EventRecorder,
             fetchLibraryHandler: (@Sendable (LibrarySyncPlan) async throws -> LibraryBatch)? = nil,
-            syncPlaylistsHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)? = nil,
-            syncPlaylistsIncrementalHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)? = nil
+            playlistListHandler: (@Sendable () async throws -> PlaylistHeaderList)? = nil
         ) {
             self.sourceIdentifier = sourceIdentifier
             self.recorder = recorder
             self.fetchLibraryHandler = fetchLibraryHandler
-            self.syncPlaylistsHandler = syncPlaylistsHandler
-            self.syncPlaylistsIncrementalHandler = syncPlaylistsIncrementalHandler
+            self.playlistListHandler = playlistListHandler
         }
 
         func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch {
@@ -82,30 +79,13 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
             return .writing(albums: 1)
         }
 
-        func syncPlaylists(
-            to repository: PlaylistRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            progressHandler(1)
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList {
             await recorder.record("playlists")
-            if let syncPlaylistsHandler {
-                return try await syncPlaylistsHandler(repository)
-            }
-            return PlaylistSyncResult()
+            if let playlistListHandler { return try await playlistListHandler() }
+            return .writing()
         }
 
-        func syncPlaylistsIncremental(
-            to repository: PlaylistRepositoryProtocol,
-            forceOrphanCheck: Bool,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            progressHandler(1)
-            await recorder.record("playlists-incremental")
-            if let syncPlaylistsIncrementalHandler {
-                return try await syncPlaylistsIncrementalHandler(repository)
-            }
-            return PlaylistSyncResult()
-        }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
 
         func getStreamURL(
             for trackRatingKey: String,
@@ -323,6 +303,34 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
         }
     }
 
+    /// A playlist whose body was needed but not read keeps the pass from reporting success, so a caller
+    /// that tracks completion (background recovery) keeps the source pending; what was read stays committed.
+    func testAPlaylistBodyThatCouldNotBeReadMakesTheSyncPartial() async throws {
+        let stack = CoreDataStack.inMemory()
+        let source = makeSourceIdentifier()
+        let coordinator = makeCoordinator(stack: stack, sources: [source])
+        let header = PlaylistUpsertInput(
+            ratingKey: "p1", key: "/playlists/p1", title: "Unread", summary: nil, compositePath: nil, isSmart: false,
+            duration: nil, trackCount: 3, dateAdded: nil, dateModified: Date(timeIntervalSince1970: 100), lastPlayed: nil
+        )
+        let provider = RecordingProvider(
+            sourceIdentifier: source, recorder: EventRecorder(),
+            playlistListHandler: { PlaylistHeaderList(headers: [header], inventory: nil, queryStartedAt: Date()) }
+        )
+        coordinator.installSyncProviderForTesting(provider, status: nil)
+
+        let outcome = await coordinator.sync(source: source)
+
+        guard case .partial = outcome else { return XCTFail("expected a partial outcome, got \(outcome)") }
+        XCTAssertEqual(coordinator.lastContentChange?.playlistResult?.unresolvedPlaylists, ["p1"])
+        let states = try await PlaylistRepository(coreDataStack: stack).fetchPlaylistSyncStates(
+            forSource: MediaSourceIdentity.playlistScopeKey(from: source.compositeKey) ?? ""
+        )
+        XCTAssertEqual(states["p1"]?.title, "Unread", "the header was committed")
+        XCTAssertNil(states["p1"]?.dateModified, "with no date, so the next pass reads its body")
+        if case .lastSynced = coordinator.sourceStatuses[source]?.syncStatus {} else { XCTFail("the committed pass is a last sync") }
+    }
+
     func testPlaylistFailurePreservesCommittedLibraryAndTruthfulStatus() async throws {
         for incremental in [false, true] {
             for cancelled in [false, true] {
@@ -339,11 +347,7 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
                 let provider = RecordingProvider(
                     sourceIdentifier: source, recorder: EventRecorder(),
                     fetchLibraryHandler: libraryCommit,
-                    syncPlaylistsHandler: { _ in
-                        if cancelled { throw CancellationError() }
-                        throw TestError.playlistSync
-                    },
-                    syncPlaylistsIncrementalHandler: { _ in
+                    playlistListHandler: {
                         if cancelled { throw CancellationError() }
                         throw TestError.playlistSync
                     }
@@ -510,21 +514,23 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
                     queryStartedAt: Date()
                 )
             }
-            let playlistUpdate: @Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult = { repository in
-                try await self.upsertPlaylist(in: repository, source: source, path: "/playlist/new", modified: 1001)
-                return PlaylistSyncResult(changedPlaylists: 1)
+            let playlistUpdate: @Sendable () async throws -> PlaylistHeaderList = {
+                PlaylistHeaderList(
+                    headers: [self.playlistHeader(path: "/playlist/new", modified: 1001)],
+                    inventory: nil, queryStartedAt: Date()
+                )
             }
             let provider = RecordingProvider(
                 sourceIdentifier: source, recorder: recorder,
                 fetchLibraryHandler: libraryUpdate,
-                syncPlaylistsHandler: playlistUpdate, syncPlaylistsIncrementalHandler: playlistUpdate
+                playlistListHandler: playlistUpdate
             )
             coordinator.setSyncProvidersForTesting([source.compositeKey: provider])
             if incremental { await coordinator.syncIncremental(source: source) }
             else { await coordinator.syncAll() }
             let events = await recorder.snapshot()
             let libraryPhase = try XCTUnwrap(events.firstIndex(of: incremental ? "library-incremental" : "library"))
-            let playlistPhase = try XCTUnwrap(events.firstIndex(of: incremental ? "playlists-incremental" : "playlists"))
+            let playlistPhase = try XCTUnwrap(events.firstIndex(of: "playlists"))
             let reparent = try XCTUnwrap(events.firstIndex(of: "reparent"))
             let albumInvalidation = try XCTUnwrap(events.firstIndex(of: "invalidate-album"))
             let playlistInvalidation = try XCTUnwrap(events.firstIndex(of: "invalidate-playlist"))
@@ -614,12 +620,16 @@ final class SyncCoordinatorExecutionTests: XCTestCase {
     }
 
     @discardableResult
-    private func upsertPlaylist(in repository: PlaylistRepositoryProtocol, source: MusicSourceIdentifier, path: String, modified: TimeInterval) async throws -> CDPlaylist {
-        try await repository.upsertPlaylist(
-            ratingKey: "playlist-1", key: "/playlists/playlist-1", title: "Playlist",
-            summary: nil, compositePath: path, isSmart: false, duration: nil,
-            trackCount: 0, dateAdded: nil, dateModified: Date(timeIntervalSince1970: modified),
-            lastPlayed: nil, sourceCompositeKey: MediaSourceIdentity.serverSourceKey(for: source)
+    private nonisolated func playlistHeader(path: String, modified: TimeInterval) -> PlaylistUpsertInput {
+        PlaylistUpsertInput(
+            ratingKey: "playlist-1", key: "/playlists/playlist-1", title: "Playlist", summary: nil, compositePath: path,
+            isSmart: false, duration: nil, trackCount: 0, dateAdded: nil, dateModified: Date(timeIntervalSince1970: modified),
+            lastPlayed: nil
         )
+    }
+
+    @discardableResult
+    private func upsertPlaylist(in repository: PlaylistRepositoryProtocol, source: MusicSourceIdentifier, path: String, modified: TimeInterval) async throws -> CDPlaylist {
+        try await repository.upsertPlaylist(playlistHeader(path: path, modified: modified), sourceCompositeKey: MediaSourceIdentity.serverSourceKey(for: source))
     }
 }

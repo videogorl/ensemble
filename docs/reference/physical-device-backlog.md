@@ -578,6 +578,40 @@ thousands of songs and stays Owed for Felicity's own iPhone.
 
 The iPad and watch checklist sections start with steps 5 and 6.
 
+## iPhone — step 3d, playlists on the writer (Plex and Apple Music)
+
+Applies to the commits that move playlist list and body sync onto `LibraryWriter`
+(branch `refactor/playlists-on-library-writer`). The simulator proved the writer rules
+(on-disk store tests, including overlapping passes, stale reads and cancellation) and
+the Plex connector against a fake server. Nothing has run on the iPhone, and nothing
+touched live Plex or Apple Music.
+
+How to read the log for the repeated-read checks (`EnsembleLogger`, in the session log):
+
+- `🎵 Playlists <scope>: wrote N, removed M` (debug) appears only when a pass changed something. On a pass
+  where nothing changed on the server, it must not appear. A playlist whose body is read and rewritten every
+  pass makes it appear on every pass with N at least 1.
+- `Playlists <scope>: N body reads unresolved, to retry next pass` (info) means the pass was partial. It
+  must go away on the next pass; the same N on consecutive passes is a body that never proves complete.
+- Apple Music: `Apple Music REST playlist body unavailable; trying MusicKit id=<id>` (info) and
+  `🎵 Apple Music playlist body failed id=<id>` (error). The same id on every pass is a body that never
+  becomes provable (see the `meta.total` and count rows).
+
+| Check | Status |
+| --- | --- |
+| An unchanged Plex playlist pass makes no `/playlists/{id}/items` request (issue #98: a playlist whose stored rows are below the server count is no longer refetched) | Owed |
+| No Plex playlist lacks `updatedAt` (such a playlist would be read again every pass: the `wrote N` line above on an idle server) | Owed |
+| Plex, on a disposable playlist (needs Felicity's approval): create, add, rename, reorder and delete. The list matches the server after each; after the rename, Date Modified sort moves it up once the refresh lands | Owed |
+| Plex: rename while offline, then reconnect. The new title shows throughout, uploads once, and the server's header applies afterwards | Owed |
+| A playlist edited from another Plex client reaches the phone through the WebSocket and the body changes | Owed |
+| A playlist with repeated tracks, and one emptied on the server, keep their order and count | Owed |
+| Apple Music: `/v1/me/library/playlists/{id}/tracks` reports `meta.total`. Without it the REST body counts only when MusicKit's song count agrees | Owed |
+| Apple Music: MusicKit's song count for a playlist equals REST's. If they differ routinely, the body is never accepted and the playlist's id repeats in the Apple Music log lines above on every pass | Owed |
+| Apple Music: the playlist list and bodies match the Music app; a playlist deleted in Music disappears; no `Apple Music playlist inventory withheld` line on a healthy library | Owed |
+| Delete of a scope's last playlist removes its row even though the list that follows is empty. Not runnable on a real library without deleting every playlist; covered by `testDeletingTheLastPlaylistRemovesItsRow` and `testDeletingTheLastPlaylistRemovesItAndAnOlderReadCannotRestoreIt` only. Run it on a disposable Plex server or a fresh test account if one exists | Owed |
+| `.partial` keeps background recovery outstanding: make one playlist body fail (disposable server, or a throttled network for one request), run a background refresh, and see the handoff stay pending (`Refresh pending sources=` in the log, `hasPendingBackgroundRefresh` true) and the next foreground recovery clear it once the body reads. No test drives this path (it writes the real handoff file) | Owed |
+| Offline: a queued playlist add, remove or delete is not overwritten or deleted by a sync before it uploads; last-playlist offline targets keep their tracks | Owed |
+
 ## iPhone SE and a phone with a SIM — stream drop resume (steps c and d)
 
 Applies to the commits "Resume a dropped direct download with a Range request..." and

@@ -840,7 +840,7 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
     }
 
     /// Returns a renamed copy while preserving source-resolved metadata and capabilities.
-    public func withTitle(_ title: String, dateModified: Date? = nil) -> Playlist {
+    public func withTitle(_ title: String) -> Playlist {
         Playlist(
             id: id,
             key: key,
@@ -854,7 +854,7 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
             fallbackArtworkRatingKey: fallbackArtworkRatingKey,
             fallbackArtworkSourceCompositeKey: fallbackArtworkSourceCompositeKey,
             dateAdded: dateAdded,
-            dateModified: dateModified ?? self.dateModified,
+            dateModified: dateModified,
             lastPlayed: lastPlayed,
             lastRatedAt: lastRatedAt,
             rating: rating,

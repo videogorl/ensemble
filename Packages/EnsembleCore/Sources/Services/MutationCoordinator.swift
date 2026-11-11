@@ -317,12 +317,12 @@ public final class MutationCoordinator {
 
         if syncCoordinator.isOffline {
             let payload = try makePlaylistAddPayload(tracks: tracks, playlist: playlist, sourceKey: sourceKey)
-            guard await enqueueMutation(
+            guard try await playlistEdit({ await self.enqueueMutation(
                 type: .playlistAdd,
                 payload: payload,
                 sourceCompositeKey: sourceKey,
                 relatedSourceCompositeKeys: Set(payload.trackReferences.map(\.trackSourceCompositeKey))
-            ) else {
+            ) }) else {
                 throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceKey)
             }
             return (nil, .queued)
@@ -333,12 +333,12 @@ public final class MutationCoordinator {
             return (result, .completed)
         } catch where isConnectionFailure(error) && supportsQueuedMutations {
             let payload = try makePlaylistAddPayload(tracks: tracks, playlist: playlist, sourceKey: sourceKey)
-            guard await enqueueMutation(
+            guard try await playlistEdit({ await self.enqueueMutation(
                 type: .playlistAdd,
                 payload: payload,
                 sourceCompositeKey: sourceKey,
                 relatedSourceCompositeKeys: Set(payload.trackReferences.map(\.trackSourceCompositeKey))
-            ) else {
+            ) }) else {
                 throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceKey)
             }
             return (nil, .queued)
@@ -401,12 +401,12 @@ public final class MutationCoordinator {
         }
 
         let payload = try makePlaylistAddPayload(tracks: tracks, playlist: playlist, sourceKey: sourceKey)
-        guard await enqueueMutation(
+        guard try await playlistEdit({ await self.enqueueMutation(
             type: .playlistAdd,
             payload: payload,
             sourceCompositeKey: sourceKey,
             relatedSourceCompositeKeys: Set(payload.trackReferences.map(\.trackSourceCompositeKey))
-        ) else {
+        ) }) else {
             throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceKey)
         }
         rememberLastPlaylistTargetIfCurrent(playlist, sourceKey: sourceKey)
@@ -438,25 +438,29 @@ public final class MutationCoordinator {
             let payload = PlaylistRenameMutationPayload(
                 playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey, newTitle: newTitle
             )
-            guard await enqueueMutation(type: .playlistRename, payload: payload, sourceCompositeKey: sourceKey) else {
-                throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceKey)
+            let queued = try await playlistEdit(editing: (playlist.id, sourceKey)) {
+                guard await self.enqueueMutation(type: .playlistRename, payload: payload, sourceCompositeKey: sourceKey) else { return false }
+                await self.persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
+                return true
             }
-            await persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
+            guard queued else { throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceKey) }
             return .queued
         }
 
         do {
             try await syncCoordinator.renamePlaylist(playlist, to: newTitle)
-            await persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
+            try await playlistEdit(editing: (playlist.id, sourceKey)) { await self.persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey) }
             return .completed
         } catch where isConnectionFailure(error) && supportsQueuedMutations {
             let payload = PlaylistRenameMutationPayload(
                 playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey, newTitle: newTitle
             )
-            guard await enqueueMutation(type: .playlistRename, payload: payload, sourceCompositeKey: sourceKey) else {
-                throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceKey)
+            let queued = try await playlistEdit(editing: (playlist.id, sourceKey)) {
+                guard await self.enqueueMutation(type: .playlistRename, payload: payload, sourceCompositeKey: sourceKey) else { return false }
+                await self.persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
+                return true
             }
-            await persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
+            guard queued else { throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceKey) }
             return .queued
         }
     }
@@ -471,8 +475,7 @@ public final class MutationCoordinator {
             try await playlistRepository.updatePlaylistTitle(
                 ratingKey: playlist.id,
                 sourceCompositeKey: playlist.sourceCompositeKey,
-                title: title,
-                dateModified: Date()
+                title: title
             )
             syncCoordinator.emit(.playlistRenamedLocally(sourceKey: sourceKey))
         } catch {
@@ -516,13 +519,14 @@ public final class MutationCoordinator {
 
     /// Enqueue a playlist deletion and purge any now-irrelevant queued mutations for it
     private func enqueuePlaylistDelete(playlist: Playlist, sourceKey: String) async throws {
-        await purgePlaylistMutations(playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey)
         let payload = PlaylistDeleteMutationPayload(
             playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey
         )
-        guard await enqueueMutation(type: .playlistDelete, payload: payload, sourceCompositeKey: sourceKey) else {
-            throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceKey)
+        let queued = try await playlistEdit {
+            await self.purgePlaylistMutations(playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey)
+            return await self.enqueueMutation(type: .playlistDelete, payload: payload, sourceCompositeKey: sourceKey)
         }
+        guard queued else { throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceKey) }
     }
 
     /// Create a playlist. Throws `MutationError.unavailableOffline` when offline or server
@@ -711,6 +715,16 @@ public final class MutationCoordinator {
     }
 
     // MARK: - Private Enqueue Helpers
+
+    /// Runs a local playlist edit (queueing its mutation and caching its effect) in the writer's serial chain,
+    /// so a playlist pass that read the queued mutations at its start sees them unchanged to its end.
+    /// With `editing`, the playlist is also marked edited locally in the same operation (see `LibraryWriter.performPlaylistEdit`).
+    private func playlistEdit<Value: Sendable>(
+        editing target: (id: String, scope: String)? = nil,
+        _ edit: @escaping () async -> Value
+    ) async throws -> Value {
+        try await syncCoordinator.performPlaylistEdit(editing: target, edit)
+    }
 
     /// Generic enqueue method for any Codable payload
     @discardableResult

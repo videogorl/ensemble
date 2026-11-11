@@ -5,7 +5,7 @@ import EnsemblePersistence
 
 /// A fake Plex server answering the library endpoints from fixed lists, so a pass runs
 /// through the real connector, writer and an on-disk store.
-private final class FakePlexURLProtocol: URLProtocol {
+final class FakePlexURLProtocol: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var router: ((URLComponents) -> String?)?
 
@@ -112,7 +112,7 @@ final class PlexConnectorLibraryFetchTests: XCTestCase {
             keychain: TestKeychain(), urlSession: session
         )
         return Fixture(
-            writer: LibraryWriter(libraryRepository: repository, syncCursorRepository: SyncCursorRepository(coreDataStack: stack)),
+            writer: LibraryWriter(libraryRepository: repository, playlistRepository: PlaylistRepository(coreDataStack: stack), syncCursorRepository: SyncCursorRepository(coreDataStack: stack)),
             repository: repository,
             connector: PlexConnector(sourceIdentifier: source, apiClient: client, sectionKey: "1")
         )
@@ -221,7 +221,7 @@ final class PlexConnectorLibraryFetchTests: XCTestCase {
     }
 }
 
-private final class LockedCounter: @unchecked Sendable {
+final class LockedCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var value = 0
     func next() -> Int { lock.lock(); defer { lock.unlock() }; value += 1; return value - 1 }

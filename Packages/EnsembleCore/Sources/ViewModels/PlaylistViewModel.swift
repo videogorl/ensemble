@@ -1119,7 +1119,7 @@ public final class PlaylistDetailViewModel: MediaDetailViewModelProtocol {
 
         let previousPlaylist = playlist
         trackSnapshotRevision &+= 1
-        playlist = playlist.withTitle(trimmed, dateModified: Date())
+        playlist = playlist.withTitle(trimmed)
         error = nil
 
         do {
@@ -1142,7 +1142,7 @@ public final class PlaylistDetailViewModel: MediaDetailViewModelProtocol {
     ) async throws -> (outcome: MutationOutcome, successToast: ToastPayload) {
         let previousPlaylist = playlist
         trackSnapshotRevision &+= 1
-        playlist = playlist.withTitle(trimmed, dateModified: Date())
+        playlist = playlist.withTitle(trimmed)
         error = nil
 
         do {

@@ -17,11 +17,8 @@ public final class PlexConnector:
     MusicSourceRadioProviding,
     @unchecked Sendable
 {
-    static let orphanCheckInterval: TimeInterval = 24 * 60 * 60
-
     public let sourceIdentifier: MusicSourceIdentifier
     private let apiClient: PlexAPIClient
-    private let syncCursorRepository: SyncCursorRepositoryProtocol?
     private let enabledSectionKeys: [String]
     /// Library section key used for API calls. Internal for WebSocket-triggered sync matching.
     let sectionKey: String
@@ -30,8 +27,7 @@ public final class PlexConnector:
         sourceIdentifier: MusicSourceIdentifier,
         apiClient: PlexAPIClient,
         sectionKey: String,
-        enabledSectionKeys: [String] = [],
-        syncCursorRepository: SyncCursorRepositoryProtocol? = nil
+        enabledSectionKeys: [String] = []
     ) {
         self.sourceIdentifier = sourceIdentifier
         self.apiClient = apiClient
@@ -40,7 +36,6 @@ public final class PlexConnector:
             primary: sectionKey,
             enabled: enabledSectionKeys
         )
-        self.syncCursorRepository = syncCursorRepository
     }
 
     enum PlaylistEditOperation: Equatable {
@@ -698,97 +693,38 @@ public final class PlexConnector:
         )
     }
     
-    public func syncPlaylists(
-        to repository: PlaylistRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> PlaylistSyncResult {
-        // Use server-level identifier for playlists (not library-specific)
-        let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
+    // MARK: - Playlist fetch
+
+    /// Reads the server's whole audio-playlist list: one request that returns every header, so a
+    /// pass needs no change queries. Plex playlists belong to the server, not to a library section.
+    public func fetchPlaylistHeaders() async throws -> PlaylistHeaderList {
         let queryStartedAt = Date()
+        let list = try await apiClient.getPlaylistList()
+        let headers = list.playlists.map(Self.playlistUpsertInput)
+        var inventory: PlaylistInventory?
+        if list.isComplete {
+            inventory = try? PlaylistInventory(playlistIDs: headers.map(\.ratingKey))
+        }
+        if inventory == nil { EnsembleLogger.info("Plex playlist list for \(sourceIdentifier.compositeKey) is not proven complete; nothing will be deleted from it") }
+        return PlaylistHeaderList(headers: headers, inventory: inventory, queryStartedAt: queryStartedAt)
+    }
 
-        let playlistSyncStart = CFAbsoluteTimeGetCurrent()
-        progressHandler(0.1)
-        let existingTimestamps = try await repository.fetchPlaylistTimestamps(forSource: serverSourceKey)
-        let localTrackStates = try await repository.fetchPlaylistLocalTrackStates(forSource: serverSourceKey)
-        let playlists = try await apiClient.getPlaylists()
-        EnsembleLogger.debug("⏱️ Playlist sync: fetched \(playlists.count) playlists in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s")
-
-        var fetchedTrackLists = 0
-        var skippedTrackLists = 0
-        for (index, playlist) in playlists.enumerated() {
-            let playlistProgress = 0.1 + (0.8 * Double(index) / Double(playlists.count))
-            progressHandler(playlistProgress)
-            let shouldFetchTracks = Self.shouldFetchPlaylistTracks(
-                serverUpdatedAt: playlist.updatedAt,
-                existingModifiedAt: existingTimestamps[playlist.ratingKey]
-            ) || Self.shouldRepairPlaylistTracks(
-                serverTrackCount: playlist.leafCount,
-                localMembershipCount: localTrackStates[playlist.ratingKey]?.membershipCount
-            )
-
-            guard shouldFetchTracks else {
-                try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
-                skippedTrackLists += 1
-                continue
+    /// Reads each playlist's items, which the client accepts only when the container's size and total
+    /// match the items received (an empty playlist is a complete, empty read). A failed read leaves that
+    /// playlist out, so its stored body stays and the next pass reads it again.
+    public func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] {
+        var entries: [PlaylistEntry] = []
+        for header in headers {
+            try RefreshExecution.checkCancellation()
+            do {
+                let tracks = try await apiClient.getPlaylistTracks(playlistKey: header.ratingKey)
+                entries.append(PlaylistEntry(header: header, body: tracks.map(Self.playlistTrackSnapshot)))
+            } catch {
+                try RefreshExecution.checkCancellation()
+                EnsembleLogger.error("Plex playlist \(header.ratingKey) body unavailable, keeping the stored one: \(error.localizedDescription)")
             }
-
-            // Keep the previous modification date until its replacement body is saved.
-            try await Self.upsertPlaylist(
-                playlist,
-                to: repository,
-                sourceCompositeKey: serverSourceKey,
-                dateModified: existingTimestamps[playlist.ratingKey]
-            )
-            let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: playlist.ratingKey)
-            let trackKeys = playlistTracks.map { $0.ratingKey }
-            EnsembleLogger.debug("📋 Syncing playlist '\(playlist.title)': \(trackKeys.count) tracks")
-            if trackKeys.count > 0 {
-                EnsembleLogger.debug("📋 First track key: \(trackKeys[0])")
-            }
-            try await repository.setPlaylistTrackSnapshots(
-                playlistTracks.map(Self.playlistTrackSnapshot),
-                forPlaylist: playlist.ratingKey,
-                sourceCompositeKey: serverSourceKey
-            )
-            try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
-            fetchedTrackLists += 1
         }
-
-        let validPlaylistKeys = Set(playlists.map(\.ratingKey))
-        try RefreshExecution.checkCancellation()
-        let removedPlaylists = try await repository.removeOrphanedPlaylists(
-            notIn: validPlaylistKeys,
-            forSource: serverSourceKey
-        )
-        await MainActor.run {
-            HiddenMediaStore.shared.removeMissing(
-                kind: .playlist,
-                sourceKey: serverSourceKey,
-                survivingItemIDs: validPlaylistKeys
-            )
-        }
-        if removedPlaylists > 0 {
-            EnsembleLogger.debug("🧹 Full playlist sync removed \(removedPlaylists) orphaned playlists")
-        }
-
-        let completedAt = Date()
-        let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
-        try RefreshExecution.checkCancellation()
-        try await syncCursorRepository?.recordFullSync(
-            scopeKey: serverSourceKey,
-            scopeType: .serverPlaylists,
-            at: queryStartedAt
-        )
-        try RefreshExecution.checkCancellation()
-        UserDefaults.standard.set(queryStartedAt.timeIntervalSince1970, forKey: timestampKey)
-        UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: Self.playlistOrphanCheckKey(for: serverSourceKey))
-
-        EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists, fetchedTracks=\(fetchedTrackLists), skippedTracks=\(skippedTrackLists), removed=\(removedPlaylists))")
-        progressHandler(1.0)
-        return PlaylistSyncResult(
-            changedPlaylists: fetchedTrackLists,
-            removedPlaylists: removedPlaylists
-        )
+        return entries
     }
 
     static func playlistTrackSnapshot(_ track: PlexTrack) -> PlaylistTrackSnapshot {
@@ -805,244 +741,30 @@ public final class PlexConnector:
         )
     }
 
-    /// Sync only playlists that changed since last sync (incremental)
-    public func syncPlaylistsIncremental(
-        to repository: PlaylistRepositoryProtocol,
-        forceOrphanCheck: Bool = false,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> PlaylistSyncResult {
-        let syncStart = CFAbsoluteTimeGetCurrent()
-        let queryStartedAt = Date()
-        let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
-        let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
-        let orphanTimestampKey = Self.playlistOrphanCheckKey(for: serverSourceKey)
-
-        let cursor = try await syncCursorRepository?.fetchCursor(
-            scopeKey: serverSourceKey,
-            scopeType: .serverPlaylists
-        )
-        let legacySyncTimestamp = UserDefaults.standard.double(forKey: timestampKey)
-        let lastSyncTimestamp = cursor?.lastIncrementalSyncAt?.timeIntervalSince1970
-            ?? cursor?.lastFullSyncAt?.timeIntervalSince1970
-            ?? cursor?.lastSuccessfulSyncAt?.timeIntervalSince1970
-            ?? legacySyncTimestamp
-
-        // If never synced, fall back to full sync
-        guard lastSyncTimestamp > 0 else {
-            EnsembleLogger.debug("⚠️ No previous playlist sync found, performing full sync")
-            return try await syncPlaylists(to: repository, progressHandler: progressHandler)
-        }
-
-        progressHandler(0.1)
-
-        // Fetch existing playlist timestamps for change detection
-        var phaseStart = CFAbsoluteTimeGetCurrent()
-        let existingTimestamps = try await repository.fetchPlaylistTimestamps(forSource: serverSourceKey)
-        // Authoritative refreshes reuse one complete response for change detection and orphan removal.
-        let authoritativePlaylists: [PlexPlaylist]?
-        let newPlaylists: [PlexPlaylist]
-        let updatedPlaylists: [PlexPlaylist]
-        if forceOrphanCheck {
-            let playlists = try await apiClient.getPlaylists()
-            authoritativePlaylists = playlists
-            newPlaylists = playlists
-            updatedPlaylists = []
-        } else {
-            authoritativePlaylists = nil
-            newPlaylists = try await apiClient.getPlaylists(addedAfter: lastSyncTimestamp)
-            updatedPlaylists = try await apiClient.getPlaylists(updatedAfter: lastSyncTimestamp)
-        }
-
-        let playlistChanges = Self.deduplicatedChangedItems(
-            added: newPlaylists,
-            updated: updatedPlaylists,
-            existingTimestamps: existingTimestamps,
-            ratingKey: { $0.ratingKey },
-            updatedAt: { $0.updatedAt }
-        )
-        let changedPlaylists = playlistChanges.changedItems
-
-        EnsembleLogger.debug("⏱️ Incremental playlist fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(playlistChanges.uniqueCount) from server, \(changedPlaylists.count) actually changed")
-
-        // Sync only changed playlists (only fetch tracks for changed ones)
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        for (index, playlist) in changedPlaylists.enumerated() {
-            let playlistProgress = 0.1 + (0.5 * Double(index) / Double(max(changedPlaylists.count, 1)))
-            progressHandler(playlistProgress)
-
-            // Keep the previous modification date until the complete body is committed.
-            try await Self.upsertPlaylist(
-                playlist,
-                to: repository,
-                sourceCompositeKey: serverSourceKey,
-                dateModified: existingTimestamps[playlist.ratingKey]
-            )
-            let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: playlist.ratingKey)
-            let trackKeys = playlistTracks.map { $0.ratingKey }
-            EnsembleLogger.debug("📋 Incremental sync playlist '\(playlist.title)': \(trackKeys.count) tracks")
-            try await repository.setPlaylistTrackSnapshots(
-                playlistTracks.map(Self.playlistTrackSnapshot),
-                forPlaylist: playlist.ratingKey,
-                sourceCompositeKey: serverSourceKey
-            )
-            try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
-        }
-
-        EnsembleLogger.debug("⏱️ Incremental playlist upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
-
-        // Orphan removal: fetch inventory only after playlist changes or on a periodic cleanup.
-        progressHandler(0.7)
-        let shouldCheckOrphans = Self.shouldCheckOrphans(
-            changedItemCount: changedPlaylists.count,
-            lastCheckedAt: forceOrphanCheck
-                ? 0
-                : cursor?.lastInventorySyncAt?.timeIntervalSince1970
-                    ?? UserDefaults.standard.double(forKey: orphanTimestampKey),
-            now: Date()
-        )
-        let removedPlaylists: Int
-        if shouldCheckOrphans {
-            phaseStart = CFAbsoluteTimeGetCurrent()
-            EnsembleLogger.debug("🧹 Checking for orphaned playlists...")
-            let validPlaylistKeys: Set<String>
-            if let authoritativePlaylists {
-                validPlaylistKeys = Set(authoritativePlaylists.map(\.ratingKey))
-            } else {
-                validPlaylistKeys = Set(try await apiClient.getPlaylistInventory().map(\.ratingKey))
-            }
-            progressHandler(0.85)
-
-            try RefreshExecution.checkCancellation()
-            removedPlaylists = try await repository.removeOrphanedPlaylists(notIn: validPlaylistKeys, forSource: serverSourceKey)
-            await MainActor.run {
-                HiddenMediaStore.shared.removeMissing(
-                    kind: .playlist,
-                    sourceKey: serverSourceKey,
-                    survivingItemIDs: validPlaylistKeys
-                )
-            }
-            let inventorySyncedAt = Date()
-            try RefreshExecution.checkCancellation()
-            try await syncCursorRepository?.recordInventorySync(
-                scopeKey: serverSourceKey,
-                scopeType: .serverPlaylists,
-                at: inventorySyncedAt
-            )
-            try RefreshExecution.checkCancellation()
-            UserDefaults.standard.set(inventorySyncedAt.timeIntervalSince1970, forKey: orphanTimestampKey)
-            if removedPlaylists > 0 {
-                EnsembleLogger.debug("🧹 Removed \(removedPlaylists) orphaned playlists")
-            } else {
-                EnsembleLogger.debug("✅ No orphaned playlists found")
-            }
-
-            EnsembleLogger.debug("⏱️ Incremental playlist orphan check took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
-        } else {
-            removedPlaylists = 0
-            progressHandler(0.9)
-            EnsembleLogger.debug("⏭️ Incremental playlist orphan check skipped; no playlist changes and recent cleanup exists")
-        }
-
-        try RefreshExecution.checkCancellation()
-        try await syncCursorRepository?.recordIncrementalSync(
-            scopeKey: serverSourceKey,
-            scopeType: .serverPlaylists,
-            at: queryStartedAt
-        )
-        try RefreshExecution.checkCancellation()
-        UserDefaults.standard.set(queryStartedAt.timeIntervalSince1970, forKey: timestampKey)
-
-        EnsembleLogger.debug("⏱️ Incremental playlist sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
-
-        progressHandler(1.0)
-        return PlaylistSyncResult(
-            changedPlaylists: changedPlaylists.count,
-            removedPlaylists: removedPlaylists
-        )
-    }
-
-    static func shouldFetchPlaylistTracks(
-        serverUpdatedAt: Int?,
-        existingModifiedAt: Date?
-    ) -> Bool {
-        guard let existingModifiedAt else { return true }
-        guard let serverUpdatedAt else { return false }
-        return serverUpdatedAt != Int(existingModifiedAt.timeIntervalSince1970)
-    }
-
-    static func shouldRepairPlaylistTracks(
-        serverTrackCount: Int?,
-        localMembershipCount: Int?
-    ) -> Bool {
-        guard let serverTrackCount, serverTrackCount > 0 else { return false }
-        return localMembershipCount.map { $0 == 0 || $0 > serverTrackCount } ?? true
-    }
-
-    static func shouldCheckOrphans(
-        changedItemCount: Int,
-        lastCheckedAt: TimeInterval,
-        now: Date,
-        interval: TimeInterval = orphanCheckInterval
-    ) -> Bool {
-        guard changedItemCount == 0 else { return true }
-        guard lastCheckedAt > 0 else { return true }
-        return now.timeIntervalSince1970 - lastCheckedAt >= interval
-    }
-
-    @discardableResult
-    static func upsertPlaylist(
-        _ playlist: PlexPlaylist,
-        to repository: PlaylistRepositoryProtocol,
-        sourceCompositeKey: String,
-        trackCount: Int? = nil
-    ) async throws -> CDPlaylist {
-        try await upsertPlaylist(
-            playlist,
-            to: repository,
-            sourceCompositeKey: sourceCompositeKey,
-            trackCount: trackCount,
-            dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
-        )
-    }
-
-    @discardableResult
-    static func upsertPlaylist(
-        _ playlist: PlexPlaylist,
-        to repository: PlaylistRepositoryProtocol,
-        sourceCompositeKey: String,
-        trackCount: Int? = nil,
-        dateModified: Date?
-    ) async throws -> CDPlaylist {
+    static func playlistUpsertInput(_ playlist: PlexPlaylist) -> PlaylistUpsertInput {
         let isSmart = playlist.smart ?? false
-        return try await repository.upsertPlaylist(
-            PlaylistUpsertInput(
-                ratingKey: playlist.ratingKey,
-                key: playlist.key,
-                title: playlist.title,
-                summary: playlist.summary,
-                compositePath: playlist.composite,
-                isSmart: isSmart,
-                duration: playlist.duration,
-                trackCount: trackCount ?? playlist.leafCount,
-                dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: dateModified,
-                lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                lastRatedAt: playlist.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                rating: Int(playlist.userRating ?? 0),
-                actionCapabilities: PlaylistActionCapabilities(
-                    canAddItems: !isSmart,
-                    canRename: !isSmart,
-                    canReorder: !isSmart,
-                    canDelete: !isSmart,
-                    unavailableReason: isSmart ? "Smart playlists are read-only." : nil
-                )
-            ),
-            sourceCompositeKey: sourceCompositeKey
+        return PlaylistUpsertInput(
+            ratingKey: playlist.ratingKey,
+            key: playlist.key,
+            title: playlist.title,
+            summary: playlist.summary,
+            compositePath: playlist.composite,
+            isSmart: isSmart,
+            duration: playlist.duration,
+            trackCount: playlist.leafCount,
+            dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastRatedAt: playlist.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            rating: Int(playlist.userRating ?? 0),
+            actionCapabilities: PlaylistActionCapabilities(
+                canAddItems: !isSmart,
+                canRename: !isSmart,
+                canReorder: !isSmart,
+                canDelete: !isSmart,
+                unavailableReason: isSmart ? "Smart playlists are read-only." : nil
+            )
         )
-    }
-
-    static func playlistOrphanCheckKey(for serverSourceKey: String) -> String {
-        "lastPlaylistOrphanCheckAt_\(serverSourceKey)"
     }
 
 public func getStreamURL(

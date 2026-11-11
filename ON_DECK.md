@@ -491,3 +491,105 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
   launch fired only once in about nine attempts, so the expiry and resume-without-relaunch checks stay not run.
 - Next step: an `ensemble://debug/` route that runs the refresh handler with `debugNextTimeBudget` and
   `debugNextDelay`, so a scripted test can cut it off mid-sync.
+
+## Suspected: a local playlist edit is protected only inside the process that made it (2026-11-11)
+
+- Evidence: `LibraryWriter.localEdits` (create, optimistic add, local delete) is an in-memory map. It
+  protects the edit from a read that began before it, in the same process; a relaunch forgets it. The
+  durable `PendingMutationRecord`s cover queued renames, adds, removes and deletes, but creates and
+  reorders are never queued (`MutationCoordinator` throws offline for both), so nothing durable names them.
+  After a relaunch, an optimistic body whose server date is unchanged survives (no body read), but a
+  just-created playlist with no server date can be replaced by a lagging server's complete-empty body.
+  Not reproduced; Plex applies a create at once, so this is mostly an Apple Music window of seconds.
+- Impact: a playlist created, then the app killed before its first refresh, may show empty until the
+  server catches up and its date changes.
+- Next step (Option B): a nullable `CDPlaylist.localEditAt` and a tombstone store for deletes (a new
+  Core Data model version, lightweight migration), consulted like the queued-mutation records. Do it only
+  if the window shows up in the log: a created playlist's body read back empty right after a relaunch.
+
+## Suspected: a queued playlist mutation that never uploads freezes its playlist indefinitely (2026-11-11)
+
+- Evidence: `LibraryWriter.queuedPlaylistMutations` protects every playlist named by a pending
+  (`status == pending`) add, remove or delete record: its header and body are skipped and an inventory
+  cannot delete it. A retryable record that never uploads (a stale payload against a playlist the server
+  lost, a permanent 4xx that `isConnectionFailure` treats as retryable) keeps the record pending, so the
+  playlist never takes a server change. Not reproduced.
+- Impact: one such playlist shows its pre-queue state and cannot be removed by a sync.
+- Next step: bound the protection (give up after the mutation's retry limit, or when the record's age passes
+  a ceiling) and make the pending-mutations UI show which playlist is held.
+
+## Suspected: uploading a queued playlist mutation schedules no refresh after its record is gone (2026-11-11)
+
+- Evidence: `MutationCoordinator.drainQueue` replays an add, rename or delete through
+  `syncCoordinator.addTracksToPlaylist` / `renamePlaylist` / `deletePlaylist`, whose own refresh (and, for
+  Apple Music adds, the reconcile loop) runs while the record is still `pending`. `LibraryWriter` then skips
+  that playlist's header and body (a queued add or remove) or keeps its title (a queued rename). The record is
+  deleted afterwards and nothing reads the playlist again, so the reconcile loop logs "completed" for a batch
+  the writer skipped. Not reproduced.
+- Impact: after a queued add uploads, the playlist can show its pre-upload body until the next sync,
+  WebSocket update or foreground pass.
+- Next step: delete the record before the replay's refresh (the record only guards the window before the
+  upload is acknowledged), or run one playlist pass after `drainQueue` removes a playlist record.
+
+## Suspected: a REST-only Apple Music playlist is read again every pass (2026-11-11)
+
+- Evidence: `AppleMusicPlaylistBodyProof.verifyREST` accepts a REST body with no reported total only when
+  MusicKit's read of the same playlist agrees. A playlist the REST list has and MusicKit lacks has no
+  witness, so its body is withheld, the header keeps its stored date, and `needsBody` is true again on the
+  next pass. Not reproduced (needs `meta.total` absent on the device; see the step 3d device checks).
+- Impact: one REST call per such playlist per pass, and the pass reports `.partial`, so background recovery
+  stays outstanding while the playlist exists.
+- Next step: read the device log for `Apple Music REST playlist body unavailable` / `body failed` with the
+  same id on consecutive passes. If it happens, accept a REST body with no total when the playlist is
+  REST-only and two consecutive reads agree, or stop reporting such a playlist as unresolved.
+
+## Suspected: on `.partial` the UI still shows "last synced" and the list cursor advances (2026-11-11)
+
+- Evidence: `completeSourceSync` sets `.lastSynced` before returning `.partial`, and `LibraryWriter.applyBatch`
+  records the playlist cursor for any full-list batch that was not rejected, unresolved bodies included
+  (their dates stay, so the bodies are retried; the cursor only dates the list read). A stale-rejected
+  pass records nothing.
+- Impact: Settings shows a clean "last synced" time while a playlist body is owed; only the log
+  (`Playlists <scope>: N body reads unresolved`) and the background handoff say otherwise.
+- Next step: give `MusicSourceSyncStatus` a partial state (or a detail line) and show it, or hold the
+  playlist cursor's incremental date back while a body is unresolved.
+
+
+## Suspected: a local delete that keeps failing leaves the last playlist's row (2026-11-11)
+
+- Evidence: after the server acknowledges a playlist delete, `LibraryWriter.removePlaylist` retries the local
+  delete three times (50 ms, 200 ms, 1 s) and then surfaces the error. For any playlist but the last, the next
+  inventory removes the row. For the last one an empty inventory deletes nothing, so the row stays.
+- Impact: a deleted playlist keeps showing until another playlist exists. Needs a persistent store failure,
+  which would break much more than this.
+- Decided by the lead on 2026-11-11: no durable marker for now. Next step if it is ever seen: write a
+  pending-mutation record with a `localCleanupOwed` status after the remote delete (no schema change; replay
+  filters on `pending`, so the remote delete is not re-sent) and consume it on the next playlist pass.
+
+
+## Suspected: playlist favourite writes run outside the writer's playlist chain (2026-11-11)
+
+- Evidence: `MutationCoordinator+CollectionFavorites.swift` writes a playlist's rating through
+  `storeCollectionRating` (direct `performBackgroundContext`) and enqueues the `.collectionRating`
+  pending mutation, neither inside `LibraryWriter.performPlaylistEdit`. Renames, adds, removes and deletes
+  now run in the chain. Inherited from before step 3d; found by Codex review #3.
+- Impact: a playlist pass fetched before a favourite toggle can overwrite the local rating for a window,
+  and a toggle that fails restores the previous rating outside any ordering with a pass.
+- Next step: route the playlist case through `performPlaylistEdit(editing:)` and teach the writer's
+  playlist apply to keep a locally edited rating for the retention window. Not authorized by this entry.
+
+## Side findings from the step 3d phone test (2026-11-11, iPhone SE, build `202611111150.4978`)
+
+Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from step 3d.
+
+- Confirmed: after a playlist is renamed, a track row's menu still offers "Add to <old name>". The recent
+  target is observed by id (`PlaylistActionPresentationHost`, `TrackListRuntimeObservation`), so a title change
+  does not refresh it. Next step: include the title in the observed projection.
+- Confirmed: a song added to a playlist while offline is queued (`Enqueued playlistAdd`) but the playlist's
+  count and rows do not change until the upload replays, and no toast or pending mark was visible. It landed
+  3 s after reconnect. Next step: decide whether a queued add should show at once like a queued rename does.
+- Suspected: adding a song already in a Plex playlist does nothing and says nothing (count stays, no toast, no
+  `Enqueued`). Probably Plex ignoring the duplicate. Next step: confirm against the endpoint and decide whether
+  to tell the user.
+- Not run: reordering a playlist by dragging. Device MCP's drag moves neither playlist rows nor queue rows;
+  needs a finger.

@@ -78,8 +78,9 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             try await base.setPlaylistTrackSnapshots(snapshots, forPlaylist: playlistRatingKey, sourceCompositeKey: sourceCompositeKey)
         }
         func deletePlaylists(sourceCompositeKey: String) async throws { try await base.deletePlaylists(sourceCompositeKey: sourceCompositeKey) }
+        func deletePlaylist(ratingKey: String, sourceCompositeKey: String) async throws -> Bool { try await base.deletePlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey) }
         func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { try await base.removeOrphanedPlaylists(notIn: validRatingKeys, forSource: sourceKey) }
-        func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { try await base.fetchPlaylistTimestamps(forSource: sourceKey) }
+        func fetchPlaylistSyncStates(forSource sourceKey: String) async throws -> [String: PlaylistSyncState] { try await base.fetchPlaylistSyncStates(forSource: sourceKey) }
     }
 
     private actor RecordingPlaylistProvider: MusicSourceConnector, MusicSourcePlaylistMutating, MusicSourceRatingMutating {
@@ -135,8 +136,13 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             mutationTitle = title
         }
 
+        private var cancelsCallerAfterDelete = false
+        /// Makes the next `deletePlaylist` acknowledge, then cancel the task that called it.
+        func cancelCallerAfterDelete() { cancelsCallerAfterDelete = true }
+
         func deletePlaylist(_ playlistID: String) async throws {
             events.append("delete")
+            if cancelsCallerAfterDelete { withUnsafeCurrentTask { $0?.cancel() } }
         }
 
         func replacePlaylistContents(_ playlistID: String, tracks: [Track]) async throws {
@@ -155,22 +161,12 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
 
         func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
 
-        func syncPlaylists(
-            to repository: PlaylistRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList {
             events.append("refresh")
-            return PlaylistSyncResult()
+            return PlaylistHeaderList(headers: [], inventory: nil, queryStartedAt: Date())
         }
 
-        func syncPlaylistsIncremental(
-            to repository: PlaylistRepositoryProtocol,
-            forceOrphanCheck: Bool,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            events.append("refresh")
-            return PlaylistSyncResult()
-        }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
 
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
     }
@@ -186,19 +182,49 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         func replacePlaylistContents(_ playlistID: String, tracks: [Track]) async throws { try await base.replacePlaylistContents(playlistID, tracks: tracks) }
         func editPlaylistItems(_ playlistID: String, originalItems: [PlaylistItem], editedItems: [PlaylistItem]) async throws { try await base.editPlaylistItems(playlistID, originalItems: originalItems, editedItems: editedItems) }
         func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
-        func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { try await base.syncPlaylists(to: repository, progressHandler: progressHandler) }
-        func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, forceOrphanCheck: Bool, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { try await base.syncPlaylistsIncremental(to: repository, forceOrphanCheck: forceOrphanCheck, progressHandler: progressHandler) }
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList { try await base.fetchPlaylistHeaders() }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { try await base.fetchPlaylistBodies(for: headers) }
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
-        func reconcilePlaylist(id: String, minimumTrackCount: Int, requiredTracks: [Track], to repository: PlaylistRepositoryProtocol) async throws -> Int? {
+        func reconcilePlaylist(id: String, minimumTrackCount: Int, requiredTracks: [Track]) async throws -> PlaylistBatch? {
             await base.recordReconciliation()
-            return minimumTrackCount
+            return PlaylistBatch(entries: [], queryStartedAt: Date())
         }
+    }
+
+    /// Hands out one scripted batch per read, the last one repeating. Each is built when it is read, so its
+    /// start time is the read's.
+    private final class ReconcileScript: @unchecked Sendable {
+        private let lock = NSLock()
+        private var reads = 0
+        private let batches: [() -> PlaylistBatch]
+        init(_ batches: [() -> PlaylistBatch]) { self.batches = batches }
+        var readCount: Int { lock.withLock { reads } }
+        func next() -> PlaylistBatch { lock.withLock { reads += 1; return batches[min(reads, batches.count) - 1]() } }
+    }
+
+    private struct ScriptedReconcilingProvider: MusicSourceConnector, MusicSourcePlaylistReconciling {
+        let base: RecordingPlaylistProvider
+        let script: ReconcileScript
+        var sourceIdentifier: MusicSourceIdentifier { base.sourceIdentifier }
+
+        func createPlaylist(title: String, tracks: [Track]) async throws -> Playlist? { try await base.createPlaylist(title: title, tracks: tracks) }
+        func addTracks(_ tracks: [Track], to playlistID: String) async throws -> Int { try await base.addTracks(tracks, to: playlistID) }
+        func renamePlaylist(_ playlistID: String, title: String) async throws { try await base.renamePlaylist(playlistID, title: title) }
+        func deletePlaylist(_ playlistID: String) async throws { try await base.deletePlaylist(playlistID) }
+        func replacePlaylistContents(_ playlistID: String, tracks: [Track]) async throws { try await base.replacePlaylistContents(playlistID, tracks: tracks) }
+        func editPlaylistItems(_ playlistID: String, originalItems: [PlaylistItem], editedItems: [PlaylistItem]) async throws { try await base.editPlaylistItems(playlistID, originalItems: originalItems, editedItems: editedItems) }
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList { try await base.fetchPlaylistHeaders() }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
+        func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
+        func reconcilePlaylist(id: String, minimumTrackCount: Int, requiredTracks: [Track]) async throws -> PlaylistBatch? { script.next() }
     }
 
     private func makeCoordinator(
         withServer: Bool = true,
         playlistRepository: PlaylistRepositoryProtocol = EmptyPlaylistRepository(),
-        artworkDownloadManager: ArtworkDownloadManagerProtocol = EmptyArtworkDownloadManager()
+        artworkDownloadManager: ArtworkDownloadManagerProtocol = EmptyArtworkDownloadManager(),
+        syncCursorRepository: SyncCursorRepositoryProtocol? = nil
     ) -> SyncCoordinator {
         let accountManager = AccountManager(keychain: TestKeychain())
         if withServer {
@@ -227,6 +253,7 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             accountManager: accountManager,
             libraryRepository: EmptyLibraryRepository(),
             playlistRepository: playlistRepository,
+            syncCursorRepository: syncCursorRepository,
             artworkDownloadManager: artworkDownloadManager,
             networkMonitor: networkMonitor,
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
@@ -366,8 +393,15 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             sourceCompositeKey: sourceKey
         )
         let coordinator = makeCoordinator(withServer: false, playlistRepository: repository)
+        var events = coordinator.events().makeAsyncIterator()
 
         let firstCount = try await coordinator.persistOptimisticPlaylistAdd([espresso], playlist: playlist)
+        // An open playlist detail reloads on this event, so the optimistic body shows without a later refresh.
+        let waiting = Task { await events.next() }
+        let timeout = Task { try await Task.sleep(nanoseconds: 10_000_000_000); waiting.cancel() }
+        defer { timeout.cancel() }
+        guard case .playlistsRefreshed(let refreshedKey)? = await waiting.value else { return XCTFail("expected playlistsRefreshed") }
+        XCTAssertEqual(refreshedKey, sourceKey)
         let duplicateCount = try await coordinator.persistOptimisticPlaylistAdd([espresso], playlist: playlist)
         XCTAssertEqual(firstCount, 3)
         XCTAssertEqual(duplicateCount, 3)
@@ -863,5 +897,189 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         XCTAssertEqual(coordinator.lastPlaylistTarget(forServerSourceKey: sources[1]), siblingTarget)
         XCTAssertFalse(FileManager.default.fileExists(atPath: paths[0].path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths[1].path))
+    }
+
+    /// The refresh after a delete reads an empty list, and an empty list deletes nothing, so the row of the
+    /// scope's last playlist goes by the confirmed delete itself.
+    func testDeletingTheLastPlaylistRemovesItsRow() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = PlaylistRepository(coreDataStack: stack)
+        let coordinator = makeCoordinator(withServer: false, playlistRepository: repository)
+        let provider = RecordingPlaylistProvider()
+        coordinator.setSyncProvidersForTesting([provider.sourceIdentifier.compositeKey: provider])
+        let scope = "plex:account-1:server-1"
+        for source in [scope, "plex:account-2:server-1"] {
+            _ = try await repository.upsertPlaylist(
+                ratingKey: "playlist-1", key: "/playlists/playlist-1", title: "Only", summary: nil, compositePath: nil, isSmart: false,
+                duration: nil, trackCount: 0, dateAdded: nil, dateModified: nil, lastPlayed: nil, sourceCompositeKey: source
+            )
+        }
+        let playlist = Playlist(
+            id: "playlist-1", key: "/playlists/playlist-1", title: "Only", summary: nil, isSmart: false, trackCount: 0,
+            duration: 0, compositePath: nil, dateAdded: nil, dateModified: nil, lastPlayed: nil, sourceCompositeKey: scope
+        )
+
+        try await coordinator.deletePlaylist(playlist)
+
+        let mine = try await repository.fetchPlaylistSyncStates(forSource: scope)
+        XCTAssertTrue(mine.isEmpty)
+        let other = try await repository.fetchPlaylistSyncStates(forSource: "plex:account-2:server-1")
+        XCTAssertEqual(Set(other.keys), ["playlist-1"], "another server's playlist is untouched")
+    }
+
+    /// A rename stores no date of its own, so `dateModified` is always the server's. While the rename is queued a
+    /// header of any date keeps the new title, and a newer one still advances the date; once it uploads, the
+    /// server's header applies, whatever its date.
+    func testAQueuedRenameKeepsItsTitleAgainstServerHeadersOfAnyDateUntilItUploads() async throws {
+        let stack = CoreDataStack.inMemory()
+        let playlists = PlaylistRepository(coreDataStack: stack)
+        let pending = PendingMutationRepository(coreDataStack: stack)
+        let scope = "plex:account-1:server-1"
+        let coordinator = makeCoordinator(playlistRepository: playlists)
+        let writer = LibraryWriter(
+            libraryRepository: LibraryRepository(coreDataStack: stack), playlistRepository: playlists,
+            syncCursorRepository: SyncCursorRepository(coreDataStack: stack), pendingMutationRepository: pending
+        )
+        func header(_ title: String, at seconds: TimeInterval) -> PlaylistUpsertInput {
+            PlaylistUpsertInput(
+                ratingKey: "p1", key: "/playlists/p1", title: title, summary: nil, compositePath: nil, isSmart: false,
+                duration: 0, trackCount: 0, dateAdded: nil, dateModified: Date(timeIntervalSince1970: seconds), lastPlayed: nil
+            )
+        }
+        var readAt = 0.0
+        func read(_ title: String, at seconds: TimeInterval) async throws {
+            readAt += 1
+            try await writer.apply(PlaylistBatch(entries: [PlaylistEntry(header: header(title, at: seconds), body: [])], queryStartedAt: Date(timeIntervalSince1970: 1_000 + readAt)), for: scope)
+        }
+        func stored() async throws -> (title: String?, date: Date?) {
+            let state = try await playlists.fetchPlaylistSyncStates(forSource: scope)["p1"]
+            return (state?.title, state?.dateModified)
+        }
+        try await read("Original", at: 100)
+
+        // The production path: rename while offline queues the mutation and renames the cached row.
+        await coordinator.handleObservedNetworkStateForTesting(.offline)
+        let mutations = MutationCoordinator(
+            repository: pending, coreDataStack: stack, toastCenter: ToastCenter(), networkMonitor: NetworkMonitor(),
+            syncCoordinator: coordinator, playlistRepository: playlists
+        )
+        let playlist = Playlist(
+            id: "p1", key: "/playlists/p1", title: "Original", summary: nil, isSmart: false, trackCount: 0, duration: 0,
+            compositePath: nil, dateAdded: nil, dateModified: Date(timeIntervalSince1970: 100), lastPlayed: nil, sourceCompositeKey: scope
+        )
+        let outcome = try await mutations.renamePlaylist(playlist, to: "Renamed")
+        XCTAssertEqual(outcome, .queued)
+        let queued = try await pending.fetchPendingMutationRecords()
+        XCTAssertEqual(queued.map(\.mutationType), [.playlistRename])
+        var now = try await stored()
+        XCTAssertEqual(now.title, "Renamed")
+        XCTAssertEqual(now.date, Date(timeIntervalSince1970: 100), "the rename stamped no date of its own")
+
+        // Queued: a server header older, equal and newer than the stored date.
+        for (seconds, expectedDate) in [(50.0, 100.0), (100, 100), (200, 200)] {
+            try await read("Server title", at: seconds)
+            now = try await stored()
+            XCTAssertEqual(now.title, "Renamed", "server date \(seconds)")
+            XCTAssertEqual(now.date, Date(timeIntervalSince1970: expectedDate), "server date \(seconds)")
+        }
+
+        // Uploaded: the record is gone, and the server's header applies with the same date it already stored.
+        try await pending.deleteMutation(id: try XCTUnwrap(queued.first).id)
+        try await read("Server title", at: 200)
+        now = try await stored()
+        XCTAssertEqual(now.title, "Server title")
+        XCTAssertEqual(now.date, Date(timeIntervalSince1970: 200))
+    }
+
+    /// A reconcile read that a newer list read superseded is not reported as done: the loop reads again, and the
+    /// second read applies.
+    func testASupersededReconcileReadIsReadAgain() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = PlaylistRepository(coreDataStack: stack)
+        let cursors = SyncCursorRepository(coreDataStack: stack)
+        let sourceKey = "plex:account-1:server-1"
+        let cached = CDPlaylist(context: stack.viewContext)
+        cached.ratingKey = "playlist-1"
+        cached.key = "playlist-1"
+        cached.title = "Mix"
+        cached.sourceCompositeKey = sourceKey
+        try stack.viewContext.save()
+        // A list read that began a minute ago has committed.
+        try await cursors.recordInventorySync(scopeKey: sourceKey, scopeType: .serverPlaylists, at: Date().addingTimeInterval(-60))
+        func batch(_ track: String, startedAt: Date) -> PlaylistBatch {
+            PlaylistBatch(entries: [PlaylistEntry(
+                header: PlaylistUpsertInput(ratingKey: "playlist-1", key: "playlist-1", title: "Mix", summary: nil, compositePath: nil, isSmart: false, duration: 0, trackCount: 1, dateAdded: nil, dateModified: nil, lastPlayed: nil),
+                body: [PlaylistTrackSnapshot(ratingKey: track, playlistItemID: nil, title: track, sourceCompositeKey: "plex:account-1:server-1:lib-1")]
+            )], queryStartedAt: startedAt)
+        }
+        let script = ReconcileScript([{ batch("stale", startedAt: Date().addingTimeInterval(-120)) }, { batch("fresh", startedAt: Date()) }])
+        let coordinator = makeCoordinator(withServer: false, playlistRepository: repository, syncCursorRepository: cursors)
+        let provider = ScriptedReconcilingProvider(base: RecordingPlaylistProvider(), script: script)
+        coordinator.setSyncProvidersForTesting([provider.sourceIdentifier.compositeKey: provider])
+        coordinator.refreshServerPlaylistsHandlerForTesting = { _ in }
+        let playlist = Playlist(id: "playlist-1", key: "playlist-1", title: "Mix", sourceCompositeKey: sourceKey)
+
+        _ = try await coordinator.addTracksToPlaylist([Track(id: "one", key: "one", title: "One", sourceCompositeKey: provider.sourceIdentifier.compositeKey)], playlist: playlist)
+        // The reconcile loop retries after a delay of its own; wait for its second read to land.
+        for _ in 0..<200 {
+            let current = try await repository.fetchPlaylist(ratingKey: "playlist-1", sourceCompositeKey: sourceKey)
+            if script.readCount >= 2, current?.playlistItemsArray.compactMap(\.trackRatingKey) == ["fresh"] { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        XCTAssertEqual(script.readCount, 2)
+        let stored = try await repository.fetchPlaylist(ratingKey: "playlist-1", sourceCompositeKey: sourceKey)
+        XCTAssertEqual(stored?.playlistItemsArray.compactMap(\.trackRatingKey), ["fresh"], "the superseded read wrote nothing; the fresh one applied")
+    }
+
+    /// The server acknowledged the delete; a cancellation that arrives afterwards only leaves the local cleanup
+    /// unfinished. The interactive delete still succeeds, and a queued delete's replay is acknowledged and its
+    /// record removed instead of being deferred, which would send the DELETE again.
+    func testCancellationAfterAnAcknowledgedDeleteIsNotAFailureOrAReplay() async throws {
+        let scope = "plex:account-1:server-1"
+        func seeded() async throws -> (CoreDataStack, PlaylistRepository, RecordingPlaylistProvider, SyncCoordinator) {
+            let stack = CoreDataStack.inMemory()
+            let repository = PlaylistRepository(coreDataStack: stack)
+            _ = try await repository.upsertPlaylist(
+                ratingKey: "playlist-1", key: "/playlists/playlist-1", title: "Only", summary: nil, compositePath: nil, isSmart: false,
+                duration: nil, trackCount: 0, dateAdded: nil, dateModified: nil, lastPlayed: nil, sourceCompositeKey: scope
+            )
+            let provider = RecordingPlaylistProvider()
+            let coordinator = makeCoordinator(playlistRepository: repository)
+            coordinator.setSyncProvidersForTesting([provider.sourceIdentifier.compositeKey: provider])
+            await provider.cancelCallerAfterDelete()
+            return (stack, repository, provider, coordinator)
+        }
+        let playlist = Playlist(
+            id: "playlist-1", key: "/playlists/playlist-1", title: "Only", summary: nil, isSmart: false, trackCount: 0,
+            duration: 0, compositePath: nil, dateAdded: nil, dateModified: nil, lastPlayed: nil, sourceCompositeKey: scope
+        )
+
+        // Interactive: the delete reports success.
+        let (_, repository, provider, coordinator) = try await seeded()
+        let interactive = Task { try await coordinator.deletePlaylist(playlist) }
+        try await interactive.value
+        let sent = await provider.recordedEvents().filter { $0 == "delete" }.count
+        XCTAssertEqual(sent, 1)
+        let kept = try await repository.fetchPlaylistSyncStates(forSource: scope)
+        XCTAssertEqual(Set(kept.keys), ["playlist-1"], "the cancelled cleanup is the accepted limit: the row waits for a later pass")
+
+        // Replay of a queued delete: acknowledged, record gone, the DELETE sent once.
+        let (stack, _, replayProvider, replayCoordinator) = try await seeded()
+        let pending = PendingMutationRepository(coreDataStack: stack)
+        try await pending.enqueueMutation(
+            id: "delete-1", type: .playlistDelete,
+            payload: try JSONEncoder().encode(PlaylistDeleteMutationPayload(playlistRatingKey: "playlist-1", playlistSourceCompositeKey: scope)),
+            sourceCompositeKey: scope
+        )
+        let network = NetworkMonitor(debounceNanoseconds: 0, monitorQueue: DispatchQueue(label: "delete-replay"), monitorFactory: { SystemNetworkPathMonitor() })
+        network.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        let mutations = MutationCoordinator(repository: pending, coreDataStack: stack, toastCenter: ToastCenter(), networkMonitor: network, syncCoordinator: replayCoordinator)
+        let drain = Task { await mutations.drainQueue() }
+        await drain.value
+        let remaining = try await pending.fetchPendingMutationRecords()
+        XCTAssertTrue(remaining.isEmpty, "acknowledged, not deferred")
+        let replaySent = await replayProvider.recordedEvents().filter { $0 == "delete" }.count
+        XCTAssertEqual(replaySent, 1)
     }
 }
