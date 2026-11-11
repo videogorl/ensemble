@@ -165,6 +165,7 @@ public final class SiriPlaybackCoordinator {
         playNext: Bool
     ) async throws -> Int {
         let media = try await resolveMedia(kind: kind, request: request, mergesSamePlaylists: true)
+        try Task.checkCancellation()
         if playNext {
             playbackService.playNext(media.tracks)
         } else {
@@ -222,6 +223,7 @@ public final class SiriPlaybackCoordinator {
 
     private func play(_ kind: SiriMediaKind, request: SiriPlaybackRequest) async throws {
         let media = try await resolveMedia(kind: kind, request: request, mergesSamePlaylists: true)
+        try Task.checkCancellation()
         if kind == .track, let track = media.tracks.first {
             await playbackService.play(track: track, context: media.context)
         } else if request.shuffle {
@@ -408,18 +410,24 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        // The title lookup compares raw text, so punctuation ("Kim & Jessie") can miss it. Compare normalised
-        // titles across the whole library in bounded batches, then load only the winner.
-        let stubs = try await libraryRepository.mapTracks(forSources: enabledSourceKeys, batchSize: 500) {
-            TrackStub(
-                ratingKey: $0.ratingKey,
-                sourceCompositeKey: $0.sourceCompositeKey,
-                title: $0.title,
-                artistName: $0.artistName,
-                lastPlayed: $0.lastPlayed,
-                playCount: Int($0.playCount)
+        // The title lookup compares raw text, so punctuation ("Kim & Jessie") can miss it. Score normalised titles
+        // across the whole library in bounded batches, keeping only the near matches, then load only the winner.
+        let queryVariants = normalizedQueryVariants(for: request.displayName)
+        guard !queryVariants.isEmpty else { return nil }
+        let stubs = try await libraryRepository.mapTracks(forSources: enabledSourceKeys, batchSize: 500) { track -> TrackStub? in
+            guard SiriMatchScorer.scoreMatch(queries: queryVariants, candidate: SiriPhraseNormalizer.basic(track.title)) >= 0.66 else {
+                return nil
+            }
+            return TrackStub(
+                ratingKey: track.ratingKey,
+                sourceCompositeKey: track.sourceCompositeKey,
+                title: track.title,
+                artistName: track.artistName,
+                lastPlayed: track.lastPlayed,
+                playCount: Int(track.playCount)
             )
-        }
+        }.compactMap { $0 }
+        try Task.checkCancellation()
         let fuzzy = preferByArtist(
             fuzzyCandidates(
                 from: stubs,
