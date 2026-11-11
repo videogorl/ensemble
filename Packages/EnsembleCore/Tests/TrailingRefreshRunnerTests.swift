@@ -46,4 +46,26 @@ final class TrailingRefreshRunnerTests: XCTestCase {
 
         XCTAssertEqual(started, 2)
     }
+
+    /// Callers joining at different moments never make two passes overlap, whichever resumes first when a pass ends.
+    func testPassesNeverOverlap() async {
+        var active = 0
+        var overlapped = false
+        let runner = TrailingRefreshRunner {
+            active += 1
+            if active > 1 { overlapped = true }
+            for _ in 0..<5 { await Task.yield() }
+            active -= 1
+            return true
+        }
+
+        var callers: [Task<Bool, Never>] = []
+        for _ in 0..<8 {
+            callers.append(Task { await runner.run() })
+            for _ in 0..<3 { await Task.yield() }
+        }
+        for caller in callers { _ = await caller.value }
+
+        XCTAssertFalse(overlapped)
+    }
 }

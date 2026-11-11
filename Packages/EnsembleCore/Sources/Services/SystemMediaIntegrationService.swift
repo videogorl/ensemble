@@ -1183,7 +1183,8 @@ final class TrailingRefreshRunner {
             }
             task = pass
             result = await withTaskCancellationHandler { await pass.value } onCancel: { pass.cancel() }
-        } while needsRerun && !Task.isCancelled
+            // A caller that resumed first may already have started the next pass, which then owns the pending request.
+        } while needsRerun && !Task.isCancelled && task == nil
         return result
     }
 }
