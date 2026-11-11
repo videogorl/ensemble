@@ -765,6 +765,25 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
 
     private let maxPinnedItems = 8
 
+    /// The pins as the app's Pinned list shows them (hidden sources and media dropped, same-named playlists grouped), kept
+    /// current by the view model's own observers.
+    private lazy var pinned: PinnedViewModel = {
+        let dependencies = AppRoot.container
+        return PinnedViewModel(
+            pinManager: dependencies.pinManager,
+            libraryRepository: dependencies.libraryRepository,
+            playlistRepository: dependencies.playlistRepository,
+            accountManager: dependencies.accountManager,
+            visibilityStore: dependencies.libraryVisibilityStore,
+            hiddenMediaStore: dependencies.hiddenMediaStore,
+            settingsManager: dependencies.settingsManager
+        )
+    }()
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { await pinned.loadPinnedItemsIfNeeded() }
+    }
+
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         buildDockMenu()
     }
@@ -777,7 +796,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func addPinnedItems(to menu: NSMenu) {
-        let pins = Array(AppRoot.container.pinManager.pinnedItems.prefix(maxPinnedItems))
+        let pins = Array(pinned.resolvedPins.map(\.pinnedItem).prefix(maxPinnedItems))
         guard !pins.isEmpty else { return }
 
         for pin in pins {

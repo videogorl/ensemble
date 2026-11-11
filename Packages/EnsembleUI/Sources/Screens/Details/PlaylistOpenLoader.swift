@@ -1,48 +1,54 @@
 import EnsembleCore
 import SwiftUI
 
-/// Opens a playlist named by id and source from outside the playlist list (Spotlight, links, pins). When Merging >
-/// Playlists is on and the playlist belongs to a merged group, this lands on the merged playlist, as tapping it in the
-/// list does; otherwise on that playlist alone.
+/// Opens a playlist named by id and source from outside the playlist list (Spotlight, links, pins, saved shortcuts): the
+/// merged playlist when Merging > Playlists is on and it belongs to a merged group, the visible copy that stands for it
+/// otherwise, and "not found" when only hidden copies remain.
 struct PlaylistOpenLoader: View {
+    private enum Target {
+        case merged(title: String, isSmart: Bool)
+        case single(id: String, sourceKey: String?)
+        case unavailable
+    }
+
     let playlistId: String
     let playlistSourceKey: String?
     let nowPlayingVM: NowPlayingViewModel
     let playlistsVM: PlaylistViewModel
 
     @Environment(DependencyContainer.self) private var deps
-    @State private var mergedTitle: (title: String, isSmart: Bool)?
-    @State private var isResolved = false
+    @State private var target: Target?
 
     var body: some View {
         Group {
-            if !isResolved {
+            switch target {
+            case nil:
                 ProgressView()
-            } else if let mergedTitle {
-                MergedPlaylistDetailLoader(
-                    title: mergedTitle.title,
-                    isSmart: mergedTitle.isSmart,
-                    nowPlayingVM: nowPlayingVM,
-                    playlistsVM: playlistsVM
-                )
-            } else {
-                PlaylistDetailLoader(playlistId: playlistId, playlistSourceKey: playlistSourceKey, nowPlayingVM: nowPlayingVM)
+            case .merged(let title, let isSmart):
+                MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM, playlistsVM: playlistsVM)
+            case .single(let id, let sourceKey):
+                PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+            case .unavailable:
+                EnsembleStateScaffold(kind: .empty, title: "Playlist not found")
             }
         }
-        .task {
+        .task(id: "\(playlistId)|\(playlistSourceKey ?? "")") {
+            target = nil
             if playlistsVM.playlists.isEmpty { await playlistsVM.loadPlaylists() }
-            let stored = try? await deps.playlistRepository.fetchPlaylistHeader(
+            guard let stored = try? await deps.playlistRepository.fetchPlaylistHeader(
                 ratingKey: playlistId,
                 sourceCompositeKey: playlistSourceKey
-            )
-            if let stored, let group = DisplayPlaylist.mergedGroupOpening(
-                Playlist(from: stored),
+            ), let group = DisplayPlaylist.displayedGroup(
+                for: Playlist(from: stored),
                 among: playlistsVM.playlists,
                 preferences: SettingsManager.storedMergingPreferences()
-            ) {
-                mergedTitle = (group.title, group.isSmart)
+            ) else {
+                target = .unavailable
+                return
             }
-            isResolved = true
+            target = group.isMerged
+                ? .merged(title: group.title, isSmart: group.isSmart)
+                : .single(id: group.primaryPlaylist.id, sourceKey: group.primaryPlaylist.sourceCompositeKey)
         }
     }
 }

@@ -47,7 +47,9 @@ final class PlaylistActionServiceTests: XCTestCase {
             ("Plex song with an Apple Music copy present", am, songA, withApple, .default, "a"),
             ("Apple Music song, Plex copies only", a, songApple, onlyPlex, .default, nil),
             ("merging off keeps the named playlist", a, songB, onlyPlex, off, "a"),
-            ("standalone playlist keeps itself", solo, songB, onlyPlex, .default, "solo")
+            ("standalone playlist keeps itself", solo, songB, onlyPlex, .default, "solo"),
+            ("hidden playlist is never a target, merging", Playlist(id: "h", key: "/h", title: "Hidden", sourceCompositeKey: "plex:account:server-a"), songA, onlyPlex, .default, nil),
+            ("hidden playlist is never a target, merging off", Playlist(id: "h", key: "/h", title: "Hidden", sourceCompositeKey: "plex:account:server-a"), songA, onlyPlex, off, nil)
         ]
         for testCase in cases {
             XCTAssertEqual(

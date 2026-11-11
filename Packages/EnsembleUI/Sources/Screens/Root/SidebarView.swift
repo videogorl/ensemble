@@ -798,10 +798,22 @@ public struct SidebarView: View {
                 ArtistDetailLoader(request: .artist(artist), libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .mergedArtist(let displayArtist, _):
                 ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM, dependencies: deps)
+            // A pinned playlist opens as the playlist list shows it: merged with its same-named copies when merging is on,
+            // even if only one of them is pinned.
             case .playlist(let playlist, _):
-                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM, dependencies: deps)
+                PlaylistOpenLoader(
+                    playlistId: playlist.id,
+                    playlistSourceKey: playlist.sourceCompositeKey,
+                    nowPlayingVM: nowPlayingVM,
+                    playlistsVM: playlistsVM
+                )
             case .mergedPlaylist(let displayPlaylist, _):
-                MergedPlaylistDetailView(displayPlaylist: displayPlaylist, nowPlayingVM: nowPlayingVM, dependencies: deps)
+                PlaylistOpenLoader(
+                    playlistId: displayPlaylist.primaryPlaylist.id,
+                    playlistSourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey,
+                    nowPlayingVM: nowPlayingVM,
+                    playlistsVM: playlistsVM
+                )
             }
         } else {
             switch type {
@@ -810,7 +822,7 @@ public struct SidebarView: View {
             case .artist:
                 ArtistDetailLoader(request: .reference(id: id, name: nil, sourceKey: sourceKey), libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .playlist:
-                PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+                PlaylistOpenLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM, playlistsVM: playlistsVM)
             }
         }
     }

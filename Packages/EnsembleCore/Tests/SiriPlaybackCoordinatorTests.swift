@@ -348,6 +348,25 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         }
     }
 
+    /// When every copy is hidden, nothing plays: a hidden original is never the fallback.
+    func testPlaylistWithOnlyHiddenCopiesIsNotFoundWhetherMergingOrNot() async throws {
+        let hidden = HiddenMediaStore(defaults: UserDefaults(suiteName: "siri-merge-\(UUID().uuidString)")!)
+        for (key, server) in [("focus-a", "plex:account-1:server-1"), ("focus-b", "plex:account-1:server-2")] {
+            hidden.setHidden(true, identity: .init(kind: .playlist, itemID: key, sourceCompositeKey: server))
+        }
+        var off = EnsembleMergingPreferences.default
+        off.mergePlaylists = false
+        for preferences in [EnsembleMergingPreferences.default, off] {
+            let fixture = try await makeFixture(mergingPreferences: preferences, hiddenMediaStore: hidden)
+            do {
+                try await fixture.coordinator.executePlayPlaylist(request: SiriPlaybackRequest(
+                    entityID: "focus-a", sourceCompositeKey: fixture.serverSourceKey, displayName: "Focus Mix"
+                ))
+                XCTFail("a hidden playlist must not play")
+            } catch SiriPlaybackCoordinatorError.mediaNotFound {}
+        }
+    }
+
     /// A playlist resolved by name (the entity id is not a stored key), shuffled or not, plays the merged set when
     /// merging is on and one copy when off.
     func testPlaylistRequestedByNamePlaysMergedSetOnlyWhenMerging() async throws {

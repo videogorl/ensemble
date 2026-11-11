@@ -63,6 +63,30 @@ enum SiriIndexLookup {
         ))
     }
 
+    /// Index items for saved playlist identifiers (`ratingKey||sourceCompositeKey`) the index no longer presents but the
+    /// playlist store still holds.
+    @MainActor
+    static func storedPlaylistItems(forIdentifiers identifiers: Set<String>) async -> [SiriMediaIndexItem] {
+        var items: [SiriMediaIndexItem] = []
+        for identifier in identifiers.sorted() {
+            let parts = identifier.components(separatedBy: "||")
+            guard parts.count >= 2, !parts[0].isEmpty,
+                  let stored = try? await AppRoot.container.playlistRepository.fetchPlaylistHeader(
+                      ratingKey: parts[0],
+                      sourceCompositeKey: parts.dropFirst().joined(separator: "||").nilIfEmpty
+                  ) else { continue }
+            let playlist = Playlist(from: stored)
+            items.append(SiriMediaIndexItem(
+                kind: .playlist,
+                id: playlist.id,
+                displayName: playlist.title,
+                sourceCompositeKey: playlist.sourceCompositeKey,
+                isSmartPlaylist: playlist.isSmart
+            ))
+        }
+        return items
+    }
+
     private static func loadIndex() -> SiriMediaIndex? {
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: SiriSharedConstants.appGroupIdentifier
@@ -130,7 +154,14 @@ extension IndexItemEntityQuery {
         guard !wanted.isEmpty else { return [] }
         let items = SiriIndexLookup.fetchItems(kind: Entity.indexKind)
         // Saved identifiers resolve whichever row is shown, so only the server label is added here.
-        return SiriPlaylistRows.labeled(items, among: items).map(Entity.init(item:)).filter { wanted.contains($0.id) }
+        var entities = SiriPlaylistRows.labeled(items, among: items).map(Entity.init(item:)).filter { wanted.contains($0.id) }
+        if Entity.indexKind == .playlist {
+            // A playlist hidden since the shortcut was saved is no longer in the index, but is still in the store.
+            // Its identifier keeps resolving; playing it plays the visible playlist that stands for it.
+            let missing = wanted.subtracting(entities.map(\.id))
+            entities += await SiriIndexLookup.storedPlaylistItems(forIdentifiers: missing).map(Entity.init(item:))
+        }
+        return entities
     }
 
     func entities(matching string: String) async throws -> [Entity] {
@@ -258,4 +289,8 @@ struct EnsembleMoodEntityQuery: EntityStringQuery {
     func suggestedEntities() async throws -> [EnsembleMoodEntity] {
         await AppRoot.container.libraryCollectionTracks.moods().map(EnsembleMoodEntity.init(mood:))
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
