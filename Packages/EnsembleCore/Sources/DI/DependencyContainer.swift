@@ -51,6 +51,8 @@ public final class DependencyContainer: @unchecked Sendable {
     public let libraryChanges: LibraryChanges
     public let libraryVisibilityStore: LibraryVisibilityStore
     public let siriMediaIndexStore: SiriMediaIndexStore
+    /// Held for its observers; see the type.
+    let siriPlaylistPresentationPublisher: SiriPlaylistPresentationPublisher
     public let siriPlaybackCoordinator: SiriPlaybackCoordinator
     public let siriAffinityCoordinator: SiriAffinityCoordinator
     public let siriAddToPlaylistCoordinator: SiriAddToPlaylistCoordinator
@@ -155,6 +157,7 @@ public final class DependencyContainer: @unchecked Sendable {
     }
 
     private struct SiriBootstrap {
+        let siriPlaylistPresentationPublisher: SiriPlaylistPresentationPublisher
         let siriMediaIndexStore: SiriMediaIndexStore
         let siriPlaybackCoordinator: SiriPlaybackCoordinator
         let siriAffinityCoordinator: SiriAffinityCoordinator
@@ -321,6 +324,7 @@ public final class DependencyContainer: @unchecked Sendable {
         metadataMutationService = mutation.metadataMutationService
 
         siriMediaIndexStore = siri.siriMediaIndexStore
+        siriPlaylistPresentationPublisher = siri.siriPlaylistPresentationPublisher
         siriPlaybackCoordinator = siri.siriPlaybackCoordinator
         siriAffinityCoordinator = siri.siriAffinityCoordinator
         siriAddToPlaylistCoordinator = siri.siriAddToPlaylistCoordinator
@@ -645,7 +649,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 playlistRepository: core.playlistRepository,
                 enabledSourceKeysProvider: enabledSystemMediaSourceKeys,
                 hiddenMediaStore: core.hiddenMediaStore,
-                sourceNameProvider: { [accountManager = network.accountManager] in accountManager.serverName(for: $0) }
+                sourcePresentationProvider: { [accountManager = network.accountManager] in accountManager.sourcePresentation(for: $0) }
             )
         }
         let siriPlaybackCoordinator = MainActor.assumeIsolated {
@@ -691,7 +695,18 @@ public final class DependencyContainer: @unchecked Sendable {
             )
         }
 
+        let siriPlaylistPresentationPublisher = MainActor.assumeIsolated {
+            SiriPlaylistPresentationPublisher(
+                settingsManager: core.settingsManager,
+                visibilityStore: core.libraryVisibilityStore,
+                accountManager: network.accountManager,
+                indexStore: siriMediaIndexStore,
+                libraryChanges: core.libraryChanges
+            )
+        }
+
         return SiriBootstrap(
+            siriPlaylistPresentationPublisher: siriPlaylistPresentationPublisher,
             siriMediaIndexStore: siriMediaIndexStore,
             siriPlaybackCoordinator: siriPlaybackCoordinator,
             siriAffinityCoordinator: siriAffinityCoordinator,

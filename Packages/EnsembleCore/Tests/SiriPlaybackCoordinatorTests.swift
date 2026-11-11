@@ -328,12 +328,16 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         let hidden = HiddenMediaStore(defaults: UserDefaults(suiteName: "siri-merge-\(UUID().uuidString)")!)
         hidden.setHidden(true, identity: .init(kind: .playlist, itemID: "focus-b", sourceCompositeKey: "plex:account-1:server-2"))
 
+        let hiddenNamed = HiddenMediaStore(defaults: UserDefaults(suiteName: "siri-merge-\(UUID().uuidString)")!)
+        hiddenNamed.setHidden(true, identity: .init(kind: .playlist, itemID: "focus-a", sourceCompositeKey: "plex:account-1:server-1"))
+
         var off = EnsembleMergingPreferences.default
         off.mergePlaylists = false
         let cases: [(name: String, preferences: EnsembleMergingPreferences, hidden: HiddenMediaStore?, expected: [String])] = [
             ("merged, whitespace variant, smart one apart", .default, nil, ["track-1", "other-1"]),
             ("merge setting off", off, nil, ["track-1"]),
-            ("hidden sibling", .default, hidden, ["track-1"])
+            ("hidden sibling", .default, hidden, ["track-1"]),
+            ("named copy hidden: plays what the screen shows for the group", .default, hiddenNamed, ["other-1"])
         ]
         for testCase in cases {
             let fixture = try await makeFixture(mergingPreferences: testCase.preferences, hiddenMediaStore: testCase.hidden)
@@ -341,6 +345,25 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
                 entityID: "focus-a", sourceCompositeKey: fixture.serverSourceKey, displayName: "Focus Mix"
             ))
             XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id).sorted(), testCase.expected.sorted(), testCase.name)
+        }
+    }
+
+    /// A playlist resolved by name (the entity id is not a stored key), shuffled or not, plays the merged set when
+    /// merging is on and one copy when off.
+    func testPlaylistRequestedByNamePlaysMergedSetOnlyWhenMerging() async throws {
+        var off = EnsembleMergingPreferences.default
+        off.mergePlaylists = false
+        for (preferences, expected) in [(EnsembleMergingPreferences.default, ["track-1", "other-1"]), (off, ["track-1"])] {
+            for shuffle in [false, true] {
+                let fixture = try await makeFixture(mergingPreferences: preferences)
+                try await fixture.coordinator.executePlayPlaylist(
+                    request: SiriPlaybackRequest(
+                        entityID: "Focus Mix", sourceCompositeKey: fixture.serverSourceKey, displayName: "Focus Mix", shuffle: shuffle
+                    )
+                )
+                XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id).sorted(), expected.sorted(),
+                               "merging \(preferences.mergePlaylists), shuffle \(shuffle)")
+            }
         }
     }
 

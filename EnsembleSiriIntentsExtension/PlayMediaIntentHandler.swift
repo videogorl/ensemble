@@ -280,11 +280,19 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         index: SiriMediaIndex,
         artistHint: String? = nil
     ) -> [RankedItem] {
-        SiriMediaIndexResolver.rankCandidates(
+        let ranked = SiriMediaIndexResolver.rankCandidates(
             for: query,
             requestedKinds: mediaType == .unknown ? nil : kindsFor(mediaType: mediaType),
             index: index,
             artistHint: artistHint
+        )
+        // Playlists as the app's playlist screen shows them: with merging on, one candidate per merged group.
+        let presentation = SiriPlaylistPresentation.load()
+        return SiriPlaylistRows.presented(
+            ranked,
+            among: SiriMediaIndexResolver.items(in: index, kind: .playlist),
+            preferences: presentation.preferences,
+            isSourceVisible: presentation.isSourceVisible
         )
     }
 
@@ -328,7 +336,9 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             identifier: identifier,
             title: ranked.item.displayName,
             type: mediaTypeFor(kind: ranked.item.kind),
-            artwork: nil
+            artwork: nil,
+            // Same-named playlists on several servers read apart by server name when merging is off.
+            artist: ranked.item.kind == .playlist ? ranked.item.secondaryText : nil
         )
     }
 

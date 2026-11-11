@@ -22,39 +22,45 @@ enum SiriIndexLookup {
 
     /// The few most recently played items of a kind (any kind when nil). Shortcuts and Spotlight list an
     /// App Shortcut only for the values its parameter suggests.
-    static func recentItems(kind: SiriMediaKind?, limit: Int = 6) -> [SiriMediaIndexItem] {
+    static func recentItems(kind: SiriMediaKind?, limit: Int = 6) async -> [SiriMediaIndexItem] {
         let recent = fetchItems(kind: kind).sorted {
             ($0.lastPlayed ?? .distantPast, $0.playCount ?? 0) > ($1.lastPlayed ?? .distantPast, $1.playCount ?? 0)
         }
-        // The same item from two sources counts once.
-        return Array(SiriMediaIndexResolver.deduplicateEquivalentItems(presentingPlaylists(recent)).prefix(limit))
+        return Array(await presenting(recent).prefix(limit))
     }
 
-    static func findItems(kind: SiriMediaKind?, matching rawQuery: String, limit: Int = 10) -> [SiriMediaIndexItem] {
+    static func findItems(kind: SiriMediaKind?, matching rawQuery: String, limit: Int = 10) async -> [SiriMediaIndexItem] {
         let ranked = SiriMediaIndexResolver.rankCandidates(
             for: rawQuery,
             requestedKinds: kind.map { [$0] },
             index: loadIndex(),
             minimumScore: SiriMediaIndexResolver.defaultMinimumMatchScore
         )
-        let results = Array(
-            SiriMediaIndexResolver.deduplicateEquivalentItems(presentingPlaylists(ranked.map(\.item))).prefix(limit)
-        )
+        let results = Array(await presenting(ranked.map(\.item)).prefix(limit))
         AppIntentsLog.logger.info(
             "SIRI_SHORTCUT: findItems kind=\(kind?.rawValue ?? "any", privacy: .public) raw='\(rawQuery, privacy: .private)' matches=\(results.count, privacy: .public)"
         )
         return results
     }
 
-    /// Playlists as the playlist screen shows them under the current merge setting, read when the picker asks so a
-    /// changed setting shows at once.
-    private static func presentingPlaylists(_ items: [SiriMediaIndexItem]) -> [SiriMediaIndexItem] {
-        guard items.contains(where: { $0.kind == .playlist }) else { return items }
-        return SiriPlaylistRows.presented(
+    /// Distinct rows: the same item from two sources counts once, while playlists are shown as the playlist screen
+    /// shows them under the current merge setting and source visibility, both read when the picker asks so a changed
+    /// setting shows at once.
+    private static func presenting(_ items: [SiriMediaIndexItem]) async -> [SiriMediaIndexItem] {
+        guard items.contains(where: { $0.kind == .playlist }) else {
+            return SiriMediaIndexResolver.deduplicateEquivalentItems(items)
+        }
+        let isSourceVisible = await MainActor.run {
+            AppRoot.container.libraryVisibilityStore.playlistSourceVisibility(
+                in: AppRoot.container.accountManager.sourceConfigurationSnapshot
+            )
+        }
+        return SiriPlaylistRows.deduplicated(SiriPlaylistRows.presented(
             items,
             among: fetchItems(kind: .playlist),
-            preferences: SettingsManager.storedMergingPreferences()
-        )
+            preferences: SettingsManager.storedMergingPreferences(),
+            isSourceVisible: isSourceVisible
+        ))
     }
 
     private static func loadIndex() -> SiriMediaIndex? {
@@ -128,11 +134,11 @@ extension IndexItemEntityQuery {
     }
 
     func entities(matching string: String) async throws -> [Entity] {
-        SiriIndexLookup.findItems(kind: Entity.indexKind, matching: string).map(Entity.init(item:))
+        await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: string).map(Entity.init(item:))
     }
 
     func suggestedEntities() async throws -> [Entity] {
-        SiriIndexLookup.recentItems(kind: Entity.indexKind).map(Entity.init(item:))
+        await SiriIndexLookup.recentItems(kind: Entity.indexKind).map(Entity.init(item:))
     }
 }
 
@@ -185,7 +191,11 @@ struct EnsembleMediaEntity: IndexItemEntity {
     var id: String { item.reference.sourceScopedIdentifier }
 
     var displayRepresentation: DisplayRepresentation {
-        DisplayRepresentation(title: "\(item.displayName)", subtitle: "\(item.kind.displayName)")
+        // A playlist's server name tells same-named playlists apart; other kinds show just their kind.
+        let subtitle = item.kind == .playlist && item.secondaryText != nil
+            ? "\(item.kind.displayName) · \(item.secondaryText ?? "")"
+            : item.kind.displayName
+        return DisplayRepresentation(title: "\(item.displayName)", subtitle: "\(subtitle)")
     }
 
     var permalink: EnsemblePermalink {

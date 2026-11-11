@@ -245,7 +245,7 @@ struct ShuffleEnsembleArtistIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let item = SiriIndexLookup.findItems(kind: .artist, matching: artistName, limit: 3).first else {
+        guard let item = await SiriIndexLookup.findItems(kind: .artist, matching: artistName, limit: 3).first else {
             return .result(dialog: IntentDialog("I couldn't find \(artistName) in Ensemble."))
         }
         return .result(dialog: try await EnsembleArtistEntity(item: item).play(shuffle: true))

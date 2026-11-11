@@ -17,16 +17,17 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../EnsembleSupport"),
+        .package(path: "../EnsembleDomain"),
     ],
     targets: [
         .target(
             name: "EnsembleSiriShared",
-            dependencies: ["EnsembleSupport"],
+            dependencies: ["EnsembleSupport", "EnsembleDomain"],
             path: "Sources"
         ),
         .testTarget(
             name: "EnsembleSiriSharedTests",
-            dependencies: ["EnsembleSiriShared"],
+            dependencies: ["EnsembleSiriShared", "EnsembleDomain"],
             path: "Tests"
         ),
     ]

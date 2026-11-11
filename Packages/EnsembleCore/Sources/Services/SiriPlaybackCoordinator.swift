@@ -323,6 +323,8 @@ public final class SiriPlaybackCoordinator {
             let constituents = mergesSamePlaylists
                 ? try await displayedConstituents(of: playlist)
                 : [playlist]
+            // Only the named playlist alone is held to the request's source; a group is whatever the screen shows.
+            let requestSource = constituents.count == 1 && constituents[0] === playlist ? request.sourceCompositeKey : nil
             // Memberships, as the playlist screen reads them: an Apple Music playlist can hold catalog songs
             // that are not library rows, and those still play.
             tracks = PlexPlaylistMergeRules.interleaved(constituents.map { constituent in
@@ -330,7 +332,7 @@ public final class SiriPlaybackCoordinator {
                     .map { PlaylistItem(from: $0) }
                     .filter(\.isAvailable)
                     .map(\.track)
-                    .filter { sourceMatches(requestSource: constituents.count > 1 ? nil : request.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
+                    .filter { sourceMatches(requestSource: requestSource, candidateSource: $0.sourceCompositeKey) }
                     .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
             })
             context = playbackContext(
@@ -641,28 +643,22 @@ public final class SiriPlaybackCoordinator {
         let preferences = mergingPreferences()
         guard preferences.isEnabled, preferences.mergePlaylists else { return [playlist] }
 
-        let configuration = accountManager.sourceConfigurationSnapshot
-        let hiddenSourceKeys = visibilityStore.effectiveHiddenSourceCompositeKeys(
-            enabledSourceCompositeKeys: configuration.enabledSourceKeys
-        )
+        let isSourceVisible = visibilityStore.playlistSourceVisibility(in: accountManager.sourceConfigurationSnapshot)
         var storedBySourceID: [String: CDPlaylist] = [:]
         var visible: [Playlist] = []
         for stored in try await playlistRepository.fetchPlaylists() {
             let candidate = Playlist(from: stored)
-            guard let sourceKey = candidate.sourceCompositeKey,
-                  !hiddenMediaStore.snapshot.isHidden(candidate),
-                  !LibraryVisibilityFiltering.isHiddenSourceKey(
-                      sourceKey,
-                      hiddenSourceCompositeKeys: hiddenSourceKeys,
-                      sourceConfiguration: configuration
-                  ) else { continue }
+            guard isSourceVisible(candidate.sourceCompositeKey), !hiddenMediaStore.snapshot.isHidden(candidate) else { continue }
             storedBySourceID[candidate.sourceScopedID] = stored
             visible.append(candidate)
         }
 
-        let own = Playlist(from: playlist).sourceScopedID
+        // The group the screen shows for this title, even when this very copy is hidden and the screen leads with another.
+        let own = Playlist(from: playlist)
+        let ownKey = PlexPlaylistMergeRules.key(title: own.title, isSmart: own.isSmartForPlaylistGrouping)
         guard let group = DisplayPlaylist.group(visible, merge: true, preferences: preferences)
-            .first(where: { $0.playlists.contains { $0.sourceScopedID == own } }) else { return [playlist] }
+            .first(where: { PlexPlaylistMergeRules.key(title: $0.title, isSmart: $0.playlists[0].isSmartForPlaylistGrouping) == ownKey })
+        else { return [playlist] }
         return group.playlists.compactMap { storedBySourceID[$0.sourceScopedID] }
     }
 

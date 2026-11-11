@@ -1,3 +1,4 @@
+import EnsembleAPI
 import EnsembleSiriShared
 import EnsemblePersistence
 import Foundation
@@ -40,20 +41,20 @@ public final class SiriMediaIndexStore {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider?
     private let hiddenMediaStore: HiddenMediaStore
-    private let sourceNameProvider: (@MainActor (String) -> String?)?
+    private let sourcePresentationProvider: (@MainActor (String) -> MusicSourcePresentation?)?
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
-        sourceNameProvider: (@MainActor (String) -> String?)? = nil
+        sourcePresentationProvider: (@MainActor (String) -> MusicSourcePresentation?)? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.enabledSourceKeysProvider = enabledSourceKeysProvider
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
-        self.sourceNameProvider = sourceNameProvider
+        self.sourcePresentationProvider = sourcePresentationProvider
     }
 
     /// Loads a fresh-enough Siri index from disk.
@@ -203,6 +204,7 @@ public final class SiriMediaIndexStore {
                 )
             }
 
+            let sourceNames = Self.playlistSourceNames(for: playlists, presentation: { sourcePresentationProvider?($0) })
             for playlist in playlists {
                 items.append(
                     SiriMediaIndexItem(
@@ -219,7 +221,7 @@ public final class SiriMediaIndexStore {
                         artworkPath: playlist.compositePath,
                         artworkCacheKey: playlist.ratingKey,
                         artworkCacheType: .playlist,
-                        sourceName: playlist.sourceCompositeKey.flatMap { sourceNameProvider?($0) }
+                        sourceName: playlist.sourceCompositeKey.flatMap { sourceNames["\(playlist.ratingKey)||\($0)"] }
                     )
                 )
             }
@@ -265,6 +267,28 @@ public final class SiriMediaIndexStore {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         try JSONEncoder().encode(index).write(to: indexURL, options: .atomic)
+    }
+
+    /// Friendly server names per playlist (`ratingKey||sourceCompositeKey`). Where two sources would share a name for one title, the
+    /// account is added so the rows still read differently.
+    private static func playlistSourceNames(
+        for playlists: [CDPlaylist],
+        presentation: (String) -> MusicSourcePresentation?
+    ) -> [String: String] {
+        var presentations: [String: MusicSourcePresentation] = [:]
+        var sourcesByLabel: [String: Set<String>] = [:]
+        for playlist in playlists {
+            guard let key = playlist.sourceCompositeKey, let info = presentation(key) else { continue }
+            presentations[key] = info
+            sourcesByLabel["\(PlexPlaylistMergeRules.normalizedTitle(playlist.title))|\(info.serverName)", default: []].insert(key)
+        }
+        var names: [String: String] = [:]
+        for playlist in playlists {
+            guard let key = playlist.sourceCompositeKey, let info = presentations[key] else { continue }
+            let shared = sourcesByLabel["\(PlexPlaylistMergeRules.normalizedTitle(playlist.title))|\(info.serverName)"]?.count ?? 0 > 1
+            names["\(playlist.ratingKey)||\(key)"] = shared ? "\(info.serverName) · \(info.accountName)" : info.serverName
+        }
+        return names
     }
 
     nonisolated static func hasMaterialChanges(
