@@ -83,7 +83,8 @@ public enum SiriMediaIndexResolver {
         let normalizedArtistHint = artistHint.map { SiriPhraseNormalizer.basic($0) }
         // With no single kind requested, a bare edit-distance resemblance ("firestorm" ~ the album "Forestry")
         // is not enough to substitute one kind for another.
-        let minimumScore = (requestedKinds?.count ?? 4) > 1 ? max(minimumScore, crossKindMinimumMatchScore) : minimumScore
+        // The artist boost below is counted first, so a fuzzy title by the named artist can still clear it.
+        let acceptanceScore = (requestedKinds?.count ?? 4) > 1 ? max(minimumScore, crossKindMinimumMatchScore) : minimumScore
 
         return index.items
             .compactMap { item -> RankedItem? in
@@ -115,6 +116,7 @@ public enum SiriMediaIndexResolver {
                     }
                 }
 
+                guard score >= acceptanceScore else { return nil }
                 return RankedItem(item: item, score: score)
             }
             .sorted(by: rankSort)

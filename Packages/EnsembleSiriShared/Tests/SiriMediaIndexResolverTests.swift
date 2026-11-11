@@ -65,6 +65,17 @@ final class SiriMediaIndexResolverTests: XCTestCase {
         XCTAssertEqual(results.map(\.id), ["1"])
     }
 
+    /// "faedom" by the right artist scores 0.636 on its own; the artist match lifts it, an unqualified request stays strict.
+    func testArtistMatchLiftsFuzzyTitleAcrossKinds() {
+        let index = SiriMediaIndex(items: [
+            SiriMediaIndexItem(kind: .track, id: "t", displayName: "Faedom", sourceCompositeKey: "plex:a", secondaryText: "Gorillaz")
+        ])
+        let freedom = SiriMediaIndexResolver.rankCandidates(for: "freedom", requestedKinds: nil, index: index, artistHint: "Gorillaz")
+        XCTAssertEqual(freedom.map(\.item.id), ["t"])
+        XCTAssertTrue(SiriMediaIndexResolver.rankCandidates(for: "freedom", requestedKinds: nil, index: index).isEmpty)
+        XCTAssertTrue(SiriMediaIndexResolver.rankCandidates(for: "freedom", requestedKinds: nil, index: index, artistHint: "Someone Else").isEmpty)
+    }
+
     /// With no single kind asked for, only a real match (exact, prefix, whole word) may stand in for the name.
     func testCrossKindRankingRejectsEditDistanceOnlyMatches() {
         let index = SiriMediaIndex(items: [
