@@ -568,3 +568,51 @@ Proven on the iPhone 17 Pro Max simulator and in unit tests; the phone's real li
 | --- | --- |
 | `PhonePlaybackAcceptanceUITests.testG1i_SeekDuringDirectDownloadStaysOriginal` on the SE with `TEST_RUNNER_ENSEMBLE_PHONE_PLAYBACK=1` (optional `TEST_RUNNER_ENSEMBLE_SERIAL_TRACKS=8731`, `TEST_RUNNER_ENSEMBLE_SEEK_TO=90`): a seek made while the original's download is held in flight waits, then plays from the file. The probe shows `src=stream` before and `src=file` after, `fb=` empty; the session log has `seek requires stream restart`, then `sourceDecisionCompleted kind=cachedFile`, never `kind=transcodedHTTP`, and one request for the part in the Plex log | Passed on the SE on 2026-11-10 (develop with the 30 s limit): WAV 8731, seek to 90 s 4.8 s in, `downloadComplete bytes=50699330` then `kind=cachedFile origin=streamCache`, no `transcodedHTTP`. The wait was 18 s (8 s of it the test's injected delay). With the first 10 s limit the same run fell to `transcodedHTTP` |
 | Real link, no delay injection: seek to 120 s a few seconds into 14291 at original quality; the track shows buffering until its download finishes and then plays the original from 120 s | Owed |
+
+## iPhone SE — Device MCP pass, 2026-11-11 (build `202611110741.9140`)
+
+Run with Device MCP on the SE; details and evidence in the
+[2026-11-11 note](../investigations/2026-11-11-iphone-se-device-mcp-checks.md). These results update the
+matching "owed" lines in the sections above. Network checks used Wi-Fi off and on, not Airplane Mode.
+
+| Check | Status |
+| --- | --- |
+| Relaunch and resume: the Lock Screen follows the resumed and the next track | Passed |
+| Literal Lock Screen: playing after Next, paused after Pause, Play resumes | Passed |
+| Lock Screen after a halt | Observed: the failed track with no position and a disabled Play button; the app shows one "Playback stopped" toast with Retry and no error text in the mini player |
+| Retry on the halt toast, then Pause at once: stays paused | Failed once: playback skipped on to the next track and played. The halted track (11700) always fails, so the skip may be the ordinary skip-on-failure; see `ON_DECK.md` |
+| Skip toast "Skipped <title>" and playback continues | Passed |
+| End of queue: the app and the Lock Screen show the last item paused | Passed |
+| Next under Repeat One from the Lock Screen | Not as written: on the last item with autoplay off the Lock Screen's Next is disabled; with autoplay on it goes to an autoplay track |
+| Control Center: Next | Passed, with a caveat: the gesture showed a media page like the Lock Screen's, so it may not have been the Control Center tile |
+| Network drop mid-stream (Wi-Fi off about 10 s) on an original-quality FLAC: recovers and keeps playing | Passed: dropped at 7.2 of 18.3 MB, resumed 14.4 s later, no skip |
+| Drop the network, press Next: the next track starts at 0:00 when the network returns | Failed: Next while offline halted on the next track with "No internet connection" and did not start when Wi-Fi returned; Retry played it. See `ON_DECK.md` |
+| Drop the network, press Pause: stays paused; Play resumes from the same spot | Passed |
+| Offline: tapping a track that is not cached plays nothing and toasts | Passed; the toast text is the raw `NSURLErrorDomain error -1004` (see `ON_DECK.md`) |
+| A halted track does not restart when Wi-Fi is toggled | Passed on a halt caused by being offline, not repeated on 11700 |
+| Plex → Apple Music → Plex → Apple Music → Plex by natural completion, unlocked; each Apple Music track shows its own duration | Passed |
+| The same handoffs locked; Lock Screen progress for an Apple Music item | Passed |
+| Apple Music pause while buffering, resumed in the app and from the Lock Screen | Partly: stays paused and resumes both ways; the advance at the end of that track was not confirmed |
+| Shuffle toggled during an Apple Music track (G7) | Partly: no restart; the queue had one item, so the new order was not checked |
+| System Previous on an Apple Music item | Partly: the first press restarts; a second within 3 s restarted again (single-item queue), as on 2026-10-26 |
+| Apple Music last item, autoplay off: stays on it, paused | Passed |
+| Q2: Apple Music last item, Repeat All, autoplay on: wraps, no station | Passed (wrapped to the first item of the session queue, a Plex track) |
+| Apple Music autoplay station (D5) | Passed: a catalog item followed, Up Next listed more, Previous added no duplicate |
+| Now Playing secondary actions on an Apple Music track | Partly: AirPlay, Favorite, Add to Playlist, Go to Album, Go to Artist, Share Ensemble Link, Share Link are offered; not compared with a Plex track |
+| Step 3c: Apple Music play counts survive a sync | Passed: "Her Majesty" read 0 Plays, was played to its end, a full sync ran, and it then read 6; "Hotel California" read 1. Nothing went down |
+| Songs: genre chip filter and clear, tap to play and the indicator moves, last row above the mini player, fast scroll keeps titles and artwork, scroll index, pull to refresh | Passed (13,313 songs); the indicator surviving a refresh was not checked separately |
+| Track rows: leading swipe (Play Next, Play Last), trailing swipe (Add to Playlist…, Favorite), long-press menu; album track numbers | Passed on Songs, album and playlist; no multi-disc album found, Search rows not swiped |
+| More rows open and go back | Partly: Songs, Albums, Genres, Favorites, Hidden, Downloads; Edit Tabs not opened |
+| Feed: hub scrolls sideways; hub order sheet opens and dismisses | Passed (the sheet has Reset… and Done, no Cancel) |
+| Settings subpages | Partly: iCloud Sync, SmartMix, Manage Downloads opened; Merging, Connection Security, Track Swipe Actions and source details not run |
+| Hidden, Moods, Pins, Item info | Partly: Hidden shows its empty state; album Get Info opens; a track row's "Get Info…" did nothing in three tries (see `ON_DECK.md`); Moods and Pins not found |
+| Shared detail screens | Partly: album, playlist (2 sources) and merged artist (The Beatles, 2 sources) open and play; collapsing title, sort and More menus work; genre, Favorites and Mood not run; hero-art flash not judged |
+| Browse screens | Partly: Albums sort and filter work; Artists and Playlists were opened under a saved filter (see the note); Genres not run |
+| Now Playing: swipe to dismiss, queue page rows, History, shuffle and repeat toggles | Passed; lyrics showed "No Lyrics Available" on the one track tried; Go to Artist not run |
+| Queue: a track queued twice shows two rows; Remove from Queue removes that row only | Passed |
+| Queue drag reorder | Not run: three Device MCP drags on the handle had no effect. Still needs a finger |
+| StageFlow in landscape: no nav bar, track panel opens, portrait restores the grid | Passed |
+| Share: the shared URL is a song.link URL | Failed for an Apple Music track: Share Link… gave a `music.apple.com` URL. A Plex track was not tried |
+| App Shortcuts | Not run: the Shortcuts app is not installed on the SE. Installing it unblocks this |
+| Focus filter offered in Settings | Passed: Do Not Disturb → Add Filter lists "Ensemble, Playback & Libraries" |
+| Step 3a: offline playlist targets list their tracks and state | Not applicable on the SE: Downloads holds three library targets and no playlist target |

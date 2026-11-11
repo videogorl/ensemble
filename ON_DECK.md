@@ -318,3 +318,43 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Impact: on a slow link, a seek into audio that is already downloaded shows buffering until the whole file is down.
 - Next step: only if the phone shows long waits, make the growing file seekable (WAV/FLAC offsets), which is a
   decoder change, not a seek-path change.
+
+## Confirmed: a browse list's saved filter text keeps filtering with the field hidden (2026-11-11)
+
+- Evidence: on the iPhone SE the Artists tab showed "1 artist" and Playlists "1 playlist" across relaunches while
+  the store held 674 artists and 50 playlists. `Ensemble.FilterOptions.Artists` and `.Playlists` held
+  `searchText` "Metric" and "Foc" (typed in an earlier test run). The filter field only appears after a pull
+  down, and the Filters sheet showed nothing active.
+- Impact: a forgotten filter makes the library look almost empty, with no visible sign of why.
+- Next step: decide whether filter text should persist across launches at all; if it does, show the field (or an
+  active-filter mark on the Filter button) whenever text is set.
+
+## Suspected: pressing Next while offline halts and the track does not start when the network returns (2026-11-11)
+
+- Evidence: SE, build `202611110741.9140`: with Wi-Fi off mid-stream, Next halted on the next track at 0:00 with
+  "No internet connection"; turning Wi-Fi back on did not start it; Retry did. The backlog's contract says a
+  halt caused by an unreachable server retries once when the connection returns.
+- Impact: the user has to press Retry after a brief drop.
+- Next step: read the session log in `$TMPDIR/ensemble-devmcp-checks/logs1` for the halt reason and whether the
+  health check fired; compare with `PlaybackServiceFlowTests`' reconnect case.
+
+## Suspected: Pause pressed right after Retry on the halt toast is lost (2026-11-11)
+
+- Evidence: SE, same build: Retry on a halt at 11700, then Pause at once; playback skipped to the next track and
+  played. 11700 always fails, so this may be the ordinary skip after the retry failed, with the pause dropped.
+- Impact: breaks "never start playback while paused" if the pause was registered before the skip.
+- Next step: script it with the playback probe (a test beside `testG...` halt cases) to see whether the pause
+  arrived before the skip.
+
+## Confirmed: small findings from the 2026-11-11 SE pass
+
+- A track row's "Get Info…" context-menu item does nothing (three tries); album Get Info works.
+- The offline toast for an uncached track shows the raw text "Network error: The operation couldn't be
+  completed. (NSURLErrorDomain error -1004.)".
+- Share Link… on an Apple Music track gives a `music.apple.com` URL, not a song.link URL.
+- Suspected: Songs did not re-sort after switching the sort back to Date Added until the screen was reopened.
+- Suspected: Repeat read All twice without being set (after `repeat=off` by debug link).
+- Suspected: a "replace queue?" confirmation after tapping a Search song row was not visible or in the
+  accessibility tree and blocked touches (`queueReplacementConfirmationRequested queueCount=7` in the log).
+- Automation launch-argument overrides (shuffle, streaming quality) are written back to preferences.
+- Next step for each: reproduce by hand or with a scripted test before fixing.
