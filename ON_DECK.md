@@ -595,3 +595,14 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Impact: dead surface the tests keep alive; nothing wrong at runtime.
 - Next step: seed tests through `batchUpsertTracks`/`setPlaylistTrackSnapshots`, then drop the three
   protocol requirements and their fakes. Not authorized by this entry.
+
+## Suspected: a background refresh and the foreground resume of its handoff can run at once (2026-11-11)
+
+- Evidence (iPhone SE, build `202611111416.1954`, debug route started just before foregrounding): the refresh
+  handler was `triggered` at 14:20:20.155 and `Resuming background refresh handoff in foreground` started a
+  second run at 14:20:21.007 while the first was still going; two `handoff saved` lines; the first returned
+  `needsRecovery=true` while the resume was in progress. The end state was clean (`handoff cleared`).
+- Impact: unknown; duplicated work at least. Only seen with the debug route, which runs in the foreground;
+  a system-delivered refresh that is still running when the app is opened may do the same.
+- Next step: read how the foreground resume decides a handoff is abandoned, and whether it should wait for
+  a refresh that is in flight (`isRefreshInFlight`).

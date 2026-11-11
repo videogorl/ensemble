@@ -1126,8 +1126,7 @@ extension EnsembleApp {
         NavigationCoordinator.pendingBackgroundRefreshRequest = nil
         #if os(iOS) && DEBUG
         Task { @MainActor in
-            AppLogger.info("Background refresh started by debug route budget=\(request.budget.map { "\($0)" } ?? "default") delay=\(request.delay) wait=\(request.wait)")
-            if request.wait > 0 { try? await Task.sleep(for: .seconds(request.wait)) }
+            AppLogger.info("Background refresh started by debug route budget=\(request.budget.map { "\($0)" } ?? "default") delay=\(request.delay)")
             let coordinator = AppRoot.container.backgroundRefreshCoordinator
             coordinator.debugNextTimeBudget = request.budget
             coordinator.debugNextDelay = request.delay

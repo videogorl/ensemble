@@ -295,7 +295,7 @@ final class NavigationCoordinatorTests: XCTestCase {
     func testBackgroundRefreshAutomationDeepLinkParsesRequest() throws {
         let cases: [(query: String, expected: BackgroundRefreshAutomationRequest?)] = [
             ("", BackgroundRefreshAutomationRequest()),
-            ("budget=3&delay=1.5&wait=10", BackgroundRefreshAutomationRequest(budget: 3, delay: 1.5, wait: 10)),
+            ("budget=3&delay=1.5", BackgroundRefreshAutomationRequest(budget: 3, delay: 1.5)),
             ("budget=0", nil),
             ("budget=soon", nil),
             ("delay=-1", nil),

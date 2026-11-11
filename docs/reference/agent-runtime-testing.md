@@ -110,15 +110,17 @@ store comparisons: `ensemble://debug/sync?mode=full` (`syncAll`) or
 `syncStarted` and `syncFinished`.
 
 Start a background refresh without lldb (iOS Debug builds only):
-`ensemble://debug/background-refresh?budget=<s>&delay=<s>&wait=<s>`. It runs
+`ensemble://debug/background-refresh?budget=<s>&delay=<s>`. It runs
 the same handler as the system's `BGAppRefreshTask` (reschedule, handoff,
 `performAppRefresh`, `Background refresh returned …`). With no parameters it
-runs a normal refresh. `budget=3` replaces the 25 s time budget, so the refresh
+runs a normal refresh. `budget=1` replaces the 25 s time budget, so the refresh
 hits its deadline mid-sync as an iOS expiry does and returns
-`succeeded=false … needsRecovery=true`. `delay` pauses after the handoff is
-saved and counts against the budget. `wait` pauses before the handler starts,
-outside the budget, so the tester can press Home first. The app logs
-`Background refresh started by debug route budget=… delay=… wait=…` and, per
+`succeeded=false … needsRecovery=true` (on the iPhone SE the sync finishes in
+about 2.6 s, so `budget=3` is too long to cut it off). `delay` pauses after the handoff is
+saved and counts against the budget. The route runs in the foreground only: a
+suspended app does not run it, so it cannot stand in for a refresh iOS delivers
+and expires in the background. The app logs
+`Background refresh started by debug route budget=… delay=…` and, per
 failed step, `Background refresh step failed step=… type=… domain=… code=…`.
 macOS and release builds ignore or reject it.
 
