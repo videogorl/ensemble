@@ -29,3 +29,43 @@ enum AppleMusicPlaylistInventoryProof {
         return try? PlaylistInventory(playlistIDs: restIDs)
     }
 }
+
+/// When an Apple Music playlist body may replace the stored one. A body that cannot be proven complete
+/// is dropped, so the stored body and its date stay and the next pass reads it again.
+enum AppleMusicPlaylistBodyProof {
+    enum RESTVerdict: Equatable {
+        /// The API's total equals the items received.
+        case complete
+        /// The API gave no total: the items count only when MusicKit's read of the playlist agrees.
+        case needsWitness
+        /// The total disagrees with the items, or the pages contradict each other.
+        case unproven
+    }
+
+    static func restVerdict(itemCount: Int, total: AppleMusicReportedTotal) -> RESTVerdict {
+        switch total {
+        case .reported(let reported): reported == itemCount ? .complete : .unproven
+        case .absent: .needsWitness
+        case .contradictory: .unproven
+        }
+    }
+
+    /// Two independent reads of one playlist agree on how many songs it holds.
+    static func witnessed(restSongCount: Int, nativeSongCount: Int) -> Bool {
+        restSongCount == nativeSongCount
+    }
+
+    /// Whether MusicKit's track read covered the playlist: its tracks loaded (a nil collection says
+    /// nothing, not that the playlist is empty), and every further batch it advertised arrived.
+    static func isCompleteNativeRead(
+        tracksLoaded: Bool,
+        hasNextBatch: () -> Bool,
+        loadNextBatch: () async throws -> Bool
+    ) async throws -> Bool {
+        guard tracksLoaded else { return false }
+        while hasNextBatch() {
+            guard try await loadNextBatch() else { return false }
+        }
+        return true
+    }
+}

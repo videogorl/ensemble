@@ -180,14 +180,15 @@ final class AppleMusicLibraryFetcherTests: XCTestCase {
     /// The API's total is kept only while every page agrees with the first and no empty page points onward.
     func testPageTotalsThatDisagreeWithdrawTheTotal() {
         typealias Page = (count: Int, total: Int?, hasNext: Bool)
-        let cases: [(name: String, pages: [Page], total: Int?)] = [
-            ("one page", [(2, 2, false)], 2),
-            ("pages agree", [(2, 3, true), (1, 3, false)], 3),
-            ("later pages omit the total", [(2, 3, true), (1, nil, false)], 3),
-            ("empty library", [(0, 0, false)], 0),
-            ("a later page states another total", [(0, 0, true), (0, 1, false)], nil),
-            ("an empty page points onward", [(0, 0, true), (0, 0, false)], nil),
-            ("no total on the first page", [(2, nil, true), (1, 3, false)], nil),
+        let cases: [(name: String, pages: [Page], total: AppleMusicReportedTotal)] = [
+            ("one page", [(2, 2, false)], .reported(2)),
+            ("pages agree", [(2, 3, true), (1, 3, false)], .reported(3)),
+            ("later pages omit the total", [(2, 3, true), (1, nil, false)], .reported(3)),
+            ("empty library", [(0, 0, false)], .reported(0)),
+            ("no page states a total", [(2, nil, true), (1, nil, false)], .absent),
+            ("a later page states another total", [(0, 0, true), (0, 1, false)], .contradictory),
+            ("an empty page points onward", [(0, 0, true), (0, 0, false)], .contradictory),
+            ("no total on the first page", [(2, nil, true), (1, 3, false)], .contradictory),
         ]
         for item in cases {
             var tally = AppleMusicPageTally()

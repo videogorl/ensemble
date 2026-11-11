@@ -364,15 +364,32 @@ extension DateFormatter {
     }()
 }
 
+/// What the API said about a paged list's size.
+enum AppleMusicReportedTotal: Equatable {
+    /// Every page that stated a total stated this one, and the first page did.
+    case reported(Int)
+    /// No page stated a total, or only later pages did.
+    case absent
+    /// Pages disagreed with each other, or an empty page pointed onward: the list cannot be trusted.
+    case contradictory
+
+    var value: Int? {
+        if case .reported(let total) = self { total } else { nil }
+    }
+}
+
 /// The API's own count for a paged list, kept only while the pages agree with each other: a later
-/// page stating a different total, or an empty page that still points onward, withdraws it, so
-/// nothing downstream treats the list as complete.
+/// page stating a different total, or an empty page that still points onward, makes it `contradictory`,
+/// so nothing downstream treats the list as complete.
 struct AppleMusicPageTally {
     private var first: Int?
     private var pageCount = 0
     private var consistent = true
 
-    var total: Int? { consistent ? first : nil }
+    var total: AppleMusicReportedTotal {
+        guard consistent else { return .contradictory }
+        return first.map(AppleMusicReportedTotal.reported) ?? .absent
+    }
 
     mutating func add(itemCount: Int, total: Int?, hasNext: Bool) {
         pageCount += 1

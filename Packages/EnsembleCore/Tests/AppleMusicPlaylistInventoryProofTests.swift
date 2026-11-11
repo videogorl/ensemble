@@ -26,4 +26,57 @@ final class AppleMusicPlaylistInventoryProofTests: XCTestCase {
             if testCase.complete { XCTAssertEqual(inventory?.playlistIDs, Set(testCase.rest), testCase.name) }
         }
     }
+
+    /// A REST body replaces the stored one only with a total that matches its items, or with no total and
+    /// MusicKit's read of the playlist agreeing on the song count; a contradiction never does.
+    func testWhenARESTPlaylistBodyIsProvenComplete() {
+        typealias Verdict = AppleMusicPlaylistBodyProof.RESTVerdict
+        let cases: [(name: String, items: Int, total: AppleMusicReportedTotal, verdict: Verdict)] = [
+            ("total matches", 3, .reported(3), .complete),
+            ("empty and the total says empty", 0, .reported(0), .complete),
+            ("total above the items", 2, .reported(3), .unproven),
+            ("total below the items", 3, .reported(2), .unproven),
+            ("pages contradict each other", 3, .contradictory, .unproven),
+            ("an empty page pointed onward", 0, .contradictory, .unproven),
+            ("no total given", 3, .absent, .needsWitness),
+            ("no total, no items", 0, .absent, .needsWitness),
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                AppleMusicPlaylistBodyProof.restVerdict(itemCount: testCase.items, total: testCase.total),
+                testCase.verdict, testCase.name
+            )
+        }
+        XCTAssertTrue(AppleMusicPlaylistBodyProof.witnessed(restSongCount: 3, nativeSongCount: 3))
+        XCTAssertTrue(AppleMusicPlaylistBodyProof.witnessed(restSongCount: 0, nativeSongCount: 0))
+        XCTAssertFalse(AppleMusicPlaylistBodyProof.witnessed(restSongCount: 3, nativeSongCount: 2))
+        XCTAssertFalse(AppleMusicPlaylistBodyProof.witnessed(restSongCount: 0, nativeSongCount: 2))
+    }
+
+    /// MusicKit's read counts only when its tracks loaded and every batch it advertised arrived.
+    func testWhenAMusicKitPlaylistReadIsProvenComplete() async throws {
+        struct Case {
+            let name: String
+            let tracksLoaded: Bool
+            /// Whether each load attempt succeeds; the read advertises another batch until the list ends.
+            let batches: [Bool]
+            let complete: Bool
+        }
+        let cases = [
+            Case(name: "loaded, nothing further", tracksLoaded: true, batches: [], complete: true),
+            Case(name: "loaded with every batch", tracksLoaded: true, batches: [true, true], complete: true),
+            Case(name: "tracks never loaded", tracksLoaded: false, batches: [], complete: false),
+            Case(name: "a batch is missing", tracksLoaded: true, batches: [true, false], complete: false),
+            Case(name: "the first batch is missing", tracksLoaded: true, batches: [false], complete: false),
+        ]
+        for testCase in cases {
+            var remaining = testCase.batches
+            let complete = try await AppleMusicPlaylistBodyProof.isCompleteNativeRead(
+                tracksLoaded: testCase.tracksLoaded,
+                hasNextBatch: { !remaining.isEmpty },
+                loadNextBatch: { remaining.removeFirst() }
+            )
+            XCTAssertEqual(complete, testCase.complete, testCase.name)
+        }
+    }
 }
