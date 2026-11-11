@@ -31,8 +31,13 @@ final class PlaylistRefreshController {
         let playlistResult: PlaylistSyncResult
     }
 
+    /// How many times one sync reads again when a newer list read committed first.
+    static let supersededReadAttempts = 3
+
     /// Reads a source's playlist list, then the bodies the writer says it needs, and hands both to the
     /// writer as one batch. Every pass reads the whole list, so a missing cursor needs no separate full sync.
+    /// A read that a newer pass overtook is not a result: it is read again, and so is its outcome, which is
+    /// the pass's own. Only after the last attempt is the superseded result returned.
     func sync(
         provider: MusicSourceConnector,
         writer: LibraryWriter,
@@ -41,17 +46,19 @@ final class PlaylistRefreshController {
         guard let scope = MediaSourceIdentity.playlistScopeKey(from: provider.sourceIdentifier.compositeKey) else {
             throw PlaylistMutationError.invalidSource
         }
-        progressHandler(0.1)
-        let list = try await provider.fetchPlaylistHeaders()
-        progressHandler(0.4)
-        let needed = try await writer.playlistsNeedingBodies(list.headers, for: scope)
-        let bodies = try await provider.fetchPlaylistBodies(for: needed)
-        progressHandler(0.8)
-        let result = try await writer.apply(PlaylistBatch(list: list, bodies: bodies), for: scope)
-        if result.rejectedAsStale {
-            EnsembleLogger.info("Playlist pass for \(scope) was superseded by a newer list read; nothing written, no progress recorded")
+        var result = PlaylistSyncResult(rejectedAsStale: true)
+        for attempt in 1...Self.supersededReadAttempts {
+            progressHandler(0.1)
+            let list = try await provider.fetchPlaylistHeaders()
+            progressHandler(0.4)
+            let needed = try await writer.playlistsNeedingBodies(list.headers, for: scope)
+            let bodies = try await provider.fetchPlaylistBodies(for: needed)
+            progressHandler(0.8)
+            result = try await writer.apply(PlaylistBatch(list: list, bodies: bodies), for: scope)
+            progressHandler(1)
+            guard result.rejectedAsStale else { return result }
+            EnsembleLogger.info("Playlist pass for \(scope) was superseded by a newer list read (attempt \(attempt) of \(Self.supersededReadAttempts)); nothing written, no progress recorded")
         }
-        progressHandler(1)
         return result
     }
 
