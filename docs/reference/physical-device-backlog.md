@@ -350,8 +350,11 @@ Impossible on a simulator:
   Screen scrubber, positions read from its accessibility value): forward
   from 0:21 to 1:40 of 3:02 and back to 0:32, the same track kept playing
   and advancing each time, so the 2026-11-10 failure was the synthesized
-  drag. Still owed: the app's own elapsed time agreeing after unlock
-  (Device MCP's `launch_app` restarts the app, so unlock with Home instead).
+  drag. After a scrub back to 0:31 and an unlock with Home, the app's Now
+  Playing read 0:36 and kept advancing. (Device MCP's `launch_app` restarts
+  the app, so unlock with Home.) Seen once, not reproduced: the first wake
+  after locking showed no Now Playing on the Lock Screen while the track
+  kept playing; the next lock and wake showed it.
 - Control Center: Next. (The tile's pause and play passed on 2026-11-10.)
 - Offline playback: a blocked track toasts. (A downloaded track played with
   the network off, and a natural track change in the background after an idle
