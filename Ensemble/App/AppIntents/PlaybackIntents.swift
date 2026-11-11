@@ -5,24 +5,72 @@ import Foundation
 
 // MARK: - Shared support
 
+/// Expected failures, with messages Shortcuts can show.
 enum EnsembleIntentError: Error, CustomLocalizedStringResourceConvertible {
     case nothingPlaying
+    case playlistNotFound
+    case readOnlyPlaylist
+    case incompatibleSource
+    case appleMusicUnfavorite
+    case offline
+    case favoriteFailed
+    case failed(String)
 
     var localizedStringResource: LocalizedStringResource {
         switch self {
         case .nothingPlaying: return "Nothing is playing in Ensemble."
+        case .playlistNotFound: return "That playlist could not be found."
+        case .readOnlyPlaylist: return "That playlist can't be changed. Smart playlists are read-only."
+        case .incompatibleSource: return "That song and playlist come from music sources that can't be combined."
+        case .appleMusicUnfavorite: return "Apple Music favorites can't be removed from Ensemble."
+        case .offline: return "That isn't available while you're offline."
+        case .favoriteFailed: return "Ensemble couldn't update the favorite."
+        case let .failed(message): return "\(message)"
+        }
+    }
+
+    init(_ error: Error) {
+        switch error {
+        case let error as EnsembleIntentError:
+            self = error
+        case let error as PlaylistMutationError:
+            switch error {
+            case .playlistNotFound: self = .playlistNotFound
+            case .smartPlaylistReadOnly: self = .readOnlyPlaylist
+            case .invalidSource, .incompletePlaylistContents: self = .incompatibleSource
+            default: self = .failed(error.localizedDescription)
+            }
+        case is MusicSourceRoutingError:
+            self = .incompatibleSource
+        case is MutationError:
+            self = .offline
+        case let error as URLError where error.code == .notConnectedToInternet || error.code == .networkConnectionLost:
+            self = .offline
+        default:
+            self = .failed(error.localizedDescription)
         }
     }
 }
 
-/// The app's dependency container, with accounts loaded for an intent that runs before any scene has.
-@MainActor
-var intentContainer: DependencyContainer {
-    let container = AppRoot.container
-    if container.accountManager.credentialLoadState == .loading, container.accountManager.plexAccounts.isEmpty {
-        container.accountManager.loadAccounts()
+/// Runs an action and reports any failure as an `EnsembleIntentError`.
+func reportingFailures<Result>(_ action: () async throws -> Result) async throws -> Result {
+    do {
+        return try await action()
+    } catch {
+        throw EnsembleIntentError(error)
     }
-    return container
+}
+
+/// The container for an intent that only changes playback state that already exists.
+@MainActor
+var intentContainer: DependencyContainer { AppRoot.container }
+
+/// The container for an intent that starts playback or reaches a music source. A process started only for the
+/// intent has no scene to warm it up, so this awaits what a launched scene would have prepared.
+@MainActor
+func readyContainer() async -> DependencyContainer {
+    await prepareForBackgroundPlayback(origin: "intent")
+    return AppRoot.container
 }
 
 @MainActor
@@ -41,17 +89,62 @@ extension IndexItemEntity {
             "SIRI_SHORTCUT: perform \(item.kind.rawValue, privacy: .public) shuffle=\(shuffle, privacy: .public) title='\(item.displayName, privacy: .private)' id='\(id, privacy: .private)'"
         )
         let request = playbackRequest(shuffle: shuffle)
-        try await intentContainer.siriPlaybackCoordinator.execute(payload: SiriPlaybackRequestPayload(
-            kind: item.kind,
-            entityID: request.entityID,
-            sourceCompositeKey: request.sourceCompositeKey,
-            displayName: request.displayName,
-            shuffle: shuffle
-        ))
+        let coordinator = await readyContainer().siriPlaybackCoordinator
+        try await reportingFailures {
+            try await coordinator.execute(payload: SiriPlaybackRequestPayload(
+                kind: item.kind,
+                entityID: request.entityID,
+                sourceCompositeKey: request.sourceCompositeKey,
+                displayName: request.displayName,
+                shuffle: shuffle
+            ))
+        }
         return shuffle
             ? IntentDialog("Shuffling \(title) in Ensemble.")
             : IntentDialog("Playing \(title) in Ensemble.")
     }
+}
+
+// MARK: - Library collections
+
+@MainActor
+func playFavorites(shuffle: Bool) async throws -> IntentDialog {
+    let coordinator = await readyContainer().siriPlaybackCoordinator
+    try await reportingFailures { try await coordinator.playFavorites(shuffle: shuffle) }
+    return IntentDialog(shuffle ? "Shuffling your favorites." : "Playing your favorites.")
+}
+
+@MainActor
+func shuffleLibrary() async throws -> IntentDialog {
+    let coordinator = await readyContainer().siriPlaybackCoordinator
+    try await reportingFailures { try await coordinator.playLibrary(shuffle: true) }
+    return IntentDialog("Shuffling your Ensemble library.")
+}
+
+@MainActor
+func playRecentlyAdded(shuffle: Bool) async throws -> IntentDialog {
+    let container = await readyContainer()
+    try await reportingFailures {
+        let tracks = try await container.libraryCollectionTracks.recentlyAddedTracks()
+        try await container.siriPlaybackCoordinator.playCollection(tracks, name: "Recently Added", shuffle: shuffle)
+    }
+    return IntentDialog(shuffle ? "Shuffling what you added recently." : "Playing what you added recently.")
+}
+
+@MainActor
+func startRadio(from song: EnsembleTrackEntity?) async throws -> IntentDialog {
+    let container = await readyContainer()
+    if let song {
+        try await reportingFailures {
+            try await container.siriPlaybackCoordinator.startTrackRadio(request: song.playbackRequest())
+        }
+        return IntentDialog("Starting a radio from \(song.title).")
+    }
+    let track = try currentTrackOrThrow()
+    if !container.playbackService.isAutoplayEnabled {
+        container.playbackService.toggleAutoplay()
+    }
+    return IntentDialog("Starting a radio from \(track.title).")
 }
 
 // MARK: - Play a library item
@@ -168,8 +261,7 @@ struct ShuffleEnsembleLibraryIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        try await intentContainer.siriPlaybackCoordinator.playLibrary(shuffle: true)
-        return .result(dialog: IntentDialog("Shuffling your Ensemble library."))
+        .result(dialog: try await shuffleLibrary())
     }
 }
 
@@ -183,8 +275,45 @@ struct PlayEnsembleFavoritesIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        try await intentContainer.siriPlaybackCoordinator.playFavorites(shuffle: shuffle)
-        return .result(dialog: IntentDialog(shuffle ? "Shuffling your favorites." : "Playing your favorites."))
+        .result(dialog: try await playFavorites(shuffle: shuffle))
+    }
+}
+
+struct PlayEnsembleRecentlyAddedIntent: AudioPlaybackIntent {
+    static var title: LocalizedStringResource = "Play Recently Added in Ensemble"
+    static var description = IntentDescription("Plays the albums most recently added to your Ensemble libraries.")
+    static var parameterSummary: some ParameterSummary { Summary("Play what I added recently to Ensemble") { \.$shuffle } }
+
+    @Parameter(title: "Shuffle", default: false)
+    var shuffle: Bool
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        .result(dialog: try await playRecentlyAdded(shuffle: shuffle))
+    }
+}
+
+struct PlayEnsembleMoodIntent: AudioPlaybackIntent {
+    static var title: LocalizedStringResource = "Play Mood in Ensemble"
+    static var description = IntentDescription("Plays the songs your Plex libraries list under a mood, in order or shuffled.")
+    static var parameterSummary: some ParameterSummary { Summary("Play the mood \(\.$mood)") { \.$shuffle } }
+
+    @Parameter(title: "Mood")
+    var mood: EnsembleMoodEntity
+
+    @Parameter(title: "Shuffle", default: false)
+    var shuffle: Bool
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let container = await readyContainer()
+        try await reportingFailures {
+            let tracks = await container.libraryCollectionTracks.tracks(for: mood.mood)
+            try await container.siriPlaybackCoordinator.playCollection(tracks, name: "Mood", shuffle: shuffle)
+        }
+        return .result(dialog: shuffle
+            ? IntentDialog("Shuffling \(mood.mood.title) in Ensemble.")
+            : IntentDialog("Playing \(mood.mood.title) in Ensemble."))
     }
 }
 
@@ -200,15 +329,6 @@ struct StartEnsembleTrackRadioIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let container = intentContainer
-        if let song {
-            try await container.siriPlaybackCoordinator.startTrackRadio(request: song.playbackRequest())
-            return .result(dialog: IntentDialog("Starting a radio from \(song.title)."))
-        }
-        let track = try currentTrackOrThrow()
-        if !container.playbackService.isAutoplayEnabled {
-            container.playbackService.toggleAutoplay()
-        }
-        return .result(dialog: IntentDialog("Starting a radio from \(track.title)."))
+        .result(dialog: try await startRadio(from: song))
     }
 }

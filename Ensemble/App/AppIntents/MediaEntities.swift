@@ -204,3 +204,38 @@ private extension SiriMediaKind {
         }
     }
 }
+
+// MARK: - Moods
+
+/// A mood from the cached Plex moods, merged across libraries by name.
+struct EnsembleMoodEntity: AppEntity {
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Mood")
+    static var defaultQuery = EnsembleMoodEntityQuery()
+
+    let mood: Mood
+    var id: String { mood.id }
+
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(mood.title)") }
+}
+
+struct EnsembleMoodEntityQuery: EntityStringQuery {
+    @MainActor
+    func entities(for identifiers: [String]) async throws -> [EnsembleMoodEntity] {
+        let wanted = Set(identifiers)
+        return await AppRoot.container.libraryCollectionTracks.moods()
+            .filter { wanted.contains($0.id) }
+            .map(EnsembleMoodEntity.init(mood:))
+    }
+
+    @MainActor
+    func entities(matching string: String) async throws -> [EnsembleMoodEntity] {
+        await AppRoot.container.libraryCollectionTracks.moods()
+            .filter { $0.title.localizedCaseInsensitiveContains(string) }
+            .map(EnsembleMoodEntity.init(mood:))
+    }
+
+    @MainActor
+    func suggestedEntities() async throws -> [EnsembleMoodEntity] {
+        await AppRoot.container.libraryCollectionTracks.moods().map(EnsembleMoodEntity.init(mood:))
+    }
+}

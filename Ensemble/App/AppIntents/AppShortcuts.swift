@@ -37,28 +37,6 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
         )
 
         AppShortcut(
-            intent: ShuffleEnsembleLibraryIntent(),
-            phrases: [
-                "Shuffle my library on \(.applicationName)",
-                "Shuffle my music on \(.applicationName)",
-                "In \(.applicationName), shuffle my library"
-            ],
-            shortTitle: "Shuffle Library",
-            systemImageName: "shuffle"
-        )
-
-        AppShortcut(
-            intent: PlayEnsembleFavoritesIntent(),
-            phrases: [
-                "Play my favorites on \(.applicationName)",
-                "Play my favourite songs on \(.applicationName)",
-                "In \(.applicationName), play my favorites"
-            ],
-            shortTitle: "Play Favorites",
-            systemImageName: "heart"
-        )
-
-        AppShortcut(
             intent: PlayEnsembleTrackIntent(),
             phrases: [
                 "Play track \(\.$track) on \(.applicationName)",
@@ -66,6 +44,49 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             ],
             shortTitle: "Play Track",
             systemImageName: "music.note"
+        )
+
+        AppShortcut(
+            intent: PlayEnsembleCollectionIntent(),
+            phrases: [
+                "Play \(\.$collection) on \(.applicationName)",
+                "In \(.applicationName), play \(\.$collection)",
+                "\(\.$collection) on \(.applicationName)"
+            ],
+            shortTitle: "Play Collection",
+            systemImageName: "heart.text.square"
+        )
+
+        AppShortcut(
+            intent: SetEnsemblePlaybackOptionIntent(),
+            phrases: [
+                "Turn \(\.$option) in \(.applicationName)",
+                "Set \(\.$option) in \(.applicationName)",
+                "\(.applicationName) \(\.$option)"
+            ],
+            shortTitle: "Playback Option",
+            systemImageName: "shuffle"
+        )
+
+        AppShortcut(
+            intent: EnsembleSongActionIntent(),
+            phrases: [
+                "\(\.$action) this song in \(.applicationName)",
+                "\(\.$action) this song on \(.applicationName)",
+                "Add this song to my favorites in \(.applicationName)"
+            ],
+            shortTitle: "This Song",
+            systemImageName: "heart"
+        )
+
+        AppShortcut(
+            intent: AddCurrentSongToEnsemblePlaylistIntent(),
+            phrases: [
+                "Add this song to \(\.$playlist) in \(.applicationName)",
+                "Add this song to the playlist \(\.$playlist) on \(.applicationName)"
+            ],
+            shortTitle: "Add This Song to Playlist",
+            systemImageName: "text.badge.plus"
         )
 
         AppShortcut(

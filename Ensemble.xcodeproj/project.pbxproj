@@ -56,6 +56,8 @@
 		E0003010 /* EnsembleDesignTokens in Frameworks */ = {isa = PBXBuildFile; productRef = E0003009 /* EnsembleDesignTokens */; };
 		E0F100010000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E0F100030000000000000003 /* PrivacyInfo.xcprivacy */; };
 		E0F100020000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E0F100040000000000000004 /* PrivacyInfo.xcprivacy */; };
+		E01A0100 /* BackgroundPlaybackReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = E01B0100 /* BackgroundPlaybackReadiness.swift */; };
+		E01A0101 /* ShortcutIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E01B0101 /* ShortcutIntents.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -160,6 +162,8 @@
 		E0004007 /* EnsembleWatchCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleWatchCore; path = Packages/EnsembleWatchCore; sourceTree = "<group>"; };
 		E0F100030000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E0F100040000000000000004 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		E01B0100 /* BackgroundPlaybackReadiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundPlaybackReadiness.swift; sourceTree = "<group>"; };
+		E01B0101 /* ShortcutIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutIntents.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -302,6 +306,7 @@
 				E0001042 /* AppDelegate+Siri.swift */,
 				E0001044 /* AppDelegate+SceneOrientation.swift */,
 				E0001060 /* WatchCompanionBridge.swift */,
+				E01B0100 /* BackgroundPlaybackReadiness.swift */,
 				E0001031 /* ExternalDisplaySceneDelegate.swift */,
 				E0100030 /* AppIntents */,
 			);
@@ -364,6 +369,7 @@
 				E01B0004 /* FocusFilter.swift */,
 				E01B0005 /* SystemSurfaces.swift */,
 				E01B0006 /* AppShortcuts.swift */,
+				E01B0101 /* ShortcutIntents.swift */,
 			);
 			path = AppIntents;
 			sourceTree = "<group>";
@@ -618,6 +624,7 @@
 				E0001043 /* AppDelegate+Siri.swift in Sources */,
 				E0001045 /* AppDelegate+SceneOrientation.swift in Sources */,
 				E0001061 /* WatchCompanionBridge.swift in Sources */,
+				E01A0100 /* BackgroundPlaybackReadiness.swift in Sources */,
 				E0001030 /* ExternalDisplaySceneDelegate.swift in Sources */,
 				E01A0000 /* MediaEntities.swift in Sources */,
 				E01A0001 /* PlaybackIntents.swift in Sources */,
@@ -626,6 +633,7 @@
 				E01A0004 /* FocusFilter.swift in Sources */,
 				E01A0005 /* SystemSurfaces.swift in Sources */,
 				E01A0006 /* AppShortcuts.swift in Sources */,
+				E01A0101 /* ShortcutIntents.swift in Sources */,
 				E0002011 /* WatchCompanionModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

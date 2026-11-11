@@ -5,6 +5,101 @@ import Foundation
 
 // Each intent calls the service method the app's own control calls.
 
+// MARK: - Shared actions
+
+/// The view model the interactive UI uses for favorites and playlist adds. A process started only for an
+/// intent has no scene, so it gets its own, as the Mac Dock menu does.
+@MainActor
+private func nowPlayingViewModel(for container: DependencyContainer) -> NowPlayingViewModel {
+    container.activeNowPlayingViewModel ?? NowPlayingViewModel(dependencies: container)
+}
+
+@MainActor
+func setCurrentSongFavorite(_ favorite: Bool) async throws -> IntentDialog {
+    let container = await readyContainer()
+    let track = try currentTrackOrThrow()
+    if track.isAppleMusic {
+        guard favorite else { throw EnsembleIntentError.appleMusicUnfavorite }
+        if container.syncCoordinator.isOffline { throw EnsembleIntentError.offline }
+    }
+    guard await nowPlayingViewModel(for: container).setTrackFavorite(favorite, for: track) else {
+        throw EnsembleIntentError.favoriteFailed
+    }
+    return favorite
+        ? IntentDialog("Favorited \(track.title).")
+        : IntentDialog("Removed \(track.title) from your favorites.")
+}
+
+@MainActor
+func add(_ tracks: [Track], to playlist: EnsemblePlaylistEntity) async throws -> IntentDialog {
+    let container = await readyContainer()
+    return try await reportingFailures {
+        guard let stored = try await container.playlistRepository.fetchPlaylist(
+            ratingKey: playlist.item.id,
+            sourceCompositeKey: playlist.item.sourceCompositeKey
+        ) else {
+            throw EnsembleIntentError.playlistNotFound
+        }
+        let outcome = try await nowPlayingViewModel(for: container)
+            .addTracksOptimistically(tracks, to: Playlist(from: stored))
+        let count = tracks.count == 1 ? tracks[0].title : "\(tracks.count) songs"
+        return outcome == .queued
+            ? IntentDialog("\(count) will be added to \(playlist.title) when you're back online.")
+            : IntentDialog("Added \(count) to \(playlist.title).")
+    }
+}
+
+/// Applies a playback mode, then reports the mode the player holds afterwards rather than the one requested.
+@MainActor
+func setShuffle(_ enabled: Bool) async -> IntentDialog {
+    let playback = intentContainer.playbackService
+    playback.setShuffleEnabled(enabled)
+    await Task.yield()
+    return playback.isShuffleEnabled ? IntentDialog("Shuffle is on.") : IntentDialog("Shuffle is off.")
+}
+
+@MainActor
+func setRepeat(_ setting: EnsembleRepeatSetting) async -> IntentDialog {
+    let playback = intentContainer.playbackService
+    playback.setRepeatMode(setting.mode)
+    await Task.yield()
+    let actual = EnsembleRepeatSetting(playback.repeatMode)
+    if actual != setting {
+        AppIntentsLog.logger.error(
+            "SIRI_SHORTCUT: repeat requested=\(setting.rawValue, privacy: .public) actual=\(actual.rawValue, privacy: .public)"
+        )
+    }
+    return IntentDialog("Repeat is set to \(actual.rawValue).")
+}
+
+@MainActor
+func setAutoplay(_ enabled: Bool) async -> IntentDialog {
+    let playback = intentContainer.playbackService
+    if playback.isAutoplayEnabled != enabled {
+        playback.toggleAutoplay()
+    }
+    await Task.yield()
+    return playback.isAutoplayEnabled ? IntentDialog("Autoplay is on.") : IntentDialog("Autoplay is off.")
+}
+
+@MainActor
+func setSmartMix(_ enabled: Bool) async -> IntentDialog {
+    let playback = intentContainer.playbackService
+    playback.setSmartMixEnabled(enabled)
+    await Task.yield()
+    return playback.isSmartMixEnabled ? IntentDialog("SmartMix is on.") : IntentDialog("SmartMix is off.")
+}
+
+/// "playing" or "paused", as the player reports it now.
+@MainActor
+private var playbackStatus: String {
+    switch intentContainer.playbackService.playbackState {
+    case .playing, .buffering, .loading: return "playing"
+    case .paused, .stopped: return "paused"
+    case .failed: return "stopped after an error"
+    }
+}
+
 // MARK: - What is playing
 
 struct GetCurrentEnsembleSongIntent: AppIntent {
@@ -15,7 +110,7 @@ struct GetCurrentEnsembleSongIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<EnsembleTrackEntity> & ProvidesDialog {
         let song = EnsembleTrackEntity(item: SiriMediaIndexItem(track: try currentTrackOrThrow()))
-        return .result(value: song, dialog: IntentDialog("Ensemble is playing \(song.title)."))
+        return .result(value: song, dialog: IntentDialog("\(song.title) is current. Ensemble is \(playbackStatus)."))
     }
 }
 
@@ -29,13 +124,7 @@ struct FavoriteCurrentEnsembleSongIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let track = try currentTrackOrThrow()
-        try await intentContainer.siriAffinityCoordinator.execute(
-            payload: SiriAffinityRequestPayload(affinityType: favorite ? .love : .remove)
-        )
-        return .result(dialog: favorite
-            ? IntentDialog("Favorited \(track.title).")
-            : IntentDialog("Removed \(track.title) from your favorites."))
+        .result(dialog: try await setCurrentSongFavorite(favorite))
     }
 }
 
@@ -49,13 +138,28 @@ struct AddCurrentSongToEnsemblePlaylistIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let track = try currentTrackOrThrow()
-        try await intentContainer.siriAddToPlaylistCoordinator.execute(payload: SiriAddToPlaylistRequestPayload(
-            playlistRatingKey: playlist.item.id,
-            sourceCompositeKey: playlist.item.sourceCompositeKey,
-            playlistDisplayName: playlist.title
-        ))
-        return .result(dialog: IntentDialog("Adding \(track.title) to \(playlist.title)."))
+        .result(dialog: try await add([try currentTrackOrThrow()], to: playlist))
+    }
+}
+
+struct AddToEnsemblePlaylistIntent: AppIntent {
+    static var title: LocalizedStringResource = "Add to Playlist in Ensemble"
+    static var description = IntentDescription("Adds a song, album or other library item to a playlist.")
+    static var parameterSummary: some ParameterSummary { Summary("Add \(\.$media) to \(\.$playlist) in Ensemble") }
+
+    @Parameter(title: "Media")
+    var media: EnsembleMediaEntity
+
+    @Parameter(title: "Playlist")
+    var playlist: EnsemblePlaylistEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let coordinator = await readyContainer().siriPlaybackCoordinator
+        let tracks = try await reportingFailures {
+            try await coordinator.resolveTracks(kind: media.item.kind, request: media.playbackRequest())
+        }
+        return .result(dialog: try await add(tracks, to: playlist))
     }
 }
 
@@ -64,11 +168,10 @@ struct AddCurrentSongToEnsemblePlaylistIntent: AppIntent {
 extension EnsembleMediaEntity {
     @MainActor
     func enqueue(playNext: Bool) async throws -> IntentDialog {
-        try await intentContainer.siriPlaybackCoordinator.enqueue(
-            kind: item.kind,
-            request: playbackRequest(),
-            playNext: playNext
-        )
+        let coordinator = await readyContainer().siriPlaybackCoordinator
+        _ = try await reportingFailures {
+            try await coordinator.enqueue(kind: item.kind, request: playbackRequest(), playNext: playNext)
+        }
         return playNext
             ? IntentDialog("\(title) will play next.")
             : IntentDialog("Added \(title) to the end of the queue.")
@@ -117,6 +220,14 @@ enum EnsembleRepeatSetting: String, AppEnum {
         .one: "One"
     ]
 
+    init(_ mode: RepeatMode) {
+        switch mode {
+        case .off: self = .off
+        case .all: self = .all
+        case .one: self = .one
+        }
+    }
+
     var mode: RepeatMode {
         switch self {
         case .off: return .off
@@ -136,8 +247,7 @@ struct SetEnsembleShuffleIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        intentContainer.playbackService.setShuffleEnabled(enabled)
-        return .result(dialog: enabled ? IntentDialog("Shuffle is on.") : IntentDialog("Shuffle is off."))
+        .result(dialog: await setShuffle(enabled))
     }
 }
 
@@ -151,8 +261,7 @@ struct SetEnsembleRepeatIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        intentContainer.playbackService.setRepeatMode(setting.mode)
-        return .result(dialog: IntentDialog("Repeat is set to \(setting.rawValue)."))
+        .result(dialog: await setRepeat(setting))
     }
 }
 
@@ -166,11 +275,21 @@ struct SetEnsembleAutoplayIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let playback = intentContainer.playbackService
-        if playback.isAutoplayEnabled != enabled {
-            playback.toggleAutoplay()
-        }
-        return .result(dialog: enabled ? IntentDialog("Autoplay is on.") : IntentDialog("Autoplay is off."))
+        .result(dialog: await setAutoplay(enabled))
+    }
+}
+
+struct SetEnsembleSmartMixIntent: AudioPlaybackIntent {
+    static var title: LocalizedStringResource = "Set SmartMix in Ensemble"
+    static var description = IntentDescription("Turns SmartMix on or off. SmartMix blends the end of a song into the next.")
+    static var parameterSummary: some ParameterSummary { Summary("Set Ensemble SmartMix to \(\.$enabled)") }
+
+    @Parameter(title: "SmartMix", default: true)
+    var enabled: Bool
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        .result(dialog: await setSmartMix(enabled))
     }
 }
 
@@ -182,18 +301,20 @@ struct TogglePlayPauseEnsembleIntent: AudioPlaybackIntent {
     static var parameterSummary: some ParameterSummary { Summary("Play or pause Ensemble") }
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ProvidesDialog {
         let playback = intentContainer.playbackService
         _ = try currentTrackOrThrow()
         switch playback.playbackState {
         case .playing, .buffering, .loading:
             playback.pause()
+            return .result(dialog: IntentDialog("Paused."))
         case .failed:
             await playback.retryCurrentTrack()
+            return .result(dialog: IntentDialog("Trying that song again."))
         case .paused, .stopped:
             playback.resume()
+            return .result(dialog: IntentDialog("Playing."))
         }
-        return .result()
     }
 }
 
@@ -203,10 +324,10 @@ struct NextEnsembleSongIntent: AudioPlaybackIntent {
     static var parameterSummary: some ParameterSummary { Summary("Skip to the next Ensemble song") }
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ProvidesDialog {
         _ = try currentTrackOrThrow()
         intentContainer.playbackService.next()
-        return .result()
+        return .result(dialog: IntentDialog("Skipped to the next song. Ensemble is \(playbackStatus)."))
     }
 }
 
@@ -216,9 +337,9 @@ struct PreviousEnsembleSongIntent: AudioPlaybackIntent {
     static var parameterSummary: some ParameterSummary { Summary("Go back to the previous Ensemble song") }
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ProvidesDialog {
         _ = try currentTrackOrThrow()
         intentContainer.playbackService.previous()
-        return .result()
+        return .result(dialog: IntentDialog("Went back. Ensemble is \(playbackStatus)."))
     }
 }

@@ -360,46 +360,7 @@ func executeSiriPlaybackInBackground(
         }
 
         // Siri can launch us without the normal UI lifecycle warmup.
-        // Load accounts synchronously (already done in didFinishLaunching,
-        // but harmless and safe for the cold-launch race).
-        AppRoot.container.accountManager.loadAccounts()
-        AppRoot.container.serverHealthChecker.prepopulateUnknownStates()
-        let sc = AppRoot.container.syncCoordinator
-
-        // Await the early health check task from didFinishLaunching instead of
-        // running a separate set of health checks. This avoids redundant work
-        // and means Siri can proceed as soon as the already-in-flight checks finish.
-        let appDelegate = UIApplication.shared.delegate as? AppDelegate
-        let shc = AppRoot.container.serverHealthChecker
-        if let earlyTask = appDelegate?.earlyHealthCheckTask {
-            AppLogger.info("SIRI_APP: [origin=\(origin)] Awaiting early health checks from didFinishLaunching...")
-            await earlyTask.value
-        } else {
-            AppLogger.info("SIRI_APP: [origin=\(origin)] No earlyHealthCheckTask found — running standalone health checks")
-        }
-
-        // Log server states at this point for diagnostics
-        let statesSummary = shc.serverStates.map { "\($0.key.suffix(8)):\($0.value.isAvailable ? "up" : "down")" }.joined(separator: ",")
-        AppLogger.info("SIRI_APP: [origin=\(origin)] Post-health serverStates: [\(statesSummary)]")
-
-        // If early checks didn't find any connected servers (edge case: first
-        // launch, network delay, etc.), fall back to running our own checks.
-        let hasConnectedServers = shc.serverStates.values.contains { $0.isAvailable }
-        if !hasConnectedServers {
-            AppLogger.info("SIRI_APP: [origin=\(origin)] No connected servers — running fallback health checks")
-            let nm = AppRoot.container.networkMonitor
-            for _ in 0..<10 {
-                if nm.networkState != .unknown { break }
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
-            }
-            await sc.refreshServerHealthStates()
-            let postFallback = shc.serverStates.map { "\($0.key.suffix(8)):\($0.value.isAvailable ? "up" : "down")" }.joined(separator: ",")
-            AppLogger.info("SIRI_APP: [origin=\(origin)] Post-fallback serverStates: [\(postFallback)]")
-        }
-
-        // Build sync providers using the canonical account/server clients.
-        sc.refreshProviders()
-        AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready")
+        await prepareForBackgroundPlayback(origin: origin)
 
         do {
             let playbackService = AppRoot.container.playbackService
