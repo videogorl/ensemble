@@ -42,6 +42,9 @@ extension LibraryRepository {
         }
     }
 
+    /// Reads the track identities once, then hydrates them in batches by identity. A sync that writes between
+    /// batches cannot make a row repeat or be skipped; rows deleted in the meantime are dropped, and rows
+    /// inserted in the meantime wait for the next read.
     public func mapTracks<Value: Sendable>(
         forSources sourceCompositeKeys: Set<String>,
         batchSize: Int,
@@ -49,27 +52,36 @@ extension LibraryRepository {
     ) async throws -> [Value] {
         let context = coreDataStack.newBackgroundContext()
         let keys = Array(sourceCompositeKeys)
-        return try await context.perform {
-            var values: [Value] = []
-            var offset = 0
-            while true {
-                let request = CDTrack.fetchRequest()
-                request.predicate = NSPredicate(format: "sourceCompositeKey IN %@", keys)
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "sourceCompositeKey", ascending: true),
-                    NSSortDescriptor(key: "ratingKey", ascending: true)
-                ]
-                request.fetchOffset = offset
-                request.fetchLimit = batchSize
-                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
-                let page = try context.fetch(request)
-                values.append(contentsOf: page.map(transform))
-                offset += page.count
-                context.reset()
-                if page.count < batchSize { break }
-            }
-            return values
+        let ids: [NSManagedObjectID] = try await context.perform {
+            let request = CDTrack.fetchRequest() as! NSFetchRequest<NSFetchRequestResult>
+            request.resultType = .managedObjectIDResultType
+            request.predicate = NSPredicate(format: "sourceCompositeKey IN %@", keys)
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "sourceCompositeKey", ascending: true),
+                NSSortDescriptor(key: "ratingKey", ascending: true)
+            ]
+            return try context.fetch(request) as? [NSManagedObjectID] ?? []
         }
+
+        var values: [Value] = []
+        values.reserveCapacity(ids.count)
+        for start in stride(from: 0, to: ids.count, by: max(batchSize, 1)) {
+            try Task.checkCancellation()
+            let batch = Array(ids[start..<min(start + max(batchSize, 1), ids.count)])
+            values += try await context.perform {
+                let request = CDTrack.fetchRequest()
+                request.predicate = NSPredicate(format: "SELF IN %@", batch)
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
+                let rowsByID = Dictionary(
+                    try context.fetch(request).map { ($0.objectID, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                let mapped = batch.compactMap { rowsByID[$0] }.map(transform)
+                context.reset()
+                return mapped
+            }
+        }
+        return values
     }
 
     public func fetchTracksBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDTrack] {

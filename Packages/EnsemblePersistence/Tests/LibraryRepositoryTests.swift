@@ -81,6 +81,36 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertTrue(tracks.isEmpty)
     }
 
+    func testMapTracksReadsEachEnabledRowOnceAcrossBatchesAndHonoursCancellation() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let enabled = "plex:account:server:enabled"
+        try await repository.batchUpsertTracks(
+            (1...5).map { makeTrackInput(ratingKey: "t\($0)") },
+            sourceCompositeKey: enabled
+        )
+        try await repository.batchUpsertTracks(
+            [makeTrackInput(ratingKey: "other")],
+            sourceCompositeKey: "plex:account:server:disabled"
+        )
+
+        // One table: batch sizes below, at and above the row count read the same rows, once each.
+        for batchSize in [1, 2, 5, 50] {
+            let keys = try await repository.mapTracks(forSources: [enabled], batchSize: batchSize) { $0.ratingKey }
+            XCTAssertEqual(keys, ["t1", "t2", "t3", "t4", "t5"], "batchSize \(batchSize)")
+        }
+
+        let task = Task {
+            try await repository.mapTracks(forSources: [enabled], batchSize: 1) { $0.ratingKey }
+        }
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("A cancelled read must stop between batches")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+    }
+
     func testNameLookupWithExplicitEmptySourceSetReturnsNothing() async throws {
         let repository = LibraryRepository(coreDataStack: .inMemory())
         try await repository.batchUpsertTracks(

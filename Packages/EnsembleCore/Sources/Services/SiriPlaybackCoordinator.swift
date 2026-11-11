@@ -95,7 +95,7 @@ public final class SiriPlaybackCoordinator {
             throw SiriPlaybackCoordinatorError.unsupportedPayloadVersion(payload.schemaVersion)
         }
 
-        EnsembleLogger.debug("Siri payload schema=\(payload.schemaVersion), source=\(payload.sourceCompositeKey ?? "nil"), display=\(payload.displayName ?? "nil")")
+        EnsembleLogger.debug("Siri payload schema=\(payload.schemaVersion) kind=\(payload.kind.rawValue) hasSource=\(payload.sourceCompositeKey != nil) hasDisplayName=\(payload.displayName != nil)")
 
         let request = SiriPlaybackRequest(
             entityID: payload.entityID,
