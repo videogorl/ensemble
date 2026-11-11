@@ -61,8 +61,7 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             intent: SetEnsemblePlaybackOptionIntent(),
             phrases: [
                 "Turn \(\.$option) in \(.applicationName)",
-                "Set \(\.$option) in \(.applicationName)",
-                "\(.applicationName) \(\.$option)"
+                "Set \(\.$option) in \(.applicationName)"
             ],
             shortTitle: "Playback Option",
             systemImageName: "shuffle"
@@ -72,8 +71,7 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             intent: EnsembleSongActionIntent(),
             phrases: [
                 "\(\.$action) this song in \(.applicationName)",
-                "\(\.$action) this song on \(.applicationName)",
-                "Add this song to my favorites in \(.applicationName)"
+                "\(\.$action) this song on \(.applicationName)"
             ],
             shortTitle: "This Song",
             systemImageName: "heart"
@@ -82,7 +80,7 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
         AppShortcut(
             intent: AddCurrentSongToEnsemblePlaylistIntent(),
             phrases: [
-                "Add this song to \(\.$playlist) in \(.applicationName)",
+                "Add this song to playlist \(\.$playlist) in \(.applicationName)",
                 "Add this song to the playlist \(\.$playlist) on \(.applicationName)"
             ],
             shortTitle: "Add This Song to Playlist",
