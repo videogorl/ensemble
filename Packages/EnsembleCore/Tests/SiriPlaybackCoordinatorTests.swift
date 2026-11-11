@@ -312,6 +312,17 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
     }
 
+    /// Siri hears "&" as "and"; a never-played track with punctuation in its title must still be found by name.
+    func testTrackNameMatchesAcrossAmpersandAndAnd() async throws {
+        let fixture = try await makeFixture()
+
+        try await fixture.coordinator.executePlayTrack(
+            request: SiriPlaybackRequest(entityID: "kim and jessie", sourceCompositeKey: nil, displayName: "kim and jessie")
+        )
+
+        XCTAssertEqual(fixture.playbackService.lastPlayedTrack?.id, "track-amp")
+    }
+
     func testExecutePlayPlaylistUsesSavedPlaylistOrder() async throws {
         let fixture = try await makeFixture()
 
@@ -540,6 +551,26 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             duration: 200_000,
             thumbPath: nil,
             streamKey: "/library/parts/track-2.mp3",
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            rating: nil,
+            playCount: 0,
+            sourceCompositeKey: librarySourceKey
+        )
+
+        _ = try await libraryRepository.upsertTrack(
+            ratingKey: "track-amp",
+            key: "/library/metadata/track-amp",
+            title: "Kim & Jessie",
+            artistName: "Other Artist",
+            albumName: nil,
+            albumRatingKey: nil,
+            trackNumber: 1,
+            discNumber: 1,
+            duration: 180_000,
+            thumbPath: nil,
+            streamKey: "/library/parts/track-amp.mp3",
             dateAdded: nil,
             dateModified: nil,
             lastPlayed: nil,

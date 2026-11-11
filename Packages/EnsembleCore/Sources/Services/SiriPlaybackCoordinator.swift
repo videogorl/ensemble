@@ -1,3 +1,4 @@
+import EnsembleAPI
 import EnsemblePersistence
 import EnsembleSiriShared
 import Foundation
@@ -299,14 +300,18 @@ public final class SiriPlaybackCoordinator {
             ) else {
                 throw SiriPlaybackCoordinatorError.mediaNotFound(.playlist)
             }
+            // Plex playlists of one name on several servers are one playlist in the app, so they play as one.
+            let constituents = try await mergedConstituents(of: playlist, searchSourceKeys: playlistSourceKeys)
             // Memberships, as the playlist screen reads them: an Apple Music playlist can hold catalog songs
             // that are not library rows, and those still play.
-            tracks = playlist.playlistItemsArray
-                .map { PlaylistItem(from: $0) }
-                .filter(\.isAvailable)
-                .map(\.track)
-                .filter { sourceMatches(requestSource: request.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
-                .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
+            tracks = PlexPlaylistMergeRules.interleaved(constituents.map { constituent in
+                constituent.playlistItemsArray
+                    .map { PlaylistItem(from: $0) }
+                    .filter(\.isAvailable)
+                    .map(\.track)
+                    .filter { sourceMatches(requestSource: constituents.count > 1 ? nil : request.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
+                    .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
+            })
             context = playbackContext(
                 kind: .playlist,
                 id: playlist.ratingKey,
@@ -365,7 +370,7 @@ public final class SiriPlaybackCoordinator {
         )
 
         // When artistHint is available, prefer tracks by that artist
-        let prioritized = preferByArtist(candidates, hint: request.artistHint)
+        let prioritized = preferByArtist(candidates, hint: request.artistHint, artist: { $0.artistName })
 
         if let resolved = choosePreferredCandidate(
             from: prioritized,
@@ -379,35 +384,59 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = try await libraryRepository.fetchSiriEligibleTracks()
-        let fuzzyCandidates = fuzzyCandidates(
-            from: fuzzyPool,
-            request: request,
-            allowedSourceKeys: enabledSourceKeys,
-            name: { $0.title },
-            source: { $0.sourceCompositeKey }
+        // The title lookup compares raw text, so punctuation ("Kim & Jessie") can miss it. Compare normalised
+        // titles across the whole library in bounded batches, then load only the winner.
+        let stubs = try await libraryRepository.mapTracks(forSources: enabledSourceKeys, batchSize: 500) {
+            TrackStub(
+                ratingKey: $0.ratingKey,
+                sourceCompositeKey: $0.sourceCompositeKey,
+                title: $0.title,
+                artistName: $0.artistName,
+                lastPlayed: $0.lastPlayed,
+                playCount: Int($0.playCount)
+            )
+        }
+        let fuzzy = preferByArtist(
+            fuzzyCandidates(
+                from: stubs,
+                request: request,
+                allowedSourceKeys: enabledSourceKeys,
+                name: { $0.title },
+                source: { $0.sourceCompositeKey }
+            ),
+            hint: request.artistHint,
+            artist: { $0.artistName }
         )
-        let prioritizedFuzzy = preferByArtist(fuzzyCandidates, hint: request.artistHint)
-        return choosePreferredCandidate(
-            from: prioritizedFuzzy,
+        guard let best = choosePreferredCandidate(
+            from: fuzzy,
             requestSource: request.sourceCompositeKey,
             requestDisplayName: request.displayName,
             name: { $0.title },
             source: { $0.sourceCompositeKey },
             lastPlayed: { $0.lastPlayed },
-            playCount: { Int($0.playCount) }
-        )
+            playCount: { $0.playCount }
+        ) else { return nil }
+        return try await libraryRepository.fetchTrack(ratingKey: best.ratingKey, sourceCompositeKey: best.sourceCompositeKey)
     }
 
-    /// Reorders tracks so those matching the artist hint appear first.
-    private func preferByArtist(_ tracks: [CDTrack], hint: String?) -> [CDTrack] {
-        guard let hint, !hint.isEmpty else { return tracks }
+    private struct TrackStub: Sendable {
+        let ratingKey: String
+        let sourceCompositeKey: String?
+        let title: String
+        let artistName: String?
+        let lastPlayed: Date?
+        let playCount: Int
+    }
+
+    /// Reorders candidates so those by the artist hint appear first.
+    private func preferByArtist<T>(_ items: [T], hint: String?, artist: (T) -> String?) -> [T] {
+        guard let hint, !hint.isEmpty else { return items }
         let normalizedHint = hint.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let (matching, rest) = tracks.reduce(into: ([CDTrack](), [CDTrack]())) { result, track in
-            if let artist = track.artistName?.lowercased(), artist.contains(normalizedHint) || normalizedHint.contains(artist) {
-                result.0.append(track)
+        let (matching, rest) = items.reduce(into: ([T](), [T]())) { result, item in
+            if let name = artist(item)?.lowercased(), name.contains(normalizedHint) || normalizedHint.contains(name) {
+                result.0.append(item)
             } else {
-                result.1.append(track)
+                result.1.append(item)
             }
         }
         return matching + rest
@@ -577,6 +606,20 @@ public final class SiriPlaybackCoordinator {
             lastPlayed: { $0.lastPlayed },
             playCount: { _ in nil }
         )
+    }
+
+    /// The playlist plus the same-named Plex playlists on the other enabled servers, in that order.
+    private func mergedConstituents(of playlist: CDPlaylist, searchSourceKeys: Set<String>) async throws -> [CDPlaylist] {
+        guard let sourceKey = playlist.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey)?.sourceType == .plex else { return [playlist] }
+        let key = PlexPlaylistMergeRules.key(title: playlist.title, isSmart: playlist.isSmart)
+        let siblings = try await playlistRepository.findPlaylistsByTitle(playlist.title, sourceCompositeKeys: searchSourceKeys)
+            .filter {
+                $0.objectID != playlist.objectID
+                    && PlexPlaylistMergeRules.key(title: $0.title, isSmart: $0.isSmart) == key
+                    && MediaSourceIdentity.parse($0.sourceCompositeKey ?? "")?.sourceType == .plex
+            }
+        return [playlist] + siblings
     }
 
     private func prioritizeExactPlaylistMatches(
