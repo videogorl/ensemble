@@ -8,6 +8,17 @@ import UIKit
 
 // MARK: - Queue Item Cell
 
+/// The row's actions button: a 20-point glyph with a 44-point-wide, full-row-height touch area, so a
+/// near miss opens the menu rather than selecting (playing) the row.
+private final class QueueRowActionsButton: UIButton {
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard let rowHeight = superview?.bounds.height else { return super.point(inside: point, with: event) }
+        let horizontalReach = max(0, (44 - bounds.width) / 2)
+        let verticalReach = max(0, (rowHeight - bounds.height) / 2)
+        return bounds.insetBy(dx: -horizontalReach, dy: -verticalReach).contains(point)
+    }
+}
+
 /// One queue or history row. Its identity is the queue item; its content and
 /// artwork come from the shared track row model.
 final class QueueItemCell: UITableViewCell {
@@ -15,7 +26,7 @@ final class QueueItemCell: UITableViewCell {
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let autoplayIndicator = UIImageView()
-    private let contextMenuButton = UIButton(type: .system)
+    private let contextMenuButton = QueueRowActionsButton(type: .system)
     private var autoplayWidthConstraint: NSLayoutConstraint?
     private let artwork = TrackCellArtwork()
 

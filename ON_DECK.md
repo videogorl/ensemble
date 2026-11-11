@@ -359,17 +359,15 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Automation launch-argument overrides (shuffle, streaming quality) are written back to preferences.
 - Next step for each: reproduce by hand or with a scripted test before fixing.
 
-## Confirmed: the queue row's context button and drag handle are too small to hit (2026-11-11)
+## Confirmed: the queue row's drag handle is narrow (2026-11-11)
 
-- Evidence: Felicity reports that touches on the handle and the context button sometimes play the track
-  instead. Measured on the iPhone SE: the context button is 20x20 pt and the reorder handle 24 pt wide (Apple's
-  minimum is 44x44). A tap at the button's centre opened the menu 3 of 3 times; taps 5 pt outside the glyph
-  played the row 4 of 4 times. `QueueTableView.swift` sizes the button to
-  `TrackListLayoutMetrics.queueDragHandleDimension` (20) with no enlarged hit area, and
-  `allowsSelectionDuringEditing = true` sends a miss to `didSelectRowAt`.
-- Impact: a near miss replaces what is playing.
-- Next step: give the button a 44 pt hit area (keep the 20 pt glyph) and consider not selecting on taps in the
-  trailing strip; check the same control sizes on the other track rows.
+- Evidence: on the iPhone SE the reorder handle is 24 pt wide (Apple's minimum is 44). It is `UITableView`'s own
+  reorder control (`QueueTableView.swift`, editing mode). The context button beside it had the same problem and
+  now has a 44 pt wide, full-row-height touch area (`QueueRowActionsButton`), so the gap between the two no
+  longer plays the row.
+- Impact: a drag that starts just left of the handle can still open the actions menu instead of reordering.
+- Next step: only if it still annoys in use; widening the system control means replacing it. The other track
+  rows' overflow buttons (`overflowControlDimension` 25) were not measured.
 
 ## Suspected: a queue drag reorder drops the row in the wrong place (2026-11-11)
 
@@ -378,16 +376,15 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Next step: repeat with a finger; if it reproduces, look at `moveRowAt` and the drag delegate both being
   enabled in `QueueTableView.swift`.
 
-## Suspected: Ensemble's App Shortcuts do not appear in the Shortcuts app (2026-11-11)
+## Confirmed: Ensemble's App Shortcuts do not appear in the Shortcuts app (2026-11-11)
 
-- Evidence: iPhone SE, build `202611110741.9140`, Shortcuts freshly installed: Library > Apps lists Audible,
-  Files and Sonnet (another development build) but not Ensemble, also after reinstalling and relaunching
-  Ensemble; Spotlight finds no "Play Album". The app bundle's `Metadata.appintents/extract.actionsdata` has
-  five `autoShortcuts` and the provider name. Siri requests and a Play Track shortcut passed on the iPhone 16
-  Pro on 2026-10-26.
-- Impact: unknown; may be registration lag after installing Shortcuts, or the SE only.
-- Next step: look again after a day and a phone restart; check the shortcuts' `availabilityAnnotations` and
-  whether `updateAppShortcutParameters()` is called; compare on the iPhone 16 Pro.
+- Evidence: iPhone SE, Shortcuts freshly installed: Library > Apps did not list Ensemble. Every shortcut phrase
+  carries a parameter and every `suggestedEntities()` in `Ensemble/App/EnsembleAppShortcuts.swift` returns `[]`
+  (on purpose, so Siri cannot auto-pick an unrelated item). A trial build whose playlist query suggested five
+  playlists made Ensemble appear with those five tiles, and tapping one played the playlist.
+- Impact: the shortcuts work by voice only; nothing is listed in Shortcuts or Spotlight. The surface checklist's
+  "all five listed" cannot pass as written.
+- Next step: Felicity's choice between suggesting a few items per kind and keeping them voice-only.
 
 ## Owed checks that need hardware the iPhone SE does not have (2026-11-11)
 
