@@ -360,7 +360,13 @@ func executeSiriPlaybackInBackground(
         }
 
         // Siri can launch us without the normal UI lifecycle warmup.
-        await prepareForBackgroundPlayback(origin: origin)
+        do {
+            try await prepareForBackgroundPlayback(origin: origin)
+        } catch {
+            AppLogger.error("SIRI_APP: [origin=\(origin)] Not ready for playback: \(error.localizedDescription)")
+            intentCompletion?(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
+            return
+        }
 
         do {
             let playbackService = AppRoot.container.playbackService

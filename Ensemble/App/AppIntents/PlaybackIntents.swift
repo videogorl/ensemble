@@ -14,6 +14,7 @@ enum EnsembleIntentError: Error, CustomLocalizedStringResourceConvertible {
     case appleMusicUnfavorite
     case offline
     case favoriteFailed
+    case credentialsUnavailable
     case failed(String)
 
     var localizedStringResource: LocalizedStringResource {
@@ -25,6 +26,7 @@ enum EnsembleIntentError: Error, CustomLocalizedStringResourceConvertible {
         case .appleMusicUnfavorite: return "Apple Music favorites can't be removed from Ensemble."
         case .offline: return "That isn't available while you're offline."
         case .favoriteFailed: return "Ensemble couldn't update the favorite."
+        case .credentialsUnavailable: return "Ensemble couldn't read your accounts. Open Ensemble and try again."
         case let .failed(message): return "\(message)"
         }
     }
@@ -56,6 +58,8 @@ enum EnsembleIntentError: Error, CustomLocalizedStringResourceConvertible {
 func reportingFailures<Result>(_ action: () async throws -> Result) async throws -> Result {
     do {
         return try await action()
+    } catch is CancellationError {
+        throw CancellationError()
     } catch {
         throw EnsembleIntentError(error)
     }
@@ -68,8 +72,8 @@ var intentContainer: DependencyContainer { AppRoot.container }
 /// The container for an intent that starts playback or reaches a music source. A process started only for the
 /// intent has no scene to warm it up, so this awaits what a launched scene would have prepared.
 @MainActor
-func readyContainer() async -> DependencyContainer {
-    await prepareForBackgroundPlayback(origin: "intent")
+func readyContainer() async throws -> DependencyContainer {
+    try await prepareForBackgroundPlayback(origin: "intent")
     return AppRoot.container
 }
 
@@ -89,7 +93,7 @@ extension IndexItemEntity {
             "SIRI_SHORTCUT: perform \(item.kind.rawValue, privacy: .public) shuffle=\(shuffle, privacy: .public) title='\(item.displayName, privacy: .private)' id='\(id, privacy: .private)'"
         )
         let request = playbackRequest(shuffle: shuffle)
-        let coordinator = await readyContainer().siriPlaybackCoordinator
+        let coordinator = try await readyContainer().siriPlaybackCoordinator
         try await reportingFailures {
             try await coordinator.execute(payload: SiriPlaybackRequestPayload(
                 kind: item.kind,
@@ -109,21 +113,21 @@ extension IndexItemEntity {
 
 @MainActor
 func playFavorites(shuffle: Bool) async throws -> IntentDialog {
-    let coordinator = await readyContainer().siriPlaybackCoordinator
+    let coordinator = try await readyContainer().siriPlaybackCoordinator
     try await reportingFailures { try await coordinator.playFavorites(shuffle: shuffle) }
     return IntentDialog(shuffle ? "Shuffling your favorites." : "Playing your favorites.")
 }
 
 @MainActor
 func shuffleLibrary() async throws -> IntentDialog {
-    let coordinator = await readyContainer().siriPlaybackCoordinator
+    let coordinator = try await readyContainer().siriPlaybackCoordinator
     try await reportingFailures { try await coordinator.playLibrary(shuffle: true) }
     return IntentDialog("Shuffling your Ensemble library.")
 }
 
 @MainActor
 func playRecentlyAdded(shuffle: Bool) async throws -> IntentDialog {
-    let container = await readyContainer()
+    let container = try await readyContainer()
     try await reportingFailures {
         let tracks = try await container.libraryCollectionTracks.recentlyAddedTracks()
         try await container.siriPlaybackCoordinator.playCollection(tracks, name: "Recently Added", shuffle: shuffle)
@@ -133,7 +137,7 @@ func playRecentlyAdded(shuffle: Bool) async throws -> IntentDialog {
 
 @MainActor
 func startRadio(from song: EnsembleTrackEntity?) async throws -> IntentDialog {
-    let container = await readyContainer()
+    let container = try await readyContainer()
     if let song {
         try await reportingFailures {
             try await container.siriPlaybackCoordinator.startTrackRadio(request: song.playbackRequest())
@@ -306,9 +310,11 @@ struct PlayEnsembleMoodIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let container = await readyContainer()
+        let container = try await readyContainer()
         try await reportingFailures {
             let tracks = await container.libraryCollectionTracks.tracks(for: mood.mood)
+            // A cancelled load returns what it had so far; that must not replace the queue.
+            try Task.checkCancellation()
             try await container.siriPlaybackCoordinator.playCollection(tracks, name: "Mood", shuffle: shuffle)
         }
         return .result(dialog: shuffle

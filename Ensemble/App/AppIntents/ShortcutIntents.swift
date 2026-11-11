@@ -95,10 +95,10 @@ struct SetEnsemblePlaybackOptionIntent: AudioPlaybackIntent {
         case .repeatOff: return .result(dialog: await setRepeat(.off))
         case .repeatAll: return .result(dialog: await setRepeat(.all))
         case .repeatOne: return .result(dialog: await setRepeat(.one))
-        case .autoplayOn: return .result(dialog: await setAutoplay(true))
-        case .autoplayOff: return .result(dialog: await setAutoplay(false))
-        case .smartMixOn: return .result(dialog: await setSmartMix(true))
-        case .smartMixOff: return .result(dialog: await setSmartMix(false))
+        case .autoplayOn: return .result(dialog: try await setAutoplay(true))
+        case .autoplayOff: return .result(dialog: try await setAutoplay(false))
+        case .smartMixOn: return .result(dialog: try await setSmartMix(true))
+        case .smartMixOff: return .result(dialog: try await setSmartMix(false))
         }
     }
 }

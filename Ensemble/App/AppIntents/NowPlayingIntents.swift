@@ -16,7 +16,7 @@ private func nowPlayingViewModel(for container: DependencyContainer) -> NowPlayi
 
 @MainActor
 func setCurrentSongFavorite(_ favorite: Bool) async throws -> IntentDialog {
-    let container = await readyContainer()
+    let container = try await readyContainer()
     let track = try currentTrackOrThrow()
     if track.isAppleMusic {
         guard favorite else { throw EnsembleIntentError.appleMusicUnfavorite }
@@ -32,7 +32,7 @@ func setCurrentSongFavorite(_ favorite: Bool) async throws -> IntentDialog {
 
 @MainActor
 func add(_ tracks: [Track], to playlist: EnsemblePlaylistEntity) async throws -> IntentDialog {
-    let container = await readyContainer()
+    let container = try await readyContainer()
     return try await reportingFailures {
         guard let stored = try await container.playlistRepository.fetchPlaylist(
             ratingKey: playlist.item.id,
@@ -42,10 +42,11 @@ func add(_ tracks: [Track], to playlist: EnsemblePlaylistEntity) async throws ->
         }
         let outcome = try await nowPlayingViewModel(for: container)
             .addTracksOptimistically(tracks, to: Playlist(from: stored))
-        let count = tracks.count == 1 ? tracks[0].title : "\(tracks.count) songs"
+        // The optimistic path filters incompatible and duplicate tracks and reports only the outcome, so the
+        // dialog does not claim a count.
         return outcome == .queued
-            ? IntentDialog("\(count) will be added to \(playlist.title) when you're back online.")
-            : IntentDialog("Added \(count) to \(playlist.title).")
+            ? IntentDialog("Will be added to \(playlist.title) when you're back online.")
+            : IntentDialog("Added to \(playlist.title).")
     }
 }
 
@@ -73,9 +74,11 @@ func setRepeat(_ setting: EnsembleRepeatSetting) async -> IntentDialog {
 }
 
 @MainActor
-func setAutoplay(_ enabled: Bool) async -> IntentDialog {
+func setAutoplay(_ enabled: Bool) async throws -> IntentDialog {
     let playback = intentContainer.playbackService
     if playback.isAutoplayEnabled != enabled {
+        // Turning Autoplay on requests recommendations from a provider; turning it off only edits the queue.
+        if enabled { _ = try await readyContainer() }
         playback.toggleAutoplay()
     }
     await Task.yield()
@@ -83,8 +86,10 @@ func setAutoplay(_ enabled: Bool) async -> IntentDialog {
 }
 
 @MainActor
-func setSmartMix(_ enabled: Bool) async -> IntentDialog {
+func setSmartMix(_ enabled: Bool) async throws -> IntentDialog {
     let playback = intentContainer.playbackService
+    // A change re-prefetches the next item, which can resolve a stream.
+    if playback.isSmartMixEnabled != enabled { _ = try await readyContainer() }
     playback.setSmartMixEnabled(enabled)
     await Task.yield()
     return playback.isSmartMixEnabled ? IntentDialog("SmartMix is on.") : IntentDialog("SmartMix is off.")
@@ -98,6 +103,17 @@ private var playbackStatus: String {
     case .paused, .stopped: return "paused"
     case .failed: return "stopped after an error"
     }
+}
+
+/// Polls briefly for the player to reach a state, so a dialog can report the outcome rather than the request.
+@MainActor
+private func playbackReaches(_ condition: () -> Bool, within timeout: Duration = .seconds(1)) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while !condition() {
+        guard ContinuousClock.now < deadline, !Task.isCancelled else { return condition() }
+        try? await Task.sleep(for: .milliseconds(50))
+    }
+    return true
 }
 
 // MARK: - What is playing
@@ -155,7 +171,7 @@ struct AddToEnsemblePlaylistIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let coordinator = await readyContainer().siriPlaybackCoordinator
+        let coordinator = try await readyContainer().siriPlaybackCoordinator
         let tracks = try await reportingFailures {
             try await coordinator.resolveTracks(kind: media.item.kind, request: media.playbackRequest())
         }
@@ -168,7 +184,7 @@ struct AddToEnsemblePlaylistIntent: AppIntent {
 extension EnsembleMediaEntity {
     @MainActor
     func enqueue(playNext: Bool) async throws -> IntentDialog {
-        let coordinator = await readyContainer().siriPlaybackCoordinator
+        let coordinator = try await readyContainer().siriPlaybackCoordinator
         _ = try await reportingFailures {
             try await coordinator.enqueue(kind: item.kind, request: playbackRequest(), playNext: playNext)
         }
@@ -275,7 +291,7 @@ struct SetEnsembleAutoplayIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        .result(dialog: await setAutoplay(enabled))
+        .result(dialog: try await setAutoplay(enabled))
     }
 }
 
@@ -289,7 +305,7 @@ struct SetEnsembleSmartMixIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        .result(dialog: await setSmartMix(enabled))
+        .result(dialog: try await setSmartMix(enabled))
     }
 }
 
@@ -307,14 +323,24 @@ struct TogglePlayPauseEnsembleIntent: AudioPlaybackIntent {
         switch playback.playbackState {
         case .playing, .buffering, .loading:
             playback.pause()
-            return .result(dialog: IntentDialog("Paused."))
+            return .result(dialog: playback.playbackState == .paused
+                ? IntentDialog("Paused.")
+                : IntentDialog("Asked Ensemble to pause."))
         case .failed:
+            _ = try await readyContainer()
             await playback.retryCurrentTrack()
-            return .result(dialog: IntentDialog("Trying that song again."))
         case .paused, .stopped:
+            _ = try await readyContainer()
             playback.resume()
-            return .result(dialog: IntentDialog("Playing."))
         }
+        let started = await playbackReaches {
+            switch playback.playbackState {
+            case .playing, .buffering, .loading: return true
+            default: return false
+            }
+        }
+        if case let .failed(message) = playback.playbackState { throw EnsembleIntentError.failed(message) }
+        return .result(dialog: started ? IntentDialog("Playing.") : IntentDialog("Asked Ensemble to resume."))
     }
 }
 
@@ -325,9 +351,15 @@ struct NextEnsembleSongIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        _ = try currentTrackOrThrow()
-        intentContainer.playbackService.next()
-        return .result(dialog: IntentDialog("Skipped to the next song. Ensemble is \(playbackStatus)."))
+        let before = try currentTrackOrThrow()
+        _ = try await readyContainer()
+        let playback = intentContainer.playbackService
+        playback.next()
+        let moved = await playbackReaches { playback.currentTrack?.sourceScopedID != before.sourceScopedID }
+        guard moved, let now = playback.currentTrack else {
+            return .result(dialog: IntentDialog("There is no next song, so Ensemble stayed on \(before.title)."))
+        }
+        return .result(dialog: IntentDialog("Skipped to \(now.title)."))
     }
 }
 
@@ -338,8 +370,15 @@ struct PreviousEnsembleSongIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        _ = try currentTrackOrThrow()
-        intentContainer.playbackService.previous()
-        return .result(dialog: IntentDialog("Went back. Ensemble is \(playbackStatus)."))
+        let before = try currentTrackOrThrow()
+        _ = try await readyContainer()
+        let playback = intentContainer.playbackService
+        playback.previous()
+        // Previous restarts the song when it has played a while, so an unchanged track is a valid outcome.
+        let moved = await playbackReaches { playback.currentTrack?.sourceScopedID != before.sourceScopedID }
+        guard moved, let now = playback.currentTrack else {
+            return .result(dialog: IntentDialog("Went back to the start of \(before.title)."))
+        }
+        return .result(dialog: IntentDialog("Went back to \(now.title)."))
     }
 }
