@@ -304,14 +304,16 @@ final class NavigationCoordinatorTests: XCTestCase {
 
         for (query, expected) in cases {
             let coordinator = NavigationCoordinator()
+            NavigationCoordinator.pendingBackgroundRefreshRequest = nil
             let url = try XCTUnwrap(URL(string: "ensemble://debug/background-refresh?\(query)"))
 
             XCTAssertTrue(
                 coordinator.handleDeepLink(url, automationOptions: AutomationLaunchOptions(isEnabled: true)),
                 query
             )
-            XCTAssertEqual(coordinator.pendingBackgroundRefreshRequest, expected, query)
+            XCTAssertEqual(NavigationCoordinator.pendingBackgroundRefreshRequest, expected, query)
         }
+        NavigationCoordinator.pendingBackgroundRefreshRequest = nil
     }
 
     @MainActor

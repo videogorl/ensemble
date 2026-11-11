@@ -144,8 +144,9 @@ public final class NavigationCoordinator {
     public var pendingPlaybackRequest: PlaybackAutomationRequest?
     /// Set by the `debug/sync` route; the root view applies and clears it.
     public var pendingSyncMode: SyncAutomationMode?
-    /// Set by the `debug/background-refresh` route; the app scene applies and clears it.
-    public var pendingBackgroundRefreshRequest: BackgroundRefreshAutomationRequest?
+    /// Set by the `debug/background-refresh` route; the app applies and clears it right after
+    /// handling the link. Static because the link may be handled by any scene's coordinator.
+    public static var pendingBackgroundRefreshRequest: BackgroundRefreshAutomationRequest?
     /// Set by the `debug/open` route; the root view applies and clears it, since
     /// the layout's aliases and browse selections live there.
     public var pendingAutomationSurface: AutomationSurface?
@@ -595,7 +596,7 @@ public final class NavigationCoordinator {
                 event: "deepLinkAccepted",
                 details: request.logDetails.merging(["route": Self.routeLogDescription(from: url)]) { $1 }
             )
-            pendingBackgroundRefreshRequest = request
+            Self.pendingBackgroundRefreshRequest = request
             return true
         }
 

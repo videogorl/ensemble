@@ -87,9 +87,6 @@ struct EnsembleApp: App {
                     AppLogger.info("SIRI_APP: onOpenURL called with: \(url.absoluteString)")
                     handleIncomingURL(url)
                 }
-                .onChange(of: AppRoot.container.navigationCoordinator.pendingBackgroundRefreshRequest) {
-                    applyBackgroundRefreshRequest()
-                }
                 .onContinueUserActivity(SystemMediaSpotlightRouter.activityType) { userActivity in
                     handleSpotlightActivity(userActivity)
                 }
@@ -217,6 +214,7 @@ struct EnsembleApp: App {
                 url,
                 fallback: AppRoot.container.navigationCoordinator
             )
+            applyBackgroundRefreshRequest()
             return
         }
 
@@ -1124,9 +1122,8 @@ extension EnsembleApp {
     /// The deep link only reaches here in debug or automation builds.
     @MainActor
     fileprivate func applyBackgroundRefreshRequest() {
-        let navigation = AppRoot.container.navigationCoordinator
-        guard let request = navigation.pendingBackgroundRefreshRequest else { return }
-        navigation.pendingBackgroundRefreshRequest = nil
+        guard let request = NavigationCoordinator.pendingBackgroundRefreshRequest else { return }
+        NavigationCoordinator.pendingBackgroundRefreshRequest = nil
         #if os(iOS) && DEBUG
         Task { @MainActor in
             AppLogger.info("Background refresh started by debug route budget=\(request.budget.map { "\($0)" } ?? "default") delay=\(request.delay) wait=\(request.wait)")
