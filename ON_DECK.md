@@ -525,3 +525,14 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
 - Next step: give `MusicSourceSyncStatus` a partial state (or a detail line) and show it, or hold the
   playlist cursor's incremental date back while a body is unresolved.
 
+
+## Suspected: a local delete that keeps failing leaves the last playlist's row (2026-11-11)
+
+- Evidence: after the server acknowledges a playlist delete, `LibraryWriter.removePlaylist` retries the local
+  delete three times (50 ms, 200 ms, 1 s) and then surfaces the error. For any playlist but the last, the next
+  inventory removes the row. For the last one an empty inventory deletes nothing, so the row stays.
+- Impact: a deleted playlist keeps showing until another playlist exists. Needs a persistent store failure,
+  which would break much more than this.
+- Decided by the lead on 2026-11-11: no durable marker for now. Next step if it is ever seen: write a
+  pending-mutation record with a `localCleanupOwed` status after the remote delete (no schema change; replay
+  filters on `pending`, so the remote delete is not re-sent) and consume it on the next playlist pass.
