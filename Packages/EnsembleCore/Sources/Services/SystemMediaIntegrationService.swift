@@ -480,6 +480,8 @@ public final class SystemMediaIntegrationService {
         if let foregroundWorkScheduler {
             guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
                 EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; foreground work is not available")
+                // Spotlight waits for the foreground; the shared catalog Shortcuts and Siri read does not.
+                _ = await refreshSiriCatalog()
                 return
             }
         }

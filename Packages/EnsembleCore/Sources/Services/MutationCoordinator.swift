@@ -442,12 +442,14 @@ public final class MutationCoordinator {
                 throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceKey)
             }
             await persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
+            playlistCatalogChanged()
             return .queued
         }
 
         do {
             try await syncCoordinator.renamePlaylist(playlist, to: newTitle)
             await persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
+            playlistCatalogChanged()
             return .completed
         } catch where isConnectionFailure(error) && supportsQueuedMutations {
             let payload = PlaylistRenameMutationPayload(
@@ -457,8 +459,14 @@ public final class MutationCoordinator {
                 throw MusicSourceRoutingError.providerUnavailable(sourceKey: sourceKey)
             }
             await persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
+            playlistCatalogChanged()
             return .queued
         }
+    }
+
+    /// Siri and Shortcuts list playlists from the shared media index, so a local playlist change rebuilds it.
+    private func playlistCatalogChanged() {
+        libraryChanges?.send(.catalogChanged)
     }
 
     private func persistPlaylistRename(_ playlist: Playlist, title: String, sourceKey: String) async {
@@ -502,14 +510,17 @@ public final class MutationCoordinator {
                 throw MutationError.unavailableOffline("Delete playlist")
             }
             try await enqueuePlaylistDelete(playlist: playlist, sourceKey: sourceKey)
+            playlistCatalogChanged()
             return .queued
         }
 
         do {
             try await syncCoordinator.deletePlaylist(playlist)
+            playlistCatalogChanged()
             return .completed
         } catch where isConnectionFailure(error) && supportsQueuedMutations {
             try await enqueuePlaylistDelete(playlist: playlist, sourceKey: sourceKey)
+            playlistCatalogChanged()
             return .queued
         }
     }
@@ -536,7 +547,9 @@ public final class MutationCoordinator {
             throw MutationError.unavailableOffline("Create playlist")
         }
         do {
-            return try await syncCoordinator.createPlaylist(title: title, tracks: tracks, serverSourceKey: serverSourceKey)
+            let result = try await syncCoordinator.createPlaylist(title: title, tracks: tracks, serverSourceKey: serverSourceKey)
+            playlistCatalogChanged()
+            return result
         } catch where isConnectionFailure(error) {
             throw MutationError.unavailableOffline("Create playlist")
         }
