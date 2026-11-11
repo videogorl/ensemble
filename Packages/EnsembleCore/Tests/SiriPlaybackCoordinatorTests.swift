@@ -264,7 +264,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         try await fixture.coordinator.playLibrary(shuffle: false)
 
         XCTAssertFalse(fixture.playbackService.lastQueuedTracks.isEmpty)
-        XCTAssertTrue(fixture.playbackService.lastQueuedTracks.allSatisfy { $0.sourceCompositeKey == fixture.librarySourceKey })
+        XCTAssertTrue(fixture.playbackService.lastQueuedTracks.allSatisfy { $0.sourceCompositeKey?.hasPrefix("plex:account-1:server-") == true })
     }
 
     func testExecutePlayAlbumFallsBackToFuzzyDisplayNameMatch() async throws {
@@ -321,6 +321,28 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         )
 
         XCTAssertEqual(fixture.playbackService.lastPlayedTrack?.id, "track-amp")
+    }
+
+    /// A same-named playlist on another server plays as part of one only when the playlist screen would show them as one.
+    func testSameNamedPlaylistsPlayTogetherOnlyWhenTheScreenMergesThem() async throws {
+        let hidden = HiddenMediaStore(defaults: UserDefaults(suiteName: "siri-merge-\(UUID().uuidString)")!)
+        hidden.setHidden(true, identity: .init(kind: .playlist, itemID: "focus-b", sourceCompositeKey: "plex:account-1:server-2"))
+
+        var off = EnsembleMergingPreferences.default
+        off.mergePlaylists = false
+        let cases: [(name: String, preferences: EnsembleMergingPreferences, hidden: HiddenMediaStore?, scoped: Bool, expected: [String])] = [
+            ("merged, whitespace variant, smart one apart", .default, nil, false, ["track-1", "other-1"]),
+            ("merge setting off", off, nil, false, ["track-1"]),
+            ("hidden sibling", .default, hidden, false, ["track-1"]),
+            ("explicitly selected source", .default, nil, true, ["track-1"])
+        ]
+        for testCase in cases {
+            let fixture = try await makeFixture(mergingPreferences: testCase.preferences, hiddenMediaStore: testCase.hidden)
+            try await fixture.coordinator.executePlayPlaylist(request: SiriPlaybackRequest(
+                entityID: "focus-a", sourceCompositeKey: fixture.serverSourceKey, displayName: "Focus Mix", scopedToSource: testCase.scoped
+            ))
+            XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id).sorted(), testCase.expected.sorted(), testCase.name)
+        }
     }
 
     func testExecutePlayPlaylistUsesSavedPlaylistOrder() async throws {
@@ -460,7 +482,10 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         XCTAssertNil(fixture.playbackService.lastPlayedTrack)
     }
 
-    private func makeFixture() async throws -> Fixture {
+    private func makeFixture(
+        mergingPreferences: EnsembleMergingPreferences = .default,
+        hiddenMediaStore: HiddenMediaStore? = nil
+    ) async throws -> Fixture {
         let accountID = "account-1"
         let serverID = "server-1"
         let libraryID = "library-1"
@@ -600,6 +625,32 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             sourceCompositeKey: serverSourceKey
         )
 
+        // A second server whose "Focus  Mix" (extra space) is the same playlist as the first server's "Focus Mix".
+        let otherServerKey = "plex:\(accountID):server-2"
+        let otherLibraryKey = "\(otherServerKey):library-2"
+        _ = try await libraryRepository.upsertMusicSource(
+            compositeKey: otherLibraryKey, type: "plex", accountId: accountID, serverId: "server-2",
+            libraryId: "library-2", displayName: "Music", accountName: "Test Account"
+        )
+        _ = try await libraryRepository.upsertTrack(
+            ratingKey: "other-1", key: "/library/metadata/other-1", title: "Other One", artistName: "Other Artist",
+            albumName: nil, albumRatingKey: nil, trackNumber: 1, discNumber: 1, duration: 180_000, thumbPath: nil,
+            streamKey: "/library/parts/other-1.mp3", dateAdded: nil, dateModified: nil, lastPlayed: nil, rating: nil,
+            playCount: 0, sourceCompositeKey: otherLibraryKey
+        )
+        for (key, title, isSmart, server, member) in [
+            ("focus-a", "Focus Mix", false, serverSourceKey, "track-1"),
+            ("focus-b", "Focus  Mix", false, otherServerKey, "other-1"),
+            ("focus-smart", "Focus Mix", true, otherServerKey, "other-1")
+        ] {
+            _ = try await playlistRepository.upsertPlaylist(
+                ratingKey: key, key: "/playlists/\(key)", title: title, summary: nil, compositePath: nil,
+                isSmart: isSmart, duration: 0, trackCount: 1, dateAdded: nil, dateModified: nil, lastPlayed: nil,
+                sourceCompositeKey: server
+            )
+            try await playlistRepository.setPlaylistTracks([member], forPlaylist: key, sourceCompositeKey: server)
+        }
+
         let accountManager = AccountManager(keychain: TestKeychain())
         accountManager.addPlexAccount(
             PlexAccountConfig(
@@ -620,6 +671,13 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
                                 isEnabled: true
                             )
                         ]
+                    ),
+                    PlexServerConfig(
+                        id: "server-2",
+                        name: "Server Two",
+                        url: "https://example.org",
+                        token: "token",
+                        libraries: [PlexLibraryConfig(id: "library-2", key: "library-2", title: "Music", isEnabled: true)]
                     )
                 ]
             )
@@ -630,7 +688,10 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             accountManager: accountManager,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
-            playbackService: playbackService
+            playbackService: playbackService,
+            hiddenMediaStore: hiddenMediaStore,
+            visibilityStore: LibraryVisibilityStore(),
+            mergingPreferences: { mergingPreferences }
         )
 
         return Fixture(

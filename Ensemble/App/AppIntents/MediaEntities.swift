@@ -102,7 +102,8 @@ extension IndexItemEntity {
             entityID: item.id,
             sourceCompositeKey: item.sourceCompositeKey,
             displayName: item.displayName,
-            shuffle: shuffle
+            shuffle: shuffle,
+            scopedToSource: true
         )
     }
 }

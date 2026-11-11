@@ -1,4 +1,5 @@
 import EnsembleAPI
+import EnsembleDomain
 import EnsemblePersistence
 import EnsembleSiriShared
 import Foundation
@@ -10,8 +11,19 @@ public struct SiriPlaybackRequest: Sendable, Equatable {
     public let displayName: String?
     public let artistHint: String?
     public let shuffle: Bool
+    /// True when the caller picked one source's item (an entity or a saved shortcut), so it is never widened to
+    /// the same-named playlists on other servers.
+    public let scopedToSource: Bool
 
-    public init(entityID: String, sourceCompositeKey: String? = nil, displayName: String? = nil, artistHint: String? = nil, shuffle: Bool = false) {
+    public init(
+        entityID: String,
+        sourceCompositeKey: String? = nil,
+        displayName: String? = nil,
+        artistHint: String? = nil,
+        shuffle: Bool = false,
+        scopedToSource: Bool = false
+    ) {
+        self.scopedToSource = scopedToSource
         self.entityID = entityID
         self.sourceCompositeKey = sourceCompositeKey
         self.displayName = displayName
@@ -54,14 +66,20 @@ public final class SiriPlaybackCoordinator {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let playbackService: PlaybackServiceProtocol
     private let hiddenMediaStore: HiddenMediaStore
+    private let visibilityStore: LibraryVisibilityStore
+    private let mergingPreferences: @MainActor () -> EnsembleMergingPreferences
 
     public init(
         accountManager: AccountManager,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         playbackService: PlaybackServiceProtocol,
-        hiddenMediaStore: HiddenMediaStore? = nil
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        visibilityStore: LibraryVisibilityStore? = nil,
+        mergingPreferences: @escaping @MainActor () -> EnsembleMergingPreferences = { .default }
     ) {
+        self.visibilityStore = visibilityStore ?? .shared
+        self.mergingPreferences = mergingPreferences
         self.accountManager = accountManager
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
@@ -146,7 +164,7 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         playNext: Bool
     ) async throws -> Int {
-        let media = try await resolveMedia(kind: kind, request: request)
+        let media = try await resolveMedia(kind: kind, request: request, mergesSamePlaylists: true)
         if playNext {
             playbackService.playNext(media.tracks)
         } else {
@@ -203,7 +221,7 @@ public final class SiriPlaybackCoordinator {
     }
 
     private func play(_ kind: SiriMediaKind, request: SiriPlaybackRequest) async throws {
-        let media = try await resolveMedia(kind: kind, request: request)
+        let media = try await resolveMedia(kind: kind, request: request, mergesSamePlaylists: true)
         if kind == .track, let track = media.tracks.first {
             await playbackService.play(track: track, context: media.context)
         } else if request.shuffle {
@@ -243,7 +261,11 @@ public final class SiriPlaybackCoordinator {
     }
 
     /// Resolves a request to its playable tracks and the start context describing the item.
-    private func resolveMedia(kind: SiriMediaKind, request: SiriPlaybackRequest) async throws -> ResolvedMedia {
+    private func resolveMedia(
+        kind: SiriMediaKind,
+        request: SiriPlaybackRequest,
+        mergesSamePlaylists: Bool = false
+    ) async throws -> ResolvedMedia {
         let enabledSourceKeys = enabledLibrarySourceKeys()
         guard !enabledSourceKeys.isEmpty else {
             throw SiriPlaybackCoordinatorError.noEnabledSources
@@ -301,7 +323,9 @@ public final class SiriPlaybackCoordinator {
                 throw SiriPlaybackCoordinatorError.mediaNotFound(.playlist)
             }
             // Plex playlists of one name on several servers are one playlist in the app, so they play as one.
-            let constituents = try await mergedConstituents(of: playlist, searchSourceKeys: playlistSourceKeys)
+            let constituents = mergesSamePlaylists && !request.scopedToSource
+                ? try await displayedConstituents(of: playlist)
+                : [playlist]
             // Memberships, as the playlist screen reads them: an Apple Music playlist can hold catalog songs
             // that are not library rows, and those still play.
             tracks = PlexPlaylistMergeRules.interleaved(constituents.map { constituent in
@@ -608,18 +632,35 @@ public final class SiriPlaybackCoordinator {
         )
     }
 
-    /// The playlist plus the same-named Plex playlists on the other enabled servers, in that order.
-    private func mergedConstituents(of playlist: CDPlaylist, searchSourceKeys: Set<String>) async throws -> [CDPlaylist] {
-        guard let sourceKey = playlist.sourceCompositeKey,
-              MediaSourceIdentity.parse(sourceKey)?.sourceType == .plex else { return [playlist] }
-        let key = PlexPlaylistMergeRules.key(title: playlist.title, isSmart: playlist.isSmart)
-        let siblings = try await playlistRepository.findPlaylistsByTitle(playlist.title, sourceCompositeKeys: searchSourceKeys)
-            .filter {
-                $0.objectID != playlist.objectID
-                    && PlexPlaylistMergeRules.key(title: $0.title, isSmart: $0.isSmart) == key
-                    && MediaSourceIdentity.parse($0.sourceCompositeKey ?? "")?.sourceType == .plex
-            }
-        return [playlist] + siblings
+    /// The playlists the playlist screen shows together with this one, in its order: the same grouping, the same
+    /// merge setting, the same hidden-media and hidden-source rules. Just the playlist when the screen would not merge it.
+    private func displayedConstituents(of playlist: CDPlaylist) async throws -> [CDPlaylist] {
+        let preferences = mergingPreferences()
+        guard preferences.isEnabled, preferences.mergePlaylists else { return [playlist] }
+
+        let configuration = accountManager.sourceConfigurationSnapshot
+        let hiddenSourceKeys = visibilityStore.effectiveHiddenSourceCompositeKeys(
+            enabledSourceCompositeKeys: configuration.enabledSourceKeys
+        )
+        var storedBySourceID: [String: CDPlaylist] = [:]
+        var visible: [Playlist] = []
+        for stored in try await playlistRepository.fetchPlaylists() {
+            let candidate = Playlist(from: stored)
+            guard let sourceKey = candidate.sourceCompositeKey,
+                  !hiddenMediaStore.snapshot.isHidden(candidate),
+                  !LibraryVisibilityFiltering.isHiddenSourceKey(
+                      sourceKey,
+                      hiddenSourceCompositeKeys: hiddenSourceKeys,
+                      sourceConfiguration: configuration
+                  ) else { continue }
+            storedBySourceID[candidate.sourceScopedID] = stored
+            visible.append(candidate)
+        }
+
+        let own = Playlist(from: playlist).sourceScopedID
+        guard let group = DisplayPlaylist.group(visible, merge: true, preferences: preferences)
+            .first(where: { $0.playlists.contains { $0.sourceScopedID == own } }) else { return [playlist] }
+        return group.playlists.compactMap { storedBySourceID[$0.sourceScopedID] }
     }
 
     private func prioritizeExactPlaylistMatches(

@@ -653,7 +653,9 @@ public final class DependencyContainer: @unchecked Sendable {
                 libraryRepository: core.libraryRepository,
                 playlistRepository: core.playlistRepository,
                 playbackService: playback.playbackService,
-                hiddenMediaStore: core.hiddenMediaStore
+                hiddenMediaStore: core.hiddenMediaStore,
+                visibilityStore: core.libraryVisibilityStore,
+                mergingPreferences: { [settingsManager = core.settingsManager] in settingsManager.mergingPreferences }
             )
         }
         let siriAffinityCoordinator = MainActor.assumeIsolated {
