@@ -346,6 +346,12 @@ Impossible on a simulator:
   at 6.8 s. It is not known whether the synthesized drag was read as a scrub;
   repeat by hand before treating it as an app defect. (Artwork, title, pause
   and Next passed on 2026-10-26; play and pause passed on 2026-11-10.)
+  Passed on the SE on 2026-11-11 through Device MCP (`drag` on the Lock
+  Screen scrubber, positions read from its accessibility value): forward
+  from 0:21 to 1:40 of 3:02 and back to 0:32, the same track kept playing
+  and advancing each time, so the 2026-11-10 failure was the synthesized
+  drag. Still owed: the app's own elapsed time agreeing after unlock
+  (Device MCP's `launch_app` restarts the app, so unlock with Home instead).
 - Control Center: Next. (The tile's pause and play passed on 2026-11-10.)
 - Offline playback: a blocked track toasts. (A downloaded track played with
   the network off, and a natural track change in the background after an idle
