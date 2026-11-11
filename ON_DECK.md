@@ -593,3 +593,11 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   to tell the user.
 - Not run: reordering a playlist by dragging. Device MCP's drag moves neither playlist rows nor queue rows;
   needs a finger.
+
+## Suspected: the Now Playing page indicators open Add to Playlist on a small iPhone (2026-11-11)
+
+- Evidence (iPhone SE, build `202611111332.2379`): tapping the page-indicator icons (queue, lyrics, info, at
+  y about 641 of 667) opened the "Add to Playlist" sheet twice instead of switching panel; a swipe switched
+  panels. Seen through Device MCP taps, so a finger may differ.
+- Next step: check by hand on the SE; if it reproduces, compare the hit areas of the indicators and the
+  secondary action row.

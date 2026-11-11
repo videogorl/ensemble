@@ -181,7 +181,10 @@ private final class MockWebSocketProvider: MusicSourceConnector, @unchecked Send
     func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
 
     func fetchPlaylistHeaders() async throws -> PlaylistHeaderList { playlists }
-    func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
+    /// Every asked-for body is read (empty), so the writer has nothing unresolved.
+    func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] {
+        headers.map { PlaylistEntry(header: $0, body: []) }
+    }
 
     func getStreamURL(
         for trackRatingKey: String,
