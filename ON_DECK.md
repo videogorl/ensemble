@@ -478,3 +478,50 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
   Core Data model version, lightweight migration), consulted like the queued-mutation records. Do it only
   if the window shows up in the log: a created playlist's body read back empty right after a relaunch.
 
+## Suspected: a queued playlist mutation that never uploads freezes its playlist indefinitely (2026-11-11)
+
+- Evidence: `LibraryWriter.queuedPlaylistMutations` protects every playlist named by a pending
+  (`status == pending`) add, remove or delete record: its header and body are skipped and an inventory
+  cannot delete it. A retryable record that never uploads (a stale payload against a playlist the server
+  lost, a permanent 4xx that `isConnectionFailure` treats as retryable) keeps the record pending, so the
+  playlist never takes a server change. Not reproduced.
+- Impact: one such playlist shows its pre-queue state and cannot be removed by a sync.
+- Next step: bound the protection (give up after the mutation's retry limit, or when the record's age passes
+  a ceiling) and make the pending-mutations UI show which playlist is held.
+
+## Suspected: uploading a queued playlist mutation schedules no refresh after its record is gone (2026-11-11)
+
+- Evidence: `MutationCoordinator.drainQueue` replays an add, rename or delete through
+  `syncCoordinator.addTracksToPlaylist` / `renamePlaylist` / `deletePlaylist`, whose own refresh (and, for
+  Apple Music adds, the reconcile loop) runs while the record is still `pending`. `LibraryWriter` then skips
+  that playlist's header and body (a queued add or remove) or keeps its title (a queued rename). The record is
+  deleted afterwards and nothing reads the playlist again, so the reconcile loop logs "completed" for a batch
+  the writer skipped. Not reproduced.
+- Impact: after a queued add uploads, the playlist can show its pre-upload body until the next sync,
+  WebSocket update or foreground pass.
+- Next step: delete the record before the replay's refresh (the record only guards the window before the
+  upload is acknowledged), or run one playlist pass after `drainQueue` removes a playlist record.
+
+## Suspected: a REST-only Apple Music playlist is read again every pass (2026-11-11)
+
+- Evidence: `AppleMusicPlaylistBodyProof.verifyREST` accepts a REST body with no reported total only when
+  MusicKit's read of the same playlist agrees. A playlist the REST list has and MusicKit lacks has no
+  witness, so its body is withheld, the header keeps its stored date, and `needsBody` is true again on the
+  next pass. Not reproduced (needs `meta.total` absent on the device; see the step 3d device checks).
+- Impact: one REST call per such playlist per pass, and the pass reports `.partial`, so background recovery
+  stays outstanding while the playlist exists.
+- Next step: read the device log for `Apple Music REST playlist body unavailable` / `body failed` with the
+  same id on consecutive passes. If it happens, accept a REST body with no total when the playlist is
+  REST-only and two consecutive reads agree, or stop reporting such a playlist as unresolved.
+
+## Suspected: on `.partial` the UI still shows "last synced" and the list cursor advances (2026-11-11)
+
+- Evidence: `completeSourceSync` sets `.lastSynced` before returning `.partial`, and `LibraryWriter.applyBatch`
+  records the playlist cursor for any full-list batch that was not rejected, unresolved bodies included
+  (their dates stay, so the bodies are retried; the cursor only dates the list read). A stale-rejected
+  pass records nothing.
+- Impact: Settings shows a clean "last synced" time while a playlist body is owed; only the log
+  (`Playlists <scope>: N body reads unresolved`) and the background handoff say otherwise.
+- Next step: give `MusicSourceSyncStatus` a partial state (or a detail line) and show it, or hold the
+  playlist cursor's incremental date back while a body is unresolved.
+

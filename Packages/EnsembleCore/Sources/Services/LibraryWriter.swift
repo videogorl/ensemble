@@ -157,6 +157,9 @@ public actor LibraryWriter {
     /// began before the edit, and no read stays in flight this long.
     static let localEditRetention: TimeInterval = 60 * 60
 
+    /// Waits between the attempts at a local delete the server already confirmed.
+    static let localDeleteRetryDelays: [UInt64] = [50_000_000, 200_000_000, 1_000_000_000]
+
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let cursors: SyncCursorRepositoryProtocol?
@@ -258,10 +261,14 @@ public actor LibraryWriter {
     // long library write never delays a local playlist edit.
 
     private var playlistChain: Task<Void, Never>?
+    /// How many playlist operations were submitted to the chain, in total. Tests wait on it to know a
+    /// call has reached the writer.
+    private(set) var playlistOperationsSubmitted = 0
 
     /// Runs `operation` after every earlier playlist operation finished, in call order. A cancelled caller
     /// cancels its own operation; the chain goes on.
     private func serialized<Value: Sendable>(_ operation: @escaping () async throws -> Value) async throws -> Value {
+        playlistOperationsSubmitted += 1
         let previous = playlistChain
         let task = Task { () throws -> Value in
             await previous?.value
@@ -270,6 +277,14 @@ public actor LibraryWriter {
         }
         playlistChain = Task { _ = await task.result }
         return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+    }
+
+    /// Runs a local playlist edit, such as queueing a playlist mutation and caching its effect, in the
+    /// chain: after every earlier playlist operation and before the next. A pass reads the queued mutations
+    /// once, at its start, so an edit that ran inside it would go unprotected from that pass's last write.
+    /// The edit must not call this writer's other playlist operations.
+    public func performPlaylistEdit<Value: Sendable>(_ edit: @escaping () async throws -> Value) async throws -> Value {
+        try await serialized(edit)
     }
 
     /// The listed playlists whose bodies must be read: new ones, ones whose date changed or is missing,
@@ -294,7 +309,7 @@ public actor LibraryWriter {
         if let newest = try await cursors?.fetchCursor(scopeKey: scope, scopeType: .serverPlaylists)?.lastSuccessfulSyncAt,
            batch.queryStartedAt <= newest, newest <= Date() {
             EnsembleLogger.info("Ignoring a stale playlist batch for \(scope): query started before the last committed list read")
-            return PlaylistSyncResult()
+            return PlaylistSyncResult(rejectedAsStale: true)
         }
         let stored = try await playlistRepository.fetchPlaylistSyncStates(forSource: scope)
         let queued = try await queuedPlaylistMutations(in: scope)
@@ -403,7 +418,18 @@ public actor LibraryWriter {
     public func removePlaylist(_ id: String, for scope: String) async throws {
         try await serialized {
             self.noteLocalEdit(id, in: scope)
-            try await self.playlistRepository.deletePlaylist(ratingKey: id, sourceCompositeKey: scope)
+            // The server already deleted it and nothing will ask again, so a failed local delete is retried here.
+            for (attempt, delay) in ([0] + Self.localDeleteRetryDelays).enumerated() {
+                if delay > 0 { try await Task.sleep(nanoseconds: delay) }
+                do {
+                    try await self.playlistRepository.deletePlaylist(ratingKey: id, sourceCompositeKey: scope)
+                    break
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch where attempt < Self.localDeleteRetryDelays.count {
+                    EnsembleLogger.info("Local delete of playlist \(id) failed, retrying: \(error.localizedDescription)")
+                }
+            }
             let survivors = Set(try await self.playlistRepository.fetchPlaylistSyncStates(forSource: scope).keys)
             await MainActor.run {
                 HiddenMediaStore.shared.removeMissing(kind: .playlist, sourceKey: scope, survivingItemIDs: survivors)

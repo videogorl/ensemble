@@ -10,37 +10,60 @@ final class LibraryWriterPlaylistTests: XCTestCase {
     private let otherScope = "plex:acct:other"
     private let t0 = Date(timeIntervalSince1970: 1_000_000)
 
-    /// Forwards to a real repository and lets a test hold or observe each body write.
+    /// Forwards to a real repository, logs every call by name, and lets a test hold or fail a call at a named
+    /// point. Events: `read` (sync states), `fetch` (one playlist), `body:<track IDs>`, `upsert:<title>`,
+    /// `orphans`, `delete`.
     private final class HookedPlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
         let base: PlaylistRepository
         private let lock = NSLock()
-        private var writes = 0
-        private var hook: (@Sendable (Int) async -> Void)?
+        private var log: [String] = []
+        private var hook: (@Sendable (String) async throws -> Void)?
 
         init(base: PlaylistRepository) { self.base = base }
 
-        /// Runs before each body write, with the number of that write (the first is 1).
-        func beforeBodyWrite(_ hook: @escaping @Sendable (Int) async -> Void) { lock.withLock { self.hook = hook } }
+        /// Runs before each call, after it is logged. It may suspend the call or throw from it.
+        func onCall(_ hook: @escaping @Sendable (String) async throws -> Void) { lock.withLock { self.hook = hook } }
+        var events: [String] { lock.withLock { log } }
+        func count(_ prefix: String) -> Int { events.filter { $0.hasPrefix(prefix) }.count }
+
+        private func note(_ event: String) async throws {
+            let hook = lock.withLock { log.append(event); return self.hook }
+            try await hook?(event)
+        }
 
         func fetchPlaylists() async throws -> [CDPlaylist] { try await base.fetchPlaylists() }
         func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] { try await base.fetchPlaylists(sourceCompositeKey: sourceCompositeKey) }
-        func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? { try await base.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey) }
+        func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? {
+            try await note("fetch")
+            return try await base.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey)
+        }
         func searchPlaylists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDPlaylist]) -> [Value]) async throws -> [Value] { try await base.searchPlaylists(query: query, map: map) }
         func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist] { try await base.findPlaylistsByTitle(title, sourceCompositeKeys: sourceCompositeKeys) }
         func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist {
             try await base.upsertPlaylist(ratingKey: ratingKey, key: key, title: title, summary: summary, compositePath: compositePath, isSmart: isSmart, duration: duration, trackCount: trackCount, dateAdded: dateAdded, dateModified: dateModified, lastPlayed: lastPlayed, sourceCompositeKey: sourceCompositeKey)
         }
-        func upsertPlaylist(_ input: PlaylistUpsertInput, sourceCompositeKey: String?) async throws -> CDPlaylist { try await base.upsertPlaylist(input, sourceCompositeKey: sourceCompositeKey) }
+        func upsertPlaylist(_ input: PlaylistUpsertInput, sourceCompositeKey: String?) async throws -> CDPlaylist {
+            try await note("upsert:\(input.title)")
+            return try await base.upsertPlaylist(input, sourceCompositeKey: sourceCompositeKey)
+        }
         func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws { try await base.setPlaylistTracks(trackRatingKeys, forPlaylist: playlistRatingKey, sourceCompositeKey: sourceCompositeKey) }
         func setPlaylistTrackSnapshots(_ snapshots: [PlaylistTrackSnapshot], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws {
-            let (count, hook) = lock.withLock { writes += 1; return (writes, self.hook) }
-            await hook?(count)
+            try await note("body:" + snapshots.map(\.ratingKey).joined(separator: ","))
             try await base.setPlaylistTrackSnapshots(snapshots, forPlaylist: playlistRatingKey, sourceCompositeKey: sourceCompositeKey)
         }
         func deletePlaylists(sourceCompositeKey: String) async throws { try await base.deletePlaylists(sourceCompositeKey: sourceCompositeKey) }
-        func deletePlaylist(ratingKey: String, sourceCompositeKey: String) async throws -> Bool { try await base.deletePlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey) }
-        func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { try await base.removeOrphanedPlaylists(notIn: validRatingKeys, forSource: sourceKey) }
-        func fetchPlaylistSyncStates(forSource sourceKey: String) async throws -> [String: PlaylistSyncState] { try await base.fetchPlaylistSyncStates(forSource: sourceKey) }
+        func deletePlaylist(ratingKey: String, sourceCompositeKey: String) async throws -> Bool {
+            try await note("delete")
+            return try await base.deletePlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey)
+        }
+        func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
+            try await note("orphans")
+            return try await base.removeOrphanedPlaylists(notIn: validRatingKeys, forSource: sourceKey)
+        }
+        func fetchPlaylistSyncStates(forSource sourceKey: String) async throws -> [String: PlaylistSyncState] {
+            try await note("read")
+            return try await base.fetchPlaylistSyncStates(forSource: sourceKey)
+        }
     }
 
     /// Holds a body write until the test lets it go, so a second operation can arrive while the first is mid-write.
@@ -58,6 +81,15 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         }
         func waitUntilHeld() async { if !started { await withCheckedContinuation { startWaiters.append($0) } } }
         func release() { isOpen = true; waiters.forEach { $0.resume() }; waiters.removeAll() }
+    }
+
+    private struct Injected: Error {}
+
+    private final class Flag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+        var isSet: Bool { lock.withLock { value } }
+        func set() { lock.withLock { value = true } }
     }
 
     private struct Fixture {
@@ -88,6 +120,22 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         )
     }
 
+    /// Waits until the writer has been handed `count` playlist operations in all: the call has arrived, and
+    /// either waits its turn in the chain or runs.
+    private func waitForSubmissions(_ f: Fixture, _ count: Int) async {
+        while await f.writer.playlistOperationsSubmitted < count { await Task.yield() }
+    }
+
+    /// Gives work that must NOT run yet the chance to run if it wrongly would: polls (each poll is a real store
+    /// read, with no clock) until `condition` holds or the budget is spent. With the chain intact the condition
+    /// never holds and the budget runs out; without it the condition holds within a few polls.
+    private func letOtherWorkRun(_ f: Fixture, budget: Int = 300, until condition: () -> Bool) async {
+        for _ in 0..<budget {
+            if condition() { return }
+            _ = try? await f.playlists.fetchPlaylistSyncStates(forSource: scope)
+        }
+    }
+
     // MARK: - Inputs
 
     private func header(_ id: String, at seconds: TimeInterval? = 100, count: Int? = 0, title: String? = nil) -> PlaylistUpsertInput {
@@ -103,10 +151,10 @@ final class LibraryWriterPlaylistTests: XCTestCase {
 
     /// A read of the whole list: the given playlists, with bodies for those named, and an inventory when `complete`.
     private func list(
-        _ ids: [String], bodies: [String: [PlaylistTrackSnapshot]] = [:], complete: Bool = true, at date: Date, modified: TimeInterval = 100
+        _ ids: [String], bodies: [String: [PlaylistTrackSnapshot]] = [:], complete: Bool = true, at date: Date, modified: TimeInterval = 100, title: String? = nil
     ) throws -> PlaylistBatch {
         PlaylistBatch(
-            entries: ids.map { PlaylistEntry(header: header($0, at: modified, count: bodies[$0]?.count ?? 0), body: bodies[$0]) },
+            entries: ids.map { PlaylistEntry(header: header($0, at: modified, count: bodies[$0]?.count ?? 0, title: title), body: bodies[$0]) },
             inventory: complete ? try PlaylistInventory(playlistIDs: ids) : nil,
             readsFullList: true,
             queryStartedAt: date
@@ -428,7 +476,7 @@ final class LibraryWriterPlaylistTests: XCTestCase {
 
             let result = try await f.writer.apply(testCase.batch, for: scope)
 
-            XCTAssertEqual(result, PlaylistSyncResult(), testCase.name)
+            XCTAssertEqual(result, PlaylistSyncResult(rejectedAsStale: true), testCase.name)
             let ids = try await storedIDs(f, scope)
             XCTAssertEqual(ids, ["p1"], testCase.name)
             let rows = try await body(f, "p1")
@@ -449,37 +497,90 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         XCTAssertEqual(created, ["x"])
     }
 
-    /// An operation that arrives while a pass is mid-write waits for it, so the local edit is the last write
-    /// instead of being overwritten by the pass's body.
-    func testALocalEditArrivingMidPassWaitsForThePass() async throws {
+    /// An operation that arrives while a pass is held mid-write runs after the pass, not inside it: the pass's
+    /// last save lands first and the local edit is the final write.
+    func testALocalEditArrivingMidPassRunsAfterThePass() async throws {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0), for: scope)
         let gate = Gate()
-        f.hooked.beforeBodyWrite { count in if count == 2 { await gate.hold() } }   // 1 was the seed above
+        f.hooked.onCall { event in if event == "body:x" { await gate.hold() } }
+        let submitted = await f.writer.playlistOperationsSubmitted
 
         let pass = Task { try await f.writer.apply(self.list(["p1"], bodies: ["p1": self.tracks("x")], at: Date(), modified: 200), for: self.scope) }
         await gate.waitUntilHeld()
         let edit = Task { try await f.writer.applyLocalEdit(PlaylistEntry(header: self.header("p1", at: 200, count: 2), body: self.tracks("a", "b")), for: self.scope) }
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await waitForSubmissions(f, submitted + 2)
+        let reads = f.hooked.count("read")
+        await letOtherWorkRun(f) { f.hooked.count("read") > reads }   // the edit's first call, if it ran unchained
         await gate.release()
         _ = try await pass.value
         try await edit.value
 
+        let events = f.hooked.events
+        let held = try XCTUnwrap(events.firstIndex(of: "body:x"))
+        let passSaved = try XCTUnwrap(events[held...].firstIndex { $0.hasPrefix("upsert:") })
+        let editStarted = try XCTUnwrap(events[held...].firstIndex { $0 == "read" })
+        XCTAssertLessThan(passSaved, editStarted, "the edit's first store call came after the pass's last save")
         let rows = try await body(f, "p1")
         XCTAssertEqual(rows, ["a", "b"])
     }
 
-    /// Two passes started together apply one after the other: the older read is ignored whichever arrives first.
+    /// A queued mutation the pass did not see at its start stays unprotected for that pass, so the edit that
+    /// queues it and caches its title runs after the pass and its title is the last write.
+    func testAMutationQueuedMidPassIsAppliedAfterThePassNotInsideIt() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(list(["p1"], at: t0), for: scope)
+        let gate = Gate()
+        f.hooked.onCall { event in if event == "upsert:Server title" { await gate.hold() } }   // the pass's header save
+        let submitted = await f.writer.playlistOperationsSubmitted
+        let payload = try JSONEncoder().encode(PlaylistRenameMutationPayload(playlistRatingKey: "p1", playlistSourceCompositeKey: scope, newTitle: "Renamed"))
+
+        let pass = Task { try await f.writer.apply(self.list(["p1"], at: Date(), modified: 200, title: "Server title"), for: self.scope) }
+        await gate.waitUntilHeld()
+        let editRan = Flag()
+        let edit = Task {
+            try await f.writer.performPlaylistEdit {
+                try await f.pending.enqueueMutation(id: "m1", type: .playlistRename, payload: payload, sourceCompositeKey: self.scope)
+                try await f.playlists.updatePlaylistTitle(ratingKey: "p1", sourceCompositeKey: self.scope, title: "Renamed")
+                editRan.set()
+            }
+        }
+        await waitForSubmissions(f, submitted + 2)
+        await letOtherWorkRun(f) { editRan.isSet }   // the edit's whole body, if it ran unchained
+        await gate.release()
+        _ = try await pass.value
+        try await edit.value
+
+        let states = try await f.playlists.fetchPlaylistSyncStates(forSource: scope)
+        XCTAssertEqual(states["p1"]?.title, "Renamed", "the pass's older title did not overwrite the local rename")
+        let records = try await f.pending.fetchPendingMutationRecords()
+        XCTAssertEqual(records.count, 1)
+
+        // The next pass sees the record from its start and keeps the title.
+        try await f.writer.apply(list(["p1"], at: Date().addingTimeInterval(1), modified: 300, title: "Server title"), for: scope)
+        let after = try await f.playlists.fetchPlaylistSyncStates(forSource: scope)
+        XCTAssertEqual(after["p1"]?.title, "Renamed")
+    }
+
+    /// Two passes started together apply one after the other: the older read, held mid-write, is rejected by the
+    /// newer pass's cursor instead of overwriting it afterwards.
     func testOverlappingPassesEndInTheNewerReadsState() async throws {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1", "p2"], bodies: ["p1": tracks("a"), "p2": tracks("b")], at: t0), for: scope)
-        f.hooked.beforeBodyWrite { _ in try? await Task.sleep(nanoseconds: 20_000_000) }
+        let gate = Gate()
+        f.hooked.onCall { event in if event == "body:o" { await gate.hold() } }
+        let submitted = await f.writer.playlistOperationsSubmitted
         let now = Date()   // reads began in the past: a cursor dated in the future reads as a clock that went backwards
 
-        let newer = Task { try await f.writer.apply(self.list(["p1", "p3"], bodies: ["p1": self.tracks("a", "n"), "p3": self.tracks("c")], at: now - 5, modified: 200), for: self.scope) }
         let older = Task { try await f.writer.apply(self.list(["p1", "p2"], bodies: ["p1": self.tracks("o"), "p2": self.tracks("b")], at: now - 10, modified: 150), for: self.scope) }
-        _ = try await (newer.value, older.value)
+        await gate.waitUntilHeld()
+        let newer = Task { try await f.writer.apply(self.list(["p1", "p3"], bodies: ["p1": self.tracks("a", "n"), "p3": self.tracks("c")], at: now - 5, modified: 200), for: self.scope) }
+        await waitForSubmissions(f, submitted + 2)
+        await letOtherWorkRun(f) { f.hooked.count("body:a,n") > 0 }   // the newer pass's write, if it ran unchained
+        await gate.release()
+        let results = try await (older.value, newer.value)
 
+        XCTAssertFalse(results.1.rejectedAsStale)
         let ids = try await storedIDs(f, scope)
         XCTAssertEqual(ids, ["p1", "p3"])
         let rows = try await body(f, "p1")
@@ -493,7 +594,7 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1", "p2", "p3"], bodies: ["p1": tracks("a"), "p2": tracks("b"), "p3": tracks("c")], at: t0), for: scope)
         let gate = Gate()
-        f.hooked.beforeBodyWrite { count in if count == 5 { await gate.hold() } }   // 1 to 3 were the seed; 4 is p1
+        f.hooked.onCall { event in if event == "body:b,n" { await gate.hold() } }   // p2's body: p1 has committed by now
 
         let pass = Task { try await f.writer.apply(self.list(["p1", "p2"], bodies: ["p1": self.tracks("a", "n"), "p2": self.tracks("b", "n")], at: self.t0 + 10, modified: 200), for: self.scope) }
         await gate.waitUntilHeld()
@@ -509,6 +610,43 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         XCTAssertEqual(Set(states.keys), ["p1", "p2", "p3"], "the inventory deleted nothing")
         let record = try await cursor(f)
         XCTAssertEqual(record?.lastInventorySyncAt, t0)
+    }
+
+    /// The chain goes on after an operation is cancelled while queued, cancelled mid-run, or fails on a store error.
+    func testTheChainContinuesAfterACancelledQueuedOperationACancelledRunAndAStoreError() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0), for: scope)
+        let gate = Gate()
+        f.hooked.onCall { event in
+            if event == "body:held" { await gate.hold() }
+            if event == "body:fails" { throw Injected() }
+        }
+        let submitted = await f.writer.playlistOperationsSubmitted
+        func edit(_ ids: String...) -> Task<Void, Error> {
+            Task { try await f.writer.applyLocalEdit(PlaylistEntry(header: self.header("p1", at: 100, count: ids.count), body: ids.enumerated().map { PlaylistTrackSnapshot(ratingKey: $1, playlistItemID: "i\($0)", title: $1) }), for: self.scope) }
+        }
+
+        let running = edit("held")                               // runs, then is cancelled while held
+        await gate.waitUntilHeld()
+        let queuedThenCancelled = edit("never")                  // cancelled while it waits its turn
+        let storeError = edit("fails")                           // fails when it runs
+        let survivor = edit("a", "survivor")                     // must still run
+        await waitForSubmissions(f, submitted + 4)
+        queuedThenCancelled.cancel()
+        running.cancel()
+        await gate.release()
+
+        for (name, task) in [("running", running), ("queued", queuedThenCancelled)] {
+            do { try await task.value; XCTFail("\(name) should be cancelled") } catch is CancellationError {}
+        }
+        do { try await storeError.value; XCTFail("expected the store error") } catch is Injected {}
+        try await survivor.value
+        let rows = try await body(f, "p1")
+        XCTAssertEqual(rows, ["a", "survivor"])
+        // And the chain still accepts work afterwards.
+        try await f.writer.applyLocalEdit(PlaylistEntry(header: header("p1", at: 100, count: 1), body: tracks("last")), for: scope)
+        let last = try await body(f, "p1")
+        XCTAssertEqual(last, ["last"])
     }
 
     // MARK: - Unresolved bodies
@@ -550,20 +688,29 @@ final class LibraryWriterPlaylistTests: XCTestCase {
 
     // MARK: - Local mutations
 
-    /// Adds made together all land: each reads, merges and saves the body inside one serialized operation.
+    /// Adds made together all land: each reads, merges and saves the body inside one serialized operation. The
+    /// first add is held at its body write while eight more arrive; they must not read the playlist meanwhile.
     func testConcurrentAppendsAllLand() async throws {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0), for: scope)
-        f.hooked.beforeBodyWrite { _ in try? await Task.sleep(nanoseconds: 5_000_000) }
+        let gate = Gate()
+        let writes = LockedCounter()
+        f.hooked.onCall { event in if event.hasPrefix("body:"), writes.next() == 0 { await gate.hold() } }
+        let submitted = await f.writer.playlistOperationsSubmitted
         let source = MusicSourceIdentifier(type: .plex, accountId: "acct", serverId: "srv", libraryId: "1").compositeKey
         func track(_ id: String) -> Track { Track(id: id, key: id, title: id, sourceCompositeKey: source) }
+        func append(_ id: String) -> Task<Int?, Error> { Task { try await f.writer.appendLocally([track(id)], toPlaylist: "p1", for: self.scope) } }
 
-        let counts = try await withThrowingTaskGroup(of: Int?.self) { group in
-            for index in 0..<8 { group.addTask { try await f.writer.appendLocally([track("t\(index)")], toPlaylist: "p1", for: self.scope) } }
-            // A track the playlist already holds adds nothing.
-            group.addTask { try await f.writer.appendLocally([track("a")], toPlaylist: "p1", for: self.scope) }
-            return try await group.reduce(into: [Int?]()) { $0.append($1) }
-        }
+        var tasks = [append("t0")]
+        await gate.waitUntilHeld()
+        tasks += (1..<8).map { append("t\($0)") }
+        tasks.append(append("a"))                               // already in the playlist: adds nothing
+        await waitForSubmissions(f, submitted + 9)
+        let fetches = f.hooked.count("fetch")
+        await letOtherWorkRun(f) { f.hooked.count("fetch") > fetches }   // another add's read, if it ran unchained
+        await gate.release()
+        var counts: [Int?] = []
+        for task in tasks { counts.append(try await task.value) }
 
         let rows = try await body(f, "p1")
         XCTAssertEqual(rows.count, 9)
@@ -571,6 +718,27 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         XCTAssertEqual(counts.compactMap { $0 }.max(), 9)
         let missing = try await f.writer.appendLocally([track("x")], toPlaylist: "gone", for: scope)
         XCTAssertNil(missing, "a playlist that is not stored reports so")
+    }
+
+    /// The local delete of a playlist the server already deleted is retried, so one failed save does not leave
+    /// the row of a scope's last playlist behind. A persistent failure is reported, and the row stays.
+    func testAFailedLocalDeleteIsRetried() async throws {
+        let f = try makeFixture()
+        try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0), for: scope)
+        let failures = LockedCounter()
+        f.hooked.onCall { event in if event == "delete", failures.next() < 2 { throw Injected() } }
+
+        try await f.writer.removePlaylist("p1", for: scope)
+
+        let ids = try await storedIDs(f, scope)
+        XCTAssertEqual(ids, [])
+        XCTAssertEqual(f.hooked.count("delete"), 3, "two failures, then the delete")
+
+        try await f.writer.apply(list(["p2"], bodies: ["p2": tracks("b")], at: t0 + 10), for: scope)
+        f.hooked.onCall { event in if event == "delete" { throw Injected() } }
+        do { try await f.writer.removePlaylist("p2", for: scope); XCTFail("expected the failure to surface") } catch is Injected {}
+        let kept = try await storedIDs(f, scope)
+        XCTAssertEqual(kept, ["p2"])
     }
 
     /// The server confirmed the delete: the playlist goes even when it was the scope's last, where the

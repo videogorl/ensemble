@@ -363,7 +363,7 @@ public final class SyncCoordinator {
                 let serverKey = MediaSourceIdentity.serverSourceKey(for: source)
                 let succeeded = await onRefreshPlaylistsCommitted?(serverKey, result.hasMaterialChanges) ?? true
                 followUpSucceeded = followUpSucceeded && succeeded
-                if succeeded && !result.isPartial { completedPlaylistServers.insert(serverKey) }
+                if succeeded && !result.isPartial && !result.rejectedAsStale { completedPlaylistServers.insert(serverKey) }
                 EnsembleLogger.info("Background refresh phase=playlists completed=true followUp=\(succeeded)")
             }
             let shouldSyncPlaylists = !completedPlaylistServers.contains(MediaSourceIdentity.serverSourceKey(for: source))
@@ -1182,6 +1182,11 @@ public final class SyncCoordinator {
         }
     }
 
+    /// Runs a local playlist edit in the library writer's serial chain (see `LibraryWriter.performPlaylistEdit`).
+    internal func performPlaylistEdit<Value: Sendable>(_ edit: @escaping () async throws -> Value) async throws -> Value {
+        try await libraryWriter.performPlaylistEdit(edit)
+    }
+
     internal func persistCreatedPlaylist(
         _ playlist: Playlist,
         tracks: [Track]
@@ -1252,6 +1257,10 @@ public final class SyncCoordinator {
             EnsembleLogger.error(
                 "Playlist refresh failed source=\(sourceKey): \(error.localizedDescription)"
             )
+            return
+        }
+        guard !result.rejectedAsStale else {
+            EnsembleLogger.info("Playlist refresh superseded source=\(sourceKey): a newer list read had committed")
             return
         }
         guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
@@ -1328,7 +1337,12 @@ public final class SyncCoordinator {
                 ) else { continue }
                 guard isCurrentProviderRevision(expectedRevision, sourceKey: providerSourceKey),
                       isSourcePersistenceWorkCurrent(persistenceWork) else { return }
-                try await libraryWriter.apply(batch, for: sourceKey)
+                let applied = try await libraryWriter.apply(batch, for: sourceKey)
+                guard !applied.rejectedAsStale else {
+                    // A newer list read committed first; read the playlist again rather than call this done.
+                    EnsembleLogger.info("Playlist reconciliation read was superseded source=\(sourceKey) playlist=\(playlistID) attempt=\(attempt)")
+                    continue
+                }
                 let trackCount = batch.entries.first?.body?.count ?? 0
                 notifyPlaylistRefreshCompleted(serverSourceKey: sourceKey)
                 EnsembleLogger.info(
@@ -3520,6 +3534,9 @@ private extension SyncCoordinator {
         publishContentChangeIfNeeded(for: source, libraryResult: libraryResult, playlistResult: playlistResult, syncedAt: syncedAt)
         if libraryResult?.hasMaterialChanges == true || playlistResult?.hasMaterialChanges == true {
             libraryChanges?.send(.catalogChanged)
+        }
+        if playlistResult?.rejectedAsStale == true {
+            return .partial(message: "A newer playlist read superseded this one; playlists will be read again.")
         }
         if let unresolved = playlistResult?.unresolvedPlaylists, !unresolved.isEmpty {
             EnsembleLogger.info("Sync of \(source.compositeKey) is partial: \(unresolved.count) playlist bodies unresolved")

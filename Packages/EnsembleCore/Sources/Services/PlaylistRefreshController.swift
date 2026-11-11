@@ -48,6 +48,9 @@ final class PlaylistRefreshController {
         let bodies = try await provider.fetchPlaylistBodies(for: needed)
         progressHandler(0.8)
         let result = try await writer.apply(PlaylistBatch(list: list, bodies: bodies), for: scope)
+        if result.rejectedAsStale {
+            EnsembleLogger.info("Playlist pass for \(scope) was superseded by a newer list read; nothing written, no progress recorded")
+        }
         progressHandler(1)
         return result
     }

@@ -186,10 +186,40 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         }
     }
 
+    /// Hands out one scripted batch per read, the last one repeating. Each is built when it is read, so its
+    /// start time is the read's.
+    private final class ReconcileScript: @unchecked Sendable {
+        private let lock = NSLock()
+        private var reads = 0
+        private let batches: [() -> PlaylistBatch]
+        init(_ batches: [() -> PlaylistBatch]) { self.batches = batches }
+        var readCount: Int { lock.withLock { reads } }
+        func next() -> PlaylistBatch { lock.withLock { reads += 1; return batches[min(reads, batches.count) - 1]() } }
+    }
+
+    private struct ScriptedReconcilingProvider: MusicSourceConnector, MusicSourcePlaylistReconciling {
+        let base: RecordingPlaylistProvider
+        let script: ReconcileScript
+        var sourceIdentifier: MusicSourceIdentifier { base.sourceIdentifier }
+
+        func createPlaylist(title: String, tracks: [Track]) async throws -> Playlist? { try await base.createPlaylist(title: title, tracks: tracks) }
+        func addTracks(_ tracks: [Track], to playlistID: String) async throws -> Int { try await base.addTracks(tracks, to: playlistID) }
+        func renamePlaylist(_ playlistID: String, title: String) async throws { try await base.renamePlaylist(playlistID, title: title) }
+        func deletePlaylist(_ playlistID: String) async throws { try await base.deletePlaylist(playlistID) }
+        func replacePlaylistContents(_ playlistID: String, tracks: [Track]) async throws { try await base.replacePlaylistContents(playlistID, tracks: tracks) }
+        func editPlaylistItems(_ playlistID: String, originalItems: [PlaylistItem], editedItems: [PlaylistItem]) async throws { try await base.editPlaylistItems(playlistID, originalItems: originalItems, editedItems: editedItems) }
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList { try await base.fetchPlaylistHeaders() }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
+        func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
+        func reconcilePlaylist(id: String, minimumTrackCount: Int, requiredTracks: [Track]) async throws -> PlaylistBatch? { script.next() }
+    }
+
     private func makeCoordinator(
         withServer: Bool = true,
         playlistRepository: PlaylistRepositoryProtocol = EmptyPlaylistRepository(),
-        artworkDownloadManager: ArtworkDownloadManagerProtocol = EmptyArtworkDownloadManager()
+        artworkDownloadManager: ArtworkDownloadManagerProtocol = EmptyArtworkDownloadManager(),
+        syncCursorRepository: SyncCursorRepositoryProtocol? = nil
     ) -> SyncCoordinator {
         let accountManager = AccountManager(keychain: TestKeychain())
         if withServer {
@@ -218,6 +248,7 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             accountManager: accountManager,
             libraryRepository: EmptyLibraryRepository(),
             playlistRepository: playlistRepository,
+            syncCursorRepository: syncCursorRepository,
             artworkDownloadManager: artworkDownloadManager,
             networkMonitor: networkMonitor,
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
@@ -946,5 +977,46 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         now = try await stored()
         XCTAssertEqual(now.title, "Server title")
         XCTAssertEqual(now.date, Date(timeIntervalSince1970: 200))
+    }
+
+    /// A reconcile read that a newer list read superseded is not reported as done: the loop reads again, and the
+    /// second read applies.
+    func testASupersededReconcileReadIsReadAgain() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = PlaylistRepository(coreDataStack: stack)
+        let cursors = SyncCursorRepository(coreDataStack: stack)
+        let sourceKey = "plex:account-1:server-1"
+        let cached = CDPlaylist(context: stack.viewContext)
+        cached.ratingKey = "playlist-1"
+        cached.key = "playlist-1"
+        cached.title = "Mix"
+        cached.sourceCompositeKey = sourceKey
+        try stack.viewContext.save()
+        // A list read that began a minute ago has committed.
+        try await cursors.recordInventorySync(scopeKey: sourceKey, scopeType: .serverPlaylists, at: Date().addingTimeInterval(-60))
+        func batch(_ track: String, startedAt: Date) -> PlaylistBatch {
+            PlaylistBatch(entries: [PlaylistEntry(
+                header: PlaylistUpsertInput(ratingKey: "playlist-1", key: "playlist-1", title: "Mix", summary: nil, compositePath: nil, isSmart: false, duration: 0, trackCount: 1, dateAdded: nil, dateModified: nil, lastPlayed: nil),
+                body: [PlaylistTrackSnapshot(ratingKey: track, playlistItemID: nil, title: track, sourceCompositeKey: "plex:account-1:server-1:lib-1")]
+            )], queryStartedAt: startedAt)
+        }
+        let script = ReconcileScript([{ batch("stale", startedAt: Date().addingTimeInterval(-120)) }, { batch("fresh", startedAt: Date()) }])
+        let coordinator = makeCoordinator(withServer: false, playlistRepository: repository, syncCursorRepository: cursors)
+        let provider = ScriptedReconcilingProvider(base: RecordingPlaylistProvider(), script: script)
+        coordinator.setSyncProvidersForTesting([provider.sourceIdentifier.compositeKey: provider])
+        coordinator.refreshServerPlaylistsHandlerForTesting = { _ in }
+        let playlist = Playlist(id: "playlist-1", key: "playlist-1", title: "Mix", sourceCompositeKey: sourceKey)
+
+        _ = try await coordinator.addTracksToPlaylist([Track(id: "one", key: "one", title: "One", sourceCompositeKey: provider.sourceIdentifier.compositeKey)], playlist: playlist)
+        // The reconcile loop retries after a delay of its own; wait for its second read to land.
+        for _ in 0..<200 {
+            let current = try await repository.fetchPlaylist(ratingKey: "playlist-1", sourceCompositeKey: sourceKey)
+            if script.readCount >= 2, current?.playlistItemsArray.compactMap(\.trackRatingKey) == ["fresh"] { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        XCTAssertEqual(script.readCount, 2)
+        let stored = try await repository.fetchPlaylist(ratingKey: "playlist-1", sourceCompositeKey: sourceKey)
+        XCTAssertEqual(stored?.playlistItemsArray.compactMap(\.trackRatingKey), ["fresh"], "the superseded read wrote nothing; the fresh one applied")
     }
 }

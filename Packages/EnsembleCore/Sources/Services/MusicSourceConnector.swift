@@ -47,11 +47,17 @@ public struct PlaylistSyncResult: Sendable, Equatable {
     /// Playlists whose body was needed and could not be read or proven complete. Their stored rows and
     /// dates are untouched, so the next pass tries them again; the pass is partial until this is empty.
     public let unresolvedPlaylists: [String]
+    /// The writer ignored the whole batch because a newer list read had already committed. Nothing was
+    /// written and no cursor moved; a caller that needs its read applied must read again.
+    public let rejectedAsStale: Bool
 
-    public init(changedPlaylists: Int = 0, removedPlaylists: Int = 0, unresolvedPlaylists: [String] = []) {
+    public init(
+        changedPlaylists: Int = 0, removedPlaylists: Int = 0, unresolvedPlaylists: [String] = [], rejectedAsStale: Bool = false
+    ) {
         self.changedPlaylists = changedPlaylists
         self.removedPlaylists = removedPlaylists
         self.unresolvedPlaylists = unresolvedPlaylists
+        self.rejectedAsStale = rejectedAsStale
     }
 
     public var isPartial: Bool { !unresolvedPlaylists.isEmpty }
