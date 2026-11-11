@@ -27,9 +27,12 @@ public enum SiriPhraseNormalizer {
     ]
 
     /// Applies only case, diacritic, punctuation, and whitespace normalization.
+    /// Apostrophes vanish ("don't" and "dont" agree) and "&" reads as "and", so a title and what Siri heard compare equal.
     public static func basic(_ raw: String) -> String {
         raw
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "['\u{2018}\u{2019}\u{02BC}`]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&", with: " and ")
             .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
@@ -79,6 +82,7 @@ public enum SiriPhraseNormalizer {
             variants.insert(commandStripped)
             variants.insert(strippingLeadingMediaTypePrefix(from: candidate))
             variants.insert(strippingLeadingMediaTypePrefix(from: commandStripped))
+            variants.insert(strippingPossessiveAndTrailingMediaType(from: candidate))
         }
 
         insertVariants(for: base)
@@ -126,6 +130,17 @@ public enum SiriPhraseNormalizer {
         return value
     }
 
+    /// "shuffle my focus playlist" names the playlist "focus"; the stripped form is one more variant, never a replacement.
+    public static func strippingPossessiveAndTrailingMediaType(from value: String) -> String {
+        var tokens = value.split(separator: " ").map(String.init)
+        if tokens.first == "shuffle", tokens.dropFirst().first == "my" { tokens.removeFirst() }
+        if tokens.first == "my" { tokens.removeFirst() }
+        if let last = tokens.last, tokens.count > 1, ["playlist", "album", "song", "track", "artist"].contains(last) {
+            tokens.removeLast()
+        }
+        return tokens.joined(separator: " ")
+    }
+
     public static func strippingLeadingMediaTypePrefix(from value: String) -> String {
         for prefix in leadingMediaTypePrefixes where value.hasPrefix(prefix) {
             let stripped = value.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -146,8 +161,9 @@ public enum SiriMatchScorer {
     public static func scoreMatch(query: String, candidate: String) -> Double {
         guard !query.isEmpty, !candidate.isEmpty else { return 0 }
         if candidate == query { return 1.0 }
-        if candidate.hasPrefix(query) || query.hasPrefix(candidate) { return prefixScore }
-        if candidate.contains(query) || query.contains(candidate) { return containmentScore }
+        // A short title inside a longer phrase counts only as whole words ("rest" is not in "firestorm").
+        if candidate.hasPrefix(query) || query.hasPrefix(candidate + " ") { return prefixScore }
+        if candidate.contains(query) || " \(query) ".contains(" \(candidate) ") { return containmentScore }
 
         var score = 0.0
         let overlap = tokenOverlapScore(query: query, candidate: candidate)

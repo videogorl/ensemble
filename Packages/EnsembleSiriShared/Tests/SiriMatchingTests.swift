@@ -50,4 +50,38 @@ final class SiriMatchingTests: XCTestCase {
         XCTAssertGreaterThan(SiriMatchScorer.scoreMatch(query: "freedom", candidate: "faedom"), 0.6)
         XCTAssertEqual(SiriMatchScorer.scoreMatch(query: "", candidate: "faedom"), 0)
     }
+
+    /// What Siri hears and what is stored differ in punctuation; both sides normalise to one form.
+    func testPunctuationDifferencesNormaliseToTheSameForm() {
+        let pairs: [(stored: String, heard: String)] = [
+            ("Pretty. Odd.", "Pretty, Odd"),
+            ("Don\u{2019}t Stop Believin\u{2019}", "dont stop believin"),
+            ("Don't Stop", "Don\u{2019}t Stop"),
+            ("Kim & Jessie", "Kim and Jessie"),
+            ("Who Are You?", "who are you"),
+            ("Panic! At The Disco", "panic at the disco")
+        ]
+        for pair in pairs {
+            XCTAssertEqual(
+                SiriMatchScorer.scoreMatch(
+                    queries: SiriPhraseNormalizer.queryVariants(for: pair.heard),
+                    candidate: SiriPhraseNormalizer.basic(pair.stored)
+                ),
+                1.0,
+                "\(pair.stored) vs \(pair.heard)"
+            )
+        }
+    }
+
+    /// A short title only matches inside a longer phrase as whole words, so "Rest" is not "Firestorm".
+    func testShortTitleDoesNotMatchInsideALongerWord() {
+        XCTAssertLessThan(SiriMatchScorer.scoreMatch(query: "firestorm", candidate: "rest"), 0.6)
+        XCTAssertLessThan(SiriMatchScorer.scoreMatch(query: "firestorm", candidate: "fire"), 0.6)
+        XCTAssertEqual(SiriMatchScorer.scoreMatch(query: "my focus", candidate: "focus"), SiriMatchScorer.containmentScore)
+    }
+
+    func testPossessiveShuffleRequestFindsTheExactPlaylistName() {
+        let variants = SiriPhraseNormalizer.queryVariants(for: "Shuffle my focus playlist")
+        XCTAssertEqual(SiriMatchScorer.scoreMatch(queries: variants, candidate: "focus"), 1.0)
+    }
 }

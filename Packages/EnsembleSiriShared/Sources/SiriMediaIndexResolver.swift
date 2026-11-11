@@ -74,7 +74,7 @@ public enum SiriMediaIndexResolver {
         requestedKinds: Set<SiriMediaKind>?,
         index: SiriMediaIndex?,
         artistHint: String? = nil,
-        minimumScore: Double = 0
+        minimumScore: Double = defaultMinimumMatchScore
     ) -> [RankedItem] {
         let queryVariants = SiriPhraseNormalizer.queryVariants(for: rawQuery)
         guard !queryVariants.isEmpty, let index else { return [] }
