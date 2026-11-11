@@ -294,7 +294,9 @@ public final class SystemMediaIntegrationService {
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var catalogSubscription: StreamSubscription?
     private var spotlightRefreshTask: Task<Void, Never>?
-    private var siriCatalogRefreshTask: Task<Bool, Never>?
+    private lazy var siriCatalogRefresher = TrailingRefreshRunner { [weak self] in
+        await self?.performSiriCatalogRefresh() ?? false
+    }
     private var registeredSiriVocabulary: ([String], [String])?
 
     #if !os(macOS)
@@ -436,23 +438,7 @@ public final class SystemMediaIntegrationService {
     /// This does not invoke Core Spotlight and is safe in a background refresh.
     @discardableResult
     public func refreshSiriCatalog() async -> Bool {
-        if let siriCatalogRefreshTask {
-            EnsembleLogger.debug("[SystemMedia] Siri catalog refresh coalesced with active refresh")
-            return await siriCatalogRefreshTask.value
-        }
-
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return false }
-            return await self.performSiriCatalogRefresh()
-        }
-        siriCatalogRefreshTask = task
-        let refreshed = await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
-        siriCatalogRefreshTask = nil
-        return refreshed
+        await siriCatalogRefresher.run()
     }
 
     private func performSiriCatalogRefresh() async -> Bool {
@@ -1162,5 +1148,35 @@ private extension Array {
         return stride(from: 0, to: count, by: size).map {
             Array(self[$0..<Swift.min($0 + size, count)])
         }
+    }
+}
+
+/// Runs one refresh at a time. A request that arrives while a pass is running joins it, and the pass runs once more
+/// afterwards, because a change made mid-pass may not be in what that pass read.
+@MainActor
+final class TrailingRefreshRunner {
+    private let work: @MainActor () async -> Bool
+    private var task: Task<Bool, Never>?
+    private var needsRerun = false
+
+    init(work: @escaping @MainActor () async -> Bool) {
+        self.work = work
+    }
+
+    func run() async -> Bool {
+        if let task {
+            EnsembleLogger.debug("[SystemMedia] Siri catalog refresh coalesced with active refresh")
+            needsRerun = true
+            return await task.value
+        }
+        var result = false
+        repeat {
+            needsRerun = false
+            let pass = Task { @MainActor [work] in await work() }
+            task = pass
+            result = await withTaskCancellationHandler { await pass.value } onCancel: { pass.cancel() }
+            task = nil
+        } while needsRerun && !Task.isCancelled
+        return result
     }
 }
