@@ -98,7 +98,7 @@ final class PlexConnectorTests: XCTestCase {
             updatedAt: { $0.updatedAt }
         )
 
-        XCTAssertEqual(changes.uniqueCount, 1)
+        XCTAssertEqual(changes.uniqueItems.count, 1)
         XCTAssertEqual(changes.changedItems, [updated])
     }
 

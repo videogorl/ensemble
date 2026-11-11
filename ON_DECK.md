@@ -303,7 +303,6 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Next step: none required; if the full re-read after every cold launch proves
   costly on large libraries, revisit that startup rule.
 
-
 ## Confirmed: originals cached by an older build cannot be played offline until replayed online (2026-11-10)
 
 - Evidence: the stream cache now serves a direct original only when its manifest entry is marked verified.
@@ -473,24 +472,7 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
   log: whether the task was cancelled before or after the timeout.
 - Impact: the status is restored silently and no error is shown; retry treats it as a user cancel. No partial
   fetch is committed (`fetchPages` throws on any failed page).
-- Next step: classify by the error first, then by task state. Sync code is frozen until step 3e closes.
-
-## Confirmed: a failed background refresh logs no reason (2026-11-11)
-
-- Evidence (iPhone SE, build `202611111034.1182`): at 11:47:04 a system-delivered refresh logged `finished
-  syncComplete=false feed=true cancelled=false errors=1` and `returned succeeded=false pendingSources=4
-  needsRecovery=true errors=1`, with no `phase=` line and no line naming the error. Suspected cause, not
-  verified: three endpoints were in transport cooldown and failover had picked a relay.
-- Impact: none on data (the handoff stayed and the next launch recovered it in 14 s), but the failure cannot
-  be diagnosed from the log.
-- Next step: log the error (privacy-safe) where `BackgroundRefreshCoordinator` counts it.
-
-## Suggested: a debug route that starts a background refresh (2026-11-11)
-
-- Evidence: forcing a refresh needs lldb attached to the phone; attach took 20 to 120 s and the simulated
-  launch fired only once in about nine attempts, so the expiry and resume-without-relaunch checks stay not run.
-- Next step: an `ensemble://debug/` route that runs the refresh handler with `debugNextTimeBudget` and
-  `debugNextDelay`, so a scripted test can cut it off mid-sync.
+- Next step: classify by the error first, then by task state. The sync freeze ended with step 3e.
 
 ## Suspected: a local playlist edit is protected only inside the process that made it (2026-11-11)
 
@@ -554,7 +536,6 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
 - Next step: give `MusicSourceSyncStatus` a partial state (or a detail line) and show it, or hold the
   playlist cursor's incremental date back while a body is unresolved.
 
-
 ## Suspected: a local delete that keeps failing leaves the last playlist's row (2026-11-11)
 
 - Evidence: after the server acknowledges a playlist delete, `LibraryWriter.removePlaylist` retries the local
@@ -565,7 +546,6 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
 - Decided by the lead on 2026-11-11: no durable marker for now. Next step if it is ever seen: write a
   pending-mutation record with a `localCleanupOwed` status after the remote delete (no schema change; replay
   filters on `pending`, so the remote delete is not re-sent) and consume it on the next playlist pass.
-
 
 ## Suspected: playlist favourite writes run outside the writer's playlist chain (2026-11-11)
 
@@ -594,10 +574,35 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Not run: reordering a playlist by dragging. Device MCP's drag moves neither playlist rows nor queue rows;
   needs a finger.
 
-## Suspected: the Now Playing page indicators open Add to Playlist on a small iPhone (2026-11-11)
+## Suspected: the first Queue-indicator tap after opening Now Playing can mark Queue without showing it (2026-11-11)
 
-- Evidence (iPhone SE, build `202611111332.2379`): tapping the page-indicator icons (queue, lyrics, info, at
-  y about 641 of 667) opened the "Add to Playlist" sheet twice instead of switching panel; a swipe switched
-  panels. Seen through Device MCP taps, so a finger may differ.
-- Next step: check by hand on the SE; if it reproduces, compare the hit areas of the indicators and the
-  secondary action row.
+- Evidence (iPhone SE, build `202611111345.4519`, after the larger tap areas in `7989ef52`): 20 of 20
+  indicator taps chose the right panel, but once, a Queue tap made right after Now Playing opened left the
+  Now Playing page up with Queue marked selected. Seen once, through Device MCP taps.
+- Impact: small; a second tap fixes it.
+- Next step: try by hand right as the sheet settles; if it reproduces, look at the page selection racing the
+  open animation.
+
+## Suspected: repository seed helpers and one decoded field have no production caller (2026-11-11)
+
+- Evidence (step 3e caller search across `Packages/`, `Ensemble/`, `EnsembleWatch/`, the Siri extension and
+  tests): `LibraryRepository.upsertTrack` and `upsertGenre`, and `PlaylistRepository.setPlaylistTracks`, have
+  no production caller since 3b to 3d moved every sync write onto `LibraryWriter`'s batch methods. About 20
+  test call sites seed stores through them, and about a dozen test fakes implement them for the protocols.
+  `fetchGenres` is called only by a protocol-extension default and by tests. Separately,
+  `AppleMusicConnector.Attributes.hasCatalog` is decoded and never read (since `a387ff2c`), and
+  `PlaylistViewModel.isPlaylistPendingCreation` is read only by a test (since `3fd55d25`, 2026-09-30).
+- Impact: dead surface the tests keep alive; nothing wrong at runtime.
+- Next step: seed tests through `batchUpsertTracks`/`setPlaylistTrackSnapshots`, then drop the three
+  protocol requirements and their fakes. Not authorized by this entry.
+
+## Suspected: a background refresh and the foreground resume of its handoff can run at once (2026-11-11)
+
+- Evidence (iPhone SE, build `202611111416.1954`, debug route started just before foregrounding): the refresh
+  handler was `triggered` at 14:20:20.155 and `Resuming background refresh handoff in foreground` started a
+  second run at 14:20:21.007 while the first was still going; two `handoff saved` lines; the first returned
+  `needsRecovery=true` while the resume was in progress. The end state was clean (`handoff cleared`).
+- Impact: unknown; duplicated work at least. Only seen with the debug route, which runs in the foreground;
+  a system-delivered refresh that is still running when the app is opened may do the same.
+- Next step: read how the foreground resume decides a handoff is abandoned, and whether it should wait for
+  a refresh that is in flight (`isRefreshInFlight`).

@@ -292,6 +292,31 @@ final class NavigationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testBackgroundRefreshAutomationDeepLinkParsesRequest() throws {
+        let cases: [(query: String, expected: BackgroundRefreshAutomationRequest?)] = [
+            ("", BackgroundRefreshAutomationRequest()),
+            ("budget=3&delay=1.5", BackgroundRefreshAutomationRequest(budget: 3, delay: 1.5)),
+            ("budget=0", nil),
+            ("budget=soon", nil),
+            ("delay=-1", nil),
+            ("budget=3&speed=2", nil)
+        ]
+
+        for (query, expected) in cases {
+            let coordinator = NavigationCoordinator()
+            NavigationCoordinator.pendingBackgroundRefreshRequest = nil
+            let url = try XCTUnwrap(URL(string: "ensemble://debug/background-refresh?\(query)"))
+
+            XCTAssertTrue(
+                coordinator.handleDeepLink(url, automationOptions: AutomationLaunchOptions(isEnabled: true)),
+                query
+            )
+            XCTAssertEqual(NavigationCoordinator.pendingBackgroundRefreshRequest, expected, query)
+        }
+        NavigationCoordinator.pendingBackgroundRefreshRequest = nil
+    }
+
+    @MainActor
     func testAutomationRoutePresentsAddSource() {
         let coordinator = NavigationCoordinator()
 

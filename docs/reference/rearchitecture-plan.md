@@ -32,9 +32,12 @@ cleanup. The line target is replaced by a fix-commit measure. See section 5.
 Steps 0 to 2 are closed out on simulator evidence as of 2026-11-02; their
 physical iPhone acceptance is deferred by Felicity's choice and stays owed in
 the device backlog, so they are not verified.
-The step 3 design was approved on 2026-11-10 and 3a is in progress. The same
-day Felicity asked for a connector layer for future sources such as Jellyfin;
-the design's section 3.5 adds it within 3b to 3e, pending her approval.
+Step 3, the shared library writer with the connector layer for future sources
+such as Jellyfin, is closed on simulator and iPhone SE evidence as of
+2026-11-11 (3a to 3e, [note](../investigations/2026-11-11-step-3-close-out.md)).
+It is not verified: nothing has run on the iPhone 16 Pro, Apple Music playlists
+and several Plex checks are owed in the device backlog, and the review findings
+deferred in `ON_DECK.md` are open. Its scoped freeze has ended.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
@@ -76,7 +79,7 @@ Decided by Felicity on 2026-10-13. Do not reopen these without asking.
 | Migration | Parked with the store move. If it returns: a one-time library resync is acceptable, provided downloads, offline selections, and pending edits carry over. |
 | Features | No feature is cut. StageFlow, song.link sharing, moods, cross-source merging, and the logs screen were each confirmed as important. |
 | Tests | The existing suite may be cut hard. Tests that pin internals of replaced code are deleted with that code. |
-| Freeze | A scoped feature freeze applies only while step 6 or the slim step 3 is in progress. See section 6. |
+| Freeze | A scoped feature freeze applies only while step 6 is in progress (step 3's ended 2026-11-11). See section 6. |
 | Verification | Steps proceed on simulator evidence. Nothing is called good or verified until it has been exercised on the physical iPhone 16 Pro through Device Hub; what the simulator could not prove accumulates in `physical-device-backlog.md`. Changed by Felicity on 2026-10-13. See section 7. |
 | Delegation | Subagents and the `codex` CLI may be used for implementation. |
 | TestFlight | No TestFlight builds during this work. They resume when the project is done. Per-step git tags are optional; the commit before a step is the rollback point. |
@@ -541,23 +544,9 @@ about 1,300 lines to a few hundred.
 
 ### Step 3. Shared library writer (slimmed 2026-11-01)
 
-Runs after step 6. One shared library writer and reconciler for Plex and
-Apple Music: both sources hand it normalized items, and it owns every write,
-the deletion-safety rule (delete only from a complete inventory), and the
-sync cursors. Add Core Data uniqueness constraints where duplicates have
-happened, such as playlist membership rows.
-
-Dropped for now: `EnsembleSourceKit`, the conformance kit, the fake source,
-and the `ratingKey` rename. No Jellyfin code is written.
-
-Detailed design, approved by Felicity on 2026-11-10 with all six of its
-recommendations: [`shared-library-writer-design.md`](shared-library-writer-design.md).
-3a, the membership constraint and migration, is in progress. On 2026-11-10
-Felicity also asked for a connector layer so services such as Jellyfin can
-attach later. The design's section 3.5 makes the source protocols that layer
-within 3b to 3e, with no new sub-step or package; it awaits her approval
-before 3b starts. Her question about crashes is answered in
-[the crash evidence note](../investigations/2026-11-10-crash-evidence-and-library-writer.md).
+Closed on 2026-11-11 on simulator and iPhone SE evidence, not verified; what is owed is in the
+[note](../investigations/2026-11-11-step-3-close-out.md) and the device backlog. Design:
+[`shared-library-writer-design.md`](shared-library-writer-design.md).
 
 ### Step 4. Module split
 
@@ -587,8 +576,9 @@ tables behind one configuration. Revisit the Mac split choice with evidence.
 
 ## 6. Scoped feature freeze
 
-The freeze applies only while step 6 or the slim step 3 is in progress: the
-screens for step 6, the sync and library-writing code for step 3. The
+The freeze applies only while step 6 is in progress: its screens. (Step 3's
+freeze of the sync and library-writing code ended on 2026-11-11 with its
+close-out.) The
 close-out of steps 0 to 2 freezes nothing. While one of those steps is
 rebuilding its subsystem:
 

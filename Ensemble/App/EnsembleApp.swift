@@ -214,6 +214,7 @@ struct EnsembleApp: App {
                 url,
                 fallback: AppRoot.container.navigationCoordinator
             )
+            applyBackgroundRefreshRequest()
             return
         }
 
@@ -1115,6 +1116,27 @@ private extension PinnedItemType {
 #endif
 
 // MARK: - Background Refresh Extension
+
+extension EnsembleApp {
+    /// Runs a `debug/background-refresh` request through the system task's own handler.
+    /// The deep link only reaches here in debug or automation builds.
+    @MainActor
+    fileprivate func applyBackgroundRefreshRequest() {
+        guard let request = NavigationCoordinator.pendingBackgroundRefreshRequest else { return }
+        NavigationCoordinator.pendingBackgroundRefreshRequest = nil
+        #if os(iOS) && DEBUG
+        Task { @MainActor in
+            AppLogger.info("Background refresh started by debug route budget=\(request.budget.map { "\($0)" } ?? "default") delay=\(request.delay)")
+            let coordinator = AppRoot.container.backgroundRefreshCoordinator
+            coordinator.debugNextTimeBudget = request.budget
+            coordinator.debugNextDelay = request.delay
+            await performBackgroundRefresh()
+        }
+        #else
+        AppLogger.info("Background refresh debug route ignored: needs an iOS debug build")
+        #endif
+    }
+}
 
 extension Scene {
     /// Adds background refresh capability on iOS, no-op on other platforms
