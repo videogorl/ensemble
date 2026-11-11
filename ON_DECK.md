@@ -462,3 +462,15 @@ Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not
 - Known limit, predates the branch: Apple Music has one source key (`appleMusic:device:system:library`), so a
   different Apple Account signed in on the device reconciles against the same cached rows.
 - Unmeasured: memory on a library of many thousands of songs (whole-library arrays, one track transaction).
+
+## Confirmed: an Apple Music sync timeout is reported as a cancellation (2026-11-11)
+
+- Evidence (iPhone 16 Pro logs, 2026-11-11): `07:25:10.495 [ERROR] Apple Music data request failed path=/v1/me…
+  NSURLError message=The request timed out.` is followed 2 ms later by `⏹️ SyncCoordinator: Cancelled sync for
+  appleMusic:device:system:library without surfacing an error`; the same pair at 09:24:10 and 09:54:03.
+  `SyncCoordinator.failSourceSync` treats `error is CancellationError || Task.isCancelled` as a cancellation, so
+  a timeout that arrives while the task is cancelled is classified by task state. Suspected, not shown by the
+  log: whether the task was cancelled before or after the timeout.
+- Impact: the status is restored silently and no error is shown; retry treats it as a user cancel. No partial
+  fetch is committed (`fetchPages` throws on any failed page).
+- Next step: classify by the error first, then by task state. Sync code is frozen until step 3e closes.
