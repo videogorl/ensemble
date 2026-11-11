@@ -358,3 +358,48 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
   accessibility tree and blocked touches (`queueReplacementConfirmationRequested queueCount=7` in the log).
 - Automation launch-argument overrides (shuffle, streaming quality) are written back to preferences.
 - Next step for each: reproduce by hand or with a scripted test before fixing.
+
+## Confirmed: the queue row's context button and drag handle are too small to hit (2026-11-11)
+
+- Evidence: Felicity reports that touches on the handle and the context button sometimes play the track
+  instead. Measured on the iPhone SE: the context button is 20x20 pt and the reorder handle 24 pt wide (Apple's
+  minimum is 44x44). A tap at the button's centre opened the menu 3 of 3 times; taps 5 pt outside the glyph
+  played the row 4 of 4 times. `QueueTableView.swift` sizes the button to
+  `TrackListLayoutMetrics.queueDragHandleDimension` (20) with no enlarged hit area, and
+  `allowsSelectionDuringEditing = true` sends a miss to `didSelectRowAt`.
+- Impact: a near miss replaces what is playing.
+- Next step: give the button a 44 pt hit area (keep the 20 pt glyph) and consider not selecting on taps in the
+  trailing strip; check the same control sizes on the other track rows.
+
+## Suspected: a queue drag reorder drops the row in the wrong place (2026-11-11)
+
+- Evidence: Device MCP drags from row 2's handle to row 4 swapped rows 1 and 2 (three times, 0.2 s and 0.6 s
+  holds). May be the tool's synthesized path rather than the app.
+- Next step: repeat with a finger; if it reproduces, look at `moveRowAt` and the drag delegate both being
+  enabled in `QueueTableView.swift`.
+
+## Suspected: Ensemble's App Shortcuts do not appear in the Shortcuts app (2026-11-11)
+
+- Evidence: iPhone SE, build `202611110741.9140`, Shortcuts freshly installed: Library > Apps lists Audible,
+  Files and Sonnet (another development build) but not Ensemble, also after reinstalling and relaunching
+  Ensemble; Spotlight finds no "Play Album". The app bundle's `Metadata.appintents/extract.actionsdata` has
+  five `autoShortcuts` and the provider name. Siri requests and a Play Track shortcut passed on the iPhone 16
+  Pro on 2026-10-26.
+- Impact: unknown; may be registration lag after installing Shortcuts, or the SE only.
+- Next step: look again after a day and a phone restart; check the shortcuts' `availabilityAnnotations` and
+  whether `updateAppShortcutParameters()` is called; compare on the iPhone 16 Pro.
+
+## Owed checks that need hardware the iPhone SE does not have (2026-11-11)
+
+Kept in `docs/reference/physical-device-backlog.md`; listed here so they are not forgotten.
+
+- A SIM: a Wi-Fi to cellular switch mid-track at original quality; G18 (pause, switch network, Play); "stream
+  on cellular" off makes non-downloaded tracks unavailable.
+- An AirPlay receiver or HomePod: AirPlay then interruption, the `render=` clock line after an AirPlay switch,
+  early segment end on AirPlay, the HomePod Siri route, the visible AirPlay fallback.
+- A phone call and a Bluetooth device: a call during a load (G14); Bluetooth disconnect during a load.
+- Felicity's own iPhone: an Apple Music library of many thousands of songs (step 3c); an uploaded library-only
+  Apple Music track; the iCloud layout round trip between two devices.
+- A TV or external display, an iPad and the Apple Watch: Screen Mirroring Now Playing, step 6c panes, the watch
+  mirror.
+- The Mac: rating and download redraw, swipe, drag-out, and a real mouse click on the queue's context button.

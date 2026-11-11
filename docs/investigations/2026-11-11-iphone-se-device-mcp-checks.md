@@ -105,3 +105,18 @@ get_clipboard needs approval (2 min stall). Swipe from y<=60 pulls Notification 
 ## Cleanup
 Playback paused (app relaunched), portrait, locked (lock screen confirmed), lock released next.
 
+
+## Group d report (Shortcuts, queue row touch targets)
+
+# Group D (iPhone SE, build 202611110741.9140)
+## Part 1 App Shortcuts: BLOCKED/FAIL (Ensemble absent from Shortcuts)
+- Shortcuts: Apple's Shortcuts redownloaded from App Store with no password prompt (cloud button, ~15 s). It is a system bundle (com.apple.shortcuts) so list_apps(include_system=false) does not list it; launches fine.
+- Shortcuts > Library > Apps lists only Audible, Files, Sonnet. Ensemble is NOT listed, even after relaunching Ensemble (12 s), killing/relaunching Shortcuts. Gallery/Spotlight "Play album" show no Ensemble App Shortcut either. No shortcut run possible; the five expected names (Play Track, Play Album, Play Artist, Play Playlist, Open Media) could not be seen on device.
+- Local build Metadata.appintents (stale DerivedData Jul 13) does contain the five shortTitles, so the provider compiles; the device is not surfacing them. Unverified: whether the installed Debug build contains Metadata.appintents.
+## Part 2
+Frames (pt): Up Next row 20,y,311x68 (rows at y=185.5, 253.5, 321.5, 389.5; pitch 68); Track Actions button 20x20 at (289,y+24); Reorder handle 24x68 at (315,y) (full row height, 24 wide). Apple min 44x44: Track Actions fails (20x20); handle fails in width (24).
+Tap test (current track watched): exact centre of Track Actions: 3/3 menu opened. 5 pt left, right, above, below the glyph edge: 4/4 row played instead (no menu).
+Drag (handle centre row 2 -> row 4, 1000 ms, plus 2500 ms): hold 0 = no effect; hold 0.2 = reorder but WRONG: row 2 moved to row 1 (swap rows 1/2), not to row 4; hold 0.6 (x2, 1000 and 2500 ms) = same swap of rows 1/2. Never a menu, never played. Next after reorder played new row 1 (correct, order consistent, titles matched rows).
+Code: Packages/EnsembleUI/Sources/TrackLists/QueueTableView.swift: contextMenuButton lines 18, 59-64, 89-92 (UIButton .system, width/height = TrackListLayoutMetrics.queueDragHandleDimension = 20, Packages/EnsembleUI/Sources/DesignSystem/TrackListLayoutMetrics.swift:28; trailing -rowTightAccessoryGap; no contentEdgeInsets/hitTest/point(inside)/expanded area). Handle is UITableView's system reorder control: setEditing(true) line 221-222, canMoveRowAt 586, moveRowAt 594, targetIndexPath 598; row selection didSelectRowAt 514 with allowsSelectionDuringEditing = true (so a miss plays the track); also dragInteractionEnabled + dragDelegate itemsForBeginning 628. SwiftUI QueueCard.swift:375 is a different (non-iOS-queue?) row.
+Mutation: while dismissing the first menu I tapped the Dismiss element's centre (187,333) which hit "Add to Playlist..."; a later tap picked "peace" -> "Create missing playlist?" dialog; I tapped Cancel, closed the sheet. Nothing created. Queue playback state changed (tracks played) only.
+Cleanup: paused, Shuffle On, Repeat Off, SmartMix On, Autoplay On, phone locked (lock screen confirmed).

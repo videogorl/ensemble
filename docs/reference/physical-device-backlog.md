@@ -610,9 +610,9 @@ matching "owed" lines in the sections above. Network checks used Wi-Fi off and o
 | Browse screens | Partly: Albums sort and filter work; Artists and Playlists were opened under a saved filter (see the note); Genres not run |
 | Now Playing: swipe to dismiss, queue page rows, History, shuffle and repeat toggles | Passed; lyrics showed "No Lyrics Available" on the one track tried; Go to Artist not run |
 | Queue: a track queued twice shows two rows; Remove from Queue removes that row only | Passed |
-| Queue drag reorder | Not run: three Device MCP drags on the handle had no effect. Still needs a finger |
+| Queue drag reorder | Failed with Device MCP's drag: with a 0.2 s or 0.6 s hold the row moved, but dragging row 2 to row 4 swapped rows 1 and 2 each time; titles stayed on their rows and Next played the new row 1. Unknown whether the tool or the app put it in the wrong place; repeat with a finger. The handle is 24 pt wide and the context button 20x20 pt (see `ON_DECK.md`) |
 | StageFlow in landscape: no nav bar, track panel opens, portrait restores the grid | Passed |
 | Share: the shared URL is a song.link URL | Failed for an Apple Music track: Share Link… gave a `music.apple.com` URL. A Plex track was not tried |
-| App Shortcuts | Not run: the Shortcuts app is not installed on the SE. Installing it unblocks this |
+| App Shortcuts | Failed: with Shortcuts installed (2026-11-11), its Apps list shows Audible, Files and Sonnet but not Ensemble, also after reinstalling and relaunching Ensemble. The build's `Metadata.appintents` declares all five (see `ON_DECK.md`) |
 | Focus filter offered in Settings | Passed: Do Not Disturb → Add Filter lists "Ensemble, Playback & Libraries" |
 | Step 3a: offline playlist targets list their tracks and state | Not applicable on the SE: Downloads holds three library targets and no playlist target |
