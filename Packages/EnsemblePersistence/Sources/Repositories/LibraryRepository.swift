@@ -605,11 +605,11 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func fetchTracks() async throws -> [CDTrack]
     func fetchTracks(forSource sourceCompositeKey: String) async throws -> [CDTrack]
     /// Maps the tracks of the given sources to values in bounded batches, so the managed objects are
-    /// released as they are read.
+    /// released as they are read. Rows the transform maps to nil are dropped within their batch.
     func mapTracks<Value: Sendable>(
         forSources sourceCompositeKeys: Set<String>,
         batchSize: Int,
-        _ transform: @escaping @Sendable (CDTrack) -> Value
+        _ transform: @escaping @Sendable (CDTrack) -> Value?
     ) async throws -> [Value]
     func fetchTracksBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDTrack]
     func fetchTrackStatsBySource(sourceCompositeKeys: Set<String>) async throws -> [String: TrackSourceStats]
@@ -928,11 +928,11 @@ public extension LibraryRepositoryProtocol {
     func mapTracks<Value: Sendable>(
         forSources sourceCompositeKeys: Set<String>,
         batchSize: Int,
-        _ transform: @escaping @Sendable (CDTrack) -> Value
+        _ transform: @escaping @Sendable (CDTrack) -> Value?
     ) async throws -> [Value] {
         var values: [Value] = []
         for key in sourceCompositeKeys.sorted() {
-            values += try await fetchTracks(forSource: key).map(transform)
+            values += try await fetchTracks(forSource: key).compactMap(transform)
         }
         return values
     }

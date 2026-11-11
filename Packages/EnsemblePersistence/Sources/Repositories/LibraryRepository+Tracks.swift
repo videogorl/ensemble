@@ -48,7 +48,7 @@ extension LibraryRepository {
     public func mapTracks<Value: Sendable>(
         forSources sourceCompositeKeys: Set<String>,
         batchSize: Int,
-        _ transform: @escaping @Sendable (CDTrack) -> Value
+        _ transform: @escaping @Sendable (CDTrack) -> Value?
     ) async throws -> [Value] {
         let context = coreDataStack.newBackgroundContext()
         let keys = Array(sourceCompositeKeys)
@@ -76,7 +76,7 @@ extension LibraryRepository {
                     try context.fetch(request).map { ($0.objectID, $0) },
                     uniquingKeysWith: { first, _ in first }
                 )
-                let mapped = batch.compactMap { rowsByID[$0] }.map(transform)
+                let mapped = batch.compactMap { rowsByID[$0] }.compactMap(transform)
                 context.reset()
                 return mapped
             }
