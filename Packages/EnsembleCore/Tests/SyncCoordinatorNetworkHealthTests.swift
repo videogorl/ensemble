@@ -36,32 +36,21 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
     private struct MockSyncProvider: MusicSourceConnector, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         var libraryResult: Result<LibraryBatch, Error> = .success(LibraryBatch(queryStartedAt: Date()))
-        var playlistResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
+        var playlistResult: Result<PlaylistHeaderList, Error> = .success(.writing())
         var invocationProbe: SyncInvocationProbe?
-        var onIncrementalPlaylistSync: (@Sendable (Bool) async -> Void)?
+        var onPlaylistList: (@Sendable () async -> Void)?
 
         func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch {
             if plan.since == nil { try await invocationProbe?.beginAndWait() }
             return try libraryResult.get()
         }
 
-        func syncPlaylists(
-            to repository: PlaylistRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            progressHandler(1.0)
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList {
+            await onPlaylistList?()
             return try playlistResult.get()
         }
 
-        func syncPlaylistsIncremental(
-            to repository: PlaylistRepositoryProtocol,
-            forceOrphanCheck: Bool,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            await onIncrementalPlaylistSync?(forceOrphanCheck)
-            progressHandler(1.0)
-            return try playlistResult.get()
-        }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
 
         func getStreamURL(
             for trackRatingKey: String,
@@ -119,7 +108,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         let coordinator = SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: LibraryRepository(coreDataStack: stack),
-            playlistRepository: EmptyPlaylistRepository(),
+            playlistRepository: PlaylistRepository(coreDataStack: stack),
             artworkDownloadManager: EmptyArtworkDownloadManager(),
             networkMonitor: networkMonitor,
             serverHealthChecker: serverHealthChecker
@@ -201,14 +190,11 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         coordinator.setSyncProvidersForTesting([
             source.compositeKey: MockSyncProvider(
                 sourceIdentifier: source,
-                playlistResult: .success(PlaylistSyncResult(changedPlaylists: 1)),
-                onIncrementalPlaylistSync: { forceOrphanCheck in
-                    XCTAssertTrue(forceOrphanCheck)
-                }
+                playlistResult: .success(.writing(1))
             ),
             otherAccountSource.compositeKey: MockSyncProvider(
                 sourceIdentifier: otherAccountSource,
-                onIncrementalPlaylistSync: { _ in XCTFail("Must not refresh the same server under a different account") }
+                onPlaylistList: { XCTFail("Must not refresh the same server under a different account") }
             )
         ])
         coordinator.downloadedPlaylistServerSourceKeys = { ["plex:account-1:server-1"] }
@@ -514,7 +500,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             MockSyncProvider(
                 sourceIdentifier: source,
                 libraryResult: .success(LibraryBatch(queryStartedAt: Date())),
-                playlistResult: .success(PlaylistSyncResult(changedPlaylists: 1))
+                playlistResult: .success(PlaylistHeaderList.writing(1))
             ),
             status: MusicSourceStatus(syncStatus: .lastSynced(previousSyncDate), connectionState: .connected(url: "https://example.com"))
         )
@@ -527,7 +513,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             MockSyncProvider(
                 sourceIdentifier: source,
                 libraryResult: .success(.writing(tracks: 2)),
-                playlistResult: .success(PlaylistSyncResult())
+                playlistResult: .success(.writing())
             ),
             status: coordinator.sourceStatuses[source]
         )
@@ -672,7 +658,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
             MockSyncProvider(
                 sourceIdentifier: source,
                 libraryResult: .success(.writing(albums: 1)),
-                playlistResult: .success(PlaylistSyncResult(changedPlaylists: 1))
+                playlistResult: .success(PlaylistHeaderList.writing(1))
             ),
             status: MusicSourceStatus(syncStatus: .idle, connectionState: .connected(url: "https://example.com"))
         )

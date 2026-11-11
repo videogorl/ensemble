@@ -137,25 +137,46 @@ public struct LibraryBatch: Sendable {
 }
 
 /// The only code that writes synced library rows, deletes from an inventory or
-/// moves a library sync cursor. One batch is applied at a time, so sync paths
-/// cannot race a fetch against an insert.
+/// moves a library sync cursor. Library batches are not serialized here: an actor
+/// lets another call in at every `await`, and `SyncCoordinator`'s per-source single
+/// flight is what keeps two library applies for one source apart. Playlist
+/// operations, which run alongside library syncs, are serialized by `serialized`.
 ///
 /// Deletion contract: rows are deleted only from a complete inventory. An empty
 /// inventory deletes only when its connector marked it authoritative, a stale batch is ignored whole, and a failed,
 /// partial or cancelled pass leaves the cursor due.
+///
+/// Playlists follow the same contract, with these differences: a batch whose read began before the newest
+/// committed list read is ignored whole; an empty playlist inventory never
+/// deletes (decision 2), and a body deletes membership rows only when the connector attached it,
+/// which it does only for a complete read. An empty body is a complete read of an empty playlist.
 public actor LibraryWriter {
     static let inventoryInterval: TimeInterval = 24 * 60 * 60
 
+    /// How long a local edit stays in `localEdits` before it is pruned. The map only matters to a read that
+    /// began before the edit, and no read stays in flight this long.
+    static let localEditRetention: TimeInterval = 60 * 60
+
+    /// Waits between the attempts at a local delete the server already confirmed.
+    static let localDeleteRetryDelays: [UInt64] = [50_000_000, 200_000_000, 1_000_000_000]
+
     private let libraryRepository: LibraryRepositoryProtocol
+    private let playlistRepository: PlaylistRepositoryProtocol
     private let cursors: SyncCursorRepositoryProtocol?
     private let pendingMutations: PendingMutationRepositoryProtocol?
+    /// When each playlist (scope and ID) was last edited locally. It protects the edit from reads that began
+    /// before it, in this process only: a restart forgets it, and the optimistic row then waits for the next
+    /// read like any other (see ON_DECK.md).
+    private var localEdits: [String: Date] = [:]
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
+        playlistRepository: PlaylistRepositoryProtocol,
         syncCursorRepository: SyncCursorRepositoryProtocol?,
         pendingMutationRepository: PendingMutationRepositoryProtocol? = nil
     ) {
         self.libraryRepository = libraryRepository
+        self.playlistRepository = playlistRepository
         self.cursors = syncCursorRepository
         self.pendingMutations = pendingMutationRepository
     }
@@ -230,6 +251,287 @@ public actor LibraryWriter {
     /// Forgets the library cursor, so the next pass is authoritative.
     public func removeCursor(for source: MusicSourceIdentifier) async throws {
         try await cursors?.deleteCursor(scopeKey: source.compositeKey, scopeType: .library)
+    }
+
+    // MARK: - Playlists
+
+    // Every playlist operation below runs on one serial chain. An actor does not run a call to its end
+    // before starting the next: each `await` lets another call in, so a list apply, a local edit and an
+    // append would interleave their reads and writes. The chain is separate from the library's, so a
+    // long library write never delays a local playlist edit.
+
+    private var playlistChain: Task<Void, Never>?
+    /// How many playlist operations were submitted to the chain, in total. Tests wait on it to know a
+    /// call has reached the writer.
+    private(set) var playlistOperationsSubmitted = 0
+
+    /// Runs `operation` after every earlier playlist operation finished, in call order. A cancelled caller
+    /// cancels its own operation; the chain goes on.
+    private func serialized<Value: Sendable>(_ operation: @escaping () async throws -> Value) async throws -> Value {
+        playlistOperationsSubmitted += 1
+        let previous = playlistChain
+        let task = Task { () throws -> Value in
+            await previous?.value
+            try RefreshExecution.checkCancellation()
+            return try await operation()
+        }
+        playlistChain = Task { _ = await task.result }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+    }
+
+    /// Runs a local playlist edit, such as queueing a playlist mutation and caching its effect, in the
+    /// chain: after every earlier playlist operation and before the next. A pass reads the queued mutations
+    /// once, at its start, so an edit that ran inside it would go unprotected from that pass's last write.
+    /// With `editing`, the playlist is also marked edited locally inside the same operation, so a pass whose
+    /// read began earlier but enters the chain later leaves it alone. The edit must not call this writer's
+    /// other playlist operations.
+    public func performPlaylistEdit<Value: Sendable>(
+        editing target: (id: String, scope: String)? = nil,
+        _ edit: @escaping () async throws -> Value
+    ) async throws -> Value {
+        try await serialized {
+            if let target { self.noteLocalEdit(target.id, in: target.scope) }
+            return try await edit()
+        }
+    }
+
+    /// The listed playlists whose bodies must be read: new ones, ones whose date changed or is missing,
+    /// and ones with no stored body under a non-empty header. A header older than the stored one needs none.
+    public func playlistsNeedingBodies(_ headers: [PlaylistUpsertInput], for scope: String) async throws -> [PlaylistUpsertInput] {
+        let stored = try await playlistRepository.fetchPlaylistSyncStates(forSource: scope)
+        return headers.filter { Self.needsBody($0, stored: stored[$0.ratingKey]) }
+    }
+
+    /// Applies a playlist read. A batch whose read began before the newest committed full-list read is
+    /// ignored whole, so an older read finishing late can neither delete nor resurrect a playlist, and a
+    /// targeted read cannot overwrite what a newer pass wrote. A header with a needed but missing body
+    /// keeps its stored date, so the next read tries again, and is reported as unresolved; the date
+    /// advances only in the save after its body. Deletion needs the batch's complete, non-empty inventory.
+    @discardableResult
+    public func apply(_ batch: PlaylistBatch, for scope: String) async throws -> PlaylistSyncResult {
+        try await serialized { try await self.applyBatch(batch, for: scope) }
+    }
+
+    private func applyBatch(_ batch: PlaylistBatch, for scope: String) async throws -> PlaylistSyncResult {
+        // A cursor dated in the future means the clock went backwards, not that this batch is old.
+        if let newest = try await cursors?.fetchCursor(scopeKey: scope, scopeType: .serverPlaylists)?.lastSuccessfulSyncAt,
+           batch.queryStartedAt <= newest, newest <= Date() {
+            EnsembleLogger.info("Ignoring a stale playlist batch for \(scope): query started before the last committed list read")
+            return PlaylistSyncResult(rejectedAsStale: true)
+        }
+        let stored = try await playlistRepository.fetchPlaylistSyncStates(forSource: scope)
+        let queued = try await queuedPlaylistMutations(in: scope)
+        var changed = 0
+        var unresolved: [String] = []
+        for entry in batch.entries {
+            try RefreshExecution.checkCancellation()
+            let id = entry.header.ratingKey
+            let existing = stored[id]
+            guard !Self.isBlank(id), !isEditedLocally(id, in: scope, since: batch.queryStartedAt),
+                  !queued.edited.contains(id),
+                  existing.map({ !Self.isStale(entry.header, stored: $0) }) ?? true
+            else { continue }
+
+            var header = entry.header
+            let body = Self.provenBody(entry.body)
+            if body == nil, Self.needsBody(entry.header, stored: existing) { unresolved.append(id) }
+            if let existing {
+                if queued.renamed.contains(id) { header = header.replacing(title: existing.title) }
+                if body == nil {
+                    // Nothing new was read: keep what the header cannot state, and the date of the stored body.
+                    header = header.replacing(duration: header.duration ?? existing.duration, trackCount: header.trackCount ?? existing.trackCount)
+                    if Self.needsBody(entry.header, stored: existing) { header = header.replacing(dateModified: .some(existing.dateModified)) }
+                }
+            } else if body == nil {
+                header = header.replacing(dateModified: .some(nil))
+            }
+            if try await write(header, body: body, scope: scope, existing: existing) { changed += 1 }
+        }
+
+        var removed = 0
+        var inventoryApplied = false
+        if let inventory = batch.inventory {
+            if inventory.playlistIDs.isEmpty {
+                EnsembleLogger.info("A complete but empty playlist inventory for \(scope) deletes nothing")
+            } else {
+                // A playlist edited after this read began, or with an edit still queued to upload, may not be in it yet.
+                let survivors = inventory.playlistIDs
+                    .union(idsEditedLocally(in: scope, since: batch.queryStartedAt))
+                    .union(queued.edited).union(queued.renamed)
+                try RefreshExecution.checkCancellation()
+                removed = try await playlistRepository.removeOrphanedPlaylists(notIn: survivors, forSource: scope)
+                await MainActor.run {
+                    HiddenMediaStore.shared.removeMissing(kind: .playlist, sourceKey: scope, survivingItemIDs: survivors)
+                }
+                inventoryApplied = true
+            }
+        }
+
+        if batch.readsFullList {
+            try RefreshExecution.checkCancellation()
+            if inventoryApplied {
+                try await cursors?.recordInventorySync(scopeKey: scope, scopeType: .serverPlaylists, at: batch.queryStartedAt)
+            } else {
+                try await cursors?.recordIncrementalSync(scopeKey: scope, scopeType: .serverPlaylists, at: batch.queryStartedAt)
+            }
+        }
+        if changed + removed > 0 { EnsembleLogger.debug("🎵 Playlists \(scope): wrote \(changed), removed \(removed)") }
+        if !unresolved.isEmpty { EnsembleLogger.info("Playlists \(scope): \(unresolved.count) body reads unresolved, to retry next pass") }
+        return PlaylistSyncResult(changedPlaylists: changed, removedPlaylists: removed, unresolvedPlaylists: unresolved)
+    }
+
+    /// Writes a playlist the user just created or changed, before the server shows it. Reads that began
+    /// earlier cannot undo it, and an inventory read earlier cannot delete it.
+    public func applyLocalEdit(_ entry: PlaylistEntry, for scope: String) async throws {
+        try await serialized {
+            let existing = try await self.playlistRepository.fetchPlaylistSyncStates(forSource: scope)[entry.header.ratingKey]
+            self.noteLocalEdit(entry.header.ratingKey, in: scope)
+            try await self.write(entry.header, body: entry.body, scope: scope, existing: existing)
+        }
+    }
+
+    /// Appends tracks the user just added to a playlist, before the server shows them. The stored body is
+    /// read, merged and saved inside one serialized operation, so two adds in a row both survive. Tracks the
+    /// playlist already holds are skipped. Returns the track count afterwards, or nil when the playlist is not stored.
+    public func appendLocally(_ tracks: [Track], toPlaylist id: String, for scope: String) async throws -> Int? {
+        try await serialized {
+            guard let cached = try await self.playlistRepository.fetchPlaylist(ratingKey: id, sourceCompositeKey: scope) else { return nil }
+            // The object belongs to the main-queue context.
+            let (header, items) = await MainActor.run {
+                (PlaylistUpsertInput(
+                    ratingKey: cached.ratingKey, key: cached.key, title: cached.title, summary: cached.summary,
+                    compositePath: cached.compositePath, isSmart: cached.isSmart, duration: nil, trackCount: nil,
+                    dateAdded: cached.dateAdded,
+                    // The server's date stays, so the next read of the changed playlist replaces this body.
+                    dateModified: cached.dateModified, lastPlayed: cached.lastPlayed
+                ), cached.playlistItemsArray.map(PlaylistItem.init(from:)))
+            }
+            let newTracks = PlaylistActionService().tracks(tracks, excluding: items.map(\.track))
+            guard !newTracks.isEmpty else { return items.count }
+
+            let snapshots = items.compactMap { PlaylistTrackSnapshot($0.track, playlistItemID: $0.playlistItemID) }
+                + newTracks.compactMap { PlaylistTrackSnapshot($0, playlistItemID: nil) }
+            let existing = try await self.playlistRepository.fetchPlaylistSyncStates(forSource: scope)[id]
+            self.noteLocalEdit(id, in: scope)
+            try await self.write(
+                header.replacing(duration: Int(snapshots.reduce(0) { $0 + $1.duration } * 1_000), trackCount: snapshots.count),
+                body: snapshots, scope: scope, existing: existing
+            )
+            return snapshots.count
+        }
+    }
+
+    /// Removes a playlist the server just confirmed deleted. The inventory cannot do it when it was the
+    /// scope's last playlist, because an empty list deletes nothing. Reads that began earlier cannot bring it back.
+    public func removePlaylist(_ id: String, for scope: String) async throws {
+        try await serialized {
+            self.noteLocalEdit(id, in: scope)
+            // The server already deleted it and nothing will ask again, so a failed local delete is retried here.
+            for (attempt, delay) in ([0] + Self.localDeleteRetryDelays).enumerated() {
+                if delay > 0 { try await Task.sleep(nanoseconds: delay) }
+                do {
+                    try await self.playlistRepository.deletePlaylist(ratingKey: id, sourceCompositeKey: scope)
+                    break
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch where attempt < Self.localDeleteRetryDelays.count {
+                    EnsembleLogger.info("Local delete of playlist \(id) failed, retrying: \(error.localizedDescription)")
+                }
+            }
+            EnsembleLogger.debug("🎵 Playlists \(scope): removed playlist \(id) after its remote delete")
+            let survivors = Set(try await self.playlistRepository.fetchPlaylistSyncStates(forSource: scope).keys)
+            await MainActor.run {
+                HiddenMediaStore.shared.removeMissing(kind: .playlist, sourceKey: scope, survivingItemIDs: survivors)
+            }
+        }
+    }
+
+    /// The last complete playlist inventory of a scope.
+    public func lastPlaylistInventoryAt(_ scope: String) async throws -> Date? {
+        try await cursors?.fetchCursor(scopeKey: scope, scopeType: .serverPlaylists)?.lastInventorySyncAt
+    }
+
+    /// Forgets a scope's playlist cursor.
+    public func removePlaylistCursor(_ scope: String) async throws {
+        try await serialized { try await self.cursors?.deleteCursor(scopeKey: scope, scopeType: .serverPlaylists) }
+    }
+
+    @discardableResult
+    private func write(_ header: PlaylistUpsertInput, body: [PlaylistTrackSnapshot]?, scope: String, existing: PlaylistSyncState?) async throws -> Bool {
+        if let body {
+            // A body needs its playlist row; the final save carries the date.
+            if existing == nil { _ = try await playlistRepository.upsertPlaylist(header.replacing(dateModified: .some(nil)), sourceCompositeKey: scope) }
+            try RefreshExecution.checkCancellation()
+            try await playlistRepository.setPlaylistTrackSnapshots(body, forPlaylist: header.ratingKey, sourceCompositeKey: scope)
+            try RefreshExecution.checkCancellation()
+            _ = try await playlistRepository.upsertPlaylist(header, sourceCompositeKey: scope)
+            return true
+        }
+        guard existing?.headerMatches(header) != true else { return false }
+        _ = try await playlistRepository.upsertPlaylist(header, sourceCompositeKey: scope)
+        return true
+    }
+
+    /// Playlists with a mutation still queued to upload, from the durable pending-mutation records (which
+    /// name the playlist in their payload). A queued rename keeps its local title; a queued add, remove or
+    /// delete leaves the playlist's header and body alone, so a read of the server cannot undo it, and
+    /// none of them can be deleted by an inventory. Creates and reorders are never queued.
+    private func queuedPlaylistMutations(in scope: String) async throws -> (renamed: Set<String>, edited: Set<String>) {
+        guard let pendingMutations else { return ([], []) }
+        var renamed = Set<String>(), edited = Set<String>()
+        for record in try await pendingMutations.fetchPendingMutationRecords() {
+            let decoder = JSONDecoder()
+            switch record.mutationType {
+            case .playlistRename:
+                if let payload = try? decoder.decode(PlaylistRenameMutationPayload.self, from: record.payload),
+                   payload.playlistSourceCompositeKey == scope { renamed.insert(payload.playlistRatingKey) }
+            case .playlistAdd, .playlistRemove:
+                if let payload = try? decoder.decode(PlaylistMutationPayload.self, from: record.payload),
+                   payload.playlistSourceCompositeKey == scope { edited.insert(payload.playlistRatingKey) }
+            case .playlistDelete:
+                if let payload = try? decoder.decode(PlaylistDeleteMutationPayload.self, from: record.payload),
+                   payload.playlistSourceCompositeKey == scope { edited.insert(payload.playlistRatingKey) }
+            default:
+                continue
+            }
+        }
+        return (renamed, edited)
+    }
+
+    private static func editKey(_ id: String, in scope: String) -> String { "\(scope)\u{0}\(id)" }
+
+    private func noteLocalEdit(_ id: String, in scope: String) {
+        localEdits = localEdits.filter { $0.value.timeIntervalSinceNow > -Self.localEditRetention }
+        localEdits[Self.editKey(id, in: scope)] = Date()
+    }
+
+    private func isEditedLocally(_ id: String, in scope: String, since date: Date) -> Bool {
+        localEdits[Self.editKey(id, in: scope)].map { $0 > date } ?? false
+    }
+
+    private func idsEditedLocally(in scope: String, since date: Date) -> Set<String> {
+        let prefix = Self.editKey("", in: scope)
+        return Set(localEdits.compactMap { $0.value > date && $0.key.hasPrefix(prefix) ? String($0.key.dropFirst(prefix.count)) : nil })
+    }
+
+    private static func isBlank(_ id: String) -> Bool { id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// A body whose tracks all have IDs; a blank ID shows the read was malformed, so it is not proof.
+    static func provenBody(_ body: [PlaylistTrackSnapshot]?) -> [PlaylistTrackSnapshot]? {
+        body.flatMap { $0.contains { isBlank($0.ratingKey) } ? nil : $0 }
+    }
+
+    /// An older header describes an older server state than the one stored.
+    static func isStale(_ header: PlaylistUpsertInput, stored: PlaylistSyncState) -> Bool {
+        guard let incoming = header.dateModified, let existing = stored.dateModified else { return false }
+        return incoming < existing
+    }
+
+    static func needsBody(_ header: PlaylistUpsertInput, stored: PlaylistSyncState?) -> Bool {
+        guard let stored else { return true }
+        guard !isStale(header, stored: stored) else { return false }
+        if header.dateModified == nil || header.dateModified != stored.dateModified { return true }
+        return !stored.hasMemberships && (header.trackCount ?? 0) > 0
     }
 
     // MARK: - Rows

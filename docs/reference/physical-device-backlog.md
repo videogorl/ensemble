@@ -199,16 +199,34 @@ not on the phone or AirPlay.
 - AirPlay then interruption (`9aaf9815`): switch to AirPlay, let several tracks
   advance gaplessly, then trigger an interruption (call or Siri). The paused
   scrubber and the resumed position match the current track, not the track
-  that was playing at the switch.
+  that was playing at the switch. Partly run on the SE on 2026-11-11 with
+  the Mac mini as the AirPlay receiver (build `202611111034.1182`): a Next and
+  one natural gapless advance on AirPlay, and switches to and from the iPhone
+  speaker, kept the position continuous. Still owed: the interruption itself
+  (a call or Siri) after the advances.
 - Pause and resume after gapless advances (`ae391278`) passed on the SE on
   2026-11-10, also from the system media controls with the app in the
-  background ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)). Still owed: a later AirPlay switch logs a `render=` close to
-  `observed=` and never `Ignoring render clock`.
+  background ([2026-11-10 SE note](../investigations/2026-11-10-iphone-se-scripted-playback-checks.md)). The AirPlay part passed on the SE on 2026-11-11: two
+  switches made while playing (speaker to AirPlay at 21.8 s, back at 53.7 s)
+  logged `render=` equal to `observed=`, with `presentation route=airPlay
+  latency=2.023s`, and never `Ignoring render clock`. A switch made while
+  paused logs `render=nil`, as expected.
 - Relaunch and resume (`62e82bac`) passed on the SE on 2026-11-10 by the log
   and scrubber. Still owed: the Lock Screen follows the new track.
 - Early segment end (`9ee8cf42`, diagnostic only): keep AirPlay playing a
   stream-cached queue. If a track ends early, read the `Segment ended early`
-  line for the playhead, duration, frame counts, and file size.
+  line for the playhead, duration, frame counts, and file size. On 2026-11-11
+  one natural end and one Next on AirPlay (SE to the Mac mini) logged no
+  `Segment ended early`; the row stays open for a longer queue.
+
+AirPlay from the SE to the Mac mini needs the Mac's "Allow AirPlay for" set to
+"Anyone on the Same Network" and the Mac's Accept banner clicked within a few
+seconds; keep the phone's volume for that route at 0%. Still not run there:
+Screen Mirroring (no automated swipe opens Control Center on the SE), the
+visible AirPlay fallback (nothing forces it), and a suspected miss: three taps
+on Pause in the Lock Screen media controls did nothing while on AirPlay
+(possibly the tool's tap; recheck by hand). Report:
+`$TMPDIR/ensemble-devmcp-checks/group-airplay.md`.
 
 ### Sweep fixes, at `4dfcae14` or later
 
@@ -560,6 +578,40 @@ thousands of songs and stays Owed for Felicity's own iPhone.
 
 The iPad and watch checklist sections start with steps 5 and 6.
 
+## iPhone — step 3d, playlists on the writer (Plex and Apple Music)
+
+Applies to the commits that move playlist list and body sync onto `LibraryWriter`
+(branch `refactor/playlists-on-library-writer`). The simulator proved the writer rules
+(on-disk store tests, including overlapping passes, stale reads and cancellation) and
+the Plex connector against a fake server. Nothing has run on the iPhone, and nothing
+touched live Plex or Apple Music.
+
+How to read the log for the repeated-read checks (`EnsembleLogger`, in the session log):
+
+- `🎵 Playlists <scope>: wrote N, removed M` (debug) appears only when a pass changed something. On a pass
+  where nothing changed on the server, it must not appear. A playlist whose body is read and rewritten every
+  pass makes it appear on every pass with N at least 1.
+- `Playlists <scope>: N body reads unresolved, to retry next pass` (info) means the pass was partial. It
+  must go away on the next pass; the same N on consecutive passes is a body that never proves complete.
+- Apple Music: `Apple Music REST playlist body unavailable; trying MusicKit id=<id>` (info) and
+  `🎵 Apple Music playlist body failed id=<id>` (error). The same id on every pass is a body that never
+  becomes provable (see the `meta.total` and count rows).
+
+| Check | Status |
+| --- | --- |
+| An unchanged Plex playlist pass makes no `/playlists/{id}/items` request (issue #98: a playlist whose stored rows are below the server count is no longer refetched) | Owed |
+| No Plex playlist lacks `updatedAt` (such a playlist would be read again every pass: the `wrote N` line above on an idle server) | Owed |
+| Plex, on a disposable playlist (needs Felicity's approval): create, add, rename, reorder and delete. The list matches the server after each; after the rename, Date Modified sort moves it up once the refresh lands | Owed |
+| Plex: rename while offline, then reconnect. The new title shows throughout, uploads once, and the server's header applies afterwards | Owed |
+| A playlist edited from another Plex client reaches the phone through the WebSocket and the body changes | Owed |
+| A playlist with repeated tracks, and one emptied on the server, keep their order and count | Owed |
+| Apple Music: `/v1/me/library/playlists/{id}/tracks` reports `meta.total`. Without it the REST body counts only when MusicKit's song count agrees | Owed |
+| Apple Music: MusicKit's song count for a playlist equals REST's. If they differ routinely, the body is never accepted and the playlist's id repeats in the Apple Music log lines above on every pass | Owed |
+| Apple Music: the playlist list and bodies match the Music app; a playlist deleted in Music disappears; no `Apple Music playlist inventory withheld` line on a healthy library | Owed |
+| Delete of a scope's last playlist removes its row even though the list that follows is empty. Not runnable on a real library without deleting every playlist; covered by `testDeletingTheLastPlaylistRemovesItsRow` and `testDeletingTheLastPlaylistRemovesItAndAnOlderReadCannotRestoreIt` only. Run it on a disposable Plex server or a fresh test account if one exists | Owed |
+| `.partial` keeps background recovery outstanding: make one playlist body fail (disposable server, or a throttled network for one request), run a background refresh, and see the handoff stay pending (`Refresh pending sources=` in the log, `hasPendingBackgroundRefresh` true) and the next foreground recovery clear it once the body reads. No test drives this path (it writes the real handoff file) | Owed |
+| Offline: a queued playlist add, remove or delete is not overwritten or deleted by a sync before it uploads; last-playlist offline targets keep their tracks | Owed |
+
 ## iPhone SE and a phone with a SIM — stream drop resume (steps c and d)
 
 Applies to the commits "Resume a dropped direct download with a Range request..." and
@@ -648,3 +700,18 @@ matching "owed" lines in the sections above. Network checks used Wi-Fi off and o
 | Queue row actions button: a near miss opens the menu instead of playing the row | Passed on the SE on 2026-11-11 (trial build `202611110900.4703`): taps 8 pt left of the glyph and in the gap before the handle near the row's top edge both opened the menu; before the fix, taps 5 pt outside played the row 4 of 4 times |
 | Focus filter offered in Settings | Passed: Do Not Disturb → Add Filter lists "Ensemble, Playback & Libraries" |
 | Step 3a: offline playlist targets list their tracks and state | Not applicable on the SE: Downloads holds three library targets and no playlist target |
+
+## iPhone SE — forced and system background refresh, 2026-11-11 (build `202611111034.1182`)
+
+Run from the Mac with lldb attached (`_simulateLaunchForTaskWithIdentifier:` for
+`com.videogorl.ensemble.refresh`). Report: `$TMPDIR/ensemble-devmcp-checks/group-bgrefresh.md`.
+
+| Check | Result |
+| --- | --- |
+| A forced refresh runs to completion | Passed: triggered 11:22:10, next refresh scheduled at the start, `handoff saved sources=4`, library and playlist phases for each source, `handoff cleared`, `returned succeeded=true pendingSources=0 needsRecovery=false errors=0` after 18.8 s |
+| iOS delivers a refresh on its own | Passed: runs at 11:47:04 and 12:18:14, about 15 to 17 minutes after each request was scheduled; the 12:18 run completed in 12 s |
+| A failed refresh is recovered on the next launch | Passed: the 11:47:04 run returned `succeeded=false pendingSources=4 needsRecovery=true errors=1` and left the handoff; a cold launch at 11:53:30 logged `Resuming background refresh handoff on launch` and `handoff cleared` 14 s later |
+| A refresh expired by iOS mid-sync | Not run: the simulated launch would not fire a second time under a scripted lldb (about 8 attempts). To unblock: a debug route that starts a refresh with a short time budget (the coordinator already has `debugNextTimeBudget` and `debugNextDelay`), or attach, wait about 15 minutes for a real refresh, then send the expiry |
+| An interrupted refresh resumes when the app is brought forward without a relaunch | Not run: needs the expiry case |
+
+Owed again on the step 3d build, where a partial playlist pass must keep recovery outstanding.

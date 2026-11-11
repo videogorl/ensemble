@@ -917,7 +917,7 @@ private final class HeldRadioProvider: MusicSourceConnector, MusicSourceRadioPro
     }
 
     func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
-    func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
-    func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, forceOrphanCheck: Bool, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
+    func fetchPlaylistHeaders() async throws -> PlaylistHeaderList { PlaylistHeaderList(headers: [], inventory: nil, queryStartedAt: Date()) }
+    func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
     func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
 }

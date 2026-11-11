@@ -108,7 +108,7 @@ private struct RecentPlaylistTargetObservationModifier: ViewModifier {
     let tracks: [Track]
     let isEnabled: Bool
     @Binding var target: Playlist?
-    @State private var lastPlaylistTargetID: String?
+    @State private var lastPlaylistTarget: LastPlaylistTarget?
 
     private var refreshKey: String {
         let trackIDs = tracks.map(\.playbackIdentity).joined(separator: "|")
@@ -118,12 +118,13 @@ private struct RecentPlaylistTargetObservationModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .task(id: refreshKey) {
-                lastPlaylistTargetID = nowPlayingVM.lastPlaylistTarget?.id
+                lastPlaylistTarget = nowPlayingVM.lastPlaylistTarget
                 await refreshTarget()
             }
-            .onChange(of: nowPlayingVM.lastPlaylistTarget?.id) { _, id in
-                guard id != lastPlaylistTargetID else { return }
-                lastPlaylistTargetID = id
+            // The whole target, so a rename of the same playlist also re-resolves it.
+            .onChange(of: nowPlayingVM.lastPlaylistTarget) { _, target in
+                guard target != lastPlaylistTarget else { return }
+                lastPlaylistTarget = target
                 Task { @MainActor in await refreshTarget() }
             }
     }

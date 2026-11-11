@@ -44,11 +44,23 @@ public struct LibrarySyncResult: Sendable, Equatable {
 public struct PlaylistSyncResult: Sendable, Equatable {
     public let changedPlaylists: Int
     public let removedPlaylists: Int
+    /// Playlists whose body was needed and could not be read or proven complete. Their stored rows and
+    /// dates are untouched, so the next pass tries them again; the pass is partial until this is empty.
+    public let unresolvedPlaylists: [String]
+    /// The writer ignored the whole batch because a newer list read had already committed. Nothing was
+    /// written and no cursor moved; a caller that needs its read applied must read again.
+    public let rejectedAsStale: Bool
 
-    public init(changedPlaylists: Int = 0, removedPlaylists: Int = 0) {
+    public init(
+        changedPlaylists: Int = 0, removedPlaylists: Int = 0, unresolvedPlaylists: [String] = [], rejectedAsStale: Bool = false
+    ) {
         self.changedPlaylists = changedPlaylists
         self.removedPlaylists = removedPlaylists
+        self.unresolvedPlaylists = unresolvedPlaylists
+        self.rejectedAsStale = rejectedAsStale
     }
+
+    public var isPartial: Bool { !unresolvedPlaylists.isEmpty }
 
     public var hasMaterialChanges: Bool {
         changedPlaylists > 0 || removedPlaylists > 0
@@ -146,12 +158,13 @@ public protocol MusicSourcePlaylistMutating: Sendable {
 
 /// Reconciles a provider whose playlist reads may lag behind accepted mutations.
 public protocol MusicSourcePlaylistReconciling: MusicSourcePlaylistMutating {
+    /// Reads one playlist; nil while the read does not yet show `minimumTrackCount` tracks and every
+    /// required one. The caller hands the batch to `LibraryWriter`.
     func reconcilePlaylist(
         id: String,
         minimumTrackCount: Int,
-        requiredTracks: [Track],
-        to repository: PlaylistRepositoryProtocol
-    ) async throws -> Int?
+        requiredTracks: [Track]
+    ) async throws -> PlaylistBatch?
 }
 
 extension MusicSourcePlaylistMutating {
@@ -270,18 +283,15 @@ public protocol MusicSourceConnector: Sendable {
     /// partial or cancelled read throws or omits the inventory; it never reports a partial one.
     func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch
 
-    /// Sync playlists to CoreData (should be called once per server, not per library)
-    func syncPlaylists(
-        to repository: PlaylistRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> PlaylistSyncResult
+    /// Reads every playlist header of the source's playlist scope (once per server for Plex, not per
+    /// library). The list carries an inventory only when the connector proved it complete; a failed,
+    /// partial or cancelled read throws or omits it, and never reports a partial one.
+    func fetchPlaylistHeaders() async throws -> PlaylistHeaderList
 
-    /// Sync only playlists added or updated since last sync (incremental)
-    func syncPlaylistsIncremental(
-        to repository: PlaylistRepositoryProtocol,
-        forceOrphanCheck: Bool,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> PlaylistSyncResult
+    /// Reads the complete membership of the listed playlists. A playlist whose read failed or cannot be
+    /// proven complete is left out, so `LibraryWriter` keeps its stored body. A complete read of an
+    /// empty playlist returns an entry with an empty body.
+    func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry]
 
     /// Fetch source-owned Feed sections already normalized to Ensemble's hub model.
     func getHomeHubs(limit: Int) async throws -> [Hub]

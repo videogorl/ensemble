@@ -6,6 +6,15 @@ import Testing
 
 @MainActor
 struct WebSocketSyncControllerTests {
+    private static func makeWriter() -> LibraryWriter {
+        let stack = CoreDataStack.inMemory()
+        return LibraryWriter(
+            libraryRepository: LibraryRepository(coreDataStack: stack),
+            playlistRepository: PlaylistRepository(coreDataStack: stack),
+            syncCursorRepository: nil
+        )
+    }
+
     @Test
     func resolveSectionReturnsMatchingSource() {
         let controller = WebSocketSyncController()
@@ -122,21 +131,18 @@ struct WebSocketSyncControllerTests {
             serverId: "server",
             libraryId: "12"
         )
-        let provider = MockWebSocketProvider(
-            sourceIdentifier: sourceId,
-            incrementalPlaylistResult: PlaylistSyncResult(changedPlaylists: 3, removedPlaylists: 1)
-        )
+        let provider = MockWebSocketProvider(sourceIdentifier: sourceId, playlists: .writing(3))
 
         let resolution = try await controller.refreshServerPlaylists(
             serverKey: "account:server",
             providers: [sourceId.compositeKey: provider],
-            playlistRepository: MockPlaylistRepository(),
+            writer: Self.makeWriter(),
             playlistRefreshController: refreshController
         )
 
         #expect(resolution?.sourceId == sourceId)
         #expect(resolution?.serverSourceKey == "plex:account:server")
-        #expect(resolution?.playlistResult == PlaylistSyncResult(changedPlaylists: 3, removedPlaylists: 1))
+        #expect(resolution?.playlistResult == PlaylistSyncResult(changedPlaylists: 3))
         #expect((resolution?.provider as? MockWebSocketProvider) === provider)
     }
 
@@ -155,7 +161,7 @@ struct WebSocketSyncControllerTests {
         let resolution = try await controller.refreshServerPlaylists(
             serverKey: "account:other",
             providers: [sourceId.compositeKey: provider],
-            playlistRepository: MockPlaylistRepository(),
+            writer: Self.makeWriter(),
             playlistRefreshController: refreshController
         )
 
@@ -165,32 +171,17 @@ struct WebSocketSyncControllerTests {
 
 private final class MockWebSocketProvider: MusicSourceConnector, @unchecked Sendable {
     let sourceIdentifier: MusicSourceIdentifier
-    let incrementalPlaylistResult: PlaylistSyncResult
+    let playlists: PlaylistHeaderList
 
-    init(
-        sourceIdentifier: MusicSourceIdentifier,
-        incrementalPlaylistResult: PlaylistSyncResult = PlaylistSyncResult()
-    ) {
+    init(sourceIdentifier: MusicSourceIdentifier, playlists: PlaylistHeaderList = .writing()) {
         self.sourceIdentifier = sourceIdentifier
-        self.incrementalPlaylistResult = incrementalPlaylistResult
+        self.playlists = playlists
     }
 
     func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch { LibraryBatch(queryStartedAt: Date()) }
 
-    func syncPlaylists(
-        to repository: PlaylistRepositoryProtocol,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> PlaylistSyncResult {
-        incrementalPlaylistResult
-    }
-
-    func syncPlaylistsIncremental(
-        to repository: PlaylistRepositoryProtocol,
-            forceOrphanCheck: Bool,
-        progressHandler: @Sendable (Double) -> Void
-    ) async throws -> PlaylistSyncResult {
-        incrementalPlaylistResult
-    }
+    func fetchPlaylistHeaders() async throws -> PlaylistHeaderList { playlists }
+    func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
 
     func getStreamURL(
         for trackRatingKey: String,
@@ -208,21 +199,4 @@ private final class MockWebSocketProvider: MusicSourceConnector, @unchecked Send
     func getAlbumTracks(albumKey: String) async throws -> [Track] { [] }
     func getArtistAlbums(artistKey: String) async throws -> [Album] { [] }
     func getArtistTracks(artistKey: String) async throws -> [Track] { [] }
-}
-
-private final class MockPlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
-    func fetchPlaylists() async throws -> [CDPlaylist] { [] }
-    func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] { [] }
-    func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist? { nil }
-    func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? { nil }
-    func searchPlaylists<Value: Sendable>(query: String, map: @escaping @Sendable ([CDPlaylist]) -> [Value]) async throws -> [Value] { [] }
-    func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist] { [] }
-    func upsertPlaylist(ratingKey: String, key: String, title: String, summary: String?, compositePath: String?, isSmart: Bool, duration: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, sourceCompositeKey: String?) async throws -> CDPlaylist {
-        throw PlexAPIError.noServerSelected
-    }
-    func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws {}
-    func deletePlaylist(ratingKey: String) async throws {}
-    func deletePlaylists(sourceCompositeKey: String) async throws {}
-    func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { 0 }
-    func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
 }

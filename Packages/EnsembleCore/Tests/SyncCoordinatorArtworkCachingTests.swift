@@ -70,22 +70,8 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
             plan.since == nil ? .writing(artists: 1, albums: 1) : LibraryBatch(queryStartedAt: Date())
         }
 
-        func syncPlaylists(
-            to repository: PlaylistRepositoryProtocol,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            progressHandler(1)
-            return PlaylistSyncResult(changedPlaylists: 1)
-        }
-
-        func syncPlaylistsIncremental(
-            to repository: PlaylistRepositoryProtocol,
-            forceOrphanCheck: Bool,
-            progressHandler: @Sendable (Double) -> Void
-        ) async throws -> PlaylistSyncResult {
-            progressHandler(1)
-            return PlaylistSyncResult()
-        }
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList { .writing() }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
 
         func getStreamURL(
             for trackRatingKey: String,

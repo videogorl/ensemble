@@ -18,31 +18,21 @@ extension PlexAPIClient {
         )
     }
 
-    /// Get playlist inventory (just ratingKeys) for orphan detection
-    public func getPlaylistInventory() async throws -> [PlexInventoryItem] {
-        try await getPlaylists().map { PlexInventoryItem(ratingKey: $0.ratingKey) }
+    /// Every audio playlist, and whether the response proves the list complete: the container reports a
+    /// size, no total or offset contradicts it, it equals the rows received, and no playlist repeats.
+    /// An unproven list is still usable for upserts, but never to delete.
+    public func getPlaylistList() async throws -> (playlists: [PlexPlaylist], isComplete: Bool) {
+        try Self.decodePlaylistList(try await serverRequest(path: "/playlists", query: ["playlistType": "audio"]))
     }
 
-    /// Get playlists added after a specific timestamp (incremental sync)
-    public func getPlaylists(addedAfter timestamp: TimeInterval) async throws -> [PlexPlaylist] {
-        let unixTime = Int(timestamp)
-        return PlexPlaylist.deduplicated(
-            try await mediaContainerItems(
-                path: "/playlists",
-                query: ["playlistType": "audio", "addedAt>": String(unixTime)]
-            )
-        )
-    }
-
-    /// Get playlists updated after a specific timestamp (incremental sync)
-    public func getPlaylists(updatedAfter timestamp: TimeInterval) async throws -> [PlexPlaylist] {
-        let unixTime = Int(timestamp)
-        return PlexPlaylist.deduplicated(
-            try await mediaContainerItems(
-                path: "/playlists",
-                query: ["playlistType": "audio", "updatedAt>": String(unixTime)]
-            )
-        )
+    static func decodePlaylistList(_ data: Data) throws -> (playlists: [PlexPlaylist], isComplete: Bool) {
+        let content = try JSONDecoder().decode(PlexMediaContainer<PlexPlaylist>.self, from: data).mediaContainer
+        let playlists = PlexPlaylist.deduplicated(content.items)
+        let isComplete = content.size == content.items.count
+            && (content.totalSize ?? content.items.count) == content.items.count
+            && (content.offset ?? 0) == 0
+            && playlists.count == content.items.count
+        return (playlists, isComplete)
     }
 
     /// Get playlist tracks

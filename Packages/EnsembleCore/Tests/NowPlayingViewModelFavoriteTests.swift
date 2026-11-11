@@ -562,14 +562,10 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         }
 
         func setPlaylistTracks(_: [String], forPlaylist _: String, sourceCompositeKey _: String?) async throws {}
-        func deletePlaylist(ratingKey _: String) async throws {}
         func deletePlaylists(sourceCompositeKey _: String) async throws {}
+        func deletePlaylist(ratingKey: String, sourceCompositeKey: String) async throws -> Bool { false }
         func removeOrphanedPlaylists(notIn _: Set<String>, forSource _: String) async throws -> Int {
             0
-        }
-
-        func fetchPlaylistTimestamps(forSource _: String) async throws -> [String: Date] {
-            [:]
         }
     }
 

@@ -31,3 +31,20 @@ extension LibraryBatch {
         )
     }
 }
+
+extension PlaylistHeaderList {
+    /// `count` new playlists with unique IDs, so a pass reports exactly these changes. No inventory: it never deletes.
+    static func writing(_ count: Int = 0) -> PlaylistHeaderList {
+        PlaylistHeaderList(
+            headers: (0..<count).map { _ in
+                let id = "playlist-\(UUID().uuidString)"
+                return PlaylistUpsertInput(
+                    ratingKey: id, key: "/playlists/\(id)", title: id, summary: nil, compositePath: nil, isSmart: false,
+                    duration: 0, trackCount: 0, dateAdded: nil, dateModified: nil, lastPlayed: nil
+                )
+            },
+            inventory: nil,
+            queryStartedAt: Date()
+        )
+    }
+}
