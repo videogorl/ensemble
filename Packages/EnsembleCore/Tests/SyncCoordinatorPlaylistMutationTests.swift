@@ -78,6 +78,7 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             try await base.setPlaylistTrackSnapshots(snapshots, forPlaylist: playlistRatingKey, sourceCompositeKey: sourceCompositeKey)
         }
         func deletePlaylists(sourceCompositeKey: String) async throws { try await base.deletePlaylists(sourceCompositeKey: sourceCompositeKey) }
+        func deletePlaylist(ratingKey: String, sourceCompositeKey: String) async throws -> Bool { try await base.deletePlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey) }
         func removeOrphanedPlaylists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int { try await base.removeOrphanedPlaylists(notIn: validRatingKeys, forSource: sourceKey) }
         func fetchPlaylistSyncStates(forSource sourceKey: String) async throws -> [String: PlaylistSyncState] { try await base.fetchPlaylistSyncStates(forSource: sourceKey) }
     }
@@ -853,5 +854,33 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         XCTAssertEqual(coordinator.lastPlaylistTarget(forServerSourceKey: sources[1]), siblingTarget)
         XCTAssertFalse(FileManager.default.fileExists(atPath: paths[0].path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths[1].path))
+    }
+
+    /// The refresh after a delete reads an empty list, and an empty list deletes nothing, so the row of the
+    /// scope's last playlist goes by the confirmed delete itself.
+    func testDeletingTheLastPlaylistRemovesItsRow() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = PlaylistRepository(coreDataStack: stack)
+        let coordinator = makeCoordinator(withServer: false, playlistRepository: repository)
+        let provider = RecordingPlaylistProvider()
+        coordinator.setSyncProvidersForTesting([provider.sourceIdentifier.compositeKey: provider])
+        let scope = "plex:account-1:server-1"
+        for source in [scope, "plex:account-2:server-1"] {
+            _ = try await repository.upsertPlaylist(
+                ratingKey: "playlist-1", key: "/playlists/playlist-1", title: "Only", summary: nil, compositePath: nil, isSmart: false,
+                duration: nil, trackCount: 0, dateAdded: nil, dateModified: nil, lastPlayed: nil, sourceCompositeKey: source
+            )
+        }
+        let playlist = Playlist(
+            id: "playlist-1", key: "/playlists/playlist-1", title: "Only", summary: nil, isSmart: false, trackCount: 0,
+            duration: 0, compositePath: nil, dateAdded: nil, dateModified: nil, lastPlayed: nil, sourceCompositeKey: scope
+        )
+
+        try await coordinator.deletePlaylist(playlist)
+
+        let mine = try await repository.fetchPlaylistSyncStates(forSource: scope)
+        XCTAssertTrue(mine.isEmpty)
+        let other = try await repository.fetchPlaylistSyncStates(forSource: "plex:account-2:server-1")
+        XCTAssertEqual(Set(other.keys), ["playlist-1"], "another server's playlist is untouched")
     }
 }

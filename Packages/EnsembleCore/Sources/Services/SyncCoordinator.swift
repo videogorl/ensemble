@@ -8,6 +8,9 @@ import Foundation
 /// The user-visible result of syncing one configured music source.
 public enum MusicSourceSyncOutcome: Sendable, Equatable {
     case success
+    /// Everything read was committed, but some of it could not be read or proven complete. The next
+    /// pass retries it, so a caller that tracks completion must not treat the source as done.
+    case partial(message: String)
     case failure(message: String)
 }
 
@@ -360,7 +363,7 @@ public final class SyncCoordinator {
                 let serverKey = MediaSourceIdentity.serverSourceKey(for: source)
                 let succeeded = await onRefreshPlaylistsCommitted?(serverKey, result.hasMaterialChanges) ?? true
                 followUpSucceeded = followUpSucceeded && succeeded
-                if succeeded { completedPlaylistServers.insert(serverKey) }
+                if succeeded && !result.isPartial { completedPlaylistServers.insert(serverKey) }
                 EnsembleLogger.info("Background refresh phase=playlists completed=true followUp=\(succeeded)")
             }
             let shouldSyncPlaylists = !completedPlaylistServers.contains(MediaSourceIdentity.serverSourceKey(for: source))
@@ -396,7 +399,7 @@ public final class SyncCoordinator {
                 try savePendingBackgroundRefresh(pending)
             case .success:
                 failures.append("Committed source data still needs Siri or offline reconciliation.")
-            case .failure(let message):
+            case .partial(let message), .failure(let message):
                 failures.append(message)
             }
         }
@@ -1163,6 +1166,14 @@ public final class SyncCoordinator {
         let provider = try playlistMutationProvider(for: sourceKey)
         guard !playlist.isSmart else { throw PlaylistMutationError.smartPlaylistReadOnly }
         try await provider.capability.deletePlaylist(playlist.id)
+        // The server confirmed it. The refresh below cannot remove the scope's last playlist, since an empty list deletes nothing.
+        do {
+            try await libraryWriter.removePlaylist(playlist.id, for: sourceKey)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            EnsembleLogger.error("Could not remove deleted playlist \(playlist.id) locally: \(error.localizedDescription)")
+        }
         clearLastPlaylistTargetIfNeeded(deletedPlaylist: playlist)
         artworkDownloadManager.deleteArtwork(ratingKey: playlist.id, type: .playlist, sourceCompositeKey: sourceKey)
         await refreshProviderPlaylists(provider.provider, sourceKey: sourceKey, persistenceOperation: persistenceOperation)
@@ -1180,7 +1191,7 @@ public final class SyncCoordinator {
             throw PlaylistMutationError.invalidSource
         }
         let snapshots = tracks.compactMap {
-            Self.playlistTrackSnapshot($0, playlistItemID: nil)
+            PlaylistTrackSnapshot($0, playlistItemID: nil)
         }
         try await libraryWriter.applyLocalEdit(
             PlaylistEntry(
@@ -1213,75 +1224,13 @@ public final class SyncCoordinator {
         guard let sourceKey = playlist.sourceCompositeKey else {
             throw PlaylistMutationError.invalidSource
         }
-        guard let cachedPlaylist = try await playlistRepository.fetchPlaylist(
-            ratingKey: playlist.id,
-            sourceCompositeKey: sourceKey
-        ) else {
+        guard let count = try await libraryWriter.appendLocally(tracks, toPlaylist: playlist.id, for: sourceKey) else {
             return playlist.trackCount + tracks.count
         }
-
-        let existingItems = cachedPlaylist.playlistItemsArray.map(PlaylistItem.init(from:))
-        let newTracks = PlaylistActionService().tracks(
-            tracks,
-            excluding: existingItems.map(\.track)
-        )
-        guard !newTracks.isEmpty else { return existingItems.count }
-
-        let snapshots = existingItems.compactMap {
-            Self.playlistTrackSnapshot(
-                $0.track,
-                playlistItemID: $0.playlistItemID
-            )
-        } + newTracks.compactMap {
-            Self.playlistTrackSnapshot(
-                $0,
-                playlistItemID: nil
-            )
-        }
-        try await libraryWriter.applyLocalEdit(
-            PlaylistEntry(
-                header: PlaylistUpsertInput(
-                    ratingKey: cachedPlaylist.ratingKey,
-                    key: cachedPlaylist.key,
-                    title: cachedPlaylist.title,
-                    summary: cachedPlaylist.summary,
-                    compositePath: cachedPlaylist.compositePath,
-                    isSmart: cachedPlaylist.isSmart,
-                    duration: Int(snapshots.reduce(0) { $0 + $1.duration } * 1_000),
-                    trackCount: snapshots.count,
-                    dateAdded: cachedPlaylist.dateAdded,
-                    // The server's date stays, so the next read of the changed playlist replaces this body.
-                    dateModified: cachedPlaylist.dateModified,
-                    lastPlayed: cachedPlaylist.lastPlayed
-                ),
-                body: snapshots
-            ),
-            for: sourceKey
-        )
-        notifyPlaylistRefreshCompleted(serverSourceKey: sourceKey)
         EnsembleLogger.info(
-            "Playlist optimistic cache updated source=\(sourceKey) playlist=\(playlist.id) tracks=\(snapshots.count)"
+            "Playlist optimistic cache updated source=\(sourceKey) playlist=\(playlist.id) tracks=\(count)"
         )
-        return snapshots.count
-    }
-
-    private static func playlistTrackSnapshot(
-        _ track: Track,
-        playlistItemID: String?
-    ) -> PlaylistTrackSnapshot? {
-        guard let sourceCompositeKey = track.sourceCompositeKey,
-              MusicSourceIdentifier(compositeKey: sourceCompositeKey) != nil else { return nil }
-        return PlaylistTrackSnapshot(
-            ratingKey: track.id,
-            playlistItemID: playlistItemID,
-            key: track.key,
-            title: track.title,
-            artistName: track.artistName,
-            albumName: track.albumName,
-            duration: track.duration,
-            thumbPath: track.thumbPath ?? track.fallbackThumbPath,
-            sourceCompositeKey: sourceCompositeKey
-        )
+        return count
     }
 
     private func refreshProviderPlaylists(
@@ -1475,7 +1424,7 @@ public final class SyncCoordinator {
                 EnsembleLogger.info(
                     "Source library reconciliation completed source=\(source.compositeKey) catalogID=\(catalogID)"
                 )
-            case .failure(let message):
+            case .partial(let message), .failure(let message):
                 EnsembleLogger.error(
                     "Source library reconciliation failed source=\(source.compositeKey) catalogID=\(catalogID) message=\(message)"
                 )
@@ -3571,6 +3520,10 @@ private extension SyncCoordinator {
         publishContentChangeIfNeeded(for: source, libraryResult: libraryResult, playlistResult: playlistResult, syncedAt: syncedAt)
         if libraryResult?.hasMaterialChanges == true || playlistResult?.hasMaterialChanges == true {
             libraryChanges?.send(.catalogChanged)
+        }
+        if let unresolved = playlistResult?.unresolvedPlaylists, !unresolved.isEmpty {
+            EnsembleLogger.info("Sync of \(source.compositeKey) is partial: \(unresolved.count) playlist bodies unresolved")
+            return .partial(message: "\(unresolved.count) playlists could not be fully read and will be retried.")
         }
         return .success
     }
