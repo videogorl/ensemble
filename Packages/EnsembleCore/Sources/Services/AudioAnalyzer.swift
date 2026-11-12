@@ -238,6 +238,9 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         let throttled: Bool
     }
     private var deferredLoads: [DeferredLoad] = []
+    /// Whether a track is still the current or an upcoming one. Requests for any other track
+    /// (a prefetch callback that outlived rapid skips) are dropped. Nil accepts everything.
+    public var isTrackRelevant: (@MainActor (String) -> Bool)?
     private var replayTask: Task<Void, Never>?
     static let maxDeferredLoads = 2
 
@@ -299,6 +302,11 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             return
         }
 
+        if let isTrackRelevant, !isTrackRelevant(trackId) {
+            logger.debug("loadTimeline skipped: track is no longer current or upcoming")
+            return
+        }
+
         // Only analyze local files (not remote stream URLs)
         guard fileURL.isFileURL else {
             logger.debug("loadTimeline skipped: not a file URL")
@@ -321,9 +329,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         // The timeline only feeds the visualizer. Don't spend CPU on a surface nobody can
         // see; remember the request and run it when a surface appears or the app foregrounds.
         guard isAnalysisDemanded else {
-            deferredLoads.removeAll { $0.trackId == trackId }
-            deferredLoads.append(DeferredLoad(trackId: trackId, fileURL: fileURL, priority: priority, throttled: throttled))
-            if deferredLoads.count > Self.maxDeferredLoads { deferredLoads.removeFirst() }
+            deferLoad(DeferredLoad(trackId: trackId, fileURL: fileURL, priority: priority, throttled: throttled))
             logger.debug("loadTimeline deferred: no visible visualization surface")
             return
         }
@@ -338,7 +344,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             }
             analysisTasks.removeAll()
         } else if !analysisTasks.isEmpty {
-            logger.debug("Skipping prefetch analysis for \(trackId): another analysis is running")
+            // Run it when the current analysis finishes rather than losing it: a current-track
+            // request (instrumental mode runs it at .background) must still get its timeline.
+            deferLoad(DeferredLoad(trackId: trackId, fileURL: fileURL, priority: priority, throttled: throttled))
+            logger.debug("loadTimeline queued behind a running analysis")
             return
         }
 
@@ -386,6 +395,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             }
 
             service.analysisTasks.removeValue(forKey: trackId)
+            service.runDeferredLoads()
         }
         analysisTasks[trackId] = analysisTask
         // Only await if this task hasn't been replaced by a higher-priority one.
@@ -414,12 +424,28 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         visualizationEnabled && !isBackgrounded && !visibleVisualizationConsumers.isEmpty
     }
 
+    /// Keeps the newest `maxDeferredLoads` relevant requests, never trimming the active track's.
+    private func deferLoad(_ load: DeferredLoad) {
+        deferredLoads.removeAll { $0.trackId == load.trackId }
+        deferredLoads.append(load)
+        dropIrrelevantDeferredLoads()
+        while deferredLoads.count > Self.maxDeferredLoads,
+              let index = deferredLoads.firstIndex(where: { $0.trackId != activeTrackId }) {
+            deferredLoads.remove(at: index)
+        }
+    }
+
+    private func dropIrrelevantDeferredLoads() {
+        guard let isTrackRelevant else { return }
+        deferredLoads.removeAll { !isTrackRelevant($0.trackId) }
+    }
+
     /// Replays deferred requests one at a time once demand returns. Single-flight, so two
     /// replays never race (a lower-priority load would be skipped while another runs).
     private func runDeferredLoads() {
         guard replayTask == nil, isAnalysisDemanded, !deferredLoads.isEmpty else { return }
         replayTask = Task { [weak self] in
-            while !Task.isCancelled, let self, self.isAnalysisDemanded, let load = self.takeNextDeferredLoad() {
+            while !Task.isCancelled, let self, self.isAnalysisDemanded, self.analysisTasks.isEmpty, let load = self.takeNextDeferredLoad() {
                 await self.loadTimeline(for: load.trackId, fileURL: load.fileURL, priority: load.priority, throttled: load.throttled)
             }
             if !Task.isCancelled { self?.replayTask = nil }
@@ -429,6 +455,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     /// Current track first, then highest priority, then oldest: a later userInitiated load
     /// would cancel an earlier lower-priority one.
     private func takeNextDeferredLoad() -> DeferredLoad? {
+        dropIrrelevantDeferredLoads()
         let best = deferredLoads.indices.min { lhs, rhs in
             let (a, b) = (deferredLoads[lhs], deferredLoads[rhs])
             if (a.trackId == activeTrackId) != (b.trackId == activeTrackId) { return a.trackId == activeTrackId }
