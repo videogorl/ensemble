@@ -115,3 +115,22 @@ nothing else from `playAudio`; the action count went from 33 to 32. The kind-wor
 To bring `playAudio` back, one of these would have to be true: Siri queries every kind (or honours an unspecified-kind
 query) for a bare name; or one schema entity type can span kinds so a single query ranks across them. Neither can be
 shaped from the app today.
+
+## `playAudio` restored with cross-kind answers (2026-11-12, third phone run)
+
+Withdrawing `playAudio` broke add: on `64fc7c43` Siri AI no longer ran our playlist `AudioSearch` ("couldn't find a
+playlist named ZZ Test Siri AI"; only `entities for ids kind=track` logged) and said Ensemble does not support
+creating stations. Siri AI evidently needs `playAudio` to exist before it uses the app's audio entities at all. So
+`playAudio` is back, and the kind Siri chooses is made irrelevant:
+
+- The song, album and artist queries (`values(for: AudioSearch)` and `entities(matching:)`) answer from every kind with
+  `SiriPlaybackCoordinator.rankedMatches` (the assembly and ranking `executePlayUnspecifiedKind` also uses), the top
+  match when it clearly wins (`SiriMediaIndexResolver.topPicks`, the extension's 0.1 gap), else up to three, wrapped in
+  the queried type. `Entity(item:)` carries the real item and `perform()` plays `item.kind`, so an album-typed
+  entity wrapping the playlist "focus" plays the playlist. A kind word in the text ranks that kind only.
+- The playlist query stays playlists only (it is the add destination); `addToPlaylist` refuses a destination that is
+  not a playlist.
+- Schema entity identifiers now carry the real kind: `kind||ratingKey||source` (`AudioSchemaEntity`), parsed by
+  `SystemMediaReference`; `entities(for:)` hydrates over all kinds. The now-playing identifier uses the same format.
+  Saved-shortcut entities are untouched.
+- Unverified on a phone: whether Siri accepts an album-typed entity that plays a playlist, and what it says.

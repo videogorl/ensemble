@@ -74,6 +74,24 @@ final class SiriMediaIndexResolverTests: XCTestCase {
         }
     }
 
+    func testTopPicksTakesTheClearWinnerOrUpToThree() {
+        func ranked(_ scores: [Double]) -> [SiriMediaIndexResolver.RankedItem] {
+            scores.enumerated().map {
+                .init(item: SiriMediaIndexItem(kind: .track, id: "\($0.offset)", displayName: "\($0.offset)"), score: $0.element)
+            }
+        }
+        let cases: [([Double], [String])] = [
+            ([], []),
+            ([0.84], ["0"]),
+            ([1.0, 0.7, 0.7], ["0"]),
+            ([0.84, 0.84, 0.7, 0.7], ["0", "1", "2"]),
+            ([0.84, 0.8], ["0", "1"])
+        ]
+        for (scores, expected) in cases {
+            XCTAssertEqual(SiriMediaIndexResolver.topPicks(from: ranked(scores)).map(\.item.id), expected, "\(scores)")
+        }
+    }
+
     func testFindItemsDeduplicatesEquivalentDisplayNamesWithinKind() {
         let index = SiriMediaIndex(items: [
             SiriMediaIndexItem(kind: .playlist, id: "1", displayName: "Road Trip", secondaryText: "A"),

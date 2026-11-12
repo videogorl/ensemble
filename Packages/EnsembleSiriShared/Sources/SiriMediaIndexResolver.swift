@@ -181,6 +181,17 @@ public enum SiriMediaIndexResolver {
         return nil
     }
 
+    /// The score gap under which the SiriKit extension offers a choice instead of picking the top match.
+    public static let disambiguationScoreGap = 0.1
+
+    /// The matches to hand a caller that cannot choose: the top one when it clearly beats the next by the
+    /// disambiguation gap, otherwise up to three, best first.
+    public static func topPicks(from ranked: [RankedItem]) -> [RankedItem] {
+        guard let top = ranked.first else { return [] }
+        guard ranked.count > 1, top.score - ranked[1].score <= disambiguationScoreGap else { return [top] }
+        return Array(ranked.prefix(3))
+    }
+
     public static func deduplicateEquivalentItems(_ items: [SiriMediaIndexItem]) -> [SiriMediaIndexItem] {
         var seenKeys = Set<String>()
         var results: [SiriMediaIndexItem] = []

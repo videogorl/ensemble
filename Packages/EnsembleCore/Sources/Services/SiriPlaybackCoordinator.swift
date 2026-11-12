@@ -138,22 +138,41 @@ public final class SiriPlaybackCoordinator {
     /// items only, ranked by the resolver the extension ranks with when the index is current (artist hint included).
     public func executePlayUnspecifiedKind(request: SiriPlaybackRequest) async throws {
         guard let name = request.displayName, !name.isEmpty else { throw SiriPlaybackCoordinatorError.mediaNotFound(.track) }
-        // A spoken name is complete, unlike a picker keystroke, so a one-character title ("U") is searched too.
-        var candidates = try await libraryCandidates(kind: nil, matching: name, limit: 10, minimumQueryLength: 1)
-        candidates += try await visiblePlaylists().visible.map {
-            SiriMediaIndexItem(
-                kind: .playlist, id: $0.id, displayName: $0.title, sourceCompositeKey: $0.sourceCompositeKey,
-                isSmartPlaylist: $0.isSmart
-            )
-        }
-        guard let top = SiriMediaIndexResolver.rankCandidates(
-            for: name, requestedKinds: nil, index: SiriMediaIndex(items: candidates),
-            artistHint: request.artistHint, minimumScore: SiriMediaIndexResolver.defaultMinimumMatchScore
-        ).first?.item else { throw SiriPlaybackCoordinatorError.mediaNotFound(.track) }
+        guard let top = try await rankedMatches(for: name, kinds: nil, artistHint: request.artistHint).first?.item
+        else { throw SiriPlaybackCoordinatorError.mediaNotFound(.track) }
         try await play(top.kind, request: SiriPlaybackRequest(
             entityID: top.id, sourceCompositeKey: top.sourceCompositeKey, displayName: top.displayName,
             artistHint: request.artistHint, shuffle: request.shuffle
         ))
+    }
+
+    /// The visible songs, albums, artists and playlists (or only `kinds`) ranked for a spoken name, best first: the
+    /// full store's candidates and the visible playlists, plus `indexed` items (the capped index's, checked against
+    /// today's visibility), ranked together by the resolver the extension ranks with. The one place this is assembled,
+    /// for play by unspecified kind and for Siri AI's per-kind queries.
+    public func rankedMatches(
+        for name: String,
+        kinds: Set<SiriMediaKind>?,
+        indexed: [SiriMediaIndexItem] = [],
+        artistHint: String? = nil
+    ) async throws -> [SiriMediaIndexResolver.RankedItem] {
+        // A spoken name is complete, unlike a picker keystroke, so a one-character title ("U") is searched too.
+        var candidates = try await libraryCandidates(
+            kind: kinds.flatMap { $0.count == 1 ? $0.first : nil }, matching: name, limit: 10, minimumQueryLength: 1
+        )
+        if kinds?.contains(.playlist) ?? true {
+            candidates += try await visiblePlaylists().visible.map {
+                SiriMediaIndexItem(
+                    kind: .playlist, id: $0.id, displayName: $0.title, sourceCompositeKey: $0.sourceCompositeKey,
+                    isSmartPlaylist: $0.isSmart
+                )
+            }
+        }
+        let known = indexed.isEmpty ? [] : await currentlyVisible(indexed)
+        return SiriMediaIndexResolver.rankCandidates(
+            for: name, requestedKinds: kinds, index: SiriMediaIndex(items: SiriMediaRows.combining(known, with: candidates)),
+            artistHint: artistHint, minimumScore: SiriMediaIndexResolver.defaultMinimumMatchScore
+        )
     }
 
     /// Resolves and plays a single track.

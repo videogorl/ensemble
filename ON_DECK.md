@@ -9,10 +9,10 @@ An entry does not authorize the work; Felicity picks what gets done.
 
 - Evidence: second phone run, `playAudio` queried one kind per request (track, album, artist), a different one each
   time, and played the wrong item; withdrawn. See the investigation note, "`playAudio` withdrawn".
-- Impact: play requests use the SiriKit extension; the schema intents cover add to playlist and create station only.
-- Next step: try one schema entity type that spans kinds (a single query that ranks across kinds), or re-test the
-  schema on a later iOS 27 build; bring `playAudio` back only if Siri then queries every kind or honours an
-  unspecified-kind query.
+- Impact: withdrawing `playAudio` also stopped Siri AI using the playlist query for add and from creating stations, so it
+  was restored with cross-kind answers (song, album and artist queries return our best match of any kind).
+- Next step: confirm on the phone that Siri accepts an album-typed entity that plays a playlist. If it does not, try one
+  schema entity type that spans kinds, or re-test on a later iOS 27 build.
 
 ## Confirmed: the shared matcher strips a trailing kind word for every kind (2026-11-12)
 

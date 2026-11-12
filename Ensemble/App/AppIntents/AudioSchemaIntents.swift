@@ -4,18 +4,40 @@ import EnsembleSiriShared
 import Foundation
 import MediaIntents
 
-// Siri AI audio schemas (iOS and macOS 27): add to playlist and create station, plus the entities and queries they
-// need. Play is deliberately not here: Siri AI picks one entity kind per request and queries only that kind, so
-// "play focus" cannot be resolved across kinds; play stays with the SiriKit path (see the investigation note).
-// They are thin: entities are built from the same index items, and every action calls the code the existing
-// intents call.
+// Siri AI audio schemas (iOS and macOS 27). Siri AI routes audio requests to these instead of resolving them itself.
+// It picks ONE entity kind per request and queries only that kind, so the song, album and artist queries answer from
+// every kind (our best matches, wrapped in the queried type); the playlist query stays playlists only, since it is
+// also the add destination. They are thin: entities are built from the same index items, and every action calls the
+// code the existing intents call.
 
 // The type names and identifiers of the entities saved shortcuts use are not touched: these are separate types, since
 // an entity adopts one schema and the existing ones are available from iOS 17.
 
+/// A schema entity wraps whatever item Siri's query was answered with, whatever its real kind, so its identifier
+/// carries the real kind (`kind||ratingKey||source`, as `EnsembleMediaEntity`'s does) and hydrates by it. The entities
+/// saved shortcuts use keep their own identifiers.
+@available(iOS 27.0, macOS 27.0, *)
+protocol AudioSchemaEntity: IndexItemEntity {}
+
+@available(iOS 27.0, macOS 27.0, *)
+extension AudioSchemaEntity {
+    var id: String { item.reference.sourceScopedIdentifier }
+
+    static func storedReference(in identifier: String) -> SiriIndexLookup.StoredReference? {
+        SystemMediaReference.components(fromSourceScopedIdentifier: identifier)
+            .map { .init(kind: $0.kind, id: $0.id, sourceKey: $0.sourceCompositeKey) }
+    }
+
+    /// The real kind shows, so a disambiguation list reads "Playlist", "Artist · Band", "Song · Band".
+    var displayRepresentation: DisplayRepresentation {
+        let subtitle = item.secondaryText.map { "\(item.kind.displayName) · \($0)" } ?? item.kind.displayName
+        return DisplayRepresentation(title: "\(item.displayName)", subtitle: "\(subtitle)")
+    }
+}
+
 @available(iOS 27.0, macOS 27.0, *)
 @AppEntity(schema: .audio.song)
-struct EnsembleSongAudioEntity: IndexItemEntity {
+struct EnsembleSongAudioEntity: AudioSchemaEntity {
     static let indexKind: SiriMediaKind? = .track
     static var defaultQuery = EnsembleSongAudioEntityQuery()
     let item: SiriMediaIndexItem
@@ -43,7 +65,7 @@ struct EnsembleSongAudioEntityQuery: AudioSchemaEntityQuery { typealias Entity =
 
 @available(iOS 27.0, macOS 27.0, *)
 @AppEntity(schema: .audio.album)
-struct EnsembleAlbumAudioEntity: IndexItemEntity {
+struct EnsembleAlbumAudioEntity: AudioSchemaEntity {
     static let indexKind: SiriMediaKind? = .album
     static var defaultQuery = EnsembleAlbumAudioEntityQuery()
     let item: SiriMediaIndexItem
@@ -65,7 +87,7 @@ struct EnsembleAlbumAudioEntityQuery: AudioSchemaEntityQuery { typealias Entity 
 
 @available(iOS 27.0, macOS 27.0, *)
 @AppEntity(schema: .audio.artist)
-struct EnsembleArtistAudioEntity: IndexItemEntity {
+struct EnsembleArtistAudioEntity: AudioSchemaEntity {
     static let indexKind: SiriMediaKind? = .artist
     static var defaultQuery = EnsembleArtistAudioEntityQuery()
     let item: SiriMediaIndexItem
@@ -89,7 +111,7 @@ enum EnsembleAudioOwner {
 
 @available(iOS 27.0, macOS 27.0, *)
 @AppEntity(schema: .audio.playlist)
-struct EnsemblePlaylistAudioEntity: IndexItemEntity {
+struct EnsemblePlaylistAudioEntity: AudioSchemaEntity {
     static let indexKind: SiriMediaKind? = .playlist
     static var defaultQuery = EnsemblePlaylistAudioEntityQuery()
     let item: SiriMediaIndexItem
@@ -114,6 +136,16 @@ enum EnsembleAudioItem {
     case album(EnsembleAlbumAudioEntity)
     case artist(EnsembleArtistAudioEntity)
     case playlist(EnsemblePlaylistAudioEntity)
+
+    /// The entity type Siri asked as, which need not be the item's real kind.
+    var askedAs: String {
+        switch self {
+        case .song: return "song"
+        case .album: return "album"
+        case .artist: return "artist"
+        case .playlist: return "playlist"
+        }
+    }
 
     var item: SiriMediaIndexItem {
         switch self {
@@ -149,12 +181,13 @@ extension AudioSchemaEntityQuery {
         guard await restoreFocusFilter() else { return [] }
         let wanted = Set(identifiers)
         guard !wanted.isEmpty else { return [] }
-        var items = SiriIndexLookup.fetchItems(kind: Entity.indexKind).filter { wanted.contains(Entity.init(item: $0).id) }
+        // The identifier carries the item's real kind, which need not be this type's.
+        var items = SiriIndexLookup.fetchItems(kind: nil).filter { wanted.contains(Entity.init(item: $0).id) }
         let missing = wanted.subtracting(items.map { Entity.init(item: $0).id }).compactMap(Entity.storedReference(in:))
         if !missing.isEmpty { items += await SiriIndexLookup.storedItems(forReferences: missing) }
         // Presented after the check, so a merged playlist stands for a copy that is still shown.
         let results = await SiriIndexLookup.presenting(await currentlyVisible(items)).map(Entity.init(item:))
-        AppLogger.info("SIRI_AI: entities for ids kind=\(Entity.indexKind?.rawValue ?? "any") asked=\(wanted.count) found=\(items.count) visible=\(results.count)")
+        AppLogger.info("SIRI_AI: entities for ids asked=\(wanted.count) found=\(items.count) visible=\(results.count)")
         return results
     }
 
@@ -171,16 +204,40 @@ extension AudioSchemaEntityQuery {
         return await current(await SiriIndexLookup.recentItems(kind: Entity.indexKind))
     }
 
-    /// Siri sometimes leaves the kind word in the text ("focus playlist"). A kind word means that kind only: another
-    /// kind's query finds nothing, and this kind's searches without the word. A name that really contains the word
-    /// ("Love Song") is still found: an exact match of the whole text wins.
+    /// Siri sometimes leaves the kind word in the text ("focus playlist"). A kind word means that kind only; a name that
+    /// really contains the word ("Love Song") is still found: an exact match of the whole text wins.
+    ///
+    /// The playlist query answers playlists only. The others answer from every kind, because Siri asks one kind per
+    /// request, differently each run: our best matches (the top one when it clearly wins, else up to three), best
+    /// first, whatever their real kind.
     private func findItems(matching query: String) async -> [SiriMediaIndexItem] {
-        let whole = await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: query)
-        guard let named = SiriMediaIndexResolver.kindWordQuery(from: query) else { return whole }
-        let wanted = SiriPhraseNormalizer.basic(query)
-        if whole.contains(where: { SiriPhraseNormalizer.basic($0.displayName) == wanted }) { return whole }
-        guard named.kind == Entity.indexKind else { return [] }
-        return await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: named.text)
+        let named = SiriMediaIndexResolver.kindWordQuery(from: query)
+        guard Entity.indexKind != .playlist else {
+            let whole = await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: query)
+            guard let named else { return whole }
+            if whole.contains(where: { SiriPhraseNormalizer.basic($0.displayName) == SiriPhraseNormalizer.basic(query) }) { return whole }
+            guard named.kind == .playlist else { return [] }
+            return await SiriIndexLookup.findItems(kind: .playlist, matching: named.text)
+        }
+        let coordinator = await MainActor.run { AppRoot.container.siriPlaybackCoordinator }
+        let indexed = SiriIndexLookup.fetchItems(kind: nil)
+        func ranked(_ text: String, _ kinds: Set<SiriMediaKind>?) async -> [SiriMediaIndexResolver.RankedItem] {
+            (try? await coordinator.rankedMatches(for: text, kinds: kinds, indexed: indexed)) ?? []
+        }
+        var matches = await ranked(query, nil)
+        if let named,
+           !matches.contains(where: { SiriPhraseNormalizer.basic($0.item.displayName) == SiriPhraseNormalizer.basic(query) }) {
+            matches = await ranked(named.text, [named.kind])
+        }
+        // Merged rows stand for their copies; a merged twin keeps its match's score.
+        let presented = await SiriIndexLookup.presenting(matches.map(\.item))
+        let scores = Dictionary(matches.map { ($0.item.reference.sourceScopedIdentifier, $0.score) }, uniquingKeysWith: { first, _ in first })
+        var last = matches.first?.score ?? 0
+        let rescored = presented.map { item -> SiriMediaIndexResolver.RankedItem in
+            last = scores[item.reference.sourceScopedIdentifier] ?? last
+            return .init(item: item, score: last)
+        }
+        return SiriMediaIndexResolver.topPicks(from: rescored).map(\.item)
     }
 
     /// What Siri's audio search finds, with the existing matcher.
@@ -209,7 +266,8 @@ extension AudioSchemaEntityQuery {
         }
         let results = await current(items)
         // In the session log (it already names tracks), so a phone run shows what Siri asked and what it was given.
-        AppLogger.info("SIRI_AI: audio search kind=\(kind) \(criteria) found=\(items.count) visible=\(results.count)")
+        let top = results.first.map { "top='\($0.item.displayName)' topKind=\($0.item.kind.rawValue)" } ?? "top=none"
+        AppLogger.info("SIRI_AI: audio search kind=\(kind) \(criteria) \(top) returned=\(results.count) found=\(items.count)")
         return results
     }
 }
@@ -236,6 +294,66 @@ extension EnsemblePlaylistAudioEntityQuery: IntentValueQuery {
 
 // MARK: - Actions
 
+/// Siri's warm-up hand-off. Ensemble does not warm a queue ahead of playing, so the value is never read.
+@available(iOS 27.0, macOS 27.0, *)
+@AppEntity(schema: .audio.warmupAudioQueueResult)
+struct EnsembleWarmupAudioQueueResult: TransientAppEntity {
+    let id = "queue"
+    var displayRepresentation: DisplayRepresentation { "Queue" }
+    init() {}
+}
+
+@available(iOS 27.0, macOS 27.0, *)
+@AppEnum(schema: .audio.playbackAttributes)
+enum EnsemblePlaybackAttributes: String {
+    case shuffle
+    case `repeat`
+
+    static let caseDisplayRepresentations: [EnsemblePlaybackAttributes: DisplayRepresentation] = [
+        .shuffle: "Shuffle",
+        .repeat: "Repeat"
+    ]
+}
+
+@available(iOS 27.0, macOS 27.0, *)
+@AppEnum(schema: .audio.queueInsertionLocation)
+enum EnsembleQueueInsertionLocation: String {
+    case next
+    case tail
+
+    static let caseDisplayRepresentations: [EnsembleQueueInsertionLocation: DisplayRepresentation] = [
+        .next: "Next",
+        .tail: "Tail"
+    ]
+}
+
+@available(iOS 27.0, macOS 27.0, *)
+@AppIntent(schema: .audio.playAudio)
+struct PlayAudioInEnsembleIntent: AudioPlaybackIntent {
+    var audioEntity: EnsembleAudioItem
+    var playbackAttributes: Set<EnsemblePlaybackAttributes>
+    var warmupAudioQueueResult: EnsembleWarmupAudioQueueResult?
+    var queueLocation: EnsembleQueueInsertionLocation?
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let item = audioEntity.item
+        AppLogger.info(
+            "SIRI_AI: play-audio kind=\(item.kind.rawValue) asked-as=\(audioEntity.askedAs) name='\(item.displayName)' shuffle=\(playbackAttributes.contains(.shuffle)) queue=\(queueLocation?.rawValue ?? "none")"
+        )
+        let media = EnsembleMediaEntity(item: item)
+        let dialog: IntentDialog
+        if let queueLocation {
+            dialog = try await media.enqueue(playNext: queueLocation == .next)
+        } else {
+            dialog = try await media.play(shuffle: playbackAttributes.contains(.shuffle))
+            if playbackAttributes.contains(.repeat) { _ = await setRepeat(.all) }
+        }
+        AppLogger.info("SIRI_AI: play-audio done")
+        return .result(dialog: dialog)
+    }
+}
+
 @available(iOS 27.0, macOS 27.0, *)
 @AppIntent(schema: .audio.addToPlaylist)
 struct AddAudioToEnsemblePlaylistIntent: AppIntent {
@@ -245,6 +363,8 @@ struct AddAudioToEnsemblePlaylistIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let item = audioEntity.item
+        // The playlist query only returns playlists, but a destination is checked, not assumed.
+        guard playlist.item.kind == .playlist else { throw EnsembleIntentError.playlistNotFound }
         AppLogger.info("SIRI_AI: add-to-playlist kind=\(item.kind.rawValue) playlist='\(playlist.item.displayName)'")
         var title = item.displayName
         do {

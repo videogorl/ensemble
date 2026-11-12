@@ -828,7 +828,7 @@ Unit-tested and built only; none of this ran on a phone or in Shortcuts or Siri.
 
 ## Siri AI audio schemas (`fix/siri-ai-search-kinds`)
 
-`addToPlaylist` and `createStation` remain; `playAudio` was withdrawn after the phone run (see the investigation note), so play requests go to the SiriKit extension. iPhone 16 Pro, Siri AI, session log open; "ZZ Test Siri AI" is a disposable playlist.
+`playAudio` was withdrawn, then restored with cross-kind answers (investigation note): without it Siri AI stopped using the playlist query for add and refused stations. iPhone 16 Pro, Siri AI, session log open; "ZZ Test Siri AI" is a disposable playlist.
 
 | Check | Result |
 | --- | --- |
@@ -837,8 +837,9 @@ Unit-tested and built only; none of this ran on a phone or in Shortcuts or Siri.
 | Remove the song from "ZZ Test Siri AI" in another Plex client without syncing Ensemble, then "Add this song to my ZZ Test Siri AI playlist in Ensemble": must write (`outcome=added 1`), not say "already in" | Owed |
 | An add where one song is in the playlist and one is not (an album): only the missing song is sent; `outcome=added N` counts what was sent | Owed |
 | Cold launch (force-quit Ensemble, start a song from the Shortcuts app or Siri, then "Add this song to my ZZ Test Siri AI playlist in Ensemble"): the playing song is named, not the previous one | Owed |
-| "Play my focus playlist in Ensemble", "Play the playlist focus in Ensemble", "Play focus in Ensemble": the SiriKit path answers (`SIRI_APP` lines, no `SIRI_AI: play-audio`) and the merged "focus" playlist plays once | Owed |
-| "Play Lord Huron in Ensemble": SiriKit plays the artist | Owed |
+| "Play my focus playlist", "Play the playlist focus", "Play focus in Ensemble": `SIRI_AI: audio search kind=<whatever Siri asked> ... top='focus' topKind=playlist`, then `play-audio kind=playlist asked-as=<song/album/artist>`; the merged playlist plays once. Note what Siri says when an album- or artist-typed entity is a playlist | Owed |
+| "Play Lord Huron in Ensemble": whichever kind Siri queries, `topKind=artist` and the artist plays | Owed |
+| "Add this song to my ZZ Test Siri AI playlist" and "Create a station from this song" work again (this build restores `playAudio`) | Owed |
 | "Create a station from this song": `SIRI_AI: create-station` and Autoplay starts; unverified whether Siri resolves "this song" for it | Owed |
 | The same add with a smart playlist, a playlist on another server than the song, and a name two playlists share: no write; the error names the cause or Siri asks which | Owed |
 | SiriKit still answers on HomePod and on a phone without Siri AI | Owed |

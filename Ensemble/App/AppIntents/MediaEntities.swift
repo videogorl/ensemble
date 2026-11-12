@@ -314,7 +314,7 @@ struct EnsembleMediaEntity: IndexItemEntity {
 
 struct EnsembleMediaEntityQuery: IndexItemEntityQuery { typealias Entity = EnsembleMediaEntity }
 
-private extension SiriMediaKind {
+extension SiriMediaKind {
     var displayName: String {
         switch self {
         case .track: return "Song"

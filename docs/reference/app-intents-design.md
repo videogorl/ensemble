@@ -53,9 +53,9 @@ Siri AI audio schemas (phase 4): built, awaiting the phone checks in the physica
 `docs/investigations/2026-11-12-siri-ai-audio-schemas.md`. `AudioSchemaIntents.swift` adds song, album, artist and playlist
 schema entities (separate types; the existing entities and saved identifiers are unchanged), `IntentValueQuery` over
 `AudioSearch` on each query (existing matcher, visibility rules and Focus restore), and the `addToPlaylist` and
-`createStation` schema intents, calling the existing add and radio code. `playAudio` was built, run on the phone and
-withdrawn: Siri AI queries one entity kind per request, so play by name was unreliable; play stays with the SiriKit
-path (investigation note, "`playAudio` withdrawn"). Not built:
+`createStation` schema intents, calling the existing add and radio code. `playAudio` was built, withdrawn (Siri AI queries one
+entity kind per request) and restored when add and create station stopped working without it; its song, album and
+artist queries now answer from every kind (investigation note, "`playAudio` restored"). Not built:
 `updateAudioAffinity` (no dislike), `addToLibrary`. The now-playing entity identifier is published (it is how "this song" resolves for add).
 
 Left for later: Play Genre (deferred by the owner; the genre loader is not in Core), phases 4 to 6 below.

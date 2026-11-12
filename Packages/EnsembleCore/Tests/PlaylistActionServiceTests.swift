@@ -224,6 +224,25 @@ final class PlaylistActionServiceTests: XCTestCase {
         }
     }
 
+    /// Apple Music: only a shared ID suppresses a send. The same title, artist and duration with different or missing
+    /// IDs (a clean and an explicit version) is still sent.
+    func testLiveMembershipSuppressesAppleMusicOnProvenIdentityOnly() {
+        let explicit = makeAppleTrack(id: "catalog-explicit", key: "apple-catalog")
+        let member = { (id: String, key: String) in
+            PlaylistTrackSnapshot(ratingKey: id, key: key, title: "Espresso", artistName: "Sabrina Carpenter", duration: 175.5)
+        }
+        let cases: [(PlaylistTrackSnapshot, Bool)] = [
+            (member("catalog-explicit", "apple-library-catalog:x"), true),
+            (member("i.lib1", "apple-library-catalog:catalog-explicit"), true),
+            (member("catalog-clean", "apple-catalog"), false),
+            (member("i.lib2", "apple-library:i.lib2"), false),
+            (member("i.lib3", ""), false)
+        ]
+        for (snapshot, suppressed) in cases {
+            XCTAssertEqual(service.tracks([explicit], excludingMembers: [snapshot]).isEmpty, suppressed, snapshot.ratingKey)
+        }
+    }
+
     private func makeTrack(id: String, sourceCompositeKey: String?) -> Track {
         Track(
             id: id,
