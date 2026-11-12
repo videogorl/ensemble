@@ -685,6 +685,51 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.error)
     }
 
+    /// Launch sequence: the sidebar loads playlists without starting the view model, the user
+    /// toggles Merging > Playlists, and only later does the Playlists screen call `start()`.
+    func testPlaylistMergeToggleBeforeStartRegroupsOnceStarted() async throws {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let suite = "PlaylistMergeToggleBeforeStart-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = SettingsManager(defaults: defaults)
+        settings.setMergingPreferences(EnsembleMergingPreferences(isEnabled: true))
+
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        for sourceKey in ["plex:account-1:server-1", "plex:account-1:server-2"] {
+            let playlist = makePlaylist(id: "focus", title: "focus", sourceCompositeKey: sourceKey)
+            playlistRepository.playlists[playlistRepository.playlistKey(
+                ratingKey: playlist.id,
+                sourceCompositeKey: sourceKey
+            )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+        }
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            settingsManager: settings,
+            observesExternalChanges: false
+        )
+        await viewModel.loadPlaylists()
+        try await waitForDisplayCount(1, in: viewModel)
+
+        settings.updateMergingPreferences { $0.mergePlaylists = false }
+        viewModel.start()
+
+        try await waitForDisplayCount(2, in: viewModel)
+        XCTAssertFalse(viewModel.isMergeEnabled)
+    }
+
+    private func waitForDisplayCount(_ count: Int, in viewModel: PlaylistViewModel) async throws {
+        for _ in 0..<100 where viewModel.displayPlaylists.count != count {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(viewModel.displayPlaylists.count, count)
+    }
+
     func testPlaylistViewModelPersistentSeedFiltersAuthoritativeAppleButPreservesUnresolvedPlex() {
         PlaylistViewModel.resetLastGoodSnapshotForTesting()
         let syncCoordinator = makeSyncCoordinator()
