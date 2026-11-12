@@ -5,21 +5,23 @@ API that would replace custom machinery. Each entry gives evidence, impact and a
 step, and says whether it is suspected or confirmed. Remove an entry when it is fixed.
 An entry does not authorize the work; Felicity picks what gets done.
 
-## Open: play by name through the Siri AI schema (2026-11-12)
+## Open: Siri AI does not route voice add or create station to the app (2026-11-12)
 
-- Evidence: second phone run, `playAudio` queried one kind per request (track, album, artist), a different one each
-  time, and played the wrong item; withdrawn. See the investigation note, "`playAudio` withdrawn".
-- Impact: withdrawing `playAudio` also stopped Siri AI using the playlist query for add and from creating stations, so it
-  was restored with cross-kind answers (song, album and artist queries return our best match of any kind).
-- Next step: confirm on the phone that Siri accepts an album-typed entity that plays a playlist. If it does not, try one
-  schema entity type that spans kinds, or re-test on a later iOS 27 build.
+- Evidence: six phone builds on an iPhone 16 Pro (iOS 27.3, typed Siri); table in the investigation note, "Withdrawn
+  2026-11-12". Siri AI queries one entity kind per request, a different one each run, and on the last build 0 of 4
+  adds reached our intent: Siri created "ZZ Test Siri AI" in Apple Music and added there. Create station was "not
+  supported" without `playAudio`. The schema code is parked on `parked/siri-ai-audio-schemas` (24cc5782).
+- Impact: on Siri AI phones, "add this song to <playlist>" is answered by Siri itself and can write to Apple Music;
+  play still works through the SiriKit extension (4 of 5 on the build without `playAudio`).
+- Next step: retry only on a later iOS 27 build where Siri queries the playlist kind for add destinations reliably, or
+  once Apple documents how Siri AI chooses the entity kind; start from the parked branch.
 
 ## Confirmed: the shared matcher strips a trailing kind word for every kind (2026-11-12)
 
 - Evidence: phone session log, Siri AI, "Play my focus playlist": `audio search kind=artist query='focus playlist' found=2`
   and the artist "Focus On The Family Radio Theatre" played. `SiriPhraseNormalizer.queryVariants` adds
   `strippingPossessiveAndTrailingMediaType` ("focus") for any search, so a prefix match scores 0.84 against an artist.
-  The schema search now refuses another kind's query when the text names a kind; the shared matcher is unchanged.
+  The shared matcher is unchanged (the schema path that refused another kind's query was withdrawn).
 - Impact: SiriKit and any other `rankCandidates` caller with `requestedKinds` of an artist, album or track can still
   match a "... playlist" request to those kinds.
 - Next step: make the stripped variant count only when the stripped word's kind is requested (or no kind is);

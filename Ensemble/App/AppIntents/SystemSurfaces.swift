@@ -3,8 +3,6 @@ import CoreSpotlight
 import EnsembleCore
 import EnsembleSiriShared
 import Foundation
-import MediaPlayer
-import _MediaPlayer_AppIntents
 
 // Spotlight entity indexing and the iOS and macOS 27 now-playing relevant entity, shared by iPhone, iPad and Mac.
 
@@ -47,22 +45,6 @@ extension EnsembleMediaEntityQuery: IndexedEntityQuery {
     }
 }
 
-/// Siri resolves "this song" from the identifiers in the now-playing info, which must name the schema song entity so
-/// `entities(for:)` hydrates it. Installed by every launch that can play (a scene, or an intent or Siri hand-off with
-/// none), and only once.
-@MainActor
-func installNowPlayingEntityIdentifiers() {
-    guard #available(iOS 27.0, macOS 27.0, *), !didInstallNowPlayingEntityIdentifiers else { return }
-    didInstallNowPlayingEntityIdentifiers = true
-    AppRoot.container.playbackService.setNowPlayingAppEntityIdentifiers { track in
-        guard #available(iOS 27.0, macOS 27.0, *) else { return [] }
-        let entity = EnsembleSongAudioEntity(item: SiriMediaIndexItem(track: track))
-        return MPAppEntityIdentifier(entityIdentifier: EntityIdentifier(for: entity)).map { [$0] } ?? []
-    }
-}
-
-@MainActor private var didInstallNowPlayingEntityIdentifiers = false
-
 /// Publishes the playing song as a relevant entity so the system can offer actions on it.
 @available(iOS 27.0, macOS 27.0, *)
 @MainActor
@@ -76,8 +58,6 @@ final class EnsembleRelevantEntitiesPublisher {
 
     func start() {
         guard observationTask == nil else { return }
-
-        installNowPlayingEntityIdentifiers()
 
         observationTask = Task { @MainActor in
             for await track in AppRoot.container.playbackService.snapshots(\.currentTrack) {

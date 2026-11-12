@@ -185,9 +185,6 @@ final class PlaybackNowPlayingBridge {
     private var artworkCacheResetObserver: StreamSubscription?
     var currentState: (() -> PlaybackNowPlayingState?)?
     private var lastPublishedState: PlaybackNowPlayingState?
-    /// The app-entity identifiers of the playing track (`MPAppEntityIdentifier` objects, iOS and macOS 27), which is
-    /// how Siri resolves "this song". The app supplies them; Core knows no app types.
-    private var appEntityIdentifiers: ((Track) -> [Any])?
 
     @MainActor
     init(
@@ -306,11 +303,6 @@ final class PlaybackNowPlayingBridge {
         }
     }
 
-    func setAppEntityIdentifiers(_ provider: ((Track) -> [Any])?) {
-        appEntityIdentifiers = provider
-        lastPublishedState = nil
-    }
-
     func updateNowPlayingInfo(_ state: PlaybackNowPlayingState) {
         guard let track = state.track else {
             clearNowPlayingInfo()
@@ -352,8 +344,7 @@ final class PlaybackNowPlayingBridge {
 
         nowPlayingCenter.nowPlayingInfo = Self.makeNowPlayingInfo(
             state: state,
-            artwork: artworkForMetadata,
-            appEntityIdentifiers: appEntityIdentifiers?(track) ?? []
+            artwork: artworkForMetadata
         )
         syncNowPlayingPlaybackState(state.playbackState, intendsToPlay: state.intendsToPlay)
         updateCommandAvailability(state)
@@ -458,8 +449,7 @@ final class PlaybackNowPlayingBridge {
 
     static func makeNowPlayingInfo(
         state: PlaybackNowPlayingState,
-        artwork: MPMediaItemArtwork?,
-        appEntityIdentifiers: [Any] = []
+        artwork: MPMediaItemArtwork?
     ) -> [String: Any] {
         guard let track = state.track else { return [:] }
 
@@ -517,10 +507,6 @@ final class PlaybackNowPlayingBridge {
 
         if let artwork {
             info[MPMediaItemPropertyArtwork] = artwork
-        }
-
-        if !appEntityIdentifiers.isEmpty, #available(iOS 27.0, macOS 27.0, watchOS 27.0, *) {
-            info[MPNowPlayingInfoPropertyAppEntityIdentifiers] = appEntityIdentifiers
         }
 
         return info

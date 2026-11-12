@@ -844,20 +844,17 @@ Unit-tested and built only; none of this ran on a phone or in Shortcuts or Siri.
 | Voice Play for a song, album or artist that exists in a hidden library and, with the same title, artist and album, in a visible one: Siri plays the visible copy; with no visible copy it says it cannot find it. After an app update, before the app has run once, Voice Play defers to the app by name | Owed |
 
 
-## Siri AI audio schemas (`fix/siri-ai-search-kinds`)
+## Siri AI audio schemas: withdrawn (`fix/withdraw-siri-ai-intents`)
 
-`playAudio` was withdrawn, then restored with cross-kind answers (investigation note): without it Siri AI stopped using the playlist query for add and refused stations. iPhone 16 Pro, Siri AI, session log open; "ZZ Test Siri AI" is a disposable playlist.
+The schema intents were built, run on the iPhone 16 Pro across six builds and withdrawn (investigation note, "Withdrawn
+2026-11-12"). Results: play via SiriKit was right 4 of 5 without `playAudio`; schema play 0 to 7 of 9 and add 0 to 2 of
+2 depending on the build; Siri created a same-named playlist in Apple Music on the last build. Remaining owed checks on
+the final build (iPhone 16 Pro, session log open; "ZZ Test Siri AI" is a disposable playlist):
 
 | Check | Result |
 | --- | --- |
-| Play "The Man Who Lives Forever", then "Add this song to my ZZ Test Siri AI playlist in Ensemble": `SIRI_AI: add-to-playlist song='The Man Who Lives Forever' ... outcome=added 1`, the right playing song, count rises by one | Passed on build 202611120752.0049 |
-| Repeat that request: Siri says it is already in the playlist, no write | Passed on build 202611120752.0049 (that build predates the live-membership change: it decided from the cache) |
-| Remove the song from "ZZ Test Siri AI" in another Plex client without syncing Ensemble, then "Add this song to my ZZ Test Siri AI playlist in Ensemble": must write (`outcome=added 1`), not say "already in" | Owed |
-| An add where one song is in the playlist and one is not (an album): only the missing song is sent; `outcome=added N` counts what was sent | Owed |
-| Cold launch (force-quit Ensemble, start a song from the Shortcuts app or Siri, then "Add this song to my ZZ Test Siri AI playlist in Ensemble"): the playing song is named, not the previous one | Owed |
-| "Play my focus playlist", "Play the playlist focus", "Play focus in Ensemble": `SIRI_AI: audio search kind=<whatever Siri asked> ... top='focus' topKind=playlist`, then `play-audio kind=playlist asked-as=<song/album/artist>`; the merged playlist plays once. Note what Siri says when an album- or artist-typed entity is a playlist | Owed |
-| "Play Lord Huron in Ensemble": whichever kind Siri queries, `topKind=artist` and the artist plays | Owed |
-| "Add this song to my ZZ Test Siri AI playlist" and "Create a station from this song" work again (this build restores `playAudio`) | Owed |
-| "Create a station from this song": `SIRI_AI: create-station` and Autoplay starts; unverified whether Siri resolves "this song" for it | Owed |
-| The same add with a smart playlist, a playlist on another server than the song, and a name two playlists share: no write; the error names the cause or Siri asks which | Owed |
-| SiriKit still answers on HomePod and on a phone without Siri AI | Owed |
+| Play phrases through the SiriKit extension (`SIRI_APP` lines, no `SIRI_AI:`): "Play my focus playlist", "Play the playlist focus", "Play focus", "Play Lord Huron", "Play The Man Who Lives Forever" in Ensemble; the merged "focus" playlist plays once | Owed |
+| Shortcuts action Add Current Song to Playlist, run twice on one song: the first writes (`SIRI_SHORTCUT: add ... outcome=added sent=1`), the second says the song is already in the playlist (`outcome=already in playlist`), no write | Owed |
+| Remove the song from "ZZ Test Siri AI" in another Plex client without syncing Ensemble, then run the Shortcut: it must write, not say "already in" | Owed |
+| Add to Playlist (Shortcut) with an album where one song is already in the playlist: only the missing songs are sent (`sent=N`) | Owed |
+| Apple Music playlist: adding an explicit version of a song already present in its clean version still writes | Owed |

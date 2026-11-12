@@ -157,41 +157,6 @@ public enum SiriMediaIndexResolver {
         return nil
     }
 
-    /// A kind word in a search text ("focus playlist", "my focus playlist", "the album Faedom") and the text without it.
-    public struct KindWordQuery: Sendable, Equatable {
-        public let kind: SiriMediaKind
-        public let text: String
-    }
-
-    private static let kindWords: [String: SiriMediaKind] = [
-        "playlist": .playlist, "album": .album, "artist": .artist, "song": .track, "track": .track
-    ]
-
-    /// Reads a leading or trailing kind word, after an optional leading "my" or "the" (and "the" before a leading
-    /// kind word). Nil when the text names no kind, or is only the kind word (a name that is itself "Playlist").
-    public static func kindWordQuery(from rawQuery: String) -> KindWordQuery? {
-        var tokens = SiriPhraseNormalizer.basic(rawQuery).split(separator: " ").map(String.init)
-        if let first = tokens.first, first == "my" || first == "the" { tokens.removeFirst() }
-        if let first = tokens.first, let kind = kindWords[first], tokens.count > 1 {
-            return KindWordQuery(kind: kind, text: tokens.dropFirst().joined(separator: " "))
-        }
-        if let last = tokens.last, let kind = kindWords[last], tokens.count > 1 {
-            return KindWordQuery(kind: kind, text: tokens.dropLast().joined(separator: " "))
-        }
-        return nil
-    }
-
-    /// The score gap under which the SiriKit extension offers a choice instead of picking the top match.
-    public static let disambiguationScoreGap = 0.1
-
-    /// The matches to hand a caller that cannot choose: the top one when it clearly beats the next by the
-    /// disambiguation gap, otherwise up to three, best first.
-    public static func topPicks(from ranked: [RankedItem]) -> [RankedItem] {
-        guard let top = ranked.first else { return [] }
-        guard ranked.count > 1, top.score - ranked[1].score <= disambiguationScoreGap else { return [top] }
-        return Array(ranked.prefix(3))
-    }
-
     public static func deduplicateEquivalentItems(_ items: [SiriMediaIndexItem]) -> [SiriMediaIndexItem] {
         var seenKeys = Set<String>()
         var results: [SiriMediaIndexItem] = []

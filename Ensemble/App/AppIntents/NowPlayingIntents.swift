@@ -30,15 +30,8 @@ func setCurrentSongFavorite(_ favorite: Bool) async throws -> IntentDialog {
         : IntentDialog("Removed \(track.title) from your favorites.")
 }
 
-/// What an add did, for the dialog and the session log.
-enum PlaylistAddOutcome: String {
-    case added
-    case queued
-    case alreadyInPlaylist = "already in playlist"
-}
-
 @MainActor
-func add(_ tracks: [Track], to playlist: SiriMediaIndexItem) async throws -> (dialog: IntentDialog, outcome: PlaylistAddOutcome, sent: Int) {
+func add(_ tracks: [Track], to playlist: SiriMediaIndexItem) async throws -> IntentDialog {
     let container = try await readyContainer()
     return try await reportingFailures {
         guard let stored = try await container.playlistRepository.fetchPlaylist(
@@ -65,18 +58,19 @@ func add(_ tracks: [Track], to playlist: SiriMediaIndexItem) async throws -> (di
             let compatible = service.tracks(tracks, compatibleWithServerSourceKey: target.sourceCompositeKey)
             sending = service.tracks(compatible, excludingMembers: members)
             if !compatible.isEmpty, sending.isEmpty {
-                AppLogger.info("SIRI_AI: add skipped, already in playlist='\(playlist.displayName)' tracks=\(tracks.count)")
+                AppLogger.info("SIRI_SHORTCUT: add playlist='\(playlist.displayName)' outcome=already in playlist tracks=\(tracks.count)")
                 let what = tracks.count == 1 ? tracks[0].title : "Those songs"
-                return (IntentDialog("\(what) is already in \(playlist.displayName)."), .alreadyInPlaylist, 0)
+                return IntentDialog("\(what) is already in \(playlist.displayName).")
             }
         }
         let sentCount = PlaylistActionService().tracks(sending, compatibleWithServerSourceKey: target.sourceCompositeKey).count
         let outcome = try await nowPlayingViewModel(for: container)
             .addTracksOptimistically(sending, to: target)
         // The dialog does not claim a count; the log does, from what was actually sent.
+        AppLogger.info("SIRI_SHORTCUT: add playlist='\(playlist.displayName)' outcome=\(outcome == .queued ? "queued" : "added") sent=\(sentCount)")
         return outcome == .queued
-            ? (IntentDialog("Will be added to \(playlist.displayName) when you're back online."), .queued, sentCount)
-            : (IntentDialog("Added to \(playlist.displayName)."), .added, sentCount)
+            ? IntentDialog("Will be added to \(playlist.displayName) when you're back online.")
+            : IntentDialog("Added to \(playlist.displayName).")
     }
 }
 
@@ -184,7 +178,7 @@ struct AddCurrentSongToEnsemblePlaylistIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        .result(dialog: try await add([try await currentTrackOrThrow()], to: playlist.item).dialog)
+        .result(dialog: try await add([try await currentTrackOrThrow()], to: playlist.item))
     }
 }
 
@@ -205,7 +199,7 @@ struct AddToEnsemblePlaylistIntent: AppIntent {
         let tracks = try await reportingFailures {
             try await coordinator.resolveTracks(kind: media.item.kind, request: media.playbackRequest())
         }
-        return .result(dialog: try await add(tracks, to: playlist.item).dialog)
+        return .result(dialog: try await add(tracks, to: playlist.item))
     }
 }
 

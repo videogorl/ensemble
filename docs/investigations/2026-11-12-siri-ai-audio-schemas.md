@@ -134,3 +134,26 @@ creating stations. Siri AI evidently needs `playAudio` to exist before it uses t
   `SystemMediaReference`; `entities(for:)` hydrates over all kinds. The now-playing identifier uses the same format.
   Saved-shortcut entities are untouched.
 - Unverified on a phone: whether Siri accepts an album-typed entity that plays a playlist, and what it says.
+
+## Withdrawn 2026-11-12
+
+The Siri AI schema intents were removed from the app after six phone builds (iPhone 16 Pro, iOS 27.3, typed Siri).
+Siri AI's own behaviour is the unreliable part: it queries one entity kind per request, a different one each run.
+
+| Build | What it had | Play | Add and others |
+| --- | --- | --- | --- |
+| `202611120727` | schema play and add, per-kind answers | right 2 of 5 (wrong artist for "my focus playlist", nothing for "the playlist focus") | add reached our intent but added the previous song |
+| `202611120752` | kind-word guard | right 0 of 4 (song, album, artist, nothing) | add 2 of 2, including "already in" |
+| `202611120806` | no `playAudio` | via SiriKit right 4 of 5 ("Play focus" got a Siri error) | add 0 of 2 ("couldn't find a playlist", no Ensemble call); create station "isn't supported" |
+| `202611120844` | cross-kind answers | right 7 of 9 ("Play focus" played the loaded song twice) | add 2 of 6 attempts; Siri once claimed it created the playlist; create station unsupported |
+| `202611120906` | plus playlist-word guard | right 4 of 6 (one went to another app, one "Audio output is unavailable") | add 0 of 4; Siri created "ZZ Test Siri AI" in Apple Music and added there |
+
+Removed: `AudioSchemaIntents.swift` (schema entities, queries, the play, add and station intents), the now-playing
+app-entity-identifier plumbing, `SiriPlaybackCoordinator.currentlyVisible`, the kind-word and top-picks helpers. Play
+stays with the SiriKit extension; voice add on Siri AI phones is not supported (Siri answers it itself). Kept: the
+duplicate handling of the Add to Playlist and Add Current Song to Playlist Shortcuts actions (live server membership,
+proven-identity suppression, the "already in" dialog).
+
+The full work is parked on branch `parked/siri-ai-audio-schemas` at `24cc5782` (not pushed). Retry only when a later
+iOS 27 build has Siri query the playlist kind for add destinations reliably, or Apple documents how Siri AI chooses the
+entity kind.

@@ -638,11 +638,6 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             let missing = try await fixture.coordinator.storedItem(kind: .track, id: id, sourceCompositeKey: source)
             XCTAssertNil(missing, id)
         }
-        // Index items stale since a hide, or from a source no longer shown, are not offered to Siri AI.
-        let staleItems = [("track-1", key), ("track-2", key), ("other-1", otherLibrary), ("ghost-1", "plex:account-1:server-3:library-3")]
-            .map { SiriMediaIndexItem(kind: .track, id: $0.0, displayName: $0.0, sourceCompositeKey: $0.1) }
-        let offered = await fixture.coordinator.currentlyVisible(staleItems)
-        XCTAssertEqual(offered.map(\.id), ["track-1"])
     }
 
     private func upsert(_ repository: LibraryRepository, _ id: String, _ title: String, artist: String?, album: String?, source: String) async throws {
@@ -694,56 +689,6 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             kind: .track, entityID: "U", displayName: "U", kindIsUnspecified: true
         ))
         XCTAssertEqual(fixture.playbackService.lastPlayedTrack?.id, "u-song")
-    }
-
-    /// Siri AI queries one kind per request, so every query is answered from all kinds: the best match across the
-    /// visible library, a named kind only that kind, an exact title its own kind, and nothing from a hidden source.
-    func testRankedMatchesSpanKindsAndHonourKinds() async throws {
-        let hiddenKey = "plex:account-1:server-2:library-2"
-        let fixture = try await makeFixture(hiddenSourceKeys: [hiddenKey])
-        let repository = fixture.libraryRepository
-        let visible = fixture.librarySourceKey
-        _ = try await fixture.playlistRepository.upsertPlaylist(
-            ratingKey: "pl-focus", key: "/playlists/pl-focus", title: "focus", summary: nil, compositePath: nil,
-            isSmart: false, duration: 0, trackCount: 3, dateAdded: nil, dateModified: nil, lastPlayed: nil,
-            sourceCompositeKey: fixture.serverSourceKey
-        )
-        try await repository.batchUpsertArtists([
-            ArtistUpsertInput(ratingKey: "ar-focus", key: "/a/1", name: "Focus On The Family Radio Theatre", summary: nil, thumbPath: nil, artPath: nil, dateAdded: nil, dateModified: nil),
-            ArtistUpsertInput(ratingKey: "ar-huron", key: "/a/2", name: "Lord Huron", summary: nil, thumbPath: nil, artPath: nil, dateAdded: nil, dateModified: nil)
-        ], sourceCompositeKey: visible)
-        try await repository.batchUpsertArtists([
-            ArtistUpsertInput(ratingKey: "ar-hidden", key: "/a/3", name: "Hidden Focus Artist", summary: nil, thumbPath: nil, artPath: nil, dateAdded: nil, dateModified: nil)
-        ], sourceCompositeKey: hiddenKey)
-        try await repository.batchUpsertAlbums([
-            AlbumUpsertInput(
-                ratingKey: "al-focus", key: "/al/1", title: "Lofi Vineyard: Chill Worship Beats to Focus and Relax - EP",
-                artistName: "Various", albumArtist: "Various", artistRatingKey: nil, summary: nil, thumbPath: nil, artPath: nil,
-                year: 2020, trackCount: 1, dateAdded: nil, dateModified: nil, rating: nil
-            )
-        ], sourceCompositeKey: visible)
-        try await upsert(repository, "t-focus", "Focus on Sight", artist: "Band", album: "Sight", source: visible)
-        try await upsert(repository, "t-exact", "Focus Playlist", artist: "Band", album: "Sight", source: visible)
-
-        let cases: [(query: String, kinds: Set<SiriMediaKind>?, firstKind: SiriMediaKind?, firstName: String?, notNamed: String?)] = [
-            ("focus", nil, .playlist, "focus", "Hidden Focus Artist"),
-            ("focus", [.playlist], .playlist, "focus", nil),
-            ("Lord Huron", nil, .artist, "Lord Huron", nil),
-            ("Focus on Sight", nil, .track, "Focus on Sight", nil),
-            ("Focus Playlist", nil, .track, "Focus Playlist", nil)
-        ]
-        for testCase in cases {
-            let ranked = try await fixture.coordinator.rankedMatches(for: testCase.query, kinds: testCase.kinds)
-            XCTAssertEqual(ranked.first?.item.kind, testCase.firstKind, testCase.query)
-            XCTAssertEqual(ranked.first?.item.displayName, testCase.firstName, testCase.query)
-            if let notNamed = testCase.notNamed {
-                XCTAssertFalse(ranked.contains { $0.item.displayName == notNamed }, notNamed)
-            }
-        }
-        // Items the capped index still lists from a hidden source are dropped too.
-        let stale = SiriMediaIndexItem(kind: .artist, id: "ar-hidden", displayName: "Hidden Focus Artist", sourceCompositeKey: hiddenKey)
-        let withStale = try await fixture.coordinator.rankedMatches(for: "hidden focus artist", kinds: nil, indexed: [stale])
-        XCTAssertFalse(withStale.contains { $0.item.id == "ar-hidden" })
     }
 
     /// A pinned song in a hidden library stands in only for the visible song with the same merge identity (title,

@@ -232,12 +232,6 @@ extension PlaybackService {
         try? await storeTrackRating(track: track, rating: rating)
     }
 
-    /// Publishes the playing track's app-entity identifiers with the now-playing info, now and on every track change.
-    public func setNowPlayingAppEntityIdentifiers(_ provider: @escaping (Track) -> [Any]) {
-        nowPlayingBridge.setAppEntityIdentifiers(provider)
-        updateNowPlayingInfo()
-    }
-
     func updateNowPlayingInfo() {
         nowPlayingBridge.updateNowPlayingInfo(makeNowPlayingState())
     }
