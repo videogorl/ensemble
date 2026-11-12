@@ -739,6 +739,24 @@ Run from the Mac with lldb attached (`_simulateLaunchForTaskWithIdentifier:` for
 | A refresh cut off mid-sync by its time budget | Passed on the SE, build `202611111416.1954`, through `ensemble://debug/background-refresh?budget=1` (foreground): one library phase completed, then cancellation, `finished syncComplete=false cancelled=true`, `returned succeeded=false pendingSources=4 needsRecovery=true`, handoff kept, no crash. With `budget=3` the sync finished first (2.6 s) and only the trailing Siri step was cancelled (`succeeded=false needsRecovery=false`). Not run: an expiry iOS itself sends to a refresh running in the background; the debug route does not run while the app is suspended. To run: wait for a system-delivered refresh with a debugger attached and send the expiry then |
 | An interrupted refresh resumes when the app is brought forward without a relaunch | Passed on the SE, same build: after the cut-off run the app stayed in front 28 s with no resume; after Home and reopening, `Resuming background refresh handoff in foreground` came 0.11 s after the scene went active and `handoff cleared` 3.0 s after. A final normal run returned `succeeded=true needsRecovery=false` |
 
+
+### iPhone 16 Pro, overnight 2026-11-11 to 2026-11-12 (build `202611111806.5525`, phone untouched)
+
+Read from the session logs (`$TMPDIR/ensemble-16pro/bg-logs`, temporary). iOS started eight refreshes on its own; each scheduled the next one at its start.
+
+| Run | Result |
+| --- | --- |
+| 19:16:03 | Completed in 17 s: `succeeded=true pendingSources=0`, handoff cleared |
+| 20:20:58 (cold background launch) | Completed in 21 s: `succeeded=true pendingSources=0` |
+| 21:05:55 | Completed in 16 s: `succeeded=true pendingSources=0` |
+| 21:21:09 | Incomplete after 19 s: `step=sync BackgroundRefreshIncompleteError`, `pendingSources=1 needsRecovery=true`; handoff kept |
+| 21:36:21 | Suspended by iOS about 26 s in, after library and playlist phases had logged; no `finished` line |
+| 04:51:02 | The suspended run resumed and was cancelled at once (four `CancellationError` steps, `cancelled=true`), `pendingSources=3 needsRecovery=true`; the new request was coalesced into it |
+| 05:21:47 | Incomplete after 14 s: one playlist phase `followUp=false`, `pendingSources=1 needsRecovery=true` |
+| 05:37:55 | Completed in 12 s: `succeeded=true pendingSources=0`, handoff cleared. This recovered the interrupted runs without the app being opened |
+
+Not explained: which source left `pendingSources=1` at 21:21 and 05:21 (the log names no source). Spotlight refresh was skipped in every background run (`foreground work is not available`), as designed.
+
 Owed again on the step 3d build, where a partial playlist pass must keep recovery outstanding.
 
 ## App Intents phases 1 to 3 and playlist merging at every entrance, 2026-11-11
@@ -762,7 +780,7 @@ earlier).
 | Voice Play and Add right after an update, before the app has run | Play passed on the 16 Pro (fell back by name, 28 tracks). Add not run |
 | Play Mood cancel; cancel during a cold intent launch | Weak pass on the SE: no crash or hang, but the tool cannot interrupt real work |
 | Sidebar pins, Search pins and the Mac Dock menu follow the playlist-screen rule | Not run. To run: on the Mac, pin one copy of a merged playlist; open it from the sidebar and Search, press Play, and open the Dock menu after hiding it and after toggling Merging |
-| Apple Music playlists no longer rewritten each sync (`1ef74494`) | Not run on the phone that shows it. To run: on the 16 Pro install a build with the fix, sync three times; after the first, no `writing playlist … differs: compositePath` lines |
+| Apple Music playlists no longer rewritten each sync (`1ef74494`) | Failed on the 16 Pro, 2026-11-12: both playlists (`p.1YeW3rpCkzaPXR`, `p.V7VYlM7CoLPe16`) were still written with `differs: compositePath` in every sync, 5 of 5 on 2026-11-11 evening (build `202611111806.5525`) and 7 of 7 syncing sessions on 2026-11-12. Next: log hashes of the stored and incoming path (see `ON_DECK.md`) |
 | Less background CPU while playing locked or with no visualizer on screen (`33be6521`) | Not run on a phone (tests and builds only). To run: on the 16 Pro, the same 7-minute locked-playback Performance Trace as 2026-11-11 with the visualizer on and Now Playing closed; expect no `analyzeFile` bursts and fewer SwiftUI samples than 34 of 96. Also open Now Playing after a gapless advance and confirm the visualizer animates for the new track |
 | Voice Add never writes to a similar or smart playlist; deferred server labels resolve to one playlist; extension trail appears in the session log (`SIRI_EXT_TRAIL`) | Not run (tests only). To run: on the SE (no Siri AI), with a smart and a regular "Road Trip Mix" style pair and a disposable "ZZ Test" playlist, ask Siri to add the current song to each; expect "not editable" for the smart one, one write for the test playlist, and `SIRI_EXT_TRAIL` plus `SIRI_APP: add-to-playlist` lines in the session log |
 

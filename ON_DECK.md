@@ -640,7 +640,7 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Next step: read how the foreground resume decides a handoff is abandoned, and whether it should wait for
   a refresh that is in flight (`isRefreshInFlight`).
 
-## Cause found, fix awaiting phone check: Apple Music playlist sync rewrote two playlist headers every sync (2026-11-11)
+## Fix did not hold: Apple Music playlist sync still rewrites two playlist headers every sync (2026-11-12)
 
 - Evidence: 16 Pro build `202611111729.7573`: each sync wrote the same two headers, differing only in
   `compositePath`, in the same sync that logged "inventory withheld: MusicKit lists playlists the API list
@@ -654,6 +654,14 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Remaining: on the phone, two syncs after the update must log zero `Apple Music` header writes
   (`differs: compositePath`). If they still write, the `aat` itself varies or the artwork alternates with nil:
   print the stored and incoming path hashes next. Remove this entry once confirmed, with the diagnostic line.
+- Phone result, 2026-11-12 (iPhone 16 Pro, session logs from builds `202611111806.5525` through
+  `202611120844.8867`, all containing `1ef74494`): every Apple Music playlist sync still wrote
+  `p.1YeW3rpCkzaPXR` and `p.V7VYlM7CoLPe16` with `differs: compositePath`: 5 of 5 syncs on 2026-11-11
+  between 18:53 and 21:06, and 7 of 7 sessions that synced on 2026-11-12. So the `aat` value itself varies
+  between reads, or the artwork alternates with nil. Not fixed.
+- Next step: log a short hash of the stored and the incoming `compositePath` (and whether either is nil) on
+  that write, run two syncs on the phone, then decide: compare a stable part only, or keep the stored path
+  when the playlist's dates are unchanged.
 - Latent, not fixed: `reconcilePlaylist` builds its header with `canEdit: true`, no REST artwork and a
   MusicKit-only date, so after a playlist mutation the next list sync rewrites that header once (bounded).
 
