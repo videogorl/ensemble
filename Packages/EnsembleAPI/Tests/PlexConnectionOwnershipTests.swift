@@ -84,6 +84,40 @@ final class PlexConnectionOwnershipTests: XCTestCase {
         XCTAssertEqual(query.first { $0.name == "musicBitrate" }?.value, "192")
     }
 
+    /// A configuration update mid-probe supersedes the probe. The live caller's refresh re-probes once under the new
+    /// configuration; the caller's own cancellation is never retried.
+    func testRefreshRetriesOnceWhenAConfigurationUpdateSupersedesTheProbe() async throws {
+        for cancelsCaller in [false, true] {
+            // Every old-generation probe is held until released, so none completes selection on its own.
+            let network = OwnershipNetwork(holdsAllUntilReleased: true)
+            OwnershipURLProtocol.network = network
+            let session = makeSession()
+            defer { session.invalidateAndCancel() }
+            let configuration = OwnershipConfiguration(connection(revision: 0, token: "token-A"))
+            let client = PlexAPIClient(connection: await configuration.read()!, keychain: TestKeychain(),
+                configurationReader: { await configuration.read() }, probeURLSession: session, urlSession: session)
+            let refresh = Task { try await client.refreshConnection() }
+            await fulfillment(of: [network.started], timeout: 2)
+            // Cancel first, so a cancelled caller is never mistaken for a superseded one.
+            if cancelsCaller { refresh.cancel() }
+            await configuration.set(connection(revision: 1, token: "token-B"))
+            _ = await client.refreshConfiguration()
+            network.releaseAll()
+
+            if cancelsCaller {
+                do { _ = try await refresh.value; XCTFail("The caller's own cancellation must propagate") }
+                catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
+                XCTAssertFalse(network.requests.contains { $0.value(forHTTPHeaderField: "X-Plex-Token") == "token-B" },
+                    "A cancelled caller must not re-probe")
+            } else {
+                // Which endpoint wins the new probe is not the contract; that it ran under the new configuration is.
+                _ = try await refresh.value
+                XCTAssertEqual(network.requests.last?.value(forHTTPHeaderField: "X-Plex-Token"), "token-B")
+                XCTAssertTrue(network.requests.contains { $0.value(forHTTPHeaderField: "X-Plex-Token") == "token-A" })
+            }
+        }
+    }
+
     func testCancelledWaiterCannotReplayOrCancelLiveSelection() async throws {
         for hasLiveWaiter in [false, true] {
             let network = OwnershipNetwork()
@@ -201,15 +235,27 @@ private final class OwnershipNetwork: @unchecked Sendable {
     let started = XCTestExpectation(description: "First native request suspended")
     private let lock = NSLock()
     private var holdFirst: Bool
+    private var holdsAll: Bool
     private var pending: OwnershipURLProtocol?
+    private var pendingAll: [OwnershipURLProtocol] = []
     private var recorded: [URLRequest] = []
-    init(holdFirst: Bool = true) { self.holdFirst = holdFirst }
+    private var didStart = false
+    init(holdFirst: Bool = true, holdsAllUntilReleased: Bool = false) {
+        self.holdFirst = holdFirst
+        self.holdsAll = holdsAllUntilReleased
+    }
     var requests: [URLRequest] { lock.lock(); defer { lock.unlock() }; return recorded }
 
     func start(_ loader: OwnershipURLProtocol) {
         lock.lock()
         recorded.append(loader.request)
-        if holdFirst {
+        if holdsAll {
+            pendingAll.append(loader)
+            let first = !didStart
+            didStart = true
+            lock.unlock()
+            if first { started.fulfill() }
+        } else if holdFirst {
             holdFirst = false
             pending = loader
             lock.unlock()
@@ -226,6 +272,16 @@ private final class OwnershipNetwork: @unchecked Sendable {
         pending = nil
         lock.unlock()
         loader?.complete(error: error)
+    }
+
+    /// Completes every held request and lets later ones through.
+    func releaseAll() {
+        lock.lock()
+        holdsAll = false
+        let loaders = pendingAll
+        pendingAll = []
+        lock.unlock()
+        loaders.forEach { $0.complete() }
     }
 }
 

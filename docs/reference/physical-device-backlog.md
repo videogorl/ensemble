@@ -807,9 +807,9 @@ line, with the retry at the next `.active`). A background intent logs none of th
 | Check | Expect in the log | Result |
 | --- | --- | --- |
 | Cold Shortcuts toggle (shuffle or repeat) from a killed app | `launch: no launch request yet`, `foregroundLaunchWork=deferred`. No `Starting network monitor + early health checks`, `Starting startup sync`, `WebSocket ... Connecting`, `siriIndexRebuild`, `Spotlight indexed`, `deferred healing started` | Not run |
-| Cold Play/Pause, then Next | The same absences, `Server connectivity ready` from `SIRI_APP: [origin=intent]`, playback starts, queue restored | Not run |
-| Cold play by name (Siri or Shortcut) | `SIRI_APP: [origin=...] Server connectivity ready`, a health pass from `prepareForBackgroundPlayback` (`No connected servers — running health checks`), playback starts | Not run |
-| Cold add to playlist | Health result before the add; the add lands or queues offline | Not run |
+| Cold Play/Pause, then Next | The same absences, `Server connectivity ready` from `SIRI_APP: [origin=intent]` (Play/Pause and Next wait for health, `health=awaited`), playback starts, queue restored | Not run |
+| Cold play by name (Siri or Shortcut) | `SIRI_APP: [origin=...] Server connectivity ready (health=deferred)`, playback starts, then `Playback resolved — starting server health checks` | Not run |
+| Cold add to playlist | `health=awaited`: the all-servers health result comes before the add (unchanged); the add lands or queues offline | Not run |
 | Each of the above, then open the app within a minute | One `LAUNCH_WORK: starting foreground launch work` line at the first `.active`, one `Starting startup sync...`, one WebSocket start per server, Home and library show loading then fill, no empty or error flash | Not run |
 | Locked phone: start playback by intent, then turn Wi-Fi off and on | `stateChanged ... transition=disconnect`, then `reconnect`, then `Health refresh complete`; playback recovers or resolves the next track. If not, see the `ON_DECK.md` entry on monitoring | Not run |
 | Overnight background refresh | `Background refresh triggered` and `Background refresh phase=` lines, `foregroundLaunchWork=deferred`, no `starting foreground launch work` until the app is opened | Not run |
@@ -873,6 +873,24 @@ Typed Siri, each ending "in Ensemble": playlist (cold and warm), album, artist a
 did not confirm the song was the playlist's first. The artist request needed a pick between two identical rows (see
 `ON_DECK.md`). Still owed: the Shortcut duplicate-add rows listed above.
 
+## Shortcut cold play without the health wait (`fix/siri-play-health-wait`)
+
+Only the plain play entrances (Siri play, and Shortcuts play of a track, album, artist or playlist) skip the health
+wait (`health=deferred`); the explicit startup pass starts after the play call's source resolution or launch returns,
+which can precede `.playing`. Every other intent keeps `health=awaited`. A probe superseded by a configuration update
+is retried once (`Connection refresh superseded by a configuration update — retrying once` at debug level).
+
+| Check | Expect | Result |
+| --- | --- | --- |
+| Play Playlist Shortcut from a killed app, first track downloaded | Process start to `playing` about 0.5 s or less excluding system time (was 2.3–2.6 s); `Server connectivity ready (health=deferred)`, then `Playback resolved — starting server health checks` after the play call returns | Not run |
+| Same, first track an uncached Plex stream | Plays; that track's server is probed before the explicit health pass starts | Not run |
+| Same with Wi-Fi off | Downloaded song plays at once; a streaming-only item fails promptly with the existing message; `Offline — skipping server health checks` | Not run |
+| Plex server unreachable, internet up | A downloaded or cached first track plays without waiting; a streaming-only item fails on its own server probe, not after an all-servers pass | Not run |
+| Library hidden by the active Focus | Still refused (`Focus filter not restored` or the item not found), no playback | Not run |
+| Last used on Wi-Fi, then launched a streaming Shortcut on cellular (seeded `.online(.wifi)`, live cellular: a forced interface-switch refresh) | The track plays; the log shows the retry line if a refresh superseded the probe (a first-byte DNS failure also gets one refresh-and-reassemble retry); no `serverUnavailable` | Not run |
+| Cold Add to Ensemble Playlist, and a radio or station start, from a Shortcut | `health=awaited` (`No connected servers — running health checks` when none is connected) before the request, as before | Not run |
+| Cold Shortcut play, then open the app within a minute | One startup health pass in the log, not two back to back | Not run |
+
 ## Disabled-library cleanup skip (iPhone SE, 2026-11-12, build `202611121306.9716`)
 
 One cold launch: three `Skipped cleanup for empty removed source` lines and no `Cleaning up data for removed source`
@@ -881,3 +899,22 @@ line, so the skip works. The time saved is small: the three requests were logged
 ran alongside. Whether the probes are slow themselves or only waiting their turn is not known from these lines. Still
 owed: disabling an enabled library on the phone still cleans its data; disabling one on another device still cleans it
 here after iCloud sync.
+
+## Shortcut cold play without the health wait: SE results (2026-11-12, build `202611121337.9825`)
+
+Disposable Shortcuts run from the editor, each from a killed app; times are session start to `playing`.
+
+| Check | Result |
+| --- | --- |
+| Play Playlist, first track downloaded or cached, Wi-Fi on (3 runs) | `health=deferred`; 0.49–1.13 s (was 2.3–2.6 s) |
+| Play Album, uncached Plex stream (2 runs) | `health=deferred`, `transcodedHTTP`; 1.67 s and 2.00 s; played |
+| Play Playlist, Wi-Fi off, downloaded track | Played at 1.32 s; `Offline — skipping server health checks`; about 1.3 s of readiness is the wait for a live network state |
+| Play Album, Wi-Fi off, nothing stored | "No downloaded tracks available offline" at about 1.4 s; no hang |
+| Play Album right after Wi-Fi came back (offline → online, forced `network_reconnect` refresh) | Played at 2.98 s, `transcodedHTTP` |
+| Start Track Radio | `health=awaited`, 1.9 s in health checks, as before |
+| Cold play, then open the app | One health pass; the foreground launch logged both "Skipping … health checks" lines |
+| Retry line | `Connection refresh superseded by a configuration update — retrying once` appeared once (the Wi-Fi-off playlist run) and playback succeeded |
+
+Not run: Focus-hidden library (no Focus with an Ensemble filter exists on the SE; create one to unblock); last used on
+Wi-Fi then launched on cellular (the SE has no SIM; needs the 16 Pro); a third uncached stream run. Logs:
+`/tmp/ensemble-se-logs.XcmAFq`.

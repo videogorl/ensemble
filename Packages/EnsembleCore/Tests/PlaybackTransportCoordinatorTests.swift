@@ -475,6 +475,47 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         XCTAssertEqual(metadata.cacheFileExtension, "mp3")
     }
 
+    /// A decision superseded by a configuration update (not retryable by the usual predicate) is re-issued once after
+    /// a connection refresh; the task's own cancellation is not.
+    func testSupersededStreamDecisionRetriesOnceUnlessTheTaskIsCancelled() async throws {
+        for cancelsTask in [false, true] {
+            let track = Track(id: "track-superseded", key: "/library/metadata/superseded", title: "Superseded",
+                duration: 180, sourceCompositeKey: "plex:test")
+            let remoteURL = try XCTUnwrap(URL(string: "https://example.test/library/parts/direct/file.mp3"))
+            let decisions = LockedCounter()
+            let refreshes = LockedCounter()
+            let coordinator = PlaybackTransportCoordinator(
+                dependencies: .init(
+                    networkState: { .online(.wifi) },
+                    preparedLocalPlaybackURL: { URL(fileURLWithPath: $0) },
+                    isClearlyInvalidLocalPayload: { _ in false },
+                    ensureServerConnection: { _ in },
+                    serverFailureMessage: { _ in nil },
+                    makeStreamDecision: { _, _, _, _ in
+                        if decisions.increment() == 1 {
+                            if cancelsTask { withUnsafeCurrentTask { $0?.cancel() } }
+                            throw CancellationError()
+                        }
+                        return .directStream(partKey: "/library/parts/direct/file.mp3")
+                    },
+                    assembleStreamResolution: { _, _ in .directStream(remoteURL) },
+                    refreshConnection: { _ = refreshes.increment() },
+                    shouldRetryStreamURLRequest: { _ in false },
+                    mapToPlaybackError: { .unknown($0) }
+                )
+            )
+
+            let resolution = Task { try await coordinator.resolvePlaybackSource(for: track) }
+            if cancelsTask {
+                do { _ = try await resolution.value; XCTFail("A cancelled task must not resolve") } catch {}
+                XCTAssertEqual(refreshes.increment(), 1, "A cancelled task must not refresh and retry")
+            } else {
+                guard case .directHTTP = try await resolution.value else { return XCTFail("expected directHTTP") }
+                XCTAssertEqual(decisions.increment(), 3, "One superseded decision, then one retry")
+            }
+        }
+    }
+
     func testResolvePlaybackSourceReturnsTranscodedHTTPWithoutWaitingForDownload() async throws {
         let track = Track(
             id: "track-transcode",

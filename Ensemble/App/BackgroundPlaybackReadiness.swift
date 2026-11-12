@@ -4,15 +4,33 @@ import Foundation
 import UIKit
 #endif
 
+/// What `prepareForBackgroundPlayback` does about the all-servers health pass.
+enum BackgroundServerHealth {
+    /// Wait (bounded) until a server is known to be connected. For a caller that talks to a server without
+    /// `SyncCoordinator.ensureServerConnection` (playlist membership and adds, favorites and ratings, radio and
+    /// recommendations), whose first request would otherwise use an unprobed endpoint.
+    case awaitAllServers
+    /// No health wait. For the plain play entrances only: playback resolves a local or cached file without a server,
+    /// and otherwise probes the track's own server, retrying that probe once if a health refresh or a network change
+    /// replaces the server's addresses under it (`PlexAPIClient.refreshConnection`). The caller then calls
+    /// `startDeferredServerHealthChecks` once its play call has returned.
+    case deferUntilPlaybackStarts
+}
+
 /// Brings a process that was started only to play (an App Intent or a Siri hand-off) to the state a launched
-/// scene reaches: accounts loaded, server connectivity known, and sync providers registered for stream resolution.
+/// scene reaches: Focus filter restored, accounts loaded, server connectivity known (see `serverHealth`), and sync
+/// providers registered for stream resolution.
 ///
 /// The connectivity wait is bounded by `timeout` (an intent has about 30 s in all, and a forced health pass can sit
-/// behind a 120 s resource timeout). It is skipped offline, where downloaded tracks and queued mutations need no
-/// server. Running out of time is not an error: providers still register, and a stream that cannot resolve fails
-/// on its own. Missing credentials are an error.
+/// behind a 120 s resource timeout), network-state wait included. It is skipped offline, where downloaded tracks and
+/// queued mutations need no server. Running out of time is not an error: providers still register, and a stream
+/// that cannot resolve fails on its own. Missing credentials are an error.
 @MainActor
-func prepareForBackgroundPlayback(origin: String, timeout: Duration = .seconds(8)) async throws {
+func prepareForBackgroundPlayback(
+    origin: String,
+    serverHealth: BackgroundServerHealth = .awaitAllServers,
+    timeout: Duration = .seconds(8)
+) async throws {
     let container = AppRoot.container
     guard await restoreFocusFilter() else {
         AppLogger.error("SIRI_APP: [origin=\(origin)] Focus filter not restored; refusing to start")
@@ -28,33 +46,52 @@ func prepareForBackgroundPlayback(origin: String, timeout: Duration = .seconds(8
     }
     container.serverHealthChecker.prepopulateUnknownStates()
 
-    await waitBounded(timeout) {
-        // Offline needs no server, so decide that before joining a health check that cannot succeed.
-        let network = container.networkMonitor
-        await startNetworkMonitorAndAwaitCurrentState(network)
-        guard network.networkState != .offline else {
-            AppLogger.info("SIRI_APP: [origin=\(origin)] Offline — skipping server health checks")
-            return
-        }
+    if serverHealth == .deferUntilPlaybackStarts {
+        // A seeded connected state returns at once (no 1 s live-path debounce); only an unknown one waits.
+        await startNetworkMonitorAndAwaitCurrentState(container.networkMonitor)
+    } else {
+        await waitBounded(timeout) {
+            // Offline needs no server, so decide that before joining a health check that cannot succeed.
+            await startNetworkMonitorAndAwaitCurrentState(container.networkMonitor)
+            guard container.networkMonitor.networkState != .offline else {
+                AppLogger.info("SIRI_APP: [origin=\(origin)] Offline — skipping server health checks")
+                return
+            }
 
-        // Join the health checks the launch pipeline already started instead of running a second set.
-        #if os(iOS)
-        if let earlyTask = (UIApplication.shared.delegate as? AppDelegate)?.earlyHealthCheckTask {
-            AppLogger.info("SIRI_APP: [origin=\(origin)] Awaiting early health checks from didFinishLaunching...")
-            await earlyTask.value
-        }
-        #endif
+            // Join the health checks the launch pipeline already started instead of running a second set.
+            #if os(iOS)
+            if let earlyTask = (UIApplication.shared.delegate as? AppDelegate)?.earlyHealthCheckTask {
+                AppLogger.info("SIRI_APP: [origin=\(origin)] Awaiting early health checks from didFinishLaunching...")
+                await earlyTask.value
+            }
+            #endif
 
-        if !container.serverHealthChecker.serverStates.values.contains(where: \.isAvailable) {
-            AppLogger.info("SIRI_APP: [origin=\(origin)] No connected servers — running health checks")
-            await container.syncCoordinator.refreshServerHealthStates()
+            if !container.serverHealthChecker.serverStates.values.contains(where: \.isAvailable) {
+                AppLogger.info("SIRI_APP: [origin=\(origin)] No connected servers — running health checks")
+                await container.syncCoordinator.refreshServerHealthStates()
+            }
         }
     }
 
     // A cancelled intent must not register providers or start anything.
     try Task.checkCancellation()
     container.syncCoordinator.refreshProviders()
-    AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready")
+    AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready (health=\(serverHealth == .awaitAllServers ? "awaited" : "deferred"))")
+}
+
+/// Starts, without awaiting, the health pass that `.deferUntilPlaybackStarts` skipped, once the play call has
+/// returned (success or failure). `performStartupHealthChecks` is the pass a foreground launch runs: it is
+/// once-per-process and joins a pass already in flight, so repeated plays, or a foreground launch before or after,
+/// never queue a second one (unlike `refreshServerHealthStates`, which forces a trailing pass each time). Offline
+/// needs no server and starts nothing.
+@MainActor
+func startDeferredServerHealthChecks(origin: String) {
+    guard AppRoot.container.networkMonitor.networkState != .offline else {
+        AppLogger.info("SIRI_APP: [origin=\(origin)] Offline — skipping server health checks")
+        return
+    }
+    AppLogger.info("SIRI_APP: [origin=\(origin)] Playback resolved — starting server health checks")
+    Task { @MainActor in await AppRoot.container.syncCoordinator.performStartupHealthChecks() }
 }
 
 @MainActor private let focusRestoration = SharedRestoration()

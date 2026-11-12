@@ -300,8 +300,26 @@ extension PlexAPIClient {
         }
     }
 
+    /// Re-selects the server's endpoint. A configuration update (a network transition, a token or endpoint change)
+    /// that lands mid-probe retires the selector and ends the probe in `CancellationError`, though the caller's task
+    /// is still live. Once, when the caller was not cancelled and the connection's revision or routing generation
+    /// changed since the call began, it probes again against the current configuration. A second supersession, or the
+    /// caller's own cancellation, propagates.
     @discardableResult
     public func refreshConnection() async throws -> ConnectionRefreshResult {
+        try await synchronizeConfiguration()
+        let started = (serverConnection.revision, serverConnection.routingGeneration)
+        do {
+            return try await refreshConnectionOnce()
+        } catch is CancellationError {
+            guard !Task.isCancelled, (try? await synchronizeConfiguration()) != nil,
+                  (serverConnection.revision, serverConnection.routingGeneration) != started else { throw CancellationError() }
+            EnsembleLogger.debug("🔁 Connection refresh superseded by a configuration update — retrying once")
+            return try await refreshConnectionOnce()
+        }
+    }
+
+    private func refreshConnectionOnce() async throws -> ConnectionRefreshResult {
         let previousURL = currentServerURL
         let selection = try await attemptFailover()
         guard let selected = selection.selected else { throw PlexAPIError.noServerSelected }
