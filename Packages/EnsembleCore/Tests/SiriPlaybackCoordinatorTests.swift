@@ -681,6 +681,14 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             ))
             XCTAssertEqual(fixture.playbackService.lastPlayedTrack?.id, testCase.expectedFirstTrack, testCase.name)
         }
+
+        // A one-character spoken title is a complete name, not a picker keystroke.
+        let fixture = try await makeFixture()
+        try await upsert(fixture.libraryRepository, "u-song", "U", artist: "Band", album: "Letters", source: fixture.librarySourceKey)
+        try await fixture.coordinator.execute(payload: SiriPlaybackRequestPayload(
+            kind: .track, entityID: "U", displayName: "U", kindIsUnspecified: true
+        ))
+        XCTAssertEqual(fixture.playbackService.lastPlayedTrack?.id, "u-song")
     }
 
     /// A pinned song in a hidden library stands in only for the visible song with the same merge identity (title,

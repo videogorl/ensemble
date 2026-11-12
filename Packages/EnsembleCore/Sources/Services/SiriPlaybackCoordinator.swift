@@ -138,7 +138,8 @@ public final class SiriPlaybackCoordinator {
     /// items only, ranked by the resolver the extension ranks with when the index is current (artist hint included).
     public func executePlayUnspecifiedKind(request: SiriPlaybackRequest) async throws {
         guard let name = request.displayName, !name.isEmpty else { throw SiriPlaybackCoordinatorError.mediaNotFound(.track) }
-        var candidates = try await libraryCandidates(kind: nil, matching: name, limit: 10)
+        // A spoken name is complete, unlike a picker keystroke, so a one-character title ("U") is searched too.
+        var candidates = try await libraryCandidates(kind: nil, matching: name, limit: 10, minimumQueryLength: 1)
         candidates += try await visiblePlaylists().visible.map {
             SiriMediaIndexItem(
                 kind: .playlist, id: $0.id, displayName: $0.title, sourceCompositeKey: $0.sourceCompositeKey,
@@ -231,9 +232,11 @@ public final class SiriPlaybackCoordinator {
     /// then names holding every word of the query as the Siri index normalizes it ("earth wind and fire" finds
     /// "Earth, Wind & Fire"), and songs named like the query once normalized ("rocknroll" finds "Rock'n'Roll") are scored in
     /// paged batches, keeping the best ten times `limit`. Playlists are not capped, so none return.
-    public func libraryCandidates(kind: SiriMediaKind?, matching query: String, limit: Int) async throws -> [SiriMediaIndexItem] {
+    public func libraryCandidates(
+        kind: SiriMediaKind?, matching query: String, limit: Int, minimumQueryLength: Int = 2
+    ) async throws -> [SiriMediaIndexItem] {
         let sourceKeys = visibleLibrarySourceKeys()
-        guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2, limit > 0, !sourceKeys.isEmpty else { return [] }
+        guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= minimumQueryLength, limit > 0, !sourceKeys.isEmpty else { return [] }
         let fetchCap = limit * 10
         let words = Self.normalizedWords(query)
         let hidden = hiddenMediaStore.snapshot
