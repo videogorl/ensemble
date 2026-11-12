@@ -5,6 +5,15 @@ API that would replace custom machinery. Each entry gives evidence, impact and a
 step, and says whether it is suspected or confirmed. Remove an entry when it is fixed.
 An entry does not authorize the work; Felicity picks what gets done.
 
+## Open: play by name through the Siri AI schema (2026-11-12)
+
+- Evidence: second phone run, `playAudio` queried one kind per request (track, album, artist), a different one each
+  time, and played the wrong item; withdrawn. See the investigation note, "`playAudio` withdrawn".
+- Impact: play requests use the SiriKit extension; the schema intents cover add to playlist and create station only.
+- Next step: try one schema entity type that spans kinds (a single query that ranks across kinds), or re-test the
+  schema on a later iOS 27 build; bring `playAudio` back only if Siri then queries every kind or honours an
+  unspecified-kind query.
+
 ## Confirmed: the shared matcher strips a trailing kind word for every kind (2026-11-12)
 
 - Evidence: phone session log, Siri AI, "Play my focus playlist": `audio search kind=artist query='focus playlist' found=2`

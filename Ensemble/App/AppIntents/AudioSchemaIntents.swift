@@ -4,7 +4,9 @@ import EnsembleSiriShared
 import Foundation
 import MediaIntents
 
-// Siri AI audio schemas (iOS and macOS 27). Siri AI routes audio requests to these instead of resolving them itself.
+// Siri AI audio schemas (iOS and macOS 27): add to playlist and create station, plus the entities and queries they
+// need. Play is deliberately not here: Siri AI picks one entity kind per request and queries only that kind, so
+// "play focus" cannot be resolved across kinds; play stays with the SiriKit path (see the investigation note).
 // They are thin: entities are built from the same index items, and every action calls the code the existing
 // intents call.
 
@@ -158,7 +160,7 @@ extension AudioSchemaEntityQuery {
 
     func entities(matching string: String) async throws -> [Entity] {
         guard await restoreFocusFilter() else { return [] }
-        let items = await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: string)
+        let items = await findItems(matching: string)
         let results = await current(items)
         AppLogger.info("SIRI_AI: entities matching kind=\(Entity.indexKind?.rawValue ?? "any") query='\(string)' found=\(items.count) visible=\(results.count)")
         return results
@@ -233,66 +235,6 @@ extension EnsemblePlaylistAudioEntityQuery: IntentValueQuery {
 }
 
 // MARK: - Actions
-
-/// Siri's warm-up hand-off. Ensemble does not warm a queue ahead of playing, so the value is never read.
-@available(iOS 27.0, macOS 27.0, *)
-@AppEntity(schema: .audio.warmupAudioQueueResult)
-struct EnsembleWarmupAudioQueueResult: TransientAppEntity {
-    let id = "queue"
-    var displayRepresentation: DisplayRepresentation { "Queue" }
-    init() {}
-}
-
-@available(iOS 27.0, macOS 27.0, *)
-@AppEnum(schema: .audio.playbackAttributes)
-enum EnsemblePlaybackAttributes: String {
-    case shuffle
-    case `repeat`
-
-    static let caseDisplayRepresentations: [EnsemblePlaybackAttributes: DisplayRepresentation] = [
-        .shuffle: "Shuffle",
-        .repeat: "Repeat"
-    ]
-}
-
-@available(iOS 27.0, macOS 27.0, *)
-@AppEnum(schema: .audio.queueInsertionLocation)
-enum EnsembleQueueInsertionLocation: String {
-    case next
-    case tail
-
-    static let caseDisplayRepresentations: [EnsembleQueueInsertionLocation: DisplayRepresentation] = [
-        .next: "Next",
-        .tail: "Tail"
-    ]
-}
-
-@available(iOS 27.0, macOS 27.0, *)
-@AppIntent(schema: .audio.playAudio)
-struct PlayAudioInEnsembleIntent: AudioPlaybackIntent {
-    var audioEntity: EnsembleAudioItem
-    var playbackAttributes: Set<EnsemblePlaybackAttributes>
-    var warmupAudioQueueResult: EnsembleWarmupAudioQueueResult?
-    var queueLocation: EnsembleQueueInsertionLocation?
-
-    @MainActor
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        let item = audioEntity.item
-        AppLogger.info(
-            "SIRI_AI: play-audio kind=\(item.kind.rawValue) name='\(item.displayName)' shuffle=\(playbackAttributes.contains(.shuffle)) queue=\(queueLocation?.rawValue ?? "none")"
-        )
-        let media = EnsembleMediaEntity(item: item)
-        let dialog: IntentDialog
-        if let queueLocation {
-            dialog = try await media.enqueue(playNext: queueLocation == .next)
-        } else {
-            dialog = try await media.play(shuffle: playbackAttributes.contains(.shuffle))
-            if playbackAttributes.contains(.repeat) { _ = await setRepeat(.all) }
-        }
-        AppLogger.info("SIRI_AI: play-audio done")
-        return .result(dialog: dialog)
-    }
-}
 
 @available(iOS 27.0, macOS 27.0, *)
 @AppIntent(schema: .audio.addToPlaylist)

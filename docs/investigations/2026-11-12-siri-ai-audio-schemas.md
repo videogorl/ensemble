@@ -84,3 +84,34 @@ errors (the compiler does not check them; the extraction step does, and reports 
   and body reads a sync uses, 4 s timeout), sends only tracks not already members, and says "already in" only when all
   compatible tracks are. A cached membership is never proof: offline, a failed read or a timeout means unknown, and
   everything is sent as before.
+
+## `playAudio` withdrawn (2026-11-12, second phone run)
+
+`playAudio` was built, run on the iPhone 16 Pro and removed. Siri AI chooses one entity kind per request, differently
+each run, and queries only that kind, so a bare name cannot be resolved across kinds from the app. Session log:
+
+```
+"Play my focus playlist in Ensemble":
+  audio search kind=track query='focus playlist' found=0
+  entities matching kind=track query='focus playlist' found=1      (the unguarded entities(matching:) path)
+  play-audio kind=track name='Focus on Sight'
+"Play the playlist focus in Ensemble":
+  audio search kind=album query='focus' found=1
+  play-audio kind=album name='Lofi Vineyard: Chill Worship Beats to Focus and Relax - EP'
+"Play focus in Ensemble" (the previous round played the playlist via kind=playlist):
+  audio search kind=artist query='focus' found=2
+  play-audio kind=artist name='Focus On The Family Radio Theatre'
+"Play Lord Huron in Ensemble" (an artist; worked the previous round via playlist then artist):
+  audio search kind=album query='Lord Huron' found=0   (four times), nothing played
+```
+
+Before phase 4 these went to the SiriKit extension, whose single cross-kind resolver played the merged "focus"
+playlist. With `playAudio` gone they do again. Kept: `addToPlaylist` (passed on the phone: the right playing song once
+the now-playing identifier was published, and a duplicate reported as already in), `createStation`, the four schema
+entities and their queries (`addToPlaylist` needs the entities and the playlist query). The metadata step required
+nothing else from `playAudio`; the action count went from 33 to 32. The kind-word guard now covers
+`entities(matching:)` as well as `values(for: AudioSearch)`.
+
+To bring `playAudio` back, one of these would have to be true: Siri queries every kind (or honours an unspecified-kind
+query) for a bare name; or one schema entity type can span kinds so a single query ranks across them. Neither can be
+shaped from the app today.
