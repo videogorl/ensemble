@@ -141,6 +141,30 @@ public struct PlaylistSyncState: Sendable, Equatable {
     }
 }
 
+extension PlaylistSyncState {
+    /// Names of the fields `headerMatches` finds different, for diagnostics, each with `old→new` only
+    /// when the field is not user content (dates, counts, flags). Mirrors `headerMatches`; keep them in step.
+    public func headerDifferences(from input: PlaylistUpsertInput) -> [String] {
+        func date(_ value: Date?) -> String { value?.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)) ?? "nil" }
+        func shown<T>(_ name: String, _ old: T, _ new: T, _ text: (T) -> String) -> String { "\(name):\(text(old))→\(text(new))" }
+        var names: [String] = []
+        if key != input.key { names.append("key") }
+        if title != input.title { names.append("title") }
+        if summary != input.summary { names.append("summary") }
+        if compositePath != input.compositePath { names.append("compositePath") }
+        if isSmart != input.isSmart { names.append(shown("isSmart", isSmart, input.isSmart) { "\($0)" }) }
+        if duration != (input.duration ?? 0) { names.append(shown("duration", duration, input.duration ?? 0) { "\($0)" }) }
+        if trackCount != (input.trackCount ?? 0) { names.append(shown("trackCount", trackCount, input.trackCount ?? 0) { "\($0)" }) }
+        if dateAdded == nil && input.dateAdded != nil { names.append(shown("dateAdded", dateAdded, input.dateAdded, date)) }
+        if dateModified != input.dateModified { names.append(shown("dateModified", dateModified, input.dateModified, date)) }
+        if lastPlayed != input.lastPlayed { names.append(shown("lastPlayed", lastPlayed, input.lastPlayed, date)) }
+        if lastRatedAt != input.lastRatedAt { names.append(shown("lastRatedAt", lastRatedAt, input.lastRatedAt, date)) }
+        if rating != (input.rating ?? 0) { names.append(shown("rating", rating, input.rating ?? 0) { "\($0)" }) }
+        if input.actionCapabilities != nil, actionCapabilities != input.actionCapabilities { names.append("actionCapabilities") }
+        return names
+    }
+}
+
 /// Server playlist membership retained even when its library track is not cached.
 public struct PlaylistTrackSnapshot: Sendable, Equatable {
     public let ratingKey: String
