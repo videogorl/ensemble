@@ -673,6 +673,18 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   syncs on the 16 Pro, read those lines for `p.1YeW3rpCkzaPXR` and `p.V7VYlM7CoLPe16`, then decide: compare a
   stable part only, or keep the stored path when the playlist's dates are unchanged. Remove the diagnostic with
   this entry.
+- PROVEN CAUSE (16 Pro, build `202611121404.6631`, two syncs on 2026-11-12, sessions 140928 and 141257): stored
+  and incoming `compositePath` are both 377-character https URLs with query names `X-Amz-Algorithm,
+  X-Amz-Credential,X-Amz-Date,X-Amz-Expires,X-Amz-Signature,X-Amz-SignedHeaders` and
+  `valuesDiffer=query.X-Amz-Date,query.X-Amz-Signature`; sync #2's stored value equals sync #1's incoming one.
+  So `artwork.url(width:height:)` returns a pre-signed (AWS SigV4) URL, fresh on every read, which
+  `AppleMusicArtworkPath.stable` (musicKit:// only) passes through. Each rewrite queues a `.pathChanged` artwork
+  invalidation (`PlaylistRepository.recordPlaylistArtworkInvalidationIfNeeded`), which wipes the artwork caches
+  and sends `.artworkInvalidated` (every `ArtworkView` reloads), and the changed `sourcePath` makes
+  `cachePlaylistArtwork` download the image again; the Siri index also changes (`artworkPath` is in its items).
+- Fix status: NOT built. The stored URL is fetched lazily (`ArtworkLoader` -> `getArtworkURL` returns an https
+  path as is) and `X-Amz-Expires` is not recorded anywhere (unknown), so ignoring signature-only differences
+  could leave an expired URL stored. Options and a decision are with the lead; see the branch hand-off report.
 - Latent, not fixed: `reconcilePlaylist` builds its header with `canEdit: true`, no REST artwork and a
   MusicKit-only date, so after a playlist mutation the next list sync rewrites that header once (bounded).
 
