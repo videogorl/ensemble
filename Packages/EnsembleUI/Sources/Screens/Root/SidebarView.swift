@@ -391,6 +391,7 @@ public struct SidebarView: View {
         .task {
             // Load all sidebar data concurrently so playlists appear
             // immediately rather than waiting for library refresh to finish.
+            playlistsVM.start() // keeps the sidebar's grouping current with the merge switches
             async let libRefresh: () = libraryVM.loadLibraryIfNeeded()
             async let pinsLoad: () = pinnedVM.loadPinnedItemsIfNeeded()
             async let playlistsLoad: () = playlistsVM.loadPlaylistsIfNeeded()
