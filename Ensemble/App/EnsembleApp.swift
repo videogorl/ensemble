@@ -349,12 +349,14 @@ struct EnsembleApp: App {
                     hasScheduledBackgroundRefresh = true
                 }
 
+                // A process launched in the background starts its deferred launch work now; a foreground
+                // launch already did, so this is a no-op for it and for every later activation.
+                appDelegate.startForegroundLaunchWork()
+
                 if isInitialActivation {
-                    // Cold-launch startup already started network monitoring and queued
-                    // WebSocket startup behind early health checks in AppDelegate.
-                    // Skipping the duplicate start here keeps launch sequencing owned by
-                    // one path instead of racing the scene activation hook.
-                    AppLogger.debug("📱 EnsembleApp: Initial active phase — launch pipeline owns monitor/WebSocket startup")
+                    // Network monitoring and WebSocket startup belong to the launch work above, behind early health checks.
+                    // Skipping the duplicate start here keeps launch sequencing owned by one path.
+                    AppLogger.debug("📱 EnsembleApp: Initial active phase — launch work owns monitor/WebSocket startup")
                 } else {
                     // Resume network monitoring and WebSocket connections
                     AppRoot.container.networkMonitor.startMonitoring()

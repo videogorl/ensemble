@@ -751,6 +751,17 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         )
     }
 
+    func testBackgroundLaunchSeedMatchesBackgroundedAppUntilForeground() async {
+        let service = await makeService()
+        XCTAssertEqual(service.currentDownloadWorkMode, .foregroundIdle)
+
+        service.beginInBackground()
+        XCTAssertEqual(service.currentDownloadWorkMode, .background)
+
+        await service.handleAppWillEnterForeground()
+        XCTAssertEqual(service.currentDownloadWorkMode, .foregroundIdle)
+    }
+
     func testBackgroundLifecycleOverridesPlaybackWorkMode() async {
         let service = await makeService()
         let (snapshots, playback) = AsyncStream.makeStream(of: PlaybackSnapshot.self)

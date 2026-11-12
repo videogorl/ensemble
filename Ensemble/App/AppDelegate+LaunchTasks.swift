@@ -4,6 +4,23 @@ import EnsembleCore
 import os.signpost
 
 extension AppDelegate {
+    /// Starts the launch work that needs a foreground process, exactly once per process and never while the
+    /// process is in the background. A foreground launch calls it from `didFinishLaunching`; a process launched
+    /// in the background (intent, Siri, refresh) calls it from the first `.active` scene phase. A background
+    /// intent that needs servers runs its own bounded health check in `prepareForBackgroundPlayback`.
+    func startForegroundLaunchWork() {
+        let container = AppRoot.container
+        guard foregroundLaunchWorkGate.claim(isForeground: container.foregroundWorkScheduler.isForegroundActive) else { return }
+        AppLogger.info("LAUNCH_WORK: starting foreground launch work (health checks, WebSockets, startup sync, Siri/Spotlight refresh)")
+        startEarlyHealthCheckTask()
+        startSiriIndexAndContextRefreshAfterHealthChecks()
+        startWebSocketConnectionsAfterHealthChecks()
+        startStartupSyncTaskAfterHealthChecks()
+        startColdLaunchDiagnosticsTask()
+        // Only a background launch has a bootstrap to resume; a foreground launch's own task is still waiting.
+        container.resumeDeferredCloudBootstrap()
+    }
+
     func startEarlyHealthCheckTask() {
         earlyHealthCheckTask = Task { @MainActor in
             let signpostID = OSSignpostID(log: LaunchTaskSignposts.log)

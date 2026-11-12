@@ -149,6 +149,23 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         }
     }
 
+    /// A process launched in the background runs no startup health pass; the on-demand refresh that
+    /// `prepareForBackgroundPlayback` calls must still produce a health result by itself.
+    func testOnDemandHealthRefreshRunsWithoutStartupHealthPass() async {
+        let (coordinator, networkMonitor) = makeCoordinator()
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        var forced: [Bool] = []
+        coordinator.healthCheckRunnerForTesting = { force, _ in
+            forced.append(force)
+            return ServerHealthChecker.CheckSummary(checkedCount: 1, skippedCount: 0)
+        }
+
+        await coordinator.refreshServerHealthStates()
+
+        XCTAssertEqual(forced, [true])
+        XCTAssertNotNil(coordinator.lastHealthCheckCompletion)
+    }
+
     func testInitialUnknownConnectionSkipsOnceButOfflineReconnectRefreshes() async {
         for startsOffline in [false, true] {
             let (coordinator, _) = makeCoordinator(initialState: .unknown)

@@ -16,6 +16,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     var startupSyncTask: Task<Void, Never>?
     var startupRestoreWasSuppressedForSiri = false
 
+    /// Starts the launch work that needs a foreground process (health checks, WebSockets, startup sync, Siri/Spotlight
+    /// refresh, diagnostics) once per process. See `startForegroundLaunchWork()`.
+    var foregroundLaunchWorkGate = ForegroundLaunchWorkGate()
+
     /// Set synchronously when iOS delivers a Siri intent during launch so restoration does not overwrite Siri playback.
     var hasPendingSiriIntent = false
 

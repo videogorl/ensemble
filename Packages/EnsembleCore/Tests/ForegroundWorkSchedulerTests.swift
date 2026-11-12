@@ -225,4 +225,42 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
         await task.value
         XCTAssertTrue(didRun)
     }
+
+    func testLaunchKindDecidesWhetherLaunchWorkStartsInForeground() {
+        let rows: [(ProcessLaunchKind, appIsBackground: Bool, foreground: Bool)] = [
+            (.foregroundScene, false, true),
+            (.userActivity, false, true),
+            (.url, false, true),
+            (.remoteNotification, false, true),
+            (.remoteNotification, true, false),
+            (.background, true, false),
+        ]
+        for row in rows {
+            XCTAssertEqual(row.0.isForegroundLaunch(applicationIsBackground: row.appIsBackground), row.foreground, "\(row)")
+        }
+    }
+
+    func testBackgroundSeededSchedulerSkipsIdleWorkUntilForegroundThenAllowsIt() async {
+        let scheduler = ForegroundWorkScheduler(
+            configuration: ForegroundWorkSchedulerConfiguration(isConstrainedLegacyDevice: false, idleDelay: 0, pollingInterval: 0.01)
+        )
+        scheduler.clearLaunchState()
+        scheduler.setForegroundActive(false)
+
+        let whileBackground = await scheduler.waitUntilAllowed(.startupSync, policy: .idleOnly)
+        XCTAssertFalse(whileBackground)
+
+        scheduler.setForegroundActive(true)
+        let afterForeground = await scheduler.waitUntilAllowed(.startupSync, policy: .idleOnly)
+        XCTAssertTrue(afterForeground)
+    }
+
+    func testForegroundLaunchWorkGateClaimsOnceAndNeverWhileBackground() {
+        var gate = ForegroundLaunchWorkGate()
+        XCTAssertFalse(gate.claim(isForeground: false))
+        XCTAssertFalse(gate.hasStarted)
+        XCTAssertTrue(gate.claim(isForeground: true))
+        XCTAssertFalse(gate.claim(isForeground: true))
+        XCTAssertFalse(gate.claim(isForeground: false))
+    }
 }

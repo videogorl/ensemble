@@ -36,6 +36,17 @@ public enum ProcessLaunchKind: String, Equatable {
         if hasRemoteNotification { return .remoteNotification }
         return isBackgroundLaunch ? .background : .foregroundScene
     }
+
+    /// Whether the process starts as a foreground one, so its launch work runs at `didFinishLaunching`.
+    /// A user activity or URL is a user action. A remote notification is foreground only when the user opened it:
+    /// a silent push launches the process in the background with the same launch option.
+    public func isForegroundLaunch(applicationIsBackground: Bool) -> Bool {
+        switch self {
+        case .foregroundScene, .userActivity, .url: return true
+        case .remoteNotification: return !applicationIsBackground
+        case .background: return false
+        }
+    }
 }
 
 // MARK: - PersistentLogService

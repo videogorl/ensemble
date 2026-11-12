@@ -59,6 +59,21 @@ public struct ForegroundWorkSchedulerConfiguration: Equatable, Sendable {
     }
 }
 
+/// Lets the launch work that needs a foreground process start exactly once per process, and only while the
+/// process is foreground.
+public struct ForegroundLaunchWorkGate {
+    public private(set) var hasStarted = false
+
+    public init() {}
+
+    /// Returns true for the first call made while foreground, and false for every call after it.
+    public mutating func claim(isForeground: Bool) -> Bool {
+        guard isForeground, !hasStarted else { return false }
+        hasStarted = true
+        return true
+    }
+}
+
 @MainActor
 public protocol ForegroundWorkScheduling: AnyObject, Sendable {
     var isIdleForNonessentialWork: Bool { get }
