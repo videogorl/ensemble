@@ -337,6 +337,31 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         }
     }
 
+    /// An Apple Music playlist the REST list lacks takes its artwork from MusicKit, whose URL varies per read
+    /// around a fixed `aat` asset: an unchanged playlist must not be rewritten each sync, a new image must.
+    func testAnUnchangedAppleMusicPlaylistIsNotRewrittenButNewArtworkIs() async throws {
+        let f = try makeFixture()
+        func listed(_ url: String) -> PlaylistBatch {
+            let base = header("native", at: 100, count: 0)
+            let input = PlaylistUpsertInput(
+                ratingKey: base.ratingKey, key: base.key, title: base.title, summary: nil,
+                compositePath: AppleMusicArtworkPath.stable(url), isSmart: false, duration: 0, trackCount: 0,
+                dateAdded: nil, dateModified: base.dateModified, lastPlayed: nil
+            )
+            return PlaylistBatch(entries: [PlaylistEntry(header: input, body: nil)], queryStartedAt: .now)
+        }
+        let image = "musicKit://artwork/library/a/1200x1200?aat=Music115%2Fv4%2Fcover.png"
+        try await f.writer.apply(listed("\(image)&at=item&r=1"), for: scope)
+        try await f.writer.apply(listed("\(image)&at=item&r=2"), for: scope)
+        XCTAssertEqual(f.hooked.count("upsert:"), 1)
+
+        try await f.writer.apply(listed("musicKit://artwork/library/a/1200x1200?aat=Music115%2Fv4%2Fother.png&r=3"), for: scope)
+        XCTAssertEqual(f.hooked.count("upsert:"), 2)
+        XCTAssertEqual(AppleMusicArtworkPath.stable("https://example.com/{w}x{h}.jpg"), "https://example.com/{w}x{h}.jpg")
+        XCTAssertNil(AppleMusicArtworkPath.stable(nil))
+        XCTAssertEqual(AppleMusicArtworkPath.stable("musicKit://artwork/x?at=item"), "musicKit://artwork/x?at=item")
+    }
+
     func testAnOlderHeaderChangesNothing() async throws {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0, modified: 200), for: scope)
