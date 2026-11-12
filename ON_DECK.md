@@ -849,3 +849,36 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   sections offered as separate SiriKit media items.
 - **Next step:** read what `INPlayMediaIntent` resolution returns for "Moby" (count, source of each item) and whether
   equivalent artists should be collapsed the way merged playlists are.
+
+## Startup-to-playback measurements on the iPhone SE (2026-11-12, build `202611121020.2369`)
+
+Request → `playing`, from session logs (app state, not audible output):
+
+| Case | Result |
+|---|---|
+| Cold launch, mini-player Play, downloaded restored track (Wi-Fi on or off) | 0.14–0.18 s |
+| Warm resume after ~1 min in background | 0.11–0.18 s |
+| Cold launch, mini-player Play, restored Plex streaming track, uncached | 0.56–0.71 s (4 runs); `downloadComplete` always after `playing` |
+| Same, in the stream cache | 0.25–0.33 s |
+| Cold launch, tap a Plex album track, uncached | 0.79–0.89 s (2 runs); server decision + first byte is 0.5–0.7 s of it |
+| Cold launch, tap an Apple Music device-library track | 1.28–1.61 s, almost all inside Apple's player |
+| Cold launch through a Play Playlist Shortcut (local/cached first track) | 2.3–2.6 s from process start; 1.9–2.2 s of it is "No connected servers — running health checks" |
+
+- **Not reproduced:** the code-read hypothesis that Play waits on a whole-file prebuffer for a restored streaming track.
+  No `[preBuffer]` line was logged for any restored streaming track, including taps 6–15 s after launch.
+- **Candidate (not approved):** the Siri/Shortcut cold path awaits the all-servers health check before resolving the
+  item, even when the first track is local or cached. The play path already checks the track's own server.
+- **Unexplained:** one Shortcut run (the first after the shortcut was created) had ~31 s with no app log lines between
+  `NetworkMonitor: Started monitoring` and `Server connectivity ready`. Next step: repeat a first-run-after-create and
+  capture a sysdiagnose-level log to see whether the wait is in Shortcuts or in `prepareForBackgroundPlayback`.
+- **Not tested:** restored mid-track position on an uncached stream; lossless or very long files; cellular.
+- Logs: `/private/tmp/claude-501/-Users-felicity-Developer-projects-ensemble/1b53a1b0-2eca-4f16-ad9f-8a206686c84e/scratchpad/logs1`.
+
+## Removed-source cleanup runs for the same three Plex library keys on every launch (suspected waste)
+
+- **Evidence:** every SE session log on 2026-11-12 (20 of 20) has three `Cleaning up data for removed source: plex:…`
+  lines (`SyncCoordinator.swift:2017`) for the same keys (sections 5, 4 and 7), about 0.7 s apart, each finishing with
+  all counts 0.
+- **Impact:** nothing is deleted, but ~1.4 s of repository work repeats at each launch. Probably disabled library
+  sections treated as removed each time rather than once.
+- **Next step:** find the caller that enumerates these keys at launch and why it does not remember a completed cleanup.
