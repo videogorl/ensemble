@@ -82,19 +82,7 @@ extension AppDelegate {
                 os_signpost(.end, log: LaunchTaskSignposts.log, name: LaunchTaskSignposts.siriMediaRefresh, signpostID: signpostID)
             }
 
-            let foregroundWorkScheduler = AppRoot.container.foregroundWorkScheduler
-            guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
-                AppLogger.debug("📱 AppDelegate: Siri media index/context refresh skipped because foreground work is unavailable")
-                AppRoot.container.systemMediaIntegrationService.deferSpotlightRefresh()
-                return
-            }
-
-            EnsembleAppShortcutsProvider.updateAppShortcutParameters()
-            AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
-
-            // Refresh system media context and Spotlight from the shared media index.
-            await AppRoot.container.systemMediaIntegrationService.updateMediaUserContext()
-            await AppRoot.container.systemMediaIntegrationService.refreshSpotlightIndex()
+            await refreshSystemMediaSurfaces()
         }
     }
 

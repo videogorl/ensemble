@@ -121,13 +121,11 @@ struct EnsembleApp: App {
                 .task(id: scenePhase) {
                     await handleScenePhaseChange(scenePhase)
                 }
-                #if os(iOS)
                 .task {
-                    if #available(iOS 27.0, *) {
+                    if #available(iOS 27.0, macOS 27.0, *) {
                         EnsembleRelevantEntitiesPublisher.shared.start()
                     }
                 }
-                #endif
         }
         .applyBackgroundRefresh()
         .commands {
@@ -483,6 +481,8 @@ struct EnsembleApp: App {
                         AppLogger.debug("💻 macOS: Running startup health checks after local playback restore...")
                         let syncCoordinator = await MainActor.run { dependencyContainer.syncCoordinator }
                         await syncCoordinator.performStartupHealthChecks()
+                        // Like the iPhone launch: refresh what Shortcuts, Spotlight and Siri read about the library.
+                        await refreshSystemMediaSurfaces()
                     }
                 }
 
