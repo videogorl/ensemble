@@ -661,9 +661,18 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   `p.1YeW3rpCkzaPXR` and `p.V7VYlM7CoLPe16` with `differs: compositePath`: 5 of 5 syncs on 2026-11-11
   between 18:53 and 21:06, and 7 of 7 sessions that synced on 2026-11-12. So the `aat` value itself varies
   between reads, or the artwork alternates with nil. Not fixed.
-- Next step: log a short hash of the stored and the incoming `compositePath` (and whether either is nil) on
-  that write, run two syncs on the phone, then decide: compare a stable part only, or keep the stored path
-  when the playlist's dates are unchanged.
+- Code read (branch `diag/apple-music-header-churn`): the comparison is `PlaylistSyncState.headerMatches`
+  (exact string equality; no normalisation on write: `upsertPlaylist` stores `input.compositePath` as is).
+  `AppleMusicArtworkPath.stable` strips only `musicKit://` URLs that carry `aat`; an `https` URL, or a path
+  segment that varies, passes through untouched. Hypotheses, unproven: (1) `artwork.url(width:height:)` returns
+  a non-`musicKit` URL for these two playlists (generated mosaic), which `stable` does not touch; (2) the `aat`
+  value or the path part varies per read; (3) the artwork alternates between a URL and nil.
+- Diagnostic now in: `LibraryWriter.write` logs, on each header write whose `compositePath` differs, the stored
+  and incoming path shape (nil/empty, length, SHA-256 prefix, scheme+host, path with long segments as lengths,
+  query parameter names) and `valuesDiffer=` (the parts or query names whose values differ). Next step: run two
+  syncs on the 16 Pro, read those lines for `p.1YeW3rpCkzaPXR` and `p.V7VYlM7CoLPe16`, then decide: compare a
+  stable part only, or keep the stored path when the playlist's dates are unchanged. Remove the diagnostic with
+  this entry.
 - Latent, not fixed: `reconcilePlaylist` builds its header with `canEdit: true`, no REST artwork and a
   MusicKit-only date, so after a playlist mutation the next list sync rewrites that header once (bounded).
 
