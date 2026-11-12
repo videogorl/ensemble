@@ -110,6 +110,12 @@ final class SiriMediaIndexResolverTests: XCTestCase {
             track("pretty", "Pretty, Odd", "Panic! At The Disco"),
             track("shes", "She's A Handsome Woman", "Panic! At The Disco"),
             track("intense", "Intense Focus", "Someone"),
+            track("dsotm", "The Dark Side of the Moon", "Pink Floyd"),
+            track("remaster", "Song (Remastered 2011)", "Band"),
+            track("feat", "Song feat. Artist", "Band"),
+            track("deluxe", "Album (Deluxe Edition)", "Band"),
+            track("dazed", "Dazed and Confused", "Led Zeppelin"),
+            track("nine", "9 to 5", "Dolly Parton"),
             SiriMediaIndexItem(kind: .playlist, id: "focus", displayName: "focus", sourceCompositeKey: "plex:a")
         ])
         let cases: [(query: String, artist: String?, kinds: Set<SiriMediaKind>?, expected: [String])] = [
@@ -123,7 +129,13 @@ final class SiriMediaIndexResolverTests: XCTestCase {
             ("Intense Focus", nil, [.track], ["intense"]),
             ("focus", nil, [.playlist], ["focus"]),
             ("&", nil, [.track], ["amp"]),
-            ("and", nil, [.track], ["amp"])
+            ("and", nil, [.track], ["amp"]),
+            // A request that abbreviates a longer title still finds it.
+            ("Dark Side", nil, [.track], ["dsotm"]),
+            ("Song", nil, [.track], ["remaster", "feat"]),
+            ("Album", nil, [.track], ["deluxe"]),
+            ("Dazed", nil, [.track], ["dazed"]),
+            ("9", nil, [.track], ["nine"])
         ]
         for testCase in cases {
             let ranked = SiriMediaIndexResolver.rankCandidates(

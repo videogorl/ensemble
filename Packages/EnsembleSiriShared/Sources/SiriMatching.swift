@@ -156,7 +156,7 @@ public enum SiriPhraseNormalizer {
 public enum SiriMatchScorer {
     public static let prefixScore = 0.84
     public static let containmentScore = 0.7
-    /// The shorter of query and title must be at least this share of the longer's words to match by containment.
+    /// A title shorter than the request must be at least this share of the request's words to match by containment.
     public static let minimumContainedShare = 0.5
 
     /// Scores one normalized query against one normalized candidate.
@@ -165,13 +165,15 @@ public enum SiriMatchScorer {
         if candidate == query { return 1.0 }
         // "&" reads as "and", which carries no title: a bare "and" matches only itself, never by containment or resemblance.
         if query == "and" || candidate == "and" { return 0 }
-        // A short title inside a longer phrase counts only as whole words ("rest" is not in "firestorm"), and only when
-        // it is a real share of it: the one-word "Kim" is not the request "kim and jessie".
+        // A request that is part of a longer title matches it ("Dark Side" is "The Dark Side of the Moon"). A short title
+        // inside a longer request counts only when it is a real share of it: the one-word "Kim" is not "kim and jessie".
+        if candidate.hasPrefix(query) { return prefixScore }
+        if candidate.contains(query) { return containmentScore }
         let queryWords = query.split(separator: " ").count
         let candidateWords = candidate.split(separator: " ").count
-        if Double(min(queryWords, candidateWords)) / Double(max(queryWords, candidateWords)) >= minimumContainedShare {
-            if candidate.hasPrefix(query) || query.hasPrefix(candidate + " ") { return prefixScore }
-            if candidate.contains(query) || " \(query) ".contains(" \(candidate) ") { return containmentScore }
+        if Double(candidateWords) / Double(queryWords) >= minimumContainedShare {
+            if query.hasPrefix(candidate + " ") { return prefixScore }
+            if " \(query) ".contains(" \(candidate) ") { return containmentScore }
         }
 
         var score = 0.0
