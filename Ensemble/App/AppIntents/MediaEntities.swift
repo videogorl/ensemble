@@ -50,7 +50,7 @@ enum SiriIndexLookup {
     /// The rows the library screens would show for `items`, under the merge settings and source visibility, both read
     /// when the picker asks so a changed setting shows at once: songs, albums and artists per `SiriMediaRows`,
     /// playlists per `SiriPlaylistRows`.
-    private static func presenting(_ items: [SiriMediaIndexItem]) async -> [SiriMediaIndexItem] {
+    static func presenting(_ items: [SiriMediaIndexItem]) async -> [SiriMediaIndexItem] {
         let (isSourceVisible, serverNames) = await sourceScope(naming: Set(items.compactMap(\.sourceCompositeKey)))
         let preferences = SettingsManager.storedMergingPreferences()
         let rows = SiriMediaRows.presented(

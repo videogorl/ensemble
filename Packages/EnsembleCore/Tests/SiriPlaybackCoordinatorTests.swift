@@ -638,6 +638,11 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             let missing = try await fixture.coordinator.storedItem(kind: .track, id: id, sourceCompositeKey: source)
             XCTAssertNil(missing, id)
         }
+        // Index items stale since a hide, or from a source no longer shown, are not offered to Siri AI.
+        let staleItems = [("track-1", key), ("track-2", key), ("other-1", otherLibrary), ("ghost-1", "plex:account-1:server-3:library-3")]
+            .map { SiriMediaIndexItem(kind: .track, id: $0.0, displayName: $0.0, sourceCompositeKey: $0.1) }
+        let offered = await fixture.coordinator.currentlyVisible(staleItems)
+        XCTAssertEqual(offered.map(\.id), ["track-1"])
     }
 
     private func upsert(_ repository: LibraryRepository, _ id: String, _ title: String, artist: String?, album: String?, source: String) async throws {

@@ -37,7 +37,7 @@ struct EnsembleSongAudioEntity: IndexItemEntity {
 }
 
 @available(iOS 27.0, macOS 27.0, *)
-struct EnsembleSongAudioEntityQuery: IndexItemEntityQuery { typealias Entity = EnsembleSongAudioEntity }
+struct EnsembleSongAudioEntityQuery: AudioSchemaEntityQuery { typealias Entity = EnsembleSongAudioEntity }
 
 @available(iOS 27.0, macOS 27.0, *)
 @AppEntity(schema: .audio.album)
@@ -59,7 +59,7 @@ struct EnsembleAlbumAudioEntity: IndexItemEntity {
 }
 
 @available(iOS 27.0, macOS 27.0, *)
-struct EnsembleAlbumAudioEntityQuery: IndexItemEntityQuery { typealias Entity = EnsembleAlbumAudioEntity }
+struct EnsembleAlbumAudioEntityQuery: AudioSchemaEntityQuery { typealias Entity = EnsembleAlbumAudioEntity }
 
 @available(iOS 27.0, macOS 27.0, *)
 @AppEntity(schema: .audio.artist)
@@ -76,7 +76,7 @@ struct EnsembleArtistAudioEntity: IndexItemEntity {
 }
 
 @available(iOS 27.0, macOS 27.0, *)
-struct EnsembleArtistAudioEntityQuery: IndexItemEntityQuery { typealias Entity = EnsembleArtistAudioEntity }
+struct EnsembleArtistAudioEntityQuery: AudioSchemaEntityQuery { typealias Entity = EnsembleArtistAudioEntity }
 
 @available(iOS 27.0, macOS 27.0, *)
 @UnionValue
@@ -103,7 +103,7 @@ struct EnsemblePlaylistAudioEntity: IndexItemEntity {
 }
 
 @available(iOS 27.0, macOS 27.0, *)
-struct EnsemblePlaylistAudioEntityQuery: IndexItemEntityQuery { typealias Entity = EnsemblePlaylistAudioEntity }
+struct EnsemblePlaylistAudioEntityQuery: AudioSchemaEntityQuery { typealias Entity = EnsemblePlaylistAudioEntity }
 
 @available(iOS 27.0, macOS 27.0, *)
 @UnionValue
@@ -125,10 +125,46 @@ enum EnsembleAudioItem {
 
 // MARK: - Search
 
+/// The queries Siri AI uses. Saved shortcuts keep resolving what they saved (a hidden playlist's shortcut still
+/// resolves so running it can refuse); Siri AI is only ever given what the library shows now, so every result, however
+/// it was found, passes today's source visibility and hidden-media rules (the cached index is stale until it rebuilds
+/// after a change), then today's merge presentation.
 @available(iOS 27.0, macOS 27.0, *)
-extension IndexItemEntityQuery {
-    /// What Siri's audio search finds: the existing matcher and visibility rules, so a hidden or disabled source,
-    /// a Focus-hidden library and hidden media never surface, and merged kinds show one row each. Fails closed.
+protocol AudioSchemaEntityQuery: IndexItemEntityQuery {}
+
+@available(iOS 27.0, macOS 27.0, *)
+extension AudioSchemaEntityQuery {
+    private func currentlyVisible(_ items: [SiriMediaIndexItem]) async -> [SiriMediaIndexItem] {
+        let container = await MainActor.run { AppRoot.container }
+        return await container.siriPlaybackCoordinator.currentlyVisible(items)
+    }
+
+    private func current(_ items: [SiriMediaIndexItem]) async -> [Entity] {
+        await currentlyVisible(items).map(Entity.init(item:))
+    }
+
+    func entities(for identifiers: [Entity.ID]) async throws -> [Entity] {
+        guard await restoreFocusFilter() else { return [] }
+        let wanted = Set(identifiers)
+        guard !wanted.isEmpty else { return [] }
+        var items = SiriIndexLookup.fetchItems(kind: Entity.indexKind).filter { wanted.contains(Entity.init(item: $0).id) }
+        let missing = wanted.subtracting(items.map { Entity.init(item: $0).id }).compactMap(Entity.storedReference(in:))
+        if !missing.isEmpty { items += await SiriIndexLookup.storedItems(forReferences: missing) }
+        // Presented after the check, so a merged playlist stands for a copy that is still shown.
+        return await SiriIndexLookup.presenting(await currentlyVisible(items)).map(Entity.init(item:))
+    }
+
+    func entities(matching string: String) async throws -> [Entity] {
+        guard await restoreFocusFilter() else { return [] }
+        return await current(await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: string))
+    }
+
+    func suggestedEntities() async throws -> [Entity] {
+        guard await restoreFocusFilter() else { return [] }
+        return await current(await SiriIndexLookup.recentItems(kind: Entity.indexKind))
+    }
+
+    /// What Siri's audio search finds, with the existing matcher.
     func audioSearchResults(_ search: AudioSearch) async -> [Entity] {
         guard await restoreFocusFilter() else { return [] }
         let items: [SiriMediaIndexItem]
@@ -143,10 +179,11 @@ extension IndexItemEntityQuery {
         @unknown default:
             items = []
         }
+        let results = await current(items)
         AppIntentsLog.logger.info(
-            "SIRI_AI: audio search kind=\(Entity.indexKind?.rawValue ?? "any", privacy: .public) results=\(items.count, privacy: .public)"
+            "SIRI_AI: audio search kind=\(Entity.indexKind?.rawValue ?? "any", privacy: .public) results=\(results.count, privacy: .public)"
         )
-        return items.map(Entity.init(item:))
+        return results
     }
 }
 
