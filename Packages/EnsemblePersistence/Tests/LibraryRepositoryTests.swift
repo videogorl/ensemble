@@ -126,11 +126,35 @@ final class LibraryRepositoryTests: XCTestCase {
             (100, ["exact"] + (1...30).map { "prefix-\($0)" }.sorted() + (1...30).map { "contains-\($0)" }.sorted())
         ]
         for testCase in cases {
-            let tracks = try await repository.findTracksByTitle("bulk", sourceCompositeKeys: [source], limit: testCase.limit)
+            let tracks = try await repository.findTracksByTitle("bulk", sourceCompositeKeys: [source], limit: testCase.limit, isEligible: { _ in true })
             XCTAssertEqual(tracks.map(\.ratingKey), testCase.expected, "limit \(testCase.limit)")
         }
-        let none = try await repository.findTracksByTitle("bulk", sourceCompositeKeys: [], limit: 5)
+        let none = try await repository.findTracksByTitle("bulk", sourceCompositeKeys: [], limit: 5, isEligible: { _ in true })
         XCTAssertTrue(none.isEmpty)
+    }
+
+    /// Rows the caller rejects (hidden media) never count toward the limit, and every word of the query is tried
+    /// last, so punctuation in the stored name does not hide a match.
+    func testBoundedNameSearchSkipsRejectedRowsAndMatchesWords() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let source = "plex:account:server:library"
+        // 12 rejected exact titles sort ahead of the one accepted exact title.
+        var inputs = (1...12).map { makeTrackInput(ratingKey: "hidden-\($0)", title: "Home") }
+        inputs += [makeTrackInput(ratingKey: "visible", title: "Home"), makeTrackInput(ratingKey: "words", title: "AC/DC Live")]
+        try await repository.batchUpsertTracks(inputs, sourceCompositeKey: source)
+
+        let cases: [(query: String, limit: Int, expected: [String])] = [
+            ("home", 1, ["visible"]),
+            ("home", 5, ["visible"]),
+            ("ac dc", 3, ["words"]),
+            ("dc ac", 3, ["words"])
+        ]
+        for testCase in cases {
+            let rows = try await repository.findTracksByTitle(
+                testCase.query, sourceCompositeKeys: [source], limit: testCase.limit, isEligible: { !$0.ratingKey.hasPrefix("hidden") }
+            )
+            XCTAssertEqual(rows.map(\.ratingKey), testCase.expected, "'\(testCase.query)' limit \(testCase.limit)")
+        }
     }
 
     func testNameLookupWithExplicitEmptySourceSetReturnsNothing() async throws {

@@ -186,6 +186,8 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         let playbackService: RecordingPlaybackService
         let librarySourceKey: String
         let serverSourceKey: String
+        let libraryRepository: LibraryRepository
+        let otherLibrarySourceKey: String
     }
 
     func testExecutePlayTrackPlaysRequestedTrack() async throws {
@@ -524,42 +526,88 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         XCTAssertNil(fixture.playbackService.lastPlayedTrack)
     }
 
-    /// The Shortcuts picker falls back to this when the capped Siri index has no match: songs, then albums, then
-    /// artists, never hidden items or items of sources that are not enabled, and never more than the limit.
-    func testSearchLibraryFindsNamesOutsideTheIndexWithinVisibilityAndLimit() async throws {
+    /// The Shortcuts picker adds these to the index's own candidates: songs, albums and artists, never hidden items or
+    /// items of sources that are not enabled and visible, found by every word of the query, and bounded.
+    func testLibraryCandidatesFindNamesOutsideTheIndexWithinVisibilityAndBounds() async throws {
         let hidden = HiddenMediaStore(defaults: UserDefaults(suiteName: "siri-search-\(UUID().uuidString)")!)
         hidden.setHidden(true, identity: .init(kind: .track, itemID: "track-2", sourceCompositeKey: "plex:account-1:server-1:library-1"))
-        let fixture = try await makeFixture(hiddenMediaStore: hidden)
+        let otherLibrary = "plex:account-1:server-2:library-2"
+        let fixture = try await makeFixture(hiddenMediaStore: hidden, hiddenSourceKeys: [otherLibrary])
+        let repository = fixture.libraryRepository
+        let key = fixture.librarySourceKey
 
-        let cases: [(kind: SiriMediaKind?, query: String, limit: Int, expected: [String])] = [
+        // Normalized names the raw title lookup misses, and 12 hidden albums ahead of the visible exact "Home".
+        try await repository.batchUpsertArtists([
+            ArtistUpsertInput(ratingKey: "acdc", key: "/a/acdc", name: "AC/DC", summary: nil, thumbPath: nil, artPath: nil, dateAdded: nil, dateModified: nil)
+        ], sourceCompositeKey: key)
+        func album(_ id: String, _ title: String) -> AlbumUpsertInput {
+            AlbumUpsertInput(
+                ratingKey: id, key: "/a/\(id)", title: title, artistName: "Artist One", albumArtist: "Artist One", artistRatingKey: nil,
+                summary: nil, thumbPath: nil, artPath: nil, year: 2000, trackCount: 1, dateAdded: nil, dateModified: nil, rating: nil
+            )
+        }
+        let hiddenHome = (1...12).map { "home-hidden-\($0)" }
+        try await repository.batchUpsertAlbums(
+            [album("acdc-live", "AC/DC Live")] + hiddenHome.map { album($0, "Home") } + [album("home-visible", "Home")],
+            sourceCompositeKey: key
+        )
+        for id in hiddenHome { hidden.setHidden(true, identity: .init(kind: .album, itemID: id, sourceCompositeKey: key)) }
+
+        let cases: [(kind: SiriMediaKind?, query: String, limit: Int, expected: Set<String>)] = [
             (.track, "Track One", 10, ["track-1"]),
-            (.track, "Track Two", 10, []),                       // hidden
+            (.track, "Track Two", 10, []),                       // hidden media
             (.track, "Ghost Track", 10, []),                     // source not enabled
+            (.track, "Other One", 10, []),                       // source hidden by the visibility profile
             (.track, "kim and jessie", 10, ["track-amp"]),       // punctuation the title lookup misses
             (.album, "Album One", 10, ["album-1"]),
             (.artist, "Artist One", 10, ["artist-1"]),
-            (nil, "One", 10, ["other-1", "track-1", "album-1", "artist-1"]),
-            (nil, "One", 2, ["other-1", "track-1"]),
+            (.artist, "ac dc", 10, ["acdc"]),                    // normalized match
+            (.album, "ac dc", 10, ["acdc-live"]),
+            (.album, "Home", 1, ["home-visible"]),               // hidden rows do not use up the cap of 10
             (nil, "O", 10, []),                                  // too short to search the store
             (.playlist, "Playlist One", 10, []),                 // playlists are not capped
             (.track, "Cap", 1, ["cap-exact"])                    // 40 other matches exceed the 10-row cap; the exact title is read first
         ]
         for testCase in cases {
-            let items = try await fixture.coordinator.searchLibrary(kind: testCase.kind, matching: testCase.query, limit: testCase.limit)
-            XCTAssertEqual(items.map(\.id), testCase.expected, "\(testCase.kind?.rawValue ?? "any") '\(testCase.query)'")
+            let items = try await fixture.coordinator.libraryCandidates(kind: testCase.kind, matching: testCase.query, limit: testCase.limit)
+            if testCase.expected.isEmpty {
+                XCTAssertTrue(items.isEmpty, "\(testCase.query): \(items.map(\.id))")
+            } else {
+                XCTAssertTrue(testCase.expected.isSubset(of: Set(items.map(\.id))), "\(testCase.query): \(items.map(\.id))")
+            }
         }
+        let fuzzy = try await fixture.coordinator.libraryCandidates(kind: .track, matching: "Cap Song", limit: 1)
+        XCTAssertLessThanOrEqual(fuzzy.count, 10, "retained results stay within ten times the limit")
 
-        let stored = try await fixture.coordinator.storedItem(kind: .track, id: "track-1", sourceCompositeKey: fixture.librarySourceKey)
+        let stored = try await fixture.coordinator.storedItem(kind: .track, id: "track-1", sourceCompositeKey: key)
         XCTAssertEqual(stored?.displayName, "Track One")
-        let hiddenStored = try await fixture.coordinator.storedItem(kind: .track, id: "track-2", sourceCompositeKey: fixture.librarySourceKey)
-        XCTAssertNil(hiddenStored)
-        let disabledStored = try await fixture.coordinator.storedItem(kind: .track, id: "ghost-1", sourceCompositeKey: "plex:account-1:server-3:library-3")
-        XCTAssertNil(disabledStored)
+        for (id, source) in [("track-2", key), ("ghost-1", "plex:account-1:server-3:library-3"), ("other-1", otherLibrary)] {
+            let missing = try await fixture.coordinator.storedItem(kind: .track, id: id, sourceCompositeKey: source)
+            XCTAssertNil(missing, id)
+        }
+    }
+
+    /// A song in a library the profile hides is not played, even when asked for by its exact identity.
+    func testPlaybackExcludesHiddenSources() async throws {
+        let fixture = try await makeFixture(hiddenSourceKeys: ["plex:account-1:server-2:library-2"])
+        do {
+            try await fixture.coordinator.executePlayTrack(
+                request: SiriPlaybackRequest(entityID: "other-1", sourceCompositeKey: fixture.otherLibrarySourceKey, displayName: "Other One")
+            )
+            XCTFail("A hidden source's song must not play")
+        } catch {
+            XCTAssertNil(fixture.playbackService.lastPlayedTrack)
+        }
+        try await fixture.coordinator.executePlayTrack(
+            request: SiriPlaybackRequest(entityID: "track-1", sourceCompositeKey: fixture.librarySourceKey, displayName: "Track One")
+        )
+        XCTAssertEqual(fixture.playbackService.lastPlayedTrack?.id, "track-1")
     }
 
     private func makeFixture(
         mergingPreferences: EnsembleMergingPreferences = .default,
-        hiddenMediaStore: HiddenMediaStore? = nil
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        hiddenSourceKeys: Set<String> = []
     ) async throws -> Fixture {
         let accountID = "account-1"
         let serverID = "server-1"
@@ -782,6 +830,8 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             )
         )
 
+        let visibilityStore = LibraryVisibilityStore(userDefaults: UserDefaults(suiteName: "siri-visibility-\(UUID().uuidString)")!)
+        visibilityStore.setHiddenSourceCompositeKeys(hiddenSourceKeys)
         let playbackService = RecordingPlaybackService()
         let coordinator = SiriPlaybackCoordinator(
             accountManager: accountManager,
@@ -789,7 +839,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             playlistRepository: playlistRepository,
             playbackService: playbackService,
             hiddenMediaStore: hiddenMediaStore,
-            visibilityStore: LibraryVisibilityStore(),
+            visibilityStore: visibilityStore,
             mergingPreferences: { mergingPreferences }
         )
 
@@ -797,7 +847,9 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             coordinator: coordinator,
             playbackService: playbackService,
             librarySourceKey: librarySourceKey,
-            serverSourceKey: serverSourceKey
+            serverSourceKey: serverSourceKey,
+            libraryRepository: libraryRepository,
+            otherLibrarySourceKey: otherLibraryKey
         )
     }
 }

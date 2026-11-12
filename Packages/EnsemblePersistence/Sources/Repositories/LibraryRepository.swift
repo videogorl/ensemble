@@ -656,10 +656,11 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDTrack]
     func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>?) async throws -> [CDArtist]
     func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDAlbum]
-    /// The same lookups reading at most `limit` rows: exact matches first, then prefix, then contains.
-    func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?, limit: Int) async throws -> [CDTrack]
-    func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>?, limit: Int) async throws -> [CDArtist]
-    func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>?, limit: Int) async throws -> [CDAlbum]
+    /// The same lookups keeping at most `limit` rows `isEligible` accepts: exact matches first, then prefix, contains,
+    /// then every word of the query. Rejected rows do not count toward the limit.
+    func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?, limit: Int, isEligible: @escaping @Sendable (CDTrack) -> Bool) async throws -> [CDTrack]
+    func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>?, limit: Int, isEligible: @escaping @Sendable (CDArtist) -> Bool) async throws -> [CDArtist]
+    func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>?, limit: Int, isEligible: @escaping @Sendable (CDAlbum) -> Bool) async throws -> [CDAlbum]
 
     // Source management
     func fetchMusicSources() async throws -> [CDMusicSource]
@@ -719,16 +720,16 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
 public extension LibraryRepositoryProtocol {
     // Conformers without a bounded read (test doubles) trim the unbounded one.
-    func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?, limit: Int) async throws -> [CDTrack] {
-        Array(try await findTracksByTitle(title, sourceCompositeKeys: sourceCompositeKeys).prefix(limit))
+    func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?, limit: Int, isEligible: @escaping @Sendable (CDTrack) -> Bool) async throws -> [CDTrack] {
+        Array(try await findTracksByTitle(title, sourceCompositeKeys: sourceCompositeKeys).filter(isEligible).prefix(limit))
     }
 
-    func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>?, limit: Int) async throws -> [CDArtist] {
-        Array(try await findArtistsByName(name, sourceCompositeKeys: sourceCompositeKeys).prefix(limit))
+    func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>?, limit: Int, isEligible: @escaping @Sendable (CDArtist) -> Bool) async throws -> [CDArtist] {
+        Array(try await findArtistsByName(name, sourceCompositeKeys: sourceCompositeKeys).filter(isEligible).prefix(limit))
     }
 
-    func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>?, limit: Int) async throws -> [CDAlbum] {
-        Array(try await findAlbumsByTitle(title, sourceCompositeKeys: sourceCompositeKeys).prefix(limit))
+    func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>?, limit: Int, isEligible: @escaping @Sendable (CDAlbum) -> Bool) async throws -> [CDAlbum] {
+        Array(try await findAlbumsByTitle(title, sourceCompositeKeys: sourceCompositeKeys).filter(isEligible).prefix(limit))
     }
 
     func fetchTrackSummaries(forSource sourceKey: String) async throws -> [String: TrackSyncSummary] {

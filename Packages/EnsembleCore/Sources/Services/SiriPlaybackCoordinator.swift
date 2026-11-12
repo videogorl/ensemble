@@ -173,7 +173,7 @@ public final class SiriPlaybackCoordinator {
     /// Plays every playable track in the enabled libraries, as the Songs screen's Shuffle does.
     /// Rows are read from the enabled sources only, in bounded batches.
     public func playLibrary(shuffle: Bool) async throws {
-        let enabledSourceKeys = enabledLibrarySourceKeys()
+        let enabledSourceKeys = visibleLibrarySourceKeys()
         guard !enabledSourceKeys.isEmpty else { throw SiriPlaybackCoordinatorError.noEnabledSources }
         let tracks = try await libraryRepository.mapTracks(forSources: enabledSourceKeys, batchSize: 500) {
             Track(from: $0)
@@ -183,7 +183,7 @@ public final class SiriPlaybackCoordinator {
 
     /// Plays the favourite tracks of every enabled library, as the Favorites screen does.
     public func playFavorites(shuffle: Bool) async throws {
-        let enabledSourceKeys = enabledLibrarySourceKeys()
+        let enabledSourceKeys = visibleLibrarySourceKeys()
         guard !enabledSourceKeys.isEmpty else { throw SiriPlaybackCoordinatorError.noEnabledSources }
         let tracks = try await libraryRepository.fetchFavoriteTracks().map(Track.init(from:))
         try await play(tracks, shuffle: shuffle, enabledSourceKeys: enabledSourceKeys, name: "Favorites")
@@ -191,7 +191,7 @@ public final class SiriPlaybackCoordinator {
 
     /// Plays tracks a caller already gathered for a library collection (a genre, a mood, recently added).
     public func playCollection(_ tracks: [Track], name: String, shuffle: Bool) async throws {
-        let enabledSourceKeys = enabledLibrarySourceKeys()
+        let enabledSourceKeys = visibleLibrarySourceKeys()
         guard !enabledSourceKeys.isEmpty else { throw SiriPlaybackCoordinatorError.noEnabledSources }
         try await play(tracks, shuffle: shuffle, enabledSourceKeys: enabledSourceKeys, name: name)
     }
@@ -201,59 +201,77 @@ public final class SiriPlaybackCoordinator {
         try await resolveMedia(kind: kind, request: request).tracks
     }
 
-    /// Songs, then albums, then artists (or only `kind`) in enabled, unhidden sources whose names match `query`, found
-    /// in the full store. The Siri index holds a capped slice of each kind, so a Shortcuts picker falls back to this
-    /// when the index has no match. Bounded: a query under two characters finds nothing, songs the title lookup
-    /// misses are scored in paged batches, each lookup reads at most ten times `limit` rows, and at most `limit` items return. Playlists are not capped, so none return.
-    public func searchLibrary(kind: SiriMediaKind?, matching query: String, limit: Int) async throws -> [SiriMediaIndexItem] {
-        let enabledSourceKeys = enabledLibrarySourceKeys()
-        guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2, limit > 0,
-              !enabledSourceKeys.isEmpty else { return [] }
-        // Exact names read first, so the cap only drops the weakest matches. Ten times the result limit leaves room for
-        // the same item in several sources, hidden items and matches the scorer rejects.
+    /// Songs, albums and artists (or only `kind`) in enabled, visible sources whose names match `query`, read from the
+    /// full store. The Siri index holds a capped slice of each kind, so a Shortcuts picker adds these to the index's
+    /// own candidates and ranks them together. Unranked and bounded: a query under two characters finds nothing, each
+    /// lookup keeps at most ten times `limit` rows that are not hidden (exact names first, then prefix, contains, then
+    /// every word of the query, so "AC/DC" finds "ac dc"), and songs the title lookup misses are scored in paged
+    /// batches keeping the best ten times `limit`. Playlists are not capped, so none return.
+    public func libraryCandidates(kind: SiriMediaKind?, matching query: String, limit: Int) async throws -> [SiriMediaIndexItem] {
+        let sourceKeys = visibleLibrarySourceKeys()
+        guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2, limit > 0, !sourceKeys.isEmpty else { return [] }
         let fetchCap = limit * 10
         let hidden = hiddenMediaStore.snapshot
-        let kinds: [SiriMediaKind] = [.track, .album, .artist].filter { kind == nil || kind == $0 }
-        var results: [SiriMediaIndexItem] = []
-        for current in kinds where results.count < limit {
-            var candidates: [SiriMediaIndexItem]
+        var items: [SiriMediaIndexItem] = []
+        for current in [SiriMediaKind.track, .album, .artist] where kind == nil || kind == current {
             switch current {
             case .track:
-                candidates = try await libraryRepository.findTracksByTitle(query, sourceCompositeKeys: enabledSourceKeys, limit: fetchCap)
-                    .filter { !hidden.isHidden(Track(from: $0)) }
-                    .map(SiriMediaIndexStore.indexItem(for:))
+                var tracks = try await libraryRepository.findTracksByTitle(
+                    query, sourceCompositeKeys: sourceKeys, limit: fetchCap, isEligible: { !hidden.isHidden(Track(from: $0)) }
+                ).map(SiriMediaIndexStore.indexItem(for:))
+                if Self.rank(tracks, kind: .track, query: query).isEmpty {
+                    // The title lookup compares text, so what it cannot tell apart ("Kim & Jessie") can miss it.
+                    let variants = SiriPhraseNormalizer.queryVariants(for: query)
+                    let best = BestMatches(capacity: fetchCap)
+                    _ = try await libraryRepository.mapTracks(forSources: sourceKeys, batchSize: 500) { track -> Int? in
+                        let score = SiriMatchScorer.scoreMatch(queries: variants, candidate: SiriPhraseNormalizer.basic(track.title))
+                        guard score >= 0.66, !hidden.isHidden(Track(from: track)) else { return nil }
+                        best.offer(SiriMediaIndexStore.indexItem(for: track), score: score)
+                        return nil
+                    }
+                    tracks = best.items
+                }
+                items += tracks
             case .album:
-                candidates = try await libraryRepository.findAlbumsByTitle(query, sourceCompositeKeys: enabledSourceKeys, limit: fetchCap)
-                    .filter { !hidden.isHidden(Album(from: $0)) }
-                    .map(SiriMediaIndexStore.indexItem(for:))
+                items += try await libraryRepository.findAlbumsByTitle(
+                    query, sourceCompositeKeys: sourceKeys, limit: fetchCap, isEligible: { !hidden.isHidden(Album(from: $0)) }
+                ).map(SiriMediaIndexStore.indexItem(for:))
             case .artist:
-                candidates = try await libraryRepository.findArtistsByName(query, sourceCompositeKeys: enabledSourceKeys, limit: fetchCap)
-                    .filter { !hidden.isHidden(Artist(from: $0)) }
-                    .map(SiriMediaIndexStore.indexItem(for:))
+                items += try await libraryRepository.findArtistsByName(
+                    query, sourceCompositeKeys: sourceKeys, limit: fetchCap, isEligible: { !hidden.isHidden(Artist(from: $0)) }
+                ).map(SiriMediaIndexStore.indexItem(for:))
             case .playlist:
                 continue
             }
-            var ranked = Self.rank(candidates, kind: current, query: query)
-            if ranked.isEmpty, current == .track {
-                // The title lookup compares raw text, so punctuation ("Kim & Jessie") can miss it.
-                let variants = SiriPhraseNormalizer.queryVariants(for: query)
-                candidates = try await libraryRepository.mapTracks(forSources: enabledSourceKeys, batchSize: 500) { track in
-                    guard SiriMatchScorer.scoreMatch(queries: variants, candidate: SiriPhraseNormalizer.basic(track.title)) >= 0.66,
-                          !hidden.isHidden(Track(from: track)) else { return nil }
-                    return SiriMediaIndexStore.indexItem(for: track)
-                }
-                ranked = Self.rank(candidates, kind: current, query: query)
-            }
             try Task.checkCancellation()
-            results += ranked.prefix(limit - results.count)
         }
-        return results
+        return items
+    }
+
+    /// The best `capacity` offers by score, so a scan of a large library holds a bounded list.
+    private final class BestMatches: @unchecked Sendable {
+        private let capacity: Int
+        private let lock = NSLock()
+        private var offers: [(item: SiriMediaIndexItem, score: Double)] = []
+
+        init(capacity: Int) { self.capacity = capacity }
+
+        var items: [SiriMediaIndexItem] { lock.withLock { offers.map(\.item) } }
+
+        func offer(_ item: SiriMediaIndexItem, score: Double) {
+            lock.withLock {
+                guard offers.count < capacity || score > offers[offers.count - 1].score else { return }
+                let index = offers.firstIndex { $0.score < score } ?? offers.count
+                offers.insert((item, score), at: index)
+                if offers.count > capacity { offers.removeLast() }
+            }
+        }
     }
 
     /// The index item for a saved song, album or artist reference the capped index no longer holds. Nil when the
-    /// item is gone, hidden, or in a source that is not enabled.
+    /// item is gone, hidden, or in a source that is not enabled and visible.
     public func storedItem(kind: SiriMediaKind, id: String, sourceCompositeKey: String?) async throws -> SiriMediaIndexItem? {
-        guard let sourceCompositeKey, enabledLibrarySourceKeys().contains(sourceCompositeKey) else { return nil }
+        guard let sourceCompositeKey, visibleLibrarySourceKeys().contains(sourceCompositeKey) else { return nil }
         let hidden = hiddenMediaStore.snapshot
         switch kind {
         case .track:
@@ -342,7 +360,7 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         mergesSamePlaylists: Bool = false
     ) async throws -> ResolvedMedia {
-        let enabledSourceKeys = enabledLibrarySourceKeys()
+        let enabledSourceKeys = visibleLibrarySourceKeys()
         guard !enabledSourceKeys.isEmpty else {
             throw SiriPlaybackCoordinatorError.noEnabledSources
         }
@@ -838,8 +856,11 @@ public final class SiriPlaybackCoordinator {
         }
     }
 
-    private func enabledLibrarySourceKeys() -> Set<String> {
-        SystemMediaSourceScope.enabledLibraryKeys(for: accountManager.enabledSources())
+    /// The libraries that are enabled and shown under the active visibility profile and Focus filter: the only ones a
+    /// search, a saved reference or playback may read from.
+    private func visibleLibrarySourceKeys() -> Set<String> {
+        let isVisible = visibilityStore.playlistSourceVisibility(in: accountManager.sourceConfigurationSnapshot)
+        return SystemMediaSourceScope.enabledLibraryKeys(for: accountManager.enabledSources()).filter(isVisible)
     }
 
     private func isPlayable(track: Track, enabledSourceKeys: Set<String>) -> Bool {

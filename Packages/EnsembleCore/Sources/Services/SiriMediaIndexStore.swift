@@ -282,7 +282,9 @@ public final class SiriMediaIndexStore {
             genre: album.genreNames,
             artworkPath: album.thumbPath,
             artworkCacheKey: album.ratingKey,
-            artworkCacheType: .album
+            artworkCacheType: .album,
+            year: album.year > 0 ? Int(album.year) : nil,
+            albumArtist: album.albumArtist ?? album.artistName ?? album.artist?.name
         )
     }
 
@@ -305,7 +307,8 @@ public final class SiriMediaIndexStore {
             discNumber: Int(track.discNumber),
             artworkPath: artwork.path,
             artworkCacheKey: artwork.cacheKey,
-            artworkCacheType: artwork.cacheType
+            artworkCacheType: artwork.cacheType,
+            albumArtist: track.album?.artist?.name
         )
     }
 

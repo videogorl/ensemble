@@ -30,48 +30,75 @@ enum SiriIndexLookup {
     }
 
     static func findItems(kind: SiriMediaKind?, matching rawQuery: String, limit: Int = 10) async -> [SiriMediaIndexItem] {
+        // The index is capped, so a name it does not hold may still be in the library: the library's candidates
+        // compete with the index's own, ranked together.
+        let indexed = loadIndex()?.items ?? []
+        let library = await libraryCandidates(kind: kind, matching: rawQuery, limit: limit)
         let ranked = SiriMediaIndexResolver.rankCandidates(
             for: rawQuery,
             requestedKinds: kind.map { [$0] },
-            index: loadIndex(),
+            index: SiriMediaIndex(items: SiriMediaRows.combining(indexed, with: library)),
             minimumScore: SiriMediaIndexResolver.defaultMinimumMatchScore
         )
-        var matches = ranked.map(\.item)
-        // The index is capped, so a name it does not know may still be in the library.
-        if matches.isEmpty { matches = await librarySearch(kind: kind, matching: rawQuery, limit: limit) }
-        let results = Array(await presenting(matches).prefix(limit))
+        let results = Array(await presenting(ranked.map(\.item)).prefix(limit))
         AppIntentsLog.logger.info(
             "SIRI_SHORTCUT: findItems kind=\(kind?.rawValue ?? "any", privacy: .public) raw='\(rawQuery, privacy: .private)' matches=\(results.count, privacy: .public)"
         )
         return results
     }
 
-    /// Distinct rows: the same item from two sources counts once, while playlists are shown as the playlist screen
-    /// shows them under the current merge setting and source visibility, both read when the picker asks so a changed
-    /// setting shows at once.
+    /// The rows the library screens would show for `items`, under the merge settings and source visibility, both read
+    /// when the picker asks so a changed setting shows at once: songs, albums and artists per `SiriMediaRows`,
+    /// playlists per `SiriPlaylistRows`.
     private static func presenting(_ items: [SiriMediaIndexItem]) async -> [SiriMediaIndexItem] {
-        guard items.contains(where: { $0.kind == .playlist }) else {
-            return SiriMediaIndexResolver.deduplicateEquivalentItems(items)
-        }
-        let isSourceVisible = await MainActor.run {
-            AppRoot.container.libraryVisibilityStore.playlistSourceVisibility(
-                in: AppRoot.container.accountManager.sourceConfigurationSnapshot
-            )
-        }
-        return SiriPlaylistRows.deduplicated(SiriPlaylistRows.presented(
-            items,
-            among: fetchItems(kind: .playlist),
-            preferences: SettingsManager.storedMergingPreferences(),
-            isSourceVisible: isSourceVisible
-        ))
+        let (isSourceVisible, serverNames) = await sourceScope(naming: Set(items.compactMap(\.sourceCompositeKey)))
+        let preferences = SettingsManager.storedMergingPreferences()
+        let rows = SiriMediaRows.presented(
+            items, preferences: preferences, isSourceVisible: isSourceVisible,
+            serverName: { $0.flatMap { serverNames[$0] } }
+        )
+        guard rows.contains(where: { $0.kind == .playlist }) else { return rows }
+        let playlists = Dictionary(
+            SiriPlaylistRows.deduplicated(SiriPlaylistRows.presented(
+                rows.filter { $0.kind == .playlist },
+                among: fetchItems(kind: .playlist),
+                preferences: preferences,
+                isSourceVisible: isSourceVisible
+            )).map { ($0.reference.sourceScopedIdentifier, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return rows.compactMap { $0.kind == .playlist ? playlists[$0.reference.sourceScopedIdentifier] : $0 }
     }
 
-    /// Items from the full store, for names the capped index does not hold; see `SiriPlaybackCoordinator.searchLibrary`.
+    /// The index's items of a kind that are shown: songs, albums and artists only from sources the library shows.
+    /// (A playlist hidden since a shortcut was saved still resolves; see `storedItems`.)
+    static func visibleItems(kind: SiriMediaKind?) async -> [SiriMediaIndexItem] {
+        let items = fetchItems(kind: kind)
+        guard items.contains(where: { $0.kind != .playlist }) else { return items }
+        let (isSourceVisible, _) = await sourceScope(naming: [])
+        return items.filter { $0.kind == .playlist || isSourceVisible($0.sourceCompositeKey) }
+    }
+
+    /// Whether the library shows a source (enabled, and not hidden by the profile or Focus), and the server names of `keys`.
+    private static func sourceScope(naming keys: Set<String>) async -> (isVisible: @Sendable (String?) -> Bool, names: [String: String]) {
+        await MainActor.run {
+            let container = AppRoot.container
+            let names = keys.reduce(into: [String: String]()) {
+                $0[$1] = container.accountManager.sourcePresentation(for: $1)?.serverName
+            }
+            return (
+                container.libraryVisibilityStore.playlistSourceVisibility(in: container.accountManager.sourceConfigurationSnapshot),
+                names
+            )
+        }
+    }
+
+    /// Items from the full store, for names the capped index does not hold; see `SiriPlaybackCoordinator.libraryCandidates`.
     @MainActor
-    private static func librarySearch(kind: SiriMediaKind?, matching query: String, limit: Int) async -> [SiriMediaIndexItem] {
+    private static func libraryCandidates(kind: SiriMediaKind?, matching query: String, limit: Int) async -> [SiriMediaIndexItem] {
         let container = AppRoot.container
         if container.accountManager.credentialLoadState != .loaded { await container.accountManager.loadAccountsAsync() }
-        return (try? await container.siriPlaybackCoordinator.searchLibrary(kind: kind, matching: query, limit: limit)) ?? []
+        return (try? await container.siriPlaybackCoordinator.libraryCandidates(kind: kind, matching: query, limit: limit)) ?? []
     }
 
     /// Index items for saved references the index no longer presents but the store still holds: a playlist hidden
@@ -185,7 +212,7 @@ extension IndexItemEntityQuery {
     func entities(for identifiers: [Entity.ID]) async throws -> [Entity] {
         let wanted = Set(identifiers)
         guard !wanted.isEmpty else { return [] }
-        let items = SiriIndexLookup.fetchItems(kind: Entity.indexKind)
+        let items = await SiriIndexLookup.visibleItems(kind: Entity.indexKind)
         // Saved identifiers resolve whichever row is shown, so only the server label is added here.
         var entities = SiriPlaylistRows.labeled(items, among: items).map(Entity.init(item:)).filter { wanted.contains($0.id) }
         // A playlist hidden since the shortcut was saved, or a song, album or artist the capped index never held, is
@@ -261,8 +288,8 @@ struct EnsembleMediaEntity: IndexItemEntity {
     }
 
     var displayRepresentation: DisplayRepresentation {
-        // A playlist's server name tells same-named playlists apart; other kinds show just their kind.
-        let subtitle = item.kind == .playlist && item.secondaryText != nil
+        // A server name tells same-named rows apart; otherwise just the kind shows.
+        let subtitle = item.secondaryText != nil
             ? "\(item.kind.displayName) · \(item.secondaryText ?? "")"
             : item.kind.displayName
         return DisplayRepresentation(title: "\(item.displayName)", subtitle: "\(subtitle)")

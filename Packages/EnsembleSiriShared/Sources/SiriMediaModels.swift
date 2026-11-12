@@ -144,6 +144,9 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
     public let artworkCacheType: SiriMediaArtworkCacheType?
     /// The friendly name of the item's server, for telling same-named playlists on several servers apart.
     public let sourceName: String?
+    /// An album's release year and album artist: with `displayName` they are the identity the library merges albums by.
+    public let year: Int?
+    public let albumArtist: String?
 
     public var reference: SystemMediaReference {
         SystemMediaReference(
@@ -186,7 +189,9 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
         artworkPath: String? = nil,
         artworkCacheKey: String? = nil,
         artworkCacheType: SiriMediaArtworkCacheType? = nil,
-        sourceName: String? = nil
+        sourceName: String? = nil,
+        year: Int? = nil,
+        albumArtist: String? = nil
     ) {
         self.kind = kind
         self.id = id
@@ -207,6 +212,8 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
         self.artworkCacheKey = artworkCacheKey
         self.artworkCacheType = artworkCacheType
         self.sourceName = sourceName
+        self.year = year
+        self.albumArtist = albumArtist
     }
 }
 
