@@ -679,14 +679,18 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         }
     }
 
-    /// An explicit artist hint is a constraint, and a normalized-exact title outranks a raw partial match.
-    func testNameResolutionEnforcesTheArtistHintAndPrefersNormalizedExactTitles() async throws {
+    /// An artist hint wins over the title ranking when it matches and is ignored when it matches nothing; a normalized-exact title outranks a raw partial match.
+    func testNameResolutionPrefersTheArtistHintAndPrefersNormalizedExactTitles() async throws {
         let fixture = try await makeFixture()
+        try await upsert(fixture.libraryRepository, "song-exact", "Song", artist: "Band", album: "A", source: fixture.librarySourceKey)
+        try await upsert(fixture.libraryRepository, "song-extended", "Song Extended", artist: "Fan", album: "B", source: fixture.librarySourceKey)
         try await upsert(fixture.libraryRepository, "kim-live", "Kim and Jessie Live", artist: "Band", album: "Live", source: fixture.librarySourceKey)
 
         let cases: [(title: String, hint: String?, expected: String?)] = [
             ("Other One", "Other Artist", "other-1"),
-            ("Other One", "Nobody", nil),
+            ("Other One", "Nobody", "other-1"),                   // the hint matches nothing: the title decides
+            ("Song", "Fan", "song-extended"),                     // the hint wins over a better-ranked title
+            ("Song", "Nobody", "song-exact"),                    // ...and is ignored when it matches nothing
             ("Kim and Jessie", nil, "track-amp")
         ]
         for testCase in cases {

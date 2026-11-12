@@ -770,3 +770,12 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Impact: a saved Play Song/Album/Artist shortcut shows as missing until re-picked.
 - Next step: in `entities(for:)`, when a saved reference is not visible, look up its merge identity
   (`SiriMediaRows.mergeIdentity`) among the visible rows and return that row, keeping the saved id as an alias.
+
+## Shortcuts picker misses off-index albums and artists whose names differ only by apostrophes (confirmed by reading)
+- Evidence: `LibraryRepository+Search.swift` `boundedNameSearch` matches the normalized words with `CONTAINS`, which handles
+  "&", "and" and punctuation ("AC/DC", "Earth, Wind & Fire") but not apostrophes: "dont believe the truth" does not contain
+  "Don't Believe the Truth". Songs are covered by the bounded normalized scan in `SiriPlaybackCoordinator.libraryCandidates`;
+  there is no scan for albums or artists.
+- Impact: typing such a name in a Play Album or Play Artist picker finds nothing when the item is outside the capped index.
+- Next step: add `mapAlbums` / `mapArtists` batched, cancellable scans beside `mapTracks` (with defaults for test doubles) and
+  score titles in `libraryCandidates` as for songs, keeping the best `limit × 10`.

@@ -526,8 +526,8 @@ public final class SiriPlaybackCoordinator {
             id: { "\($0.sourceCompositeKey ?? "")||\($0.ratingKey)" }
         )
 
-        // An artist hint is a constraint: a song by another artist is not the one asked for.
-        let prioritized = constrainedToArtist(candidates, hint: request.artistHint, artists: { [$0.artistName] })
+        // An artist hint prefers that artist's songs.
+        let prioritized = preferringArtist(candidates, hint: request.artistHint, artists: { [$0.artistName] })
 
         if let resolved = choosePreferredCandidate(
             from: prioritized,
@@ -559,7 +559,7 @@ public final class SiriPlaybackCoordinator {
             )
         }
         try Task.checkCancellation()
-        let fuzzy = constrainedToArtist(
+        let fuzzy = preferringArtist(
             fuzzyCandidates(
                 from: stubs,
                 request: request,
@@ -591,16 +591,18 @@ public final class SiriPlaybackCoordinator {
         let playCount: Int
     }
 
-    /// Only the candidates by the artist hint, when there is one.
-    private func constrainedToArtist<T>(_ items: [T], hint: String?, artists: (T) -> [String?]) -> [T] {
+    /// The candidates by the artist hint when any are, otherwise all of them: Siri's hint is often noisy, so it wins
+    /// over the title ranking when it matches and is ignored when it does not.
+    private func preferringArtist<T>(_ items: [T], hint: String?, artists: (T) -> [String?]) -> [T] {
         guard let hint, !hint.isEmpty else { return items }
         let normalizedHint = hint.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        return items.filter { item in
+        let matching = items.filter { item in
             artists(item).contains { name in
                 guard let name = name?.lowercased(), !name.isEmpty else { return false }
                 return name.contains(normalizedHint) || normalizedHint.contains(name)
             }
         }
+        return matching.isEmpty ? items : matching
     }
 
     /// The words of a spoken name as the Siri index normalizes them. "&" reads as "and" but is not in the stored name,
@@ -639,7 +641,7 @@ public final class SiriPlaybackCoordinator {
             return nil
         }
 
-        let candidates = constrainedToArtist(
+        let candidates = preferringArtist(
             Self.uniqueRows(
                 try await libraryRepository.findAlbumsByTitle(displayName, sourceCompositeKeys: enabledSourceKeys)
                     + libraryRepository.findAlbumsByTitle(
@@ -664,7 +666,7 @@ public final class SiriPlaybackCoordinator {
         }
 
         let fuzzyPool = try await libraryRepository.fetchAlbums()
-        let fuzzyMatches = constrainedToArtist(fuzzyCandidates(
+        let fuzzyMatches = preferringArtist(fuzzyCandidates(
             from: fuzzyPool,
             request: request,
             allowedSourceKeys: enabledSourceKeys,
