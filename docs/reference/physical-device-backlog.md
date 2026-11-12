@@ -872,3 +872,12 @@ Typed Siri, each ending "in Ensemble": playlist (cold and warm), album, artist a
 `INPlayMediaIntent`; no `SIRI_AI` line in the build's logs. Siri's reply text was not captured, and the playlist check
 did not confirm the song was the playlist's first. The artist request needed a pick between two identical rows (see
 `ON_DECK.md`). Still owed: the Shortcut duplicate-add rows listed above.
+
+## Disabled-library cleanup skip (iPhone SE, 2026-11-12, build `202611121306.9716`)
+
+One cold launch: three `Skipped cleanup for empty removed source` lines and no `Cleaning up data for removed source`
+line, so the skip works. The time saved is small: the three requests were logged at 13:08:19.10 and the last skip at
+13:08:20.63, about 1.5 s of wall time against 1.7–1.9 s before, while Siri index rebuilds and offline reconciliation
+ran alongside. Whether the probes are slow themselves or only waiting their turn is not known from these lines. Still
+owed: disabling an enabled library on the phone still cleans its data; disabling one on another device still cleans it
+here after iCloud sync.

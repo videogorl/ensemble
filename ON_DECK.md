@@ -892,6 +892,10 @@ Request → `playing`, from session logs (app state, not audible output):
   and nothing stored (library rows, source row, hub items, downloads, targets, pending mutations, artwork files,
   lyrics cache, library cursor); any failed check or Apple Music source still runs the full cleanup. Remove this entry
   once the phone check passes.
+- **Phone result (SE, build `202611121306.9716`):** the three skips log and no cleanup runs, but the probes still span
+  about 1.5 s of wall time during launch (was 1.7–1.9 s), so the saving is small. Next step if it matters: time each
+  probe step (artwork and lyrics directory listings, the mutation fetch that materialises every record) and see
+  whether it is its own cost or contention with the Siri index rebuilds that run at the same moment.
 - **Accepted omissions:** the skip probe does not check the global orphan-audio sweep or empty home-feed snapshot pruning;
   other paths still run them.
 - **Resolved:** `.sourceCleanedUp` only triggers reloads in the Library, Search, Home and Playlist view models; the Siri
