@@ -151,12 +151,17 @@ extension AudioSchemaEntityQuery {
         let missing = wanted.subtracting(items.map { Entity.init(item: $0).id }).compactMap(Entity.storedReference(in:))
         if !missing.isEmpty { items += await SiriIndexLookup.storedItems(forReferences: missing) }
         // Presented after the check, so a merged playlist stands for a copy that is still shown.
-        return await SiriIndexLookup.presenting(await currentlyVisible(items)).map(Entity.init(item:))
+        let results = await SiriIndexLookup.presenting(await currentlyVisible(items)).map(Entity.init(item:))
+        AppLogger.info("SIRI_AI: entities for ids kind=\(Entity.indexKind?.rawValue ?? "any") asked=\(wanted.count) found=\(items.count) visible=\(results.count)")
+        return results
     }
 
     func entities(matching string: String) async throws -> [Entity] {
         guard await restoreFocusFilter() else { return [] }
-        return await current(await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: string))
+        let items = await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: string)
+        let results = await current(items)
+        AppLogger.info("SIRI_AI: entities matching kind=\(Entity.indexKind?.rawValue ?? "any") query='\(string)' found=\(items.count) visible=\(results.count)")
+        return results
     }
 
     func suggestedEntities() async throws -> [Entity] {
@@ -166,23 +171,31 @@ extension AudioSchemaEntityQuery {
 
     /// What Siri's audio search finds, with the existing matcher.
     func audioSearchResults(_ search: AudioSearch) async -> [Entity] {
-        guard await restoreFocusFilter() else { return [] }
+        let kind = Entity.indexKind?.rawValue ?? "any"
+        guard await restoreFocusFilter() else {
+            AppLogger.info("SIRI_AI: audio search kind=\(kind) refused: Focus filter not restored")
+            return []
+        }
         let items: [SiriMediaIndexItem]
+        let criteria: String
         switch search.criteria {
         case let .searchQuery(query):
+            criteria = "query='\(query)'"
             items = await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: query)
         case .unspecified:
+            criteria = "unspecified"
             items = await SiriIndexLookup.recentItems(kind: Entity.indexKind)
         case .url:
             // Siri-supplied URLs are not Ensemble links; nothing to resolve.
+            criteria = "url"
             items = []
         @unknown default:
+            criteria = "unknown"
             items = []
         }
         let results = await current(items)
-        AppIntentsLog.logger.info(
-            "SIRI_AI: audio search kind=\(Entity.indexKind?.rawValue ?? "any", privacy: .public) results=\(results.count, privacy: .public)"
-        )
+        // In the session log (it already names tracks), so a phone run shows what Siri asked and what it was given.
+        AppLogger.info("SIRI_AI: audio search kind=\(kind) \(criteria) found=\(items.count) visible=\(results.count)")
         return results
     }
 }
@@ -253,8 +266,8 @@ struct PlayAudioInEnsembleIntent: AudioPlaybackIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let item = audioEntity.item
-        AppIntentsLog.logger.info(
-            "SIRI_AI: play-audio kind=\(item.kind.rawValue, privacy: .public) shuffle=\(playbackAttributes.contains(.shuffle), privacy: .public) queue=\(queueLocation?.rawValue ?? "none", privacy: .public)"
+        AppLogger.info(
+            "SIRI_AI: play-audio kind=\(item.kind.rawValue) name='\(item.displayName)' shuffle=\(playbackAttributes.contains(.shuffle)) queue=\(queueLocation?.rawValue ?? "none")"
         )
         let media = EnsembleMediaEntity(item: item)
         let dialog: IntentDialog
@@ -264,7 +277,7 @@ struct PlayAudioInEnsembleIntent: AudioPlaybackIntent {
             dialog = try await media.play(shuffle: playbackAttributes.contains(.shuffle))
             if playbackAttributes.contains(.repeat) { _ = await setRepeat(.all) }
         }
-        AppIntentsLog.logger.info("SIRI_AI: play-audio done")
+        AppLogger.info("SIRI_AI: play-audio done")
         return .result(dialog: dialog)
     }
 }
@@ -278,9 +291,7 @@ struct AddAudioToEnsemblePlaylistIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let item = audioEntity.item
-        AppIntentsLog.logger.info(
-            "SIRI_AI: add-to-playlist kind=\(item.kind.rawValue, privacy: .public) playlist='\(playlist.item.displayName, privacy: .private)'"
-        )
+        AppLogger.info("SIRI_AI: add-to-playlist kind=\(item.kind.rawValue) playlist='\(playlist.item.displayName)'")
         let coordinator = try await readyContainer().siriPlaybackCoordinator
         let tracks = try await reportingFailures {
             try await coordinator.resolveTracks(
@@ -289,7 +300,7 @@ struct AddAudioToEnsemblePlaylistIntent: AppIntent {
             )
         }
         let dialog = try await add(tracks, to: playlist.item)
-        AppIntentsLog.logger.info("SIRI_AI: add-to-playlist done")
+        AppLogger.info("SIRI_AI: add-to-playlist done")
         return .result(dialog: dialog)
     }
 }
@@ -299,7 +310,7 @@ struct AddAudioToEnsemblePlaylistIntent: AppIntent {
 struct CreateEnsembleStationIntent: AudioPlaybackIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        AppIntentsLog.logger.info("SIRI_AI: create-station")
+        AppLogger.info("SIRI_AI: create-station")
         return .result(dialog: try await startRadio(from: nil))
     }
 }
