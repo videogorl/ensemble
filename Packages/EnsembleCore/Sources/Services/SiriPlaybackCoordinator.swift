@@ -201,6 +201,81 @@ public final class SiriPlaybackCoordinator {
         try await resolveMedia(kind: kind, request: request).tracks
     }
 
+    /// Songs, then albums, then artists (or only `kind`) in enabled, unhidden sources whose names match `query`, found
+    /// in the full store. The Siri index holds a capped slice of each kind, so a Shortcuts picker falls back to this
+    /// when the index has no match. Bounded: a query under two characters finds nothing, songs the title lookup
+    /// misses are scored in paged batches, and at most `limit` items return. Playlists are not capped, so none return.
+    public func searchLibrary(kind: SiriMediaKind?, matching query: String, limit: Int) async throws -> [SiriMediaIndexItem] {
+        let enabledSourceKeys = enabledLibrarySourceKeys()
+        guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2, limit > 0,
+              !enabledSourceKeys.isEmpty else { return [] }
+        let hidden = hiddenMediaStore.snapshot
+        let kinds: [SiriMediaKind] = [.track, .album, .artist].filter { kind == nil || kind == $0 }
+        var results: [SiriMediaIndexItem] = []
+        for current in kinds where results.count < limit {
+            var candidates: [SiriMediaIndexItem]
+            switch current {
+            case .track:
+                candidates = try await libraryRepository.findTracksByTitle(query, sourceCompositeKeys: enabledSourceKeys)
+                    .filter { !hidden.isHidden(Track(from: $0)) }
+                    .map(SiriMediaIndexStore.indexItem(for:))
+            case .album:
+                candidates = try await libraryRepository.findAlbumsByTitle(query, sourceCompositeKeys: enabledSourceKeys)
+                    .filter { !hidden.isHidden(Album(from: $0)) }
+                    .map(SiriMediaIndexStore.indexItem(for:))
+            case .artist:
+                candidates = try await libraryRepository.findArtistsByName(query, sourceCompositeKeys: enabledSourceKeys)
+                    .filter { !hidden.isHidden(Artist(from: $0)) }
+                    .map(SiriMediaIndexStore.indexItem(for:))
+            case .playlist:
+                continue
+            }
+            var ranked = Self.rank(candidates, kind: current, query: query)
+            if ranked.isEmpty, current == .track {
+                // The title lookup compares raw text, so punctuation ("Kim & Jessie") can miss it.
+                let variants = SiriPhraseNormalizer.queryVariants(for: query)
+                candidates = try await libraryRepository.mapTracks(forSources: enabledSourceKeys, batchSize: 500) { track in
+                    guard SiriMatchScorer.scoreMatch(queries: variants, candidate: SiriPhraseNormalizer.basic(track.title)) >= 0.66,
+                          !hidden.isHidden(Track(from: track)) else { return nil }
+                    return SiriMediaIndexStore.indexItem(for: track)
+                }
+                ranked = Self.rank(candidates, kind: current, query: query)
+            }
+            try Task.checkCancellation()
+            results += ranked.prefix(limit - results.count)
+        }
+        return results
+    }
+
+    /// The index item for a saved song, album or artist reference the capped index no longer holds. Nil when the
+    /// item is gone, hidden, or in a source that is not enabled.
+    public func storedItem(kind: SiriMediaKind, id: String, sourceCompositeKey: String?) async throws -> SiriMediaIndexItem? {
+        guard let sourceCompositeKey, enabledLibrarySourceKeys().contains(sourceCompositeKey) else { return nil }
+        let hidden = hiddenMediaStore.snapshot
+        switch kind {
+        case .track:
+            return try await libraryRepository.fetchTrack(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
+                .flatMap { hidden.isHidden(Track(from: $0)) ? nil : SiriMediaIndexStore.indexItem(for: $0) }
+        case .album:
+            return try await libraryRepository.fetchAlbum(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
+                .flatMap { hidden.isHidden(Album(from: $0)) ? nil : SiriMediaIndexStore.indexItem(for: $0) }
+        case .artist:
+            return try await libraryRepository.fetchArtist(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
+                .flatMap { hidden.isHidden(Artist(from: $0)) ? nil : SiriMediaIndexStore.indexItem(for: $0) }
+        case .playlist:
+            return nil
+        }
+    }
+
+    private static func rank(_ items: [SiriMediaIndexItem], kind: SiriMediaKind, query: String) -> [SiriMediaIndexItem] {
+        SiriMediaIndexResolver.rankCandidates(
+            for: query,
+            requestedKinds: [kind],
+            index: SiriMediaIndex(items: items),
+            minimumScore: SiriMediaIndexResolver.defaultMinimumMatchScore
+        ).map(\.item)
+    }
+
     /// Plays a track with Autoplay on, which is how the app starts a track radio.
     public func startTrackRadio(request: SiriPlaybackRequest) async throws {
         let media = try await resolveMedia(kind: .track, request: request)

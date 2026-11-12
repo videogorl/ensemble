@@ -3,6 +3,7 @@ import XCTest
 @testable import EnsembleCore
 import EnsembleAPI
 import EnsemblePersistence
+import EnsembleSiriShared
 
 @MainActor
 final class SiriPlaybackCoordinatorTests: XCTestCase {
@@ -523,6 +524,38 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         XCTAssertNil(fixture.playbackService.lastPlayedTrack)
     }
 
+    /// The Shortcuts picker falls back to this when the capped Siri index has no match: songs, then albums, then
+    /// artists, never hidden items or items of sources that are not enabled, and never more than the limit.
+    func testSearchLibraryFindsNamesOutsideTheIndexWithinVisibilityAndLimit() async throws {
+        let hidden = HiddenMediaStore(defaults: UserDefaults(suiteName: "siri-search-\(UUID().uuidString)")!)
+        hidden.setHidden(true, identity: .init(kind: .track, itemID: "track-2", sourceCompositeKey: "plex:account-1:server-1:library-1"))
+        let fixture = try await makeFixture(hiddenMediaStore: hidden)
+
+        let cases: [(kind: SiriMediaKind?, query: String, limit: Int, expected: [String])] = [
+            (.track, "Track One", 10, ["track-1"]),
+            (.track, "Track Two", 10, []),                       // hidden
+            (.track, "Ghost Track", 10, []),                     // source not enabled
+            (.track, "kim and jessie", 10, ["track-amp"]),       // punctuation the title lookup misses
+            (.album, "Album One", 10, ["album-1"]),
+            (.artist, "Artist One", 10, ["artist-1"]),
+            (nil, "One", 10, ["other-1", "track-1", "album-1", "artist-1"]),
+            (nil, "One", 2, ["other-1", "track-1"]),
+            (nil, "O", 10, []),                                  // too short to search the store
+            (.playlist, "Playlist One", 10, [])                  // playlists are not capped
+        ]
+        for testCase in cases {
+            let items = try await fixture.coordinator.searchLibrary(kind: testCase.kind, matching: testCase.query, limit: testCase.limit)
+            XCTAssertEqual(items.map(\.id), testCase.expected, "\(testCase.kind?.rawValue ?? "any") '\(testCase.query)'")
+        }
+
+        let stored = try await fixture.coordinator.storedItem(kind: .track, id: "track-1", sourceCompositeKey: fixture.librarySourceKey)
+        XCTAssertEqual(stored?.displayName, "Track One")
+        let hiddenStored = try await fixture.coordinator.storedItem(kind: .track, id: "track-2", sourceCompositeKey: fixture.librarySourceKey)
+        XCTAssertNil(hiddenStored)
+        let disabledStored = try await fixture.coordinator.storedItem(kind: .track, id: "ghost-1", sourceCompositeKey: "plex:account-1:server-3:library-3")
+        XCTAssertNil(disabledStored)
+    }
+
     private func makeFixture(
         mergingPreferences: EnsembleMergingPreferences = .default,
         hiddenMediaStore: HiddenMediaStore? = nil
@@ -643,6 +676,14 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             rating: nil,
             playCount: 0,
             sourceCompositeKey: librarySourceKey
+        )
+
+        // A track in a source no account has enabled.
+        _ = try await libraryRepository.upsertTrack(
+            ratingKey: "ghost-1", key: "/library/metadata/ghost-1", title: "Ghost Track", artistName: nil,
+            albumName: nil, albumRatingKey: nil, trackNumber: 1, discNumber: 1, duration: 180_000, thumbPath: nil,
+            streamKey: "/library/parts/ghost-1.mp3", dateAdded: nil, dateModified: nil, lastPlayed: nil, rating: nil,
+            playCount: 0, sourceCompositeKey: "plex:\(accountID):server-3:library-3"
         )
 
         _ = try await playlistRepository.upsertPlaylist(

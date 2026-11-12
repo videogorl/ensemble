@@ -138,71 +138,9 @@ public final class SiriMediaIndexStore {
             var items: [SiriMediaIndexItem] = []
             items.reserveCapacity(artists.count + albums.count + tracks.count + playlists.count)
 
-            for artist in artists {
-                let artwork = Self.artistArtworkDescriptor(for: artist)
-                items.append(
-                    SiriMediaIndexItem(
-                        kind: .artist,
-                        id: artist.ratingKey,
-                        displayName: artist.name,
-                        sourceCompositeKey: artist.sourceCompositeKey,
-                        secondaryText: nil,
-                        lastPlayed: nil,
-                        playCount: nil,
-                        trackCount: nil,
-                        artistName: artist.name,
-                        artworkPath: artwork.path,
-                        artworkCacheKey: artwork.cacheKey,
-                        artworkCacheType: artwork.cacheType
-                    )
-                )
-            }
-
-            for album in albums {
-                items.append(
-                    SiriMediaIndexItem(
-                        kind: .album,
-                        id: album.ratingKey,
-                        displayName: album.title,
-                        sourceCompositeKey: album.sourceCompositeKey,
-                        secondaryText: album.artistName,
-                        lastPlayed: nil,
-                        playCount: nil,
-                        trackCount: Int(album.trackCount),
-                        albumTitle: album.title,
-                        artistName: album.artistName ?? album.albumArtist,
-                        genre: album.genreNames,
-                        artworkPath: album.thumbPath,
-                        artworkCacheKey: album.ratingKey,
-                        artworkCacheType: .album
-                    )
-                )
-            }
-
-            for track in tracks {
-                let artwork = Self.trackArtworkDescriptor(for: track)
-                items.append(
-                    SiriMediaIndexItem(
-                        kind: .track,
-                        id: track.ratingKey,
-                        displayName: track.title,
-                        sourceCompositeKey: track.sourceCompositeKey,
-                        secondaryText: track.artistName ?? track.albumName,
-                        lastPlayed: track.lastPlayed,
-                        playCount: Int(track.playCount),
-                        trackCount: nil,
-                        albumTitle: track.albumName,
-                        artistName: track.artistName,
-                        genre: track.genreNames,
-                        duration: track.durationSeconds,
-                        trackNumber: Int(track.trackNumber),
-                        discNumber: Int(track.discNumber),
-                        artworkPath: artwork.path,
-                        artworkCacheKey: artwork.cacheKey,
-                        artworkCacheType: artwork.cacheType
-                    )
-                )
-            }
+            items += artists.map(Self.indexItem(for:))
+            items += albums.map(Self.indexItem(for:))
+            items += tracks.map(Self.indexItem(for:))
 
             let sourceNames = Self.playlistSourceNames(for: playlists, presentation: { sourcePresentationProvider?($0) })
             for playlist in playlists {
@@ -311,13 +249,73 @@ public final class SiriMediaIndexStore {
             .appendingPathComponent(filename)
     }
 
-    private struct ArtworkDescriptor {
+    nonisolated static func indexItem(for artist: CDArtist) -> SiriMediaIndexItem {
+        let artwork = artistArtworkDescriptor(for: artist)
+        return SiriMediaIndexItem(
+            kind: .artist,
+            id: artist.ratingKey,
+            displayName: artist.name,
+            sourceCompositeKey: artist.sourceCompositeKey,
+            secondaryText: nil,
+            lastPlayed: nil,
+            playCount: nil,
+            trackCount: nil,
+            artistName: artist.name,
+            artworkPath: artwork.path,
+            artworkCacheKey: artwork.cacheKey,
+            artworkCacheType: artwork.cacheType
+        )
+    }
+
+    nonisolated static func indexItem(for album: CDAlbum) -> SiriMediaIndexItem {
+        SiriMediaIndexItem(
+            kind: .album,
+            id: album.ratingKey,
+            displayName: album.title,
+            sourceCompositeKey: album.sourceCompositeKey,
+            secondaryText: album.artistName,
+            lastPlayed: nil,
+            playCount: nil,
+            trackCount: Int(album.trackCount),
+            albumTitle: album.title,
+            artistName: album.artistName ?? album.albumArtist,
+            genre: album.genreNames,
+            artworkPath: album.thumbPath,
+            artworkCacheKey: album.ratingKey,
+            artworkCacheType: .album
+        )
+    }
+
+    nonisolated static func indexItem(for track: CDTrack) -> SiriMediaIndexItem {
+        let artwork = trackArtworkDescriptor(for: track)
+        return SiriMediaIndexItem(
+            kind: .track,
+            id: track.ratingKey,
+            displayName: track.title,
+            sourceCompositeKey: track.sourceCompositeKey,
+            secondaryText: track.artistName ?? track.albumName,
+            lastPlayed: track.lastPlayed,
+            playCount: Int(track.playCount),
+            trackCount: nil,
+            albumTitle: track.albumName,
+            artistName: track.artistName,
+            genre: track.genreNames,
+            duration: track.durationSeconds,
+            trackNumber: Int(track.trackNumber),
+            discNumber: Int(track.discNumber),
+            artworkPath: artwork.path,
+            artworkCacheKey: artwork.cacheKey,
+            artworkCacheType: artwork.cacheType
+        )
+    }
+
+    private nonisolated struct ArtworkDescriptor {
         let path: String?
         let cacheKey: String?
         let cacheType: SiriMediaArtworkCacheType?
     }
 
-    private static func artistArtworkDescriptor(for artist: CDArtist) -> ArtworkDescriptor {
+    private nonisolated static func artistArtworkDescriptor(for artist: CDArtist) -> ArtworkDescriptor {
         if let thumbPath = artist.thumbPath, !thumbPath.isEmpty {
             return ArtworkDescriptor(path: thumbPath, cacheKey: artist.ratingKey, cacheType: .artist)
         }
@@ -325,7 +323,7 @@ public final class SiriMediaIndexStore {
         return ArtworkDescriptor(path: nil, cacheKey: nil, cacheType: nil)
     }
 
-    private static func trackArtworkDescriptor(for track: CDTrack) -> ArtworkDescriptor {
+    private nonisolated static func trackArtworkDescriptor(for track: CDTrack) -> ArtworkDescriptor {
         let path = track.thumbPath ?? track.album?.thumbPath
         let cacheKey = track.album?.ratingKey
             ?? ratingKey(fromArtworkPath: track.thumbPath)
@@ -339,7 +337,7 @@ public final class SiriMediaIndexStore {
     }
 
     /// Extract ratingKey from artwork paths like `/library/metadata/{ratingKey}/thumb/...`.
-    private static func ratingKey(fromArtworkPath path: String?) -> String? {
+    private nonisolated static func ratingKey(fromArtworkPath path: String?) -> String? {
         guard let path else { return nil }
         let components = path.split(separator: "/")
         guard components.count >= 3,

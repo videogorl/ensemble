@@ -634,17 +634,6 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Next step: record a Time Profiler cold launch on the phone with a Release build, and decide which launch
   work a background intent launch can skip or defer. Also make cold intent launches write a session log.
 
-## Confirmed: Shortcuts entity search only sees the capped Siri index (2026-11-11)
-
-- Evidence: `IndexItemEntityQuery.entities(matching:)` ranks only `SiriMediaIndex` items
-  (`MediaEntities.swift` `SiriIndexLookup.findItems`), and `SiriMediaIndexStore.swift:120-135` caps the index at
-  1500 / 1500 / 1000 / 500 items per kind. Voice Play falls back to the app's full-store title search
-  (`SiriPlaybackCoordinator.resolveTrack`, paged `mapTracks`); the Shortcuts picker has no such fallback.
-- Impact: a song outside the 1500 indexed cannot be found by typing its name in a Shortcuts parameter.
-- Next step: when the index has no match at or above the minimum score, run the coordinator's bounded paged title
-  search for songs (then albums and artists if they hit the same cap) and map the hits to `SiriMediaIndexItem`s;
-  one test over the mapping. Not small: it needs repository access from the entity query.
-
 ## Suspected: Siri played `kind=album entity=26197` for a request that was not an album (2026-11-11)
 
 - Evidence: iPhone 16 Pro run, `$TMPDIR/ensemble-16pro/report-3.md` check 5 and `logs3` (temporary files).
