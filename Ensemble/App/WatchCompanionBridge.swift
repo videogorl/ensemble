@@ -76,6 +76,9 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
         playbackService.currentTimePublisher
             .throttle(for: .seconds(1), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
+                // Position-only ticks matter just while the watch app is on screen; any other
+                // change publishes separately and reachability changes refresh the position.
+                guard WCSession.default.isReachable else { return }
                 self?.publishSnapshot(includeArtwork: false)
             }
             .store(in: &cancellables)

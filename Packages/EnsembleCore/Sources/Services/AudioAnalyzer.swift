@@ -222,8 +222,28 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     // MARK: - Internal State
 
-    /// Cached timelines keyed by trackId (max 3: current + 2 prefetched)
+    /// Cached timelines keyed by trackId, bounded to `maxCachedTimelines` (oldest evicted first,
+    /// never the active track).
     private var timelines: [String: FrequencyTimeline] = [:]
+    private var timelineInsertionOrder: [String] = []
+    static let maxCachedTimelines = 8
+
+    /// Analysis requests that arrived while nothing could show the result (app in the
+    /// background, no visible visualization surface). Replayed when demand returns; only
+    /// the newest `maxDeferredLoads` are kept (the current track plus the two upcoming ones
+    /// `isTrackRelevant` admits, so an admitted request is never trimmed).
+    private struct DeferredLoad {
+        let trackId: String
+        let fileURL: URL
+        let priority: TaskPriority
+        let throttled: Bool
+    }
+    private var deferredLoads: [DeferredLoad] = []
+    /// Whether a track is still the current or an upcoming one. Requests for any other track
+    /// (a prefetch callback that outlived rapid skips) are dropped. Nil accepts everything.
+    public var isTrackRelevant: (@MainActor (String) -> Bool)?
+    private var replayTask: Task<Void, Never>?
+    static let maxDeferredLoads = 3
 
     /// Which timeline is currently being displayed
     private var activeTrackId: String?
@@ -268,6 +288,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     deinit {
         displayTimer?.invalidate()
+        replayTask?.cancel()
         for task in analysisTasks.values { task.cancel() }
     }
 
@@ -282,6 +303,11 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             return
         }
 
+        if let isTrackRelevant, !isTrackRelevant(trackId) {
+            logger.debug("loadTimeline skipped: track is no longer current or upcoming")
+            return
+        }
+
         // Only analyze local files (not remote stream URLs)
         guard fileURL.isFileURL else {
             logger.debug("loadTimeline skipped: not a file URL")
@@ -293,12 +319,20 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         if FileManager.default.fileExists(atPath: sidecarURL.path) {
             do {
                 let timeline = try FrequencyTimelinePersistence.load(from: sidecarURL)
-                timelines[trackId] = timeline
+                storeTimeline(timeline, for: trackId)
                 logger.debug("Loaded sidecar timeline frames=\(timeline.snapshots.count)")
                 return
             } catch {
                 logger.debug("Failed to load sidecar for \(trackId), will re-analyze: \(error)")
             }
+        }
+
+        // The timeline only feeds the visualizer. Don't spend CPU on a surface nobody can
+        // see; remember the request and run it when a surface appears or the app foregrounds.
+        guard isAnalysisDemanded else {
+            deferLoad(DeferredLoad(trackId: trackId, fileURL: fileURL, priority: priority, throttled: throttled))
+            logger.debug("loadTimeline deferred: no visible visualization surface")
+            return
         }
 
         // Serialize analysis: only one analysis at a time to avoid CPU contention
@@ -311,7 +345,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             }
             analysisTasks.removeAll()
         } else if !analysisTasks.isEmpty {
-            logger.debug("Skipping prefetch analysis for \(trackId): another analysis is running")
+            // Run it when the current analysis finishes rather than losing it: a current-track
+            // request (instrumental mode runs it at .background) must still get its timeline.
+            deferLoad(DeferredLoad(trackId: trackId, fileURL: fileURL, priority: priority, throttled: throttled))
+            logger.debug("loadTimeline queued behind a running analysis")
             return
         }
 
@@ -332,18 +369,18 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 // Progressive update: publish partial timeline to main actor
                 Task { @MainActor [service] in
                     guard !Task.isCancelled else { return }
-                    service.timelines[trackId] = FrequencyTimeline(
+                    service.storeTimeline(FrequencyTimeline(
                         snapshots: partialSnapshots,
                         framesPerSecond: fps,
                         duration: totalDur,
                         analyzedDuration: analyzedDur
-                    )
+                    ), for: trackId)
                 }
             }
             guard !Task.isCancelled else { return }
 
             if let timeline {
-                service.timelines[trackId] = timeline
+                service.storeTimeline(timeline, for: trackId)
 
                 // Save sidecar for downloaded files (not temp/cache files)
                 // Downloaded files live in the app's Documents/Downloads directory
@@ -359,6 +396,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             }
 
             service.analysisTasks.removeValue(forKey: trackId)
+            service.runDeferredLoads()
         }
         analysisTasks[trackId] = analysisTask
         // Only await if this task hasn't been replaced by a higher-priority one.
@@ -368,6 +406,63 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         } onCancel: {
             analysisTask.cancel()
         }
+    }
+
+    private func storeTimeline(_ timeline: FrequencyTimeline, for trackId: String) {
+        if timelines.updateValue(timeline, forKey: trackId) == nil {
+            timelineInsertionOrder.append(trackId)
+        }
+        while timelines.count > Self.maxCachedTimelines,
+              let index = timelineInsertionOrder.firstIndex(where: { $0 != activeTrackId }) {
+            timelines.removeValue(forKey: timelineInsertionOrder.remove(at: index))
+        }
+    }
+
+    // MARK: - Demand
+
+    /// Analysis is worth running only while a visualization surface can show it.
+    private var isAnalysisDemanded: Bool {
+        visualizationEnabled && !isBackgrounded && !visibleVisualizationConsumers.isEmpty
+    }
+
+    /// Keeps the newest `maxDeferredLoads` relevant requests, never trimming the active track's.
+    private func deferLoad(_ load: DeferredLoad) {
+        deferredLoads.removeAll { $0.trackId == load.trackId }
+        deferredLoads.append(load)
+        dropIrrelevantDeferredLoads()
+        while deferredLoads.count > Self.maxDeferredLoads,
+              let index = deferredLoads.firstIndex(where: { $0.trackId != activeTrackId }) {
+            deferredLoads.remove(at: index)
+        }
+    }
+
+    private func dropIrrelevantDeferredLoads() {
+        guard let isTrackRelevant else { return }
+        deferredLoads.removeAll { !isTrackRelevant($0.trackId) }
+    }
+
+    /// Replays deferred requests one at a time once demand returns. Single-flight, so two
+    /// replays never race (a lower-priority load would be skipped while another runs).
+    private func runDeferredLoads() {
+        guard replayTask == nil, isAnalysisDemanded, !deferredLoads.isEmpty else { return }
+        replayTask = Task { [weak self] in
+            while !Task.isCancelled, let self, self.isAnalysisDemanded, self.analysisTasks.isEmpty, let load = self.takeNextDeferredLoad() {
+                await self.loadTimeline(for: load.trackId, fileURL: load.fileURL, priority: load.priority, throttled: load.throttled)
+            }
+            if !Task.isCancelled { self?.replayTask = nil }
+        }
+    }
+
+    /// Current track first, then highest priority, then oldest: a later userInitiated load
+    /// would cancel an earlier lower-priority one.
+    private func takeNextDeferredLoad() -> DeferredLoad? {
+        dropIrrelevantDeferredLoads()
+        let best = deferredLoads.indices.min { lhs, rhs in
+            let (a, b) = (deferredLoads[lhs], deferredLoads[rhs])
+            if (a.trackId == activeTrackId) != (b.trackId == activeTrackId) { return a.trackId == activeTrackId }
+            return a.priority != b.priority ? a.priority > b.priority : lhs < rhs
+        }
+        return best.map { deferredLoads.remove(at: $0) }
     }
 
     // MARK: - Timeline Activation
@@ -396,6 +491,8 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     public func evictTimeline(for trackId: String) {
         timelines.removeValue(forKey: trackId)
+        timelineInsertionOrder.removeAll { $0 == trackId }
+        deferredLoads.removeAll { $0.trackId == trackId }
         analysisTasks[trackId]?.cancel()
         analysisTasks.removeValue(forKey: trackId)
 
@@ -421,6 +518,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         activeTrackId = nil
         isPaused = false
         timelines.removeAll()
+        timelineInsertionOrder.removeAll()
+        deferredLoads.removeAll()
+        replayTask?.cancel()
+        replayTask = nil
         for task in analysisTasks.values { task.cancel() }
         analysisTasks.removeAll()
         publishFrequencyBands(Array(repeating: 0.0, count: bandCount), force: true)
@@ -487,6 +588,8 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     }
 
     private func updateDisplayTimerState(trigger: String) {
+        runDeferredLoads()
+
         guard visualizationEnabled else {
             stopDisplayTimer(reason: "\(trigger):visualizationDisabled")
             return
@@ -584,6 +687,12 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     internal var visibleVisualizationConsumersForTesting: Set<VisualizationConsumer> {
         visibleVisualizationConsumers
     }
+
+    internal var cachedTimelineCountForTesting: Int { timelines.count }
+
+    internal var deferredLoadCountForTesting: Int { deferredLoads.count }
+
+    internal func hasTimelineForTesting(_ trackId: String) -> Bool { timelines[trackId] != nil }
 
     internal var isDisplayTimerRunningForTesting: Bool {
         displayTimer != nil
