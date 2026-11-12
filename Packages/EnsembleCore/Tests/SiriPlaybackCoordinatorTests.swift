@@ -541,7 +541,8 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             (nil, "One", 10, ["other-1", "track-1", "album-1", "artist-1"]),
             (nil, "One", 2, ["other-1", "track-1"]),
             (nil, "O", 10, []),                                  // too short to search the store
-            (.playlist, "Playlist One", 10, [])                  // playlists are not capped
+            (.playlist, "Playlist One", 10, []),                 // playlists are not capped
+            (.track, "Cap", 1, ["cap-exact"])                    // 40 other matches exceed the 10-row cap; the exact title is read first
         ]
         for testCase in cases {
             let items = try await fixture.coordinator.searchLibrary(kind: testCase.kind, matching: testCase.query, limit: testCase.limit)
@@ -676,6 +677,22 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             rating: nil,
             playCount: 0,
             sourceCompositeKey: librarySourceKey
+        )
+
+        // More rows containing "Cap" than the picker's fetch cap, plus the exact title.
+        for number in 1...40 {
+            _ = try await libraryRepository.upsertTrack(
+                ratingKey: "cap-\(number)", key: "/library/metadata/cap-\(number)", title: "A Cap Song \(number)", artistName: nil,
+                albumName: nil, albumRatingKey: nil, trackNumber: 1, discNumber: 1, duration: 180_000, thumbPath: nil,
+                streamKey: "/library/parts/cap-\(number).mp3", dateAdded: nil, dateModified: nil, lastPlayed: nil, rating: nil,
+                playCount: 0, sourceCompositeKey: librarySourceKey
+            )
+        }
+        _ = try await libraryRepository.upsertTrack(
+            ratingKey: "cap-exact", key: "/library/metadata/cap-exact", title: "Cap", artistName: nil,
+            albumName: nil, albumRatingKey: nil, trackNumber: 1, discNumber: 1, duration: 180_000, thumbPath: nil,
+            streamKey: "/library/parts/cap-exact.mp3", dateAdded: nil, dateModified: nil, lastPlayed: nil, rating: nil,
+            playCount: 0, sourceCompositeKey: librarySourceKey
         )
 
         // A track in a source no account has enabled.

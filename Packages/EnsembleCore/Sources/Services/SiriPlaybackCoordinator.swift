@@ -204,11 +204,14 @@ public final class SiriPlaybackCoordinator {
     /// Songs, then albums, then artists (or only `kind`) in enabled, unhidden sources whose names match `query`, found
     /// in the full store. The Siri index holds a capped slice of each kind, so a Shortcuts picker falls back to this
     /// when the index has no match. Bounded: a query under two characters finds nothing, songs the title lookup
-    /// misses are scored in paged batches, and at most `limit` items return. Playlists are not capped, so none return.
+    /// misses are scored in paged batches, each lookup reads at most ten times `limit` rows, and at most `limit` items return. Playlists are not capped, so none return.
     public func searchLibrary(kind: SiriMediaKind?, matching query: String, limit: Int) async throws -> [SiriMediaIndexItem] {
         let enabledSourceKeys = enabledLibrarySourceKeys()
         guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2, limit > 0,
               !enabledSourceKeys.isEmpty else { return [] }
+        // Exact names read first, so the cap only drops the weakest matches. Ten times the result limit leaves room for
+        // the same item in several sources, hidden items and matches the scorer rejects.
+        let fetchCap = limit * 10
         let hidden = hiddenMediaStore.snapshot
         let kinds: [SiriMediaKind] = [.track, .album, .artist].filter { kind == nil || kind == $0 }
         var results: [SiriMediaIndexItem] = []
@@ -216,15 +219,15 @@ public final class SiriPlaybackCoordinator {
             var candidates: [SiriMediaIndexItem]
             switch current {
             case .track:
-                candidates = try await libraryRepository.findTracksByTitle(query, sourceCompositeKeys: enabledSourceKeys)
+                candidates = try await libraryRepository.findTracksByTitle(query, sourceCompositeKeys: enabledSourceKeys, limit: fetchCap)
                     .filter { !hidden.isHidden(Track(from: $0)) }
                     .map(SiriMediaIndexStore.indexItem(for:))
             case .album:
-                candidates = try await libraryRepository.findAlbumsByTitle(query, sourceCompositeKeys: enabledSourceKeys)
+                candidates = try await libraryRepository.findAlbumsByTitle(query, sourceCompositeKeys: enabledSourceKeys, limit: fetchCap)
                     .filter { !hidden.isHidden(Album(from: $0)) }
                     .map(SiriMediaIndexStore.indexItem(for:))
             case .artist:
-                candidates = try await libraryRepository.findArtistsByName(query, sourceCompositeKeys: enabledSourceKeys)
+                candidates = try await libraryRepository.findArtistsByName(query, sourceCompositeKeys: enabledSourceKeys, limit: fetchCap)
                     .filter { !hidden.isHidden(Artist(from: $0)) }
                     .map(SiriMediaIndexStore.indexItem(for:))
             case .playlist:

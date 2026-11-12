@@ -111,6 +111,28 @@ final class LibraryRepositoryTests: XCTestCase {
         }
     }
 
+    func testBoundedNameSearchReadsAtMostTheLimitBestMatchesFirst() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let source = "plex:account:server:library"
+        // 30 titles that merely contain the query, 30 that start with it, and the exact title last in sort order.
+        var inputs = (1...30).map { makeTrackInput(ratingKey: "contains-\($0)", title: "A Bulk \($0)") }
+        inputs += (1...30).map { makeTrackInput(ratingKey: "prefix-\($0)", title: "Bulk Song \($0)") }
+        inputs.append(makeTrackInput(ratingKey: "exact", title: "Bulk"))
+        try await repository.batchUpsertTracks(inputs, sourceCompositeKey: source)
+
+        let cases: [(limit: Int, expected: [String])] = [
+            (1, ["exact"]),
+            (3, ["exact", "prefix-1", "prefix-10"]),
+            (100, ["exact"] + (1...30).map { "prefix-\($0)" }.sorted() + (1...30).map { "contains-\($0)" }.sorted())
+        ]
+        for testCase in cases {
+            let tracks = try await repository.findTracksByTitle("bulk", sourceCompositeKeys: [source], limit: testCase.limit)
+            XCTAssertEqual(tracks.map(\.ratingKey), testCase.expected, "limit \(testCase.limit)")
+        }
+        let none = try await repository.findTracksByTitle("bulk", sourceCompositeKeys: [], limit: 5)
+        XCTAssertTrue(none.isEmpty)
+    }
+
     func testNameLookupWithExplicitEmptySourceSetReturnsNothing() async throws {
         let repository = LibraryRepository(coreDataStack: .inMemory())
         try await repository.batchUpsertTracks(
@@ -1826,6 +1848,7 @@ final class LibraryRepositoryTests: XCTestCase {
 
     private func makeTrackInput(
         ratingKey: String,
+        title: String? = nil,
         dateModified: Date? = nil,
         rating: Int? = nil,
         albumRatingKey: String? = nil,
@@ -1839,7 +1862,7 @@ final class LibraryRepositoryTests: XCTestCase {
         TrackUpsertInput(
             ratingKey: ratingKey,
             key: "/library/metadata/\(ratingKey)",
-            title: "Track \(ratingKey)",
+            title: title ?? "Track \(ratingKey)",
             artistName: "Artist",
             albumName: "Album",
             albumRatingKey: albumRatingKey,

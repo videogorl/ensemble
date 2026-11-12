@@ -130,6 +130,59 @@ extension LibraryRepository {
         }
     }
 
+    public func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?, limit: Int) async throws -> [CDTrack] {
+        try await boundedNameSearch(CDTrack.fetchRequest, fieldName: "title", query: title, sourceCompositeKeys: sourceCompositeKeys, limit: limit)
+    }
+
+    public func findArtistsByName(_ name: String, sourceCompositeKeys: Set<String>?, limit: Int) async throws -> [CDArtist] {
+        try await boundedNameSearch(CDArtist.fetchRequest, fieldName: "name", query: name, sourceCompositeKeys: sourceCompositeKeys, limit: limit)
+    }
+
+    public func findAlbumsByTitle(_ title: String, sourceCompositeKeys: Set<String>?, limit: Int) async throws -> [CDAlbum] {
+        try await boundedNameSearch(CDAlbum.fetchRequest, fieldName: "title", query: title, sourceCompositeKeys: sourceCompositeKeys, limit: limit)
+    }
+
+    /// Reads at most `limit` rows, best matches first: exact names, then names that start with the query, then names
+    /// that contain it. Each tier is its own limited fetch, so a short query on a large library stops early.
+    private func boundedNameSearch<T: NSManagedObject>(
+        _ makeRequest: @escaping () -> NSFetchRequest<T>,
+        fieldName: String,
+        query: String,
+        sourceCompositeKeys: Set<String>?,
+        limit: Int
+    ) async throws -> [T] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard limit > 0, !trimmed.isEmpty else { return [] }
+        if let sourceCompositeKeys, sourceCompositeKeys.isEmpty { return [] }
+        let exact = NSPredicate(format: "%K ==[cd] %@", fieldName, trimmed)
+        let prefix = NSPredicate(format: "%K BEGINSWITH[cd] %@", fieldName, trimmed)
+        let contains = NSPredicate(format: "%K CONTAINS[cd] %@", fieldName, trimmed)
+        let tiers = [
+            exact,
+            NSCompoundPredicate(andPredicateWithSubpredicates: [prefix, NSCompoundPredicate(notPredicateWithSubpredicate: exact)]),
+            NSCompoundPredicate(andPredicateWithSubpredicates: [contains, NSCompoundPredicate(notPredicateWithSubpredicate: prefix)])
+        ]
+        let scope = sourceCompositeKeys.map { NSPredicate(format: "sourceCompositeKey IN %@", Array($0)) }
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                var rows: [T] = []
+                do {
+                    for tier in tiers where rows.count < limit {
+                        let request = makeRequest()
+                        request.predicate = scope.map { NSCompoundPredicate(andPredicateWithSubpredicates: [tier, $0]) } ?? tier
+                        request.sortDescriptors = Self.precisionSortDescriptors(primaryName: fieldName)
+                        request.fetchLimit = limit - rows.count
+                        rows += try context.fetch(request)
+                    }
+                    continuation.resume(returning: rows)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     private static func scopedNameSearchPredicate(
         fieldName: String,
         query: String,
