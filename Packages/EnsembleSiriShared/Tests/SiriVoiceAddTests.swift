@@ -46,6 +46,7 @@ final class SiriVoiceAddTests: XCTestCase {
         case let .chosen(destination): return "chosen \(destination.name) #\(destination.item.id)"
         case let .choices(options): return "choices " + options.map { "\($0.name) #\($0.item.id)" }.joined(separator: ", ")
         case .notFound: return "notFound"
+        case .notEditable: return "notEditable"
         }
     }
 
@@ -105,7 +106,7 @@ final class SiriVoiceAddTests: XCTestCase {
         XCTAssertEqual(summary(SiriPlaylistRows.resolveVoiceAdd(named: "ZZ Test Voice", in: index, presentation: presentation(for: index, hidden: [minibar, hiigel]))),
                        "notFound", "every copy hidden")
         XCTAssertEqual(summary(SiriPlaylistRows.resolveVoiceAdd(named: "Recently Added", in: index, presentation: presentation(for: index))),
-                       "notFound", "a smart playlist is not an Add destination")
+                       "notEditable", "a smart playlist is not an Add destination")
         XCTAssertEqual(summary(SiriPlaylistRows.resolveVoiceAdd(named: "Bulk 1199", in: index, presentation: presentation(for: index))),
                        "chosen Bulk 1199 #bulk-1199", "no cap drops late playlists")
         XCTAssertEqual(SiriPlaylistRows.voiceAddDestinations(in: index, presentation: presentation(for: index))?.count, 30 + 1 + 1_200,
@@ -134,5 +135,44 @@ final class SiriVoiceAddTests: XCTestCase {
         XCTAssertEqual(trail.last?.counts["step"], SiriExtensionBreadcrumbs.capacity + 4)
         XCTAssertEqual(trail.last?.logLine.contains("event=resolveDestination outcome=chosen presentation=covers step=44"), true)
         XCTAssertTrue(SiriExtensionBreadcrumbs.drain(at: url).isEmpty)
+    }
+
+    /// A smart playlist is matched like any other: when it is the best match nothing is written, and a similar regular
+    /// playlist is never the fallback.
+    func testSmartPlaylistMatchNeverFallsThroughToASimilarRegularOne() {
+        let extra = [
+            playlist("smart-1", "Road Trip Mix", key: minibar, server: "Minibar", smart: true),
+            playlist("reg-1", "Road Trip Mix 2024", key: minibar, server: "Minibar"),
+            playlist("smart-2", "Night Drive", key: hiigel, server: "Hiigel-Server", smart: true),
+            playlist("reg-2", "Night Drive", key: minibar, server: "Minibar")
+        ]
+        let index = index(extra: extra)
+        let cases: [(name: String, spoken: String, merging: Bool, expected: String)] = [
+            ("exact smart title beats the fuzzy regular one", "Road Trip Mix", true, "notEditable"),
+            ("same with merging off", "Road Trip Mix", false, "notEditable"),
+            ("the regular playlist by its own name", "Road Trip Mix 2024", true, "chosen Road Trip Mix 2024 #reg-1"),
+            ("a smart and a regular playlist share a title: ambiguous, never written", "Night Drive", true, "notEditable")
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                summary(SiriPlaylistRows.resolveVoiceAdd(
+                    named: testCase.spoken, in: index, presentation: presentation(for: index, merging: testCase.merging)
+                )),
+                testCase.expected, testCase.name
+            )
+        }
+    }
+
+    /// Concurrent writers each keep their entry: the read-modify-write is serialized.
+    func testConcurrentBreadcrumbRecordsAreNotLost() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("trail-\(UUID().uuidString).json")
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: url.appendingPathExtension("lock"))
+        }
+        DispatchQueue.concurrentPerform(iterations: 30) { step in
+            SiriExtensionBreadcrumbs.record(SiriExtensionBreadcrumb(event: "e", outcome: "o", counts: ["step": step]), at: url)
+        }
+        XCTAssertEqual(Set(SiriExtensionBreadcrumbs.drain(at: url).compactMap { $0.counts["step"] }).count, 30)
     }
 }

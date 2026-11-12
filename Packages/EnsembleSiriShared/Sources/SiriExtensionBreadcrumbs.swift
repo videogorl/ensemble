@@ -45,10 +45,12 @@ public enum SiriExtensionBreadcrumbs {
     }
 
     static func record(_ breadcrumb: SiriExtensionBreadcrumb, at url: URL) {
-        var trail = read(at: url)
-        trail.append(breadcrumb)
-        if trail.count > capacity { trail.removeFirst(trail.count - capacity) }
-        try? JSONEncoder().encode(trail).write(to: url, options: .atomic)
+        withLock(at: url) {
+            var trail = read(at: url)
+            trail.append(breadcrumb)
+            if trail.count > capacity { trail.removeFirst(trail.count - capacity) }
+            try? JSONEncoder().encode(trail).write(to: url, options: .atomic)
+        }
     }
 
     /// The recorded trail, oldest first, removed from disk.
@@ -61,9 +63,24 @@ public enum SiriExtensionBreadcrumbs {
     }
 
     static func drain(at url: URL) -> [SiriExtensionBreadcrumb] {
-        let trail = read(at: url)
-        try? FileManager.default.removeItem(at: url)
-        return trail
+        withLock(at: url) {
+            let trail = read(at: url)
+            try? FileManager.default.removeItem(at: url)
+            return trail
+        } ?? []
+    }
+
+    /// Runs `body` holding an exclusive `flock` on a sibling lock file, so the extension's append and the app's drain
+    /// never interleave across processes. Both critical sections are one small file, so a waiter blocks for
+    /// milliseconds; the kernel drops the lock if a holder dies. Nil, without running `body`, if the lock file
+    /// cannot be opened: the trail is best effort.
+    private static func withLock<T>(at url: URL, _ body: () -> T) -> T? {
+        let descriptor = open(url.appendingPathExtension("lock").path, O_CREAT | O_RDWR, 0o600)
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+        guard flock(descriptor, LOCK_EX) == 0 else { return nil }
+        defer { flock(descriptor, LOCK_UN) }
+        return body()
     }
 
     private static func read(at url: URL) -> [SiriExtensionBreadcrumb] {

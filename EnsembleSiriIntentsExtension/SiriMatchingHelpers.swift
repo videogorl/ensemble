@@ -66,6 +66,7 @@ enum SiriMatchingHelpers {
         case .chosen: outcome = "chosen"
         case let .choices(options): outcome = "choices"; counts["choices"] = options.count
         case .notFound: outcome = "notFound"
+        case .notEditable: outcome = "notEditable"
         }
         counts["offered"] = SiriPlaylistRows.voiceAddDestinations(in: index, presentation: presentation)?.count
         record(event, "\(outcome) presentation=\(state)", counts)

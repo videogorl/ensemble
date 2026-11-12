@@ -63,6 +63,9 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
         case .notFound:
             logger.info("resolveMediaDestination: no playlist match found")
             completion(.unsupported(forReason: .playlistNameNotFound))
+        case .notEditable:
+            logger.info("resolveMediaDestination: the best match is a smart playlist; not writable")
+            completion(.unsupported(forReason: .playlistNotEditable))
         }
     }
 
@@ -100,7 +103,7 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
                 sourceCompositeKey: destination.item.sourceCompositeKey ?? "",
                 playlistDisplayName: destination.item.displayName
             )
-        case .choices, .notFound:
+        case .choices, .notFound, .notEditable:
             logger.error("handle: destination name does not stand for exactly one playlist")
             completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
             return

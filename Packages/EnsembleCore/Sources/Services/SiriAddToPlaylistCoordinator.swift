@@ -10,8 +10,8 @@ public final class SiriAddToPlaylistCoordinator {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let toastCenter: ToastCenter
     private let addTarget: @MainActor (Playlist, [Track]) async throws -> Playlist?
-    /// The visible playlist a spoken name stands for, preferring the given source; used when Siri sent no identity.
-    private let resolveName: @MainActor (String, String?) async throws -> CDPlaylist?
+    /// The one visible, editable playlist a spoken name stands for; used when Siri sent no identity.
+    private let resolveName: @MainActor (String) async throws -> CDPlaylist?
 
     public init(
         playbackService: PlaybackServiceProtocol,
@@ -19,7 +19,7 @@ public final class SiriAddToPlaylistCoordinator {
         playlistRepository: PlaylistRepositoryProtocol,
         toastCenter: ToastCenter,
         addTarget: @escaping @MainActor (Playlist, [Track]) async throws -> Playlist?,
-        resolveName: @escaping @MainActor (String, String?) async throws -> CDPlaylist?
+        resolveName: @escaping @MainActor (String) async throws -> CDPlaylist?
     ) {
         self.playbackService = playbackService
         self.mutationCoordinator = mutationCoordinator
@@ -78,7 +78,7 @@ public final class SiriAddToPlaylistCoordinator {
         // screen's visibility rules are known.
         let resolved: CDPlaylist?
         if payload.playlistRatingKey.isEmpty, let name = payload.playlistDisplayName {
-            resolved = try await resolveName(name, currentTrack.sourceCompositeKey)
+            resolved = try await resolveName(name)
         } else {
             resolved = try await playlistRepository.fetchPlaylist(
                 ratingKey: payload.playlistRatingKey,

@@ -348,6 +348,23 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         }
     }
 
+    /// A name-only Voice Add the extension deferred resolves by the shared rules: one regular destination, or nothing.
+    /// The fixture's "Focus Mix" also exists as a smart playlist, so the plain name is not writable.
+    func testNameOnlyVoiceAddResolvesOneEditableDestinationOrNone() async throws {
+        let fixture = try await makeFixture()
+        let cases: [(spoken: String, expectedID: String?)] = [
+            ("Focus Mix", nil),            // a smart playlist shares the title: ambiguous, never written
+            ("Focus Mix (Music)", nil),    // not an offered name
+            ("Playlist One", "playlist-1"),
+            ("playlist  one", "playlist-1"),
+            ("Quarterly Polka", nil)
+        ]
+        for testCase in cases {
+            let resolved = try await fixture.coordinator.visiblePlaylist(named: testCase.spoken)
+            XCTAssertEqual(resolved?.ratingKey, testCase.expectedID, testCase.spoken)
+        }
+    }
+
     /// When every copy is hidden, nothing plays: a hidden original is never the fallback.
     func testPlaylistWithOnlyHiddenCopiesIsNotFoundWhetherMergingOrNot() async throws {
         let hidden = HiddenMediaStore(defaults: UserDefaults(suiteName: "siri-merge-\(UUID().uuidString)")!)
