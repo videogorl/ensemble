@@ -766,7 +766,7 @@ earlier).
 | Less background CPU while playing locked or with no visualizer on screen (`33be6521`) | Not run on a phone (tests and builds only). To run: on the 16 Pro, the same 7-minute locked-playback Performance Trace as 2026-11-11 with the visualizer on and Now Playing closed; expect no `analyzeFile` bursts and fewer SwiftUI samples than 34 of 96. Also open Now Playing after a gapless advance and confirm the visualizer animates for the new track |
 | Voice Add never writes to a similar or smart playlist; deferred server labels resolve to one playlist; extension trail appears in the session log (`SIRI_EXT_TRAIL`) | Not run (tests only). To run: on the SE (no Siri AI), with a smart and a regular "Road Trip Mix" style pair and a disposable "ZZ Test" playlist, ask Siri to add the current song to each; expect "not editable" for the smart one, one write for the test playlist, and `SIRI_EXT_TRAIL` plus `SIRI_APP: add-to-playlist` lines in the session log |
 
-## Background launch work (`perf/background-launch-work`)
+## Background launch work
 
 Run on the iPhone 16 Pro (the iPhone SE as a fallback) with a Debug build. Prove the installed build first. Kill the
 app before each check, then pull `Application Support/Ensemble/Logs` and read the newest session. Every background
