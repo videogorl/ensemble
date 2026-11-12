@@ -761,17 +761,6 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Impact: wasted CPU/GPU work and log noise while playing in the background; likely the aurora/Metal visual still
   rendering. Next step: stop the Metal view's display link when the scene is not active.
 
-## Merging > Playlists toggle not re-grouping Playlists list/Search/pins on the Mac until relaunch (confirmed by Mac check, cause unproven)
-- Evidence: `mac-pins-dock.md` (Mac check); unit tests toggling the Playlists switch off/on re-group
-  `PlaylistViewModel` and `SearchViewModel` correctly, so the failing path is not their observation. Same report
-  shows iCloud KVS rewriting Merging ~25 s after launch (two remote changes, 425 and 426 bytes).
-- Read trace: local toggle -> `SettingsManager` -> 500 ms debounce -> push; remote apply sets `lastSyncedMergingPreferences`
-  then overwrites local. A remote value arriving inside the debounce window would replace the toggle and suppress its
-  push (local == lastSynced). No KVS preference has a timestamp, so a stale echo cannot be told from a newer value.
-  Not proven to be the Mac failure.
-- Next step: repeat the Mac toggle and read the `Merging prefs:` log lines (`set`, `local change pushed`,
-  `remote apply remote=… local=… lastSynced=…`); a remote apply shortly after a `set` with an older value confirms it.
-
 ## Hiding a merged row's representative leaves its saved shortcut unresolved (confirmed by reading, not run)
 - Evidence: with Merging on, `SiriMediaRows.presented` shows the preferred source's copy as the merged row and a saved
   Shortcuts entity pins that copy's `ratingKey||sourceCompositeKey`. Hiding that library makes

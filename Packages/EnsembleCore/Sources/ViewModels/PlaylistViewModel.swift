@@ -215,8 +215,10 @@ public final class PlaylistViewModel {
         })
     }
 
+    /// No `dropFirst`: the stream's first value is the current preference, which may
+    /// differ from the value read in `init` if it changed before `start()`.
     private func setupPlaylistMergePreferenceObservation() {
-        subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().dropFirst().observe(self) { model, preferences in
+        subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().observe(self) { model, preferences in
             if model.mergingPreferences != preferences { model.mergingPreferences = preferences }
             let isEnabled = preferences.isEnabled && preferences.mergePlaylists
             if model.isMergeEnabled != isEnabled { model.isMergeEnabled = isEnabled }

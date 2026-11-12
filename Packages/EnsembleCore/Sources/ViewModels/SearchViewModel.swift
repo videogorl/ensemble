@@ -205,7 +205,7 @@ public final class SearchViewModel {
             model.applyVisibilityToExploreContent()
         })
 
-        subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().dropFirst().observe(self) { model, preferences in
+        subscriptions.append(settingsManager.snapshots().map(\.mergingPreferences).removeDuplicates().observe(self) { model, preferences in
             model.applyMergingPreferences(preferences)
         })
 
