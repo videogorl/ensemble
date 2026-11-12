@@ -941,3 +941,23 @@ followed (one `Spotlight indexed 1 changed media items` 2.3 s after the first sy
 one-time index rewrite). Every Apple Music playlist row showed artwork; a playlist detail header showed its cover.
 Still owed: a real cover change on one of these playlists is picked up (add or remove a song in Music, then sync).
 Logs: `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.BBiylz1QPW`.
+
+## Duplicate-add Shortcut and cellular Shortcut play (16 Pro, 2026-11-12, build `202611121446.6234`)
+
+Add to Playlist in Ensemble, target a disposable Plex playlist (deleted afterwards), all `health=awaited`:
+
+| Run | Dialog | Playlist count | Log |
+| --- | --- | --- | --- |
+| One song | "Added to ZZ Test Dup." | 1 | `outcome=accepted tracks=1` |
+| Same song again | "Division is already in ZZ Test Dup." | 1 | `outcome=already in playlist tracks=1` |
+| Its 16-song album | "Added to ZZ Test Dup." | 16 | `outcome=accepted tracks=15` |
+| Same album again | "Those songs are already in ZZ Test Dup." | 16 | `outcome=already in playlist tracks=16` |
+
+Cold Shortcut play with Wi-Fi off after last use on Wi-Fi (two runs): `health=deferred`, playing 0.70–0.73 s after session
+start, but both first tracks came from the stream cache (`kind=cachedFile`), so no stream was requested over cellular.
+The monitor reported `interfaceSwitch(Wi-Fi->Cellular)` about 0.5 s after playing began; its forced refresh superseded
+probes in flight, `Connection refresh superseded by a configuration update — retrying once` logged, and the retried
+probes selected a remote endpoint with every server Connected in 0.35 s. Still owed: the same run with a first track
+that has never been played or prefetched on the phone (an uncached stream over cellular); removing a song in another
+Plex client and re-running the add without a sync; the Apple Music explicit/clean case.
+Logs: `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.XJUNfILpoJ`, `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.a4QMZh6apZ`.

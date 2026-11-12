@@ -916,3 +916,12 @@ cancelled, and the connection revision or routing generation changed since the c
 refresh-and-retry branch for a cancellation the task did not ask for. A second supersession surfaces as before.
 The startup retry in `PlaybackService+Loading.swift` (refresh, then reassemble) also covers `cannotFindHost` and `dnsLookupFailed` for a URL assembled from a replaced endpoint, at the cost of one bounded extra attempt (500 ms sleep plus a refresh) for a genuinely unresolvable host.
 Phone check: `docs/reference/physical-device-backlog.md`, "launched on cellular after last use on Wi-Fi".
+
+## Shortcuts describes the Add to Playlist action with Apple Music wording (suspected, 2026-11-12)
+
+- **Evidence:** on the 16 Pro (iOS 27.3, build `202611121446.6234`) the "Add to Playlist in Ensemble" action's description
+  in the Shortcuts editor read "…in your Apple Music library" / "in Apple Music" (checker's reading, not screenshotted).
+  The app's strings do not contain that wording (`NowPlayingIntents.swift:188-190`).
+- **Impact:** confusing wording only; the action wrote to the Plex playlist correctly.
+- **Next step:** screenshot the action's detail sheet; check whether the text comes from system metadata cached from the
+  withdrawn Siri AI audio schema intents (a reinstall or reboot would clear it) or from the entity's type display.
