@@ -839,3 +839,13 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - **Impact:** a spoken confirmation that is early, not wrong: the mutation is stored and replays. Low.
 - **Next step:** decide whether the Shortcut should await the first write attempt (bounded) before choosing between
   "Added" and "Will be added".
+
+## Siri offers two identical "Moby – Artist" rows for a typed artist request (suspected)
+
+- **Evidence:** iPhone 16 Pro, build `202611121011.2049`, 2026-11-12 10:19: "Play Moby in Ensemble" got "What do you
+  want to play in Ensemble?" with two identical "Moby – Artist" rows; picking the first played "Division" (payload
+  `kind=artist entity=17156`). Logs: session `session-2026-11-12-101839.log` from that run.
+- **Impact:** an extra tap and no way to tell the rows apart. Probably the same artist from two sources or two library
+  sections offered as separate SiriKit media items.
+- **Next step:** read what `INPlayMediaIntent` resolution returns for "Moby" (count, source of each item) and whether
+  equivalent artists should be collapsed the way merged playlists are.

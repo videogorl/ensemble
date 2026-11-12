@@ -858,3 +858,10 @@ the final build (iPhone 16 Pro, session log open; "ZZ Test Siri AI" is a disposa
 | Remove the song from "ZZ Test Siri AI" in another Plex client without syncing Ensemble, then run the Shortcut: it must write, not say "already in" | Owed |
 | Add to Playlist (Shortcut) with an album where one song is already in the playlist: only the missing songs are sent (`sent=N`) | Owed |
 | Apple Music playlist: adding an explicit version of a song already present in its clean version still writes | Owed |
+
+## Siri play after withdrawing the Siri AI intents (16 Pro, 2026-11-12, build `202611121011.2049`)
+
+Typed Siri, each ending "in Ensemble": playlist (cold and warm), album, artist and song all played through
+`INPlayMediaIntent`; no `SIRI_AI` line in the build's logs. Siri's reply text was not captured, and the playlist check
+did not confirm the song was the playlist's first. The artist request needed a pick between two identical rows (see
+`ON_DECK.md`). Still owed: the Shortcut duplicate-add rows listed above.
