@@ -763,3 +763,21 @@ earlier).
 | Play Mood cancel; cancel during a cold intent launch | Weak pass on the SE: no crash or hang, but the tool cannot interrupt real work |
 | Sidebar pins, Search pins and the Mac Dock menu follow the playlist-screen rule | Not run. To run: on the Mac, pin one copy of a merged playlist; open it from the sidebar and Search, press Play, and open the Dock menu after hiding it and after toggling Merging |
 | Apple Music playlists no longer rewritten each sync (`1ef74494`) | Not run on the phone that shows it. To run: on the 16 Pro install a build with the fix, sync three times; after the first, no `writing playlist … differs: compositePath` lines |
+
+## Mac — App Intents phase 5 (`feature/app-intents-mac`)
+
+Built and unit-tested only; nothing here ran in Shortcuts or Spotlight. Why: the built Mac app was not registered with
+Shortcuts (its ToolKit database listed no Ensemble actions for a DerivedData build, only the installed copies), and
+`shortcuts run` only runs saved shortcuts, which an agent must not create. Launch the build under test with
+`open -a <path to the built Ensemble.app>`, never a plain `open ensemble://…` or the display name (that starts the
+installed `/Applications/Ensemble.app`), then check the PID's executable path (`lsappinfo`, or `ps -o comm`) and build version.
+
+| Check | Result |
+| --- | --- |
+| Shortcuts on the Mac lists Ensemble's actions (30) and App Shortcuts. If the build does not appear, copy it to `~/Applications` and open it once | Owed |
+| Build one shortcut with Get Current Song, Play/Pause and Next, quit Ensemble, run it: the app starts without coming forward, the saved queue restores (Get Current Song names the saved song), Play/Pause and Next act. The owed headless macOS Next/Play-Pause check. Look for a session log whose first line names a non-foreground launch | Owed |
+| With Ensemble running and a window open, the same shortcut leaves focus where it was | Owed |
+| Play Track, Album, Artist and Playlist pickers: suggestions appear; typing a name outside the index (a never-played song) finds it | Owed |
+| Open Media and Get Ensemble Link bring the window forward or return a link | Owed |
+| Spotlight on macOS 26 and 27: a played song, album, artist and playlist appear and open in Ensemble; App Shortcut phrases and actions appear under Ensemble | Owed |
+| iPhone SE: typing a never-played song name into a Play Track picker finds it (the same fallback) | Owed |
