@@ -940,6 +940,9 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         if let audioAnalyzer = audioAnalyzer as? FrequencyAnalysisService {
             audioAnalyzer.visualizationEnabled = PlaybackSettingsObserver.visualizerEnabled(in: .standard)
+            audioAnalyzer.isTrackRelevant = { [weak playbackService] in
+                playbackService?.isVisualizerTrackRelevant($0) ?? false
+            }
         }
     }
 

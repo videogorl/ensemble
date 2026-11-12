@@ -603,6 +603,7 @@ private struct PlaybackScrubber: View {
     let playbackProjection: NowPlayingPlaybackProjection
     let track: Track
     let isActive: Bool
+    @Environment(\.scenePhase) private var scenePhase
     let seekToProgress: (Double) -> Void
     let updateVisualizerPosition: (Double) -> Void
 
@@ -617,6 +618,10 @@ private struct PlaybackScrubber: View {
     @State private var bufferedProgress: Double = 0
     @State private var playbackCurrentTime: TimeInterval = 0
     @State private var playbackDuration: TimeInterval = 0
+
+    /// Progress ticks are ignored while the scene is backgrounded (nothing is drawn) and
+    /// resynced on return.
+    private var isLive: Bool { isActive && scenePhase != .background }
 
     var body: some View {
         VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
@@ -668,28 +673,28 @@ private struct PlaybackScrubber: View {
             }
         }
         .onAppear(perform: syncPlaybackSnapshot)
-        .onChange(of: isActive) { isActive in
-            guard isActive else { return }
+        .onChange(of: isLive) { isLive in
+            guard isLive else { return }
             syncPlaybackSnapshot()
         }
         .onReceive(playbackProjection.waveformPublisher) { heights in
-            guard isActive, waveformHeights != heights else { return }
+            guard isLive, waveformHeights != heights else { return }
             waveformHeights = heights
         }
         .onReceive(playbackProjection.progressPublisher) { progress in
-            guard isActive, !isDragging, abs(playbackProgress - progress) > 0.0005 else { return }
+            guard isLive, !isDragging, abs(playbackProgress - progress) > 0.0005 else { return }
             playbackProgress = progress
         }
         .onReceive(playbackProjection.bufferedProgressPublisher) { progress in
-            guard isActive, abs(bufferedProgress - progress) > 0.0005 else { return }
+            guard isLive, abs(bufferedProgress - progress) > 0.0005 else { return }
             bufferedProgress = progress
         }
         .onReceive(playbackProjection.currentTimePublisher) { time in
-            guard isActive, abs(playbackCurrentTime - time) > 0.05 else { return }
+            guard isLive, abs(playbackCurrentTime - time) > 0.05 else { return }
             playbackCurrentTime = time
         }
         .onReceive(playbackProjection.durationPublisher) { duration in
-            guard isActive, abs(playbackDuration - duration) > 0.001 else { return }
+            guard isLive, abs(playbackDuration - duration) > 0.001 else { return }
             playbackDuration = duration
         }
     }
