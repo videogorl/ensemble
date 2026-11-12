@@ -379,7 +379,8 @@ final class PlaybackTransportCoordinator {
             withLock { cachedStreamDecisions[trackIdentity] = decision }
             return decision
         } catch {
-            if dependencies.shouldRetryStreamURLRequest(error) {
+            // A cancellation the task did not ask for is the decision request superseded by a configuration update.
+            if dependencies.shouldRetryStreamURLRequest(error) || (error is CancellationError && !Task.isCancelled) {
                 do {
                     try await dependencies.refreshConnection()
                     let retried = try await dependencies.makeStreamDecision(track, quality, 0, false)

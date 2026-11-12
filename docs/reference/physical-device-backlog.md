@@ -868,15 +868,18 @@ did not confirm the song was the playlist's first. The artist request needed a p
 
 ## Shortcut cold play without the health wait (`fix/siri-play-health-wait`)
 
-Only the plain play entrances (Siri play, and Shortcuts play of a track, album, artist or playlist) defer the pass. They still join one already in flight or queued (`health=joined-in-flight`); the explicit startup pass starts after the play call's source resolution or launch returns, which can precede `.playing`.
+Only the plain play entrances (Siri play, and Shortcuts play of a track, album, artist or playlist) skip the health
+wait (`health=deferred`); the explicit startup pass starts after the play call's source resolution or launch returns,
+which can precede `.playing`. Every other intent keeps `health=awaited`. A probe superseded by a configuration update
+is retried once (`Connection refresh superseded by a configuration update — retrying once` at debug level).
 
 | Check | Expect | Result |
 | --- | --- | --- |
-| Play Playlist Shortcut from a killed app, first track downloaded | Process start to `playing` about 0.5 s or less excluding system time (was 2.3–2.6 s); `Server connectivity ready (health=deferred)`, then `Playback resolved — starting server health checks` after the play call returns (state `.unknown` to online, no early task, so nothing to join) | Not run |
+| Play Playlist Shortcut from a killed app, first track downloaded | Process start to `playing` about 0.5 s or less excluding system time (was 2.3–2.6 s); `Server connectivity ready (health=deferred)`, then `Playback resolved — starting server health checks` after the play call returns | Not run |
 | Same, first track an uncached Plex stream | Plays; that track's server is probed before the explicit health pass starts | Not run |
 | Same with Wi-Fi off | Downloaded song plays at once; a streaming-only item fails promptly with the existing message; `Offline — skipping server health checks` | Not run |
 | Plex server unreachable, internet up | A downloaded or cached first track plays without waiting; a streaming-only item fails on its own server probe, not after an all-servers pass | Not run |
 | Library hidden by the active Focus | Still refused (`Focus filter not restored` or the item not found), no playback | Not run |
-| Cold Add to Ensemble Playlist, and a radio or station start, from a Shortcut | Still `health=awaited` (`No connected servers — running health checks` when none is connected) before the request, as before | Not run |
+| Last used on Wi-Fi, then launched a streaming Shortcut on cellular (seeded `.online(.wifi)`, live cellular: a forced interface-switch refresh) | The track plays; the log shows the retry line if a refresh superseded the probe; no `serverUnavailable` | Not run |
+| Cold Add to Ensemble Playlist, and a radio or station start, from a Shortcut | `health=awaited` (`No connected servers — running health checks` when none is connected) before the request, as before | Not run |
 | Cold Shortcut play, then open the app within a minute | One startup health pass in the log, not two back to back | Not run |
-| Cold Shortcut play right after the phone regains network following an offline session (cached state `.offline`) | `health=joined-in-flight`, then playback succeeds for a streaming track; no `serverUnavailable` | Not run |

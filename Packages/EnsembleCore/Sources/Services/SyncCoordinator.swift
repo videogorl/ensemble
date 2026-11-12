@@ -422,8 +422,6 @@ public final class SyncCoordinator {
     private var cancellables = Set<AnyCancellable>()
     private var subscriptions: [StreamSubscription] = []
     private var isCheckingHealth = false
-    /// Network transitions being handled that will schedule a health refresh once their cache invalidation finishes.
-    private var scheduledByTransitionCount = 0
     private var enabledServerKeysSnapshot = Set<String>()
     /// Timestamp of last sourceStatuses progress update per source — used to throttle
     /// snapshot updates during sync so SwiftUI doesn't re-render on every item.
@@ -2659,8 +2657,6 @@ public final class SyncCoordinator {
         if !hasCompletedInitialNetworkTransition, previous == .unknown, state.isConnected {
             hasCompletedInitialNetworkTransition = true
         } else if let reason {
-            scheduledByTransitionCount += 1
-            defer { scheduledByTransitionCount -= 1 }
             await serverHealthChecker.invalidateConnectionHealth()
             EnsembleLogger.debug("🖼️ SyncCoordinator: Early artwork cache invalidation for network transition")
             await onConnectionsRefreshed?()
@@ -2678,31 +2674,6 @@ public final class SyncCoordinator {
                 await self.resumePendingBackgroundRefresh()
             }
         }
-    }
-
-    /// Whether a health refresh is running or queued, or the network monitor has published a transition whose
-    /// refresh this coordinator has not scheduled yet (the observer hops before `handleObservedNetworkState`, which
-    /// awaits cache invalidation before it schedules).
-    private var hasPendingHealthRefresh: Bool {
-        refreshOrchestrator.hasScheduledHealthRefresh
-            || scheduledByTransitionCount > 0
-            || lastObservedNetworkState != networkMonitor.networkState
-    }
-
-    /// Waits until no health refresh is running, queued, or about to be scheduled by a network transition; returns
-    /// whether it had to wait. The caller bounds the wait.
-    public func awaitPendingHealthRefresh() async -> Bool {
-        var waited = false
-        while hasPendingHealthRefresh {
-            waited = true
-            if refreshOrchestrator.hasScheduledHealthRefresh {
-                await refreshOrchestrator.waitForActiveHealthRefresh()
-            } else {
-                // A cancelled sleep returns at once; stop waiting instead of spinning.
-                guard (try? await Task.sleep(for: .milliseconds(5))) != nil else { break }
-            }
-        }
-        return waited
     }
 
     private func applyNetworkState(_ state: NetworkState) {

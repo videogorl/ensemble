@@ -868,14 +868,19 @@ Request → `playing`, from session logs (app state, not audible output):
   No `[preBuffer]` line was logged for any restored streaming track, including taps 6–15 s after launch.
 - **Implemented, awaiting phone checks (branch `fix/siri-play-health-wait`):** the plain play entrances (Siri
   `INPlayMediaIntent` execution and the Shortcuts play actions for a track, album, artist or playlist) pass
-  `serverHealth: .deferUntilPlaybackStarts` to `prepareForBackgroundPlayback`, so they no longer wait for the
-  all-servers health pass this call would start. They still join a pass already running or queued (the launch
-  `earlyHealthCheckTask`, or the forced `.networkReconnect` refresh when the cached state was `.offline`), logged as
-  `health=joined-in-flight`. The explicit startup pass (`performStartupHealthChecks`, once per process, no forced
-  pass) starts after the play call's source resolution or launch returns, not once it is `.playing` (a stream can
-  return `.buffering`, a route or interruption can return paused). Other refreshes, such as a network reconnect or
-  a foreground launch, can still run afterwards. Every other caller keeps the awaited default. Owed rows:
+  `serverHealth: .deferUntilPlaybackStarts` to `prepareForBackgroundPlayback`: no health wait, no early-task join.
+  They start the explicit startup pass (`performStartupHealthChecks`, once per process, no forced pass) after the
+  play call's source resolution or launch returns, not once it is `.playing`. Every other caller keeps the awaited
+  default. The race this opens is fixed at its cause, see "Fixed in this branch" below. Owed rows:
   `docs/reference/physical-device-backlog.md`, "Shortcut cold play without the health wait".
+- **Network state at a cold launch (why the wait is short):** `NetworkMonitor` persists `lastKnownNetworkState` and
+  seeds `snapshot` from it at init (`NetworkMonitor.swift` init and `persistState`), so a second-or-later launch
+  starts at the previous session's state, normally `.online(.wifi)`, and `SyncCoordinator.lastObservedNetworkState`
+  starts there too. Only the first path update is debounced (1 s), so `hasLivePath` is not true for about 1 s;
+  `startNetworkMonitorAndAwaitCurrentState` returns at once for a seeded connected state. A seeded `.offline` or
+  `.limited` then live Wi-Fi, or a different interface, schedules a forced refresh through
+  `SyncCoordinator.handleObservedNetworkState`. The measured SE run was cached online then live online, so no
+  transition refresh was scheduled.
 - **Unexplained:** one Shortcut run (the first after the shortcut was created) had ~31 s with no app log lines between
   `NetworkMonitor: Started monitoring` and `Server connectivity ready`. Next step: repeat a first-run-after-create and
   capture a sysdiagnose-level log to see whether the wait is in Shortcuts or in `prepareForBackgroundPlayback`.
@@ -891,17 +896,19 @@ Request → `playing`, from session logs (app state, not audible output):
   sections treated as removed each time rather than once.
 - **Next step:** find the caller that enumerates these keys at launch and why it does not remember a completed cleanup.
 
-## A health refresh can cancel playback's own server probe (suspected)
+## Fixed in this branch, awaiting phone checks: a refresh cancelled playback's own server probe
 
-Codex review of `fix/siri-play-health-wait`, from reading the code, not reproduced. If a health pass fetches
-resources and a connection descriptor changes while `SyncCoordinator.ensureServerConnection(track)` is probing,
-`AccountManager` advances the client revision, `PlexAPIClient` retires the old selector and throws
-`CancellationError`; `ensureServerConnection` rethrows it, and `PlaybackTransportCoordinator.swift:315` turns it into
-`PlaybackError.serverUnavailable`, which is not retryable, so a reachable track fails to start. A play tapped during
-a foreground launch has always overlapped the launch health pass, so this race predates the branch; the branch keeps
-its own explicit pass off the first probe on the cold Siri/Shortcut play path, and joins a pass already in flight or
-queued by a network transition before playing. A refresh that starts after the play call returns can still overlap
-the next track's probe.
-Next step (not implemented): when the target server's probe was cancelled because its revision changed and the
-playback task is still active, retry the probe once instead of failing. First reproduce with a delayed descriptor
-change (debug failure/delay injection) during a foreground-launch play.
+Mechanism (code-read, from Codex's review): a configuration change bumps the connection revision
+(`AccountManager.swift` ~1155) and `PlexAPIClient.synchronizeConfiguration` (`PlexAPIClient+Connections.swift`
+~147-168) replaces the failover selector and retires the old one. A probe in flight then fails `isCurrentAttempt`
+and `attemptFailover` throws `CancellationError` though the caller's task is live. `SyncCoordinator.ensureServerConnection`
+rethrows it (cancelled errors are not swallowed), `PlaybackTransportCoordinator.resolvePlaybackSourceImpl` turns any
+failure there into `PlaybackError.serverUnavailable`, and `PlaybackSessionStateMachine.shouldRetryResolution` retries
+only NSURLError codes, so a reachable track failed to start. A Play tap during a foreground launch had the same
+exposure. The stream decision request had the same path (`recordServerAttemptSuccess` throws `CancellationError`;
+`shouldRetryStreamURLRequest` is false for it).
+Fix: `PlexAPIClient.refreshConnection` re-probes once when it ended in cancellation, the caller's task is not
+cancelled, and the connection revision or routing generation changed since the call began (debug log
+"Connection refresh superseded ..."); `PlaybackTransportCoordinator.streamDecision` takes its existing
+refresh-and-retry branch for a cancellation the task did not ask for. A second supersession surfaces as before.
+Phone check: `docs/reference/physical-device-backlog.md`, "launched on cellular after last use on Wi-Fi".

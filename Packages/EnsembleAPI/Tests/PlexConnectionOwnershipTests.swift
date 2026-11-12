@@ -84,6 +84,39 @@ final class PlexConnectionOwnershipTests: XCTestCase {
         XCTAssertEqual(query.first { $0.name == "musicBitrate" }?.value, "192")
     }
 
+    /// A configuration update mid-probe supersedes the probe. The live caller's refresh re-probes once under the new
+    /// configuration; the caller's own cancellation is never retried.
+    func testRefreshRetriesOnceWhenAConfigurationUpdateSupersedesTheProbe() async throws {
+        for cancelsCaller in [false, true] {
+            let network = OwnershipNetwork()
+            OwnershipURLProtocol.network = network
+            let session = makeSession()
+            defer { session.invalidateAndCancel() }
+            let configuration = OwnershipConfiguration(connection(revision: 0, token: "token-A"))
+            let client = PlexAPIClient(connection: await configuration.read()!, keychain: TestKeychain(),
+                configurationReader: { await configuration.read() }, probeURLSession: session, urlSession: session)
+            let refresh = Task { try await client.refreshConnection() }
+            await fulfillment(of: [network.started], timeout: 2)
+            await configuration.set(connection(revision: 1, token: "token-B"))
+            _ = await client.refreshConfiguration()
+            if cancelsCaller { refresh.cancel() }
+            network.resume()
+
+            if cancelsCaller {
+                do { _ = try await refresh.value; XCTFail("The caller's own cancellation must propagate") }
+                catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
+                XCTAssertFalse(network.requests.contains { $0.value(forHTTPHeaderField: "X-Plex-Token") == "token-B" },
+                    "A cancelled caller must not re-probe")
+            } else {
+                let selection = try await refresh.value
+                XCTAssertEqual(selection.selectedEndpoint.url, "https://primary.invalid")
+                XCTAssertEqual(network.requests.last?.value(forHTTPHeaderField: "X-Plex-Token"), "token-B")
+                XCTAssertEqual(network.requests.filter { $0.value(forHTTPHeaderField: "X-Plex-Token") == "token-A" }.count,
+                    network.requests.count / 2, "One probe under each configuration")
+            }
+        }
+    }
+
     func testCancelledWaiterCannotReplayOrCancelLiveSelection() async throws {
         for hasLiveWaiter in [false, true] {
             let network = OwnershipNetwork()
