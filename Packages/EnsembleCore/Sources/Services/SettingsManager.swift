@@ -439,6 +439,11 @@ public final class SettingsManager {
     }
 
     public func setMergingPreferences(_ preferences: EnsembleMergingPreferences) {
+        if preferences != settings.mergingPreferences {
+            EnsembleLogger.info(
+                "Merging prefs: set on:\(preferences.isEnabled) artists:\(preferences.mergeArtists) albums:\(preferences.mergeAlbums) tracks:\(preferences.mergeTracks) playlists:\(preferences.mergePlaylists) keys:\(preferences.preferredSourceKeys.count)"
+            )
+        }
         settings.mergingPreferences = preferences
     }
 
