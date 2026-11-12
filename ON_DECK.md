@@ -874,11 +874,20 @@ Request → `playing`, from session logs (app state, not audible output):
 - **Not tested:** restored mid-track position on an uncached stream; lossless or very long files; cellular.
 - Logs: `/private/tmp/claude-501/-Users-felicity-Developer-projects-ensemble/1b53a1b0-2eca-4f16-ad9f-8a206686c84e/scratchpad/logs1`.
 
-## Removed-source cleanup runs for the same three Plex library keys on every launch (suspected waste)
+## Disabled-library cleanup repeats on every launch (confirmed, cause found 2026-11-12)
 
 - **Evidence:** every SE session log on 2026-11-12 (20 of 20) has three `Cleaning up data for removed source: plex:…`
-  lines (`SyncCoordinator.swift:2017`) for the same keys (sections 5, 4 and 7), about 0.7 s apart, each finishing with
-  all counts 0.
-- **Impact:** nothing is deleted, but ~1.4 s of repository work repeats at each launch. Probably disabled library
-  sections treated as removed each time rather than once.
-- **Next step:** find the caller that enumerates these keys at launch and why it does not remember a completed cleanup.
+  lines for the same three disabled Plex sections, each ending `libraryItems=0, downloads=0, targets=0`; 1.7–1.9 s of
+  serial store work per launch.
+- **Cause:** the iCloud library-flag pull at launch calls `AccountManager.applyLibraryFlags`, which adds a library that
+  is disabled both locally and in iCloud to `disabledSources` although nothing changed (`AccountManager.swift:543-548`);
+  `CloudSyncCoordinator` then calls `cleanupRemovedSourcesIfPresent` (`SyncCoordinator.swift:2059`) for each. Deliberate
+  since `6f0bd4b0` ("Harden synced disabled library cleanup"): it evicts leftover rows when flags already match, for
+  example after a restore from backup.
+- **Safety:** an unavailable server cannot enter this path (only an explicit synced `isEnabled == false` does), and
+  `shouldPreserveSourceKey` and the persistence fence guard the delete.
+- **Separate from** the per-launch cursor removal (`invalidatePlexReconciliationCursors`), which hits enabled sources.
+- **Proposed fix (not approved):** in `cleanupRemovedSourcesIfPresent`, skip a source that has no rows (one count query)
+  before entering the fence. Keeps the restore-eviction contract. The alternative, not reporting unchanged disabled
+  libraries at all, is simpler but drops that eviction.
+- **Open:** whether `.sourceCleanedUp` also triggers the Siri index and library-map rebuilds seen right after each pass.
