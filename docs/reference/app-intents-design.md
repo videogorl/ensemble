@@ -97,6 +97,11 @@ One set of entities and intents, shared by iPhone, iPad and Mac, with the schema
 6. **Control Center controls and widgets.** A new widget extension target: controls for Shuffle Library and
    Favourite Current Song (Control Center, Lock Screen, Action Button), then an interactive Now Playing widget.
    This is the only phase that adds a target; it also needs the playback state shared with the extension.
+   **Deferred (owner decision, 2026-11-11): not being built now.** Decided for when it is taken up: keep the
+   iOS 17 floor and gate controls to iOS 18; the extension holds thin copies of the intents and the app's
+   existing code does the work (no shared intents package). A first slice would be controls only (Play/Pause,
+   Favourite Current Song) reading a small App Group now-playing snapshot. No Lock Screen widget was requested;
+   the "Lock Screen" above means a control placed there, not a separate widget.
 
 Suggested order: 1, 2, 3 (small, no new target, checkable on the iPhone SE through the Shortcuts app), then 4,
 5, and 6 last.
