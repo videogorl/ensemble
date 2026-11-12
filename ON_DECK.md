@@ -691,5 +691,13 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   Report: `$TMPDIR/ensemble-16pro/warm-phone-profile.md` (temporary file).
 - Impact: not the cause of the warm phone in that recording (test tooling, screen-on time and Siri AI were
   larger), but it is recurring work during playback.
-- Next step: record the same on a Release build, unplugged, with Power Profiler; check why analysis runs in
-  repeated bursts (per upcoming track, or re-analysing) and whether results are cached.
+- On-device power trace, same day, unplugged, Debug build (analysis: `$TMPDIR/ensemble-16pro/power-trace-analysis.md`,
+  temporary file): 7 minutes of locked background playback against 6 minutes paused. Whole-phone drain was about
+  7.9 %/hr playing (busy stretch excluded) against 4.2 %/hr paused. Ensemble used about 2.8% of one core while
+  playing, no GPU, almost no network after the first 20 s, and nothing at all once paused (suspended 7 s after
+  the pause). One burst (34 G instructions, 1.5 s on core) had FLAC-scanning stacks consistent with this
+  analysis. SwiftUI/AttributeGraph frames were in 34 of 96 steady samples while the screen was locked, and
+  WatchConnectivity frames appeared every 20 to 60 s.
+- Next step: record the same on a Release build; check why analysis runs in bursts (per upcoming track, or
+  re-analysing) and whether results are cached; find which SwiftUI views still update while the app is in the
+  background with the screen locked.
