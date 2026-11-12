@@ -51,11 +51,18 @@ public protocol HubRepositoryProtocol: Sendable {
     func fetchHubs() async throws -> [Hub]
     func saveHubs(_ hubs: [Hub]) async throws
     func deleteHubs(forSourceCompositeKey sourceKey: String) async throws
+    /// Whether `deleteHubs(forSourceCompositeKey:)` would remove any item. Conformers that cannot
+    /// tell answer `true`, which keeps cleanup from being skipped.
+    func hasHubItems(forSourceCompositeKey sourceKey: String) async throws -> Bool
     func deleteAllHubs() async throws
     func fetchLatestHomeFeedSnapshot(sourceScopeKey: String?) async throws -> HomeFeedCachedSnapshot?
     func saveHomeFeedSnapshot(_ snapshot: HomeFeedCachedSnapshot) async throws
     func markHomeFeedSnapshotLastGood(id: String, freshnessState: HomeFeedSnapshotFreshnessState) async throws
     func deleteHomeFeedSnapshots(sourceScopeKey: String?) async throws
+}
+
+public extension HubRepositoryProtocol {
+    func hasHubItems(forSourceCompositeKey sourceKey: String) async throws -> Bool { true }
 }
 
 public final class HubRepository: HubRepositoryProtocol, @unchecked Sendable {
@@ -111,6 +118,22 @@ public final class HubRepository: HubRepositoryProtocol, @unchecked Sendable {
         try await performWrite { context in
             try Self.deleteSnapshots(in: context, sourceScopeKey: nil)
             try Self.deleteLegacyHubs(in: context)
+        }
+    }
+
+    public func hasHubItems(forSourceCompositeKey sourceKey: String) async throws -> Bool {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDHubItem.fetchRequest()
+                request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+                request.fetchLimit = 1
+                do {
+                    continuation.resume(returning: try context.count(for: request) > 0)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
     }
 

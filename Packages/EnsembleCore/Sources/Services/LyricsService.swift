@@ -1063,6 +1063,19 @@ public final class LyricsService {
         return removedInMemoryCount + removedFileCount
     }
 
+    /// Whether `clearCache(forSourceCompositeKey:)` would remove an in-memory entry or a cache file.
+    public func hasCache(forSourceCompositeKey sourceKey: String) async -> Bool {
+        if cache.keys.contains(where: { $0.contains(":\(sourceKey):") }) { return true }
+        let safeSourceKey = sourceKey.replacingOccurrences(of: "[^a-zA-Z0-9_-]", with: "_", options: .regularExpression)
+        return await Task.detached(priority: .utility) {
+            // An unreadable directory cannot be ruled out, so it counts as present.
+            guard let files = try? FileManager.default.contentsOfDirectory(atPath: Self.lyricsCacheDir.path) else {
+                return FileManager.default.fileExists(atPath: Self.lyricsCacheDir.path)
+            }
+            return files.contains { $0.contains(safeSourceKey) }
+        }.value
+    }
+
     /// Clear persistent lyrics cache files for a specific source.
     /// Called when an account or library is removed.
     @discardableResult

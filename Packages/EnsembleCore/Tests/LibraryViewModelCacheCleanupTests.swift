@@ -1257,6 +1257,70 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertEqual(trackSourceKeys, [enabledSourceKey])
     }
 
+    func testCleanupIfPresentSkipsOnlySourcesWithNothingStored() async throws {
+        struct CheckFailure: Error {}
+        enum Seed { case none, track, sourceRow, target, scopedMutation, unscopedMutation, lyrics, checkFails }
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        let cases: [(seed: Seed, cleansUp: Bool)] = [
+            (.none, false),
+            (.track, true),
+            (.sourceRow, true),
+            (.target, true),
+            (.scopedMutation, true),
+            (.unscopedMutation, true),
+            (.lyrics, true),
+            (.checkFails, true)
+        ]
+
+        for (seed, cleansUp) in cases {
+            let harness = makeHarness(
+                hasLibraryData: seed == .checkFails ? { _ in throw CheckFailure() } : nil,
+                hasLyricsCache: { _ in seed == .lyrics }
+            )
+            harness.accountManager.addPlexAccount(makeAccount(libraries: [("lib-1", "Library One", false)]))
+            switch seed {
+            case .track:
+                try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+            case .sourceRow:
+                _ = try await harness.libraryRepository.upsertMusicSource(
+                    compositeKey: sourceKey, type: "plex", accountId: "account-1", serverId: "server-1",
+                    libraryId: "lib-1", displayName: nil, accountName: nil
+                )
+            case .target:
+                _ = try await harness.targetRepository.upsertTarget(
+                    key: "library:\(sourceKey)", kind: .library, ratingKey: nil,
+                    sourceCompositeKey: sourceKey, displayName: "Library"
+                )
+            case .scopedMutation, .unscopedMutation:
+                try await harness.pendingMutationRepository.enqueueMutation(
+                    id: "mutation", type: .trackRating, payload: Data(),
+                    sourceCompositeKey: seed == .scopedMutation ? sourceKey : nil
+                )
+            case .none, .lyrics, .checkFails:
+                break
+            }
+
+            let cleaned = expectation(description: "cleanup ran for \(seed)")
+            cleaned.isInverted = !cleansUp
+            let events = harness.syncCoordinator.events()
+            let listener = Task {
+                for await event in events {
+                    if case .sourceCleanedUp = event { cleaned.fulfill() }
+                }
+            }
+            await harness.syncCoordinator.cleanupRemovedSourcesIfPresent([
+                MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "lib-1")
+            ])
+            await fulfillment(of: [cleaned], timeout: cleansUp ? 2 : 0.3)
+            listener.cancel()
+
+            if cleansUp, seed == .track || seed == .sourceRow {
+                let remaining = try await harness.libraryRepository.fetchMusicSources()
+                XCTAssertTrue(remaining.isEmpty, "\(seed) left its source row")
+            }
+        }
+    }
+
     func testCacheManagerClearAllCachesUsesSourceCleanupWorker() async throws {
         let harness = makeHarness(clearAllLyricsCaches: { 3 })
         try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: "plex:account-1:server-1:lib-1")
@@ -1436,7 +1500,9 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         credentialReadUnavailable: Bool = false,
         clearLyricsCache: @escaping SourceCacheCleanupService.LyricsCacheCleanup = { _ in 0 },
         clearAllLyricsCaches: @escaping SourceCacheCleanupService.AllLyricsCacheCleanup = { 0 },
-        clearSharedArtworkCaches: @escaping SourceCacheCleanupService.SharedArtworkCacheCleanup = {}
+        clearSharedArtworkCaches: @escaping SourceCacheCleanupService.SharedArtworkCacheCleanup = {},
+        hasLibraryData: SourceCacheCleanupService.SourceDataCheck? = nil,
+        hasLyricsCache: @escaping SourceCacheCleanupService.SourceDataCheck = { _ in false }
     ) -> Harness {
         let keychain = TestKeychain()
         if credentialReadUnavailable {
@@ -1491,7 +1557,11 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             },
             clearLyricsCache: clearLyricsCache,
             clearAllLyricsCaches: clearAllLyricsCaches,
-            clearSharedArtworkCaches: clearSharedArtworkCaches
+            clearSharedArtworkCaches: clearSharedArtworkCaches,
+            hasLibraryData: hasLibraryData ?? { sourceKey in
+                try await libraryRepository.hasStoredData(forSourceCompositeKey: sourceKey)
+            },
+            hasLyricsCache: hasLyricsCache
         )
         syncCoordinator.sourceCacheCleanupService = sourceCacheCleanupService
 

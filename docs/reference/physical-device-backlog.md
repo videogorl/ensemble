@@ -82,6 +82,13 @@ These items were deferred on 2026-11-02 and written for the iPhone 16 Pro. On
 2026-11-09 Felicity moved them to the iPhone SE. They are not passed and not
 verified until they run there.
 
+### Skip cleanup of empty disabled libraries, `fix/skip-empty-disabled-library-cleanup`
+
+- Cold launch on the iPhone SE with three disabled Plex libraries: the session log shows three
+  `Skipped cleanup for empty removed source` lines and no `Cleaning up data for removed source` lines.
+- Disable an enabled library on the phone: its data is still cleaned up (`Cleaning up data for removed source`).
+- Disable a library on another device: after iCloud sync, its data is still cleaned up here.
+
 ### TV Now Playing scene accessory, 2026-10-17 fix
 
 At `c273feb5`, Felicity confirmed on 2026-10-18 that the view looks good on her

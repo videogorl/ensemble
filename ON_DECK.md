@@ -887,7 +887,10 @@ Request → `playing`, from session logs (app state, not audible output):
 - **Safety:** an unavailable server cannot enter this path (only an explicit synced `isEnabled == false` does), and
   `shouldPreserveSourceKey` and the persistence fence guard the delete.
 - **Separate from** the per-launch cursor removal (`invalidatePlexReconciliationCursors`), which hits enabled sources.
-- **Proposed fix (not approved):** in `cleanupRemovedSourcesIfPresent`, skip a source that has no rows (one count query)
-  before entering the fence. Keeps the restore-eviction contract. The alternative, not reporting unchanged disabled
-  libraries at all, is simpler but drops that eviction.
-- **Open:** whether `.sourceCleanedUp` also triggers the Siri index and library-map rebuilds seen right after each pass.
+- **Status:** implemented on `fix/skip-empty-disabled-library-cleanup`, awaiting phone check (owed rows in
+  `docs/reference/physical-device-backlog.md`). `cleanupRemovedSourcesIfPresent` skips a Plex source with no sync running
+  and nothing stored (library rows, source row, hub items, downloads, targets, pending mutations, artwork files,
+  lyrics cache, library cursor); any failed check or Apple Music source still runs the full cleanup. Remove this entry
+  once the phone check passes.
+- **Resolved:** `.sourceCleanedUp` only triggers reloads in the Library, Search, Home and Playlist view models; the Siri
+  index and background refresh do not subscribe. Skipped passes drop those redundant reloads too.

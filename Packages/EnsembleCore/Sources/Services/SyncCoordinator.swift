@@ -2060,10 +2060,36 @@ public final class SyncCoordinator {
         let uniqueSources = Array(Set(sources))
         guard !uniqueSources.isEmpty else { return }
 
-        // The source row may not exist yet while an in-flight provider is writing its
-        // first batch. Always enter the source fence, wait, and perform the final purge.
         for source in uniqueSources {
+            // A running sync may still be writing its first batch before any row exists, so only a
+            // source with no sync and no stored data may be skipped.
+            if await hasNothingToClean(source) {
+                libraryRepository.discardArtworkInvalidations(forSourceCompositeKey: source.compositeKey)
+                playlistRepository.discardArtworkInvalidations(forSourceCompositeKey: source.compositeKey)
+                EnsembleLogger.debug("Skipped cleanup for empty removed source: \(source.compositeKey)")
+                continue
+            }
             await cleanupRemovedSource(source)
+        }
+    }
+
+    /// True only when every cleanup category is proven empty. A failed check, an Apple Music source
+    /// (extra in-memory and shared-cache state) or a missing cleanup service answers false.
+    private func hasNothingToClean(_ source: MusicSourceIdentifier) async -> Bool {
+        let sourceKey = source.compositeKey
+        guard source.type != .appleMusic,
+              !accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceKey),
+              activeSourceSyncs[sourceKey] == nil,
+              syncProviders[sourceKey] == nil,
+              let sourceCacheCleanupService else { return false }
+        do {
+            if let syncCursorRepository,
+               try await syncCursorRepository.fetchCursor(scopeKey: sourceKey, scopeType: .library) != nil {
+                return false
+            }
+            return try await !sourceCacheCleanupService.hasStoredData(forSource: sourceKey)
+        } catch {
+            return false
         }
     }
 
