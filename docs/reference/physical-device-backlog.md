@@ -924,3 +924,11 @@ Wi-Fi then launched on cellular (the SE has no SIM; needs the 16 Pro); a third u
 | Check | Status |
 | --- | --- |
 | Install the diagnostic build, run two Apple Music playlist syncs, and read the session log's `compositePath stored … incoming … valuesDiffer=…` lines for `p.1YeW3rpCkzaPXR` and `p.V7VYlM7CoLPe16` (`ON_DECK.md`, "Fix did not hold"). Record scheme/host/path shape, query names, and which part differs between the two syncs; then choose the fix | Owed |
+| Done 2026-11-12 (build `202611121404.6631`): the two playlists' artwork URLs are pre-signed (`X-Amz-Date`, `X-Amz-Signature` differ per read). Fix built, see below | Diagnosed |
+
+## iPhone 16 Pro — Apple Music signed artwork header (`fix/apple-music-signed-artwork-header`)
+
+| Check | Status |
+| --- | --- |
+| Install the build, run two Apple Music playlist syncs. For `p.1YeW3rpCkzaPXR` and `p.V7VYlM7CoLPe16`: the log shows `differs: compositePath(signature)` only (after the first sync, which may also show it once) and the summary line `Playlists …: wrote 0, removed 0, refreshed 2 signed artwork paths`, no `artworkInvalidated` or "marked stale" lines and no artwork re-download lines for them, and their artwork still displays in the Playlists list and detail, also after a force-quit and relaunch | Owed |
+| A playlist whose cover really changes in Apple Music still logs `differs: compositePath`, is invalidated, and shows the new cover | Owed |

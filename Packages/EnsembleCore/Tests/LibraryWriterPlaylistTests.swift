@@ -362,6 +362,55 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         XCTAssertEqual(AppleMusicArtworkPath.stable("musicKit://artwork/x?at=item"), "musicKit://artwork/x?at=item")
     }
 
+    /// MusicKit may hand back a pre-signed artwork URL that is new on every read. The row keeps the latest URL,
+    /// but a signature-only difference is not a change: nothing counts as written, so nothing is published
+    /// or re-indexed, and no artwork is invalidated. A different image, or one appearing or going, still is.
+    func testASignatureOnlyArtworkChangeRefreshesTheRowWithoutCountingAsAChange() async throws {
+        let f = try makeFixture()
+        func listed(_ url: String?, title: String? = nil, body: [PlaylistTrackSnapshot]? = nil) -> PlaylistBatch {
+            let base = header("signed", at: nil, count: body?.count ?? 0)
+            let input = PlaylistUpsertInput(
+                ratingKey: base.ratingKey, key: base.key, title: title ?? base.title, summary: nil,
+                compositePath: url, isSmart: false, duration: 0, trackCount: 0,
+                dateAdded: nil, dateModified: base.dateModified, lastPlayed: nil
+            )
+            return PlaylistBatch(entries: [PlaylistEntry(header: input, body: body)], queryStartedAt: .now)
+        }
+        func signed(_ image: String, _ signature: String) -> String {
+            "https://bucket.s3.amazonaws.com/\(image).jpg?X-Amz-Algorithm=A&X-Amz-Date=\(signature)&X-Amz-Signature=\(signature)&size=1200"
+        }
+        func storedPath() async throws -> String? {
+            try await f.playlists.fetchPlaylistSyncStates(forSource: scope)["signed"]?.compositePath
+        }
+        let cases: [(name: String, url: String?, changed: Int, invalidations: Int, stored: String?)] = [
+            ("first sight", signed("a", "1"), 1, 0, signed("a", "1")),
+            ("new signature only", signed("a", "2"), 0, 0, signed("a", "2")),
+            ("same string", signed("a", "2"), 0, 0, signed("a", "2")),
+            ("different image", signed("b", "3"), 1, 1, signed("b", "3")),
+            ("artwork gone", nil, 1, 1, nil),
+            ("artwork back", signed("b", "4"), 1, 1, signed("b", "4")),
+        ]
+        for testCase in cases {
+            _ = f.playlists.drainArtworkInvalidationInfo()
+            let result = try await f.writer.apply(listed(testCase.url), for: scope)
+            let stored = try await storedPath()
+            XCTAssertEqual(result.changedPlaylists, testCase.changed, testCase.name)
+            XCTAssertEqual(f.playlists.drainArtworkInvalidationInfo().count, testCase.invalidations, testCase.name)
+            XCTAssertEqual(stored, testCase.stored, testCase.name)
+        }
+        let states = try await f.playlists.fetchPlaylistSyncStates(forSource: scope)
+        let state = try XCTUnwrap(states["signed"])
+        let incoming = listed(signed("b", "5")).entries[0].header
+        XCTAssertEqual(state.headerDifferences(from: incoming), ["compositePath(signature)"])
+        XCTAssertEqual(f.hooked.count("upsert:"), 5)
+
+        // A new signature does not hide a real change that arrives with it.
+        let withTitle = try await f.writer.apply(listed(signed("b", "6"), title: "Renamed"), for: scope)
+        XCTAssertEqual(withTitle.changedPlaylists, 1, "signature plus another header field")
+        let withBody = try await f.writer.apply(listed(signed("b", "7"), title: "Renamed", body: tracks("a")), for: scope)
+        XCTAssertEqual(withBody.changedPlaylists, 1, "signature plus a body")
+    }
+
     func testAnOlderHeaderChangesNothing() async throws {
         let f = try makeFixture()
         try await f.writer.apply(list(["p1"], bodies: ["p1": tracks("a")], at: t0, modified: 200), for: scope)

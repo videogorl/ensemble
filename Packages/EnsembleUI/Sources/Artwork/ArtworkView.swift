@@ -30,6 +30,13 @@ public struct ArtworkView: View {
         request.stableBlurCacheKey
     }
 
+    /// The load task's identity. `loadID` is stable across a re-signed URL, so a view that has no image yet also
+    /// keys on the raw path: a failed load runs again when a refreshed URL arrives. A resolved view drops the
+    /// path, so a later re-sign neither reloads it nor makes it flicker.
+    static func loadTaskID(loadID: String, invalidationToken: Int, rawPath: String?, isResolved: Bool) -> String {
+        "\(loadID)|\(invalidationToken)|\(isResolved ? "" : rawPath ?? "")"
+    }
+
     private static func imagePriority(for size: ArtworkSize) -> ArtworkImagePriority {
         switch size {
         case .tiny, .thumbnail, .card, .small:
@@ -105,7 +112,9 @@ public struct ArtworkView: View {
                     .contentShape(artworkShape)
             }
         }
-        .task(id: "\(loadID)|\(invalidationToken)") {
+        .task(id: Self.loadTaskID(
+            loadID: loadID, invalidationToken: invalidationToken, rawPath: request.path, isResolved: resolvedImage != nil
+        )) {
             guard resolvedImage == nil || currentArtworkIdentity != loadID else { return }
             await loadArtwork()
         }

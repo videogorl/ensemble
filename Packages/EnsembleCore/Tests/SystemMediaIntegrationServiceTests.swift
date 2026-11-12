@@ -114,6 +114,24 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
         XCTAssertTrue(SiriMediaIndexStore.hasMaterialChanges(from: nil, to: regenerated))
     }
 
+    /// A playlist's pre-signed artwork URL is re-signed on every read; the index must not see that as a change.
+    func testSiriIndexIgnoresAPlaylistArtworkSignatureButNotItsImage() {
+        let stack = CoreDataStack.inMemory()
+        func item(_ url: String) -> SiriMediaIndexItem {
+            let playlist = CDPlaylist(context: stack.viewContext)
+            playlist.ratingKey = "p1"
+            playlist.key = "p1"
+            playlist.title = "Mix"
+            playlist.compositePath = url
+            return SiriMediaIndexStore.indexItem(for: playlist, sourceName: nil)
+        }
+        func index(_ url: String) -> SiriMediaIndex { SiriMediaIndex(items: [item(url)]) }
+        let base = "https://b.s3.amazonaws.com/a.jpg?X-Amz-Date=1&X-Amz-Signature=1"
+
+        XCTAssertFalse(SiriMediaIndexStore.hasMaterialChanges(from: index(base), to: index(base.replacingOccurrences(of: "=1", with: "=2"))))
+        XCTAssertTrue(SiriMediaIndexStore.hasMaterialChanges(from: index(base), to: index(base.replacingOccurrences(of: "a.jpg", with: "b.jpg"))))
+    }
+
     func testPlaybackStartContextDonationEligibilityRequiresAppUIReference() {
         let reference = makeReference(kind: .album)
 

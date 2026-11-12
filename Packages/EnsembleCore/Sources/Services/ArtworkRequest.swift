@@ -219,7 +219,7 @@ public struct ArtworkRequest: Sendable {
                 identity.sourceCompositeKey ?? effectiveSourceKey ?? "no-source",
                 identity.kind.rawValue,
                 identity.ratingKey,
-                identity.sourcePath,
+                ArtworkPathIdentity.of(identity.sourcePath) ?? identity.sourcePath,
                 identity.dateModifiedSeconds.map(String.init) ?? "no-date"
             ].joined(separator: "|")
         }
