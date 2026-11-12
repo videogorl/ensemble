@@ -244,7 +244,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 sourceCompositeKey: nil,
                 displayName: fallbackQuery,
                 artistHint: artistHintForPayload,
-                shuffle: requestedShuffle
+                shuffle: requestedShuffle,
+                kindIsUnspecified: isKindUnspecified(mediaType: mediaType, query: fallbackQuery) ? true : nil
             )
         }
 
@@ -374,7 +375,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             sourceCompositeKey: nil,
             displayName: query,
             artistHint: artistHint,
-            shuffle: shuffle
+            shuffle: shuffle,
+            kindIsUnspecified: isKindUnspecified(mediaType: mediaType, query: query) ? true : nil
         )
 
         let identifier: String
@@ -408,6 +410,11 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         case .playlist:
             return .playlist
         }
+    }
+
+    /// Siri named no kind and the name implies none: the app resolves it across all kinds, as the ranking here does.
+    private func isKindUnspecified(mediaType: INMediaItemType, query: String) -> Bool {
+        mediaType == .unknown && SiriMediaIndexResolver.kindInferred(from: query) == nil
     }
 
     private func primaryKindFor(mediaType: INMediaItemType, query: String? = nil) -> SiriMediaKind {

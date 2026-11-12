@@ -649,6 +649,40 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         )
     }
 
+    /// A name Siri gave no kind for is resolved across all kinds among visible items: the exact album beats a longer
+    /// song title, unless the album is in a hidden source; a song kind asked for explicitly stays a song.
+    func testUnspecifiedKindResolvesAcrossVisibleKindsOnly() async throws {
+        let hiddenKey = "plex:account-1:server-2:library-2"
+        let cases: [(name: String, albumSource: String, hidden: Set<String>, unspecified: Bool, expectedFirstTrack: String)] = [
+            ("unknown kind, visible album", "plex:account-1:server-1:library-1", [], true, "disc-t1"),
+            ("unknown kind, album in a hidden source", hiddenKey, [hiddenKey], true, "disc-live"),
+            ("explicit song kind", "plex:account-1:server-1:library-1", [], false, "disc-live")
+        ]
+        for testCase in cases {
+            let fixture = try await makeFixture(hiddenSourceKeys: testCase.hidden)
+            let repository = fixture.libraryRepository
+            try await repository.batchUpsertAlbums([
+                AlbumUpsertInput(
+                    ratingKey: "disc-album", key: "/a/disc", title: "Discovery", artistName: "Band", albumArtist: "Band", artistRatingKey: nil,
+                    summary: nil, thumbPath: nil, artPath: nil, year: 2001, trackCount: 1, dateAdded: nil, dateModified: nil, rating: nil
+                )
+            ], sourceCompositeKey: testCase.albumSource)
+            _ = try await repository.upsertTrack(
+                ratingKey: "disc-t1", key: "/library/metadata/disc-t1", title: "One More Time", artistName: "Band",
+                albumName: "Discovery", albumRatingKey: "disc-album", trackNumber: 1, discNumber: 1, duration: 200_000, thumbPath: nil,
+                streamKey: "/library/parts/disc-t1.mp3", dateAdded: nil, dateModified: nil, lastPlayed: nil, rating: nil,
+                playCount: 0, sourceCompositeKey: testCase.albumSource
+            )
+            try await upsert(repository, "disc-live", "Discovery Live", artist: "Band", album: "Live", source: fixture.librarySourceKey)
+
+            try await fixture.coordinator.execute(payload: SiriPlaybackRequestPayload(
+                kind: .track, entityID: "Discovery", displayName: "Discovery",
+                kindIsUnspecified: testCase.unspecified ? true : nil
+            ))
+            XCTAssertEqual(fixture.playbackService.lastPlayedTrack?.id, testCase.expectedFirstTrack, testCase.name)
+        }
+    }
+
     /// A pinned song in a hidden library stands in only for the visible song with the same merge identity (title,
     /// artist, album, track and disc number, duration); a same-titled song by another artist, or a pinned song without
     /// the metadata to tell, is not found.

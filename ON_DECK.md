@@ -779,3 +779,10 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Impact: typing such a name in a Play Album or Play Artist picker finds nothing when the item is outside the capped index.
 - Next step: add `mapAlbums` / `mapArtists` batched, cancellable scans beside `mapTracks` (with defaults for test doubles) and
   score titles in `libraryCandidates` as for songs, keeping the best `limit × 10`.
+
+## A Focus restoration run that never completes is never retried (confirmed by reading)
+- Evidence: `SharedRestoration.ensure` keeps one `run` until `work` returns; if `EnsembleFocusFilter.refreshCurrent()` never
+  returns, every later caller joins that run, times out and fails closed for the life of the process
+  (`SharedRestoration.swift`, `BackgroundPlaybackReadiness.swift` `restoreFocusFilter`).
+- Impact: in that process Play pickers return no entities and background playback throws until the app is relaunched.
+- Next step: bound the underlying run (cancel it after a longer limit) or let `ensure` start a new run after a timeout.

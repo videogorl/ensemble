@@ -121,6 +121,8 @@ public final class SiriPlaybackCoordinator {
         )
 
         switch payload.kind {
+        case .track where payload.kindIsUnspecified == true:
+            try await executePlayUnspecifiedKind(request: request)
         case .track:
             try await executePlayTrack(request: request)
         case .album:
@@ -130,6 +132,27 @@ public final class SiriPlaybackCoordinator {
         case .playlist:
             try await executePlayPlaylist(request: request)
         }
+    }
+
+    /// Plays the best match for a name Siri gave no kind for, across songs, albums, artists and playlists among visible
+    /// items only, ranked by the resolver the extension ranks with when the index is current (artist hint included).
+    public func executePlayUnspecifiedKind(request: SiriPlaybackRequest) async throws {
+        guard let name = request.displayName, !name.isEmpty else { throw SiriPlaybackCoordinatorError.mediaNotFound(.track) }
+        var candidates = try await libraryCandidates(kind: nil, matching: name, limit: 10)
+        candidates += try await visiblePlaylists().visible.map {
+            SiriMediaIndexItem(
+                kind: .playlist, id: $0.id, displayName: $0.title, sourceCompositeKey: $0.sourceCompositeKey,
+                isSmartPlaylist: $0.isSmart
+            )
+        }
+        guard let top = SiriMediaIndexResolver.rankCandidates(
+            for: name, requestedKinds: nil, index: SiriMediaIndex(items: candidates),
+            artistHint: request.artistHint, minimumScore: SiriMediaIndexResolver.defaultMinimumMatchScore
+        ).first?.item else { throw SiriPlaybackCoordinatorError.mediaNotFound(.track) }
+        try await play(top.kind, request: SiriPlaybackRequest(
+            entityID: top.id, sourceCompositeKey: top.sourceCompositeKey, displayName: top.displayName,
+            artistHint: request.artistHint, shuffle: request.shuffle
+        ))
     }
 
     /// Resolves and plays a single track.

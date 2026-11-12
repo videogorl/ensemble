@@ -244,6 +244,9 @@ public struct SiriPlaybackRequestPayload: Codable, Sendable, Equatable {
     public let displayName: String?
     public let artistHint: String?
     public let shuffle: Bool?
+    /// True when Siri named no kind and the name implies none: `kind` is then `.track` (what an earlier build
+    /// reads) and the app resolves the name across all kinds. Absent in payloads from earlier builds.
+    public let kindIsUnspecified: Bool?
 
     public init(
         schemaVersion: Int = SiriPlaybackRequestPayload.currentSchemaVersion,
@@ -252,9 +255,11 @@ public struct SiriPlaybackRequestPayload: Codable, Sendable, Equatable {
         sourceCompositeKey: String? = nil,
         displayName: String? = nil,
         artistHint: String? = nil,
-        shuffle: Bool? = nil
+        shuffle: Bool? = nil,
+        kindIsUnspecified: Bool? = nil
     ) {
         self.schemaVersion = schemaVersion
+        self.kindIsUnspecified = kindIsUnspecified
         self.kind = kind
         self.entityID = entityID
         self.sourceCompositeKey = sourceCompositeKey
@@ -271,7 +276,8 @@ public struct SiriPlaybackRequestPayload: Codable, Sendable, Equatable {
             sourceCompositeKey: sourceCompositeKey,
             displayName: displayName,
             artistHint: artistHint,
-            shuffle: shuffle
+            shuffle: shuffle,
+            kindIsUnspecified: kindIsUnspecified
         )
     }
 }

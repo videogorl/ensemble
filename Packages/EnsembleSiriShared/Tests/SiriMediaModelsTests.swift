@@ -184,4 +184,14 @@ final class SiriMediaModelsTests: XCTestCase {
         )
         XCTAssertNil(SystemMediaSpotlightIdentity.sourceScopedIdentifier(fromSpotlightIdentifier: reference.sourceScopedIdentifier))
     }
+
+    /// A payload from an earlier build (no `kindIsUnspecified`) still decodes, and the flag survives re-encoding.
+    func testPayloadWithoutTheUnspecifiedKindFlagDecodes() throws {
+        let old = #"{"schemaVersion":1,"kind":"track","entityID":"Discovery","displayName":"Discovery"}"#
+        let decoded = try JSONDecoder().decode(SiriPlaybackRequestPayload.self, from: Data(old.utf8))
+        XCTAssertNil(decoded.kindIsUnspecified)
+        let flagged = SiriPlaybackRequestPayload(kind: .track, entityID: "x", kindIsUnspecified: true).updatingShuffle(true)
+        let roundTrip = try JSONDecoder().decode(SiriPlaybackRequestPayload.self, from: JSONEncoder().encode(flagged))
+        XCTAssertEqual(roundTrip.kindIsUnspecified, true)
+    }
 }
