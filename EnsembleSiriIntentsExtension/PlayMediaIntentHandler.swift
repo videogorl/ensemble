@@ -82,11 +82,13 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             index: index,
             artistHint: artistHint
         )
-        guard let top = ranked.first else {
+        guard let top = ranked?.first, let ranked else {
+            // No match, or a playlist among the best that cannot be shown to be visible yet (ranked is nil): the app
+            // resolves the name itself.
             logger.debug("resolveMediaItems: no ranked match; returning fallback media item")
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
-                mediaType: requestedMediaType,
+                mediaType: ranked == nil && requestedMediaType == .unknown ? .playlist : requestedMediaType,
                 artistHint: artistHint,
                 shuffle: requestedShuffle
             )
@@ -221,7 +223,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                     mediaType: mediaType,
                     index: index,
                     artistHint: artistHintForPayload
-               ).first,
+               )?.first,
                top.score >= Self.payloadResolutionThreshold {
                 logger.debug("payloadIdentifier: resolved fallback payload from index top candidate")
                 return SiriPayloadIdentifier(
@@ -284,7 +286,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         mediaType: INMediaItemType,
         index: SiriMediaIndex,
         artistHint: String? = nil
-    ) -> [RankedItem] {
+    ) -> [RankedItem]? {
         let ranked = SiriMediaIndexResolver.rankCandidates(
             for: query,
             requestedKinds: mediaType == .unknown ? nil : kindsFor(mediaType: mediaType),

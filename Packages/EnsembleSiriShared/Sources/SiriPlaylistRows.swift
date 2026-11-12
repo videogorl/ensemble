@@ -41,6 +41,49 @@ public enum SiriPlaylistRows {
         }
     }
 
+    /// `presented` for a ranked list against the published presentation. Nil means the presentation is unavailable
+    /// (never published, unreadable, or for another index) and a playlist is among the best candidates: nothing can be
+    /// shown to be visible, so the caller defers to the app, which resolves the name itself, rather than let a
+    /// suppressed playlist change the answer. Otherwise the playlists are dropped when unavailable.
+    public static func presented(
+        _ ranked: [SiriMediaIndexResolver.RankedItem],
+        index: SiriMediaIndex,
+        presentation: SiriPlaylistPresentation?,
+        tieMargin: Double
+    ) -> [SiriMediaIndexResolver.RankedItem]? {
+        if let presentation, presentation.covers(index) {
+            return presented(
+                ranked,
+                among: SiriMediaIndexResolver.items(in: index, kind: .playlist),
+                preferences: presentation.preferences,
+                isSourceVisible: presentation.isSourceVisible
+            )
+        }
+        guard let top = ranked.first?.score else { return [] }
+        if ranked.contains(where: { $0.item.kind == .playlist && $0.score >= top - tieMargin }) { return nil }
+        return ranked.filter { $0.item.kind != .playlist }
+    }
+
+    /// The name Voice Add offers for a playlist: its title, plus the server name only when another offered playlist
+    /// shares the title.
+    public static func destinationName(for item: SiriMediaIndexItem, among offered: [SiriMediaIndexItem]) -> String {
+        let title = PlexPlaylistMergeRules.normalizedTitle(item.displayName)
+        let shared = offered.contains {
+            $0.scopedID != item.scopedID && PlexPlaylistMergeRules.normalizedTitle($0.displayName) == title
+        }
+        guard shared, let server = item.sourceName else { return item.displayName }
+        return "\(item.displayName) (\(server))"
+    }
+
+    /// The offered playlist a destination name (as `destinationName` produced it) stands for; nil unless exactly one.
+    public static func destination(named name: String, among offered: [SiriMediaIndexItem]) -> SiriMediaIndexItem? {
+        let key = PlexPlaylistMergeRules.normalizedTitle(name)
+        let matches = offered.filter {
+            PlexPlaylistMergeRules.normalizedTitle(destinationName(for: $0, among: offered)) == key
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
     /// Distinct rows: playlists by identity, never by name (two servers may share a name and a title); other kinds by
     /// the index's equivalence rule.
     public static func deduplicated(_ rows: [SiriMediaIndexItem]) -> [SiriMediaIndexItem] {

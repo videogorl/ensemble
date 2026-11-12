@@ -2,6 +2,7 @@ import EnsembleAPI
 import EnsembleDomain
 import EnsemblePersistence
 import EnsembleSiriShared
+import EnsembleSupport
 import Foundation
 
 /// Resolved playback request used by Siri execution entry points.
@@ -661,6 +662,15 @@ public final class SiriPlaybackCoordinator {
             for: Playlist(from: playlist), among: visible, preferences: mergingPreferences()
         ) else { return [] }
         return group.playlists.compactMap { storedBySourceID[$0.sourceScopedID] }
+    }
+
+    /// The visible playlist a spoken name stands for: the exact title among the playlists the screen shows, on
+    /// `source` when several servers share it.
+    public func visiblePlaylist(named name: String, preferringSource source: String?) async throws -> CDPlaylist? {
+        let title = PlexPlaylistMergeRules.normalizedTitle(name)
+        let (visible, stored) = try await visiblePlaylists()
+        let matches = visible.filter { PlexPlaylistMergeRules.normalizedTitle($0.title) == title }
+        return (matches.first { $0.sourceCompositeKey == source } ?? matches.first).flatMap { stored[$0.sourceScopedID] }
     }
 
     /// The playlist "add these tracks to `playlist`" lands on, by the Add to Playlist sheet's rule: for a merged group

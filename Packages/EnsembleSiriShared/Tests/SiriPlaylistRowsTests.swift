@@ -77,4 +77,34 @@ final class SiriPlaylistRowsTests: XCTestCase {
         XCTAssertFalse(SiriPlaylistPresentation(indexGeneratedAt: Date(timeIntervalSince1970: 9)).covers(index))
         XCTAssertFalse(SiriPlaylistPresentation().covers(index))
     }
+
+    /// Voice Add offers one name per playlist, with the server named only where two offered playlists share a title,
+    /// and the chosen name resolves back to exactly that playlist. An unavailable presentation is not "no match": a
+    /// playlist among the best candidates defers to the app instead of letting another kind win.
+    func testVoiceDestinationNamesRoundTripAndUnavailablePresentationDefers() {
+        let home = playlist("road-home", "Road Trip", server: "home")
+        let away = playlist("road-away", "Road Trip", server: "away")
+        let solo = playlist("solo", "Solo", server: "home")
+        let offered = [home, away, solo]
+        XCTAssertEqual(offered.map { SiriPlaylistRows.destinationName(for: $0, among: offered) },
+                       ["Road Trip (Home)", "Road Trip (Away)", "Solo"])
+        for item in offered {
+            let name = SiriPlaylistRows.destinationName(for: item, among: offered)
+            XCTAssertEqual(SiriPlaylistRows.destination(named: name, among: offered), item, name)
+        }
+        XCTAssertNil(SiriPlaylistRows.destination(named: "Road Trip", among: offered), "an unqualified shared title is not a choice")
+
+        let album = SiriMediaIndexItem(kind: .album, id: "a", displayName: "Focus", sourceCompositeKey: "plex:account-1:home")
+        let index = SiriMediaIndex(items: [home, album])
+        typealias Ranked = SiriMediaIndexResolver.RankedItem
+        let cases: [(name: String, ranked: [Ranked], expected: [String]?)] = [
+            ("playlist ties the best: defer to the app", [.init(item: home, score: 0.9), .init(item: album, score: 0.85)], nil),
+            ("playlist trails far behind: the other kind stands", [.init(item: album, score: 0.9), .init(item: home, score: 0.65)], ["a"]),
+            ("nothing ranked", [], [])
+        ]
+        for testCase in cases {
+            let rows = SiriPlaylistRows.presented(testCase.ranked, index: index, presentation: nil, tieMargin: 0.1)
+            XCTAssertEqual(rows?.map(\.item.id), testCase.expected, testCase.name)
+        }
+    }
 }

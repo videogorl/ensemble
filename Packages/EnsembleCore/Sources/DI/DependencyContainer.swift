@@ -678,6 +678,9 @@ public final class DependencyContainer: @unchecked Sendable {
                 toastCenter: core.toastCenter,
                 addTarget: { [siriPlaybackCoordinator] playlist, tracks in
                     try await siriPlaybackCoordinator.addTarget(for: playlist, tracks: tracks)
+                },
+                resolveName: { [siriPlaybackCoordinator] name, source in
+                    try await siriPlaybackCoordinator.visiblePlaylist(named: name, preferringSource: source)
                 }
             )
         }
