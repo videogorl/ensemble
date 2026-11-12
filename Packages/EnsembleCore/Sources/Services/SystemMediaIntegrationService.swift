@@ -287,9 +287,11 @@ public final class SystemMediaIntegrationService {
     private static let spotlightLastFullRefreshKey = "SystemMediaIntegrationService.lastSpotlightFullRefresh"
     /// Bumped when what Spotlight holds for a kind of item changes shape. A device below it is reconciled once: items
     /// an earlier build indexed that the current projection no longer presents are deleted, whatever the stored
-    /// baseline says. 1: playlists are indexed as the playlist screen shows them.
+    /// baseline says, and every presented playlist is indexed again whatever the baseline says it already holds.
+    /// 1: playlists are indexed as the playlist screen shows them. 2: also re-adds presented playlists a baseline
+    /// wrongly recorded as indexed (a pass that deleted an item and stopped before indexing its replacement).
     private static let spotlightProjectionVersionKey = "SystemMediaIntegrationService.spotlightProjectionVersion"
-    private static let spotlightProjectionVersion = 1
+    private static let spotlightProjectionVersion = 2
     /// A Spotlight refresh that was skipped or paused because the app was not active; it runs on the next activation.
     private var spotlightRefreshDeferred = false
     private static let siriVocabularyLimit = 750
@@ -525,16 +527,26 @@ public final class SystemMediaIntegrationService {
         let requiresFullRefresh = !hadSpotlightBaseline || (lastFullRefresh.map {
             Date().timeIntervalSince($0) >= Self.spotlightFullRefreshInterval
         } ?? true)
-        let indexItems = Self.spotlightItemsToIndex(
+        var indexItems = Self.spotlightItemsToIndex(
             previous: appliedIndex,
             current: index,
             requiresFullRefresh: requiresFullRefresh
         )
+        if needsProjectionReconcile {
+            let queued = Set(indexItems.map(\.reference.sourceScopedIdentifier))
+            indexItems += index.items.filter { $0.kind == .playlist && !queued.contains($0.reference.sourceScopedIdentifier) }
+        }
         guard !indexItems.isEmpty || !staleReferences.isEmpty || requiresFullRefresh else {
             EnsembleLogger.debug("[SystemMedia] Spotlight index unchanged; skipped update")
             // Nothing stale was found, so the reconcile is done.
             UserDefaults.standard.set(Self.spotlightProjectionVersion, forKey: Self.spotlightProjectionVersionKey)
             return
+        }
+
+        // Deletions are applied now, so the baseline must stop claiming those items before anything can interrupt this
+        // pass: otherwise a later pass that wants one of them back finds it "already indexed" and never adds it.
+        if deletionsSucceeded, !staleReferences.isEmpty, let appliedIndex {
+            try? await siriMediaIndexStore.saveSpotlightAppliedIndex(Self.baseline(removing: staleReferences, from: appliedIndex))
         }
 
         let availableArtworkFilenames = Self.cachedArtworkFilenames()
@@ -750,6 +762,16 @@ public final class SystemMediaIntegrationService {
             }
             return reference
         }
+    }
+
+    /// `baseline` without the items whose Spotlight entries were just deleted.
+    static func baseline(removing references: [SystemMediaReference], from baseline: SiriMediaIndex) -> SiriMediaIndex {
+        let removed = Set(references.map(\.sourceScopedIdentifier))
+        return SiriMediaIndex(
+            schemaVersion: baseline.schemaVersion,
+            generatedAt: baseline.generatedAt,
+            items: baseline.items.filter { !removed.contains($0.reference.sourceScopedIdentifier) }
+        )
     }
 
     static func spotlightItemsToIndex(

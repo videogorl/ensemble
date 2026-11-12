@@ -45,6 +45,51 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
         )
     }
 
+    /// Hide and unhide one copy of a merged group while a pass is interrupted after its deletions: the group's item must
+    /// be back in Spotlight at the end. Each step applies deletions, then indexing, like the service; `interrupted`
+    /// stops before indexing and leaves the baseline as the service does.
+    func testMergedGroupItemSurvivesHideUnhideWithAnInterruptedPass() {
+        func playlist(_ id: String, _ server: String, _ duration: Double) -> SiriMediaIndexItem {
+            SiriMediaIndexItem(kind: .playlist, id: id, displayName: "focus", sourceCompositeKey: "plex:account:\(server)", duration: duration, sourceName: server)
+        }
+        let home = playlist("h", "home", 20), away = playlist("a", "away", 100)
+        var off = EnsembleMergingPreferences.default
+        off.mergePlaylists = false
+
+        // (name, catalog, merging off, interrupted after deletions)
+        let steps: [(String, [SiriMediaIndexItem], Bool, Bool)] = [
+            ("merged, both visible", [home, away], false, false),
+            ("home hidden, the group's lead moves; interrupted", [away], false, true),
+            ("home back, lead returns", [home, away], false, false),
+            ("per source", [home, away], true, false),
+            ("merged again; interrupted after deleting the non-lead copy", [home, away], false, true),
+            ("per source again", [home, away], true, false),
+            ("merged", [home, away], false, false)
+        ]
+        var spotlight = Set<String>()
+        var baseline: SiriMediaIndex?
+        for (name, catalog, perSource, interrupted) in steps {
+            let current = SystemMediaIntegrationService.spotlightIndex(
+                from: SiriMediaIndex(items: catalog), presentation: .init(preferences: perSource ? off : .default)
+            )
+            let stale = SystemMediaIntegrationService.staleSystemMediaReferences(previous: baseline, current: current)
+            let toIndex = SystemMediaIntegrationService.spotlightItemsToIndex(previous: baseline, current: current, requiresFullRefresh: false)
+            spotlight.subtract(stale.map(\.id))
+            if let baseline, !stale.isEmpty {
+                self.baselineAfterDeletion = SystemMediaIntegrationService.baseline(removing: stale, from: baseline)
+            } else {
+                self.baselineAfterDeletion = baseline
+            }
+            baseline = baselineAfterDeletion
+            if interrupted { continue }
+            spotlight.formUnion(toIndex.map(\.id))
+            baseline = current
+            XCTAssertEqual(spotlight, Set(current.items.map(\.id)), name)
+        }
+    }
+
+    private var baselineAfterDeletion: SiriMediaIndex?
+
     func testSiriIndexMaterialChangeIgnoresGenerationTimeButDetectsContentAndSchema() {
         let item = SiriMediaIndexItem(kind: .track, id: "track", displayName: "Original")
         let previous = SiriMediaIndex(
