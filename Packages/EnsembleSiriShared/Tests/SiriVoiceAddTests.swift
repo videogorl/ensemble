@@ -163,8 +163,9 @@ final class SiriVoiceAddTests: XCTestCase {
         }
     }
 
-    /// Concurrent writers each keep their entry: the read-modify-write is serialized.
-    func testConcurrentBreadcrumbRecordsAreNotLost() {
+    /// A writer that finds the lock held skips its record instead of waiting: the file stays valid, no entry is
+    /// duplicated, and writers that did run kept theirs.
+    func testContendedBreadcrumbRecordsAreSkippedNotCorrupted() {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("trail-\(UUID().uuidString).json")
         defer {
             try? FileManager.default.removeItem(at: url)
@@ -173,6 +174,16 @@ final class SiriVoiceAddTests: XCTestCase {
         DispatchQueue.concurrentPerform(iterations: 30) { step in
             SiriExtensionBreadcrumbs.record(SiriExtensionBreadcrumb(event: "e", outcome: "o", counts: ["step": step]), at: url)
         }
-        XCTAssertEqual(Set(SiriExtensionBreadcrumbs.drain(at: url).compactMap { $0.counts["step"] }).count, 30)
+        let steps = SiriExtensionBreadcrumbs.drain(at: url).compactMap { $0.counts["step"] }
+        XCTAssertFalse(steps.isEmpty)
+        XCTAssertEqual(steps.count, Set(steps).count, "no entry is duplicated")
+
+        // Held elsewhere: record and drain both return at once without touching the file.
+        let descriptor = open(url.appendingPathExtension("lock").path, O_CREAT | O_RDWR, 0o600)
+        XCTAssertEqual(flock(descriptor, LOCK_EX), 0)
+        defer { close(descriptor) }
+        SiriExtensionBreadcrumbs.record(SiriExtensionBreadcrumb(event: "held", outcome: "o"), at: url)
+        XCTAssertTrue(SiriExtensionBreadcrumbs.drain(at: url).isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 }

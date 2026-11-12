@@ -71,14 +71,14 @@ public enum SiriExtensionBreadcrumbs {
     }
 
     /// Runs `body` holding an exclusive `flock` on a sibling lock file, so the extension's append and the app's drain
-    /// never interleave across processes. Both critical sections are one small file, so a waiter blocks for
-    /// milliseconds; the kernel drops the lock if a holder dies. Nil, without running `body`, if the lock file
-    /// cannot be opened: the trail is best effort.
+    /// never interleave across processes. The lock is never waited for (a suspended holder would stall Siri's reply or
+    /// the app's activation): when it is held, or the lock file cannot be opened, `body` is skipped and nil returned.
+    /// The trail is best effort; a skipped drain leaves the entries for the next one.
     private static func withLock<T>(at url: URL, _ body: () -> T) -> T? {
         let descriptor = open(url.appendingPathExtension("lock").path, O_CREAT | O_RDWR, 0o600)
         guard descriptor >= 0 else { return nil }
         defer { close(descriptor) }
-        guard flock(descriptor, LOCK_EX) == 0 else { return nil }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return nil }
         defer { flock(descriptor, LOCK_UN) }
         return body()
     }

@@ -275,7 +275,7 @@ public final class SiriMediaIndexStore {
 
     /// Friendly server names per playlist (`ratingKey||sourceCompositeKey`). Where two sources would share a name for one title, the
     /// account is added so the rows still read differently.
-    private static func playlistSourceNames(
+    static func playlistSourceNames(
         for playlists: [CDPlaylist],
         presentation: (String) -> MusicSourcePresentation?
     ) -> [String: String] {

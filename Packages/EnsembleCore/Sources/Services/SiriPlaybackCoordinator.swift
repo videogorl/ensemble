@@ -669,10 +669,17 @@ public final class SiriPlaybackCoordinator {
     /// ambiguous, or names a smart playlist: nothing is written then.
     public func visiblePlaylist(named name: String) async throws -> CDPlaylist? {
         let (visible, stored) = try await visiblePlaylists()
-        let catalog = visible.map {
+        // The server names the extension's index carries (same function, same playlists), so a destination label
+        // the extension offered ("Focus (Home) 2") is generated identically here.
+        let sourceNames = SiriMediaIndexStore.playlistSourceNames(
+            for: try await playlistRepository.fetchPlaylists().filter { !hiddenMediaStore.snapshot.isHidden(Playlist(from: $0)) },
+            presentation: { accountManager.sourcePresentation(for: $0) }
+        )
+        let catalog = visible.map { playlist in
             SiriMediaIndexItem(
-                kind: .playlist, id: $0.id, displayName: $0.title, sourceCompositeKey: $0.sourceCompositeKey,
-                isSmartPlaylist: $0.isSmart
+                kind: .playlist, id: playlist.id, displayName: playlist.title, sourceCompositeKey: playlist.sourceCompositeKey,
+                isSmartPlaylist: playlist.isSmart,
+                sourceName: playlist.sourceCompositeKey.flatMap { sourceNames["\(playlist.id)||\($0)"] }
             )
         }
         let isSourceVisible = visibilityStore.playlistSourceVisibility(in: accountManager.sourceConfigurationSnapshot)
