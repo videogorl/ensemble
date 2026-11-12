@@ -589,6 +589,12 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             )
         }
         _ = try await repository.upsertTrack(
+            ratingKey: "rock-n-roll", key: "/library/metadata/rock-n-roll", title: "Rock'n'Roll", artistName: nil,
+            albumName: nil, albumRatingKey: nil, trackNumber: 1, discNumber: 1, duration: 180_000, thumbPath: nil,
+            streamKey: "/library/parts/rock-n-roll.mp3", dateAdded: nil, dateModified: nil, lastPlayed: nil, rating: nil,
+            playCount: 0, sourceCompositeKey: key
+        )
+        _ = try await repository.upsertTrack(
             ratingKey: "kim-live", key: "/library/metadata/kim-live", title: "Kim and Jessie Live", artistName: nil,
             albumName: nil, albumRatingKey: nil, trackNumber: 1, discNumber: 1, duration: 180_000, thumbPath: nil,
             streamKey: "/library/parts/kim-live.mp3", dateAdded: nil, dateModified: nil, lastPlayed: nil, rating: nil,
@@ -611,7 +617,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             (.artist, "Artist One", 10, ["artist-1"]),
             (.artist, "ac dc", 10, ["acdc"]),                    // normalized match
             (.artist, "earth wind and fire", 10, ["ewf"]),       // "&" and punctuation
-            (.album, "dont believe the truth", 10, ["truth"]),   // apostrophes
+            (.track, "rocknroll", 10, ["rock-n-roll"]),          // apostrophes: found by scoring titles
             (.album, "ac dc", 10, ["acdc-live"]),
             (.album, "Home", 1, ["home-visible"]),               // hidden rows do not use up the cap of 10
             (nil, "O", 10, []),                                  // too short to search the store
@@ -634,19 +640,65 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         }
     }
 
-    /// A pinned item in a library the profile hides resolves by name within the visible libraries instead of failing.
-    func testPinnedHiddenCopyFallsBackToTheVisibleEquivalent() async throws {
-        let fixture = try await makeFixture(hiddenSourceKeys: ["plex:account-1:server-2:library-2"])
-        _ = try await fixture.libraryRepository.upsertTrack(
-            ratingKey: "visible-copy", key: "/library/metadata/visible-copy", title: "Other One", artistName: "Other Artist",
-            albumName: nil, albumRatingKey: nil, trackNumber: 1, discNumber: 1, duration: 180_000, thumbPath: nil,
-            streamKey: "/library/parts/visible-copy.mp3", dateAdded: nil, dateModified: nil, lastPlayed: nil, rating: nil,
-            playCount: 0, sourceCompositeKey: fixture.librarySourceKey
+    private func upsert(_ repository: LibraryRepository, _ id: String, _ title: String, artist: String?, album: String?, source: String) async throws {
+        _ = try await repository.upsertTrack(
+            ratingKey: id, key: "/library/metadata/\(id)", title: title, artistName: artist,
+            albumName: album, albumRatingKey: nil, trackNumber: 3, discNumber: 1, duration: 200_000, thumbPath: nil,
+            streamKey: "/library/parts/\(id).mp3", dateAdded: nil, dateModified: nil, lastPlayed: nil, rating: nil,
+            playCount: 0, sourceCompositeKey: source
         )
-        try await fixture.coordinator.executePlayTrack(
-            request: SiriPlaybackRequest(entityID: "other-1", sourceCompositeKey: fixture.otherLibrarySourceKey, displayName: "Other One")
-        )
-        XCTAssertEqual(fixture.playbackService.lastPlayedTrack?.id, "visible-copy")
+    }
+
+    /// A pinned song in a hidden library stands in only for the visible song with the same merge identity (title,
+    /// artist, album, track and disc number, duration); a same-titled song by another artist, or a pinned song without
+    /// the metadata to tell, is not found.
+    func testPinnedHiddenSongIsRemappedOnlyByMergeIdentity() async throws {
+        let hiddenKey = "plex:account-1:server-2:library-2"
+        let fixture = try await makeFixture(hiddenSourceKeys: [hiddenKey])
+        let repository = fixture.libraryRepository
+        let visible = fixture.librarySourceKey
+        try await upsert(repository, "pin-hidden", "Shared Song", artist: "Band", album: "Shared Album", source: hiddenKey)
+        try await upsert(repository, "decoy", "Shared Song", artist: "Other Band", album: "Other Album", source: visible)
+        try await upsert(repository, "pin-visible", "Shared Song", artist: "Band", album: "Shared Album", source: visible)
+        try await upsert(repository, "no-metadata", "Plain Song", artist: nil, album: nil, source: hiddenKey)
+        try await upsert(repository, "plain-visible", "Plain Song", artist: nil, album: nil, source: visible)
+
+        let cases: [(id: String, title: String, expected: String?)] = [
+            ("pin-hidden", "Shared Song", "pin-visible"),
+            ("no-metadata", "Plain Song", nil)
+        ]
+        for testCase in cases {
+            do {
+                try await fixture.coordinator.executePlayTrack(
+                    request: SiriPlaybackRequest(entityID: testCase.id, sourceCompositeKey: hiddenKey, displayName: testCase.title)
+                )
+                XCTAssertEqual(fixture.playbackService.lastPlayedTrack?.id, testCase.expected, testCase.id)
+            } catch {
+                XCTAssertNil(testCase.expected, "\(testCase.id): \(error)")
+            }
+        }
+    }
+
+    /// An explicit artist hint is a constraint, and a normalized-exact title outranks a raw partial match.
+    func testNameResolutionEnforcesTheArtistHintAndPrefersNormalizedExactTitles() async throws {
+        let fixture = try await makeFixture()
+        try await upsert(fixture.libraryRepository, "kim-live", "Kim and Jessie Live", artist: "Band", album: "Live", source: fixture.librarySourceKey)
+
+        let cases: [(title: String, hint: String?, expected: String?)] = [
+            ("Other One", "Other Artist", "other-1"),
+            ("Other One", "Nobody", nil),
+            ("Kim and Jessie", nil, "track-amp")
+        ]
+        for testCase in cases {
+            do {
+                try await fixture.coordinator.executePlayTrack(
+                    request: SiriPlaybackRequest(entityID: "unpinned", displayName: testCase.title, artistHint: testCase.hint)
+                )
+                XCTAssertEqual(fixture.playbackService.lastPlayedTrack?.id, testCase.expected, testCase.title)
+            } catch {
+                XCTAssertNil(testCase.expected, "\(testCase.title): \(error)")
+            }
+        }
     }
 
     /// A song in a library the profile hides is not played, even when asked for by its exact identity.

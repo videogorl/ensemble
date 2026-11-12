@@ -250,6 +250,11 @@ extension SiriMediaIndexItem {
 /// the playlist screen hides. The app writes it to the App Group whenever either changes.
 public struct SiriPlaylistPresentation: Codable, Sendable, Equatable {
     public static let filename = "siri-playlist-presentation.json"
+    /// 2: `hiddenSourceKeys` covers every kind's sources, not only playlists'. A file without this version (written by
+    /// an earlier build, which has no hidden song or album libraries in it) is read as missing.
+    public static let currentSchemaVersion = 2
+
+    public var schemaVersion = SiriPlaylistPresentation.currentSchemaVersion
 
     public var preferences: EnsembleMergingPreferences
     public var hiddenSourceKeys: Set<String>
@@ -280,7 +285,8 @@ public struct SiriPlaylistPresentation: Codable, Sendable, Equatable {
         guard let url = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)?
                 .appendingPathComponent(filename),
               let data = try? Data(contentsOf: url),
-              let presentation = try? JSONDecoder().decode(Self.self, from: data) else { return nil }
+              let presentation = try? JSONDecoder().decode(Self.self, from: data),
+              presentation.schemaVersion == currentSchemaVersion else { return nil }
         return presentation
     }
 

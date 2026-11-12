@@ -155,7 +155,8 @@ final class LibraryRepositoryTests: XCTestCase {
             ("ac dc", ["ac", "dc"], 3, ["words"]),
             ("dc ac", ["dc", "ac"], 3, ["words"]),
             ("earth wind and fire", ["earth", "wind", "fire"], 3, ["ewf"]),
-            ("dont believe the truth", ["dont", "believe", "the", "truth"], 3, ["truth"])
+            // Longer than the bound (8 words of 64 characters): truncated, still linear, no match for the cut-off words.
+            (String(repeating: "word ", count: 500), Array(repeating: String(repeating: "x", count: 500), count: 500), 3, [])
         ]
         for testCase in cases {
             let rows = try await repository.findTracksByTitle(

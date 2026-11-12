@@ -162,11 +162,10 @@ extension LibraryRepository {
 
     /// Reads at most `limit` eligible rows, best matches first: exact names, then names that start with the query,
     /// then names that contain it, then names that contain every one of `normalizedWords` (the caller's normalized
-    /// form of the query, so "earth wind and fire" finds "Earth, Wind & Fire" and "dont" finds "Don't"). Each tier is
-    /// read in pages of `limit` rows in a total order, skipping rows `isEligible` rejects (hidden media), until
-    /// `limit` rows are kept or `limit * 20` rows have been read, so a short query on a large library stops early and
-    /// rejected rows cannot exhaust the cap. All pages are read in one `perform`, so concurrent writes cannot repeat
-    /// or skip a row between them.
+    /// form of the query, so "earth wind and fire" finds "Earth, Wind & Fire"). Each tier is one fetch of up to
+    /// `limit * 20` rows in a total order, filtered by `isEligible` (hidden media) in memory, so rejected rows
+    /// cannot exhaust the limit and a concurrent save cannot make two fetches skip a row. The query is bounded
+    /// before any predicate is built (8 words of 64 characters), so the work stays linear in it.
     private func boundedNameSearch<T: NSManagedObject>(
         _ makeRequest: @escaping () -> NSFetchRequest<T>,
         fieldName: String,
@@ -176,7 +175,7 @@ extension LibraryRepository {
         normalizedWords: [String],
         isEligible: @escaping @Sendable (T) -> Bool
     ) async throws -> [T] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maximumQueryLength))
         guard limit > 0, !trimmed.isEmpty else { return [] }
         if let sourceCompositeKeys, sourceCompositeKeys.isEmpty { return [] }
         let exact = NSPredicate(format: "%K ==[cd] %@", fieldName, trimmed)
@@ -187,13 +186,10 @@ extension LibraryRepository {
             NSCompoundPredicate(andPredicateWithSubpredicates: [prefix, NSCompoundPredicate(notPredicateWithSubpredicate: exact)]),
             NSCompoundPredicate(andPredicateWithSubpredicates: [contains, NSCompoundPredicate(notPredicateWithSubpredicate: prefix)])
         ]
-        let words = normalizedWords.filter { !$0.isEmpty }
+        let words = normalizedWords.prefix(Self.maximumQueryWords).map { String($0.prefix(Self.maximumQueryWordLength)) }.filter { !$0.isEmpty }
         if !words.isEmpty {
-            let allWords = NSCompoundPredicate(andPredicateWithSubpredicates: words.map { word in
-                // Stored names keep apostrophes the normalized word lacks ("dont" is "Don't").
-                NSCompoundPredicate(orPredicateWithSubpredicates: Self.apostropheVariants(of: word).map {
-                    NSPredicate(format: "%K CONTAINS[cd] %@", fieldName, $0)
-                })
+            let allWords = NSCompoundPredicate(andPredicateWithSubpredicates: words.map {
+                NSPredicate(format: "%K CONTAINS[cd] %@", fieldName, $0)
             })
             tiers.append(NSCompoundPredicate(andPredicateWithSubpredicates: [allWords, NSCompoundPredicate(notPredicateWithSubpredicate: contains)]))
         }
@@ -205,20 +201,13 @@ extension LibraryRepository {
                 var seen = Set<String>()
                 do {
                     for tier in tiers where rows.count < limit {
-                        var offset = 0
-                        while rows.count < limit, offset < limit * 20 {
-                            let request = makeRequest()
-                            request.predicate = scope.map { NSCompoundPredicate(andPredicateWithSubpredicates: [tier, $0]) } ?? tier
-                            request.sortDescriptors = Self.precisionSortDescriptors(primaryName: fieldName)
-                            request.fetchLimit = limit
-                            request.fetchOffset = offset
-                            let page = try context.fetch(request)
-                            for row in page where rows.count < limit {
-                                let identity = "\(row.value(forKey: "sourceCompositeKey") ?? "")||\(row.value(forKey: "ratingKey") ?? "")"
-                                if seen.insert(identity).inserted, isEligible(row) { rows.append(row) }
-                            }
-                            guard page.count == limit else { break }
-                            offset += page.count
+                        let request = makeRequest()
+                        request.predicate = scope.map { NSCompoundPredicate(andPredicateWithSubpredicates: [tier, $0]) } ?? tier
+                        request.sortDescriptors = Self.precisionSortDescriptors(primaryName: fieldName)
+                        request.fetchLimit = limit * 20
+                        for row in try context.fetch(request) where rows.count < limit {
+                            let identity = "\(row.value(forKey: "sourceCompositeKey") ?? "")||\(row.value(forKey: "ratingKey") ?? "")"
+                            if seen.insert(identity).inserted, isEligible(row) { rows.append(row) }
                         }
                     }
                     continuation.resume(returning: rows)
@@ -229,13 +218,9 @@ extension LibraryRepository {
         }
     }
 
-    /// `word` as it may be stored with an apostrophe in it: as is, or with ' or ’ at any position.
-    private static func apostropheVariants(of word: String) -> [String] {
-        let letters = Array(word)
-        return [word] + (1...max(letters.count, 1)).flatMap { index in
-            ["'", "’"].map { String(letters[..<index]) + $0 + String(letters[index...]) }
-        }
-    }
+    static let maximumQueryWords = 8
+    static let maximumQueryWordLength = 64
+    static let maximumQueryLength = maximumQueryWords * maximumQueryWordLength
 
     private static func scopedNameSearchPredicate(
         fieldName: String,

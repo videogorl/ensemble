@@ -138,4 +138,36 @@ final class SiriPlaylistRowsTests: XCTestCase {
             XCTAssertEqual(rows?.map(\.item.id), testCase.expected, testCase.name)
         }
     }
+
+    private final class DirectoryFileManager: FileManager {
+        let directory: URL
+        init(directory: URL) { self.directory = directory; super.init() }
+        override func containerURL(forSecurityApplicationGroupIdentifier groupIdentifier: String) -> URL? { directory }
+    }
+
+    /// A presentation written by an earlier build (only playlist sources' visibility, no version) is read as missing,
+    /// so the extension defers to the app instead of trusting a denylist that lacks hidden song and album libraries.
+    func testPresentationWithoutTheCurrentVersionIsMissing() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = DirectoryFileManager(directory: directory)
+        let url = directory.appendingPathComponent(SiriPlaylistPresentation.filename)
+
+        let current = SiriPlaylistPresentation(hiddenSourceKeys: ["plex:a:b:c"], indexGeneratedAt: Date(timeIntervalSince1970: 5))
+        var older = current
+        older.schemaVersion = 1
+        let json = try JSONEncoder().encode(current)
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any])
+        legacy.removeValue(forKey: "schemaVersion")
+        let cases: [(name: String, data: Data, loads: Bool)] = [
+            ("current version", json, true),
+            ("version 1", try JSONEncoder().encode(older), false),
+            ("no version (an earlier build)", try JSONSerialization.data(withJSONObject: legacy), false)
+        ]
+        for testCase in cases {
+            try testCase.data.write(to: url)
+            XCTAssertEqual(SiriPlaylistPresentation.load(fileManager: files) != nil, testCase.loads, testCase.name)
+        }
+    }
 }

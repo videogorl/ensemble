@@ -83,15 +83,13 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             artistHint: artistHint
         )
         guard let top = ranked?.first, let ranked else {
-            // No match, or one that cannot be shown to be visible yet (ranked is nil): the app resolves the name itself,
-            // as the kind of the best match when the request names none.
+            // No match, or candidates whose visibility is not known yet (ranked is nil): the request goes to the app as
+            // asked (the requested kind, the name, the artist hint) and the app resolves it among visible items only.
+            // No kind is chosen here from candidates that may be hidden.
             logger.debug("resolveMediaItems: no ranked match; returning fallback media item")
-            let bestKind = ranked == nil && requestedMediaType == .unknown
-                ? SiriMediaIndexResolver.rankCandidates(for: normalizedQuery, requestedKinds: nil, index: index, artistHint: artistHint).first?.item.kind
-                : nil
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
-                mediaType: bestKind.map(mediaTypeFor(kind:)) ?? requestedMediaType,
+                mediaType: requestedMediaType,
                 artistHint: artistHint,
                 shuffle: requestedShuffle
             )

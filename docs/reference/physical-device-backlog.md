@@ -807,3 +807,14 @@ installed `/Applications/Ensemble.app`), then check the PID's executable path (`
 | Open Media and Get Ensemble Link bring the window forward or return a link | Owed |
 | Spotlight on macOS 26 and 27: a played song, album, artist and playlist appear and open in Ensemble; App Shortcut phrases and actions appear under Ensemble | Owed |
 | iPhone SE: typing a never-played song name into a Play Track picker finds it (the same fallback) | Owed |
+
+
+## App Intents: visibility, Focus and the picker fallback (`feature/app-intents-mac`)
+
+Unit-tested and built only; none of this ran on a phone or in Shortcuts or Siri.
+
+| Check | Result |
+| --- | --- |
+| A Focus that hides library A, then a cold headless launch (force-quit Ensemble, run a shortcut or ask Siri): Play Song/Album/Artist pickers and playback never show or play library A; if the Focus lookup is slow the intent fails with "couldn't confirm which libraries are visible" and a retry works | Owed |
+| The Play Track picker finds a song outside the Siri index by typing its name (including "rocknroll" for "Rock'n'Roll", and a name with "&" typed as "and"); items from a library hidden by the active profile never appear, and with Merging off the same song on two servers shows as two rows labelled by server | Owed |
+| Voice Play for a song, album or artist that exists in a hidden library and, with the same title, artist and album, in a visible one: Siri plays the visible copy; with no visible copy it says it cannot find it. After an app update, before the app has run once, Voice Play defers to the app by name | Owed |
