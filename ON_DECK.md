@@ -829,3 +829,13 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   (`SharedRestoration.swift`, `BackgroundPlaybackReadiness.swift` `restoreFocusFilter`).
 - Impact: in that process Play pickers return no entities and background playback throws until the app is relaunched.
 - Next step: bound the underlying run (cancel it after a longer limit) or let `ensure` start a new run after a timeout.
+
+## "Added to <playlist>" can be said before the server takes the write (confirmed by code read)
+
+- **Evidence:** `enqueuePlaylistAddOptimistically` returns `.completed` whenever the network monitor is connected, after
+  persisting the mutation and scheduling the background drain. With internet but the Plex server unreachable, the
+  Add to Playlist Shortcut says "Added to …" while the write is still pending. Found in the Codex review of the Siri AI
+  withdrawal (2026-11-12); the behaviour predates it. The `SIRI_SHORTCUT:` log line says `accepted` for this reason.
+- **Impact:** a spoken confirmation that is early, not wrong: the mutation is stored and replays. Low.
+- **Next step:** decide whether the Shortcut should await the first write attempt (bounded) before choosing between
+  "Added" and "Will be added".
