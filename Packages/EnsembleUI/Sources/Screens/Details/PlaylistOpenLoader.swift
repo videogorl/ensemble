@@ -42,7 +42,7 @@ struct PlaylistOpenLoader: View {
             ), let group = DisplayPlaylist.displayedGroup(
                 for: Playlist(from: stored),
                 among: playlistsVM.playlists,
-                preferences: SettingsManager.storedMergingPreferences()
+                preferences: deps.settingsManager.mergingPreferences
             ) else {
                 target = .unavailable
                 return

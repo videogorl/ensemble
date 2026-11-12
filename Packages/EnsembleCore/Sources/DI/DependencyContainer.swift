@@ -680,8 +680,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 addTarget: { [siriPlaybackCoordinator] playlist, tracks in
                     try await siriPlaybackCoordinator.addTarget(for: playlist, tracks: tracks)
                 },
-                resolveName: { [siriPlaybackCoordinator] name, source in
-                    try await siriPlaybackCoordinator.visiblePlaylist(named: name, preferringSource: source)
+                resolveName: { [siriPlaybackCoordinator] name in
+                    try await siriPlaybackCoordinator.visiblePlaylist(named: name)
                 }
             )
         }

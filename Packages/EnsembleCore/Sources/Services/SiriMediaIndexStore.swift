@@ -37,6 +37,10 @@ public final class SiriMediaIndexStore {
     nonisolated private static let filename = SiriSharedConstants.indexFilename
     nonisolated private static let spotlightAppliedFilename = "ensemble.spotlight.applied-index.json"
 
+    /// Playlists are few and small, and Voice Add must be able to name any editable one. The repository returns them
+    /// by title, so a tight cap would drop the playlists that sort last, whatever their age or play history.
+    nonisolated static let playlistLimit = 2000
+
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider?
@@ -132,7 +136,7 @@ public final class SiriMediaIndexStore {
             let playlists = Array(try await playlistRepository.fetchPlaylists()
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: playlistSourceKeys) }
                 .filter { !hiddenMediaStore.snapshot.isHidden(Playlist(from: $0)) }
-                .prefix(500))
+                .prefix(Self.playlistLimit))
             try RefreshExecution.checkCancellation()
 
             var items: [SiriMediaIndexItem] = []
@@ -271,7 +275,7 @@ public final class SiriMediaIndexStore {
 
     /// Friendly server names per playlist (`ratingKey||sourceCompositeKey`). Where two sources would share a name for one title, the
     /// account is added so the rows still read differently.
-    private static func playlistSourceNames(
+    static func playlistSourceNames(
         for playlists: [CDPlaylist],
         presentation: (String) -> MusicSourcePresentation?
     ) -> [String: String] {

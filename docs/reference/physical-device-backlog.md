@@ -764,6 +764,7 @@ earlier).
 | Sidebar pins, Search pins and the Mac Dock menu follow the playlist-screen rule | Not run. To run: on the Mac, pin one copy of a merged playlist; open it from the sidebar and Search, press Play, and open the Dock menu after hiding it and after toggling Merging |
 | Apple Music playlists no longer rewritten each sync (`1ef74494`) | Not run on the phone that shows it. To run: on the 16 Pro install a build with the fix, sync three times; after the first, no `writing playlist … differs: compositePath` lines |
 | Less background CPU while playing locked or with no visualizer on screen (`33be6521`) | Not run on a phone (tests and builds only). To run: on the 16 Pro, the same 7-minute locked-playback Performance Trace as 2026-11-11 with the visualizer on and Now Playing closed; expect no `analyzeFile` bursts and fewer SwiftUI samples than 34 of 96. Also open Now Playing after a gapless advance and confirm the visualizer animates for the new track |
+| Voice Add never writes to a similar or smart playlist; deferred server labels resolve to one playlist; extension trail appears in the session log (`SIRI_EXT_TRAIL`) | Not run (tests only). To run: on the SE (no Siri AI), with a smart and a regular "Road Trip Mix" style pair and a disposable "ZZ Test" playlist, ask Siri to add the current song to each; expect "not editable" for the smart one, one write for the test playlist, and `SIRI_EXT_TRAIL` plus `SIRI_APP: add-to-playlist` lines in the session log |
 
 ## Background launch work (`perf/background-launch-work`)
 

@@ -256,6 +256,22 @@ final class SearchViewModelResponseTests: XCTestCase {
         XCTAssertTrue(harness.viewModel.displayPlaylistResults.allSatisfy { !$0.isMerged })
     }
 
+    /// Switching only the Playlists switch off and back on re-projects retained results each time.
+    func testPlaylistMergeSwitchOffThenOnReprojectsSearchResults() async throws {
+        let harness = makeHarness(mergeEnabled: true)
+        try await seedAmbientElectric(in: harness.playlistRepository)
+        await harness.viewModel.search(query: "Ambient Electric")
+        XCTAssertEqual(harness.viewModel.displayPlaylistResults.count, 1)
+
+        harness.settings.updateMergingPreferences { $0.mergePlaylists = false }
+        await waitUntil { harness.viewModel.displayPlaylistResults.count == 2 }
+        XCTAssertEqual(harness.viewModel.displayPlaylistResults.count, 2)
+
+        harness.settings.updateMergingPreferences { $0.mergePlaylists = true }
+        await waitUntil { harness.viewModel.displayPlaylistResults.count == 1 }
+        XCTAssertEqual(harness.viewModel.displayPlaylistResults.count, 1)
+    }
+
     func testPlaylistProjectionKeepsSmartAndRegularPlaylistsSeparate() {
         let results = SearchViewModel.displayPlaylists(
             ambientElectricPlaylists(appleIsSmart: true),

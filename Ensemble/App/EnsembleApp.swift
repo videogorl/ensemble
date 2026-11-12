@@ -331,6 +331,7 @@ struct EnsembleApp: App {
         switch phase {
             case .active:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "active"])
+                SiriExtensionBreadcrumbs.drain().forEach { AppLogger.info($0.logLine) }
                 await EnsembleFocusFilter.refreshCurrent()
                 guard !Task.isCancelled else { return }
                 AppRoot.container.foregroundWorkScheduler.setForegroundActive(true)

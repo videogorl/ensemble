@@ -1135,6 +1135,58 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isShowingStaleSnapshot)
     }
 
+    /// Switching only "Playlists" off and on (as the Merging settings page does, and as a remote iCloud change
+    /// applies it) re-groups the list and the sidebar's sorted list without a relaunch, even when the two changes
+    /// arrive back to back.
+    func testPlaylistListRegroupsWhenOnlyThePlaylistMergeSwitchChanges() async throws {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let suiteName = "PlaylistRegroup.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = SettingsManager(defaults: defaults)
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        for (id, server) in [("a", "server-1"), ("b", "server-2")] {
+            let playlist = makePlaylist(id: id, title: "focus", sourceCompositeKey: "plex:account-1:\(server)")
+            playlistRepository.playlists[playlistRepository.playlistKey(
+                ratingKey: id, sourceCompositeKey: playlist.sourceCompositeKey
+            )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+        }
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            settingsManager: settings
+        )
+        viewModel.start()
+        await viewModel.loadPlaylists()
+
+        func settle(merged: Bool) async throws {
+            let deadline = Date().addingTimeInterval(3)
+            let expected = merged ? 1 : 2
+            while (viewModel.displayPlaylists.count != expected || viewModel.sortedDisplayPlaylists.count != expected),
+                  Date() < deadline {
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            XCTAssertEqual(viewModel.displayPlaylists.count, expected)
+            XCTAssertEqual(viewModel.sortedDisplayPlaylists.count, expected)
+            XCTAssertEqual(viewModel.isMergeEnabled, merged)
+        }
+        try await settle(merged: true)
+
+        settings.updateMergingPreferences { $0.mergePlaylists = false }
+        try await settle(merged: false)
+        settings.updateMergingPreferences { $0.mergePlaylists = true }
+        try await settle(merged: true)
+
+        settings.updateMergingPreferences { $0.mergePlaylists = false }
+        settings.updateMergingPreferences { $0.mergePlaylists = true }
+        settings.updateMergingPreferences { $0.mergePlaylists = false }
+        try await settle(merged: false)
+    }
+
     func testPlaylistVisibilityFiltersBeforeCrossProviderMerging() async throws {
         PlaylistViewModel.resetLastGoodSnapshotForTesting()
         let suiteName = "PlaylistVisibility.\(UUID().uuidString)"
