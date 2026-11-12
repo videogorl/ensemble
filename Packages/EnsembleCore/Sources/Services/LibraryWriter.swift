@@ -345,7 +345,7 @@ public actor LibraryWriter {
             } else if body == nil {
                 header = header.replacing(dateModified: .some(nil))
             }
-            if try await write(header, body: body, scope: scope, existing: existing) { changed += 1 }
+            if try await write(header, body: body, scope: scope, existing: existing, writtenSoFar: changed) { changed += 1 }
         }
 
         var removed = 0
@@ -375,7 +375,10 @@ public actor LibraryWriter {
                 try await cursors?.recordIncrementalSync(scopeKey: scope, scopeType: .serverPlaylists, at: batch.queryStartedAt)
             }
         }
-        if changed + removed > 0 { EnsembleLogger.debug("🎵 Playlists \(scope): wrote \(changed), removed \(removed)") }
+        if changed + removed > 0 {
+            let unitemized = changed > Self.itemizedWriteLimit ? ", first \(Self.itemizedWriteLimit) itemized" : ""
+            EnsembleLogger.debug("🎵 Playlists \(scope): wrote \(changed), removed \(removed)\(unitemized)")
+        }
         if !unresolved.isEmpty { EnsembleLogger.info("Playlists \(scope): \(unresolved.count) body reads unresolved, to retry next pass") }
         return PlaylistSyncResult(changedPlaylists: changed, removedPlaylists: removed, unresolvedPlaylists: unresolved)
     }
@@ -456,8 +459,16 @@ public actor LibraryWriter {
         try await serialized { try await self.cursors?.deleteCursor(scopeKey: scope, scopeType: .serverPlaylists) }
     }
 
+    /// Playlist writes per sync that get their own diagnostic line; the rest are only counted.
+    private static let itemizedWriteLimit = 10
+
     @discardableResult
-    private func write(_ header: PlaylistUpsertInput, body: [PlaylistTrackSnapshot]?, scope: String, existing: PlaylistSyncState?) async throws -> Bool {
+    private func write(_ header: PlaylistUpsertInput, body: [PlaylistTrackSnapshot]?, scope: String, existing: PlaylistSyncState?, writtenSoFar: Int = 0) async throws -> Bool {
+        if writtenSoFar < Self.itemizedWriteLimit, existing?.headerMatches(header) != true || body != nil {
+            // Diagnostic: which stored field never matches. Names, with old→new only for non-content fields; never titles.
+            let differences = existing?.headerDifferences(from: header).joined(separator: ",") ?? "new"
+            EnsembleLogger.debug("🎵 Playlists \(scope): writing playlist \(header.ratingKey) (\(body == nil ? "header" : "body")), differs: \(differences.isEmpty ? "none" : differences)")
+        }
         if let body {
             // A body needs its playlist row; the final save carries the date.
             if existing == nil { _ = try await playlistRepository.upsertPlaylist(header.replacing(dateModified: .some(nil)), sourceCompositeKey: scope) }

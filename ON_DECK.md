@@ -606,3 +606,24 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   a system-delivered refresh that is still running when the app is opened may do the same.
 - Next step: read how the foreground resume decides a handoff is abandoned, and whether it should wait for
   a refresh that is in flight (`isRefreshInFlight`).
+
+## Suspected: Apple Music playlist sync rewrites two playlist headers on every sync (2026-11-11)
+
+- Evidence (iPhone 16 Pro logs, 2026-11-11, builds through `202611111427.3323`): 7 of 7 logged Apple Music
+  playlist syncs wrote exactly 2 playlist headers. Each makes the Siri index rebuild report `changed=true`
+  (20 of 58 rebuilds that day) and one led to a 200-item Spotlight write where others were 0 to 7 items.
+  Which two playlists and which field never matches is not known. No self-triggering loop was found.
+  Analysis: `$TMPDIR/ensemble-16pro/warm-phone-analysis.md` (temporary file).
+- Impact: repeated store writes, index rebuilds and Spotlight updates on a phone that was thermally
+  constrained during the test; how much heat it causes is unmeasured.
+- Next step: log the playlist ID and the differing field when a sync writes a header, then fix the comparison.
+
+## Suspected: every cold launch, including one for a Shortcuts or Siri request, runs the full launch pipeline (2026-11-11)
+
+- Evidence (same logs): a cold launch runs server health checks, 3 WebSockets, playback restore, a library
+  map build of 1.1 to 4.6 s and a 331-file offline healing scan; a foreground cold launch took 11.4 s to
+  finish bootstrapping; a 3-minute-old process had used 22.6 s of CPU. Cold intent launches write no session
+  log, so their own cost is unmeasured.
+- Impact: battery and heat when Siri or Shortcuts start the app often; unmeasured.
+- Next step: record a Time Profiler cold launch on the phone with a Release build, and decide which launch
+  work a background intent launch can skip or defer. Also make cold intent launches write a session log.
