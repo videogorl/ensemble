@@ -783,3 +783,9 @@ launch logs `LAUNCH_WORK: kind=background ... foregroundLaunchWork=deferred`; a 
 | Locked phone: start playback by intent, then turn Wi-Fi off and on | `stateChanged ... transition=disconnect`, then `reconnect`, then `Health refresh complete`; playback recovers or resolves the next track. If not, see the `ON_DECK.md` entry on monitoring | Not run |
 | Overnight background refresh | `Background refresh triggered` and `Background refresh phase=` lines, `foregroundLaunchWork=deferred`, no `starting foreground launch work` until the app is opened | Not run |
 | Foreground cold launch and a launch that backgrounds at once | Launch log unchanged in task order, one `foregroundLaunchWork=started` | Not run |
+
+## Merging toggle and merged playlist loading, 2026-11-11
+
+| Check | Result |
+| --- | --- |
+| First Merging toggle after launch re-groups the Playlists list and sidebar (`c39429ce`); merged playlist shows "Loading tracks…" not "No tracks" (`17e0b6f2`) | Toggle passed on the Mac, build `202611112308.3942`, two fresh launches. Not run on a phone or iPad (shared view model). "No tracks" flash not observable by the Mac checker (first read too late). To run: on the iPad or phone, launch, toggle Merging > Playlists once and check Playlists re-groups; open a merged playlist on a slow connection and watch the footer |
