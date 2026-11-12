@@ -1310,7 +1310,7 @@ public struct SidebarView: View {
             if let group = DisplayPlaylist.displayedGroup(
                 for: playlist,
                 among: playlistsVM.playlists,
-                preferences: SettingsManager.storedMergingPreferences()
+                preferences: deps.settingsManager.mergingPreferences
             ), group.isMerged {
                 mergedPlaylistPinMenu(group, pinnedItems: [pinnedItem])
             } else {

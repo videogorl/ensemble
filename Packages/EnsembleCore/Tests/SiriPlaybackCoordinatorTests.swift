@@ -185,6 +185,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         let playbackService: RecordingPlaybackService
         let librarySourceKey: String
         let serverSourceKey: String
+        let playlistRepository: PlaylistRepository
     }
 
     func testExecutePlayTrackPlaysRequestedTrack() async throws {
@@ -345,6 +346,46 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
                 entityID: "focus-a", sourceCompositeKey: fixture.serverSourceKey, displayName: "Focus Mix"
             ))
             XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id).sorted(), testCase.expected.sorted(), testCase.name)
+        }
+    }
+
+    /// A name-only Voice Add the extension deferred resolves by the shared rules: one regular destination, or nothing.
+    /// The fixture's "Focus Mix" also exists as a smart playlist, so the plain name is not writable.
+    func testNameOnlyVoiceAddResolvesOneEditableDestinationOrNone() async throws {
+        let fixture = try await makeFixture()
+        let cases: [(spoken: String, expectedID: String?)] = [
+            ("Focus Mix", nil),            // a smart playlist shares the title: ambiguous, never written
+            ("Focus Mix (Music)", nil),    // not an offered name
+            ("Playlist One", "playlist-1"),
+            ("playlist  one", "playlist-1"),
+            ("Quarterly Polka", nil)
+        ]
+        try await assertVoiceAdd(cases, fixture: fixture)
+    }
+
+    /// With merging off, a label the extension offered for one server's "Focus Mix" resolves to that playlist and
+    /// never to a playlist literally titled like another label: the app builds the same server names the index holds.
+    func testDeferredServerLabelsResolveExactlyOneDestination() async throws {
+        var off = EnsembleMergingPreferences.default
+        off.mergePlaylists = false
+        let fixture = try await makeFixture(mergingPreferences: off)
+        _ = try await fixture.playlistRepository.upsertPlaylist(
+            ratingKey: "focus-literal", key: "/playlists/focus-literal", title: "Focus Mix (Server)", summary: nil,
+            compositePath: nil, isSmart: false, duration: 0, trackCount: 0, dateAdded: nil, dateModified: nil,
+            lastPlayed: nil, sourceCompositeKey: fixture.serverSourceKey
+        )
+        try await assertVoiceAdd([
+            ("Focus Mix (Server)", "focus-literal"),
+            ("Focus Mix (Server) 2", "focus-a"),
+            ("Focus Mix (Server Two)", "focus-b"),
+            ("Focus Mix", nil)
+        ], fixture: fixture)
+    }
+
+    private func assertVoiceAdd(_ cases: [(spoken: String, expectedID: String?)], fixture: Fixture) async throws {
+        for testCase in cases {
+            let resolved = try await fixture.coordinator.visiblePlaylist(named: testCase.spoken)
+            XCTAssertEqual(resolved?.ratingKey, testCase.expectedID, testCase.spoken)
         }
     }
 
@@ -739,7 +780,8 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             coordinator: coordinator,
             playbackService: playbackService,
             librarySourceKey: librarySourceKey,
-            serverSourceKey: serverSourceKey
+            serverSourceKey: serverSourceKey,
+            playlistRepository: playlistRepository
         )
     }
 }
