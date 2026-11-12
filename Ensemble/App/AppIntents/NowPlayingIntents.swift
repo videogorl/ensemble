@@ -31,12 +31,12 @@ func setCurrentSongFavorite(_ favorite: Bool) async throws -> IntentDialog {
 }
 
 @MainActor
-func add(_ tracks: [Track], to playlist: EnsemblePlaylistEntity) async throws -> IntentDialog {
+func add(_ tracks: [Track], to playlist: SiriMediaIndexItem) async throws -> IntentDialog {
     let container = try await readyContainer()
     return try await reportingFailures {
         guard let stored = try await container.playlistRepository.fetchPlaylist(
-            ratingKey: playlist.item.id,
-            sourceCompositeKey: playlist.item.sourceCompositeKey
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
         ) else {
             throw EnsembleIntentError.playlistNotFound
         }
@@ -54,8 +54,8 @@ func add(_ tracks: [Track], to playlist: EnsemblePlaylistEntity) async throws ->
         // The optimistic path filters incompatible and duplicate tracks and reports only the outcome, so the
         // dialog does not claim a count.
         return outcome == .queued
-            ? IntentDialog("Will be added to \(playlist.title) when you're back online.")
-            : IntentDialog("Added to \(playlist.title).")
+            ? IntentDialog("Will be added to \(playlist.displayName) when you're back online.")
+            : IntentDialog("Added to \(playlist.displayName).")
     }
 }
 
@@ -163,7 +163,7 @@ struct AddCurrentSongToEnsemblePlaylistIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        .result(dialog: try await add([try await currentTrackOrThrow()], to: playlist))
+        .result(dialog: try await add([try await currentTrackOrThrow()], to: playlist.item))
     }
 }
 
@@ -184,7 +184,7 @@ struct AddToEnsemblePlaylistIntent: AppIntent {
         let tracks = try await reportingFailures {
             try await coordinator.resolveTracks(kind: media.item.kind, request: media.playbackRequest())
         }
-        return .result(dialog: try await add(tracks, to: playlist))
+        return .result(dialog: try await add(tracks, to: playlist.item))
     }
 }
 
