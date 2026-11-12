@@ -532,6 +532,8 @@ public final class SystemMediaIntegrationService {
         )
         guard !indexItems.isEmpty || !staleReferences.isEmpty || requiresFullRefresh else {
             EnsembleLogger.debug("[SystemMedia] Spotlight index unchanged; skipped update")
+            // Nothing stale was found, so the reconcile is done.
+            UserDefaults.standard.set(Self.spotlightProjectionVersion, forKey: Self.spotlightProjectionVersionKey)
             return
         }
 

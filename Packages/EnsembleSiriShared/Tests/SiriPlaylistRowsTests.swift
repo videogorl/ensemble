@@ -1,4 +1,5 @@
 import EnsembleDomain
+import EnsembleSupport
 import XCTest
 @testable import EnsembleSiriShared
 
@@ -90,9 +91,33 @@ final class SiriPlaylistRowsTests: XCTestCase {
                        ["Road Trip (Home)", "Road Trip (Away)", "Solo"])
         for item in offered {
             let name = SiriPlaylistRows.destinationName(for: item, among: offered)
-            XCTAssertEqual(SiriPlaylistRows.destination(named: name, among: offered), item, name)
+            XCTAssertEqual(SiriPlaylistRows.destinations(named: name, among: offered), [item], name)
         }
-        XCTAssertNil(SiriPlaylistRows.destination(named: "Road Trip", among: offered), "an unqualified shared title is not a choice")
+        XCTAssertEqual(SiriPlaylistRows.destinations(named: "Road Trip", among: offered), [], "an unqualified shared title is not a choice")
+
+        // A playlist literally titled like a label, and two servers with one name, still get distinct names.
+        let literal = SiriMediaIndexItem(kind: .playlist, id: "literal", displayName: "Focus (Home)", sourceCompositeKey: "plex:account-1:home", sourceName: "Home")
+        func focus(_ id: String, _ key: String, _ server: String) -> SiriMediaIndexItem {
+            SiriMediaIndexItem(kind: .playlist, id: id, displayName: "Focus", sourceCompositeKey: key, sourceName: server)
+        }
+        let collisions: [(name: String, offered: [SiriMediaIndexItem], expected: [String])] = [
+            ("label collides with a literal title",
+             [focus("f1", "plex:account-1:home", "Home"), focus("f2", "plex:account-1:away", "Away"), literal],
+             ["Focus (Home) 2", "Focus (Away)", "Focus (Home)"]),
+            ("two labels collide with each other",
+             [focus("f1", "plex:account-1:a", "Home"), focus("f2", "plex:account-1:b", "Home")],
+             ["Focus (Home)", "Focus (Home) 2"])
+        ]
+        for testCase in collisions {
+            let names = testCase.offered.map { SiriPlaylistRows.destinationName(for: $0, among: testCase.offered) }
+            XCTAssertEqual(names, testCase.expected, testCase.name)
+            XCTAssertEqual(Set(names.map(PlexPlaylistMergeRules.normalizedTitle)).count, names.count, testCase.name)
+            XCTAssertEqual(names.map { SiriPlaylistRows.destinations(named: $0, among: testCase.offered).map(\.id) },
+                           testCase.offered.map { [$0.id] }, "each name round-trips to its own row: \(testCase.name)")
+            let reversed = Array(testCase.offered.reversed())
+            XCTAssertEqual(testCase.offered.map { SiriPlaylistRows.destinationName(for: $0, among: reversed) },
+                           names, "order of the offered list does not change the names")
+        }
 
         let album = SiriMediaIndexItem(kind: .album, id: "a", displayName: "Focus", sourceCompositeKey: "plex:account-1:home")
         let index = SiriMediaIndex(items: [home, album])

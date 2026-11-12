@@ -56,7 +56,13 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
         }
 
         // A name this resolver offered earlier (server-qualified when two playlists share a title) is already chosen.
-        if let chosen = SiriPlaylistRows.destination(named: playlistName, among: offered) {
+        let chosen = SiriPlaylistRows.destinations(named: playlistName, among: offered)
+        if chosen.count > 1 {
+            logger.error("resolveMediaDestination: destination name matches several playlists")
+            completion(.unsupported(forReason: .playlistNameNotFound))
+            return
+        }
+        if let chosen = chosen.first {
             completion(.success(with: INMediaDestination.playlist(SiriPlaylistRows.destinationName(for: chosen, among: offered))))
             return
         }
@@ -116,8 +122,14 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
         // The playlist the chosen name stands for; with no presentation, a name-only request the app resolves itself.
         let payload: PendingAddToPlaylistPayload
         if let offered = SiriMatchingHelpers.offeredPlaylists(in: index) {
-            guard let match = SiriPlaylistRows.destination(named: playlistName, among: offered)
-                    ?? Self.rankOffered(playlistName, offered: offered, index: index).first?.item else {
+            // A name from our own offered list names exactly one row; a name that matches several is never written.
+            let named = SiriPlaylistRows.destinations(named: playlistName, among: offered)
+            guard named.count <= 1 else {
+                logger.error("handle: destination name matches several playlists")
+                completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
+                return
+            }
+            guard let match = named.first ?? Self.rankOffered(playlistName, offered: offered, index: index).first?.item else {
                 logger.error("handle: no matching playlist found")
                 completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
                 return

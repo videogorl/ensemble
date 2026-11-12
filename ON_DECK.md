@@ -659,3 +659,18 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Impact: cosmetic; self-heals once pins load.
 - Next step: check on a Mac whether a right-click in the first seconds shows no pins, then render from the cached
   pin list.
+
+## Suspected: name-only Voice Add can pick the wrong same-named playlist (2026-11-11)
+
+- Evidence: with no presentation published, `SiriPlaybackCoordinator.visiblePlaylist(named:preferringSource:)` compares
+  a Plex playlist's server key with the song's library key and has no tie-break beyond title, so another same-named
+  playlist can win. Cross-server writes are rejected downstream (`SiriPlaybackCoordinator.swift:673`, `addTarget`).
+- Impact: a wrong same-server playlist in a rare window after an update, before the first presentation is published.
+- Next step: compare server keys the way `addTarget` does and break ties by the user's source order.
+
+## Suspected: the Spotlight reconcile cannot remove orphans (2026-11-11)
+
+- Evidence: `SystemMediaIntegrationService.swift:506` deletes items the index holds but the projection does not
+  present, plus the baseline diff. An item in neither the current catalog nor the saved baseline is never deleted.
+- Impact: a leftover result for a playlist deleted before the upgrade; unmeasured.
+- Next step: delete the app's Spotlight domains once for the projection version, then reindex in full.

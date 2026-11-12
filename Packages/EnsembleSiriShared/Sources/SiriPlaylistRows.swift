@@ -64,24 +64,49 @@ public enum SiriPlaylistRows {
         return ranked.filter { $0.item.kind != .playlist }
     }
 
-    /// The name Voice Add offers for a playlist: its title, plus the server name only when another offered playlist
-    /// shares the title.
-    public static func destinationName(for item: SiriMediaIndexItem, among offered: [SiriMediaIndexItem]) -> String {
-        let title = PlexPlaylistMergeRules.normalizedTitle(item.displayName)
-        let shared = offered.contains {
-            $0.scopedID != item.scopedID && PlexPlaylistMergeRules.normalizedTitle($0.displayName) == title
+    /// The name Voice Add offers for each offered playlist (by `scopedID`), unique across the offered set: a title as it
+    /// is, unless another offered playlist shares it, then "Title (Server)". A label that collides with another
+    /// row's name (a playlist literally titled "Title (Server)", or two servers with the same name) gets " 2", " 3" in
+    /// `scopedID` order, so the result does not depend on the order of `offered`. A row's own title is never changed.
+    public static func destinationNames(for offered: [SiriMediaIndexItem]) -> [String: String] {
+        func key(_ name: String) -> String { PlexPlaylistMergeRules.normalizedTitle(name) }
+        var titleCounts: [String: Int] = [:]
+        for item in offered { titleCounts[key(item.displayName), default: 0] += 1 }
+        var names: [String: String] = [:]
+        var used = Set<String>()
+        var labelled: [SiriMediaIndexItem] = []
+        for item in offered {
+            if titleCounts[key(item.displayName)] ?? 0 > 1, item.sourceName != nil {
+                labelled.append(item)
+            } else {
+                names[item.scopedID] = item.displayName
+                used.insert(key(item.displayName))
+            }
         }
-        guard shared, let server = item.sourceName else { return item.displayName }
-        return "\(item.displayName) (\(server))"
+        for item in labelled.sorted(by: { $0.scopedID < $1.scopedID }) {
+            let base = "\(item.displayName) (\(item.sourceName ?? ""))"
+            var name = base
+            var number = 2
+            while !used.insert(key(name)).inserted {
+                name = "\(base) \(number)"
+                number += 1
+            }
+            names[item.scopedID] = name
+        }
+        return names
     }
 
-    /// The offered playlist a destination name (as `destinationName` produced it) stands for; nil unless exactly one.
-    public static func destination(named name: String, among offered: [SiriMediaIndexItem]) -> SiriMediaIndexItem? {
+    /// The name Voice Add offers for `item`; see `destinationNames`.
+    public static func destinationName(for item: SiriMediaIndexItem, among offered: [SiriMediaIndexItem]) -> String {
+        destinationNames(for: offered)[item.scopedID] ?? item.displayName
+    }
+
+    /// The offered playlists a destination name stands for. Offered names are unique, so one row for a name this
+    /// resolver offered, none for any other; more than one means the caller must not write.
+    public static func destinations(named name: String, among offered: [SiriMediaIndexItem]) -> [SiriMediaIndexItem] {
         let key = PlexPlaylistMergeRules.normalizedTitle(name)
-        let matches = offered.filter {
-            PlexPlaylistMergeRules.normalizedTitle(destinationName(for: $0, among: offered)) == key
-        }
-        return matches.count == 1 ? matches[0] : nil
+        let names = destinationNames(for: offered)
+        return offered.filter { PlexPlaylistMergeRules.normalizedTitle(names[$0.scopedID] ?? $0.displayName) == key }
     }
 
     /// Distinct rows: playlists by identity, never by name (two servers may share a name and a title); other kinds by
