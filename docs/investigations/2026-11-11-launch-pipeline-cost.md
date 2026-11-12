@@ -1,7 +1,8 @@
 # Launch pipeline cost, and what a background intent launch needs (2026-11-11)
 
-Status: Part 1 (session log at process launch) is implemented. Part 2 is a read-only design and **needs the owner's
-approval before any implementation**; it changes launch ownership.
+Status: Part 1 (session log at process launch) is implemented. Part 2, the proposal, is implemented on
+`perf/background-launch-work` (approved in full by the owner, 2026-11-11); phone checks are in
+`docs/reference/physical-device-backlog.md`. The smaller fixes below are not implemented and are tracked in `ON_DECK.md`.
 
 Evidence (iPhone 16 Pro, Debug build 3323, iOS 27.3): `$TMPDIR/ensemble-16pro/warm-phone-analysis.md`,
 `warm-phone-profile.md`, session logs in `logs3`, `logs4`, `logs5`. Code references are to this branch

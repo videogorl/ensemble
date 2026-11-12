@@ -350,12 +350,14 @@ struct EnsembleApp: App {
                     hasScheduledBackgroundRefresh = true
                 }
 
+                // A process launched in the background starts its deferred launch work now; a foreground
+                // launch already did, so this is a no-op for it and for every later activation.
+                appDelegate.startForegroundLaunchWork()
+
                 if isInitialActivation {
-                    // Cold-launch startup already started network monitoring and queued
-                    // WebSocket startup behind early health checks in AppDelegate.
-                    // Skipping the duplicate start here keeps launch sequencing owned by
-                    // one path instead of racing the scene activation hook.
-                    AppLogger.debug("📱 EnsembleApp: Initial active phase — launch pipeline owns monitor/WebSocket startup")
+                    // Network monitoring and WebSocket startup belong to the launch work above, behind early health checks.
+                    // Skipping the duplicate start here keeps launch sequencing owned by one path.
+                    AppLogger.debug("📱 EnsembleApp: Initial active phase — launch work owns monitor/WebSocket startup")
                 } else {
                     // Resume network monitoring and WebSocket connections
                     AppRoot.container.networkMonitor.startMonitoring()
@@ -1191,13 +1193,32 @@ private func performBackgroundRefresh() async {
         BackgroundSyncScheduler.shared.scheduleAppRefresh()
     }
 
+    // A background launch skips the early health checks that start the monitor. Without the current path the
+    // refresh would read the previous process's cached offline state and give up before any work.
+    let startedMonitor = await startNetworkMonitorAndAwaitCurrentState(AppRoot.container.networkMonitor)
+    guard !Task.isCancelled else {
+        await stopRefreshNetworkMonitor(startedByRefresh: startedMonitor)
+        AppLogger.info("Background refresh cancelled before it started")
+        return
+    }
+
     let refreshCoordinator = await MainActor.run {
         AppRoot.container.backgroundRefreshCoordinator
     }
     let result = await refreshCoordinator.performAppRefresh()
+    await stopRefreshNetworkMonitor(startedByRefresh: startedMonitor)
     let pending = await MainActor.run { AppRoot.container.syncCoordinator.pendingBackgroundRefreshSourceCount }
     let needsRecovery = await MainActor.run { AppRoot.container.syncCoordinator.hasPendingBackgroundRefresh }
     AppLogger.info("Background refresh returned succeeded=\(result.succeeded && result.didRunIncrementalSync && !needsRecovery) pendingSources=\(pending) needsRecovery=\(needsRecovery) errors=\(result.errorDescriptions.count)")
+}
+
+/// The scene stops the monitor when it backgrounds; a refresh that restarted it must not leave it
+/// running in a process that is still in the background, where later path changes would start
+/// health work outside the refresh budget.
+@MainActor
+private func stopRefreshNetworkMonitor(startedByRefresh: Bool) {
+    guard startedByRefresh, UIApplication.shared.applicationState == .background else { return }
+    AppRoot.container.networkMonitor.stopMonitoring()
 }
 #endif
 

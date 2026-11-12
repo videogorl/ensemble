@@ -624,17 +624,62 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Latent, not fixed: `reconcilePlaylist` builds its header with `canEdit: true`, no REST artwork and a
   MusicKit-only date, so after a playlist mutation the next list sync rewrites that header once (bounded).
 
-## Suspected: every cold launch, including one for a Shortcuts or Siri request, runs the full launch pipeline (2026-11-11)
+## Implemented, awaiting phone checks: background launches skip the foreground launch work (2026-11-11)
 
-- Evidence (same logs): a cold launch runs server health checks, 3 WebSockets, playback restore, a library
-  map build of 1.1 to 4.6 s and a 331-file offline healing scan; a foreground cold launch took 11.4 s to
-  finish bootstrapping; a 3-minute-old process had used 22.6 s of CPU. Cold intent launches write no session
-  log, so their own cost is unmeasured.
-- Impact: battery and heat when Siri or Shortcuts start the app often; unmeasured.
-- Done: cold intent launches now write a session log (first line `launch: ...`). Design and measurements for
-  skipping or deferring launch work: `docs/investigations/2026-11-11-launch-pipeline-cost.md` (awaits approval).
-- Next step: record a Time Profiler cold launch on the phone with a Release build, and read the first
-  background-launch session logs before implementing the design.
+- Done on `perf/background-launch-work`: a process launched in the background no longer starts the early health
+  checks, WebSockets, startup sync, Siri/Spotlight refresh, iCloud bootstrap or download healing until its first
+  `.active` scene phase. Design: `docs/investigations/2026-11-11-launch-pipeline-cost.md`. Phone checks:
+  `docs/reference/physical-device-backlog.md` ("Background launch work").
+- Next step: run those checks, then a Release Time Profiler cold launch to attribute the 14.9 s CPU. Remove this
+  entry when the phone checks pass.
+
+## Confirmed: every cold launch removes the Plex library cursors, about 9 s of sync work (2026-11-11)
+
+- Evidence: `SyncCoordinator.performStartupSync` calls `invalidatePlexReconciliationCursors` (`SyncCoordinator.swift`
+  near `:1527`, `:1532`), forcing a full re-read of 5 sources: `14:30:03.093` to `14:30:11.928`, 8.8 s on the 16 Pro.
+  `performStartupSync(registrations:)` already forces a full sync when the last one is over 24 h old.
+- Impact: battery and heat on every foreground cold launch; also network use.
+- Next step: trace why the invalidation was added (git blame, `ON_DECK.md` "A Plex library cursor vanishes ..."),
+  then relax it to once per 24 h with the stamp stored beside the cursor. Needs the owner's approval: it changes
+  the "authoritative pass every launch" rule. Not changed.
+
+## Confirmed: the download healing scan re-reads the same files on every foreground (2026-11-11)
+
+- Evidence: `downloadTruncationScan completed=331 ... elapsedMs=887` plus `downloadHealing ... elapsedMs=1216`, with
+  `truncated=0 artworkMisses=0`, at 14:30:17, 14:34:17, 14:35:40, 14:36:52 (`OfflineDownloadService.swift:1938`,
+  `:2114-2125`, `:1645-1655`). `AVAudioFile(forReading:)` runs on every file each pass.
+- Impact: 0.9 to 1.2 s of file I/O per foreground (2.8 to 3.7 s on a cold cache).
+- Next step: a per-file verified stamp (path, size, mtime) rescanning only changed or new files, with a full scan
+  after an app-version change. Risk: corruption with unchanged size and mtime is missed.
+
+## Suspected: two health passes at launch, 1.5 s apart (2026-11-11)
+
+- Evidence: `Startup health checks complete in 1.49s` at 14:30:02.907, then `account_inventory_refresh force=true`
+  `Health refresh complete in 1.46s` at 14:30:04.369. Call site of the forced refresh not traced.
+- Impact: about 1.5 s of probes to 3 servers, once per launch.
+- Next step: find the caller of the forced refresh and skip it when the early pass finished under about 10 s ago.
+
+## Confirmed: the library map is built three times in one startup (2026-11-11)
+
+- Evidence: `libraryMap generation=1,2,3` at 11:41:27, 11:41:31, 11:41:34 (4.6, 2.0, 1.6 s); one build at 14:30.
+- Impact: CPU and heat during startup sync. Scene-only; no effect on background launches.
+- Next step: coalesce rebuild requests made during startup sync into one rebuild after it ends. The 21,654-track map
+  itself needs its own design (paged or per section).
+
+## Suspected: Siri index rebuilds with `changed=false` and repeated offline target reconciliation (2026-11-11)
+
+- Evidence: `siriIndexRebuild ... changed=false` 6 of 8 times (146 to 322 ms); 23 offline reconciliation lines in 9 s.
+- Impact: low, 0.15 to 0.3 s each.
+- Next step: skip the rebuild when no source committed since the last one. Low priority.
+
+## Suspected: leaving the scene stops network monitoring even while audio plays (2026-11-11)
+
+- Evidence: the `.background` scene-phase handler calls `networkMonitor.stopMonitoring()`
+  (`EnsembleApp.swift:408`) unconditionally. `SyncCoordinator` reacts to reconnects only through that monitor.
+- Impact: a track playing with the app in the background (foreground launch, or an intent process that later had a
+  scene) does not refresh server health or reconnect after Wi-Fi changes until the next foreground. Pre-existing.
+  An intent-only process with no scene keeps its monitor (`prepareForBackgroundPlayback` starts it).
+- Next step: keep monitoring while playback is active, then verify with the Wi-Fi off/on phone check.
 
 ## Confirmed: Shortcuts entity search only sees the capped Siri index (2026-11-11)
 

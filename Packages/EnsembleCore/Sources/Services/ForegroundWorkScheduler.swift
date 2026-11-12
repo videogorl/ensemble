@@ -59,6 +59,40 @@ public struct ForegroundWorkSchedulerConfiguration: Equatable, Sendable {
     }
 }
 
+/// Lets the launch work that needs a foreground process start only while the process is foreground, without
+/// starting anything twice.
+///
+/// Health checks, WebSockets and the Siri refresh start once (`claim`). Startup sync can be skipped when the app
+/// leaves the foreground before it is allowed to run, so it is claimed separately and retried at a later
+/// activation until a run completes.
+public struct ForegroundLaunchWorkGate {
+    private enum StartupSync { case notStarted, running, skipped, done }
+
+    public private(set) var hasStarted = false
+    private var startupSync = StartupSync.notStarted
+
+    public init() {}
+
+    /// Returns true for the first call made while foreground, and false for every call after it.
+    public mutating func claim(isForeground: Bool) -> Bool {
+        guard isForeground, !hasStarted else { return false }
+        hasStarted = true
+        return true
+    }
+
+    /// Returns true when foreground and no startup sync is running or finished: the first time, and again after a skipped run.
+    public mutating func claimStartupSync(isForeground: Bool) -> Bool {
+        guard isForeground, startupSync == .notStarted || startupSync == .skipped else { return false }
+        startupSync = .running
+        return true
+    }
+
+    /// Records the end of a claimed run: `ran` false means it was skipped and a later activation retries it.
+    public mutating func finishStartupSync(ran: Bool) {
+        startupSync = ran ? .done : .skipped
+    }
+}
+
 @MainActor
 public protocol ForegroundWorkScheduling: AnyObject, Sendable {
     var isIdleForNonessentialWork: Bool { get }

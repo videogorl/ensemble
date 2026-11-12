@@ -23,14 +23,11 @@ func prepareForBackgroundPlayback(origin: String, timeout: Duration = .seconds(8
         throw EnsembleIntentError.credentialsUnavailable
     }
     container.serverHealthChecker.prepopulateUnknownStates()
-    container.networkMonitor.startMonitoring()
 
     await waitBounded(timeout) {
         // Offline needs no server, so decide that before joining a health check that cannot succeed.
         let network = container.networkMonitor
-        for _ in 0..<10 where network.networkState == .unknown {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
+        await startNetworkMonitorAndAwaitCurrentState(network)
         guard network.networkState != .offline else {
             AppLogger.info("SIRI_APP: [origin=\(origin)] Offline — skipping server health checks")
             return
@@ -54,6 +51,21 @@ func prepareForBackgroundPlayback(origin: String, timeout: Duration = .seconds(8
     try Task.checkCancellation()
     container.syncCoordinator.refreshProviders()
     AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready")
+}
+
+/// Starts the network monitor and waits, for up to `maxWait`, until `networkState` is online or the monitor has
+/// delivered a live path; returns whether it started the monitor. A process that starts in the background otherwise reads the state cached by the previous
+/// process, so a stale `.offline` or `.limited` would skip server work that the current network allows.
+@MainActor
+@discardableResult
+func startNetworkMonitorAndAwaitCurrentState(_ network: NetworkMonitor, maxWait: Duration = .seconds(3)) async -> Bool {
+    let startedMonitor = network.startMonitoring()
+    let deadline = ContinuousClock.now + maxWait
+    while !network.hasLivePath, !network.isConnected, ContinuousClock.now < deadline {
+        // A cancelled sleep returns at once; stop waiting instead of spinning until the deadline.
+        guard (try? await Task.sleep(for: .milliseconds(100))) != nil else { break }
+    }
+    return startedMonitor
 }
 
 /// Waits for `work` or `timeout`, whichever comes first. `work` is never cancelled: it may be waiting on a health

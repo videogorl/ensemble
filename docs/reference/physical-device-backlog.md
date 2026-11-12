@@ -765,3 +765,21 @@ earlier).
 | Apple Music playlists no longer rewritten each sync (`1ef74494`) | Not run on the phone that shows it. To run: on the 16 Pro install a build with the fix, sync three times; after the first, no `writing playlist … differs: compositePath` lines |
 | Less background CPU while playing locked or with no visualizer on screen (`33be6521`) | Not run on a phone (tests and builds only). To run: on the 16 Pro, the same 7-minute locked-playback Performance Trace as 2026-11-11 with the visualizer on and Now Playing closed; expect no `analyzeFile` bursts and fewer SwiftUI samples than 34 of 96. Also open Now Playing after a gapless advance and confirm the visualizer animates for the new track |
 | Voice Add never writes to a similar or smart playlist; deferred server labels resolve to one playlist; extension trail appears in the session log (`SIRI_EXT_TRAIL`) | Not run (tests only). To run: on the SE (no Siri AI), with a smart and a regular "Road Trip Mix" style pair and a disposable "ZZ Test" playlist, ask Siri to add the current song to each; expect "not editable" for the smart one, one write for the test playlist, and `SIRI_EXT_TRAIL` plus `SIRI_APP: add-to-playlist` lines in the session log |
+
+## Background launch work (`perf/background-launch-work`)
+
+Run on the iPhone 16 Pro (the iPhone SE as a fallback) with a Debug build. Prove the installed build first. Kill the
+app before each check, then pull `Application Support/Ensemble/Logs` and read the newest session. Every background
+launch logs `LAUNCH_WORK: kind=background ... foregroundLaunchWork=deferred`; a foreground launch logs
+`LAUNCH_WORK: kind=foreground scene foregroundLaunchWork=started`.
+
+| Check | Expect in the log | Result |
+| --- | --- | --- |
+| Cold Shortcuts toggle (shuffle or repeat) from a killed app | `launch: background`, `foregroundLaunchWork=deferred`. No `Starting network monitor + early health checks`, `Starting startup sync`, `WebSocket ... Connecting`, `siriIndexRebuild`, `Spotlight indexed`, `deferred healing started` | Not run |
+| Cold Play/Pause, then Next | The same absences, `Server connectivity ready` from `SIRI_APP: [origin=intent]`, playback starts, queue restored | Not run |
+| Cold play by name (Siri or Shortcut) | `SIRI_APP: [origin=...] Server connectivity ready`, a health pass from `prepareForBackgroundPlayback` (`No connected servers — running health checks`), playback starts | Not run |
+| Cold add to playlist | Health result before the add; the add lands or queues offline | Not run |
+| Each of the above, then open the app within a minute | One `LAUNCH_WORK: starting foreground launch work` line at the first `.active`, one `Starting startup sync...`, one WebSocket start per server, Home and library show loading then fill, no empty or error flash | Not run |
+| Locked phone: start playback by intent, then turn Wi-Fi off and on | `stateChanged ... transition=disconnect`, then `reconnect`, then `Health refresh complete`; playback recovers or resolves the next track. If not, see the `ON_DECK.md` entry on monitoring | Not run |
+| Overnight background refresh | `Background refresh triggered` and `Background refresh phase=` lines, `foregroundLaunchWork=deferred`, no `starting foreground launch work` until the app is opened | Not run |
+| Foreground cold launch and a launch that backgrounds at once | Launch log unchanged in task order, one `foregroundLaunchWork=started` | Not run |
