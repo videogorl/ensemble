@@ -18,6 +18,17 @@ import BackgroundTasks
 /// reach it.
 enum AppRoot {
     static let container = DependencyContainer()
+
+    /// Starts the persistent session log and wires the app and UI loggers to it. Runs at process launch so
+    /// a launch with no scene (an App Intent, Siri) is logged too; later calls are no-ops.
+    @MainActor
+    static func startPersistentLogSession(launch: ProcessLaunchKind) {
+        let service = container.persistentLogService
+        let handler = service.logHandler
+        EnsembleUI.EnsembleLogger.fileLogHandler = handler
+        AppLogger.fileLogHandler = handler
+        service.startSession(launch: launch)
+    }
 }
 
 @main
@@ -32,7 +43,6 @@ struct EnsembleApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @FocusedValue(\.ensembleRefreshAction) private var focusedRefreshAction
     @State private var hasPerformedStartupSync = false
-    @State private var hasStartedLogSession = false
     @State private var hasHandledInitialIOSActivePhase = false
     @State private var permalinkTask: Task<Void, Never>?
     @State private var permalinkFeedbackToastID: UUID?
@@ -307,13 +317,9 @@ struct EnsembleApp: App {
         )
     }
 
+    /// iOS starts the session in `didFinishLaunching`; macOS, which has no such hook here, starts it with the scene.
     private func startPersistentLogSessionIfNeeded() {
-        guard !hasStartedLogSession else { return }
-        hasStartedLogSession = true
-        let handler = AppRoot.container.persistentLogService.logHandler
-        EnsembleUI.EnsembleLogger.fileLogHandler = handler
-        AppLogger.fileLogHandler = handler
-        AppRoot.container.persistentLogService.startSession()
+        AppRoot.startPersistentLogSession(launch: .foregroundScene)
     }
 
     @MainActor

@@ -631,8 +631,10 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   finish bootstrapping; a 3-minute-old process had used 22.6 s of CPU. Cold intent launches write no session
   log, so their own cost is unmeasured.
 - Impact: battery and heat when Siri or Shortcuts start the app often; unmeasured.
-- Next step: record a Time Profiler cold launch on the phone with a Release build, and decide which launch
-  work a background intent launch can skip or defer. Also make cold intent launches write a session log.
+- Done: cold intent launches now write a session log (first line `launch: ...`). Design and measurements for
+  skipping or deferring launch work: `docs/investigations/2026-11-11-launch-pipeline-cost.md` (awaits approval).
+- Next step: record a Time Profiler cold launch on the phone with a Release build, and read the first
+  background-launch session logs before implementing the design.
 
 ## Suspected: Siri played `kind=album entity=26197` for a request that was not an album (2026-11-11)
 
