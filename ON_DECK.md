@@ -698,6 +698,20 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   the pause). One burst (34 G instructions, 1.5 s on core) had FLAC-scanning stacks consistent with this
   analysis. SwiftUI/AttributeGraph frames were in 34 of 96 steady samples while the screen was locked, and
   WatchConnectivity frames appeared every 20 to 60 s.
-- Next step: record the same on a Release build; check why analysis runs in bursts (per upcoming track, or
-  re-analysing) and whether results are cached; find which SwiftUI views still update while the app is in the
-  background with the screen locked.
+- Code findings (2026-11-11, branch `perf/playback-background-cpu`): the analysis feeds only the Aurora
+  visualizer (SmartMix, loudness and the Plex waveform use other data). It ran for every track change and every
+  scheduled prefetch whenever the visualizer setting was on, regardless of scene phase or visible surface. The
+  four bursts were four different tracks (a tester skipping), not re-analysis: results are cached per track in
+  memory (cleared only by `stopAnalysis`, never evicted) and persisted as a `.freq` sidecar only for files under
+  `Downloads`, so streamed/cache files are re-analysed every launch.
+- Fixed on the branch: analysis is deferred while the app is backgrounded or no visualization surface is visible
+  and replayed (current track first) when one appears; the in-memory cache is bounded to 8; the Mini Player
+  waveform and Now Playing scrubber ignore progress ticks while the scene is backgrounded and resync on return;
+  the watch position tick is sent only while the watch is reachable.
+- Remaining, not built: persist sidecars for cache files too (disk and invalidation policy); stop an in-flight
+  analysis when the app backgrounds; remaining SwiftUI work while locked is unidentified (needs a trace);
+  `WatchCompanionSessionSnapshot.updatedAt` makes the publisher's equality check never match.
+- Phone confirmation: Release or Debug build, same 7-minute locked playback power trace as before, visualizer on,
+  Now Playing closed. Compare Ensemble CPU time per minute, the count of `analyzeFile` bursts (expect none while
+  locked or with Now Playing closed), SwiftUI/AttributeGraph samples while locked (was 34 of 96) and
+  WatchConnectivity samples (expect none with the watch app closed).
