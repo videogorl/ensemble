@@ -1192,6 +1192,10 @@ private func performBackgroundRefresh() async {
         BackgroundSyncScheduler.shared.scheduleAppRefresh()
     }
 
+    // A background launch skips the early health checks that start the monitor. Without the current path the
+    // refresh would read the previous process's cached offline state and give up before any work.
+    await startNetworkMonitorAndAwaitCurrentState(AppRoot.container.networkMonitor)
+
     let refreshCoordinator = await MainActor.run {
         AppRoot.container.backgroundRefreshCoordinator
     }

@@ -71,6 +71,10 @@ public final class NetworkMonitor {
         }
     }
     public var networkState: NetworkState { snapshot.state }
+    /// True once the running monitor has delivered a path of its own. Until then `networkState` may be the cached
+    /// state from the previous process, which a background launch must not mistake for the current one.
+    public var hasLivePath: Bool { hasReceivedLivePath }
+    @ObservationIgnored private var hasReceivedLivePath = false
     public var isConnected: Bool { snapshot.isConnected }
     public var isConstrained: Bool { snapshot.isConstrained }
     @ObservationIgnored private let broadcast = Broadcast<NetworkSnapshot>()
@@ -202,6 +206,7 @@ public final class NetworkMonitor {
         newMonitor.start(queue: monitorQueue)
         monitor = newMonitor
         isMonitoring = true
+        hasReceivedLivePath = false
         monitorGeneration += 1
         routingGeneration &+= 1
         onRoutingChanged?()
@@ -289,6 +294,7 @@ public final class NetworkMonitor {
 
             guard !Task.isCancelled, let self else { return }
             self.updateState(to: state, isConstrained: isConstrained)
+            self.hasReceivedLivePath = true
             if self.pathChangePending {
                 self.pathChangePending = false
                 self.pathGeneration &+= 1

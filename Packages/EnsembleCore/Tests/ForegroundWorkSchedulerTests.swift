@@ -255,6 +255,23 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
         XCTAssertTrue(afterForeground)
     }
 
+    func testSkippedStartupSyncIsRetriedAtTheNextActivationAndRunsOnce() {
+        var gate = ForegroundLaunchWorkGate()
+        XCTAssertTrue(gate.claim(isForeground: true))
+        XCTAssertTrue(gate.claimStartupSync(isForeground: true))
+
+        // The app left the foreground before the sync was allowed to run.
+        gate.finishStartupSync(ran: false)
+        XCTAssertFalse(gate.claim(isForeground: true), "health and WebSocket startup must not run twice")
+        XCTAssertFalse(gate.claimStartupSync(isForeground: false), "never retried while in the background")
+
+        XCTAssertTrue(gate.claimStartupSync(isForeground: true))
+        XCTAssertFalse(gate.claimStartupSync(isForeground: true), "not started again while running")
+
+        gate.finishStartupSync(ran: true)
+        XCTAssertFalse(gate.claimStartupSync(isForeground: true))
+    }
+
     func testForegroundLaunchWorkGateClaimsOnceAndNeverWhileBackground() {
         var gate = ForegroundLaunchWorkGate()
         XCTAssertFalse(gate.claim(isForeground: false))
