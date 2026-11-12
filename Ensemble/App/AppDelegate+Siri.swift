@@ -108,6 +108,7 @@ extension AppDelegate {
 
     private func handleSiriPendingAddToPlaylistNotification() {
         AppLogger.info("SIRI_APP: Received trigger for pending add-to-playlist")
+        SiriExtensionBreadcrumbs.drain().forEach { AppLogger.info($0.logLine) }
 
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier

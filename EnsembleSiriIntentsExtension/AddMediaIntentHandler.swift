@@ -6,7 +6,6 @@ import OSLog
 public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
     private static let pendingFilename = "siri-pending-addtoplaylist.json"
     private static let darwinNotificationName = "com.videogorl.ensemble.siri.pendingAddToPlaylist"
-    private static let disambiguationThreshold = 0.1
 
     private let logger = Logger(
         subsystem: "com.videogorl.ensemble.siri-intents",
@@ -36,6 +35,7 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
         guard let destination = intent.mediaDestination,
               let playlistName = destination.playlistName, !playlistName.isEmpty else {
             logger.info("resolveMediaDestination: no playlist name; requesting value")
+            SiriMatchingHelpers.record("resolveDestination", "needsName")
             completion(.needsValue())
             return
         }
@@ -44,58 +44,26 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
 
         guard let index = SiriMatchingHelpers.loadIndex() else {
             logger.warning("resolveMediaDestination: index unavailable; returning needsValue")
+            SiriMatchingHelpers.record("resolveDestination", "indexUnavailable")
             completion(.needsValue())
             return
         }
 
-        // No presentation yet: nothing can be shown to be visible, so the name goes to the app as spoken.
-        guard let offered = SiriMatchingHelpers.offeredPlaylists(in: index) else {
+        switch SiriMatchingHelpers.resolveVoiceAdd(named: playlistName, in: index, event: "resolveDestination") {
+        case .deferToApp:
+            // No presentation for this index: the name goes to the app as spoken, which resolves it itself.
             logger.info("resolveMediaDestination: no playlist presentation; deferring the name to the app")
             completion(.success(with: INMediaDestination.playlist(playlistName)))
-            return
-        }
-
-        // A name this resolver offered earlier (server-qualified when two playlists share a title) is already chosen.
-        let chosen = SiriPlaylistRows.destinations(named: playlistName, among: offered)
-        if chosen.count > 1 {
-            logger.error("resolveMediaDestination: destination name matches several playlists")
-            completion(.unsupported(forReason: .playlistNameNotFound))
-            return
-        }
-        if let chosen = chosen.first {
-            completion(.success(with: INMediaDestination.playlist(SiriPlaylistRows.destinationName(for: chosen, among: offered))))
-            return
-        }
-
-        let ranked = Self.rankOffered(playlistName, offered: offered, index: index)
-        guard let top = ranked.first else {
+        case let .chosen(destination):
+            logger.info("resolveMediaDestination: matched playlist")
+            completion(.success(with: INMediaDestination.playlist(destination.name)))
+        case let .choices(options):
+            logger.info("resolveMediaDestination: disambiguating \(options.count, privacy: .public) options")
+            completion(.disambiguation(with: options.map { INMediaDestination.playlist($0.name) }))
+        case .notFound:
             logger.info("resolveMediaDestination: no playlist match found")
             completion(.unsupported(forReason: .playlistNameNotFound))
-            return
         }
-
-        // Check if disambiguation is needed
-        if ranked.count > 1 {
-            let second = ranked[1]
-            if abs(top.score - second.score) <= Self.disambiguationThreshold {
-                logger.info("resolveMediaDestination: disambiguating \(ranked.count, privacy: .public) options")
-                let options = Array(ranked.prefix(6)).map { ranked in
-                    INMediaDestination.playlist(SiriPlaylistRows.destinationName(for: ranked.item, among: offered))
-                }
-                completion(.disambiguation(with: options))
-                return
-            }
-        }
-
-        logger.info("resolveMediaDestination: matched playlist")
-        completion(.success(with: INMediaDestination.playlist(SiriPlaylistRows.destinationName(for: top.item, among: offered))))
-    }
-
-    /// Playlist candidates for a spoken name, limited to the playlists the app offers.
-    private static func rankOffered(_ name: String, offered: [SiriMediaIndexItem], index: SiriMediaIndex) -> [RankedItem] {
-        let shown = Set(offered.map(\.reference.sourceScopedIdentifier))
-        return SiriMediaIndexResolver.rankPlaylistCandidates(for: name, index: index)
-            .filter { shown.contains($0.item.reference.sourceScopedIdentifier) }
     }
 
     public func handle(
@@ -106,41 +74,36 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
         guard let destination = intent.mediaDestination,
               let playlistName = destination.playlistName, !playlistName.isEmpty else {
             logger.error("handle: missing playlist destination")
+            SiriMatchingHelpers.record("handleAdd", "missingDestination")
             completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
             return
         }
 
         logger.info("handle: playlistNameLength=\(playlistName.count, privacy: .public)")
 
-        // Find the playlist in the index to get its ratingKey
         guard let index = SiriMatchingHelpers.loadIndex() else {
             logger.error("handle: index unavailable")
+            SiriMatchingHelpers.record("handleAdd", "indexUnavailable")
             completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
             return
         }
 
-        // The playlist the chosen name stands for; with no presentation, a name-only request the app resolves itself.
+        // Only a name that stands for exactly one playlist is written; with no presentation, a name-only request the
+        // app resolves itself.
         let payload: PendingAddToPlaylistPayload
-        if let offered = SiriMatchingHelpers.offeredPlaylists(in: index) {
-            // A name from our own offered list names exactly one row; a name that matches several is never written.
-            let named = SiriPlaylistRows.destinations(named: playlistName, among: offered)
-            guard named.count <= 1 else {
-                logger.error("handle: destination name matches several playlists")
-                completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
-                return
-            }
-            guard let match = named.first ?? Self.rankOffered(playlistName, offered: offered, index: index).first?.item else {
-                logger.error("handle: no matching playlist found")
-                completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
-                return
-            }
-            payload = PendingAddToPlaylistPayload(
-                playlistRatingKey: match.id,
-                sourceCompositeKey: match.sourceCompositeKey ?? "",
-                playlistDisplayName: match.displayName
-            )
-        } else {
+        switch SiriMatchingHelpers.resolveVoiceAdd(named: playlistName, in: index, event: "handleAdd") {
+        case .deferToApp:
             payload = PendingAddToPlaylistPayload(playlistRatingKey: "", sourceCompositeKey: "", playlistDisplayName: playlistName)
+        case let .chosen(destination):
+            payload = PendingAddToPlaylistPayload(
+                playlistRatingKey: destination.item.id,
+                sourceCompositeKey: destination.item.sourceCompositeKey ?? "",
+                playlistDisplayName: destination.item.displayName
+            )
+        case .choices, .notFound:
+            logger.error("handle: destination name does not stand for exactly one playlist")
+            completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
+            return
         }
         guard SiriPendingIntentBridge.writePayload(
             payload,
@@ -148,6 +111,7 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
             logger: logger,
             context: "add-to-playlist"
         ) else {
+            SiriMatchingHelpers.record("handleAdd", "writeFailed")
             completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
             return
         }
@@ -158,6 +122,7 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
             context: "add-to-playlist"
         )
 
+        SiriMatchingHelpers.record("handleAdd", "handedToApp")
         logger.info("handle: wrote pending add-to-playlist file + posted Darwin notification, returning success")
         completion(INAddMediaIntentResponse(code: .success, userActivity: nil))
     }

@@ -46,10 +46,22 @@ public final class SiriAddToPlaylistCoordinator {
         }
     }
 
-    /// Executes a Siri add-to-playlist payload.
+    /// Executes a Siri add-to-playlist payload, logging the request and its outcome (codes only, no titles).
     public func execute(payload: SiriAddToPlaylistRequestPayload) async throws {
+        let nameOnly = payload.playlistRatingKey.isEmpty
+        EnsembleLogger.info("SIRI_APP: add-to-playlist request nameOnly=\(nameOnly) nameLength=\(payload.playlistDisplayName?.count ?? 0)")
+        do {
+            let outcome = try await perform(payload: payload)
+            EnsembleLogger.info("SIRI_APP: add-to-playlist outcome=\(outcome) nameOnly=\(nameOnly)")
+        } catch {
+            EnsembleLogger.error("SIRI_APP: add-to-playlist outcome=error nameOnly=\(nameOnly) error=\(error.localizedDescription)")
+            throw error
+        }
+    }
+
+    private func perform(payload: SiriAddToPlaylistRequestPayload) async throws -> String {
         guard payload.schemaVersion == SiriAddToPlaylistRequestPayload.currentSchemaVersion else {
-            return
+            return "unsupportedSchema"
         }
 
         guard let currentTrack = playbackService.currentTrack else {
@@ -59,14 +71,13 @@ public final class SiriAddToPlaylistCoordinator {
                 title: "No track playing",
                 message: "Play a track first, then try again."
             ))
-            return
+            return "noCurrentTrack"
         }
 
         // Resolve the playlist from CoreData. A name-only request (no identity) is resolved here, where the playlist
         // screen's visibility rules are known.
-        let nameOnly = payload.playlistRatingKey.isEmpty
         let resolved: CDPlaylist?
-        if nameOnly, let name = payload.playlistDisplayName {
+        if payload.playlistRatingKey.isEmpty, let name = payload.playlistDisplayName {
             resolved = try await resolveName(name, currentTrack.sourceCompositeKey)
         } else {
             resolved = try await playlistRepository.fetchPlaylist(
@@ -82,7 +93,7 @@ public final class SiriAddToPlaylistCoordinator {
                 title: "Playlist not found",
                 message: "\"\(name)\" could not be found."
             ))
-            return
+            return "playlistNotFound"
         }
 
         // A merged group takes the song on its own server, as the Add to Playlist sheet does.
@@ -93,7 +104,7 @@ public final class SiriAddToPlaylistCoordinator {
                 title: "Can't add to that playlist",
                 message: "The song and the playlist are on different music sources. Pick a playlist on the same server as the song."
             ))
-            return
+            return "differentSources"
         }
 
         let (_, outcome) = try await mutationCoordinator.addTracksToPlaylist(
@@ -108,5 +119,6 @@ public final class SiriAddToPlaylistCoordinator {
             title: "Added to \(playlist.title)",
             message: message ?? "\(currentTrack.title)"
         ))
+        return outcome == .queued ? "queued" : "added"
     }
 }

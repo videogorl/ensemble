@@ -701,3 +701,34 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Next step: record the same on a Release build; check why analysis runs in bursts (per upcoming track, or
   re-analysing) and whether results are cached; find which SwiftUI views still update while the app is in the
   background with the screen locked.
+
+## Siri AI (iOS 27) resolves audio requests before our SiriKit extension (suspected, evidence in console log 2026-11-11)
+- Evidence: for the 18:49 to 18:58 typed "Add this song to playlist ZZ Test Voice" attempts the iPhone log has no
+  `EnsembleSiriIntentsExtension` process at all, while `AudioAppIntentsExtension` ran an
+  `AudioEntityIntentValueQuery.values(for: SiriKitQueryCriteria)` and `assistant_cdmd`/`searchtoold` matched the
+  `AppCustomMediaPlaylistTitle` group. For the play request at 17:50:59 the same query was followed by
+  `EnsembleSiriIntentsExtension` launching at 17:51:00. The add never reached our code.
+- Impact: voice Add on Siri AI phones is decided by Siri's own playlist entities (vocabulary, Spotlight); the extension
+  path and its tests only matter where Siri hands the request over.
+- Next step: App Intents phase 4 (iOS 27 audio schema `addToPlaylist`, `docs/reference/app-intents-design.md`); first
+  retest with a day-old playlist to separate "new playlist unknown to Siri" from "Siri never offers add".
+
+## Metal command buffers submitted from the background (confirmed, Ensemble console log 2026-11-11 18:48)
+- Evidence: hundreds of `kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted` errors per second from
+  Ensemble while it was backgrounded (about 19k IOGPU lines in the filtered 18:40 to 19:05 log).
+- Impact: wasted CPU/GPU work and log noise while playing in the background; likely the aurora/Metal visual still
+  rendering. Next step: stop the Metal view's display link when the scene is not active.
+
+## Merged playlist detail shows "No tracks" before it starts loading (suspected)
+- Evidence: `MediaDetailView.emptyStateFooter` shows "No tracks" whenever `!isLoading && filteredTracks.isEmpty`, and the
+  playlist view model's `isLoading` is false until its load task starts; `PlaylistOpenLoader` itself shows a
+  ProgressView while it decides, so its reload is not the cause.
+- Next step: initialise the detail view model as loading (or gate the footer on a `hasLoaded` flag).
+
+## Merging > Playlists toggle not re-grouping Playlists list/Search/pins on the Mac until relaunch (confirmed by Mac check, not reproduced in tests)
+- Evidence: `mac-pins-dock.md` (Mac check); unit tests toggling the Playlists switch off/on re-group
+  `PlaylistViewModel` and `SearchViewModel` correctly, so the failing path is not their observation. Same report
+  shows iCloud KVS rewriting Merging ~25 s after launch (two remote changes, 425 and 426 bytes).
+- Suspect: a KVS echo of an older value overwriting a newer local toggle (no timestamp or own-write guard in
+  `CloudSyncCoordinator.onRemoteMergingPreferencesChanged`). Next step: log the merging preferences on each local
+  change and each remote apply, repeat the Mac toggle.
