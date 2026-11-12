@@ -318,6 +318,27 @@ public final class SiriPlaybackCoordinator {
         }
     }
 
+    /// The items that pass today's rules: source enabled and shown, and not hidden media (a song also by its album or
+    /// artist). The cached index is stale until it rebuilds after a change, so a result Siri AI is given goes through
+    /// this. An item the store no longer holds, or that cannot be checked, is dropped.
+    public func currentlyVisible(_ items: [SiriMediaIndexItem]) async -> [SiriMediaIndexItem] {
+        var visiblePlaylistKeys: Set<String>?
+        var visible: [SiriMediaIndexItem] = []
+        for item in items {
+            if item.kind == .playlist {
+                if visiblePlaylistKeys == nil {
+                    let playlists = (try? await visiblePlaylists().visible) ?? []
+                    visiblePlaylistKeys = Set(playlists.map { "\($0.id)||\($0.sourceCompositeKey ?? "")" })
+                }
+                guard visiblePlaylistKeys?.contains("\(item.id)||\(item.sourceCompositeKey ?? "")") == true else { continue }
+            } else if (try? await storedItem(kind: item.kind, id: item.id, sourceCompositeKey: item.sourceCompositeKey)) ?? nil == nil {
+                continue
+            }
+            visible.append(item)
+        }
+        return visible
+    }
+
     /// Plays a track with Autoplay on, which is how the app starts a track radio.
     public func startTrackRadio(request: SiriPlaybackRequest) async throws {
         let media = try await resolveMedia(kind: .track, request: request)

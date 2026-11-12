@@ -818,3 +818,19 @@ Unit-tested and built only; none of this ran on a phone or in Shortcuts or Siri.
 | A Focus that hides library A, then a cold headless launch (force-quit Ensemble, run a shortcut or ask Siri): Play Song/Album/Artist pickers and playback never show or play library A; if the Focus lookup is slow the intent fails with "couldn't confirm which libraries are visible" and a retry works | Owed |
 | The Play Track picker finds a song outside the Siri index by typing its name (including "rocknroll" for "Rock'n'Roll", and a name with "&" typed as "and"); items from a library hidden by the active profile never appear, and with Merging off the same song on two servers shows as two rows labelled by server | Owed |
 | Voice Play for a song, album or artist that exists in a hidden library and, with the same title, artist and album, in a visible one: Siri plays the visible copy; with no visible copy it says it cannot find it. After an app update, before the app has run once, Voice Play defers to the app by name | Owed |
+
+
+## Siri AI audio schemas (`feature/app-intents-siri-ai`)
+
+Built for iOS and macOS 27 and extracted without warnings; none of it ran on a phone. iPhone 16 Pro, Siri AI, console open.
+
+| Check | Result |
+| --- | --- |
+| Type "add this song to playlist <name>" for an existing playlist while a song plays: Ensemble receives it (`SIRI_AI: add-to-playlist` then `... done` in the log; `SIRI_APP:` lines mean SiriKit answered instead) and the song lands on one playlist on its own server; Siri no longer answers "couldn't find a playlist" | Owed |
+| The same with a smart playlist, a playlist on another server than the song, and a name two playlists share: no write; the error names the cause or Siri asks which | Owed |
+| "Play <playlist>" (merging on): `SIRI_AI: audio search` then `play-audio` lines; the merged playlist plays once. With merging off, each server's copy is offered, labelled by server | Owed |
+| "Play <song>", "play <album>", "play <artist>", "play something": results come from the visible library; an item in a library hidden by the active Focus or profile is not offered or played | Owed |
+| "Shuffle <playlist>", "play <song> next", "add <song> to the queue": shuffle starts, next and last enqueue | Owed |
+| "Create a station from this song": `SIRI_AI: create-station` and Autoplay starts | Owed |
+| SiriKit still answers on HomePod and on a phone without Siri AI | Owed |
+
