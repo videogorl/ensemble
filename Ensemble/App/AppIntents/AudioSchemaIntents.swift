@@ -210,6 +210,7 @@ extension AudioSchemaEntityQuery {
     /// The playlist query answers playlists only. The others answer from every kind, because Siri asks one kind per
     /// request, differently each run: our best matches (the top one when it clearly wins, else up to three), best
     /// first, whatever their real kind.
+    /// Seen on the phone: a playlist handed back as an artist or album plays, but cannot be an add destination.
     private func findItems(matching query: String) async -> [SiriMediaIndexItem] {
         let named = SiriMediaIndexResolver.kindWordQuery(from: query)
         guard Entity.indexKind != .playlist else {
@@ -227,6 +228,9 @@ extension AudioSchemaEntityQuery {
         var matches = await ranked(query, nil)
         if let named,
            !matches.contains(where: { SiriPhraseNormalizer.basic($0.item.displayName) == SiriPhraseNormalizer.basic(query) }) {
+            // Text that says "playlist" is a playlist request, and for an add it is the destination: Siri can only
+            // use a playlist-typed result there, so answer nothing here and let it ask the playlist query.
+            guard named.kind != .playlist else { return [] }
             matches = await ranked(named.text, [named.kind])
         }
         // Merged rows stand for their copies; a merged twin keeps its match's score.
