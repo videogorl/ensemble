@@ -54,15 +54,18 @@ func prepareForBackgroundPlayback(origin: String, timeout: Duration = .seconds(8
 }
 
 /// Starts the network monitor and waits, for up to `maxWait`, until `networkState` is online or the monitor has
-/// delivered a live path. A process that starts in the background otherwise reads the state cached by the previous
+/// delivered a live path; returns whether it started the monitor. A process that starts in the background otherwise reads the state cached by the previous
 /// process, so a stale `.offline` or `.limited` would skip server work that the current network allows.
 @MainActor
-func startNetworkMonitorAndAwaitCurrentState(_ network: NetworkMonitor, maxWait: Duration = .seconds(3)) async {
-    network.startMonitoring()
+@discardableResult
+func startNetworkMonitorAndAwaitCurrentState(_ network: NetworkMonitor, maxWait: Duration = .seconds(3)) async -> Bool {
+    let startedMonitor = network.startMonitoring()
     let deadline = ContinuousClock.now + maxWait
     while !network.hasLivePath, !network.isConnected, ContinuousClock.now < deadline {
-        try? await Task.sleep(for: .milliseconds(100))
+        // A cancelled sleep returns at once; stop waiting instead of spinning until the deadline.
+        guard (try? await Task.sleep(for: .milliseconds(100))) != nil else { break }
     }
+    return startedMonitor
 }
 
 /// Waits for `work` or `timeout`, whichever comes first. `work` is never cancelled: it may be waiting on a health

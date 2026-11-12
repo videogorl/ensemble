@@ -193,9 +193,11 @@ public final class NetworkMonitor {
 
     // MARK: - Public Methods
 
-    /// Start monitoring network state changes
-    public func startMonitoring() {
-        guard !isMonitoring else { return }
+    /// Start monitoring network state changes. Returns whether this call started the monitor,
+    /// so a caller that only needs it briefly can stop what it started.
+    @discardableResult
+    public func startMonitoring() -> Bool {
+        guard !isMonitoring else { return false }
 
         let newMonitor = monitorFactory()
         newMonitor.pathUpdateHandler = { [weak self] path in
@@ -215,6 +217,7 @@ public final class NetworkMonitor {
         #if DEBUG
         restoreDebugSimulationIfNeeded()
         #endif
+        return true
     }
 
     /// Stop monitoring network state changes (for battery optimization)
