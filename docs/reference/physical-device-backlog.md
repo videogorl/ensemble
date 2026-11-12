@@ -740,3 +740,26 @@ Run from the Mac with lldb attached (`_simulateLaunchForTaskWithIdentifier:` for
 | An interrupted refresh resumes when the app is brought forward without a relaunch | Passed on the SE, same build: after the cut-off run the app stayed in front 28 s with no resume; after Home and reopening, `Resuming background refresh handoff in foreground` came 0.11 s after the scene went active and `handoff cleared` 3.0 s after. A final normal run returned `succeeded=true needsRecovery=false` |
 
 Owed again on the step 3d build, where a partial playlist pass must keep recovery outstanding.
+
+## App Intents phases 1 to 3 and playlist merging at every entrance, 2026-11-11
+
+Merged as `71f8dae9`. Reports (temporary files): `$TMPDIR/ensemble-devmcp-checks/group-intents-4.md` to
+`group-intents-8.md` (iPhone SE), `$TMPDIR/ensemble-16pro/report-3.md` to `report-5.md` (iPhone 16 Pro, typed
+Siri). Last builds checked: SE `202611111806.5525` (the merged code), 16 Pro `202611111729.7573` (one fix round
+earlier).
+
+| Check | Result |
+| --- | --- |
+| Shortcuts pickers follow the merge setting; a saved shortcut plays the merged set (on) or the preferred copy (off) | Passed on the SE (27 / 25 / 2 for "focus") and the 16 Pro (28 merged, 25 for Minibar) |
+| Typed Siri: a playlist by name plays the merged set with no list (on); a labelled "Which one?" (off) | Passed on the 16 Pro |
+| Spotlight: one result per displayed playlist, opening the merged playlist; follows merge toggles, hide and unhide, also across backgrounding | Passed on the SE, build `202611111806.5525`; on the 16 Pro one result and a merged open on `202611111729.7573` |
+| Stale per-source Spotlight items removed after updating | Passed on the 16 Pro (`deleted 25`, `deleted 26`, `indexed 17`) |
+| A Spotlight item lost after an interrupted refresh comes back (one-time re-index) | Not shown: the SE already had the item when the fixed build was first checked; `indexed 42` ran. To run: reproduce the loss on build `202611111729.7573`, then install the fix |
+| A hidden copy is never opened or played; all copies hidden gives not-found | Passed on the SE |
+| Add Current Song to a merged playlist lands in the copy on the song's own server | Passed on the SE by Shortcut. Not run by voice |
+| Voice Add to Playlist: server-labelled destinations, unique names, no write on an ambiguous name | Not run (tests only). To run: typed Siri on the 16 Pro with a disposable same-named playlist on two servers and merging off; needs approval to add a song to a test playlist on that phone |
+| Matcher: "Kim & Jessie" not found; short titles still found | Passed on the 16 Pro. "Play Dark Side" arrives from Siri as a track request and is not found (not an album fallback) |
+| Voice Play and Add right after an update, before the app has run | Play passed on the 16 Pro (fell back by name, 28 tracks). Add not run |
+| Play Mood cancel; cancel during a cold intent launch | Weak pass on the SE: no crash or hang, but the tool cannot interrupt real work |
+| Sidebar pins, Search pins and the Mac Dock menu follow the playlist-screen rule | Not run. To run: on the Mac, pin one copy of a merged playlist; open it from the sidebar and Search, press Play, and open the Dock menu after hiding it and after toggling Merging |
+| Apple Music playlists no longer rewritten each sync (`1ef74494`) | Not run on the phone that shows it. To run: on the 16 Pro install a build with the fix, sync three times; after the first, no `writing playlist … differs: compositePath` lines |
