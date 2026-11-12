@@ -230,7 +230,8 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     /// Analysis requests that arrived while nothing could show the result (app in the
     /// background, no visible visualization surface). Replayed when demand returns; only
-    /// the newest `maxDeferredLoads` are kept (current track plus its prefetch).
+    /// the newest `maxDeferredLoads` are kept (the current track plus the two upcoming ones
+    /// `isTrackRelevant` admits, so an admitted request is never trimmed).
     private struct DeferredLoad {
         let trackId: String
         let fileURL: URL
@@ -242,7 +243,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     /// (a prefetch callback that outlived rapid skips) are dropped. Nil accepts everything.
     public var isTrackRelevant: (@MainActor (String) -> Bool)?
     private var replayTask: Task<Void, Never>?
-    static let maxDeferredLoads = 2
+    static let maxDeferredLoads = 3
 
     /// Which timeline is currently being displayed
     private var activeTrackId: String?
