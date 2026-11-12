@@ -899,16 +899,6 @@ Request → `playing`, from session logs (app state, not audible output):
 - **Resolved:** `.sourceCleanedUp` only triggers reloads in the Library, Search, Home and Playlist view models; the Siri
   index and background refresh do not subscribe. Skipped passes drop those redundant reloads too.
 
-## Intermittent test: `testCancellationAfterAnAcknowledgedDeleteIsNotAFailureOrAReplay` (suspected timing race, 2026-11-12)
-
-- **Evidence:** 2 failures in about 8 full EnsembleCore runs on branch `fix/skip-empty-disabled-library-cleanup`, always
-  1 of 1321–1322 tests: `SyncCoordinatorPlaylistMutationTests.swift:1082`, `("[]") is not equal to (["playlist-1"])`
-  ("the cancelled cleanup is the accepted limit: the row waits for a later pass"). Passes alone. The branch does not
-  touch the playlist delete path. Confirmed on `develop`: 14 failures in 80 isolated runs (5 of 40, then 9 of 40).
-- **Impact:** a red full-suite run now and then; it also means the "cancelled after acknowledge leaves the row" limit is
-  timing-dependent: sometimes the local cleanup finishes before the cancellation lands.
-- **Next step:** make the stub cancel deterministically before the local cleanup step, or assert "row kept OR removed, never a replay".
-
 ## Fixed 2026-11-12, SE checks passed, cellular check owed: a refresh cancelled playback's own server probe
 
 Mechanism (code-read, from Codex's review): a configuration change bumps the connection revision

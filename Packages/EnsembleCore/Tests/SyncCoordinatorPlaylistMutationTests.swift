@@ -1078,8 +1078,11 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         try await interactive.value
         let sent = await provider.recordedEvents().filter { $0 == "delete" }.count
         XCTAssertEqual(sent, 1)
+        // The row may or may not survive. `LibraryWriter.serialized` starts the cleanup in an unstructured task before
+        // the caller's cancellation reaches it, so the cleanup either sees the cancellation (the row waits for a later
+        // pass, the accepted limit) or has already passed its check and removes the row. Both leave the delete acknowledged.
         let kept = try await repository.fetchPlaylistSyncStates(forSource: scope)
-        XCTAssertEqual(Set(kept.keys), ["playlist-1"], "the cancelled cleanup is the accepted limit: the row waits for a later pass")
+        XCTAssertTrue(kept.isEmpty || Set(kept.keys) == ["playlist-1"], "the row is kept for a later pass or already removed")
 
         // Replay of a queued delete: acknowledged, record gone, the DELETE sent once.
         let (stack, _, replayProvider, replayCoordinator) = try await seeded()
