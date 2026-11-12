@@ -627,3 +627,16 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Impact: battery and heat when Siri or Shortcuts start the app often; unmeasured.
 - Next step: record a Time Profiler cold launch on the phone with a Release build, and decide which launch
   work a background intent launch can skip or defer. Also make cold intent launches write a session log.
+
+## Suspected: audio frequency analysis is Ensemble's largest CPU cost during playback (2026-11-11)
+
+- Evidence (iPhone 16 Pro, Debug build `202611111703.9499`, Time Profiler attached for 3 minutes while the
+  phone was in thermal state Serious): `FrequencyAnalysisService.analyzeFile` (`AudioAnalyzer.swift:628`) took
+  2.9 s of Ensemble's 10.2 s of CPU, in four bursts of 1 to 1.8 s about 20 s apart, on a worker thread.
+  Ensemble as a whole was 5.6% of one core (idle floor 2 to 3%); a cold launch cost 14.9 s of CPU in 23.6 s.
+  Debug builds inflate this (unspecialised generics). No disk writes and negligible GPU were seen.
+  Report: `$TMPDIR/ensemble-16pro/warm-phone-profile.md` (temporary file).
+- Impact: not the cause of the warm phone in that recording (test tooling, screen-on time and Siri AI were
+  larger), but it is recurring work during playback.
+- Next step: record the same on a Release build, unplugged, with Power Profiler; check why analysis runs in
+  repeated bursts (per upcoming track, or re-analysing) and whether results are cached.
