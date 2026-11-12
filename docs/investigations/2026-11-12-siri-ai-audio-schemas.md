@@ -51,9 +51,6 @@ errors (the compiler does not check them; the extraction step does, and reports 
 - `updateAudioAffinity`: Ensemble has favorite and unfavorite but no dislike, so "I don't like this song" has nothing
   to map to; adding half the enum would make the intent throw on a valid Siri value.
 - `addToLibrary`, `warmupAudioQueue`, `recognizeAudio`, station and podcast entities: no equivalent action.
-- The now-playing entity identifier: the property lives in the Core package's now-playing bridge, which does not know
-  app entities, and needs a hook there plus a private `_MediaPlayer_AppIntents` import. Left until the phone shows
-  whether Siri needs it (it already has the relevant-entity publisher).
 - `.url` search criteria: Siri-supplied URLs are not Ensemble links, so the query returns nothing for them.
 - `warmupAudioQueueResult` is a required `playAudio` parameter; Ensemble supplies a transient value and never reads it.
 
@@ -64,3 +61,24 @@ errors (the compiler does not check them; the extraction step does, and reports 
 - Which wins when SiriKit and the schemas both exist.
 - Does `playAudio` for a bare "play <playlist>" reach `values(for:)` on the playlist query, or only on the song query?
 - Is an empty `artists` list on the song entity enough for Siri's disambiguation?
+
+## Follow-up after the first phone run (2026-11-12)
+
+- "this song" resolved to the previous song: Siri reads the playing song from the now-playing info, which had no entity
+  identifier. `MPNowPlayingInfoPropertyAppEntityIdentifiers` (MediaPlayer header, iOS/macOS/watchOS/tvOS 27) takes an
+  `NSArray` of `MPAppEntityIdentifier`, built in `_MediaPlayer_AppIntents` as
+  `MPAppEntityIdentifier(entityIdentifier: EntityIdentifier(for: entity))` (failable). The app builds it for
+  `EnsembleSongAudioEntity` (so the identifier equals the entity's `id` and `entities(for:)` hydrates it) and hands it to
+  `PlaybackNowPlayingBridge` through a closure (`PlaybackService.setNowPlayingAppEntityIdentifiers`); Core stays free of
+  app types. Installed in `EnsembleRelevantEntitiesPublisher.start()`, iOS/macOS 27 only.
+- Prompt updates: `updateNowPlayingInfo()` runs on every queue advance, load, play and pause path and publishes whenever
+  the state differs, and the state includes the track; a track change therefore republishes at once (read from the call
+  sites, not measured on a device). A stale title is not the cause of the symptom.
+- Kind words in the search text ("focus playlist"): `SiriMediaIndexResolver.kindWordQuery(from:)` reads a leading or
+  trailing kind word; the schema search returns nothing for another kind's query and searches this kind's without the
+  word, unless the whole text exactly matches a name of the queried kind. The shared matcher already offers a
+  trailing-word-stripped variant for every kind, which is why "focus playlist" scored 0.84 against the artist "Focus On
+  The Family Radio Theatre" (see ON_DECK.md).
+- A duplicate add: `add(_:to:)` called the optimistic add, which filters duplicates silently, so the intent reported
+  "Added". It now checks the cached membership as the Add to Playlist sheet does ("Already added") and says the song is
+  already in the playlist, without writing.

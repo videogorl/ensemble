@@ -832,7 +832,7 @@ Built for iOS and macOS 27 and extracted without warnings; none of it ran on a p
 
 | Check | Result |
 | --- | --- |
-| Type "add this song to playlist <name>" for an existing playlist while a song plays: Ensemble receives it (`SIRI_AI: add-to-playlist` then `... done` in the log; `SIRI_APP:` lines mean SiriKit answered instead) and the song lands on one playlist on its own server; Siri no longer answers "couldn't find a playlist" | Owed |
+| Type "add this song to playlist <name>" for an existing playlist while a song plays: Ensemble receives it (`SIRI_AI: add-to-playlist` then `... outcome=added 1` in the log; `SIRI_APP:` lines mean SiriKit answered instead) and the song lands on one playlist on its own server; Siri no longer answers "couldn't find a playlist" | Owed |
 | The same with a smart playlist, a playlist on another server than the song, and a name two playlists share: no write; the error names the cause or Siri asks which | Owed |
 | "Play <playlist>" (merging on): `SIRI_AI: audio search` then `play-audio` lines; the merged playlist plays once. With merging off, each server's copy is offered, labelled by server | Owed |
 | "Play <song>", "play <album>", "play <artist>", "play something": results come from the visible library; an item in a library hidden by the active Focus or profile is not offered or played | Owed |
@@ -840,3 +840,13 @@ Built for iOS and macOS 27 and extracted without warnings; none of it ran on a p
 | "Create a station from this song": `SIRI_AI: create-station` and Autoplay starts | Owed |
 | SiriKit still answers on HomePod and on a phone without Siri AI | Owed |
 
+Rerun after `fix/siri-ai-search-kinds` (iPhone 16 Pro, Siri AI, session log open; "ZZ Test Siri AI" is a disposable playlist, "focus" a playlist that shares words with an artist):
+
+| Check | Result |
+| --- | --- |
+| "Play my focus playlist in Ensemble": the artist/album/track searches for "focus playlist" log `found=0`; the playlist search logs `query='focus'` and the playlist plays (no artist) | Owed |
+| "Play the playlist focus in Ensemble": same, `play-audio kind=playlist` | Owed |
+| "Play focus in Ensemble" still plays the playlist; a song or album whose own name ends in "playlist", "song" or "album" is still found | Owed |
+| Play "The Man Who Lives Forever", then "Add this song to my ZZ Test Siri AI playlist in Ensemble": `add-to-playlist song='The Man Who Lives Forever' ... outcome=added 1` (not the previous song); the playlist's count rises by one. Without the now-playing identifier Siri names the previous song, so this is the check that it works | Owed |
+| Repeat that exact request: Siri says the song "is already in ZZ Test Siri AI"; log shows `SIRI_AI: add skipped, already in playlist=...` and `outcome=already in playlist`; the count is unchanged | Owed |
+| The Add Current Song to Playlist shortcut, run twice on one song: second run says "already in", no write | Owed |

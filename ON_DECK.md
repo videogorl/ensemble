@@ -5,6 +5,17 @@ API that would replace custom machinery. Each entry gives evidence, impact and a
 step, and says whether it is suspected or confirmed. Remove an entry when it is fixed.
 An entry does not authorize the work; Felicity picks what gets done.
 
+## Confirmed: the shared matcher strips a trailing kind word for every kind (2026-11-12)
+
+- Evidence: phone session log, Siri AI, "Play my focus playlist": `audio search kind=artist query='focus playlist' found=2`
+  and the artist "Focus On The Family Radio Theatre" played. `SiriPhraseNormalizer.queryVariants` adds
+  `strippingPossessiveAndTrailingMediaType` ("focus") for any search, so a prefix match scores 0.84 against an artist.
+  The schema search now refuses another kind's query when the text names a kind; the shared matcher is unchanged.
+- Impact: SiriKit and any other `rankCandidates` caller with `requestedKinds` of an artist, album or track can still
+  match a "... playlist" request to those kinds.
+- Next step: make the stripped variant count only when the stripped word's kind is requested (or no kind is);
+  `SiriMatchingTests` and the SiriKit handler tests need a read first, which this change did not undertake.
+
 ## Confirmed: foreground launch work starts about 0.75-1.3 s later than before (2026-11-12)
 
 - Evidence: iPhone SE, build 202611120623.9162, cold icon launch: `didFinishLaunching` 06:25:00.100,

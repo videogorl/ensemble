@@ -49,6 +49,31 @@ final class SiriMediaIndexResolverTests: XCTestCase {
         XCTAssertNil(SiriMediaIndexResolver.kindInferred(from: "Hunter"))
     }
 
+    func testKindWordQueryReadsLeadingAndTrailingKindWords() {
+        let cases: [(String, SiriMediaKind?, String?)] = [
+            ("focus playlist", .playlist, "focus"),
+            ("my focus playlist", .playlist, "focus"),
+            ("the focus playlist", .playlist, "focus"),
+            ("the playlist focus", .playlist, "focus"),
+            ("playlist Road Trip", .playlist, "road trip"),
+            ("the album Faedom", .album, "faedom"),
+            ("Faedom album", .album, "faedom"),
+            ("my artist Bjork", .artist, "bjork"),
+            ("Hunter song", .track, "hunter"),
+            ("the track Hunter", .track, "hunter"),
+            ("ZZ Test Siri AI playlist", .playlist, "zz test siri ai"),
+            ("Hunter", nil, nil),
+            ("playlist", nil, nil),
+            ("my playlist", nil, nil),
+            ("the song", nil, nil)
+        ]
+        for (query, kind, text) in cases {
+            let result = SiriMediaIndexResolver.kindWordQuery(from: query)
+            XCTAssertEqual(result?.kind, kind, query)
+            XCTAssertEqual(result?.text, text, query)
+        }
+    }
+
     func testFindItemsDeduplicatesEquivalentDisplayNamesWithinKind() {
         let index = SiriMediaIndex(items: [
             SiriMediaIndexItem(kind: .playlist, id: "1", displayName: "Road Trip", secondaryText: "A"),

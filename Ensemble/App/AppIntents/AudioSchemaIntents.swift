@@ -169,6 +169,18 @@ extension AudioSchemaEntityQuery {
         return await current(await SiriIndexLookup.recentItems(kind: Entity.indexKind))
     }
 
+    /// Siri sometimes leaves the kind word in the text ("focus playlist"). A kind word means that kind only: another
+    /// kind's query finds nothing, and this kind's searches without the word. A name that really contains the word
+    /// ("Love Song") is still found: an exact match of the whole text wins.
+    private func findItems(matching query: String) async -> [SiriMediaIndexItem] {
+        let whole = await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: query)
+        guard let named = SiriMediaIndexResolver.kindWordQuery(from: query) else { return whole }
+        let wanted = SiriPhraseNormalizer.basic(query)
+        if whole.contains(where: { SiriPhraseNormalizer.basic($0.displayName) == wanted }) { return whole }
+        guard named.kind == Entity.indexKind else { return [] }
+        return await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: named.text)
+    }
+
     /// What Siri's audio search finds, with the existing matcher.
     func audioSearchResults(_ search: AudioSearch) async -> [Entity] {
         let kind = Entity.indexKind?.rawValue ?? "any"
@@ -181,7 +193,7 @@ extension AudioSchemaEntityQuery {
         switch search.criteria {
         case let .searchQuery(query):
             criteria = "query='\(query)'"
-            items = await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: query)
+            items = await findItems(matching: query)
         case .unspecified:
             criteria = "unspecified"
             items = await SiriIndexLookup.recentItems(kind: Entity.indexKind)
@@ -292,16 +304,24 @@ struct AddAudioToEnsemblePlaylistIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let item = audioEntity.item
         AppLogger.info("SIRI_AI: add-to-playlist kind=\(item.kind.rawValue) playlist='\(playlist.item.displayName)'")
-        let coordinator = try await readyContainer().siriPlaybackCoordinator
-        let tracks = try await reportingFailures {
-            try await coordinator.resolveTracks(
-                kind: item.kind,
-                request: EnsembleMediaEntity(item: item).playbackRequest()
-            )
+        var title = item.displayName
+        do {
+            let coordinator = try await readyContainer().siriPlaybackCoordinator
+            let tracks = try await reportingFailures {
+                try await coordinator.resolveTracks(
+                    kind: item.kind,
+                    request: EnsembleMediaEntity(item: item).playbackRequest()
+                )
+            }
+            if tracks.count == 1, let track = tracks.first { title = track.title }
+            let result = try await add(tracks, to: playlist.item)
+            let outcome = result.outcome == .added ? "added \(tracks.count)" : result.outcome.rawValue
+            AppLogger.info("SIRI_AI: add-to-playlist song='\(title)' playlist='\(playlist.item.displayName)' outcome=\(outcome)")
+            return .result(dialog: result.dialog)
+        } catch {
+            AppLogger.info("SIRI_AI: add-to-playlist song='\(title)' playlist='\(playlist.item.displayName)' outcome=error \(error.localizedDescription)")
+            throw error
         }
-        let dialog = try await add(tracks, to: playlist.item)
-        AppLogger.info("SIRI_AI: add-to-playlist done")
-        return .result(dialog: dialog)
     }
 }
 

@@ -30,8 +30,15 @@ func setCurrentSongFavorite(_ favorite: Bool) async throws -> IntentDialog {
         : IntentDialog("Removed \(track.title) from your favorites.")
 }
 
+/// What an add did, for the dialog and the session log.
+enum PlaylistAddOutcome: String {
+    case added
+    case queued
+    case alreadyInPlaylist = "already in playlist"
+}
+
 @MainActor
-func add(_ tracks: [Track], to playlist: SiriMediaIndexItem) async throws -> IntentDialog {
+func add(_ tracks: [Track], to playlist: SiriMediaIndexItem) async throws -> (dialog: IntentDialog, outcome: PlaylistAddOutcome) {
     let container = try await readyContainer()
     return try await reportingFailures {
         guard let stored = try await container.playlistRepository.fetchPlaylist(
@@ -49,13 +56,28 @@ func add(_ tracks: [Track], to playlist: SiriMediaIndexItem) async throws -> Int
            PlaylistActionService().tracks(tracks, compatibleWithServerSourceKey: target.sourceCompositeKey).isEmpty {
             throw EnsembleIntentError.differentSources
         }
+        // The Add to Playlist sheet shows "Already added" from the cached membership; do the same here, so a
+        // duplicate is neither written nor reported as added. Plex stays the authority when nothing is cached.
+        if let cached = try await container.playlistRepository.fetchPlaylist(
+            ratingKey: target.id,
+            sourceCompositeKey: target.sourceCompositeKey
+        ) {
+            let service = PlaylistActionService()
+            let compatible = service.tracks(tracks, compatibleWithServerSourceKey: target.sourceCompositeKey)
+            let existing = cached.playlistItemsArray.map { PlaylistItem(from: $0).track }
+            if !compatible.isEmpty, service.tracks(compatible, excluding: existing).isEmpty {
+                AppLogger.info("SIRI_AI: add skipped, already in playlist='\(playlist.displayName)' tracks=\(tracks.count)")
+                let what = tracks.count == 1 ? tracks[0].title : "Those songs"
+                return (IntentDialog("\(what) is already in \(playlist.displayName)."), .alreadyInPlaylist)
+            }
+        }
         let outcome = try await nowPlayingViewModel(for: container)
             .addTracksOptimistically(tracks, to: target)
         // The optimistic path filters incompatible and duplicate tracks and reports only the outcome, so the
         // dialog does not claim a count.
         return outcome == .queued
-            ? IntentDialog("Will be added to \(playlist.displayName) when you're back online.")
-            : IntentDialog("Added to \(playlist.displayName).")
+            ? (IntentDialog("Will be added to \(playlist.displayName) when you're back online."), .queued)
+            : (IntentDialog("Added to \(playlist.displayName)."), .added)
     }
 }
 
@@ -163,7 +185,7 @@ struct AddCurrentSongToEnsemblePlaylistIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        .result(dialog: try await add([try await currentTrackOrThrow()], to: playlist.item))
+        .result(dialog: try await add([try await currentTrackOrThrow()], to: playlist.item).dialog)
     }
 }
 
@@ -184,7 +206,7 @@ struct AddToEnsemblePlaylistIntent: AppIntent {
         let tracks = try await reportingFailures {
             try await coordinator.resolveTracks(kind: media.item.kind, request: media.playbackRequest())
         }
-        return .result(dialog: try await add(tracks, to: playlist.item))
+        return .result(dialog: try await add(tracks, to: playlist.item).dialog)
     }
 }
 

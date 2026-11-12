@@ -100,6 +100,27 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertTrue(commandCenter.changePlaybackPosition.isEnabled)
     }
 
+    func testAppEntityIdentifiersFollowTheTrackAndRepublishWhenSupplied() throws {
+        guard #available(iOS 27.0, macOS 27.0, watchOS 27.0, *) else { throw XCTSkip("Needs the 27 SDK key") }
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: MockArtworkLoader(),
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+        let first = makeState(track: makeTrack(id: "one"))
+        bridge.updateNowPlayingInfo(first)
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyAppEntityIdentifiers])
+
+        // Supplied after the track is already published: the same state publishes again with them.
+        bridge.setAppEntityIdentifiers { ["id-\($0.id)"] }
+        bridge.updateNowPlayingInfo(first)
+        XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyAppEntityIdentifiers] as? [String], ["id-one"])
+
+        bridge.updateNowPlayingInfo(makeState(track: makeTrack(id: "two")))
+        XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyAppEntityIdentifiers] as? [String], ["id-two"])
+    }
+
     func testLoadingAndBufferingStopSystemClockAndSuppressDuplicates() {
         let nowPlayingCenter = FakeNowPlayingInfoCenter()
         let bridge = PlaybackNowPlayingBridge(
