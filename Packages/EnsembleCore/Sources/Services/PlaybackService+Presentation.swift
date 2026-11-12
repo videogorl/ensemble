@@ -81,6 +81,14 @@ extension PlaybackService {
         }
     }
 
+    /// Whether the visualizer may still want this track's timeline: it is playing or next up.
+    func isVisualizerTrackRelevant(_ trackIdentity: String) -> Bool {
+        if currentTrack?.playbackIdentity == trackIdentity { return true }
+        if queue.indices.contains(currentQueueIndex),
+           queue[currentQueueIndex].track.playbackIdentity == trackIdentity { return true }
+        return upcomingQueueIndices(depth: 2).contains { queue[$0].track.playbackIdentity == trackIdentity }
+    }
+
     func generateWaveform(for trackIdentity: String) {
         guard currentTrack?.isAppleMusic != true else {
             waveformHeights = []
