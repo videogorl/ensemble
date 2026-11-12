@@ -22,11 +22,15 @@ public enum SiriMediaRows {
         return labeled(merged, serverName: serverName)
     }
 
-    /// The index's items and the library's, each item once: the library's candidates join the index's before
-    /// ranking, so an exact name the capped index lacks can outrank a partial match it holds.
+    /// The index's items and the library's, each item once, the library's copy where both hold it: the index may
+    /// predate metadata the library has (an album's year), and the library's is current. The library's candidates join
+    /// the index's before ranking, so an exact name the capped index lacks can outrank a partial match it holds.
     public static func combining(_ indexed: [SiriMediaIndexItem], with library: [SiriMediaIndexItem]) -> [SiriMediaIndexItem] {
-        var known = Set(indexed.map(\.reference.sourceScopedIdentifier))
-        return indexed + library.filter { known.insert($0.reference.sourceScopedIdentifier).inserted }
+        let fresh = Dictionary(library.map { ($0.reference.sourceScopedIdentifier, $0) }, uniquingKeysWith: { first, _ in first })
+        var known = Set<String>()
+        let current = indexed.map { fresh[$0.reference.sourceScopedIdentifier] ?? $0 }
+        known.formUnion(current.map(\.reference.sourceScopedIdentifier))
+        return current + library.filter { known.insert($0.reference.sourceScopedIdentifier).inserted }
     }
 
     /// What the library merges the item by, or nil when this kind is not merged or the item lacks the identity.

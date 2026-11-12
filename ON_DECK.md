@@ -771,3 +771,13 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   Not proven to be the Mac failure.
 - Next step: repeat the Mac toggle and read the `Merging prefs:` log lines (`set`, `local change pushed`,
   `remote apply remote=… local=… lastSynced=…`); a remote apply shortly after a `set` with an older value confirms it.
+
+## Hiding a merged row's representative leaves its saved shortcut unresolved (confirmed by reading, not run)
+- Evidence: with Merging on, `SiriMediaRows.presented` shows the preferred source's copy as the merged row and a saved
+  Shortcuts entity pins that copy's `ratingKey||sourceCompositeKey`. Hiding that library makes
+  `IndexItemEntityQuery.entities(for:)` drop it (`visibleItems`) and `SiriPlaybackCoordinator.storedItem` return nil, though
+  an equivalent copy in a visible library is still shown. Playlists have the same gap only for the picker; Voice Play falls
+  back to the name (`SiriPlaybackCoordinator.scoped`).
+- Impact: a saved Play Song/Album/Artist shortcut shows as missing until re-picked.
+- Next step: in `entities(for:)`, when a saved reference is not visible, look up its merge identity
+  (`SiriMediaRows.mergeIdentity`) among the visible rows and return that row, keeping the saved id as an alias.

@@ -7,7 +7,7 @@ import Foundation
 /// by server name. The app and the Siri extension share this one definition.
 public enum SiriPlaylistRows {
     /// Rows for `candidates` (any kinds; only playlists change). `playlists` is the index's playlists; other kinds
-    /// are ignored. Playlists from sources the screen hides are not offered, and cannot be a group's representative.
+    /// are ignored. Items from sources the library hides are not offered (a playlist cannot be a group's representative).
     public static func presented(
         _ candidates: [SiriMediaIndexItem],
         among playlists: [SiriMediaIndexItem],
@@ -15,7 +15,7 @@ public enum SiriPlaylistRows {
         isSourceVisible: @Sendable (String?) -> Bool
     ) -> [SiriMediaIndexItem] {
         let shown = playlists.filter { $0.kind == .playlist && isSourceVisible($0.sourceCompositeKey) }
-        let rows = candidates.filter { $0.kind != .playlist || isSourceVisible($0.sourceCompositeKey) }
+        let rows = candidates.filter { isSourceVisible($0.sourceCompositeKey) }
         guard preferences.isEnabled, preferences.mergePlaylists else {
             return labeled(rows, among: shown)
         }
@@ -59,9 +59,7 @@ public enum SiriPlaylistRows {
                 isSourceVisible: presentation.isSourceVisible
             )
         }
-        guard let top = ranked.first?.score else { return [] }
-        if ranked.contains(where: { $0.item.kind == .playlist && $0.score >= top - tieMargin }) { return nil }
-        return ranked.filter { $0.item.kind != .playlist }
+        return ranked.isEmpty ? [] : nil
     }
 
     /// The name Voice Add offers for each offered playlist (by `scopedID`), unique across the offered set: a title as it

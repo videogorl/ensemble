@@ -203,42 +203,31 @@ public final class SiriPlaybackCoordinator {
 
     /// Songs, albums and artists (or only `kind`) in enabled, visible sources whose names match `query`, read from the
     /// full store. The Siri index holds a capped slice of each kind, so a Shortcuts picker adds these to the index's
-    /// own candidates and ranks them together. Unranked and bounded: a query under two characters finds nothing, each
-    /// lookup keeps at most ten times `limit` rows that are not hidden (exact names first, then prefix, contains, then
-    /// every word of the query, so "AC/DC" finds "ac dc"), and songs the title lookup misses are scored in paged
-    /// batches keeping the best ten times `limit`. Playlists are not capped, so none return.
+    /// own candidates and ranks them together. Unranked and bounded: a query under two characters finds nothing, and
+    /// each lookup keeps at most ten times `limit` rows that are not hidden: exact names first, then prefix, contains,
+    /// then names holding every word of the query as the Siri index normalizes it ("earth wind and fire" finds
+    /// "Earth, Wind & Fire", "dont" finds "Don't"). Playlists are not capped, so none return.
     public func libraryCandidates(kind: SiriMediaKind?, matching query: String, limit: Int) async throws -> [SiriMediaIndexItem] {
         let sourceKeys = visibleLibrarySourceKeys()
         guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2, limit > 0, !sourceKeys.isEmpty else { return [] }
         let fetchCap = limit * 10
+        // "&" reads as "and" in a spoken name but is not in the stored one, so "and" cannot be required.
+        let words = SiriPhraseNormalizer.basic(query).split(separator: " ").map(String.init).filter { $0 != "and" }
         let hidden = hiddenMediaStore.snapshot
         var items: [SiriMediaIndexItem] = []
         for current in [SiriMediaKind.track, .album, .artist] where kind == nil || kind == current {
             switch current {
             case .track:
-                var tracks = try await libraryRepository.findTracksByTitle(
-                    query, sourceCompositeKeys: sourceKeys, limit: fetchCap, isEligible: { !hidden.isHidden(Track(from: $0)) }
+                items += try await libraryRepository.findTracksByTitle(
+                    query, sourceCompositeKeys: sourceKeys, limit: fetchCap, normalizedWords: words, isEligible: { !hidden.isHidden(Track(from: $0)) }
                 ).map(SiriMediaIndexStore.indexItem(for:))
-                if Self.rank(tracks, kind: .track, query: query).isEmpty {
-                    // The title lookup compares text, so what it cannot tell apart ("Kim & Jessie") can miss it.
-                    let variants = SiriPhraseNormalizer.queryVariants(for: query)
-                    let best = BestMatches(capacity: fetchCap)
-                    _ = try await libraryRepository.mapTracks(forSources: sourceKeys, batchSize: 500) { track -> Int? in
-                        let score = SiriMatchScorer.scoreMatch(queries: variants, candidate: SiriPhraseNormalizer.basic(track.title))
-                        guard score >= 0.66, !hidden.isHidden(Track(from: track)) else { return nil }
-                        best.offer(SiriMediaIndexStore.indexItem(for: track), score: score)
-                        return nil
-                    }
-                    tracks = best.items
-                }
-                items += tracks
             case .album:
                 items += try await libraryRepository.findAlbumsByTitle(
-                    query, sourceCompositeKeys: sourceKeys, limit: fetchCap, isEligible: { !hidden.isHidden(Album(from: $0)) }
+                    query, sourceCompositeKeys: sourceKeys, limit: fetchCap, normalizedWords: words, isEligible: { !hidden.isHidden(Album(from: $0)) }
                 ).map(SiriMediaIndexStore.indexItem(for:))
             case .artist:
                 items += try await libraryRepository.findArtistsByName(
-                    query, sourceCompositeKeys: sourceKeys, limit: fetchCap, isEligible: { !hidden.isHidden(Artist(from: $0)) }
+                    query, sourceCompositeKeys: sourceKeys, limit: fetchCap, normalizedWords: words, isEligible: { !hidden.isHidden(Artist(from: $0)) }
                 ).map(SiriMediaIndexStore.indexItem(for:))
             case .playlist:
                 continue
@@ -246,26 +235,6 @@ public final class SiriPlaybackCoordinator {
             try Task.checkCancellation()
         }
         return items
-    }
-
-    /// The best `capacity` offers by score, so a scan of a large library holds a bounded list.
-    private final class BestMatches: @unchecked Sendable {
-        private let capacity: Int
-        private let lock = NSLock()
-        private var offers: [(item: SiriMediaIndexItem, score: Double)] = []
-
-        init(capacity: Int) { self.capacity = capacity }
-
-        var items: [SiriMediaIndexItem] { lock.withLock { offers.map(\.item) } }
-
-        func offer(_ item: SiriMediaIndexItem, score: Double) {
-            lock.withLock {
-                guard offers.count < capacity || score > offers[offers.count - 1].score else { return }
-                let index = offers.firstIndex { $0.score < score } ?? offers.count
-                offers.insert((item, score), at: index)
-                if offers.count > capacity { offers.removeLast() }
-            }
-        }
     }
 
     /// The index item for a saved song, album or artist reference the capped index no longer holds. Nil when the
@@ -286,15 +255,6 @@ public final class SiriPlaybackCoordinator {
         case .playlist:
             return nil
         }
-    }
-
-    private static func rank(_ items: [SiriMediaIndexItem], kind: SiriMediaKind, query: String) -> [SiriMediaIndexItem] {
-        SiriMediaIndexResolver.rankCandidates(
-            for: query,
-            requestedKinds: [kind],
-            index: SiriMediaIndex(items: items),
-            minimumScore: SiriMediaIndexResolver.defaultMinimumMatchScore
-        ).map(\.item)
     }
 
     /// Plays a track with Autoplay on, which is how the app starts a track radio.
@@ -468,10 +428,26 @@ public final class SiriPlaybackCoordinator {
         )
     }
 
+    /// A pinned item in a source that is enabled but hidden is not played: `request` without its source resolves by
+    /// name within the visible scope instead. A source the configuration does not hold still fails closed, and a
+    /// server-level source stands for the libraries under it.
+    private func scoped(_ request: SiriPlaybackRequest, to visibleKeys: Set<String>) -> SiriPlaybackRequest {
+        func covers(_ keys: Set<String>, _ source: String) -> Bool {
+            keys.contains { $0 == source || $0.hasPrefix("\(source):") }
+        }
+        let enabledKeys = SystemMediaSourceScope.enabledLibraryKeys(for: accountManager.enabledSources())
+        guard let source = request.sourceCompositeKey, covers(enabledKeys, source), !covers(visibleKeys, source) else { return request }
+        return SiriPlaybackRequest(
+            entityID: request.entityID, sourceCompositeKey: nil, displayName: request.displayName,
+            artistHint: request.artistHint, shuffle: request.shuffle
+        )
+    }
+
     private func resolveTrack(
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDTrack? {
+        let request = scoped(request, to: enabledSourceKeys)
         if let sourceCompositeKey = request.sourceCompositeKey,
            let direct = try await libraryRepository.fetchTrack(
                ratingKey: request.entityID,
@@ -573,6 +549,7 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDAlbum? {
+        let request = scoped(request, to: enabledSourceKeys)
         if let sourceCompositeKey = request.sourceCompositeKey,
            let direct = try await libraryRepository.fetchAlbum(
                ratingKey: request.entityID,
@@ -626,6 +603,7 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDArtist? {
+        let request = scoped(request, to: enabledSourceKeys)
         if let sourceCompositeKey = request.sourceCompositeKey,
            let direct = try await libraryRepository.fetchArtist(
                ratingKey: request.entityID,

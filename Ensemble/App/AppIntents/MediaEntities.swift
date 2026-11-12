@@ -210,6 +210,7 @@ protocol IndexItemEntityQuery: EntityStringQuery where Entity: IndexItemEntity {
 
 extension IndexItemEntityQuery {
     func entities(for identifiers: [Entity.ID]) async throws -> [Entity] {
+        await restoreFocusFilterOnce()
         let wanted = Set(identifiers)
         guard !wanted.isEmpty else { return [] }
         let items = await SiriIndexLookup.visibleItems(kind: Entity.indexKind)
@@ -226,11 +227,13 @@ extension IndexItemEntityQuery {
     }
 
     func entities(matching string: String) async throws -> [Entity] {
-        await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: string).map(Entity.init(item:))
+        await restoreFocusFilterOnce()
+        return await SiriIndexLookup.findItems(kind: Entity.indexKind, matching: string).map(Entity.init(item:))
     }
 
     func suggestedEntities() async throws -> [Entity] {
-        await SiriIndexLookup.recentItems(kind: Entity.indexKind).map(Entity.init(item:))
+        await restoreFocusFilterOnce()
+        return await SiriIndexLookup.recentItems(kind: Entity.indexKind).map(Entity.init(item:))
     }
 }
 

@@ -14,6 +14,7 @@ import UIKit
 @MainActor
 func prepareForBackgroundPlayback(origin: String, timeout: Duration = .seconds(8)) async throws {
     let container = AppRoot.container
+    await restoreFocusFilterOnce()
     if container.accountManager.credentialLoadState != .loaded {
         await container.accountManager.loadAccountsAsync()
     }
@@ -51,6 +52,18 @@ func prepareForBackgroundPlayback(origin: String, timeout: Duration = .seconds(8
     try Task.checkCancellation()
     container.syncCoordinator.refreshProviders()
     AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready")
+}
+
+private var hasRestoredFocusFilter = false
+
+/// Restores the active Focus filter, which only a foreground scene does otherwise, so a process started in the
+/// background does not search, resolve or play libraries the Focus hides. Once per process (a later change reaches the
+/// running process through the Focus filter intent), bounded so a slow Focus lookup cannot hold an intent.
+@MainActor
+func restoreFocusFilterOnce(timeout: Duration = .seconds(2)) async {
+    guard !hasRestoredFocusFilter else { return }
+    hasRestoredFocusFilter = true
+    await waitBounded(timeout) { await EnsembleFocusFilter.refreshCurrent() }
 }
 
 /// Starts the network monitor and waits, for up to `maxWait`, until `networkState` is online or the monitor has

@@ -120,15 +120,21 @@ final class SiriPlaylistRowsTests: XCTestCase {
         }
 
         let album = SiriMediaIndexItem(kind: .album, id: "a", displayName: "Focus", sourceCompositeKey: "plex:account-1:home")
-        let index = SiriMediaIndex(items: [home, album])
+        let hiddenAlbum = SiriMediaIndexItem(kind: .album, id: "hidden", displayName: "Focus", sourceCompositeKey: "plex:account-1:server:hidden-library")
+        let index = SiriMediaIndex(items: [home, album, hiddenAlbum])
+        let covering = SiriPlaylistPresentation(hiddenSourceKeys: ["plex:account-1:server:hidden-library"], indexGeneratedAt: index.generatedAt)
+        let stale = SiriPlaylistPresentation(hiddenSourceKeys: [], indexGeneratedAt: Date(timeIntervalSince1970: 1))
         typealias Ranked = SiriMediaIndexResolver.RankedItem
-        let cases: [(name: String, ranked: [Ranked], expected: [String]?)] = [
-            ("playlist ties the best: defer to the app", [.init(item: home, score: 0.9), .init(item: album, score: 0.85)], nil),
-            ("playlist trails far behind: the other kind stands", [.init(item: album, score: 0.9), .init(item: home, score: 0.65)], ["a"]),
-            ("nothing ranked", [], [])
+        let ranked: [Ranked] = [.init(item: hiddenAlbum, score: 0.95), .init(item: album, score: 0.9)]
+        let cases: [(name: String, ranked: [Ranked], presentation: SiriPlaylistPresentation?, expected: [String]?)] = [
+            ("no presentation: defer to the app, whatever the kind", ranked, nil, nil),
+            ("stale presentation: defer to the app", ranked, stale, nil),
+            ("playlist ties the best: defer to the app", [.init(item: home, score: 0.9), .init(item: album, score: 0.85)], nil, nil),
+            ("hidden library's better copy is not offered; the visible copy stands", ranked, covering, ["a"]),
+            ("nothing ranked", [], nil, [])
         ]
         for testCase in cases {
-            let rows = SiriPlaylistRows.presented(testCase.ranked, index: index, presentation: nil, tieMargin: 0.1)
+            let rows = SiriPlaylistRows.presented(testCase.ranked, index: index, presentation: testCase.presentation, tieMargin: 0.1)
             XCTAssertEqual(rows?.map(\.item.id), testCase.expected, testCase.name)
         }
     }

@@ -83,12 +83,15 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             artistHint: artistHint
         )
         guard let top = ranked?.first, let ranked else {
-            // No match, or a playlist among the best that cannot be shown to be visible yet (ranked is nil): the app
-            // resolves the name itself.
+            // No match, or one that cannot be shown to be visible yet (ranked is nil): the app resolves the name itself,
+            // as the kind of the best match when the request names none.
             logger.debug("resolveMediaItems: no ranked match; returning fallback media item")
+            let bestKind = ranked == nil && requestedMediaType == .unknown
+                ? SiriMediaIndexResolver.rankCandidates(for: normalizedQuery, requestedKinds: nil, index: index, artistHint: artistHint).first?.item.kind
+                : nil
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
-                mediaType: ranked == nil && requestedMediaType == .unknown ? .playlist : requestedMediaType,
+                mediaType: bestKind.map(mediaTypeFor(kind:)) ?? requestedMediaType,
                 artistHint: artistHint,
                 shuffle: requestedShuffle
             )

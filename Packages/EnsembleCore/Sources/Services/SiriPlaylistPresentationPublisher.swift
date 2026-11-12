@@ -41,9 +41,10 @@ public final class SiriPlaylistPresentationPublisher {
         })
     }
 
-    /// The merge setting and the playlist sources the playlist screen hides, among those `index` holds playlists for.
+    /// The merge setting and the sources the library hides (playlist sources by server, other kinds by library), among
+    /// those `index` holds items for.
     func presentation(for index: SiriMediaIndex) -> SiriPlaylistPresentation {
-        let sourceKeys = Set(index.items.filter { $0.kind == .playlist }.compactMap(\.sourceCompositeKey))
+        let sourceKeys = Set(index.items.compactMap(\.sourceCompositeKey))
         let isVisible = visibilityStore.playlistSourceVisibility(in: accountManager.sourceConfigurationSnapshot)
         return SiriPlaylistPresentation(
             preferences: settingsManager.mergingPreferences,

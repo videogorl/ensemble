@@ -60,4 +60,14 @@ final class SiriMediaRowsTests: XCTestCase {
         )
         XCTAssertEqual(ranked.first?.item.id, "exact")
     }
+
+    /// An index row written before the library held a year is replaced by the library's copy of the same item, so
+    /// the album still merges.
+    func testCombiningPrefersTheLibrarysMetadataForTheSameItem() {
+        let old = album("1", source: serverA, year: nil)
+        let fresh = album("1", source: serverA, year: 2001)
+        let combined = SiriMediaRows.combining([old, track("t", "Song", source: serverA)], with: [fresh])
+        XCTAssertEqual(combined.map(\.id), ["1", "t"])
+        XCTAssertEqual(combined.first?.year, 2001)
+    }
 }
