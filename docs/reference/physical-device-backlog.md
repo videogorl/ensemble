@@ -763,3 +763,21 @@ earlier).
 | Play Mood cancel; cancel during a cold intent launch | Weak pass on the SE: no crash or hang, but the tool cannot interrupt real work |
 | Sidebar pins, Search pins and the Mac Dock menu follow the playlist-screen rule | Not run. To run: on the Mac, pin one copy of a merged playlist; open it from the sidebar and Search, press Play, and open the Dock menu after hiding it and after toggling Merging |
 | Apple Music playlists no longer rewritten each sync (`1ef74494`) | Not run on the phone that shows it. To run: on the 16 Pro install a build with the fix, sync three times; after the first, no `writing playlist … differs: compositePath` lines |
+
+## Background launch work (`perf/background-launch-work`)
+
+Run on the iPhone 16 Pro (the iPhone SE as a fallback) with a Debug build. Prove the installed build first. Kill the
+app before each check, then pull `Application Support/Ensemble/Logs` and read the newest session. Every background
+launch logs `LAUNCH_WORK: kind=background ... foregroundLaunchWork=deferred`; a foreground launch logs
+`LAUNCH_WORK: kind=foreground scene foregroundLaunchWork=started`.
+
+| Check | Expect in the log | Result |
+| --- | --- | --- |
+| Cold Shortcuts toggle (shuffle or repeat) from a killed app | `launch: background`, `foregroundLaunchWork=deferred`. No `Starting network monitor + early health checks`, `Starting startup sync`, `WebSocket ... Connecting`, `siriIndexRebuild`, `Spotlight indexed`, `deferred healing started` | Not run |
+| Cold Play/Pause, then Next | The same absences, `Server connectivity ready` from `SIRI_APP: [origin=intent]`, playback starts, queue restored | Not run |
+| Cold play by name (Siri or Shortcut) | `SIRI_APP: [origin=...] Server connectivity ready`, a health pass from `prepareForBackgroundPlayback` (`No connected servers — running health checks`), playback starts | Not run |
+| Cold add to playlist | Health result before the add; the add lands or queues offline | Not run |
+| Each of the above, then open the app within a minute | One `LAUNCH_WORK: starting foreground launch work` line at the first `.active`, one `Starting startup sync...`, one WebSocket start per server, Home and library show loading then fill, no empty or error flash | Not run |
+| Locked phone: start playback by intent, then turn Wi-Fi off and on | `stateChanged ... transition=disconnect`, then `reconnect`, then `Health refresh complete`; playback recovers or resolves the next track. If not, see the `ON_DECK.md` entry on monitoring | Not run |
+| Overnight background refresh | `Background refresh triggered` and `Background refresh phase=` lines, `foregroundLaunchWork=deferred`, no `starting foreground launch work` until the app is opened | Not run |
+| Foreground cold launch and a launch that backgrounds at once | Launch log unchanged in task order, one `foregroundLaunchWork=started` | Not run |
