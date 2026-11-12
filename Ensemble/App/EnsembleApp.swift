@@ -781,6 +781,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
     }()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        pinned.start() // its observers keep the Dock list current; idempotent
         Task { await pinned.loadPinnedItemsIfNeeded() }
     }
 
