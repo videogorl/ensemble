@@ -147,25 +147,8 @@ public final class SiriMediaIndexStore {
             items += tracks.map(Self.indexItem(for:))
 
             let sourceNames = Self.playlistSourceNames(for: playlists, presentation: { sourcePresentationProvider?($0) })
-            for playlist in playlists {
-                items.append(
-                    SiriMediaIndexItem(
-                        kind: .playlist,
-                        id: playlist.ratingKey,
-                        displayName: playlist.title,
-                        sourceCompositeKey: playlist.sourceCompositeKey,
-                        secondaryText: nil,
-                        lastPlayed: playlist.lastPlayed,
-                        playCount: nil,
-                        trackCount: Int(playlist.trackCount),
-                        duration: TimeInterval(playlist.duration) / 1000.0,
-                        isSmartPlaylist: playlist.isSmart,
-                        artworkPath: playlist.compositePath,
-                        artworkCacheKey: playlist.ratingKey,
-                        artworkCacheType: .playlist,
-                        sourceName: playlist.sourceCompositeKey.flatMap { sourceNames["\(playlist.ratingKey)||\($0)"] }
-                    )
-                )
+            items += playlists.map { playlist in
+                Self.indexItem(for: playlist, sourceName: playlist.sourceCompositeKey.flatMap { sourceNames["\(playlist.ratingKey)||\($0)"] })
             }
 
             try RefreshExecution.checkCancellation()
@@ -268,6 +251,27 @@ public final class SiriMediaIndexStore {
             artworkPath: artwork.path,
             artworkCacheKey: artwork.cacheKey,
             artworkCacheType: artwork.cacheType
+        )
+    }
+
+    /// A playlist's artwork is indexed by its signature-free identity: a pre-signed URL changes on every read,
+    /// which would otherwise rewrite the index on every sync. Artwork is read back by cache key, not by this path.
+    nonisolated static func indexItem(for playlist: CDPlaylist, sourceName: String?) -> SiriMediaIndexItem {
+        SiriMediaIndexItem(
+            kind: .playlist,
+            id: playlist.ratingKey,
+            displayName: playlist.title,
+            sourceCompositeKey: playlist.sourceCompositeKey,
+            secondaryText: nil,
+            lastPlayed: playlist.lastPlayed,
+            playCount: nil,
+            trackCount: Int(playlist.trackCount),
+            duration: TimeInterval(playlist.duration) / 1000.0,
+            isSmartPlaylist: playlist.isSmart,
+            artworkPath: ArtworkPathIdentity.of(playlist.compositePath),
+            artworkCacheKey: playlist.ratingKey,
+            artworkCacheType: .playlist,
+            sourceName: sourceName
         )
     }
 

@@ -251,6 +251,32 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
     }
 
+    /// A pre-signed artwork URL is new on every read: the row keeps the latest string, the image is unchanged.
+    func testUpsertPlaylistKeepsTheLatestSignedURLWithoutInvalidatingArtwork() async throws {
+        func url(_ image: String, _ signature: String) -> String {
+            "https://bucket.s3.amazonaws.com/\(image).jpg?X-Amz-Date=\(signature)&X-Amz-Signature=\(signature)&size=1200"
+        }
+        let date = Date(timeIntervalSince1970: 1_000)
+        let cases: [(name: String, old: String?, new: String?, invalidated: Bool)] = [
+            ("new signature", url("a", "1"), url("a", "2"), false),
+            ("different image", url("a", "1"), url("b", "2"), true),
+            ("url to nil", url("a", "1"), nil, true),
+            ("nil to url", nil, url("a", "1"), true),
+            ("plain path change", "/composite/old", "/composite/new", true),
+        ]
+        for (index, testCase) in cases.enumerated() {
+            let repository = PlaylistRepository(coreDataStack: .inMemory())
+            let key = "playlist-\(index)"
+            _ = try await upsertPlaylist(in: repository, ratingKey: key, compositePath: testCase.old, dateModified: date)
+            _ = repository.drainArtworkInvalidationInfo()
+
+            let playlist = try await upsertPlaylist(in: repository, ratingKey: key, compositePath: testCase.new, dateModified: date)
+
+            XCTAssertEqual(playlist.compositePath, testCase.new, testCase.name)
+            XCTAssertEqual(!repository.drainArtworkInvalidationInfo().isEmpty, testCase.invalidated, testCase.name)
+        }
+    }
+
     func testUpsertPlaylistRecordsArtworkInvalidationWhenMetadataDateChanges() async throws {
         let repository = PlaylistRepository(coreDataStack: .inMemory())
 

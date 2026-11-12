@@ -682,9 +682,14 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   invalidation (`PlaylistRepository.recordPlaylistArtworkInvalidationIfNeeded`), which wipes the artwork caches
   and sends `.artworkInvalidated` (every `ArtworkView` reloads), and the changed `sourcePath` makes
   `cachePlaylistArtwork` download the image again; the Siri index also changes (`artworkPath` is in its items).
-- Fix status: NOT built. The stored URL is fetched lazily (`ArtworkLoader` -> `getArtworkURL` returns an https
-  path as is) and `X-Amz-Expires` is not recorded anywhere (unknown), so ignoring signature-only differences
-  could leave an expired URL stored. Options and a decision are with the lead; see the branch hand-off report.
+- Fix status: built on `fix/apple-music-signed-artwork-header`, awaiting the phone check. A "silent refresh": the row
+  still stores the latest signed URL each sync (so it is never more than one sync old; `X-Amz-Expires` is unknown),
+  but a difference in `X-Amz-*` query items only is not a change. `ArtworkPathIdentity.of` (EnsemblePersistence)
+  is the signature-free identity; `LibraryWriter.write` does not count such a write as changed (no catalog
+  publication, no Siri/Spotlight refresh), `recordPlaylistArtworkInvalidationIfNeeded` queues no invalidation,
+  `ArtworkIdentity.matches(sourcePath:)` and the Siri index compare identities. The log shows
+  `differs: compositePath(signature)`. Phone check: `docs/reference/physical-device-backlog.md`. Remove this entry
+  and the diagnostic lines once confirmed.
 - Latent, not fixed: `reconcilePlaylist` builds its header with `canEdit: true`, no REST artwork and a
   MusicKit-only date, so after a playlist mutation the next list sync rewrites that header once (bounded).
 

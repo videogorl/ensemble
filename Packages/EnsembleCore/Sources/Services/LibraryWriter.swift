@@ -491,6 +491,9 @@ public actor LibraryWriter {
         return parts.isEmpty ? "none" : parts.joined(separator: ",")
     }
 
+    /// Writes a playlist and returns whether the write was a material change. A header whose only difference is
+    /// the artwork URL's signature is still written, so the stored URL stays no older than the last read, but
+    /// is not material: it is not counted as changed, so it publishes no catalog change and refreshes no index.
     @discardableResult
     private func write(_ header: PlaylistUpsertInput, body: [PlaylistTrackSnapshot]?, scope: String, existing: PlaylistSyncState?, writtenSoFar: Int = 0) async throws -> Bool {
         if writtenSoFar < Self.itemizedWriteLimit, existing?.headerMatches(header) != true || body != nil {
@@ -512,7 +515,7 @@ public actor LibraryWriter {
         }
         guard existing?.headerMatches(header) != true else { return false }
         _ = try await playlistRepository.upsertPlaylist(header, sourceCompositeKey: scope)
-        return true
+        return existing?.headerMatches(header, ignoringArtworkSignature: true) != true
     }
 
     /// Playlists with a mutation still queued to upload, from the durable pending-mutation records (which

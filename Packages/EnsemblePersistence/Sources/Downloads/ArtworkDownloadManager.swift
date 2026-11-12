@@ -93,7 +93,7 @@ public struct ArtworkIdentity: Sendable, Codable, Equatable {
     }
 
     public func matches(sourcePath expectedSourcePath: String?, dateModifiedSeconds expectedDateModifiedSeconds: Int?) -> Bool {
-        if let expectedSourcePath, sourcePath != expectedSourcePath {
+        if let expectedSourcePath, ArtworkPathIdentity.of(sourcePath) != ArtworkPathIdentity.of(expectedSourcePath) {
             return false
         }
         if let expectedDateModifiedSeconds, dateModifiedSeconds != expectedDateModifiedSeconds {

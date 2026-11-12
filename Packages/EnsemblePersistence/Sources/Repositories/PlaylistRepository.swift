@@ -123,12 +123,15 @@ public struct PlaylistSyncState: Sendable, Equatable {
         self.hasMemberships = hasMemberships
     }
 
-    /// Compares a header input using the repository's merge semantics.
-    public func headerMatches(_ input: PlaylistUpsertInput) -> Bool {
+    /// Compares a header input using the repository's merge semantics. With `ignoringArtworkSignature`, an
+    /// artwork URL that differs only by its `X-Amz-*` signature counts as equal.
+    public func headerMatches(_ input: PlaylistUpsertInput, ignoringArtworkSignature: Bool = false) -> Bool {
         key == input.key &&
             title == input.title &&
             summary == input.summary &&
-            compositePath == input.compositePath &&
+            (ignoringArtworkSignature
+                ? ArtworkPathIdentity.of(compositePath) == ArtworkPathIdentity.of(input.compositePath)
+                : compositePath == input.compositePath) &&
             isSmart == input.isSmart &&
             duration == (input.duration ?? 0) &&
             trackCount == (input.trackCount ?? 0) &&
@@ -151,7 +154,9 @@ extension PlaylistSyncState {
         if key != input.key { names.append("key") }
         if title != input.title { names.append("title") }
         if summary != input.summary { names.append("summary") }
-        if compositePath != input.compositePath { names.append("compositePath") }
+        if compositePath != input.compositePath {
+            names.append(ArtworkPathIdentity.of(compositePath) == ArtworkPathIdentity.of(input.compositePath) ? "compositePath(signature)" : "compositePath")
+        }
         if isSmart != input.isSmart { names.append(shown("isSmart", isSmart, input.isSmart) { "\($0)" }) }
         if duration != (input.duration ?? 0) { names.append(shown("duration", duration, input.duration ?? 0) { "\($0)" }) }
         if trackCount != (input.trackCount ?? 0) { names.append(shown("trackCount", trackCount, input.trackCount ?? 0) { "\($0)" }) }
@@ -423,7 +428,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         newCompositePath: String?,
         newDateModified: Date?
     ) {
-        if oldCompositePath != newCompositePath {
+        if ArtworkPathIdentity.of(oldCompositePath) != ArtworkPathIdentity.of(newCompositePath) {
             recordArtworkInvalidation(ArtworkInvalidationInfo(
                 ratingKey: ratingKey,
                 type: .playlist,

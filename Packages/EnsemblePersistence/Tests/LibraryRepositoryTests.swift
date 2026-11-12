@@ -562,6 +562,30 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
     }
 
+    /// A cached image stays a hit when the playlist's pre-signed artwork URL is re-signed, and a miss for another image.
+    func testArtworkCacheMatchesAcrossSignaturesOfTheSameImage() async throws {
+        let manager = ArtworkDownloadManager()
+        let sourceKey = "appleMusic:device:system:library"
+        let ratingKey = "signed-\(UUID().uuidString)"
+        let artworkURL = ArtworkDownloadManager.artworkFileURL(ratingKey: ratingKey, type: .playlist, sourceCompositeKey: sourceKey)
+        let identityURL = artworkURL.deletingPathExtension().appendingPathExtension("identity.json")
+        defer { [artworkURL, identityURL].forEach { try? FileManager.default.removeItem(at: $0) } }
+        func url(_ image: String, _ signature: String) -> String {
+            "https://b.s3.amazonaws.com/\(image).jpg?X-Amz-Date=\(signature)&X-Amz-Signature=\(signature)"
+        }
+        try Data("image".utf8).write(to: artworkURL)
+        try JSONEncoder().encode(ArtworkIdentity(
+            ratingKey: ratingKey, type: .playlist, sourcePath: url("a", "1"), dateModifiedSeconds: 1_000, sourceCompositeKey: sourceKey
+        )).write(to: identityURL)
+
+        for (path, hit) in [(url("a", "1"), true), (url("a", "2"), true), (url("b", "2"), false)] {
+            let local = try await manager.getLocalArtworkPath(
+                ratingKey: ratingKey, type: .playlist, sourceCompositeKey: sourceKey, sourcePath: path, dateModifiedSeconds: 1_000
+            )
+            XCTAssertEqual(local != nil, hit, path)
+        }
+    }
+
     func testArtworkDownloadManagerRejectsStaleIdentitySidecarsForAllArtworkTypes() async throws {
         let manager = ArtworkDownloadManager()
         let sourceKey = "plex:account:server:library"
