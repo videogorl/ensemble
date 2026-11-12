@@ -228,12 +228,13 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
 
     func testLaunchKindDecidesWhetherLaunchWorkStartsInForeground() {
         let rows: [(ProcessLaunchKind, appIsBackground: Bool, foreground: Bool)] = [
-            (.foregroundScene, false, true),
+            (.noLaunchRequest, false, false),
+            (.foregroundScene, false, false),
             (.userActivity, false, true),
             (.url, false, true),
             (.remoteNotification, false, true),
             (.remoteNotification, true, false),
-            (.background, true, false),
+            (.noLaunchRequest, true, false),
         ]
         for row in rows {
             XCTAssertEqual(row.0.isForegroundLaunch(applicationIsBackground: row.appIsBackground), row.foreground, "\(row)")
