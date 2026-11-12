@@ -607,16 +607,22 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Next step: read how the foreground resume decides a handoff is abandoned, and whether it should wait for
   a refresh that is in flight (`isRefreshInFlight`).
 
-## Suspected: Apple Music playlist sync rewrites two playlist headers on every sync (2026-11-11)
+## Cause found, fix awaiting phone check: Apple Music playlist sync rewrote two playlist headers every sync (2026-11-11)
 
-- Evidence (iPhone 16 Pro logs, 2026-11-11, builds through `202611111427.3323`): 7 of 7 logged Apple Music
-  playlist syncs wrote exactly 2 playlist headers. Each makes the Siri index rebuild report `changed=true`
-  (20 of 58 rebuilds that day) and one led to a 200-item Spotlight write where others were 0 to 7 items.
-  Which two playlists and which field never matches is not known. No self-triggering loop was found.
-  Analysis: `$TMPDIR/ensemble-16pro/warm-phone-analysis.md` (temporary file).
-- Impact: repeated store writes, index rebuilds and Spotlight updates on a phone that was thermally
-  constrained during the test; how much heat it causes is unmeasured.
-- Next step: log the playlist ID and the differing field when a sync writes a header, then fix the comparison.
+- Evidence: 16 Pro build `202611111729.7573`: each sync wrote the same two headers, differing only in
+  `compositePath`, in the same sync that logged "inventory withheld: MusicKit lists playlists the API list
+  lacks". So the two are playlists the REST list lacks: `fetchPlaylistHeaders` gives them no REST artwork URL
+  and `playlistInput` falls back to MusicKit's `artwork.ensembleResolvableURL()` (`AppleMusicConnector.swift`),
+  a full `musicKit://` URL whose parts other than `aat` change per read (inferred: the logs do not print
+  paths). Their bodies were not re-read (`needsBody` was false: dates equal); only the header was rewritten,
+  each time marking artwork stale and the Siri index changed.
+- Fix: that fallback now stores only the `aat` asset (`AppleMusicArtworkPath.stable`), what `getArtworkURL`
+  reads, so a new image still writes. The first sync after the update writes those two once.
+- Remaining: on the phone, two syncs after the update must log zero `Apple Music` header writes
+  (`differs: compositePath`). If they still write, the `aat` itself varies or the artwork alternates with nil:
+  print the stored and incoming path hashes next. Remove this entry once confirmed, with the diagnostic line.
+- Latent, not fixed: `reconcilePlaylist` builds its header with `canEdit: true`, no REST artwork and a
+  MusicKit-only date, so after a playlist mutation the next list sync rewrites that header once (bounded).
 
 ## Suspected: every cold launch, including one for a Shortcuts or Siri request, runs the full launch pipeline (2026-11-11)
 

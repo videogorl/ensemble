@@ -81,6 +81,22 @@ enum AppleMusicTrackKeyPolicy {
     }
 }
 
+enum AppleMusicArtworkPath {
+    /// The part of a private `musicKit://` artwork URL that names the image: its `aat` asset path, the only part
+    /// `getArtworkURL` reads. MusicKit builds the rest of the URL per read, so a stored full URL never equals the
+    /// next read's and the playlist is rewritten on every sync. Other URLs, and `musicKit` ones with no asset
+    /// (nothing to resolve), are returned unchanged.
+    static func stable(_ path: String?) -> String? {
+        guard let path,
+              var components = URLComponents(string: path),
+              components.scheme?.lowercased() == "musickit",
+              let asset = components.queryItems?.first(where: { $0.name == "aat" })
+        else { return path }
+        components.queryItems = [asset]
+        return components.string
+    }
+}
+
 struct AppleMusicLibraryRecording: Sendable {
     let isrc: String?
     let title: String
@@ -985,7 +1001,7 @@ public actor AppleMusicConnector:
             key: String(describing: playlist.id),
             title: playlist.name,
             summary: playlist.standardDescription,
-            compositePath: artworkURL ?? playlist.artwork?.ensembleResolvableURL(),
+            compositePath: artworkURL ?? AppleMusicArtworkPath.stable(playlist.artwork?.ensembleResolvableURL()),
             isSmart: isSmart,
             duration: duration,
             trackCount: trackCount,
