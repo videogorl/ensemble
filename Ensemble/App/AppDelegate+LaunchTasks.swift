@@ -6,8 +6,8 @@ import os.signpost
 extension AppDelegate {
     /// Starts the launch work that needs a foreground process, never while the process is in the background.
     /// A foreground launch calls it from `didFinishLaunching`; a process launched in the background (intent,
-    /// Siri, refresh) calls it from its `.active` scene phases. Health checks, WebSockets and the Siri refresh
-    /// start once. Startup sync and the iCloud bootstrap start once too, but are retried at a later activation
+    /// Siri, refresh) calls it from its `.active` scene phases. Health checks and WebSockets start once.
+    /// Startup sync, the Siri/Spotlight refresh and the iCloud bootstrap start once too, but are retried at a later activation
     /// if the app left the foreground before they were allowed to run. A background intent that needs servers
     /// runs its own bounded health check in `prepareForBackgroundPlayback`.
     func startForegroundLaunchWork() {
@@ -16,9 +16,11 @@ extension AppDelegate {
         if foregroundLaunchWorkGate.claim(isForeground: isForeground) {
             AppLogger.info("LAUNCH_WORK: starting foreground launch work (health checks, WebSockets, startup sync, Siri/Spotlight refresh)")
             startEarlyHealthCheckTask()
-            startSiriIndexAndContextRefreshAfterHealthChecks()
             startWebSocketConnectionsAfterHealthChecks()
             startColdLaunchDiagnosticsTask()
+        }
+        if foregroundLaunchWorkGate.claimSiriRefresh(isForeground: isForeground) {
+            startSiriIndexAndContextRefreshAfterHealthChecks()
         }
         if foregroundLaunchWorkGate.claimStartupSync(isForeground: isForeground) {
             startStartupSyncTaskAfterHealthChecks()
@@ -94,8 +96,9 @@ extension AppDelegate {
 
             guard AppRoot.container.networkMonitor.networkState.isConnected else {
                 AppLogger.debug(
-                    "📱 AppDelegate: Deferring Siri media index/context refresh while network is \(AppRoot.container.networkMonitor.networkState.description)"
+                    "📱 AppDelegate: Deferring Siri media index/context refresh while network is \(AppRoot.container.networkMonitor.networkState.description); the next activation retries it"
                 )
+                self.foregroundLaunchWorkGate.finishSiriRefresh(ran: false)
                 return
             }
 
@@ -109,8 +112,11 @@ extension AppDelegate {
             guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
                 AppLogger.debug("📱 AppDelegate: Siri media index/context refresh skipped because foreground work is unavailable")
                 AppRoot.container.systemMediaIntegrationService.deferSpotlightRefresh()
+                self.foregroundLaunchWorkGate.finishSiriRefresh(ran: false)
                 return
             }
+
+            AppLogger.info("LAUNCH_WORK: Siri/Spotlight refresh starting")
 
             EnsembleAppShortcutsProvider.updateAppShortcutParameters()
             AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
@@ -118,6 +124,7 @@ extension AppDelegate {
             // Refresh system media context and Spotlight from the shared media index.
             await AppRoot.container.systemMediaIntegrationService.updateMediaUserContext()
             await AppRoot.container.systemMediaIntegrationService.refreshSpotlightIndex()
+            self.foregroundLaunchWorkGate.finishSiriRefresh(ran: true)
         }
     }
 

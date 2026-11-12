@@ -62,14 +62,25 @@ public struct ForegroundWorkSchedulerConfiguration: Equatable, Sendable {
 /// Lets the launch work that needs a foreground process start only while the process is foreground, without
 /// starting anything twice.
 ///
-/// Health checks, WebSockets and the Siri refresh start once (`claim`). Startup sync can be skipped when the app
-/// leaves the foreground before it is allowed to run, so it is claimed separately and retried at a later
-/// activation until a run completes.
+/// Health checks and WebSockets start once (`claim`). Startup sync and the Siri/Spotlight refresh can be skipped
+/// when the app leaves the foreground before they are allowed to run, so each is claimed separately and retried at
+/// a later activation until a run completes.
 public struct ForegroundLaunchWorkGate {
-    private enum StartupSync { case notStarted, running, skipped, done }
+    /// A step that runs once, and is retried at a later foreground activation when a run was skipped.
+    private struct RetryableStep {
+        enum State { case notStarted, running, skipped, done }
+        var state = State.notStarted
+
+        mutating func claim(isForeground: Bool) -> Bool {
+            guard isForeground, state == .notStarted || state == .skipped else { return false }
+            state = .running
+            return true
+        }
+    }
 
     public private(set) var hasStarted = false
-    private var startupSync = StartupSync.notStarted
+    private var startupSync = RetryableStep()
+    private var siriRefresh = RetryableStep()
 
     public init() {}
 
@@ -82,14 +93,21 @@ public struct ForegroundLaunchWorkGate {
 
     /// Returns true when foreground and no startup sync is running or finished: the first time, and again after a skipped run.
     public mutating func claimStartupSync(isForeground: Bool) -> Bool {
-        guard isForeground, startupSync == .notStarted || startupSync == .skipped else { return false }
-        startupSync = .running
-        return true
+        startupSync.claim(isForeground: isForeground)
     }
 
     /// Records the end of a claimed run: `ran` false means it was skipped and a later activation retries it.
     public mutating func finishStartupSync(ran: Bool) {
-        startupSync = ran ? .done : .skipped
+        startupSync.state = ran ? .done : .skipped
+    }
+
+    /// Same contract as `claimStartupSync`, for the Siri media index, context and Spotlight refresh.
+    public mutating func claimSiriRefresh(isForeground: Bool) -> Bool {
+        siriRefresh.claim(isForeground: isForeground)
+    }
+
+    public mutating func finishSiriRefresh(ran: Bool) {
+        siriRefresh.state = ran ? .done : .skipped
     }
 }
 

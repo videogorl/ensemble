@@ -273,6 +273,21 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
         XCTAssertFalse(gate.claimStartupSync(isForeground: true))
     }
 
+    func testSkippedSiriRefreshIsRetriedIndependentlyOfStartupSync() {
+        var gate = ForegroundLaunchWorkGate()
+        XCTAssertFalse(gate.claimSiriRefresh(isForeground: false))
+        XCTAssertTrue(gate.claimSiriRefresh(isForeground: true))
+        XCTAssertTrue(gate.claimStartupSync(isForeground: true))
+
+        gate.finishSiriRefresh(ran: false)
+        gate.finishStartupSync(ran: true)
+        XCTAssertTrue(gate.claimSiriRefresh(isForeground: true), "a skipped refresh runs at the next activation")
+        XCTAssertFalse(gate.claimStartupSync(isForeground: true))
+
+        gate.finishSiriRefresh(ran: true)
+        XCTAssertFalse(gate.claimSiriRefresh(isForeground: true))
+    }
+
     func testForegroundLaunchWorkGateClaimsOnceAndNeverWhileBackground() {
         var gate = ForegroundLaunchWorkGate()
         XCTAssertFalse(gate.claim(isForeground: false))

@@ -27,13 +27,6 @@ extension AppDelegate {
         
         // Audio session is configured lazily on first playback (PlaybackService.ensureAudioSessionConfigured)
         // to avoid Code=-50 failures at launch before the audio system is ready.
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(sceneWillEnterForeground(_:)),
-            name: UIScene.willEnterForegroundNotification,
-            object: nil
-        )
-
         configureSiriAuthorization()
         logLaunchPhase("siriAuthorization.configured")
 
@@ -56,8 +49,8 @@ extension AppDelegate {
 
         // No scene exists yet, so `applicationState` is `.background` even for a foreground launch and cannot
         // classify it. Unless the launch options say the user started it, assume background before any launch task
-        // runs, so the scheduler and download service do not treat it as foreground; the window scene entering the
-        // foreground (`sceneWillEnterForeground`) starts the launch work and flips the scheduler.
+        // runs, so the scheduler and download service do not treat it as foreground; the first `.active` scene
+        // phase starts the launch work and flips the scheduler.
         let isForegroundLaunch = launchKind.isForegroundLaunch(
             applicationIsBackground: application.applicationState == .background
         )
@@ -92,7 +85,7 @@ extension AppDelegate {
             AppLogger.info("LAUNCH_WORK: kind=\(launchKind.rawValue) foregroundLaunchWork=started")
             startForegroundLaunchWork()
         } else {
-            AppLogger.info("LAUNCH_WORK: kind=\(launchKind.rawValue) foregroundLaunchWork=deferred until a window scene enters the foreground")
+            AppLogger.info("LAUNCH_WORK: kind=\(launchKind.rawValue) foregroundLaunchWork=deferred until the first foreground activation")
         }
         startPlaybackRestoreTask()
         logLaunchPhase("launchTasks.scheduled")
@@ -100,20 +93,6 @@ extension AppDelegate {
         AppLogger.debug("📱 AppDelegate: didFinishLaunching returning at \(Date())")
         logLaunchPhase("didFinishLaunching.return")
         return true
-    }
-
-    /// The earliest reliable foreground signal. UIKit posts it when a scene is about to become visible, never for a
-    /// scene connected in the background (a snapshot, an intent or a background task), so it cannot start launch
-    /// work for a background-only process. It precedes the first `.active` scene phase, which stays the fallback.
-    /// The scheduler flips first: the gate only claims while it reports foreground.
-    @objc
-    func sceneWillEnterForeground(_ notification: Notification) {
-        guard let scene = notification.object as? UIScene,
-              scene.session.role == .windowApplication,
-              !foregroundLaunchWorkGate.hasStarted else { return }
-        AppLogger.info("LAUNCH_WORK: kind=\(ProcessLaunchKind.foregroundScene.rawValue) window scene entering the foreground")
-        AppRoot.container.foregroundWorkScheduler.setForegroundActive(true)
-        startForegroundLaunchWork()
     }
 
     // Audio session configuration moved to PlaybackService.ensureAudioSessionConfigured()

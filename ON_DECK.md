@@ -5,6 +5,19 @@ API that would replace custom machinery. Each entry gives evidence, impact and a
 step, and says whether it is suspected or confirmed. Remove an entry when it is fixed.
 An entry does not authorize the work; Felicity picks what gets done.
 
+## Confirmed: foreground launch work starts about 0.75-1.3 s later than before (2026-11-12)
+
+- Evidence: iPhone SE, build 202611120623.9162, cold icon launch: `didFinishLaunching` 06:25:00.100,
+  `configurationForConnecting` .132, scene phase `active` 06:25:01.429. Before the background-launch change the work
+  started at `didFinishLaunching`; it now starts at the first `.active` for any launch without a URL or user activity.
+- Rejected earlier signals: `applicationState` is `.background` at `didFinishLaunching` in this scene-based app, so it
+  cannot tell a plain launch from an intent. `UIScene.willEnterForegroundNotification` arrived 1.0 s after the scene
+  connected and only ~0.29 s before `.active`, and it races the scene-phase handler: the `.inactive` phase flipped the
+  scheduler back and the Siri refresh, KVS bootstrap and startup sync were skipped (06:28:12). Scene connection can also
+  happen in the background.
+- Impact: health checks, WebSockets and startup sync start later on a plain launch; not yet shown to be visible.
+- Next step: measure time-to-content on Home before and after; only if the delay is visible, look for an earlier signal.
+
 ## Suspected: the iCloud profile subscription never fires (2026-11-10)
 
 - Evidence: `CloudSyncService` registers a `CKDatabaseSubscription` (`profile-changes`), but

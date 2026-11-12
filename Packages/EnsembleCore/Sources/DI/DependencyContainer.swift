@@ -856,6 +856,7 @@ public final class DependencyContainer: @unchecked Sendable {
             return
         }
         hasDeferredCloudBootstrap = false
+        EnsembleLogger.info("Sync startup: iCloud/KVS bootstrap running")
         await cloudSyncCoordinator.refreshSyncState(reason: "launch")
     }
 

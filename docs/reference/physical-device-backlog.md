@@ -771,12 +771,13 @@ earlier).
 Run on the iPhone 16 Pro (the iPhone SE as a fallback) with a Debug build. Prove the installed build first. Kill the
 app before each check, then pull `Application Support/Ensemble/Logs` and read the newest session. UIKit's
 `applicationState` is `.background` inside `didFinishLaunching` of a scene-based app, so a plain launch is not
-distinguishable there. Every launch without a user-action option logs `LAUNCH_WORK: kind=no launch request yet ...
-foregroundLaunchWork=deferred until a window scene enters the foreground` and a session header
-`launch: no launch request yet ...`. A foreground launch then logs, within ~15 ms,
-`LAUNCH_WORK: kind=foreground scene window scene entering the foreground` and `LAUNCH_WORK: starting foreground
-launch work`; a background intent never logs either until the app is opened. `.userActivity`/`.url` launches log
-`foregroundLaunchWork=started` at `didFinishLaunching`.
+distinguishable there. Every launch without a user-action option logs a session header `launch: no launch request yet ...`
+and `LAUNCH_WORK: kind=no launch request yet ... foregroundLaunchWork=deferred until the first foreground activation`.
+When the app is opened (a cold icon tap, or the first open after a background launch) the first `.active` logs
+`LAUNCH_WORK: kind=foreground scene first foreground activation`, then `LAUNCH_WORK: starting foreground launch work`,
+`LAUNCH_WORK: Siri/Spotlight refresh starting` and `Sync startup: iCloud/KVS bootstrap running` (or its `skipped`
+line, with the retry at the next `.active`). A background intent logs none of these until the app is opened.
+`.userActivity`/`.url` launches log `foregroundLaunchWork=started` at `didFinishLaunching`.
 
 | Check | Expect in the log | Result |
 | --- | --- | --- |
@@ -787,7 +788,7 @@ launch work`; a background intent never logs either until the app is opened. `.u
 | Each of the above, then open the app within a minute | One `LAUNCH_WORK: starting foreground launch work` line at the first `.active`, one `Starting startup sync...`, one WebSocket start per server, Home and library show loading then fill, no empty or error flash | Not run |
 | Locked phone: start playback by intent, then turn Wi-Fi off and on | `stateChanged ... transition=disconnect`, then `reconnect`, then `Health refresh complete`; playback recovers or resolves the next track. If not, see the `ON_DECK.md` entry on monitoring | Not run |
 | Overnight background refresh | `Background refresh triggered` and `Background refresh phase=` lines, `foregroundLaunchWork=deferred`, no `starting foreground launch work` until the app is opened | Not run |
-| Foreground cold launch and a launch that backgrounds at once | Launch log unchanged in task order, `starting foreground launch work` within ~15 ms of `configurationForConnecting` (not at `.active`), session header not `background`, one start | Not run |
+| Foreground cold launch and a launch that backgrounds at once | Launch log unchanged in task order, `first foreground activation` then one `starting foreground launch work` at the first `.active`, session header not `background`, one start | Not run |
 
 ## Merging toggle and merged playlist loading, 2026-11-11
 
