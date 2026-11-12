@@ -322,7 +322,7 @@ public actor LibraryWriter {
         }
         let stored = try await playlistRepository.fetchPlaylistSyncStates(forSource: scope)
         let queued = try await queuedPlaylistMutations(in: scope)
-        var changed = 0
+        var changed = 0, refreshed = 0
         var unresolved: [String] = []
         for entry in batch.entries {
             try RefreshExecution.checkCancellation()
@@ -346,7 +346,11 @@ public actor LibraryWriter {
             } else if body == nil {
                 header = header.replacing(dateModified: .some(nil))
             }
-            if try await write(header, body: body, scope: scope, existing: existing, writtenSoFar: changed) { changed += 1 }
+            switch try await write(header, body: body, scope: scope, existing: existing, writtenSoFar: changed + refreshed) {
+            case .changed: changed += 1
+            case .signatureRefresh: refreshed += 1
+            case .unchanged: break
+            }
         }
 
         var removed = 0
@@ -376,9 +380,10 @@ public actor LibraryWriter {
                 try await cursors?.recordIncrementalSync(scopeKey: scope, scopeType: .serverPlaylists, at: batch.queryStartedAt)
             }
         }
-        if changed + removed > 0 {
-            let unitemized = changed > Self.itemizedWriteLimit ? ", first \(Self.itemizedWriteLimit) itemized" : ""
-            EnsembleLogger.debug("🎵 Playlists \(scope): wrote \(changed), removed \(removed)\(unitemized)")
+        if changed + refreshed + removed > 0 {
+            let unitemized = changed + refreshed > Self.itemizedWriteLimit ? ", first \(Self.itemizedWriteLimit) itemized" : ""
+            let signed = refreshed > 0 ? ", refreshed \(refreshed) signed artwork paths" : ""
+            EnsembleLogger.debug("🎵 Playlists \(scope): wrote \(changed), removed \(removed)\(signed)\(unitemized)")
         }
         if !unresolved.isEmpty { EnsembleLogger.info("Playlists \(scope): \(unresolved.count) body reads unresolved, to retry next pass") }
         return PlaylistSyncResult(changedPlaylists: changed, removedPlaylists: removed, unresolvedPlaylists: unresolved)
@@ -491,11 +496,13 @@ public actor LibraryWriter {
         return parts.isEmpty ? "none" : parts.joined(separator: ",")
     }
 
-    /// Writes a playlist and returns whether the write was a material change. A header whose only difference is
-    /// the artwork URL's signature is still written, so the stored URL stays no older than the last read, but
-    /// is not material: it is not counted as changed, so it publishes no catalog change and refreshes no index.
+    /// What `write` did. A header whose only difference is the artwork URL's signature is still written, so the
+    /// stored URL stays no older than the last read, but is not material: it is not counted as changed, so it
+    /// publishes no catalog change and refreshes no index.
+    private enum WriteOutcome { case unchanged, signatureRefresh, changed }
+
     @discardableResult
-    private func write(_ header: PlaylistUpsertInput, body: [PlaylistTrackSnapshot]?, scope: String, existing: PlaylistSyncState?, writtenSoFar: Int = 0) async throws -> Bool {
+    private func write(_ header: PlaylistUpsertInput, body: [PlaylistTrackSnapshot]?, scope: String, existing: PlaylistSyncState?, writtenSoFar: Int = 0) async throws -> WriteOutcome {
         if writtenSoFar < Self.itemizedWriteLimit, existing?.headerMatches(header) != true || body != nil {
             // Diagnostic: which stored field never matches. Names, with old→new only for non-content fields; never titles.
             let differences = existing?.headerDifferences(from: header).joined(separator: ",") ?? "new"
@@ -511,11 +518,11 @@ public actor LibraryWriter {
             try await playlistRepository.setPlaylistTrackSnapshots(body, forPlaylist: header.ratingKey, sourceCompositeKey: scope)
             try RefreshExecution.checkCancellation()
             _ = try await playlistRepository.upsertPlaylist(header, sourceCompositeKey: scope)
-            return true
+            return .changed
         }
-        guard existing?.headerMatches(header) != true else { return false }
+        guard existing?.headerMatches(header) != true else { return .unchanged }
         _ = try await playlistRepository.upsertPlaylist(header, sourceCompositeKey: scope)
-        return existing?.headerMatches(header, ignoringArtworkSignature: true) != true
+        return existing?.headerMatches(header, ignoringArtworkSignature: true) == true ? .signatureRefresh : .changed
     }
 
     /// Playlists with a mutation still queued to upload, from the durable pending-mutation records (which

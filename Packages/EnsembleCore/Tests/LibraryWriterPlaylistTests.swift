@@ -367,14 +367,14 @@ final class LibraryWriterPlaylistTests: XCTestCase {
     /// or re-indexed, and no artwork is invalidated. A different image, or one appearing or going, still is.
     func testASignatureOnlyArtworkChangeRefreshesTheRowWithoutCountingAsAChange() async throws {
         let f = try makeFixture()
-        func listed(_ url: String?) -> PlaylistBatch {
-            let base = header("signed", at: nil, count: 0)
+        func listed(_ url: String?, title: String? = nil, body: [PlaylistTrackSnapshot]? = nil) -> PlaylistBatch {
+            let base = header("signed", at: nil, count: body?.count ?? 0)
             let input = PlaylistUpsertInput(
-                ratingKey: base.ratingKey, key: base.key, title: base.title, summary: nil,
+                ratingKey: base.ratingKey, key: base.key, title: title ?? base.title, summary: nil,
                 compositePath: url, isSmart: false, duration: 0, trackCount: 0,
                 dateAdded: nil, dateModified: base.dateModified, lastPlayed: nil
             )
-            return PlaylistBatch(entries: [PlaylistEntry(header: input, body: nil)], queryStartedAt: .now)
+            return PlaylistBatch(entries: [PlaylistEntry(header: input, body: body)], queryStartedAt: .now)
         }
         func signed(_ image: String, _ signature: String) -> String {
             "https://bucket.s3.amazonaws.com/\(image).jpg?X-Amz-Algorithm=A&X-Amz-Date=\(signature)&X-Amz-Signature=\(signature)&size=1200"
@@ -403,6 +403,12 @@ final class LibraryWriterPlaylistTests: XCTestCase {
         let incoming = listed(signed("b", "5")).entries[0].header
         XCTAssertEqual(state.headerDifferences(from: incoming), ["compositePath(signature)"])
         XCTAssertEqual(f.hooked.count("upsert:"), 5)
+
+        // A new signature does not hide a real change that arrives with it.
+        let withTitle = try await f.writer.apply(listed(signed("b", "6"), title: "Renamed"), for: scope)
+        XCTAssertEqual(withTitle.changedPlaylists, 1, "signature plus another header field")
+        let withBody = try await f.writer.apply(listed(signed("b", "7"), title: "Renamed", body: tracks("a")), for: scope)
+        XCTAssertEqual(withBody.changedPlaylists, 1, "signature plus a body")
     }
 
     func testAnOlderHeaderChangesNothing() async throws {

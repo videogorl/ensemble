@@ -688,7 +688,12 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   is the signature-free identity; `LibraryWriter.write` does not count such a write as changed (no catalog
   publication, no Siri/Spotlight refresh), `recordPlaylistArtworkInvalidationIfNeeded` queues no invalidation,
   `ArtworkIdentity.matches(sourcePath:)` and the Siri index compare identities. The log shows
-  `differs: compositePath(signature)`. Phone check: `docs/reference/physical-device-backlog.md`. Remove this entry
+  `differs: compositePath(signature)`. Only the SigV4 authentication parameters are ignored (`X-Amz-Algorithm`,
+  `-Credential`, `-Date`, `-Expires`, `-SignedHeaders`, `-Signature`, `-Security-Token`). A view with no image yet
+  re-runs its load when the raw path changes (`ArtworkView.loadTaskID`), so a failed load recovers from a
+  refreshed URL. Residual risk: a new image published at the same object key with an unchanged or nil
+  `dateModified` is not detected (`PlaylistRepository.swift:441` still invalidates on a `dateModified` change,
+  the one remaining signal), and other signing schemes would still churn. Phone check: `docs/reference/physical-device-backlog.md`. Remove this entry
   and the diagnostic lines once confirmed.
 - Latent, not fixed: `reconcilePlaylist` builds its header with `canEdit: true`, no REST artwork and a
   MusicKit-only date, so after a playlist mutation the next list sync rewrites that header once (bounded).
