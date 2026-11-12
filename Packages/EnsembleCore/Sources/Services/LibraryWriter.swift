@@ -1,3 +1,4 @@
+import CryptoKit
 import EnsemblePersistence
 import Foundation
 
@@ -462,12 +463,43 @@ public actor LibraryWriter {
     /// Playlist writes per sync that get their own diagnostic line; the rest are only counted.
     private static let itemizedWriteLimit = 10
 
+    /// Privacy-safe description of an artwork path for the "compositePath differs" diagnostic: nil/empty state,
+    /// length, a short SHA-256 prefix, scheme and host, the path with long opaque segments reduced to their
+    /// length, and the query parameter names. No query value or opaque segment is printed.
+    private static func pathShape(_ path: String?) -> String {
+        guard let path else { return "[nil]" }
+        guard !path.isEmpty else { return "[empty]" }
+        let hash = SHA256.hash(data: Data(path.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
+        let components = URLComponents(string: path)
+        let segments = (components?.path ?? "").split(separator: "/", omittingEmptySubsequences: false)
+            .map { $0.count >= 20 ? "<\($0.count)>" : String($0) }.joined(separator: "/")
+        let names = (components?.queryItems ?? []).map(\.name).sorted().joined(separator: ",")
+        return "[len=\(path.count) sha=\(hash) \(components?.scheme ?? "?")://\(components?.host ?? "")\(segments) query=\(names)]"
+    }
+
+    /// Which parts of two artwork paths differ, by name only: scheme, host, path, or the names of the query
+    /// parameters whose values differ (or are present on one side only).
+    private static func differingParts(_ old: String?, _ new: String?) -> String {
+        guard let old, let new, let a = URLComponents(string: old), let b = URLComponents(string: new) else { return "unparsed" }
+        var parts: [String] = []
+        if a.scheme != b.scheme { parts.append("scheme") }
+        if a.host != b.host { parts.append("host") }
+        if a.path != b.path { parts.append("path") }
+        let x = Dictionary((a.queryItems ?? []).map { ($0.name, $0.value) }, uniquingKeysWith: { first, _ in first })
+        let y = Dictionary((b.queryItems ?? []).map { ($0.name, $0.value) }, uniquingKeysWith: { first, _ in first })
+        for name in Set(x.keys).union(y.keys).sorted() where x[name] != y[name] { parts.append("query.\(name)") }
+        return parts.isEmpty ? "none" : parts.joined(separator: ",")
+    }
+
     @discardableResult
     private func write(_ header: PlaylistUpsertInput, body: [PlaylistTrackSnapshot]?, scope: String, existing: PlaylistSyncState?, writtenSoFar: Int = 0) async throws -> Bool {
         if writtenSoFar < Self.itemizedWriteLimit, existing?.headerMatches(header) != true || body != nil {
             // Diagnostic: which stored field never matches. Names, with old→new only for non-content fields; never titles.
             let differences = existing?.headerDifferences(from: header).joined(separator: ",") ?? "new"
             EnsembleLogger.debug("🎵 Playlists \(scope): writing playlist \(header.ratingKey) (\(body == nil ? "header" : "body")), differs: \(differences.isEmpty ? "none" : differences)")
+            if let existing, existing.compositePath != header.compositePath {
+                EnsembleLogger.debug("🎵 Playlists \(scope): playlist \(header.ratingKey) compositePath stored \(Self.pathShape(existing.compositePath)) incoming \(Self.pathShape(header.compositePath)) valuesDiffer=\(Self.differingParts(existing.compositePath, header.compositePath))")
+            }
         }
         if let body {
             // A body needs its playlist row; the final save carries the date.

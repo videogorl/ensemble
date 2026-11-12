@@ -918,3 +918,9 @@ Disposable Shortcuts run from the editor, each from a killed app; times are sess
 Not run: Focus-hidden library (no Focus with an Ensemble filter exists on the SE; create one to unblock); last used on
 Wi-Fi then launched on cellular (the SE has no SIM; needs the 16 Pro); a third uncached stream run. Logs:
 `/tmp/ensemble-se-logs.XcmAFq`.
+
+## iPhone 16 Pro — Apple Music playlist header churn diagnostic (`diag/apple-music-header-churn`)
+
+| Check | Status |
+| --- | --- |
+| Install the diagnostic build, run two Apple Music playlist syncs, and read the session log's `compositePath stored … incoming … valuesDiffer=…` lines for `p.1YeW3rpCkzaPXR` and `p.V7VYlM7CoLPe16` (`ON_DECK.md`, "Fix did not hold"). Record scheme/host/path shape, query names, and which part differs between the two syncs; then choose the fix | Owed |
