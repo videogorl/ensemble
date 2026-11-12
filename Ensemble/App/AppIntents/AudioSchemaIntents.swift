@@ -176,7 +176,6 @@ extension EnsemblePlaylistAudioEntityQuery: IntentValueQuery {
 @available(iOS 27.0, macOS 27.0, *)
 @AppEntity(schema: .audio.warmupAudioQueueResult)
 struct EnsembleWarmupAudioQueueResult: TransientAppEntity {
-    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Queue")
     let id = "queue"
     var displayRepresentation: DisplayRepresentation { "Queue" }
     init() {}

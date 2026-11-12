@@ -1,8 +1,8 @@
 # App Intents design (2026-11-11)
 
 Status: approved by Felicity on 2026-11-11, all six phases. Phases 1 to 3 are merged; phase 5 (the Mac) is built on
-`feature/app-intents-mac` and awaits the manual Mac checks in the physical-device backlog; phases 4 and 6 are not
-started. "What exists today" below describes the code before phase 1. Research sources are
+`feature/app-intents-mac` and awaits the manual Mac checks in the physical-device backlog; phase 4 (Siri AI audio schemas) is built on
+`feature/app-intents-siri-ai`, see below; phase 6 is deferred. "What exists today" below describes the code before phase 1. Research sources are
 listed at the end.
 
 ## Built (phases 1 to 3)
@@ -48,6 +48,13 @@ App Shortcuts on macOS: the SDK declares `AppShortcutsProvider` and `AppShortcut
 from macOS 14 and `IndexedEntity` from macOS 15; Apple's HIG says nothing firm about the Mac, so the provider ships
 unchanged and what the Mac surfaces (Shortcuts app, Spotlight) is a manual check. Left for the Mac: the headless
 checks below.
+
+Siri AI audio schemas (phase 4): built, awaiting the phone checks in the physical-device backlog. See
+`docs/investigations/2026-11-12-siri-ai-audio-schemas.md`. `AudioSchemaIntents.swift` adds song, album, artist and playlist
+schema entities (separate types; the existing entities and saved identifiers are unchanged), `IntentValueQuery` over
+`AudioSearch` on each query (existing matcher, visibility rules and Focus restore), and the `playAudio`, `addToPlaylist`
+and `createStation` schema intents, all calling the existing play, enqueue, add and radio code. Not built:
+`updateAudioAffinity` (no dislike), the now-playing entity identifier, `addToLibrary`.
 
 Left for later: Play Genre (deferred by the owner; the genre loader is not in Core), phases 4 to 6 below.
 
