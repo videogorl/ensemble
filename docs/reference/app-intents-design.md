@@ -1,13 +1,13 @@
 # App Intents design (2026-11-11)
 
-Status: approved by Felicity on 2026-11-11, all six phases. Phases 1 to 3 are built on `feature/app-intents`;
-phases 4 to 6 are not started. "What exists today" below describes the code before phase 1. Research sources are
+Status: approved by Felicity on 2026-11-11, all six phases. Phases 1 to 3 are merged; phase 5 (the Mac) is built on
+`feature/app-intents-mac` and awaits the manual Mac checks in the physical-device backlog; phases 4 and 6 are not
+started. "What exists today" below describes the code before phase 1. Research sources are
 listed at the end.
 
 ## Built (phases 1 to 3)
 
-Layout, under `Ensemble/App/AppIntents/` (compiled for iOS and macOS; Core Spotlight and relevant-entity
-publishing stay iOS-only):
+Layout, under `Ensemble/App/AppIntents/` (one set, compiled for iOS and macOS):
 
 - `MediaEntities.swift`: `IndexItemEntity` and its query protocol, the song, album, artist, playlist and any-kind
   media entities (all built by `init(item: SiriMediaIndexItem)`; type names and id formats are persisted by saved
@@ -36,6 +36,18 @@ App Shortcuts (9 of the limit 10; Apple recommends 2 to 5): Play Playlist, Play 
 Play Collection (favorites, shuffled favorites, shuffled library, recently added), Playback Option (shuffle,
 repeat, Autoplay, SmartMix), This Song (favorite, unfavorite, start radio), Add This Song to Playlist, Open
 Media. Every other intent is an editor action.
+
+Mac (phase 5): nothing in `Ensemble/App/AppIntents/` was iOS-guarded except `SystemSurfaces.swift`; the Ensemble target
+already builds for macOS and the extracted metadata lists all 30 actions, 7 entities and the provider on the Mac. What
+changed: `SystemSurfaces.swift` is shared (Spotlight `IndexedEntityQuery` reindexing and the now-playing relevant entity
+are `@available(iOS 27, macOS 27)`); `refreshSystemMediaSurfaces()` (App Shortcut parameters, Siri media context, the
+shared index Shortcuts pickers read, Core Spotlight) runs after the Mac's startup health checks, as it does after the
+iPhone's, because an unchanged library never signals a refresh; the entity picker's string search and saved
+identifiers fall back to the bounded full-store search for songs, albums and artists the capped index does not hold.
+App Shortcuts on macOS: the SDK declares `AppShortcutsProvider` and `AppShortcut` from macOS 13, `AudioPlaybackIntent`
+from macOS 14 and `IndexedEntity` from macOS 15; Apple's HIG says nothing firm about the Mac, so the provider ships
+unchanged and what the Mac surfaces (Shortcuts app, Spotlight) is a manual check. Left for the Mac: the headless
+checks below.
 
 Left for later: Play Genre (deferred by the owner; the genre loader is not in Core), phases 4 to 6 below.
 
@@ -92,7 +104,7 @@ One set of entities and intents, shared by iPhone, iPad and Mac, with the schema
    audio entity schemas; `playAudio` plus an `AudioSearch` query reuse the existing Siri index matcher;
    `addToPlaylist`, `updateAudioAffinity` and `createStation` map to phase 2 and 3 actions; the now-playing info
    carries the entity identifier. The SiriKit extension stays for HomePod, older devices and Siri without AI.
-5. **Mac.** The same actions in Shortcuts and in Spotlight on macOS 26 and later. No App Shortcut tiles are
+5. **Mac** (built; see "Mac (phase 5)" above). The same actions in Shortcuts and in Spotlight on macOS 26 and later. No App Shortcut tiles are
    assumed there: Apple's guideline and its API page disagree on whether macOS supports them.
 6. **Control Center controls and widgets.** A new widget extension target: controls for Shuffle Library and
    Favourite Current Song (Control Center, Lock Screen, Action Button), then an interactive Now Playing widget.

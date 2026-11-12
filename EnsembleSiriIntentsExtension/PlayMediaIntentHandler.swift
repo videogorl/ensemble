@@ -83,12 +83,13 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             artistHint: artistHint
         )
         guard let top = ranked?.first, let ranked else {
-            // No match, or a playlist among the best that cannot be shown to be visible yet (ranked is nil): the app
-            // resolves the name itself.
+            // No match, or candidates whose visibility is not known yet (ranked is nil): the request goes to the app as
+            // asked (the requested kind, the name, the artist hint) and the app resolves it among visible items only.
+            // No kind is chosen here from candidates that may be hidden.
             logger.debug("resolveMediaItems: no ranked match; returning fallback media item")
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
-                mediaType: ranked == nil && requestedMediaType == .unknown ? .playlist : requestedMediaType,
+                mediaType: requestedMediaType,
                 artistHint: artistHint,
                 shuffle: requestedShuffle
             )
@@ -243,7 +244,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 sourceCompositeKey: nil,
                 displayName: fallbackQuery,
                 artistHint: artistHintForPayload,
-                shuffle: requestedShuffle
+                shuffle: requestedShuffle,
+                kindIsUnspecified: isKindUnspecified(mediaType: mediaType, query: fallbackQuery) ? true : nil
             )
         }
 
@@ -373,7 +375,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             sourceCompositeKey: nil,
             displayName: query,
             artistHint: artistHint,
-            shuffle: shuffle
+            shuffle: shuffle,
+            kindIsUnspecified: isKindUnspecified(mediaType: mediaType, query: query) ? true : nil
         )
 
         let identifier: String
@@ -407,6 +410,11 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         case .playlist:
             return .playlist
         }
+    }
+
+    /// Siri named no kind and the name implies none: the app resolves it across all kinds, as the ranking here does.
+    private func isKindUnspecified(mediaType: INMediaItemType, query: String) -> Bool {
+        mediaType == .unknown && SiriMediaIndexResolver.kindInferred(from: query) == nil
     }
 
     private func primaryKindFor(mediaType: INMediaItemType, query: String? = nil) -> SiriMediaKind {

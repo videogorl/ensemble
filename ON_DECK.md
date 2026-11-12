@@ -681,17 +681,6 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   An intent-only process with no scene keeps its monitor (`prepareForBackgroundPlayback` starts it).
 - Next step: keep monitoring while playback is active, then verify with the Wi-Fi off/on phone check.
 
-## Confirmed: Shortcuts entity search only sees the capped Siri index (2026-11-11)
-
-- Evidence: `IndexItemEntityQuery.entities(matching:)` ranks only `SiriMediaIndex` items
-  (`MediaEntities.swift` `SiriIndexLookup.findItems`), and `SiriMediaIndexStore.swift:120-135` caps the index at
-  1500 / 1500 / 1000 / 500 items per kind. Voice Play falls back to the app's full-store title search
-  (`SiriPlaybackCoordinator.resolveTrack`, paged `mapTracks`); the Shortcuts picker has no such fallback.
-- Impact: a song outside the 1500 indexed cannot be found by typing its name in a Shortcuts parameter.
-- Next step: when the index has no match at or above the minimum score, run the coordinator's bounded paged title
-  search for songs (then albums and artists if they hit the same cap) and map the hits to `SiriMediaIndexItem`s;
-  one test over the mapping. Not small: it needs repository access from the entity query.
-
 ## Suspected: Siri played `kind=album entity=26197` for a request that was not an album (2026-11-11)
 
 - Evidence: iPhone 16 Pro run, `$TMPDIR/ensemble-16pro/report-3.md` check 5 and `logs3` (temporary files).
@@ -771,3 +760,29 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   Ensemble while it was backgrounded (about 19k IOGPU lines in the filtered 18:40 to 19:05 log).
 - Impact: wasted CPU/GPU work and log noise while playing in the background; likely the aurora/Metal visual still
   rendering. Next step: stop the Metal view's display link when the scene is not active.
+
+## Hiding a merged row's representative leaves its saved shortcut unresolved (confirmed by reading, not run)
+- Evidence: with Merging on, `SiriMediaRows.presented` shows the preferred source's copy as the merged row and a saved
+  Shortcuts entity pins that copy's `ratingKey||sourceCompositeKey`. Hiding that library makes
+  `IndexItemEntityQuery.entities(for:)` drop it (`visibleItems`) and `SiriPlaybackCoordinator.storedItem` return nil, though
+  an equivalent copy in a visible library is still shown. Playlists have the same gap only for the picker; Voice Play falls
+  back to the name (`SiriPlaybackCoordinator.scoped`).
+- Impact: a saved Play Song/Album/Artist shortcut shows as missing until re-picked.
+- Next step: in `entities(for:)`, when a saved reference is not visible, look up its merge identity
+  (`SiriMediaRows.mergeIdentity`) among the visible rows and return that row, keeping the saved id as an alias.
+
+## Shortcuts picker misses off-index albums and artists whose names differ only by apostrophes (confirmed by reading)
+- Evidence: `LibraryRepository+Search.swift` `boundedNameSearch` matches the normalized words with `CONTAINS`, which handles
+  "&", "and" and punctuation ("AC/DC", "Earth, Wind & Fire") but not apostrophes: "dont believe the truth" does not contain
+  "Don't Believe the Truth". Songs are covered by the bounded normalized scan in `SiriPlaybackCoordinator.libraryCandidates`;
+  there is no scan for albums or artists.
+- Impact: typing such a name in a Play Album or Play Artist picker finds nothing when the item is outside the capped index.
+- Next step: add `mapAlbums` / `mapArtists` batched, cancellable scans beside `mapTracks` (with defaults for test doubles) and
+  score titles in `libraryCandidates` as for songs, keeping the best `limit × 10`.
+
+## A Focus restoration run that never completes is never retried (confirmed by reading)
+- Evidence: `SharedRestoration.ensure` keeps one `run` until `work` returns; if `EnsembleFocusFilter.refreshCurrent()` never
+  returns, every later caller joins that run, times out and fails closed for the life of the process
+  (`SharedRestoration.swift`, `BackgroundPlaybackReadiness.swift` `restoreFocusFilter`).
+- Impact: in that process Play pickers return no entities and background playback throws until the app is relaunched.
+- Next step: bound the underlying run (cancel it after a longer limit) or let `ensure` start a new run after a timeout.

@@ -789,3 +789,32 @@ launch logs `LAUNCH_WORK: kind=background ... foregroundLaunchWork=deferred`; a 
 | Check | Result |
 | --- | --- |
 | First Merging toggle after launch re-groups the Playlists list and sidebar (`c39429ce`); merged playlist shows "Loading tracks…" not "No tracks" (`17e0b6f2`) | Toggle passed on the Mac, build `202611112308.3942`, two fresh launches. Not run on a phone or iPad (shared view model). "No tracks" flash not observable by the Mac checker (first read too late). To run: on the iPad or phone, launch, toggle Merging > Playlists once and check Playlists re-groups; open a merged playlist on a slow connection and watch the footer |
+
+## Mac — App Intents phase 5 (`feature/app-intents-mac`)
+
+Built and unit-tested only; nothing here ran in Shortcuts or Spotlight. Why: the built Mac app was not registered with
+Shortcuts (its ToolKit database listed no Ensemble actions for a DerivedData build, only the installed copies), and
+`shortcuts run` only runs saved shortcuts, which an agent must not create. Launch the build under test with
+`open -a <path to the built Ensemble.app>`, never a plain `open ensemble://…` or the display name (that starts the
+installed `/Applications/Ensemble.app`), then check the PID's executable path (`lsappinfo`, or `ps -o comm`) and build version.
+
+| Check | Result |
+| --- | --- |
+| Shortcuts on the Mac lists Ensemble's actions (30) and App Shortcuts. If the build does not appear, copy it to `~/Applications` and open it once | Owed |
+| Build one shortcut with Get Current Song, Play/Pause and Next, quit Ensemble, run it: the app starts without coming forward, the saved queue restores (Get Current Song names the saved song), Play/Pause and Next act. The owed headless macOS Next/Play-Pause check. Look for a session log whose first line names a non-foreground launch | Owed |
+| With Ensemble running and a window open, the same shortcut leaves focus where it was | Owed |
+| Play Track, Album, Artist and Playlist pickers: suggestions appear; typing a name outside the index (a never-played song) finds it | Owed |
+| Open Media and Get Ensemble Link bring the window forward or return a link | Owed |
+| Spotlight on macOS 26 and 27: a played song, album, artist and playlist appear and open in Ensemble; App Shortcut phrases and actions appear under Ensemble | Owed |
+| iPhone SE: typing a never-played song name into a Play Track picker finds it (the same fallback) | Owed |
+
+
+## App Intents: visibility, Focus and the picker fallback (`feature/app-intents-mac`)
+
+Unit-tested and built only; none of this ran on a phone or in Shortcuts or Siri.
+
+| Check | Result |
+| --- | --- |
+| A Focus that hides library A, then a cold headless launch (force-quit Ensemble, run a shortcut or ask Siri): Play Song/Album/Artist pickers and playback never show or play library A; if the Focus lookup is slow the intent fails with "couldn't confirm which libraries are visible" and a retry works | Owed |
+| The Play Track picker finds a song outside the Siri index by typing its name (including "rocknroll" for "Rock'n'Roll", and a name with "&" typed as "and"); items from a library hidden by the active profile never appear, and with Merging off the same song on two servers shows as two rows labelled by server | Owed |
+| Voice Play for a song, album or artist that exists in a hidden library and, with the same title, artist and album, in a visible one: Siri plays the visible copy; with no visible copy it says it cannot find it. After an app update, before the app has run once, Voice Play defers to the app by name | Owed |

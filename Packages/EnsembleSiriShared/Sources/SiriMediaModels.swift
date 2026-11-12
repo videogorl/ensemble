@@ -144,6 +144,9 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
     public let artworkCacheType: SiriMediaArtworkCacheType?
     /// The friendly name of the item's server, for telling same-named playlists on several servers apart.
     public let sourceName: String?
+    /// An album's release year and album artist: with `displayName` they are the identity the library merges albums by.
+    public let year: Int?
+    public let albumArtist: String?
 
     public var reference: SystemMediaReference {
         SystemMediaReference(
@@ -186,7 +189,9 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
         artworkPath: String? = nil,
         artworkCacheKey: String? = nil,
         artworkCacheType: SiriMediaArtworkCacheType? = nil,
-        sourceName: String? = nil
+        sourceName: String? = nil,
+        year: Int? = nil,
+        albumArtist: String? = nil
     ) {
         self.kind = kind
         self.id = id
@@ -207,6 +212,8 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
         self.artworkCacheKey = artworkCacheKey
         self.artworkCacheType = artworkCacheType
         self.sourceName = sourceName
+        self.year = year
+        self.albumArtist = albumArtist
     }
 }
 
@@ -237,6 +244,9 @@ public struct SiriPlaybackRequestPayload: Codable, Sendable, Equatable {
     public let displayName: String?
     public let artistHint: String?
     public let shuffle: Bool?
+    /// True when Siri named no kind and the name implies none: `kind` is then `.track` (what an earlier build
+    /// reads) and the app resolves the name across all kinds. Absent in payloads from earlier builds.
+    public let kindIsUnspecified: Bool?
 
     public init(
         schemaVersion: Int = SiriPlaybackRequestPayload.currentSchemaVersion,
@@ -245,9 +255,11 @@ public struct SiriPlaybackRequestPayload: Codable, Sendable, Equatable {
         sourceCompositeKey: String? = nil,
         displayName: String? = nil,
         artistHint: String? = nil,
-        shuffle: Bool? = nil
+        shuffle: Bool? = nil,
+        kindIsUnspecified: Bool? = nil
     ) {
         self.schemaVersion = schemaVersion
+        self.kindIsUnspecified = kindIsUnspecified
         self.kind = kind
         self.entityID = entityID
         self.sourceCompositeKey = sourceCompositeKey
@@ -264,7 +276,8 @@ public struct SiriPlaybackRequestPayload: Codable, Sendable, Equatable {
             sourceCompositeKey: sourceCompositeKey,
             displayName: displayName,
             artistHint: artistHint,
-            shuffle: shuffle
+            shuffle: shuffle,
+            kindIsUnspecified: kindIsUnspecified
         )
     }
 }

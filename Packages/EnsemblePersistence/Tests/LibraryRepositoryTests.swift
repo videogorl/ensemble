@@ -111,6 +111,62 @@ final class LibraryRepositoryTests: XCTestCase {
         }
     }
 
+    func testBoundedNameSearchReadsAtMostTheLimitBestMatchesFirst() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let source = "plex:account:server:library"
+        // 30 titles that merely contain the query, 30 that start with it, and the exact title last in sort order.
+        var inputs = (1...30).map { makeTrackInput(ratingKey: "contains-\($0)", title: "A Bulk \($0)") }
+        inputs += (1...30).map { makeTrackInput(ratingKey: "prefix-\($0)", title: "Bulk Song \($0)") }
+        inputs.append(makeTrackInput(ratingKey: "exact", title: "Bulk"))
+        try await repository.batchUpsertTracks(inputs, sourceCompositeKey: source)
+
+        let cases: [(limit: Int, expected: [String])] = [
+            (1, ["exact"]),
+            (3, ["exact", "prefix-1", "prefix-10"]),
+            (100, ["exact"] + (1...30).map { "prefix-\($0)" }.sorted() + (1...30).map { "contains-\($0)" }.sorted())
+        ]
+        for testCase in cases {
+            let tracks = try await repository.findTracksByTitle("bulk", sourceCompositeKeys: [source], limit: testCase.limit, normalizedWords: [], isEligible: { _ in true })
+            XCTAssertEqual(tracks.map(\.ratingKey), testCase.expected, "limit \(testCase.limit)")
+        }
+        let none = try await repository.findTracksByTitle("bulk", sourceCompositeKeys: [], limit: 5, normalizedWords: [], isEligible: { _ in true })
+        XCTAssertTrue(none.isEmpty)
+    }
+
+    /// Rows the caller rejects (hidden media) never count toward the limit, the caller's normalized words find names
+    /// stored with punctuation, and paging through ties in name and date reads every row once, in a stable order.
+    func testBoundedNameSearchSkipsRejectedRowsMatchesWordsAndPagesStably() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let source = "plex:account:server:library"
+        // 12 rejected exact titles sort ahead of the accepted ones, which tie on title and date.
+        var inputs = (1...12).map { makeTrackInput(ratingKey: "hidden-\($0)", title: "Home") }
+        inputs += ["c", "a", "b"].map { makeTrackInput(ratingKey: "visible-\($0)", title: "Home") }
+        inputs += [
+            makeTrackInput(ratingKey: "words", title: "AC/DC Live"),
+            makeTrackInput(ratingKey: "ewf", title: "Earth, Wind & Fire"),
+            makeTrackInput(ratingKey: "truth", title: "Don't Believe the Truth")
+        ]
+        try await repository.batchUpsertTracks(inputs, sourceCompositeKey: source)
+
+        let cases: [(query: String, words: [String], limit: Int, expected: [String])] = [
+            ("home", [], 1, ["visible-a"]),
+            ("home", [], 2, ["visible-a", "visible-b"]),
+            ("home", [], 5, ["visible-a", "visible-b", "visible-c"]),
+            ("ac dc", ["ac", "dc"], 3, ["words"]),
+            ("dc ac", ["dc", "ac"], 3, ["words"]),
+            ("earth wind and fire", ["earth", "wind", "fire"], 3, ["ewf"]),
+            // Longer than the bound (8 words of 64 characters): truncated, still linear, no match for the cut-off words.
+            (String(repeating: "word ", count: 500), Array(repeating: String(repeating: "x", count: 500), count: 500), 3, [])
+        ]
+        for testCase in cases {
+            let rows = try await repository.findTracksByTitle(
+                testCase.query, sourceCompositeKeys: [source], limit: testCase.limit, normalizedWords: testCase.words,
+                isEligible: { !$0.ratingKey.hasPrefix("hidden") }
+            )
+            XCTAssertEqual(rows.map(\.ratingKey), testCase.expected, "'\(testCase.query)' limit \(testCase.limit)")
+        }
+    }
+
     func testNameLookupWithExplicitEmptySourceSetReturnsNothing() async throws {
         let repository = LibraryRepository(coreDataStack: .inMemory())
         try await repository.batchUpsertTracks(
@@ -1826,6 +1882,7 @@ final class LibraryRepositoryTests: XCTestCase {
 
     private func makeTrackInput(
         ratingKey: String,
+        title: String? = nil,
         dateModified: Date? = nil,
         rating: Int? = nil,
         albumRatingKey: String? = nil,
@@ -1839,7 +1896,7 @@ final class LibraryRepositoryTests: XCTestCase {
         TrackUpsertInput(
             ratingKey: ratingKey,
             key: "/library/metadata/\(ratingKey)",
-            title: "Track \(ratingKey)",
+            title: title ?? "Track \(ratingKey)",
             artistName: "Artist",
             albumName: "Album",
             albumRatingKey: albumRatingKey,

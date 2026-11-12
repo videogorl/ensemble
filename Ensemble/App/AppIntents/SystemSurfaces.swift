@@ -1,16 +1,32 @@
-#if os(iOS)
 import AppIntents
 import CoreSpotlight
 import EnsembleCore
 import EnsembleSiriShared
 import Foundation
 
-// Core Spotlight and iOS 27 relevant-entity publishing. Mac gets these in the Mac phase.
+// Spotlight entity indexing and the iOS and macOS 27 now-playing relevant entity, shared by iPhone, iPad and Mac.
+
+/// Refreshes what the system reads about the library once the app is up: App Shortcut parameter suggestions, the
+/// Siri media context and the shared index Shortcuts pickers read, and Core Spotlight. Runs on every launch on
+/// iPhone, iPad and Mac, since a library that has not changed since the last launch never signals a refresh.
+@MainActor
+func refreshSystemMediaSurfaces() async {
+    let container = AppRoot.container
+    guard await container.foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
+        AppLogger.debug("SIRI_SHORTCUT: system media refresh skipped because foreground work is unavailable")
+        container.systemMediaIntegrationService.deferSpotlightRefresh()
+        return
+    }
+    EnsembleAppShortcutsProvider.updateAppShortcutParameters()
+    AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
+    await container.systemMediaIntegrationService.updateMediaUserContext()
+    await container.systemMediaIntegrationService.refreshSpotlightIndex()
+}
 
 @available(iOS 18.0, *)
 extension EnsembleMediaEntity: IndexedEntity {}
 
-@available(iOS 27.0, *)
+@available(iOS 27.0, macOS 27.0, *)
 extension EnsembleMediaEntityQuery: IndexedEntityQuery {
     func reindexEntities(
         for identifiers: [EnsembleMediaEntity.ID],
@@ -26,7 +42,7 @@ extension EnsembleMediaEntityQuery: IndexedEntityQuery {
 }
 
 /// Publishes the playing song as a relevant entity so the system can offer actions on it.
-@available(iOS 27.0, *)
+@available(iOS 27.0, macOS 27.0, *)
 @MainActor
 final class EnsembleRelevantEntitiesPublisher {
     static let shared = EnsembleRelevantEntitiesPublisher()
@@ -71,4 +87,3 @@ final class EnsembleRelevantEntitiesPublisher {
         }
     }
 }
-#endif

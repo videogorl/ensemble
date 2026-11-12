@@ -120,16 +120,54 @@ final class SiriPlaylistRowsTests: XCTestCase {
         }
 
         let album = SiriMediaIndexItem(kind: .album, id: "a", displayName: "Focus", sourceCompositeKey: "plex:account-1:home")
-        let index = SiriMediaIndex(items: [home, album])
+        let hiddenAlbum = SiriMediaIndexItem(kind: .album, id: "hidden", displayName: "Focus", sourceCompositeKey: "plex:account-1:server:hidden-library")
+        let index = SiriMediaIndex(items: [home, album, hiddenAlbum])
+        let covering = SiriPlaylistPresentation(hiddenSourceKeys: ["plex:account-1:server:hidden-library"], indexGeneratedAt: index.generatedAt)
+        let stale = SiriPlaylistPresentation(hiddenSourceKeys: [], indexGeneratedAt: Date(timeIntervalSince1970: 1))
         typealias Ranked = SiriMediaIndexResolver.RankedItem
-        let cases: [(name: String, ranked: [Ranked], expected: [String]?)] = [
-            ("playlist ties the best: defer to the app", [.init(item: home, score: 0.9), .init(item: album, score: 0.85)], nil),
-            ("playlist trails far behind: the other kind stands", [.init(item: album, score: 0.9), .init(item: home, score: 0.65)], ["a"]),
-            ("nothing ranked", [], [])
+        let ranked: [Ranked] = [.init(item: hiddenAlbum, score: 0.95), .init(item: album, score: 0.9)]
+        let cases: [(name: String, ranked: [Ranked], presentation: SiriPlaylistPresentation?, expected: [String]?)] = [
+            ("no presentation: defer to the app, whatever the kind", ranked, nil, nil),
+            ("stale presentation: defer to the app", ranked, stale, nil),
+            ("playlist ties the best: defer to the app", [.init(item: home, score: 0.9), .init(item: album, score: 0.85)], nil, nil),
+            ("hidden library's better copy is not offered; the visible copy stands", ranked, covering, ["a"]),
+            ("nothing ranked", [], nil, [])
         ]
         for testCase in cases {
-            let rows = SiriPlaylistRows.presented(testCase.ranked, index: index, presentation: nil, tieMargin: 0.1)
+            let rows = SiriPlaylistRows.presented(testCase.ranked, index: index, presentation: testCase.presentation, tieMargin: 0.1)
             XCTAssertEqual(rows?.map(\.item.id), testCase.expected, testCase.name)
+        }
+    }
+
+    private final class DirectoryFileManager: FileManager {
+        let directory: URL
+        init(directory: URL) { self.directory = directory; super.init() }
+        override func containerURL(forSecurityApplicationGroupIdentifier groupIdentifier: String) -> URL? { directory }
+    }
+
+    /// A presentation written by an earlier build (only playlist sources' visibility, no version) is read as missing,
+    /// so the extension defers to the app instead of trusting a denylist that lacks hidden song and album libraries.
+    func testPresentationWithoutTheCurrentVersionIsMissing() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = DirectoryFileManager(directory: directory)
+        let url = directory.appendingPathComponent(SiriPlaylistPresentation.filename)
+
+        let current = SiriPlaylistPresentation(hiddenSourceKeys: ["plex:a:b:c"], indexGeneratedAt: Date(timeIntervalSince1970: 5))
+        var older = current
+        older.schemaVersion = 1
+        let json = try JSONEncoder().encode(current)
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any])
+        legacy.removeValue(forKey: "schemaVersion")
+        let cases: [(name: String, data: Data, loads: Bool)] = [
+            ("current version", json, true),
+            ("version 1", try JSONEncoder().encode(older), false),
+            ("no version (an earlier build)", try JSONSerialization.data(withJSONObject: legacy), false)
+        ]
+        for testCase in cases {
+            try testCase.data.write(to: url)
+            XCTAssertEqual(SiriPlaylistPresentation.load(fileManager: files) != nil, testCase.loads, testCase.name)
         }
     }
 }
