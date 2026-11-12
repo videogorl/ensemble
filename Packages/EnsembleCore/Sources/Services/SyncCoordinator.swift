@@ -2061,36 +2061,44 @@ public final class SyncCoordinator {
         guard !uniqueSources.isEmpty else { return }
 
         for source in uniqueSources {
-            // A running sync may still be writing its first batch before any row exists, so only a
-            // source with no sync and no stored data may be skipped.
-            if await hasNothingToClean(source) {
-                libraryRepository.discardArtworkInvalidations(forSourceCompositeKey: source.compositeKey)
-                playlistRepository.discardArtworkInvalidations(forSourceCompositeKey: source.compositeKey)
-                EnsembleLogger.debug("Skipped cleanup for empty removed source: \(source.compositeKey)")
-                continue
-            }
+            if await skipsCleanupOfEmptySource(source) { continue }
             await cleanupRemovedSource(source)
         }
     }
 
-    /// True only when every cleanup category is proven empty. A failed check, an Apple Music source
-    /// (extra in-memory and shared-cache state) or a missing cleanup service answers false.
-    private func hasNothingToClean(_ source: MusicSourceIdentifier) async -> Bool {
+    /// Skips a removed source only after proving, under the source's cleanup fence, that nothing is
+    /// stored and nothing can still write. The fence drains leases held by artwork, lyrics and sync
+    /// writes and rejects new ones while the probe runs. The decision is revalidated with no suspension
+    /// before it is acted on; any doubt, failure or change falls through to the unchanged cleanup.
+    private func skipsCleanupOfEmptySource(_ source: MusicSourceIdentifier) async -> Bool {
         let sourceKey = source.compositeKey
-        guard source.type != .appleMusic,
-              !accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceKey),
-              activeSourceSyncs[sourceKey] == nil,
-              syncProviders[sourceKey] == nil,
-              let sourceCacheCleanupService else { return false }
+        guard source.type != .appleMusic, let sourceCacheCleanupService else { return false }
+        let revision = accountManager.sourceConfigurationRevision(forSourceKey: sourceKey)
+
+        await sourcePersistenceFence.beginCleanup(sourceKey: sourceKey)
+        defer { sourcePersistenceFence.finishCleanup(sourceKey: sourceKey) }
+
+        let isEmpty: Bool
         do {
             if let syncCursorRepository,
                try await syncCursorRepository.fetchCursor(scopeKey: sourceKey, scopeType: .library) != nil {
                 return false
             }
-            return try await !sourceCacheCleanupService.hasStoredData(forSource: sourceKey)
+            isEmpty = try await !sourceCacheCleanupService.hasStoredData(forSource: sourceKey)
         } catch {
             return false
         }
+
+        guard isEmpty,
+              accountManager.sourceConfigurationRevision(forSourceKey: sourceKey) == revision,
+              !accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceKey),
+              syncProviders[sourceKey] == nil,
+              activeSourceSyncs[sourceKey] == nil else { return false }
+
+        libraryRepository.discardArtworkInvalidations(forSourceCompositeKey: sourceKey)
+        playlistRepository.discardArtworkInvalidations(forSourceCompositeKey: sourceKey)
+        EnsembleLogger.debug("Skipped cleanup for empty removed source: \(sourceKey)")
+        return true
     }
 
     /// Delete server-scoped playlists when no enabled libraries remain on that server.

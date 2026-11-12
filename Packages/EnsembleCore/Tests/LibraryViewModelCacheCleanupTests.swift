@@ -1257,31 +1257,77 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertEqual(trackSourceKeys, [enabledSourceKey])
     }
 
-    func testCleanupIfPresentSkipsOnlySourcesWithNothingStored() async throws {
-        struct CheckFailure: Error {}
-        enum Seed { case none, track, sourceRow, target, scopedMutation, unscopedMutation, lyrics, checkFails }
-        let sourceKey = "plex:account-1:server-1:lib-1"
-        let cases: [(seed: Seed, cleansUp: Bool)] = [
-            (.none, false),
-            (.track, true),
-            (.sourceRow, true),
-            (.target, true),
-            (.scopedMutation, true),
-            (.unscopedMutation, true),
-            (.lyrics, true),
-            (.checkFails, true)
-        ]
+    /// Forwards to the real cleanup worker, counting cleanup calls and running a hook inside the probe.
+    private final class SpyCleanup: SourceCacheCleaning, @unchecked Sendable {
+        private let base: SourceCacheCleaning
+        private let lock = NSLock()
+        private var calls = 0
+        var duringProbe: (@MainActor @Sendable () -> Void)?
 
-        for (seed, cleansUp) in cases {
-            let harness = makeHarness(
-                hasLibraryData: seed == .checkFails ? { _ in throw CheckFailure() } : nil,
-                hasLyricsCache: { _ in seed == .lyrics }
+        init(base: SourceCacheCleaning) { self.base = base }
+
+        var cleanupCallCount: Int { lock.withLock { calls } }
+
+        func cleanupSource(_ sourceKey: String) async throws -> SourceCacheCleanupResult {
+            lock.withLock { calls += 1 }
+            return try await base.cleanupSource(sourceKey)
+        }
+
+        func cleanupAllLibraryData(cachedSourceKeys: Set<String>) async throws -> SourceCacheCleanupResult {
+            try await base.cleanupAllLibraryData(cachedSourceKeys: cachedSourceKeys)
+        }
+
+        func hasStoredData(forSource sourceKey: String) async throws -> Bool {
+            if let hook = duringProbe { await hook() }
+            return try await base.hasStoredData(forSource: sourceKey)
+        }
+    }
+
+    private struct ProbeFailure: Error {}
+
+    private let removedSource = MusicSourceIdentifier(
+        type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "lib-1"
+    )
+
+    private func makeSpiedHarness(
+        hasLibraryData: SourceCacheCleanupService.SourceDataCheck? = nil,
+        hasLyricsCache: @escaping SourceCacheCleanupService.SourceDataCheck = { _ in false }
+    ) -> (harness: Harness, spy: SpyCleanup) {
+        let harness = makeHarness(hasLibraryData: hasLibraryData, hasLyricsCache: hasLyricsCache)
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [("lib-1", "Library One", false), ("lib-2", "Library Two", true)])
+        )
+        let spy = SpyCleanup(base: harness.sourceCacheCleanupService)
+        harness.syncCoordinator.sourceCacheCleanupService = spy
+        return (harness, spy)
+    }
+
+    func testCleanupIfPresentRunsCleanupExactlyWhenSomethingIsStored() async throws {
+        enum Seed: CaseIterable {
+            case nothing, trackRowOnly, sourceRowOnly, target, scopedMutation, unscopedMutation
+            case lyricsFiles, lyricsProbeFails, libraryProbeFails
+        }
+        let sourceKey = "plex:account-1:server-1:lib-1"
+
+        for seed in Seed.allCases {
+            let (harness, spy) = makeSpiedHarness(
+                hasLibraryData: seed == .libraryProbeFails ? { _ in throw ProbeFailure() } : nil,
+                hasLyricsCache: { _ in
+                    if seed == .lyricsProbeFails { throw ProbeFailure() }
+                    return seed == .lyricsFiles
+                }
             )
-            harness.accountManager.addPlexAccount(makeAccount(libraries: [("lib-1", "Library One", false)]))
             switch seed {
-            case .track:
-                try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
-            case .sourceRow:
+            case .trackRowOnly:
+                _ = try await harness.libraryRepository.upsertTrack(
+                    ratingKey: "track-lib-1", key: "track-lib-1", title: "Track", artistName: nil, albumName: nil,
+                    albumRatingKey: nil, trackNumber: nil, discNumber: nil, duration: 1, thumbPath: nil,
+                    streamKey: nil, dateAdded: nil, dateModified: nil, lastPlayed: nil, rating: nil,
+                    playCount: nil, sourceCompositeKey: sourceKey
+                )
+                let rows = try await harness.libraryRepository.fetchMusicSources()
+                XCTAssertTrue(rows.isEmpty, "trackRowOnly must not create a source row")
+            case .sourceRowOnly:
                 _ = try await harness.libraryRepository.upsertMusicSource(
                     compositeKey: sourceKey, type: "plex", accountId: "account-1", serverId: "server-1",
                     libraryId: "lib-1", displayName: nil, accountName: nil
@@ -1296,29 +1342,74 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
                     id: "mutation", type: .trackRating, payload: Data(),
                     sourceCompositeKey: seed == .scopedMutation ? sourceKey : nil
                 )
-            case .none, .lyrics, .checkFails:
+            case .nothing, .lyricsFiles, .lyricsProbeFails, .libraryProbeFails:
                 break
             }
 
-            let cleaned = expectation(description: "cleanup ran for \(seed)")
-            cleaned.isInverted = !cleansUp
-            let events = harness.syncCoordinator.events()
-            let listener = Task {
-                for await event in events {
-                    if case .sourceCleanedUp = event { cleaned.fulfill() }
-                }
-            }
-            await harness.syncCoordinator.cleanupRemovedSourcesIfPresent([
-                MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "lib-1")
-            ])
-            await fulfillment(of: [cleaned], timeout: cleansUp ? 2 : 0.3)
-            listener.cancel()
+            await harness.syncCoordinator.cleanupRemovedSourcesIfPresent([removedSource])
 
-            if cleansUp, seed == .track || seed == .sourceRow {
-                let remaining = try await harness.libraryRepository.fetchMusicSources()
-                XCTAssertTrue(remaining.isEmpty, "\(seed) left its source row")
-            }
+            XCTAssertEqual(spy.cleanupCallCount, seed == .nothing ? 0 : 1, "\(seed)")
         }
+    }
+
+    func testCleanupIfPresentWaitsForOutstandingPersistenceLeaseBeforeDeciding() async throws {
+        let (harness, spy) = makeSpiedHarness()
+        harness.accountManager.setLibraryEnabled(
+            accountId: "account-1", serverId: "server-1", libraryKey: "lib-1", isEnabled: true
+        )
+        harness.syncCoordinator.refreshProviders()
+        let handle = try XCTUnwrap(
+            harness.syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: removedSource.compositeKey)
+        )
+        harness.accountManager.setLibraryEnabled(
+            accountId: "account-1", serverId: "server-1", libraryKey: "lib-1", isEnabled: false
+        )
+        harness.syncCoordinator.refreshProviders()
+
+        let finished = LockedFlag()
+        let cleanup = Task { @MainActor in
+            await harness.syncCoordinator.cleanupRemovedSourcesIfPresent([removedSource])
+            finished.set()
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertFalse(finished.value, "the decision must wait for the in-flight write")
+
+        // The in-flight write lands before the decision, so the source is no longer empty.
+        _ = try await harness.libraryRepository.upsertMusicSource(
+            compositeKey: removedSource.compositeKey, type: "plex", accountId: "account-1",
+            serverId: "server-1", libraryId: "lib-1", displayName: nil, accountName: nil
+        )
+        handle.leases.forEach(harness.syncCoordinator.finishSourcePersistenceWork)
+        await cleanup.value
+
+        XCTAssertEqual(spy.cleanupCallCount, 1)
+        let rows = try await harness.libraryRepository.fetchMusicSources()
+        XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testCleanupIfPresentFallsThroughWhenConfigurationChangesDuringProbe() async throws {
+        let (harness, spy) = makeSpiedHarness()
+        let accountManager = harness.accountManager
+        // Enabled and disabled again while the probe runs: the end state matches the start state.
+        spy.duringProbe = {
+            accountManager.setLibraryEnabled(
+                accountId: "account-1", serverId: "server-1", libraryKey: "lib-1", isEnabled: true
+            )
+            accountManager.setLibraryEnabled(
+                accountId: "account-1", serverId: "server-1", libraryKey: "lib-1", isEnabled: false
+            )
+        }
+
+        await harness.syncCoordinator.cleanupRemovedSourcesIfPresent([removedSource])
+
+        XCTAssertEqual(spy.cleanupCallCount, 1)
+    }
+
+    private final class LockedFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var flag = false
+        var value: Bool { lock.withLock { flag } }
+        func set() { lock.withLock { flag = true } }
     }
 
     func testCacheManagerClearAllCachesUsesSourceCleanupWorker() async throws {

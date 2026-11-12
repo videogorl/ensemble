@@ -892,5 +892,7 @@ Request → `playing`, from session logs (app state, not audible output):
   and nothing stored (library rows, source row, hub items, downloads, targets, pending mutations, artwork files,
   lyrics cache, library cursor); any failed check or Apple Music source still runs the full cleanup. Remove this entry
   once the phone check passes.
+- **Accepted omissions:** the skip probe does not check the global orphan-audio sweep or empty home-feed snapshot pruning;
+  other paths still run them.
 - **Resolved:** `.sourceCleanedUp` only triggers reloads in the Library, Search, Home and Playlist view models; the Siri
   index and background refresh do not subscribe. Skipped passes drop those redundant reloads too.

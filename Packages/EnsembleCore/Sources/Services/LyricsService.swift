@@ -1068,11 +1068,15 @@ public final class LyricsService {
         if cache.keys.contains(where: { $0.contains(":\(sourceKey):") }) { return true }
         let safeSourceKey = sourceKey.replacingOccurrences(of: "[^a-zA-Z0-9_-]", with: "_", options: .regularExpression)
         return await Task.detached(priority: .utility) {
-            // An unreadable directory cannot be ruled out, so it counts as present.
-            guard let files = try? FileManager.default.contentsOfDirectory(atPath: Self.lyricsCacheDir.path) else {
-                return FileManager.default.fileExists(atPath: Self.lyricsCacheDir.path)
+            do {
+                return try FileManager.default.contentsOfDirectory(atPath: Self.lyricsCacheDir.path)
+                    .contains { $0.contains(safeSourceKey) }
+            } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+                return false
+            } catch {
+                // Anything but a missing directory cannot rule out stored files.
+                return true
             }
-            return files.contains { $0.contains(safeSourceKey) }
         }.value
     }
 
