@@ -14,6 +14,30 @@ public struct LogSession: Identifiable, Equatable {
     public let fileSize: Int64
 }
 
+// MARK: - Launch Kind
+
+/// How the process was started, recorded on the first line of a session log so a log can be read as a
+/// foreground launch or as the cost of a background request.
+public enum ProcessLaunchKind: String, Equatable {
+    case foregroundScene = "foreground scene"
+    case userActivity = "user activity (Spotlight or Handoff)"
+    case url = "URL"
+    case remoteNotification = "remote notification"
+    /// Launched without a scene: an App Intent, a SiriKit request, a background refresh or other system
+    /// work. UIKit gives no finer signal at launch; the request that follows logs its own origin.
+    case background = "background (intent, Siri, refresh or system work)"
+
+    /// Picks the most specific kind from what UIKit supplies at launch.
+    public static func classify(
+        isBackgroundLaunch: Bool, hasUserActivity: Bool, hasURL: Bool, hasRemoteNotification: Bool
+    ) -> ProcessLaunchKind {
+        if hasUserActivity { return .userActivity }
+        if hasURL { return .url }
+        if hasRemoteNotification { return .remoteNotification }
+        return isBackgroundLaunch ? .background : .foregroundScene
+    }
+}
+
 // MARK: - PersistentLogService
 
 #if !os(watchOS)
@@ -101,10 +125,11 @@ public final class PersistentLogService {
 
     // MARK: - Session Lifecycle
 
-    /// Start a new logging session. Called once per app launch.
-    /// Creates a new log file and writes a header with device/app info.
-    public func startSession() {
-        guard isEnabled else { return }
+    /// Start a new logging session. Called once per process, at launch, for every launch kind; later calls
+    /// while a session is open do nothing. Creates a new log file and writes a header with device/app info,
+    /// naming how the process was launched on its first line.
+    public func startSession(launch: ProcessLaunchKind? = nil) {
+        guard isEnabled, currentSessionURL == nil else { return }
 
         let now = Date()
         let filename = "session-\(Self.filenameDateFormatter.string(from: now)).log"
@@ -112,7 +137,7 @@ public final class PersistentLogService {
         currentSessionURL = fileURL
 
         // Build session header
-        let header = buildSessionHeader(startDate: now)
+        let header = buildSessionHeader(startDate: now, launch: launch)
 
         writer.open(fileURL: fileURL, header: header)
 
@@ -221,12 +246,12 @@ public final class PersistentLogService {
     // MARK: - Private Helpers
 
     /// Build the header block written at the top of each session file.
-    private func buildSessionHeader(startDate: Date) -> String {
+    private func buildSessionHeader(startDate: Date, launch: ProcessLaunchKind?) -> String {
         let displayFormatter = DateFormatter()
         displayFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
         displayFormatter.locale = Locale(identifier: "en_US_POSIX")
 
-        var header = "Ensemble Session Log\n"
+        var header = "Ensemble Session Log (launch: \(launch?.rawValue ?? "logging enabled during run"))\n"
         header += "Session start: \(displayFormatter.string(from: startDate))\n"
         header += "Device: \(deviceDescription())\n"
         header += "App version: \(appVersionString)\n"
@@ -398,7 +423,7 @@ public final class PersistentLogService {
         set { }
     }
     public init() {}
-    public func startSession() {}
+    public func startSession(launch: ProcessLaunchKind? = nil) {}
     public func endSession() {}
     public func loadSessions() {}
     public func deleteSession(_ session: LogSession) {}
