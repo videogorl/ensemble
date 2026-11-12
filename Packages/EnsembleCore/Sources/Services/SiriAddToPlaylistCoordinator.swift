@@ -9,17 +9,24 @@ public final class SiriAddToPlaylistCoordinator {
     private let mutationCoordinator: MutationCoordinator
     private let playlistRepository: PlaylistRepositoryProtocol
     private let toastCenter: ToastCenter
+    private let addTarget: @MainActor (Playlist, [Track]) async throws -> Playlist?
+    /// The visible playlist a spoken name stands for, preferring the given source; used when Siri sent no identity.
+    private let resolveName: @MainActor (String, String?) async throws -> CDPlaylist?
 
     public init(
         playbackService: PlaybackServiceProtocol,
         mutationCoordinator: MutationCoordinator,
         playlistRepository: PlaylistRepositoryProtocol,
-        toastCenter: ToastCenter
+        toastCenter: ToastCenter,
+        addTarget: @escaping @MainActor (Playlist, [Track]) async throws -> Playlist?,
+        resolveName: @escaping @MainActor (String, String?) async throws -> CDPlaylist?
     ) {
         self.playbackService = playbackService
         self.mutationCoordinator = mutationCoordinator
         self.playlistRepository = playlistRepository
         self.toastCenter = toastCenter
+        self.addTarget = addTarget
+        self.resolveName = resolveName
     }
 
     /// Decodes and executes a Siri add-to-playlist payload routed through NSUserActivity.
@@ -55,11 +62,19 @@ public final class SiriAddToPlaylistCoordinator {
             return
         }
 
-        // Resolve the playlist from CoreData
-        guard let cdPlaylist = try await playlistRepository.fetchPlaylist(
-            ratingKey: payload.playlistRatingKey,
-            sourceCompositeKey: payload.sourceCompositeKey
-        ) else {
+        // Resolve the playlist from CoreData. A name-only request (no identity) is resolved here, where the playlist
+        // screen's visibility rules are known.
+        let nameOnly = payload.playlistRatingKey.isEmpty
+        let resolved: CDPlaylist?
+        if nameOnly, let name = payload.playlistDisplayName {
+            resolved = try await resolveName(name, currentTrack.sourceCompositeKey)
+        } else {
+            resolved = try await playlistRepository.fetchPlaylist(
+                ratingKey: payload.playlistRatingKey,
+                sourceCompositeKey: payload.sourceCompositeKey
+            )
+        }
+        guard let cdPlaylist = resolved else {
             let name = payload.playlistDisplayName ?? payload.playlistRatingKey
             toastCenter.show(ToastPayload(
                 style: .error,
@@ -70,7 +85,16 @@ public final class SiriAddToPlaylistCoordinator {
             return
         }
 
-        let playlist = Playlist(from: cdPlaylist)
+        // A merged group takes the song on its own server, as the Add to Playlist sheet does.
+        guard let playlist = try await addTarget(Playlist(from: cdPlaylist), [currentTrack]) else {
+            toastCenter.show(ToastPayload(
+                style: .warning,
+                iconSystemName: "exclamationmark.triangle",
+                title: "Can't add to that playlist",
+                message: "The song and the playlist are on different music sources. Pick a playlist on the same server as the song."
+            ))
+            return
+        }
 
         let (_, outcome) = try await mutationCoordinator.addTracksToPlaylist(
             [currentTrack],

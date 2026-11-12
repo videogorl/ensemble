@@ -27,9 +27,12 @@ public enum SiriPhraseNormalizer {
     ]
 
     /// Applies only case, diacritic, punctuation, and whitespace normalization.
+    /// Apostrophes vanish ("don't" and "dont" agree) and "&" reads as "and", so a title and what Siri heard compare equal.
     public static func basic(_ raw: String) -> String {
         raw
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "['\u{2018}\u{2019}\u{02BC}`]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&", with: " and ")
             .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
@@ -79,6 +82,7 @@ public enum SiriPhraseNormalizer {
             variants.insert(commandStripped)
             variants.insert(strippingLeadingMediaTypePrefix(from: candidate))
             variants.insert(strippingLeadingMediaTypePrefix(from: commandStripped))
+            variants.insert(strippingPossessiveAndTrailingMediaType(from: candidate))
         }
 
         insertVariants(for: base)
@@ -126,6 +130,17 @@ public enum SiriPhraseNormalizer {
         return value
     }
 
+    /// "shuffle my focus playlist" names the playlist "focus"; the stripped form is one more variant, never a replacement.
+    public static func strippingPossessiveAndTrailingMediaType(from value: String) -> String {
+        var tokens = value.split(separator: " ").map(String.init)
+        if tokens.first == "shuffle", tokens.dropFirst().first == "my" { tokens.removeFirst() }
+        if tokens.first == "my" { tokens.removeFirst() }
+        if let last = tokens.last, tokens.count > 1, ["playlist", "album", "song", "track", "artist"].contains(last) {
+            tokens.removeLast()
+        }
+        return tokens.joined(separator: " ")
+    }
+
     public static func strippingLeadingMediaTypePrefix(from value: String) -> String {
         for prefix in leadingMediaTypePrefixes where value.hasPrefix(prefix) {
             let stripped = value.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -141,13 +156,25 @@ public enum SiriPhraseNormalizer {
 public enum SiriMatchScorer {
     public static let prefixScore = 0.84
     public static let containmentScore = 0.7
+    /// A title shorter than the request must be at least this share of the request's words to match by containment.
+    public static let minimumContainedShare = 0.5
 
     /// Scores one normalized query against one normalized candidate.
     public static func scoreMatch(query: String, candidate: String) -> Double {
         guard !query.isEmpty, !candidate.isEmpty else { return 0 }
         if candidate == query { return 1.0 }
-        if candidate.hasPrefix(query) || query.hasPrefix(candidate) { return prefixScore }
-        if candidate.contains(query) || query.contains(candidate) { return containmentScore }
+        // "&" reads as "and", which carries no title: a bare "and" matches only itself, never by containment or resemblance.
+        if query == "and" || candidate == "and" { return 0 }
+        // A request that is part of a longer title matches it ("Dark Side" is "The Dark Side of the Moon"). A short title
+        // inside a longer request counts only when it is a real share of it: the one-word "Kim" is not "kim and jessie".
+        if candidate.hasPrefix(query) { return prefixScore }
+        if candidate.contains(query) { return containmentScore }
+        let queryWords = query.split(separator: " ").count
+        let candidateWords = candidate.split(separator: " ").count
+        if Double(candidateWords) / Double(queryWords) >= minimumContainedShare {
+            if query.hasPrefix(candidate + " ") { return prefixScore }
+            if " \(query) ".contains(" \(candidate) ") { return containmentScore }
+        }
 
         var score = 0.0
         let overlap = tokenOverlapScore(query: query, candidate: candidate)

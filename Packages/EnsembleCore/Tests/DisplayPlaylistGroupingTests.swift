@@ -181,6 +181,41 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         XCTAssertEqual(displayPlaylists[0].title, "Café Mix")
     }
 
+    /// A playlist opened from outside the app lands on what the list shows for it: the visible group (merged or a single
+    /// copy) when merging, the playlist itself otherwise, and nothing when only hidden copies remain.
+    func testOpeningPlaylistFromOutsideLandsOnWhatTheListShows() {
+        let a = Playlist(id: "a", key: "/a", title: "Focus", sourceCompositeKey: "plex:a:s:l")
+        let b = Playlist(id: "b", key: "/b", title: "focus", sourceCompositeKey: "plex:b:s:l")
+        let hidden = Playlist(id: "h", key: "/h", title: "Focus", sourceCompositeKey: "plex:h:s:l")
+        let lonely = Playlist(id: "l", key: "/l", title: "Lonely", sourceCompositeKey: "plex:h:s:l")
+        let solo = Playlist(id: "solo", key: "/solo", title: "Solo", sourceCompositeKey: "plex:a:s:l")
+        var off = EnsembleMergingPreferences.default
+        off.mergePlaylists = false
+        let visible = [a, b, solo]
+        let appleRegular = Playlist(id: "apple", key: "apple", title: "focus", isSmart: false, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey)
+        let appleSmart = Playlist(id: "apple-smart", key: "apple-smart", title: "focus", isSmart: true, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey)
+
+        let cases: [(name: String, playlist: Playlist, visible: [Playlist], preferences: EnsembleMergingPreferences, groupIDs: [String]?)] = [
+            ("merging, a member", b, visible, .default, ["a", "b"]),
+            ("merging, a hidden copy lands on the visible group", hidden, visible, .default, ["a", "b"]),
+            ("merging, a hidden copy with one visible sibling lands on that sibling", hidden, [a, solo], .default, ["a"]),
+            ("merging, only hidden copies remain", lonely, visible, .default, nil),
+            ("merging, standalone", solo, visible, .default, ["solo"]),
+            ("merging off, a visible copy", b, visible, off, ["b"]),
+            ("merging off, a hidden copy", hidden, visible, off, nil),
+            // Two Plex copies and Apple Music's: a regular Apple Music playlist joins the group from any member; a curated
+            // (smart) one stays its own result.
+            ("merging, Plex copy, Apple Music regular joins", a, [a, b, appleRegular], .default, ["a", "b", "apple"]),
+            ("merging, Apple Music copy, Apple Music regular joins", appleRegular, [a, b, appleRegular], .default, ["a", "b", "apple"]),
+            ("merging, Plex copy, Apple Music curated stays apart", a, [a, b, appleSmart], .default, ["a", "b"]),
+            ("merging, Apple Music curated alone", appleSmart, [a, b, appleSmart], .default, ["apple-smart"])
+        ]
+        for testCase in cases {
+            let group = DisplayPlaylist.displayedGroup(for: testCase.playlist, among: testCase.visible, preferences: testCase.preferences)
+            XCTAssertEqual(group?.playlists.map(\.id), testCase.groupIDs, testCase.name)
+        }
+    }
+
     func testGroupMergesAppleMusicAndPlexPlaylistsByTitle() {
         let playlists = [
             Playlist(id: "plex-a", key: "/plex-a", title: "Road Trip", sourceCompositeKey: "plex:a:s:l"),

@@ -1452,7 +1452,9 @@ public final class NowPlayingViewModel {
         return (optimisticTrackRatingsByIdentity[trackIdentity] ?? track.rating) >= 8
     }
 
-    public func setTrackFavorite(_ isFavorite: Bool, for track: Track) async {
+    /// Returns whether the change was accepted: completed, or queued to sync later.
+    @discardableResult
+    public func setTrackFavorite(_ isFavorite: Bool, for track: Track) async -> Bool {
         if track.isAppleMusic, !isFavorite {
             toastCenter.show(ToastPayload(
                 style: .info,
@@ -1460,10 +1462,10 @@ public final class NowPlayingViewModel {
                 title: "Managed by Apple Music",
                 message: "Removing Apple Music favorites is unavailable until Apple provides a supported action."
             ))
-            return
+            return false
         }
         let trackIdentity = track.playbackIdentity
-        guard !favoriteUpdatesInFlight.contains(trackIdentity) else { return }
+        guard !favoriteUpdatesInFlight.contains(trackIdentity) else { return false }
         favoriteUpdatesInFlight.insert(trackIdentity)
         defer { favoriteUpdatesInFlight.remove(trackIdentity) }
 
@@ -1491,7 +1493,7 @@ public final class NowPlayingViewModel {
             )
             if outcome == .queued {
                 toastCenter.show(resultToast)
-                return
+                return true
             }
 
             if track.isAppleMusic {
@@ -1510,6 +1512,7 @@ public final class NowPlayingViewModel {
             }
 
             toastCenter.show(resultToast)
+            return true
         } catch {
             // Roll back optimistic state if server mutation fails.
             optimisticTrackRatingsByIdentity[trackIdentity] = previousRating
@@ -1520,6 +1523,7 @@ public final class NowPlayingViewModel {
 
             toastCenter.show(mutationCoordinator.favoriteFailureToast(track: track, error: error))
             EnsembleLogger.debug("Failed to set favorite state: \(error)")
+            return false
         }
     }
 

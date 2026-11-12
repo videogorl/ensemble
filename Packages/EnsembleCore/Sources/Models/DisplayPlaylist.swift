@@ -119,6 +119,24 @@ public struct DisplayPlaylist: Identifiable, Equatable {
         }
     }
 
+    /// What a playlist opened from outside the app (Spotlight, a link, a pin, a saved shortcut) lands on, as the playlist
+    /// list shows it: the playlist's visible group when merging is on (merged or a single visible copy, even if this very
+    /// copy is hidden and the list leads with another), the playlist itself when merging is off and it is visible. Nil
+    /// when nothing visible stands for it, so a hidden copy is never opened.
+    public static func displayedGroup(
+        for playlist: Playlist,
+        among visible: [Playlist],
+        preferences: EnsembleMergingPreferences
+    ) -> DisplayPlaylist? {
+        guard preferences.isEnabled, preferences.mergePlaylists else {
+            return visible.first { $0.sourceScopedID == playlist.sourceScopedID }.map(single)
+        }
+        let key = PlexPlaylistMergeRules.key(title: playlist.title, isSmart: playlist.isSmartForPlaylistGrouping)
+        return group(visible, merge: true, preferences: preferences).first {
+            PlexPlaylistMergeRules.key(title: $0.title, isSmart: $0.isSmart) == key
+        }
+    }
+
     /// Detects playlist titles that exist on multiple servers (name collisions).
     /// Scoped by isSmart so smart and regular playlists are checked independently.
     /// Returns a set of titles that have name collisions.

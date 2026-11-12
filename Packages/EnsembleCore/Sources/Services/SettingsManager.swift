@@ -335,11 +335,11 @@ public enum DemoModeRedaction {
 @Observable
 public final class SettingsManager {
     nonisolated public static let scrobblingEnabledKey = "scrobblingEnabled"
-    public static let mergingPreferencesKey = "mergingPreferences"
+    nonisolated public static let mergingPreferencesKey = "mergingPreferences"
     nonisolated private static let focusScrobblingOverrideKey = "focusScrobblingOverride"
     nonisolated private static let noFocusScrobblingOverride = -1
 
-    public static func storedMergingPreferences(
+    nonisolated public static func storedMergingPreferences(
         in defaults: UserDefaults = .standard
     ) -> EnsembleMergingPreferences {
         guard let data = defaults.data(forKey: mergingPreferencesKey),

@@ -202,67 +202,7 @@ public struct MoodTracksView: View {
         isLoading = true
         error = nil
 
-        var allTracks: [Track] = []
-        var trackMap: [String: Track] = [:]
-
-        // Plex mood keys are library-local. Prefer the key captured while building
-        // the merged mood list, then fall back to title resolution for older caches.
-        let accountManager = deps.accountManager
-        let targetMoodTitleKey = Mood.normalizedTitleKey(mood.title)
-        let targetReferences = Mood.sourceReferences(from: mood.sourceCompositeKey)
-        let targetSourceKeys = Set(targetReferences.map(\.sourceCompositeKey))
-        var cachedMoodKeysBySource: [String: String] = [:]
-        for reference in targetReferences {
-            if let moodKey = reference.moodKey {
-                cachedMoodKeysBySource[reference.sourceCompositeKey] = moodKey
-            }
-        }
-
-        for account in accountManager.plexAccounts {
-            for server in account.servers {
-                guard let client = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
-                    continue
-                }
-
-                let enabledLibraries = server.libraries.filter { $0.isEnabled }
-                for library in enabledLibraries {
-                    let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
-                    if !targetSourceKeys.isEmpty, !targetSourceKeys.contains(sourceKey) {
-                        continue
-                    }
-
-                    do {
-                        let moodKey: String
-                        if let cachedMoodKey = cachedMoodKeysBySource[sourceKey] {
-                            moodKey = cachedMoodKey
-                        } else {
-                            let libraryMood = try await client.getMoods(sectionKey: library.key)
-                                .first { Mood.normalizedTitleKey($0.title) == targetMoodTitleKey }
-                            guard let libraryMood else { continue }
-                            moodKey = libraryMood.key
-                        }
-
-                        let plexTracks = try await client.getTracksByMood(sectionKey: library.key, moodKey: moodKey)
-
-                        for plexTrack in plexTracks {
-                            // Create track with explicit sourceKey including plex: prefix
-                            let track = Track(from: plexTrack, sourceKey: sourceKey)
-
-                            // Dedup only repeat results from the same source; cross-source duplicates stay distinct.
-                            if trackMap[track.sourceScopedID] == nil {
-                                trackMap[track.sourceScopedID] = track
-                                allTracks.append(track)
-                            }
-                        }
-                    } catch {
-                        // Continue to next library if this one fails
-                        continue
-                    }
-                }
-            }
-        }
-
-        moodTracks = allTracks
+        moodTracks = await deps.libraryCollectionTracks.tracks(for: mood)
 
         if moodTracks.isEmpty {
             error = "No tracks found for '\(mood.title)'"

@@ -285,6 +285,15 @@ public final class SystemMediaIntegrationService {
     private static let spotlightChunkSize = 200
     private static let spotlightFullRefreshInterval: TimeInterval = 24 * 60 * 60
     private static let spotlightLastFullRefreshKey = "SystemMediaIntegrationService.lastSpotlightFullRefresh"
+    /// Bumped when what Spotlight holds for a kind of item changes shape. A device below it is reconciled once: items
+    /// an earlier build indexed that the current projection no longer presents are deleted, whatever the stored
+    /// baseline says, and every presented playlist is indexed again whatever the baseline says it already holds.
+    /// 1: playlists are indexed as the playlist screen shows them. 2: also re-adds presented playlists a baseline
+    /// wrongly recorded as indexed (a pass that deleted an item and stopped before indexing its replacement).
+    private static let spotlightProjectionVersionKey = "SystemMediaIntegrationService.spotlightProjectionVersion"
+    private static let spotlightProjectionVersion = 2
+    /// A Spotlight refresh that was skipped or paused because the app was not active; it runs on the next activation.
+    private var spotlightRefreshDeferred = false
     private static let siriVocabularyLimit = 750
     nonisolated static let maximumSystemArtworkBytes = 5 * 1024 * 1024
 
@@ -293,8 +302,17 @@ public final class SystemMediaIntegrationService {
     private let spotlightIndex: SystemSpotlightIndexing
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var catalogSubscription: StreamSubscription?
-    private var spotlightRefreshTask: Task<Void, Never>?
-    private var siriCatalogRefreshTask: Task<Bool, Never>?
+    /// How the playlist screen presents playlists; Spotlight indexes the same rows, and each completed catalog
+    /// refresh publishes it for the Siri extension together with the index it was computed for.
+    var playlistPresentationPublisher: SiriPlaylistPresentationPublisher?
+    /// A merge or visibility change that arrives while Spotlight is indexing runs one more pass afterwards.
+    private lazy var spotlightRefresher = TrailingRefreshRunner { [weak self] in
+        await self?.performSpotlightIndexRefresh()
+        return true
+    }
+    private lazy var siriCatalogRefresher = TrailingRefreshRunner { [weak self] in
+        await self?.performSiriCatalogRefresh() ?? false
+    }
     private var registeredSiriVocabulary: ([String], [String])?
 
     #if !os(macOS)
@@ -413,46 +431,25 @@ public final class SystemMediaIntegrationService {
     }
 
     public func refreshSpotlightIndex() async {
-        if let spotlightRefreshTask {
-            EnsembleLogger.debug("[SystemMedia] Spotlight refresh coalesced with active refresh")
-            await spotlightRefreshTask.value
-            return
-        }
+        _ = await spotlightRefresher.run()
+    }
 
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.performSpotlightIndexRefresh()
-        }
-        spotlightRefreshTask = task
-        await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
-        spotlightRefreshTask = nil
+    /// Notes that a Spotlight refresh could not run now (the app was not active).
+    public func deferSpotlightRefresh() {
+        spotlightRefreshDeferred = true
+    }
+
+    /// Runs the Spotlight refresh that was deferred while the app was not active, if there was one.
+    public func resumeDeferredSpotlightRefresh() async {
+        guard spotlightRefreshDeferred else { return }
+        await refreshSpotlightIndex()
     }
 
     /// Refreshes the shared local catalog used by Siri and App Shortcuts.
     /// This does not invoke Core Spotlight and is safe in a background refresh.
     @discardableResult
     public func refreshSiriCatalog() async -> Bool {
-        if let siriCatalogRefreshTask {
-            EnsembleLogger.debug("[SystemMedia] Siri catalog refresh coalesced with active refresh")
-            return await siriCatalogRefreshTask.value
-        }
-
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return false }
-            return await self.performSiriCatalogRefresh()
-        }
-        siriCatalogRefreshTask = task
-        let refreshed = await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
-        siriCatalogRefreshTask = nil
-        return refreshed
+        await siriCatalogRefresher.run()
     }
 
     private func performSiriCatalogRefresh() async -> Bool {
@@ -469,6 +466,7 @@ public final class SystemMediaIntegrationService {
                 return false
             }
             try RefreshExecution.checkCancellation()
+            await playlistPresentationPublisher?.publish(for: refreshedIndex)
             refreshSiriVocabulary(from: refreshedIndex)
             return true
         } catch {
@@ -480,20 +478,37 @@ public final class SystemMediaIntegrationService {
         if let foregroundWorkScheduler {
             guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
                 EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; foreground work is not available")
+                spotlightRefreshDeferred = true
+                // Spotlight waits for the foreground; the shared catalog Shortcuts and Siri read does not.
+                _ = await refreshSiriCatalog()
                 return
             }
         }
 
+        spotlightRefreshDeferred = false
         let hadSpotlightBaseline = await siriMediaIndexStore.loadSpotlightAppliedIndex() != nil
         _ = await refreshSiriCatalog()
-        let index = await siriMediaIndexStore.loadIndexUnbounded()
-        guard let index else {
+        guard let fullIndex = await siriMediaIndexStore.loadIndexUnbounded() else {
             EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; no media index")
             return
         }
+        // Spotlight lists playlists as the app does, so its applied baseline is the presented index and the diff
+        // below removes per-source items a merge or visibility change makes redundant.
+        let index = Self.spotlightIndex(
+            from: fullIndex,
+            presentation: playlistPresentationPublisher?.presentation(for: fullIndex) ?? SiriPlaylistPresentation()
+        )
 
         let appliedIndex = await siriMediaIndexStore.loadSpotlightAppliedIndex()
-        let staleReferences = Self.staleSystemMediaReferences(previous: appliedIndex, current: index)
+        var staleReferences = Self.staleSystemMediaReferences(previous: appliedIndex, current: index)
+        let needsProjectionReconcile = UserDefaults.standard.integer(forKey: Self.spotlightProjectionVersionKey) < Self.spotlightProjectionVersion
+        if needsProjectionReconcile {
+            // An earlier build may have indexed every source's playlist under a baseline that did not record it.
+            let shown = Set(index.items.map { Self.spotlightIdentifier(for: $0.reference) })
+            staleReferences += fullIndex.items
+                .filter { $0.kind == .playlist && !shown.contains(Self.spotlightIdentifier(for: $0.reference)) }
+                .map(\.reference)
+        }
         do {
             try RefreshExecution.checkCancellation()
         } catch {
@@ -512,14 +527,26 @@ public final class SystemMediaIntegrationService {
         let requiresFullRefresh = !hadSpotlightBaseline || (lastFullRefresh.map {
             Date().timeIntervalSince($0) >= Self.spotlightFullRefreshInterval
         } ?? true)
-        let indexItems = Self.spotlightItemsToIndex(
+        var indexItems = Self.spotlightItemsToIndex(
             previous: appliedIndex,
             current: index,
             requiresFullRefresh: requiresFullRefresh
         )
+        if needsProjectionReconcile {
+            let queued = Set(indexItems.map(\.reference.sourceScopedIdentifier))
+            indexItems += index.items.filter { $0.kind == .playlist && !queued.contains($0.reference.sourceScopedIdentifier) }
+        }
         guard !indexItems.isEmpty || !staleReferences.isEmpty || requiresFullRefresh else {
             EnsembleLogger.debug("[SystemMedia] Spotlight index unchanged; skipped update")
+            // Nothing stale was found, so the reconcile is done.
+            UserDefaults.standard.set(Self.spotlightProjectionVersion, forKey: Self.spotlightProjectionVersionKey)
             return
+        }
+
+        // Deletions are applied now, so the baseline must stop claiming those items before anything can interrupt this
+        // pass: otherwise a later pass that wants one of them back finds it "already indexed" and never adds it.
+        if deletionsSucceeded, !staleReferences.isEmpty, let appliedIndex {
+            try? await siriMediaIndexStore.saveSpotlightAppliedIndex(Self.baseline(removing: staleReferences, from: appliedIndex))
         }
 
         let availableArtworkFilenames = Self.cachedArtworkFilenames()
@@ -530,6 +557,7 @@ public final class SystemMediaIntegrationService {
                 if let foregroundWorkScheduler,
                    !foregroundWorkScheduler.isIdleForNonessentialWork {
                     EnsembleLogger.debug("[SystemMedia] Spotlight refresh paused after \(indexedCount)/\(indexItems.count) media items; foreground work became active")
+                    spotlightRefreshDeferred = true
                     return
                 }
 
@@ -547,6 +575,9 @@ public final class SystemMediaIntegrationService {
                 return
             }
             try await siriMediaIndexStore.saveSpotlightAppliedIndex(index)
+            if needsProjectionReconcile {
+                UserDefaults.standard.set(Self.spotlightProjectionVersion, forKey: Self.spotlightProjectionVersionKey)
+            }
             if requiresFullRefresh {
                 UserDefaults.standard.set(Date(), forKey: Self.spotlightLastFullRefreshKey)
             }
@@ -625,6 +656,36 @@ public final class SystemMediaIntegrationService {
         #endif
     }
 
+    /// The index as Spotlight should hold it: playlists per `SiriPlaylistRows`, every other kind exactly as indexed.
+    static func spotlightIndex(from index: SiriMediaIndex, presentation: SiriPlaylistPresentation) -> SiriMediaIndex {
+        let playlists = index.items.filter { $0.kind == .playlist }
+        let presented = Dictionary(
+            SiriPlaylistRows.deduplicated(SiriPlaylistRows.presented(
+                playlists,
+                among: playlists,
+                preferences: presentation.preferences,
+                isSourceVisible: presentation.isSourceVisible
+            )).map { ($0.reference.sourceScopedIdentifier, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        // A merged group's one result carries the group's total length, as the playlist screen shows it.
+        var totals: [String: Double] = [:]
+        if presentation.preferences.isEnabled, presentation.preferences.mergePlaylists {
+            for playlist in playlists where presentation.isSourceVisible(playlist.sourceCompositeKey) {
+                totals[PlexPlaylistMergeRules.key(title: playlist.displayName, isSmart: playlist.isSmartPlaylist ?? false), default: 0] += playlist.duration ?? 0
+            }
+        }
+        let items = index.items.compactMap { item -> SiriMediaIndexItem? in
+            guard item.kind == .playlist else { return item }
+            guard var shown = presented[item.reference.sourceScopedIdentifier] else { return nil }
+            if let total = totals[PlexPlaylistMergeRules.key(title: shown.displayName, isSmart: shown.isSmartPlaylist ?? false)], total > 0 {
+                shown.duration = total
+            }
+            return shown
+        }
+        return SiriMediaIndex(schemaVersion: index.schemaVersion, generatedAt: index.generatedAt, items: items)
+    }
+
     static func makeSpotlightItems(
         from indexItems: [SiriMediaIndexItem],
         availableArtworkFilenames: Set<String>? = nil
@@ -701,6 +762,16 @@ public final class SystemMediaIntegrationService {
             }
             return reference
         }
+    }
+
+    /// `baseline` without the items whose Spotlight entries were just deleted.
+    static func baseline(removing references: [SystemMediaReference], from baseline: SiriMediaIndex) -> SiriMediaIndex {
+        let removed = Set(references.map(\.sourceScopedIdentifier))
+        return SiriMediaIndex(
+            schemaVersion: baseline.schemaVersion,
+            generatedAt: baseline.generatedAt,
+            items: baseline.items.filter { !removed.contains($0.reference.sourceScopedIdentifier) }
+        )
     }
 
     static func spotlightItemsToIndex(
@@ -1160,5 +1231,43 @@ private extension Array {
         return stride(from: 0, to: count, by: size).map {
             Array(self[$0..<Swift.min($0 + size, count)])
         }
+    }
+}
+
+/// Runs one refresh at a time. A request that arrives while a pass is running joins it, and the pass runs once more
+/// afterwards, because a change made mid-pass may not be in what that pass read.
+@MainActor
+final class TrailingRefreshRunner {
+    private let work: @MainActor () async -> Bool
+    private var task: Task<Bool, Never>?
+    private var needsRerun = false
+
+    init(work: @escaping @MainActor () async -> Bool) {
+        self.work = work
+    }
+
+    func run() async -> Bool {
+        if let task {
+            EnsembleLogger.debug("[SystemMedia] Siri catalog refresh coalesced with active refresh")
+            needsRerun = true
+            let result = await task.value
+            // The pass has cleared itself. A request still pending means the caller driving it was cancelled
+            // before it could run it again, so this live caller does.
+            if needsRerun, self.task == nil, !Task.isCancelled { return await run() }
+            return result
+        }
+        var result = false
+        repeat {
+            needsRerun = false
+            let pass = Task { @MainActor [work] in
+                let result = await work()
+                self.task = nil
+                return result
+            }
+            task = pass
+            result = await withTaskCancellationHandler { await pass.value } onCancel: { pass.cancel() }
+            // A caller that resumed first may already have started the next pass, which then owns the pending request.
+        } while needsRerun && !Task.isCancelled && task == nil
+        return result
     }
 }

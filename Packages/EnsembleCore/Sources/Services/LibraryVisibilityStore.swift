@@ -53,6 +53,19 @@ public final class LibraryVisibilityStore {
         broadcast.send(current)
     }
 
+    /// Whether the playlist screen shows playlists of a source under the current profile and source configuration.
+    /// Playlist-hiding rules live here once, for the screen's grouping and for the system surfaces that mirror it.
+    public func playlistSourceVisibility(in configuration: SourceConfigurationSnapshot) -> @Sendable (String?) -> Bool {
+        let hiddenSourceKeys = effectiveHiddenSourceCompositeKeys(enabledSourceCompositeKeys: configuration.enabledSourceKeys)
+        return { sourceKey in
+            // As the playlist screen: a source the configuration no longer holds (disabled, removed) is not shown.
+            guard let sourceKey, configuration.shouldPreserveSourceKey(sourceKey) else { return false }
+            return !LibraryVisibilityFiltering.isHiddenSourceKey(
+                sourceKey, hiddenSourceCompositeKeys: hiddenSourceKeys, sourceConfiguration: configuration
+            )
+        }
+    }
+
     public var activeProfile: LibraryVisibilityProfile {
         profile(id: activeProfileID) ?? .default
     }

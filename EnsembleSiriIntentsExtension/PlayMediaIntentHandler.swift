@@ -82,11 +82,13 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             index: index,
             artistHint: artistHint
         )
-        guard let top = ranked.first else {
+        guard let top = ranked?.first, let ranked else {
+            // No match, or a playlist among the best that cannot be shown to be visible yet (ranked is nil): the app
+            // resolves the name itself.
             logger.debug("resolveMediaItems: no ranked match; returning fallback media item")
             let fallback = makeFallbackMediaItem(
                 query: normalizedQuery,
-                mediaType: requestedMediaType,
+                mediaType: ranked == nil && requestedMediaType == .unknown ? .playlist : requestedMediaType,
                 artistHint: artistHint,
                 shuffle: requestedShuffle
             )
@@ -94,7 +96,12 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             return
         }
 
-        let allowDisambiguation = requestedMediaType == .unknown
+        // With merging off, equal playlists on several servers are a real choice, told apart by server name.
+        let tiedPlaylists = ranked.count > 1
+            && top.item.kind == .playlist && ranked[1].item.kind == .playlist
+            && SiriPhraseNormalizer.basic(top.item.displayName) == SiriPhraseNormalizer.basic(ranked[1].item.displayName)
+            && SiriPlaylistPresentation.load().map { !($0.preferences.isEnabled && $0.preferences.mergePlaylists) } == true
+        let allowDisambiguation = requestedMediaType == .unknown || tiedPlaylists
         if allowDisambiguation && ranked.count > 1 {
             let second = ranked[1]
             if abs(top.score - second.score) <= Self.disambiguationThreshold {
@@ -216,7 +223,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                     mediaType: mediaType,
                     index: index,
                     artistHint: artistHintForPayload
-               ).first,
+               )?.first,
                top.score >= Self.payloadResolutionThreshold {
                 logger.debug("payloadIdentifier: resolved fallback payload from index top candidate")
                 return SiriPayloadIdentifier(
@@ -279,13 +286,15 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         mediaType: INMediaItemType,
         index: SiriMediaIndex,
         artistHint: String? = nil
-    ) -> [RankedItem] {
-        SiriMediaIndexResolver.rankCandidates(
+    ) -> [RankedItem]? {
+        let ranked = SiriMediaIndexResolver.rankCandidates(
             for: query,
             requestedKinds: mediaType == .unknown ? nil : kindsFor(mediaType: mediaType),
             index: index,
             artistHint: artistHint
         )
+        // Playlists as the app's playlist screen shows them: with merging on, one candidate per merged group.
+        return SiriMatchingHelpers.presented(ranked, index: index)
     }
 
     private func kindsFor(mediaType: INMediaItemType) -> Set<SiriMediaKind> {
@@ -328,7 +337,9 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             identifier: identifier,
             title: ranked.item.displayName,
             type: mediaTypeFor(kind: ranked.item.kind),
-            artwork: nil
+            artwork: nil,
+            // Same-named playlists on several servers read apart by server name when merging is off.
+            artist: ranked.item.kind == .playlist ? ranked.item.secondaryText : nil
         )
     }
 

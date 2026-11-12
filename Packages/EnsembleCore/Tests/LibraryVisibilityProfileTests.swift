@@ -449,4 +449,26 @@ final class LibraryVisibilityProfileTests: XCTestCase {
         XCTAssertEqual(filtered[0].id, "plex:a:hub-2")
         XCTAssertEqual(filtered[0].items.map(\.id), ["item-visible"])
     }
+
+    /// The playlist screen's source predicate, shared with system surfaces: a source the configuration no longer enables
+    /// is not shown, nor is one the profile hides.
+    func testPlaylistSourceVisibilityHonoursEnablementAndProfile() {
+        let suiteName = "LibraryVisibilityProfileTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = LibraryVisibilityStore(userDefaults: defaults)
+        let enabled = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "on", libraryId: "1")
+        let disabled = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "off", libraryId: "1")
+        let configuration = SourceConfigurationSnapshot(
+            configuredSources: [enabled, disabled], enabledSources: [enabled], authoritativeSourceTypes: [.plex],
+            hasAnySources: true, isAuthoritative: true
+        )
+
+        let isVisible = store.playlistSourceVisibility(in: configuration)
+
+        XCTAssertTrue(isVisible("plex:account:on"))
+        XCTAssertFalse(isVisible("plex:account:off"), "a disabled server's cached playlists are not shown")
+        XCTAssertFalse(isVisible(nil))
+        XCTAssertFalse(isVisible("malformed"))
+    }
 }

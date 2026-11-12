@@ -34,12 +34,25 @@ enum SiriMatchingHelpers {
         )
     }
 
-    /// Rank index items matching a playlist query by fuzzy score.
-    static func rankPlaylistCandidates(
-        for query: String,
-        index: SiriMediaIndex
-    ) -> [RankedItem] {
-        SiriMediaIndexResolver.rankPlaylistCandidates(for: query, index: index)
+    /// Within this score gap, a playlist competes with the best candidate.
+    static let playlistTieMargin = 0.1
+
+    /// Playlists as the app's playlist screen shows them (merge setting, hidden sources); see
+    /// `SiriPlaylistRows.presented(_:index:presentation:tieMargin:)`. Nil means the app has not published a
+    /// presentation for this index and a playlist is among the best candidates: the caller defers to the app by name.
+    static func presented(_ ranked: [RankedItem], index: SiriMediaIndex) -> [RankedItem]? {
+        SiriPlaylistRows.presented(
+            ranked, index: index, presentation: SiriPlaylistPresentation.load(), tieMargin: playlistTieMargin
+        )
+    }
+
+    /// The playlists Voice Add may offer: those the playlist screen shows. Nil while no presentation covers the index.
+    static func offeredPlaylists(in index: SiriMediaIndex) -> [SiriMediaIndexItem]? {
+        guard let presentation = SiriPlaylistPresentation.load(), presentation.covers(index) else { return nil }
+        let playlists = SiriMediaIndexResolver.items(in: index, kind: .playlist)
+        return SiriPlaylistRows.presented(
+            playlists, among: playlists, preferences: presentation.preferences, isSourceVisible: presentation.isSourceVisible
+        )
     }
 }
 

@@ -712,10 +712,11 @@ public struct SidebarView: View {
         case .library(let tab):
             sidebarContentView(for: tab)
         case .playlist(let id, let sourceKey):
-            PlaylistDetailLoader(
+            PlaylistOpenLoader(
                 playlistId: id,
                 playlistSourceKey: sourceKey,
-                nowPlayingVM: nowPlayingVM
+                nowPlayingVM: nowPlayingVM,
+                playlistsVM: playlistsVM
             )
         case .mergedPlaylist(let title, let isSmart):
             MergedPlaylistDetailLoader(
@@ -797,10 +798,22 @@ public struct SidebarView: View {
                 ArtistDetailLoader(request: .artist(artist), libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .mergedArtist(let displayArtist, _):
                 ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM, dependencies: deps)
+            // A pinned playlist opens as the playlist list shows it: merged with its same-named copies when merging is on,
+            // even if only one of them is pinned.
             case .playlist(let playlist, _):
-                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM, dependencies: deps)
+                PlaylistOpenLoader(
+                    playlistId: playlist.id,
+                    playlistSourceKey: playlist.sourceCompositeKey,
+                    nowPlayingVM: nowPlayingVM,
+                    playlistsVM: playlistsVM
+                )
             case .mergedPlaylist(let displayPlaylist, _):
-                MergedPlaylistDetailView(displayPlaylist: displayPlaylist, nowPlayingVM: nowPlayingVM, dependencies: deps)
+                PlaylistOpenLoader(
+                    playlistId: displayPlaylist.primaryPlaylist.id,
+                    playlistSourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey,
+                    nowPlayingVM: nowPlayingVM,
+                    playlistsVM: playlistsVM
+                )
             }
         } else {
             switch type {
@@ -809,7 +822,7 @@ public struct SidebarView: View {
             case .artist:
                 ArtistDetailLoader(request: .reference(id: id, name: nil, sourceKey: sourceKey), libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .playlist:
-                PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+                PlaylistOpenLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM, playlistsVM: playlistsVM)
             }
         }
     }
@@ -889,7 +902,7 @@ public struct SidebarView: View {
         case .mergedAlbum(let album, _): return .albumDetail(album)
         case .artist(let artist, _): return .artistDetail(artist)
         case .mergedArtist(let artist, _): return .displayArtist(id: artist.id)
-        case .playlist(let playlist, _): return .playlistDetail(playlist)
+        case .playlist(let playlist, _): return .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
         case .mergedPlaylist(let playlist, _): return .mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart)
         }
     }
@@ -1293,8 +1306,15 @@ public struct SidebarView: View {
             )
 
         case .playlist(let playlist, let pinnedItem):
-
-            PlaylistActionsContextMenu(
+            // Pinning one copy of a merged playlist still plays and manages what the list shows for it.
+            if let group = DisplayPlaylist.displayedGroup(
+                for: playlist,
+                among: playlistsVM.playlists,
+                preferences: SettingsManager.storedMergingPreferences()
+            ), group.isMerged {
+                mergedPlaylistPinMenu(group, pinnedItems: [pinnedItem])
+            } else {
+                PlaylistActionsContextMenu(
                 playlist: playlist,
                 nowPlayingVM: nowPlayingVM,
                 toastNamespace: "sidebar-playlist-menu",
@@ -1325,9 +1345,16 @@ public struct SidebarView: View {
                     }
                 }
             )
+            }
 
         case .mergedPlaylist(let displayPlaylist, let pinnedItems):
+            mergedPlaylistPinMenu(displayPlaylist, pinnedItems: pinnedItems)
+        }
+    }
 
+    /// Actions for a pinned playlist group, played and opened as the playlist list shows the group.
+    @ViewBuilder
+    private func mergedPlaylistPinMenu(_ displayPlaylist: DisplayPlaylist, pinnedItems: [PinnedItem]) -> some View {
             MergedPlaylistActionsContextMenu(
                 displayPlaylist: displayPlaylist,
                 nowPlayingVM: nowPlayingVM,
@@ -1350,7 +1377,6 @@ public struct SidebarView: View {
                     deps.pinManager.unpinAll(identities: Set(pinnedItems.map(\.sourceScopedID)))
                 }
             )
-        }
     }
 
     /// Sidebar row for a playlist item, showing artwork preview instead of an icon.

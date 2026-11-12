@@ -1,6 +1,44 @@
-# App Intents design (proposal, 2026-11-11)
+# App Intents design (2026-11-11)
 
-Status: proposed, not approved. Nothing here is built. Research sources are listed at the end.
+Status: approved by Felicity on 2026-11-11, all six phases. Phases 1 to 3 are built on `feature/app-intents`;
+phases 4 to 6 are not started. "What exists today" below describes the code before phase 1. Research sources are
+listed at the end.
+
+## Built (phases 1 to 3)
+
+Layout, under `Ensemble/App/AppIntents/` (compiled for iOS and macOS; Core Spotlight and relevant-entity
+publishing stay iOS-only):
+
+- `MediaEntities.swift`: `IndexItemEntity` and its query protocol, the song, album, artist, playlist and any-kind
+  media entities (all built by `init(item: SiriMediaIndexItem)`; type names and id formats are persisted by saved
+  shortcuts and must not change), the mood entity, and the index lookup.
+- `PlaybackIntents.swift`: `EnsembleIntentError`, readiness (`readyContainer()` awaits
+  `prepareForBackgroundPlayback`, shared with the Siri hand-off), Play Track, Album, Artist, Playlist (with a
+  shuffle option), the hidden legacy Shuffle intents, Shuffle Library, Play Favorites, Play Recently Added, Play
+  Mood, Start Track Radio.
+- `NowPlayingIntents.swift`: Get Current Song, Favorite Current Song, Add Current Song to Playlist, Add to
+  Playlist, Play Next, Play Last, Set Shuffle, Set Repeat, Set Autoplay, Set SmartMix, Play/Pause, Next,
+  Previous.
+- `ShortcutIntents.swift`: the three enum wrappers used by App Shortcut phrases (Play Collection, Playback
+  Option, This Song). They call the same functions as the typed editor actions.
+- `OpenAndShareIntents.swift`: Open Media, Get Ensemble Link. `FocusFilter.swift`: the Focus filter.
+  `SystemSurfaces.swift` (iOS): Spotlight `IndexedEntity` and the iOS 27 now-playing relevant entity.
+  `AppShortcuts.swift`: the provider.
+- Core: `SiriPlaybackCoordinator` resolves any request once (play, enqueue, library, favorites, track radio) and
+  throws when `PlaybackService` leaves a failed state; `LibraryCollectionTracks` loads mood and recently-added
+  tracks (the Mood screen uses it too); `LibraryRepository.mapTracks` reads a library in bounded batches.
+
+Playback intents are `AudioPlaybackIntent` and start without opening the app; a process started only for an
+intent awaits account loading, health checks and provider registration first. Favorites and playlist adds use the
+view model's optimistic paths.
+
+App Shortcuts (9 of the limit 10; Apple recommends 2 to 5): Play Playlist, Play Album, Play Artist, Play Track,
+Play Collection (favorites, shuffled favorites, shuffled library, recently added), Playback Option (shuffle,
+repeat, Autoplay, SmartMix), This Song (favorite, unfavorite, start radio), Add This Song to Playlist, Open
+Media. Every other intent is an editor action.
+
+Left for later: Play Genre (deferred by the owner; the genre loader is not in Core), phases 4 to 6 below.
+
 
 ## What exists today
 

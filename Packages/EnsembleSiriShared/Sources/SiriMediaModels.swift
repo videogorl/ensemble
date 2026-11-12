@@ -127,20 +127,23 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
     public let id: String
     public let displayName: String
     public let sourceCompositeKey: String?
-    public let secondaryText: String?
+    /// A picker may replace this with a server name to tell same-named items apart.
+    public var secondaryText: String?
     public let lastPlayed: Date?
     public let playCount: Int?
     public let trackCount: Int?
     public let albumTitle: String?
     public let artistName: String?
     public let genre: String?
-    public let duration: TimeInterval?
+    public var duration: TimeInterval?
     public let trackNumber: Int?
     public let discNumber: Int?
     public let isSmartPlaylist: Bool?
     public let artworkPath: String?
     public let artworkCacheKey: String?
     public let artworkCacheType: SiriMediaArtworkCacheType?
+    /// The friendly name of the item's server, for telling same-named playlists on several servers apart.
+    public let sourceName: String?
 
     public var reference: SystemMediaReference {
         SystemMediaReference(
@@ -182,7 +185,8 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
         isSmartPlaylist: Bool? = nil,
         artworkPath: String? = nil,
         artworkCacheKey: String? = nil,
-        artworkCacheType: SiriMediaArtworkCacheType? = nil
+        artworkCacheType: SiriMediaArtworkCacheType? = nil,
+        sourceName: String? = nil
     ) {
         self.kind = kind
         self.id = id
@@ -202,6 +206,7 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
         self.artworkPath = artworkPath
         self.artworkCacheKey = artworkCacheKey
         self.artworkCacheType = artworkCacheType
+        self.sourceName = sourceName
     }
 }
 

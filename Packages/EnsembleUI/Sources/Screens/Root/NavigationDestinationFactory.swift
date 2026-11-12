@@ -99,7 +99,7 @@ struct NavigationDestinationFactory {
         case .song(let id, let sourceKey):
             SongPermalinkLoader(songId: id, songSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .playlist(let id, let sourceKey):
-            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+            PlaylistOpenLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM, playlistsVM: viewModels.playlists)
         case .playlistDetail(let playlist, let includesHidden):
             let detailView = PlaylistDetailView(
                 playlist: playlist,

@@ -1,3 +1,4 @@
+import EnsembleSiriShared
 import Foundation
 import Intents
 import OSLog
@@ -47,8 +48,26 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
             return
         }
 
-        let ranked = SiriMatchingHelpers.rankPlaylistCandidates(for: playlistName, index: index)
+        // No presentation yet: nothing can be shown to be visible, so the name goes to the app as spoken.
+        guard let offered = SiriMatchingHelpers.offeredPlaylists(in: index) else {
+            logger.info("resolveMediaDestination: no playlist presentation; deferring the name to the app")
+            completion(.success(with: INMediaDestination.playlist(playlistName)))
+            return
+        }
 
+        // A name this resolver offered earlier (server-qualified when two playlists share a title) is already chosen.
+        let chosen = SiriPlaylistRows.destinations(named: playlistName, among: offered)
+        if chosen.count > 1 {
+            logger.error("resolveMediaDestination: destination name matches several playlists")
+            completion(.unsupported(forReason: .playlistNameNotFound))
+            return
+        }
+        if let chosen = chosen.first {
+            completion(.success(with: INMediaDestination.playlist(SiriPlaylistRows.destinationName(for: chosen, among: offered))))
+            return
+        }
+
+        let ranked = Self.rankOffered(playlistName, offered: offered, index: index)
         guard let top = ranked.first else {
             logger.info("resolveMediaDestination: no playlist match found")
             completion(.unsupported(forReason: .playlistNameNotFound))
@@ -61,7 +80,7 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
             if abs(top.score - second.score) <= Self.disambiguationThreshold {
                 logger.info("resolveMediaDestination: disambiguating \(ranked.count, privacy: .public) options")
                 let options = Array(ranked.prefix(6)).map { ranked in
-                    INMediaDestination.playlist(ranked.item.displayName)
+                    INMediaDestination.playlist(SiriPlaylistRows.destinationName(for: ranked.item, among: offered))
                 }
                 completion(.disambiguation(with: options))
                 return
@@ -69,7 +88,14 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
         }
 
         logger.info("resolveMediaDestination: matched playlist")
-        completion(.success(with: INMediaDestination.playlist(top.item.displayName)))
+        completion(.success(with: INMediaDestination.playlist(SiriPlaylistRows.destinationName(for: top.item, among: offered))))
+    }
+
+    /// Playlist candidates for a spoken name, limited to the playlists the app offers.
+    private static func rankOffered(_ name: String, offered: [SiriMediaIndexItem], index: SiriMediaIndex) -> [RankedItem] {
+        let shown = Set(offered.map(\.reference.sourceScopedIdentifier))
+        return SiriMediaIndexResolver.rankPlaylistCandidates(for: name, index: index)
+            .filter { shown.contains($0.item.reference.sourceScopedIdentifier) }
     }
 
     public func handle(
@@ -93,18 +119,29 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
             return
         }
 
-        let ranked = SiriMatchingHelpers.rankPlaylistCandidates(for: playlistName, index: index)
-        guard let match = ranked.first else {
-            logger.error("handle: no matching playlist found")
-            completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
-            return
+        // The playlist the chosen name stands for; with no presentation, a name-only request the app resolves itself.
+        let payload: PendingAddToPlaylistPayload
+        if let offered = SiriMatchingHelpers.offeredPlaylists(in: index) {
+            // A name from our own offered list names exactly one row; a name that matches several is never written.
+            let named = SiriPlaylistRows.destinations(named: playlistName, among: offered)
+            guard named.count <= 1 else {
+                logger.error("handle: destination name matches several playlists")
+                completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
+                return
+            }
+            guard let match = named.first ?? Self.rankOffered(playlistName, offered: offered, index: index).first?.item else {
+                logger.error("handle: no matching playlist found")
+                completion(INAddMediaIntentResponse(code: .failure, userActivity: nil))
+                return
+            }
+            payload = PendingAddToPlaylistPayload(
+                playlistRatingKey: match.id,
+                sourceCompositeKey: match.sourceCompositeKey ?? "",
+                playlistDisplayName: match.displayName
+            )
+        } else {
+            payload = PendingAddToPlaylistPayload(playlistRatingKey: "", sourceCompositeKey: "", playlistDisplayName: playlistName)
         }
-
-        let payload = PendingAddToPlaylistPayload(
-            playlistRatingKey: match.item.id,
-            sourceCompositeKey: match.item.sourceCompositeKey ?? "",
-            playlistDisplayName: match.item.displayName
-        )
         guard SiriPendingIntentBridge.writePayload(
             payload,
             filename: Self.pendingFilename,

@@ -730,7 +730,8 @@ public struct SearchView: View {
             }
             .buttonStyle(.plain)
         case let .playlist(playlist, _):
-            navigationCoordinator.routeLink(to: .playlistDetail(playlist)) {
+            // Opens as the playlist list shows it: merged with its same-named copies when merging is on.
+            navigationCoordinator.routeLink(to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)) {
                 pinnedItemCardLabel(
                     PlaylistCard(playlist: playlist, allowsDragExport: false),
                     pin: pin,
