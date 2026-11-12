@@ -71,6 +71,10 @@ public final class NetworkMonitor {
         }
     }
     public var networkState: NetworkState { snapshot.state }
+    /// True once the running monitor has delivered a path of its own. Until then `networkState` may be the cached
+    /// state from the previous process, which a background launch must not mistake for the current one.
+    public var hasLivePath: Bool { hasReceivedLivePath }
+    @ObservationIgnored private var hasReceivedLivePath = false
     public var isConnected: Bool { snapshot.isConnected }
     public var isConstrained: Bool { snapshot.isConstrained }
     @ObservationIgnored private let broadcast = Broadcast<NetworkSnapshot>()
@@ -189,9 +193,11 @@ public final class NetworkMonitor {
 
     // MARK: - Public Methods
 
-    /// Start monitoring network state changes
-    public func startMonitoring() {
-        guard !isMonitoring else { return }
+    /// Start monitoring network state changes. Returns whether this call started the monitor,
+    /// so a caller that only needs it briefly can stop what it started.
+    @discardableResult
+    public func startMonitoring() -> Bool {
+        guard !isMonitoring else { return false }
 
         let newMonitor = monitorFactory()
         newMonitor.pathUpdateHandler = { [weak self] path in
@@ -202,6 +208,7 @@ public final class NetworkMonitor {
         newMonitor.start(queue: monitorQueue)
         monitor = newMonitor
         isMonitoring = true
+        hasReceivedLivePath = false
         monitorGeneration += 1
         routingGeneration &+= 1
         onRoutingChanged?()
@@ -210,6 +217,7 @@ public final class NetworkMonitor {
         #if DEBUG
         restoreDebugSimulationIfNeeded()
         #endif
+        return true
     }
 
     /// Stop monitoring network state changes (for battery optimization)
@@ -289,6 +297,7 @@ public final class NetworkMonitor {
 
             guard !Task.isCancelled, let self else { return }
             self.updateState(to: state, isConstrained: isConstrained)
+            self.hasReceivedLivePath = true
             if self.pathChangePending {
                 self.pathChangePending = false
                 self.pathGeneration &+= 1

@@ -25,6 +25,11 @@ final class CloudSyncCoordinator {
     private var lastSyncedNowPlayingLayout: NowPlayingSecondaryLayout = .default
     private var lastSyncedSwipeLayout: TrackSwipeLayout = .default
     private var lastSyncedMergingPreferences = EnsembleMergingPreferences.default
+
+    /// Privacy-safe summary for logs: switch values and source-key count only.
+    private static func mergingShape(_ p: EnsembleMergingPreferences) -> String {
+        "on:\(p.isEnabled) artists:\(p.mergeArtists) albums:\(p.mergeAlbums) tracks:\(p.mergeTracks) playlists:\(p.mergePlaylists) keys:\(p.preferredSourceKeys.count)"
+    }
     private var lastSyncedPinsData: Data?
     private var syncBootstrapTask: Task<Void, Never>?
     private var firstConnectRetryTask: Task<Void, Never>?
@@ -202,6 +207,9 @@ final class CloudSyncCoordinator {
             guard let self else { return }
             guard syncToggles.isFeatureEnabled(.merging) else { return }
             guard let preferences = try? JSONDecoder().decode(EnsembleMergingPreferences.self, from: data) else { return }
+            EnsembleLogger.info(
+                "Merging prefs: remote apply remote=\(Self.mergingShape(preferences)) local=\(Self.mergingShape(settings.mergingPreferences)) lastSynced=\(Self.mergingShape(self.lastSyncedMergingPreferences))"
+            )
             self.lastSyncedMergingPreferences = preferences
             syncToggles.recordFeatureActivity(
                 for: .merging,
@@ -262,6 +270,9 @@ final class CloudSyncCoordinator {
                 let preferences = settings.mergingPreferences
                 guard preferences != coordinator.lastSyncedMergingPreferences,
                       let data = try? JSONEncoder().encode(preferences) else { return }
+                EnsembleLogger.info(
+                    "Merging prefs: local change pushed local=\(Self.mergingShape(preferences)) previous=\(Self.mergingShape(coordinator.lastSyncedMergingPreferences))"
+                )
                 coordinator.lastSyncedMergingPreferences = preferences
                 syncToggles.recordFeatureActivity(
                     for: .merging,

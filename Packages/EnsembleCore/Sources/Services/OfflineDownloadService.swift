@@ -1152,6 +1152,14 @@ public final class OfflineDownloadService {
         startQueueIfNeeded()
     }
 
+    /// Seeds the state of a process launched in the background with no scene: the same flags a backgrounded
+    /// app has, so launch healing and progress sweeps wait for the first foreground. The recovery sweep that
+    /// `init` starts then applies the network policy and queue as it does after `handleAppDidEnterBackground`.
+    public func beginInBackground() {
+        isAppInBackground = true
+        allowsBackgroundContinuation = true
+    }
+
     /// Called when the app backgrounds. Suspends discretionary queue work unless
     /// the OS explicitly grants a continued-processing window later.
     public func handleAppDidEnterBackground() async {

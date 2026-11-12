@@ -4,6 +4,29 @@ import EnsembleCore
 import os.signpost
 
 extension AppDelegate {
+    /// Starts the launch work that needs a foreground process, never while the process is in the background.
+    /// A foreground launch calls it from `didFinishLaunching`; a process launched in the background (intent,
+    /// Siri, refresh) calls it from its `.active` scene phases. Health checks, WebSockets and the Siri refresh
+    /// start once. Startup sync and the iCloud bootstrap start once too, but are retried at a later activation
+    /// if the app left the foreground before they were allowed to run. A background intent that needs servers
+    /// runs its own bounded health check in `prepareForBackgroundPlayback`.
+    func startForegroundLaunchWork() {
+        let container = AppRoot.container
+        let isForeground = container.foregroundWorkScheduler.isForegroundActive
+        if foregroundLaunchWorkGate.claim(isForeground: isForeground) {
+            AppLogger.info("LAUNCH_WORK: starting foreground launch work (health checks, WebSockets, startup sync, Siri/Spotlight refresh)")
+            startEarlyHealthCheckTask()
+            startSiriIndexAndContextRefreshAfterHealthChecks()
+            startWebSocketConnectionsAfterHealthChecks()
+            startColdLaunchDiagnosticsTask()
+        }
+        if foregroundLaunchWorkGate.claimStartupSync(isForeground: isForeground) {
+            startStartupSyncTaskAfterHealthChecks()
+        }
+        // A no-op unless the bootstrap was skipped while the scene was not active.
+        container.resumeDeferredCloudBootstrap()
+    }
+
     func startEarlyHealthCheckTask() {
         earlyHealthCheckTask = Task { @MainActor in
             let signpostID = OSSignpostID(log: LaunchTaskSignposts.log)
@@ -131,7 +154,8 @@ extension AppDelegate {
                 )
             }
             guard await foregroundWorkScheduler.waitUntilAllowed(.startupSync, policy: .idleOnly) else {
-                AppLogger.debug("📱 AppDelegate: Startup sync skipped because foreground work is unavailable")
+                AppLogger.debug("📱 AppDelegate: Startup sync skipped because foreground work is unavailable; the next activation retries it")
+                await MainActor.run { self.foregroundLaunchWorkGate.finishStartupSync(ran: false) }
                 return
             }
             await MainActor.run {
@@ -143,6 +167,7 @@ extension AppDelegate {
                 }
             }
             await syncCoordinator.performStartupSync()
+            await MainActor.run { self.foregroundLaunchWorkGate.finishStartupSync(ran: true) }
             AppLogger.debug("📱 AppDelegate: Startup sync complete")
         }
     }

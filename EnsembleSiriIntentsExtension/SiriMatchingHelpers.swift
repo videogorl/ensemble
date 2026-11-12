@@ -46,13 +46,35 @@ enum SiriMatchingHelpers {
         )
     }
 
-    /// The playlists Voice Add may offer: those the playlist screen shows. Nil while no presentation covers the index.
-    static func offeredPlaylists(in index: SiriMediaIndex) -> [SiriMediaIndexItem]? {
-        guard let presentation = SiriPlaylistPresentation.load(), presentation.covers(index) else { return nil }
-        let playlists = SiriMediaIndexResolver.items(in: index, kind: .playlist)
-        return SiriPlaylistRows.presented(
-            playlists, among: playlists, preferences: presentation.preferences, isSourceVisible: presentation.isSourceVisible
-        )
+    /// Voice Add's answer for a spoken playlist name against the published presentation, left on the trail the app
+    /// logs (codes and counts only).
+    static func resolveVoiceAdd(
+        named name: String,
+        in index: SiriMediaIndex,
+        event: String
+    ) -> SiriPlaylistRows.VoiceAddResolution {
+        let presentation = SiriPlaylistPresentation.load()
+        let resolution = SiriPlaylistRows.resolveVoiceAdd(named: name, in: index, presentation: presentation)
+        let state = presentation.map { $0.covers(index) ? "covers" : "stale" } ?? "missing"
+        let outcome: String
+        var counts = [
+            "indexPlaylists": SiriMediaIndexResolver.items(in: index, kind: .playlist).count,
+            "nameLength": name.count
+        ]
+        switch resolution {
+        case .deferToApp: outcome = "deferToApp"
+        case .chosen: outcome = "chosen"
+        case let .choices(options): outcome = "choices"; counts["choices"] = options.count
+        case .notFound: outcome = "notFound"
+        case .notEditable: outcome = "notEditable"
+        }
+        counts["offered"] = SiriPlaylistRows.voiceAddDestinations(in: index, presentation: presentation)?.count
+        record(event, "\(outcome) presentation=\(state)", counts)
+        return resolution
+    }
+
+    static func record(_ event: String, _ outcome: String, _ counts: [String: Int] = [:]) {
+        SiriExtensionBreadcrumbs.record(SiriExtensionBreadcrumb(event: event, outcome: outcome, counts: counts))
     }
 }
 

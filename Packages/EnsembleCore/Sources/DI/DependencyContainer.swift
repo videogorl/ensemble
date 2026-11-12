@@ -80,6 +80,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let kvsSyncService: KVSSyncService
     private let cloudSyncCoordinator: CloudSyncCoordinator
     private var hasScheduledDeferredSyncStartup = false
+    private var hasDeferredCloudBootstrap = false
 
     // MARK: - Network Infrastructure
 
@@ -679,8 +680,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 addTarget: { [siriPlaybackCoordinator] playlist, tracks in
                     try await siriPlaybackCoordinator.addTarget(for: playlist, tracks: tracks)
                 },
-                resolveName: { [siriPlaybackCoordinator] name, source in
-                    try await siriPlaybackCoordinator.visiblePlaylist(named: name, preferringSource: source)
+                resolveName: { [siriPlaybackCoordinator] name in
+                    try await siriPlaybackCoordinator.visiblePlaylist(named: name)
                 }
             )
         }
@@ -841,12 +842,30 @@ public final class DependencyContainer: @unchecked Sendable {
         hasScheduledDeferredSyncStartup = true
         cloudSyncCoordinator.wireCallbacks()
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard await self.foregroundWorkScheduler.waitUntilAllowed(.startupSync, policy: .idleOnly) else {
-                EnsembleLogger.info("Sync startup: deferred iCloud/KVS bootstrap skipped because foreground work is unavailable")
-                return
-            }
-            await self.cloudSyncCoordinator.refreshSyncState(reason: "launch")
+            await self?.bootstrapCloudSyncWhenIdle()
+        }
+    }
+
+    /// Runs the launch-time iCloud/KVS bootstrap once the app is foreground and idle. A process launched in
+    /// the background skips it and `resumeDeferredCloudBootstrap()` runs it at the first foreground.
+    @MainActor
+    private func bootstrapCloudSyncWhenIdle() async {
+        guard await foregroundWorkScheduler.waitUntilAllowed(.startupSync, policy: .idleOnly) else {
+            EnsembleLogger.info("Sync startup: deferred iCloud/KVS bootstrap skipped because foreground work is unavailable")
+            hasDeferredCloudBootstrap = true
+            return
+        }
+        hasDeferredCloudBootstrap = false
+        await cloudSyncCoordinator.refreshSyncState(reason: "launch")
+    }
+
+    /// Runs the iCloud/KVS bootstrap that a background launch skipped. A no-op when it already ran or is still waiting.
+    @MainActor
+    public func resumeDeferredCloudBootstrap() {
+        guard hasDeferredCloudBootstrap else { return }
+        hasDeferredCloudBootstrap = false
+        Task { @MainActor [weak self] in
+            await self?.bootstrapCloudSyncWhenIdle()
         }
     }
 

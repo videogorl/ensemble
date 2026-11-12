@@ -1370,7 +1370,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     /// in the same position regardless of track count.
     @ViewBuilder
     private var emptyStateFooter: some View {
-        if viewModel.isLoading && viewModel.filteredTracks.isEmpty {
+        if (viewModel.isLoading || !viewModel.hasLoadedTracks) && viewModel.filteredTracks.isEmpty {
             EnsembleStateScaffold(
                 kind: .loading,
                 title: "Loading tracks…",

@@ -40,12 +40,22 @@ extension AppDelegate {
         logLaunchPhase("dependencyContainer.ready")
 
         // Before any launch work, so a launch with no scene (App Intent, Siri) writes a session log too.
-        AppRoot.startPersistentLogSession(launch: .classify(
-            isBackgroundLaunch: application.applicationState == .background,
+        let isBackgroundState = application.applicationState == .background
+        let launchKind = ProcessLaunchKind.classify(
+            isBackgroundLaunch: isBackgroundState,
             hasUserActivity: launchOptions?[.userActivityDictionary] != nil,
             hasURL: launchOptions?[.url] != nil,
             hasRemoteNotification: launchOptions?[.remoteNotification] != nil
-        ))
+        )
+        AppRoot.startPersistentLogSession(launch: launchKind)
+
+        // A process started for an intent, Siri or system work has no scene yet. Say so before any launch task
+        // runs, so the scheduler and download service do not treat it as foreground.
+        let isForegroundLaunch = launchKind.isForegroundLaunch(applicationIsBackground: isBackgroundState)
+        if !isForegroundLaunch {
+            dependencies.foregroundWorkScheduler.setForegroundActive(false)
+            dependencies.offlineDownloadService.beginInBackground()
+        }
 
         // CloudKit profile sync relies on silent push delivery for live updates.
         application.registerForRemoteNotifications()
@@ -68,12 +78,14 @@ extension AppDelegate {
         dependencies.serverHealthChecker.prepopulateUnknownStates()
         logLaunchPhase("serverHealth.prepopulated")
 
-        startEarlyHealthCheckTask()
+        // Playback restore stays on every launch: current-track intents need the queue.
+        if isForegroundLaunch {
+            AppLogger.info("LAUNCH_WORK: kind=\(launchKind.rawValue) foregroundLaunchWork=started")
+            startForegroundLaunchWork()
+        } else {
+            AppLogger.info("LAUNCH_WORK: kind=\(launchKind.rawValue) foregroundLaunchWork=deferred until the first foreground activation")
+        }
         startPlaybackRestoreTask()
-        startSiriIndexAndContextRefreshAfterHealthChecks()
-        startWebSocketConnectionsAfterHealthChecks()
-        startStartupSyncTaskAfterHealthChecks()
-        startColdLaunchDiagnosticsTask()
         logLaunchPhase("launchTasks.scheduled")
         
         AppLogger.debug("📱 AppDelegate: didFinishLaunching returning at \(Date())")

@@ -624,17 +624,62 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Latent, not fixed: `reconcilePlaylist` builds its header with `canEdit: true`, no REST artwork and a
   MusicKit-only date, so after a playlist mutation the next list sync rewrites that header once (bounded).
 
-## Suspected: every cold launch, including one for a Shortcuts or Siri request, runs the full launch pipeline (2026-11-11)
+## Implemented, awaiting phone checks: background launches skip the foreground launch work (2026-11-11)
 
-- Evidence (same logs): a cold launch runs server health checks, 3 WebSockets, playback restore, a library
-  map build of 1.1 to 4.6 s and a 331-file offline healing scan; a foreground cold launch took 11.4 s to
-  finish bootstrapping; a 3-minute-old process had used 22.6 s of CPU. Cold intent launches write no session
-  log, so their own cost is unmeasured.
-- Impact: battery and heat when Siri or Shortcuts start the app often; unmeasured.
-- Done: cold intent launches now write a session log (first line `launch: ...`). Design and measurements for
-  skipping or deferring launch work: `docs/investigations/2026-11-11-launch-pipeline-cost.md` (awaits approval).
-- Next step: record a Time Profiler cold launch on the phone with a Release build, and read the first
-  background-launch session logs before implementing the design.
+- Done on `perf/background-launch-work`: a process launched in the background no longer starts the early health
+  checks, WebSockets, startup sync, Siri/Spotlight refresh, iCloud bootstrap or download healing until its first
+  `.active` scene phase. Design: `docs/investigations/2026-11-11-launch-pipeline-cost.md`. Phone checks:
+  `docs/reference/physical-device-backlog.md` ("Background launch work").
+- Next step: run those checks, then a Release Time Profiler cold launch to attribute the 14.9 s CPU. Remove this
+  entry when the phone checks pass.
+
+## Confirmed: every cold launch removes the Plex library cursors, about 9 s of sync work (2026-11-11)
+
+- Evidence: `SyncCoordinator.performStartupSync` calls `invalidatePlexReconciliationCursors` (`SyncCoordinator.swift`
+  near `:1527`, `:1532`), forcing a full re-read of 5 sources: `14:30:03.093` to `14:30:11.928`, 8.8 s on the 16 Pro.
+  `performStartupSync(registrations:)` already forces a full sync when the last one is over 24 h old.
+- Impact: battery and heat on every foreground cold launch; also network use.
+- Next step: trace why the invalidation was added (git blame, `ON_DECK.md` "A Plex library cursor vanishes ..."),
+  then relax it to once per 24 h with the stamp stored beside the cursor. Needs the owner's approval: it changes
+  the "authoritative pass every launch" rule. Not changed.
+
+## Confirmed: the download healing scan re-reads the same files on every foreground (2026-11-11)
+
+- Evidence: `downloadTruncationScan completed=331 ... elapsedMs=887` plus `downloadHealing ... elapsedMs=1216`, with
+  `truncated=0 artworkMisses=0`, at 14:30:17, 14:34:17, 14:35:40, 14:36:52 (`OfflineDownloadService.swift:1938`,
+  `:2114-2125`, `:1645-1655`). `AVAudioFile(forReading:)` runs on every file each pass.
+- Impact: 0.9 to 1.2 s of file I/O per foreground (2.8 to 3.7 s on a cold cache).
+- Next step: a per-file verified stamp (path, size, mtime) rescanning only changed or new files, with a full scan
+  after an app-version change. Risk: corruption with unchanged size and mtime is missed.
+
+## Suspected: two health passes at launch, 1.5 s apart (2026-11-11)
+
+- Evidence: `Startup health checks complete in 1.49s` at 14:30:02.907, then `account_inventory_refresh force=true`
+  `Health refresh complete in 1.46s` at 14:30:04.369. Call site of the forced refresh not traced.
+- Impact: about 1.5 s of probes to 3 servers, once per launch.
+- Next step: find the caller of the forced refresh and skip it when the early pass finished under about 10 s ago.
+
+## Confirmed: the library map is built three times in one startup (2026-11-11)
+
+- Evidence: `libraryMap generation=1,2,3` at 11:41:27, 11:41:31, 11:41:34 (4.6, 2.0, 1.6 s); one build at 14:30.
+- Impact: CPU and heat during startup sync. Scene-only; no effect on background launches.
+- Next step: coalesce rebuild requests made during startup sync into one rebuild after it ends. The 21,654-track map
+  itself needs its own design (paged or per section).
+
+## Suspected: Siri index rebuilds with `changed=false` and repeated offline target reconciliation (2026-11-11)
+
+- Evidence: `siriIndexRebuild ... changed=false` 6 of 8 times (146 to 322 ms); 23 offline reconciliation lines in 9 s.
+- Impact: low, 0.15 to 0.3 s each.
+- Next step: skip the rebuild when no source committed since the last one. Low priority.
+
+## Suspected: leaving the scene stops network monitoring even while audio plays (2026-11-11)
+
+- Evidence: the `.background` scene-phase handler calls `networkMonitor.stopMonitoring()`
+  (`EnsembleApp.swift:408`) unconditionally. `SyncCoordinator` reacts to reconnects only through that monitor.
+- Impact: a track playing with the app in the background (foreground launch, or an intent process that later had a
+  scene) does not refresh server health or reconnect after Wi-Fi changes until the next foreground. Pre-existing.
+  An intent-only process with no scene keeps its monitor (`prepareForBackgroundPlayback` starts it).
+- Next step: keep monitoring while playback is active, then verify with the Wi-Fi off/on phone check.
 
 ## Suspected: Siri played `kind=album entity=26197` for a request that was not an album (2026-11-11)
 
@@ -656,14 +701,6 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Impact: cosmetic; self-heals once pins load.
 - Next step: check on a Mac whether a right-click in the first seconds shows no pins, then render from the cached
   pin list.
-
-## Suspected: name-only Voice Add can pick the wrong same-named playlist (2026-11-11)
-
-- Evidence: with no presentation published, `SiriPlaybackCoordinator.visiblePlaylist(named:preferringSource:)` compares
-  a Plex playlist's server key with the song's library key and has no tie-break beyond title, so another same-named
-  playlist can win. Cross-server writes are rejected downstream (`SiriPlaybackCoordinator.swift:673`, `addTarget`).
-- Impact: a wrong same-server playlist in a rare window after an update, before the first presentation is published.
-- Next step: compare server keys the way `addTarget` does and break ties by the user's source order.
 
 ## Suspected: the Spotlight reconcile cannot remove orphans (2026-11-11)
 
@@ -706,3 +743,31 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   Now Playing closed. Compare Ensemble CPU time per minute, the count of `analyzeFile` bursts (expect none while
   locked or with Now Playing closed), SwiftUI/AttributeGraph samples while locked (was 34 of 96) and
   WatchConnectivity samples (expect none with the watch app closed).
+
+## Siri AI (iOS 27) resolves audio requests before our SiriKit extension (suspected, evidence in console log 2026-11-11)
+- Evidence: for the 18:49 to 18:58 typed "Add this song to playlist ZZ Test Voice" attempts the iPhone log has no
+  `EnsembleSiriIntentsExtension` process at all, while `AudioAppIntentsExtension` ran an
+  `AudioEntityIntentValueQuery.values(for: SiriKitQueryCriteria)` and `assistant_cdmd`/`searchtoold` matched the
+  `AppCustomMediaPlaylistTitle` group. For the play request at 17:50:59 the same query was followed by
+  `EnsembleSiriIntentsExtension` launching at 17:51:00. The add never reached our code.
+- Impact: voice Add on Siri AI phones is decided by Siri's own playlist entities (vocabulary, Spotlight); the extension
+  path and its tests only matter where Siri hands the request over.
+- Next step: App Intents phase 4 (iOS 27 audio schema `addToPlaylist`, `docs/reference/app-intents-design.md`); first
+  retest with a day-old playlist to separate "new playlist unknown to Siri" from "Siri never offers add".
+
+## Metal command buffers submitted from the background (confirmed, Ensemble console log 2026-11-11 18:48)
+- Evidence: hundreds of `kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted` errors per second from
+  Ensemble while it was backgrounded (about 19k IOGPU lines in the filtered 18:40 to 19:05 log).
+- Impact: wasted CPU/GPU work and log noise while playing in the background; likely the aurora/Metal visual still
+  rendering. Next step: stop the Metal view's display link when the scene is not active.
+
+## Merging > Playlists toggle not re-grouping Playlists list/Search/pins on the Mac until relaunch (confirmed by Mac check, cause unproven)
+- Evidence: `mac-pins-dock.md` (Mac check); unit tests toggling the Playlists switch off/on re-group
+  `PlaylistViewModel` and `SearchViewModel` correctly, so the failing path is not their observation. Same report
+  shows iCloud KVS rewriting Merging ~25 s after launch (two remote changes, 425 and 426 bytes).
+- Read trace: local toggle -> `SettingsManager` -> 500 ms debounce -> push; remote apply sets `lastSyncedMergingPreferences`
+  then overwrites local. A remote value arriving inside the debounce window would replace the toggle and suppress its
+  push (local == lastSynced). No KVS preference has a timestamp, so a stale echo cannot be told from a newer value.
+  Not proven to be the Mac failure.
+- Next step: repeat the Mac toggle and read the `Merging prefs:` log lines (`set`, `local change pushed`,
+  `remote apply remote=… local=… lastSynced=…`); a remote apply shortly after a `set` with an older value confirms it.

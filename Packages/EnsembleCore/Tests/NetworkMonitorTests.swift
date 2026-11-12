@@ -18,6 +18,26 @@ final class NetworkMonitorTests: XCTestCase {
         }
     }
 
+    func testCachedStateIsNotLiveUntilTheMonitorDeliversAPath() async {
+        let sut = NetworkMonitor(
+            debounceNanoseconds: 0,
+            monitorQueue: DispatchQueue(label: "test.network.live"),
+            monitorFactory: { FakePathMonitor() }
+        )
+        XCTAssertFalse(sut.hasLivePath)
+
+        sut.startMonitoring()
+        XCTAssertFalse(sut.hasLivePath)
+
+        sut.injectNetworkStateForTesting(.online(.wifi))
+        for _ in 0..<50 where !sut.hasLivePath { try? await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(sut.hasLivePath)
+
+        sut.stopMonitoring()
+        sut.startMonitoring()
+        XCTAssertFalse(sut.hasLivePath, "a restarted monitor has not seen a path yet")
+    }
+
     func testStopStartCycleCreatesFreshMonitor() {
         var createdMonitors: [FakePathMonitor] = []
         let sut = NetworkMonitor(

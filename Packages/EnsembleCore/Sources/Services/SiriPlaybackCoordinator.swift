@@ -760,13 +760,29 @@ public final class SiriPlaybackCoordinator {
         return group.playlists.compactMap { storedBySourceID[$0.sourceScopedID] }
     }
 
-    /// The visible playlist a spoken name stands for: the exact title among the playlists the screen shows, on
-    /// `source` when several servers share it.
-    public func visiblePlaylist(named name: String, preferringSource source: String?) async throws -> CDPlaylist? {
-        let title = PlexPlaylistMergeRules.normalizedTitle(name)
+    /// The one visible, editable playlist a spoken name stands for, by the shared Voice Add rules
+    /// (`SiriPlaylistRows.resolveVoiceAdd`) over the playlists the screen shows. Nil when the name is unknown,
+    /// ambiguous, or names a smart playlist: nothing is written then.
+    public func visiblePlaylist(named name: String) async throws -> CDPlaylist? {
         let (visible, stored) = try await visiblePlaylists()
-        let matches = visible.filter { PlexPlaylistMergeRules.normalizedTitle($0.title) == title }
-        return (matches.first { $0.sourceCompositeKey == source } ?? matches.first).flatMap { stored[$0.sourceScopedID] }
+        // The server names the extension's index carries (same function, same playlists), so a destination label
+        // the extension offered ("Focus (Home) 2") is generated identically here.
+        let sourceNames = SiriMediaIndexStore.playlistSourceNames(
+            for: try await playlistRepository.fetchPlaylists().filter { !hiddenMediaStore.snapshot.isHidden(Playlist(from: $0)) },
+            presentation: { accountManager.sourcePresentation(for: $0) }
+        )
+        let catalog = visible.map { playlist in
+            SiriMediaIndexItem(
+                kind: .playlist, id: playlist.id, displayName: playlist.title, sourceCompositeKey: playlist.sourceCompositeKey,
+                isSmartPlaylist: playlist.isSmart,
+                sourceName: playlist.sourceCompositeKey.flatMap { sourceNames["\(playlist.id)||\($0)"] }
+            )
+        }
+        let isSourceVisible = visibilityStore.playlistSourceVisibility(in: accountManager.sourceConfigurationSnapshot)
+        guard case let .chosen(destination) = SiriPlaylistRows.resolveVoiceAdd(
+            named: name, among: catalog, preferences: mergingPreferences(), isSourceVisible: isSourceVisible
+        ) else { return nil }
+        return stored[sourceScopedIdentity(ratingKey: destination.item.id, sourceCompositeKey: destination.item.sourceCompositeKey)]
     }
 
     /// The playlist "add these tracks to `playlist`" lands on, by the Add to Playlist sheet's rule: for a merged group

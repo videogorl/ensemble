@@ -467,7 +467,12 @@ public final class SystemMediaIntegrationService {
             }
             try RefreshExecution.checkCancellation()
             await playlistPresentationPublisher?.publish(for: refreshedIndex)
-            refreshSiriVocabulary(from: refreshedIndex)
+            // Siri's playlist vocabulary is what the playlist screen shows (one owner; Spotlight's pass no longer
+            // overwrites it with a different set), so a hidden source's playlists are never registered.
+            refreshSiriVocabulary(from: Self.spotlightIndex(
+                from: refreshedIndex,
+                presentation: playlistPresentationPublisher?.presentation(for: refreshedIndex) ?? SiriPlaylistPresentation()
+            ))
             return true
         } catch {
             return false
@@ -515,8 +520,6 @@ public final class SystemMediaIntegrationService {
             return
         }
         let deletionsSucceeded = await deleteUnavailableSystemMediaAndReport(staleReferences)
-
-        refreshSiriVocabulary(from: index)
 
         guard spotlightIndex.isIndexingAvailable else {
             EnsembleLogger.debug("[SystemMedia] Spotlight indexing unavailable")
