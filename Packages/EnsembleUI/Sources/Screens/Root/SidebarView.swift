@@ -902,7 +902,7 @@ public struct SidebarView: View {
         case .mergedAlbum(let album, _): return .albumDetail(album)
         case .artist(let artist, _): return .artistDetail(artist)
         case .mergedArtist(let artist, _): return .displayArtist(id: artist.id)
-        case .playlist(let playlist, _): return .playlistDetail(playlist)
+        case .playlist(let playlist, _): return .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
         case .mergedPlaylist(let playlist, _): return .mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart)
         }
     }
@@ -1306,8 +1306,15 @@ public struct SidebarView: View {
             )
 
         case .playlist(let playlist, let pinnedItem):
-
-            PlaylistActionsContextMenu(
+            // Pinning one copy of a merged playlist still plays and manages what the list shows for it.
+            if let group = DisplayPlaylist.displayedGroup(
+                for: playlist,
+                among: playlistsVM.playlists,
+                preferences: SettingsManager.storedMergingPreferences()
+            ), group.isMerged {
+                mergedPlaylistPinMenu(group, pinnedItems: [pinnedItem])
+            } else {
+                PlaylistActionsContextMenu(
                 playlist: playlist,
                 nowPlayingVM: nowPlayingVM,
                 toastNamespace: "sidebar-playlist-menu",
@@ -1338,9 +1345,16 @@ public struct SidebarView: View {
                     }
                 }
             )
+            }
 
         case .mergedPlaylist(let displayPlaylist, let pinnedItems):
+            mergedPlaylistPinMenu(displayPlaylist, pinnedItems: pinnedItems)
+        }
+    }
 
+    /// Actions for a pinned playlist group, played and opened as the playlist list shows the group.
+    @ViewBuilder
+    private func mergedPlaylistPinMenu(_ displayPlaylist: DisplayPlaylist, pinnedItems: [PinnedItem]) -> some View {
             MergedPlaylistActionsContextMenu(
                 displayPlaylist: displayPlaylist,
                 nowPlayingVM: nowPlayingVM,
@@ -1363,7 +1377,6 @@ public struct SidebarView: View {
                     deps.pinManager.unpinAll(identities: Set(pinnedItems.map(\.sourceScopedID)))
                 }
             )
-        }
     }
 
     /// Sidebar row for a playlist item, showing artwork preview instead of an icon.
