@@ -135,11 +135,16 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
     func deleteArtwork(ratingKey: String, type: ArtworkType, sourceCompositeKey: String?)
     func deleteArtwork(forRatingKeys ratingKeys: Set<String>, sourceCompositeKey: String)
     func deleteArtwork(forSourceCompositeKey sourceCompositeKey: String) throws
+    /// Whether `deleteArtwork(forSourceCompositeKey:)` would remove any file. Conformers that cannot
+    /// tell answer `true`, which keeps cleanup from being skipped.
+    func hasArtwork(forSourceCompositeKey sourceCompositeKey: String) throws -> Bool
     func clearArtworkCache() async throws
     func getArtworkCacheSize() async throws -> Int64
 }
 
 public extension ArtworkDownloadManagerProtocol {
+    func hasArtwork(forSourceCompositeKey sourceCompositeKey: String) throws -> Bool { true }
+
     func localArtworkExists(for album: CDAlbum, minimumPixelDimension: Int? = nil) async -> Bool {
         await localArtworkExists(
             ratingKey: album.ratingKey,
@@ -569,6 +574,18 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         sourceCompositeKey: String
     ) {
         deleteArtwork(forRatingKeys: ratingKeys, sourceCompositeKey: Optional(sourceCompositeKey))
+    }
+
+    /// Whether any durable artwork entry is owned by one source.
+    public func hasArtwork(forSourceCompositeKey sourceCompositeKey: String) throws -> Bool {
+        let prefix = Self.scopedFilenamePrefix(sourceCompositeKey: sourceCompositeKey)
+        return try Self.withFileLock {
+            try FileManager.default.contentsOfDirectory(
+                at: storageDirectory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ).contains { $0.lastPathComponent.hasPrefix(prefix) }
+        }
     }
 
     /// Deletes every durable artwork entry owned by one source.

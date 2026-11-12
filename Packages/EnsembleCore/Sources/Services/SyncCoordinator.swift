@@ -224,7 +224,8 @@ public final class SyncCoordinator {
     private var syncProviderRevisions: [String: SourceProviderRevision] = [:]
     private var providerRegistrationRevision: UInt64 = 0
     private var enforcesSourceConfigurationForProviders = true
-    private let sourcePersistenceFence = SourcePersistenceFence()
+    /// Internal so tests can observe a cleanup waiting on the fence.
+    let sourcePersistenceFence = SourcePersistenceFence()
     private var activeSourceSyncs: [String: ActiveSourceSync] = [:]
     /// Awaited follow-up work for a committed refresh phase, wired by DI.
     public var onRefreshRecoveryStarted: (() async -> Bool)?
@@ -2060,11 +2061,51 @@ public final class SyncCoordinator {
         let uniqueSources = Array(Set(sources))
         guard !uniqueSources.isEmpty else { return }
 
-        // The source row may not exist yet while an in-flight provider is writing its
-        // first batch. Always enter the source fence, wait, and perform the final purge.
         for source in uniqueSources {
+            if await skipsCleanupOfEmptySource(source) { continue }
             await cleanupRemovedSource(source)
         }
+    }
+
+    /// Skips a removed source only after proving, under the source's cleanup fence, that nothing is
+    /// stored and nothing can still write. The fence drains leases held by artwork, lyrics and sync
+    /// writes and rejects new ones while the probe runs. The decision is revalidated with no suspension
+    /// before it is acted on; any doubt, failure or change falls through to the unchanged cleanup.
+    private func skipsCleanupOfEmptySource(_ source: MusicSourceIdentifier) async -> Bool {
+        let sourceKey = source.compositeKey
+        // Work that cleanup must cancel goes straight to it: waiting on the probe fence here would
+        // queue behind the very sync that `cleanupRemovedSource` is about to cancel.
+        guard source.type != .appleMusic,
+              let sourceCacheCleanupService,
+              !accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceKey),
+              syncProviders[sourceKey] == nil,
+              activeSourceSyncs[sourceKey] == nil else { return false }
+        let revision = accountManager.sourceConfigurationRevision(forSourceKey: sourceKey)
+
+        await sourcePersistenceFence.beginCleanup(sourceKey: sourceKey)
+        defer { sourcePersistenceFence.finishCleanup(sourceKey: sourceKey) }
+
+        let isEmpty: Bool
+        do {
+            if let syncCursorRepository,
+               try await syncCursorRepository.fetchCursor(scopeKey: sourceKey, scopeType: .library) != nil {
+                return false
+            }
+            isEmpty = try await !sourceCacheCleanupService.hasStoredData(forSource: sourceKey)
+        } catch {
+            return false
+        }
+
+        guard isEmpty,
+              accountManager.sourceConfigurationRevision(forSourceKey: sourceKey) == revision,
+              !accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceKey),
+              syncProviders[sourceKey] == nil,
+              activeSourceSyncs[sourceKey] == nil else { return false }
+
+        libraryRepository.discardArtworkInvalidations(forSourceCompositeKey: sourceKey)
+        playlistRepository.discardArtworkInvalidations(forSourceCompositeKey: sourceKey)
+        EnsembleLogger.debug("Skipped cleanup for empty removed source: \(sourceKey)")
+        return true
     }
 
     /// Delete server-scoped playlists when no enabled libraries remain on that server.

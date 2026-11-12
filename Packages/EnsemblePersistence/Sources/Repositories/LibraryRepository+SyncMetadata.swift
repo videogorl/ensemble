@@ -102,6 +102,23 @@ extension LibraryRepository {
         }
     }
 
+    /// Whether `deleteAllData(forSourceCompositeKey:)` would remove anything: a row of any
+    /// source-owned entity or the source row itself. One limit-1 fetch per entity.
+    public func hasStoredData(forSourceCompositeKey sourceKey: String) async throws -> Bool {
+        try await coreDataStack.performBackgroundContext { context in
+            for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDMood", "CDPlaylist"] {
+                let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
+                request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+                request.fetchLimit = 1
+                if try context.count(for: request) > 0 { return true }
+            }
+            let sourceRequest = CDMusicSource.fetchRequest()
+            sourceRequest.predicate = NSPredicate(format: "compositeKey == %@", sourceKey)
+            sourceRequest.fetchLimit = 1
+            return try context.count(for: sourceRequest) > 0
+        }
+    }
+
     public func fetchArtworkRatingKeys(forSourceCompositeKey sourceKey: String) async throws -> Set<String> {
         try await coreDataStack.performBackgroundContext { context in
             var ratingKeys = Set<String>()
