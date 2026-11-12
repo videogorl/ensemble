@@ -43,7 +43,7 @@ public enum ProcessLaunchKind: String, Equatable {
 #if !os(watchOS)
 
 /// Manages persistent session logging by writing log entries to disk in real-time.
-/// Each app session gets its own log file; the service keeps the last 5 sessions
+/// Each app session gets its own log file; the service keeps the last 15 sessions
 /// and provides UI access for viewing, sharing, and deleting log files.
 ///
 /// Thread-safe: logger callbacks fire from any thread; file writes serialize
@@ -60,7 +60,7 @@ public final class PersistentLogService {
     // MARK: - Configuration
 
     /// Maximum number of session files to retain on disk.
-    private static let maxSessions = 5
+    private static let maxSessions = 15
 
     /// UserDefaults key for the logging toggle.
     nonisolated public static let enabledDefaultsKey = "persistentLoggingEnabled"
