@@ -826,7 +826,7 @@ Built for iOS and macOS 27 and extracted without warnings; none of it ran on a p
 
 | Check | Result |
 | --- | --- |
-| Type "add this song to playlist <name>" for an existing playlist while a song plays: Ensemble receives it (`SIRI_AI: add-to-playlist` then `SIRI_APP: add-to-playlist` or the add outcome in the log) and the song lands on one playlist on its own server; Siri no longer answers "couldn't find a playlist" | Owed |
+| Type "add this song to playlist <name>" for an existing playlist while a song plays: Ensemble receives it (`SIRI_AI: add-to-playlist` then `... done` in the log; `SIRI_APP:` lines mean SiriKit answered instead) and the song lands on one playlist on its own server; Siri no longer answers "couldn't find a playlist" | Owed |
 | The same with a smart playlist, a playlist on another server than the song, and a name two playlists share: no write; the error names the cause or Siri asks which | Owed |
 | "Play <playlist>" (merging on): `SIRI_AI: audio search` then `play-audio` lines; the merged playlist plays once. With merging off, each server's copy is offered, labelled by server | Owed |
 | "Play <song>", "play <album>", "play <artist>", "play something": results come from the visible library; an item in a library hidden by the active Focus or profile is not offered or played | Owed |
