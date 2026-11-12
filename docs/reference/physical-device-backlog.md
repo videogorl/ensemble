@@ -763,6 +763,7 @@ earlier).
 | Play Mood cancel; cancel during a cold intent launch | Weak pass on the SE: no crash or hang, but the tool cannot interrupt real work |
 | Sidebar pins, Search pins and the Mac Dock menu follow the playlist-screen rule | Not run. To run: on the Mac, pin one copy of a merged playlist; open it from the sidebar and Search, press Play, and open the Dock menu after hiding it and after toggling Merging |
 | Apple Music playlists no longer rewritten each sync (`1ef74494`) | Not run on the phone that shows it. To run: on the 16 Pro install a build with the fix, sync three times; after the first, no `writing playlist … differs: compositePath` lines |
+| Less background CPU while playing locked or with no visualizer on screen (`33be6521`) | Not run on a phone (tests and builds only). To run: on the 16 Pro, the same 7-minute locked-playback Performance Trace as 2026-11-11 with the visualizer on and Now Playing closed; expect no `analyzeFile` bursts and fewer SwiftUI samples than 34 of 96. Also open Now Playing after a gapless advance and confirm the visualizer animates for the new track |
 
 ## Mac — App Intents phase 5 (`feature/app-intents-mac`)
 
@@ -781,4 +782,3 @@ installed `/Applications/Ensemble.app`), then check the PID's executable path (`
 | Open Media and Get Ensemble Link bring the window forward or return a link | Owed |
 | Spotlight on macOS 26 and 27: a played song, album, artist and playlist appear and open in Ensemble; App Shortcut phrases and actions appear under Ensemble | Owed |
 | iPhone SE: typing a never-played song name into a Play Track picker finds it (the same fallback) | Owed |
-| Less background CPU while playing locked or with no visualizer on screen (`33be6521`) | Not run on a phone (tests and builds only). To run: on the 16 Pro, the same 7-minute locked-playback Performance Trace as 2026-11-11 with the visualizer on and Now Playing closed; expect no `analyzeFile` bursts and fewer SwiftUI samples than 34 of 96. Also open Now Playing after a gapless advance and confirm the visualizer animates for the new track |
