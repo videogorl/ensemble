@@ -63,18 +63,15 @@ enum SiriIndexLookup {
         ))
     }
 
-    /// Index items for saved playlist identifiers (`ratingKey||sourceCompositeKey`) the index no longer presents but the
-    /// playlist store still holds.
+    /// Index items for saved playlist references the index no longer presents but the playlist store still holds.
     @MainActor
-    static func storedPlaylistItems(forIdentifiers identifiers: Set<String>) async -> [SiriMediaIndexItem] {
+    static func storedPlaylistItems(forReferences references: [(id: String, sourceKey: String?)]) async -> [SiriMediaIndexItem] {
         var items: [SiriMediaIndexItem] = []
-        for identifier in identifiers.sorted() {
-            let parts = identifier.components(separatedBy: "||")
-            guard parts.count >= 2, !parts[0].isEmpty,
-                  let stored = try? await AppRoot.container.playlistRepository.fetchPlaylistHeader(
-                      ratingKey: parts[0],
-                      sourceCompositeKey: parts.dropFirst().joined(separator: "||").nilIfEmpty
-                  ) else { continue }
+        for reference in references {
+            guard let stored = try? await AppRoot.container.playlistRepository.fetchPlaylistHeader(
+                ratingKey: reference.id,
+                sourceCompositeKey: reference.sourceKey
+            ) else { continue }
             let playlist = Playlist(from: stored)
             items.append(SiriMediaIndexItem(
                 kind: .playlist,
@@ -123,9 +120,19 @@ protocol IndexItemEntity: AppEntity where ID == String {
     static var indexKind: SiriMediaKind? { get }
     var item: SiriMediaIndexItem { get }
     init(item: SiriMediaIndexItem)
+    /// The playlist a saved identifier names, in this entity's identifier format; nil for other kinds.
+    static func playlistReference(in identifier: String) -> (id: String, sourceKey: String?)?
 }
 
 extension IndexItemEntity {
+    /// `ratingKey||sourceCompositeKey`, for the playlist entity only.
+    static func playlistReference(in identifier: String) -> (id: String, sourceKey: String?)? {
+        guard indexKind == .playlist else { return nil }
+        let parts = identifier.components(separatedBy: "||")
+        guard parts.count >= 2, !parts[0].isEmpty else { return nil }
+        return (parts[0], parts.dropFirst().joined(separator: "||").nilIfEmpty)
+    }
+
     /// Saved shortcuts store this identifier: `ratingKey||sourceCompositeKey`.
     var id: String { "\(item.id)||\(item.sourceCompositeKey ?? "")" }
 
@@ -155,11 +162,12 @@ extension IndexItemEntityQuery {
         let items = SiriIndexLookup.fetchItems(kind: Entity.indexKind)
         // Saved identifiers resolve whichever row is shown, so only the server label is added here.
         var entities = SiriPlaylistRows.labeled(items, among: items).map(Entity.init(item:)).filter { wanted.contains($0.id) }
-        if Entity.indexKind == .playlist {
-            // A playlist hidden since the shortcut was saved is no longer in the index, but is still in the store.
-            // Its identifier keeps resolving; playing it plays the visible playlist that stands for it.
-            let missing = wanted.subtracting(entities.map(\.id))
-            entities += await SiriIndexLookup.storedPlaylistItems(forIdentifiers: missing).map(Entity.init(item:))
+        // A playlist hidden since the shortcut was saved is no longer in the index, but is still in the store.
+        // Its identifier keeps resolving (in either identifier format); playing or opening it lands on the visible
+        // playlist that stands for it.
+        let missing = wanted.subtracting(entities.map(\.id)).compactMap { id in Entity.playlistReference(in: id).map { (id, $0) } }
+        if !missing.isEmpty {
+            entities += await SiriIndexLookup.storedPlaylistItems(forReferences: missing.map(\.1)).map(Entity.init(item:))
         }
         return entities
     }
@@ -220,6 +228,12 @@ struct EnsembleMediaEntity: IndexItemEntity {
 
     /// Saved shortcuts and Spotlight store `kind||ratingKey||sourceCompositeKey`.
     var id: String { item.reference.sourceScopedIdentifier }
+
+    static func playlistReference(in identifier: String) -> (id: String, sourceKey: String?)? {
+        guard let components = SystemMediaReference.components(fromSourceScopedIdentifier: identifier),
+              components.kind == .playlist else { return nil }
+        return (components.id, components.sourceCompositeKey)
+    }
 
     var displayRepresentation: DisplayRepresentation {
         // A playlist's server name tells same-named playlists apart; other kinds show just their kind.
