@@ -82,6 +82,13 @@ These items were deferred on 2026-11-02 and written for the iPhone 16 Pro. On
 2026-11-09 Felicity moved them to the iPhone SE. They are not passed and not
 verified until they run there.
 
+### Skip cleanup of empty disabled libraries, `fix/skip-empty-disabled-library-cleanup`
+
+- Cold launch on the iPhone SE with three disabled Plex libraries: the session log shows three
+  `Skipped cleanup for empty removed source` lines and no `Cleaning up data for removed source` lines.
+- Disable an enabled library on the phone: its data is still cleaned up (`Cleaning up data for removed source`).
+- Disable a library on another device: after iCloud sync, its data is still cleaned up here.
+
 ### TV Now Playing scene accessory, 2026-10-17 fix
 
 At `c273feb5`, Felicity confirmed on 2026-10-18 that the view looks good on her
@@ -883,3 +890,12 @@ is retried once (`Connection refresh superseded by a configuration update — re
 | Last used on Wi-Fi, then launched a streaming Shortcut on cellular (seeded `.online(.wifi)`, live cellular: a forced interface-switch refresh) | The track plays; the log shows the retry line if a refresh superseded the probe (a first-byte DNS failure also gets one refresh-and-reassemble retry); no `serverUnavailable` | Not run |
 | Cold Add to Ensemble Playlist, and a radio or station start, from a Shortcut | `health=awaited` (`No connected servers — running health checks` when none is connected) before the request, as before | Not run |
 | Cold Shortcut play, then open the app within a minute | One startup health pass in the log, not two back to back | Not run |
+
+## Disabled-library cleanup skip (iPhone SE, 2026-11-12, build `202611121306.9716`)
+
+One cold launch: three `Skipped cleanup for empty removed source` lines and no `Cleaning up data for removed source`
+line, so the skip works. The time saved is small: the three requests were logged at 13:08:19.10 and the last skip at
+13:08:20.63, about 1.5 s of wall time against 1.7–1.9 s before, while Siri index rebuilds and offline reconciliation
+ran alongside. Whether the probes are slow themselves or only waiting their turn is not known from these lines. Still
+owed: disabling an enabled library on the phone still cleans its data; disabling one on another device still cleans it
+here after iCloud sync.

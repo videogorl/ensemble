@@ -16,7 +16,12 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: libraryFlagModifiedAtKey)
     }
 
+    /// Per-harness artwork directories, so no test shares artwork files with another or with the app.
+    private var temporaryArtworkDirectories: [URL] = []
+
     override func tearDown() {
+        temporaryArtworkDirectories.forEach { try? FileManager.default.removeItem(at: $0) }
+        temporaryArtworkDirectories = []
         UserDefaults.standard.set(savedLibraryFlagTimestamps, forKey: libraryFlagModifiedAtKey)
         super.tearDown()
     }
@@ -693,14 +698,14 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             await cleanupRecorder.record("artwork")
         })
         let plexSourceKey = "plex:account-1:server-1:lib-1"
-        let plexArtworkURL = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(
+        let plexArtworkURL = harness.artworkDirectory.appendingPathComponent(
             ArtworkDownloadManager.cacheFilename(
                 ratingKey: "plex-album",
                 type: .album,
                 sourceCompositeKey: plexSourceKey
             )
         )
-        let legacyArtworkURL = ArtworkDownloadManager.artworkDirectory.appendingPathComponent("legacy-apple_album.jpg")
+        let legacyArtworkURL = harness.artworkDirectory.appendingPathComponent("legacy-apple_album.jpg")
         defer {
             try? harness.artworkDownloadManager.deleteArtwork(forSourceCompositeKey: plexSourceKey)
             try? FileManager.default.removeItem(at: legacyArtworkURL)
@@ -940,14 +945,14 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let ratingKey = "shared-album-id"
         try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceA)
         try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceB)
-        let artworkURLA = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(
+        let artworkURLA = harness.artworkDirectory.appendingPathComponent(
             ArtworkDownloadManager.cacheFilename(
                 ratingKey: ratingKey,
                 type: .album,
                 sourceCompositeKey: sourceA
             )
         )
-        let artworkURLB = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(
+        let artworkURLB = harness.artworkDirectory.appendingPathComponent(
             ArtworkDownloadManager.cacheFilename(
                 ratingKey: ratingKey,
                 type: .album,
@@ -1257,6 +1262,217 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertEqual(trackSourceKeys, [enabledSourceKey])
     }
 
+    /// Forwards to the real cleanup worker, counting cleanup calls and running a hook inside the probe.
+    private final class SpyCleanup: SourceCacheCleaning, @unchecked Sendable {
+        private let base: SourceCacheCleaning
+        private let lock = NSLock()
+        private var calls = 0
+        var duringProbe: (@MainActor @Sendable () -> Void)?
+
+        init(base: SourceCacheCleaning) { self.base = base }
+
+        var cleanupCallCount: Int { lock.withLock { calls } }
+
+        func cleanupSource(_ sourceKey: String) async throws -> SourceCacheCleanupResult {
+            lock.withLock { calls += 1 }
+            return try await base.cleanupSource(sourceKey)
+        }
+
+        func cleanupAllLibraryData(cachedSourceKeys: Set<String>) async throws -> SourceCacheCleanupResult {
+            try await base.cleanupAllLibraryData(cachedSourceKeys: cachedSourceKeys)
+        }
+
+        func hasStoredData(forSource sourceKey: String) async throws -> Bool {
+            if let hook = duringProbe { await hook() }
+            return try await base.hasStoredData(forSource: sourceKey)
+        }
+    }
+
+    private struct ProbeFailure: Error {}
+
+    private let removedSource = MusicSourceIdentifier(
+        type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "lib-1"
+    )
+
+    private func makeSpiedHarness(
+        hasLibraryData: SourceCacheCleanupService.SourceDataCheck? = nil,
+        hasLyricsCache: @escaping SourceCacheCleanupService.SourceDataCheck = { _ in false }
+    ) -> (harness: Harness, spy: SpyCleanup) {
+        let harness = makeHarness(hasLibraryData: hasLibraryData, hasLyricsCache: hasLyricsCache)
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [("lib-1", "Library One", false), ("lib-2", "Library Two", true)])
+        )
+        let spy = SpyCleanup(base: harness.sourceCacheCleanupService)
+        harness.syncCoordinator.sourceCacheCleanupService = spy
+        return (harness, spy)
+    }
+
+    func testCleanupIfPresentRunsCleanupExactlyWhenSomethingIsStored() async throws {
+        enum Seed: CaseIterable {
+            case nothing, trackRowOnly, sourceRowOnly, target, scopedMutation, unscopedMutation
+            case lyricsFiles, lyricsProbeFails, libraryProbeFails
+        }
+        let sourceKey = "plex:account-1:server-1:lib-1"
+
+        for seed in Seed.allCases {
+            let (harness, spy) = makeSpiedHarness(
+                hasLibraryData: seed == .libraryProbeFails ? { _ in throw ProbeFailure() } : nil,
+                hasLyricsCache: { _ in
+                    if seed == .lyricsProbeFails { throw ProbeFailure() }
+                    return seed == .lyricsFiles
+                }
+            )
+            switch seed {
+            case .trackRowOnly:
+                _ = try await harness.libraryRepository.upsertTrack(
+                    ratingKey: "track-lib-1", key: "track-lib-1", title: "Track", artistName: nil, albumName: nil,
+                    albumRatingKey: nil, trackNumber: nil, discNumber: nil, duration: 1, thumbPath: nil,
+                    streamKey: nil, dateAdded: nil, dateModified: nil, lastPlayed: nil, rating: nil,
+                    playCount: nil, sourceCompositeKey: sourceKey
+                )
+                let rows = try await harness.libraryRepository.fetchMusicSources()
+                XCTAssertTrue(rows.isEmpty, "trackRowOnly must not create a source row")
+            case .sourceRowOnly:
+                _ = try await harness.libraryRepository.upsertMusicSource(
+                    compositeKey: sourceKey, type: "plex", accountId: "account-1", serverId: "server-1",
+                    libraryId: "lib-1", displayName: nil, accountName: nil
+                )
+            case .target:
+                _ = try await harness.targetRepository.upsertTarget(
+                    key: "library:\(sourceKey)", kind: .library, ratingKey: nil,
+                    sourceCompositeKey: sourceKey, displayName: "Library"
+                )
+            case .scopedMutation, .unscopedMutation:
+                try await harness.pendingMutationRepository.enqueueMutation(
+                    id: "mutation", type: .trackRating, payload: Data(),
+                    sourceCompositeKey: seed == .scopedMutation ? sourceKey : nil
+                )
+            case .nothing, .lyricsFiles, .lyricsProbeFails, .libraryProbeFails:
+                break
+            }
+
+            await harness.syncCoordinator.cleanupRemovedSourcesIfPresent([removedSource])
+
+            XCTAssertEqual(spy.cleanupCallCount, seed == .nothing ? 0 : 1, "\(seed)")
+        }
+    }
+
+    func testCleanupIfPresentWaitsForOutstandingPersistenceLeaseBeforeDeciding() async throws {
+        let (harness, spy) = makeSpiedHarness()
+        harness.accountManager.setLibraryEnabled(
+            accountId: "account-1", serverId: "server-1", libraryKey: "lib-1", isEnabled: true
+        )
+        harness.syncCoordinator.refreshProviders()
+        let handle = try XCTUnwrap(
+            harness.syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: removedSource.compositeKey)
+        )
+        harness.accountManager.setLibraryEnabled(
+            accountId: "account-1", serverId: "server-1", libraryKey: "lib-1", isEnabled: false
+        )
+        harness.syncCoordinator.refreshProviders()
+
+        let probeEntered = LockedFlag()
+        spy.duringProbe = { probeEntered.set() }
+        let cleanup = Task { @MainActor in
+            await harness.syncCoordinator.cleanupRemovedSourcesIfPresent([removedSource])
+        }
+        // Handshake: cleanup has reached the fence once it rejects new work for the source. Until
+        // then `begin` hands out a lease, which is released at once. The bound only fails the test.
+        let deadline = Date().addingTimeInterval(5)
+        while let lease = harness.syncCoordinator.sourcePersistenceFence.begin(sourceKey: removedSource.compositeKey) {
+            harness.syncCoordinator.sourcePersistenceFence.finish(lease)
+            XCTAssertLessThan(Date(), deadline, "cleanup never reached the fence")
+            if Date() >= deadline { break }
+            await Task.yield()
+        }
+        XCTAssertFalse(probeEntered.value, "the probe must not run while a write is in flight")
+
+        // The in-flight write lands before the decision, so the source is no longer empty.
+        _ = try await harness.libraryRepository.upsertMusicSource(
+            compositeKey: removedSource.compositeKey, type: "plex", accountId: "account-1",
+            serverId: "server-1", libraryId: "lib-1", displayName: nil, accountName: nil
+        )
+        handle.leases.forEach(harness.syncCoordinator.finishSourcePersistenceWork)
+        await cleanup.value
+        XCTAssertTrue(probeEntered.value, "the probe runs once the write has drained")
+
+        XCTAssertEqual(spy.cleanupCallCount, 1)
+        let rows = try await harness.libraryRepository.fetchMusicSources()
+        XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testCleanupIfPresentFallsThroughWhenConfigurationChangesDuringProbe() async throws {
+        let (harness, spy) = makeSpiedHarness()
+        let accountManager = harness.accountManager
+        // Enabled and disabled again while the probe runs: the end state matches the start state.
+        spy.duringProbe = {
+            accountManager.setLibraryEnabled(
+                accountId: "account-1", serverId: "server-1", libraryKey: "lib-1", isEnabled: true
+            )
+            accountManager.setLibraryEnabled(
+                accountId: "account-1", serverId: "server-1", libraryKey: "lib-1", isEnabled: false
+            )
+        }
+
+        await harness.syncCoordinator.cleanupRemovedSourcesIfPresent([removedSource])
+
+        XCTAssertEqual(spy.cleanupCallCount, 1)
+    }
+
+    private final class SuspendedFetchProvider: MusicSourceConnector, @unchecked Sendable {
+        let sourceIdentifier: MusicSourceIdentifier
+        let fetchStarted = LockedFlag()
+        let fetchCancelled = LockedFlag()
+
+        init(sourceIdentifier: MusicSourceIdentifier) { self.sourceIdentifier = sourceIdentifier }
+
+        func fetchLibrary(plan: LibrarySyncPlan) async throws -> LibraryBatch {
+            fetchStarted.set()
+            while !Task.isCancelled { try? await Task.sleep(nanoseconds: 5_000_000) }
+            fetchCancelled.set()
+            throw CancellationError()
+        }
+
+        func fetchPlaylistHeaders() async throws -> PlaylistHeaderList { .writing() }
+        func fetchPlaylistBodies(for headers: [PlaylistUpsertInput]) async throws -> [PlaylistEntry] { [] }
+        func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
+    }
+
+    func testCleanupIfPresentCancelsActiveSyncInsteadOfWaitingForIt() async throws {
+        let (harness, spy) = makeSpiedHarness()
+        let provider = SuspendedFetchProvider(sourceIdentifier: removedSource)
+        harness.syncCoordinator.setSyncProvidersForTesting([removedSource.compositeKey: provider])
+        let sync = Task { @MainActor in await harness.syncCoordinator.sync(source: removedSource) }
+        try await waitForFlag(provider.fetchStarted, "the sync never reached its fetch")
+
+        let cleanup = Task { @MainActor in
+            await harness.syncCoordinator.cleanupRemovedSourcesIfPresent([removedSource])
+        }
+        try await waitForFlag(provider.fetchCancelled, "cleanup did not cancel the active sync")
+        await cleanup.value
+        _ = await sync.value
+
+        XCTAssertEqual(spy.cleanupCallCount, 1)
+    }
+
+    private func waitForFlag(_ flag: LockedFlag, _ message: String) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while !flag.value {
+            guard Date() < deadline else {
+                XCTFail(message)
+                throw ProbeFailure() // stop here: awaiting the stuck cleanup would hang the run
+            }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    private final class LockedFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var flag = false
+        var value: Bool { lock.withLock { flag } }
+        func set() { lock.withLock { flag = true } }
+    }
+
     func testCacheManagerClearAllCachesUsesSourceCleanupWorker() async throws {
         let harness = makeHarness(clearAllLyricsCaches: { 3 })
         try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: "plex:account-1:server-1:lib-1")
@@ -1429,6 +1645,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let targetRepository: OfflineDownloadTargetRepository
         let pendingMutationRepository: PendingMutationRepository
         let artworkDownloadManager: ArtworkDownloadManager
+        let artworkDirectory: URL
         let sourceCacheCleanupService: SourceCacheCleaning
     }
 
@@ -1436,7 +1653,9 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         credentialReadUnavailable: Bool = false,
         clearLyricsCache: @escaping SourceCacheCleanupService.LyricsCacheCleanup = { _ in 0 },
         clearAllLyricsCaches: @escaping SourceCacheCleanupService.AllLyricsCacheCleanup = { 0 },
-        clearSharedArtworkCaches: @escaping SourceCacheCleanupService.SharedArtworkCacheCleanup = {}
+        clearSharedArtworkCaches: @escaping SourceCacheCleanupService.SharedArtworkCacheCleanup = {},
+        hasLibraryData: SourceCacheCleanupService.SourceDataCheck? = nil,
+        hasLyricsCache: @escaping SourceCacheCleanupService.SourceDataCheck = { _ in false }
     ) -> Harness {
         let keychain = TestKeychain()
         if credentialReadUnavailable {
@@ -1450,7 +1669,10 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let downloadManager = DownloadManager(coreDataStack: stack)
         let targetRepository = OfflineDownloadTargetRepository(coreDataStack: stack)
         let pendingMutationRepository = PendingMutationRepository(coreDataStack: stack)
-        let artworkDownloadManager = ArtworkDownloadManager()
+        let artworkDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cache-cleanup-artwork-\(UUID().uuidString)", isDirectory: true)
+        temporaryArtworkDirectories.append(artworkDirectory)
+        let artworkDownloadManager = ArtworkDownloadManager(storageDirectory: artworkDirectory)
         let networkMonitor = NetworkMonitor(
             debounceNanoseconds: 1_000,
             monitorQueue: DispatchQueue(label: "test.library-cache-cleanup.network"),
@@ -1491,7 +1713,11 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             },
             clearLyricsCache: clearLyricsCache,
             clearAllLyricsCaches: clearAllLyricsCaches,
-            clearSharedArtworkCaches: clearSharedArtworkCaches
+            clearSharedArtworkCaches: clearSharedArtworkCaches,
+            hasLibraryData: hasLibraryData ?? { sourceKey in
+                try await libraryRepository.hasStoredData(forSourceCompositeKey: sourceKey)
+            },
+            hasLyricsCache: hasLyricsCache
         )
         syncCoordinator.sourceCacheCleanupService = sourceCacheCleanupService
 
@@ -1504,6 +1730,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             targetRepository: targetRepository,
             pendingMutationRepository: pendingMutationRepository,
             artworkDownloadManager: artworkDownloadManager,
+            artworkDirectory: artworkDirectory,
             sourceCacheCleanupService: sourceCacheCleanupService
         )
     }

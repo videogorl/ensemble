@@ -295,6 +295,13 @@ public final class DependencyContainer: @unchecked Sendable {
             clearSharedArtworkCaches: { [weak artworkLoader = playback.artworkLoader as? ArtworkLoader] in
                 try await artworkLoader?.resetTransientCaches()
             },
+            hasLibraryData: { [libraryRepository = core.libraryRepository] sourceKey in
+                guard let repository = libraryRepository as? LibraryRepository else { return true }
+                return try await repository.hasStoredData(forSourceCompositeKey: sourceKey)
+            },
+            hasLyricsCache: { [lyricsService = playback.lyricsService] sourceKey in
+                await lyricsService.hasCache(forSourceCompositeKey: sourceKey)
+            },
             onDownloadsRemoved: { [weak service = mutation.offlineDownloadService] in
                 await service?.reconcileNativeTransfers()
             },

@@ -45,6 +45,14 @@ public protocol SourceCacheCleaning: Sendable {
 
     /// Removes every cached library/download/artwork/lyrics artifact.
     func cleanupAllLibraryData(cachedSourceKeys: Set<String>) async throws -> SourceCacheCleanupResult
+
+    /// Whether `cleanupSource` would find anything to remove. Conformers that cannot tell answer
+    /// `true`, so cleanup is never skipped on their account.
+    func hasStoredData(forSource sourceKey: String) async throws -> Bool
+}
+
+public extension SourceCacheCleaning {
+    func hasStoredData(forSource sourceKey: String) async throws -> Bool { true }
 }
 
 /// Removes source-owned cached data without routing heavy work through UI view models.
@@ -56,6 +64,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
     public typealias ArtworkKeyLookup = @Sendable (String) async throws -> Set<String>
     public typealias SourceLibraryItemCounter = @Sendable (String) async throws -> Int
     public typealias AllLibraryItemCounter = @Sendable () async throws -> Int
+    public typealias SourceDataCheck = @Sendable (String) async throws -> Bool
     public typealias SourceTargetCounter = @Sendable (String) async throws -> Int
     public typealias AllTargetCounter = @Sendable () async throws -> Int
     public typealias ArtworkItemCounter = @Sendable () async throws -> Int
@@ -76,6 +85,8 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
     private let clearLyricsCache: LyricsCacheCleanup
     private let clearAllLyricsCaches: AllLyricsCacheCleanup
     private let clearSharedArtworkCaches: SharedArtworkCacheCleanup
+    private let hasLibraryData: SourceDataCheck
+    private let hasLyricsCache: SourceDataCheck
 
     /// Creates a source cleanup worker from repository/file-cache dependencies.
     public init(
@@ -94,6 +105,8 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         clearLyricsCache: @escaping LyricsCacheCleanup,
         clearAllLyricsCaches: @escaping AllLyricsCacheCleanup,
         clearSharedArtworkCaches: @escaping SharedArtworkCacheCleanup,
+        hasLibraryData: @escaping SourceDataCheck = { _ in true },
+        hasLyricsCache: @escaping SourceDataCheck = { _ in true },
         onDownloadsRemoved: @escaping @Sendable () async -> Void = {},
         onPendingMutationsRemoved: @escaping @Sendable () -> Void = {}
     ) {
@@ -114,6 +127,28 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         self.clearLyricsCache = clearLyricsCache
         self.clearAllLyricsCaches = clearAllLyricsCaches
         self.clearSharedArtworkCaches = clearSharedArtworkCaches
+        self.hasLibraryData = hasLibraryData
+        self.hasLyricsCache = hasLyricsCache
+    }
+
+    /// Mirrors every per-source step of `cleanupSources`, cheapest first. Any category that reports
+    /// data, or throws, stops the walk.
+    public func hasStoredData(forSource sourceKey: String) async throws -> Bool {
+        if try await hasLibraryData(sourceKey) { return true }
+        if try await countTargetsForSource(sourceKey) > 0 { return true }
+        if try await downloadManager.countDownloads(forSourceCompositeKey: sourceKey) > 0 { return true }
+        if try await hubRepository.hasHubItems(forSourceCompositeKey: sourceKey) { return true }
+        // Cleanup also deletes unscoped mutations, so any of them counts.
+        for mutation in try await pendingMutationRepository.fetchAllMutationRecords() {
+            if mutation.sourceCompositeKey == nil || mutation.sourceCompositeKey == sourceKey { return true }
+            if mutation.mutationType == .playlistAdd,
+               let payload = try? JSONDecoder().decode(PlaylistMutationPayload.self, from: mutation.payload),
+               payload.trackReferences.contains(where: { $0.trackSourceCompositeKey == sourceKey }) {
+                return true
+            }
+        }
+        if try artworkDownloadManager.hasArtwork(forSourceCompositeKey: sourceKey) { return true }
+        return try await hasLyricsCache(sourceKey)
     }
 
     /// Removes one source's caches while preserving unrelated sources.
