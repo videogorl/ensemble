@@ -224,7 +224,8 @@ public final class SyncCoordinator {
     private var syncProviderRevisions: [String: SourceProviderRevision] = [:]
     private var providerRegistrationRevision: UInt64 = 0
     private var enforcesSourceConfigurationForProviders = true
-    private let sourcePersistenceFence = SourcePersistenceFence()
+    /// Internal so tests can observe a cleanup waiting on the fence.
+    let sourcePersistenceFence = SourcePersistenceFence()
     private var activeSourceSyncs: [String: ActiveSourceSync] = [:]
     /// Awaited follow-up work for a committed refresh phase, wired by DI.
     public var onRefreshRecoveryStarted: (() async -> Bool)?
@@ -2072,7 +2073,13 @@ public final class SyncCoordinator {
     /// before it is acted on; any doubt, failure or change falls through to the unchanged cleanup.
     private func skipsCleanupOfEmptySource(_ source: MusicSourceIdentifier) async -> Bool {
         let sourceKey = source.compositeKey
-        guard source.type != .appleMusic, let sourceCacheCleanupService else { return false }
+        // Work that cleanup must cancel goes straight to it: waiting on the probe fence here would
+        // queue behind the very sync that `cleanupRemovedSource` is about to cancel.
+        guard source.type != .appleMusic,
+              let sourceCacheCleanupService,
+              !accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceKey),
+              syncProviders[sourceKey] == nil,
+              activeSourceSyncs[sourceKey] == nil else { return false }
         let revision = accountManager.sourceConfigurationRevision(forSourceKey: sourceKey)
 
         await sourcePersistenceFence.beginCleanup(sourceKey: sourceKey)
