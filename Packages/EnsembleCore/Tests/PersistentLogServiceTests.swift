@@ -1,6 +1,27 @@
 @testable import EnsembleCore
 import XCTest
 
+final class ProcessLaunchKindTests: XCTestCase {
+    func testClassifyPrefersTheMostSpecificSignal() {
+        typealias Case = (bg: Bool, activity: Bool, url: Bool, push: Bool, kind: ProcessLaunchKind)
+        let cases: [Case] = [
+            (false, false, false, false, .foregroundScene),
+            (true, false, false, false, .background),
+            (false, true, true, true, .userActivity),
+            (true, false, true, true, .url),
+            (true, false, false, true, .remoteNotification)
+        ]
+        for c in cases {
+            XCTAssertEqual(
+                ProcessLaunchKind.classify(
+                    isBackgroundLaunch: c.bg, hasUserActivity: c.activity, hasURL: c.url, hasRemoteNotification: c.push
+                ),
+                c.kind
+            )
+        }
+    }
+}
+
 #if !os(watchOS)
 @MainActor
 final class PersistentLogServiceTests: XCTestCase {

@@ -38,6 +38,9 @@ such as Jellyfin, is closed on simulator and iPhone SE evidence as of
 It is not verified: nothing has run on the iPhone 16 Pro, Apple Music playlists
 and several Plex checks are owed in the device backlog, and the review findings
 deferred in `ON_DECK.md` are open. Its scoped freeze has ended.
+With step 6 (6a to 6d) and step 3 landed, no structural step is in progress: step 4
+is parked and step 5 is dropped. What remains of this plan is the owed device
+checks in the backlog and the fix-commit measure in section 8.
 Written 2026-10-13 against `790e7ed5` on `develop`.
 Owner: Felicity. Any agent picking up a step must read this whole file first.
 
@@ -568,11 +571,11 @@ store, with a line budget set in the step's detailed design.
 
 ### Step 6. Browse, detail, and panes
 
-Next after the close-out. Coordinate with the Penpot design system work.
-Detailed design, awaiting Felicity's approval:
-[`browse-detail-panes-design.md`](browse-detail-panes-design.md).
-One browse screen, one detail screen, one pane container. Consolidate track
-tables behind one configuration. Revisit the Mac split choice with evidence.
+Sub-steps 6a to 6d landed between 2026-11-04 and 2026-11-10 on simulator and
+Mac evidence, not verified; design and what is owed (the Mac pop-in re-measure,
+the Mac native split question, the Penpot question, iPad and iPhone checks):
+[`browse-detail-panes-design.md`](browse-detail-panes-design.md) and the
+[6d note](../investigations/2026-11-10-step-6d-track-list-host.md).
 
 ## 6. Scoped feature freeze
 
