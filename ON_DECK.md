@@ -642,61 +642,15 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
 - Next step: read how the foreground resume decides a handoff is abandoned, and whether it should wait for
   a refresh that is in flight (`isRefreshInFlight`).
 
-## Fix did not hold: Apple Music playlist sync still rewrites two playlist headers every sync (2026-11-12)
+## Fixed 2026-11-12, residual risk only: signed Apple Music playlist artwork URLs
 
-- Evidence: 16 Pro build `202611111729.7573`: each sync wrote the same two headers, differing only in
-  `compositePath`, in the same sync that logged "inventory withheld: MusicKit lists playlists the API list
-  lacks". So the two are playlists the REST list lacks: `fetchPlaylistHeaders` gives them no REST artwork URL
-  and `playlistInput` falls back to MusicKit's `artwork.ensembleResolvableURL()` (`AppleMusicConnector.swift`),
-  a full `musicKit://` URL whose parts other than `aat` change per read (inferred: the logs do not print
-  paths). Their bodies were not re-read (`needsBody` was false: dates equal); only the header was rewritten,
-  each time marking artwork stale and the Siri index changed.
-- Fix: that fallback now stores only the `aat` asset (`AppleMusicArtworkPath.stable`), what `getArtworkURL`
-  reads, so a new image still writes. The first sync after the update writes those two once.
-- Remaining: on the phone, two syncs after the update must log zero `Apple Music` header writes
-  (`differs: compositePath`). If they still write, the `aat` itself varies or the artwork alternates with nil:
-  print the stored and incoming path hashes next. Remove this entry once confirmed, with the diagnostic line.
-- Phone result, 2026-11-12 (iPhone 16 Pro, session logs from builds `202611111806.5525` through
-  `202611120844.8867`, all containing `1ef74494`): every Apple Music playlist sync still wrote
-  `p.1YeW3rpCkzaPXR` and `p.V7VYlM7CoLPe16` with `differs: compositePath`: 5 of 5 syncs on 2026-11-11
-  between 18:53 and 21:06, and 7 of 7 sessions that synced on 2026-11-12. So the `aat` value itself varies
-  between reads, or the artwork alternates with nil. Not fixed.
-- Code read (branch `diag/apple-music-header-churn`): the comparison is `PlaylistSyncState.headerMatches`
-  (exact string equality; no normalisation on write: `upsertPlaylist` stores `input.compositePath` as is).
-  `AppleMusicArtworkPath.stable` strips only `musicKit://` URLs that carry `aat`; an `https` URL, or a path
-  segment that varies, passes through untouched. Hypotheses, unproven: (1) `artwork.url(width:height:)` returns
-  a non-`musicKit` URL for these two playlists (generated mosaic), which `stable` does not touch; (2) the `aat`
-  value or the path part varies per read; (3) the artwork alternates between a URL and nil.
-- Diagnostic now in: `LibraryWriter.write` logs, on each header write whose `compositePath` differs, the stored
-  and incoming path shape (nil/empty, length, SHA-256 prefix, scheme+host, path with long segments as lengths,
-  query parameter names) and `valuesDiffer=` (the parts or query names whose values differ). Next step: run two
-  syncs on the 16 Pro, read those lines for `p.1YeW3rpCkzaPXR` and `p.V7VYlM7CoLPe16`, then decide: compare a
-  stable part only, or keep the stored path when the playlist's dates are unchanged. Remove the diagnostic with
-  this entry.
-- PROVEN CAUSE (16 Pro, build `202611121404.6631`, two syncs on 2026-11-12, sessions 140928 and 141257): stored
-  and incoming `compositePath` are both 377-character https URLs with query names `X-Amz-Algorithm,
-  X-Amz-Credential,X-Amz-Date,X-Amz-Expires,X-Amz-Signature,X-Amz-SignedHeaders` and
-  `valuesDiffer=query.X-Amz-Date,query.X-Amz-Signature`; sync #2's stored value equals sync #1's incoming one.
-  So `artwork.url(width:height:)` returns a pre-signed (AWS SigV4) URL, fresh on every read, which
-  `AppleMusicArtworkPath.stable` (musicKit:// only) passes through. Each rewrite queues a `.pathChanged` artwork
-  invalidation (`PlaylistRepository.recordPlaylistArtworkInvalidationIfNeeded`), which wipes the artwork caches
-  and sends `.artworkInvalidated` (every `ArtworkView` reloads), and the changed `sourcePath` makes
-  `cachePlaylistArtwork` download the image again; the Siri index also changes (`artworkPath` is in its items).
-- Fix status: built on `fix/apple-music-signed-artwork-header`, awaiting the phone check. A "silent refresh": the row
-  still stores the latest signed URL each sync (so it is never more than one sync old; `X-Amz-Expires` is unknown),
-  but a difference in `X-Amz-*` query items only is not a change. `ArtworkPathIdentity.of` (EnsemblePersistence)
-  is the signature-free identity; `LibraryWriter.write` does not count such a write as changed (no catalog
-  publication, no Siri/Spotlight refresh), `recordPlaylistArtworkInvalidationIfNeeded` queues no invalidation,
-  `ArtworkIdentity.matches(sourcePath:)` and the Siri index compare identities. The log shows
-  `differs: compositePath(signature)`. Only the SigV4 authentication parameters are ignored (`X-Amz-Algorithm`,
-  `-Credential`, `-Date`, `-Expires`, `-SignedHeaders`, `-Signature`, `-Security-Token`). A view with no image yet
-  re-runs its load when the raw path changes (`ArtworkView.loadTaskID`), so a failed load recovers from a
-  refreshed URL. Residual risk: a new image published at the same object key with an unchanged or nil
-  `dateModified` is not detected (`PlaylistRepository.swift:441` still invalidates on a `dateModified` change,
-  the one remaining signal), and other signing schemes would still churn. Phone check: `docs/reference/physical-device-backlog.md`. Remove this entry
-  and the diagnostic lines once confirmed.
-- Latent, not fixed: `reconcilePlaylist` builds its header with `canEdit: true`, no REST artwork and a
-  MusicKit-only date, so after a playlist mutation the next list sync rewrites that header once (bounded).
+The two playlists' artwork URLs are SigV4 pre-signed and fresh on every read. Since `6d23e4b1` a signature-only
+difference refreshes the stored URL without counting as a change (confirmed on the 16 Pro, build `202611121446.6234`:
+five syncs, each `wrote 0, removed 0, refreshed 2 signed artwork paths`, no invalidation or re-download lines).
+- **Residual risk (suspected, not observed):** a new image published at the same object key with an unchanged or nil
+  `dateModified` is not detected; a `dateModified` change still invalidates (`PlaylistRepository.swift:441`).
+- **Other signing schemes** would still churn; only the seven SigV4 authentication parameters are ignored.
+- **Next step:** none unless a stale cover or a new `differs: compositePath` loop is seen.
 
 ## Implemented, awaiting phone checks: background launches skip the foreground launch work (2026-11-11)
 

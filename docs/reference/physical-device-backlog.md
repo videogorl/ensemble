@@ -932,3 +932,12 @@ Wi-Fi then launched on cellular (the SE has no SIM; needs the 16 Pro); a third u
 | --- | --- |
 | Install the build, run two Apple Music playlist syncs. For `p.1YeW3rpCkzaPXR` and `p.V7VYlM7CoLPe16`: the log shows `differs: compositePath(signature)` only (after the first sync, which may also show it once) and the summary line `Playlists …: wrote 0, removed 0, refreshed 2 signed artwork paths`, no `artworkInvalidated` or "marked stale" lines and no artwork re-download lines for them, and their artwork still displays in the Playlists list and detail, also after a force-quit and relaunch | Owed |
 | A playlist whose cover really changes in Apple Music still logs `differs: compositePath`, is invalidated, and shows the new cover | Owed |
+
+## Signed Apple Music artwork refresh (16 Pro, 2026-11-12, build `202611121446.6234`)
+
+Four cold launches, five playlist syncs: every summary read `wrote 0, removed 0, refreshed 2 signed artwork paths`,
+both playlists logged `differs: compositePath(signature)`, and no invalidation, re-download or catalog-change line
+followed (one `Spotlight indexed 1 changed media items` 2.3 s after the first sync on the new build, the expected
+one-time index rewrite). Every Apple Music playlist row showed artwork; a playlist detail header showed its cover.
+Still owed: a real cover change on one of these playlists is picked up (add or remove a song in Music, then sync).
+Logs: `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.BBiylz1QPW`.
