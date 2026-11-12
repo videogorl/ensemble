@@ -911,4 +911,5 @@ Fix: `PlexAPIClient.refreshConnection` re-probes once when it ended in cancellat
 cancelled, and the connection revision or routing generation changed since the call began (debug log
 "Connection refresh superseded ..."); `PlaybackTransportCoordinator.streamDecision` takes its existing
 refresh-and-retry branch for a cancellation the task did not ask for. A second supersession surfaces as before.
+The startup retry in `PlaybackService+Loading.swift` (refresh, then reassemble) also covers `cannotFindHost` and `dnsLookupFailed` for a URL assembled from a replaced endpoint, at the cost of one bounded extra attempt (500 ms sleep plus a refresh) for a genuinely unresolvable host.
 Phone check: `docs/reference/physical-device-backlog.md`, "launched on cellular after last use on Wi-Fi".

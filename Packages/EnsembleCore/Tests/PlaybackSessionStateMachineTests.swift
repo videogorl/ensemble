@@ -41,18 +41,25 @@ final class PlaybackSessionStateMachineTests: XCTestCase {
     }
 
     func testShouldRetryResolutionOnlyForRetryableNetworkErrorsBeforeFinalAttempt() {
-        let retryable = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
-        let nonRetryable = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
-
-        XCTAssertTrue(
-            PlaybackSessionStateMachine.shouldRetryResolution(after: retryable, attempt: 0)
-        )
-        XCTAssertFalse(
-            PlaybackSessionStateMachine.shouldRetryResolution(after: retryable, attempt: 1)
-        )
-        XCTAssertFalse(
-            PlaybackSessionStateMachine.shouldRetryResolution(after: nonRetryable, attempt: 0)
-        )
+        let cases: [(code: Int, attempt: Int, retries: Bool)] = [
+            (NSURLErrorTimedOut, 0, true),
+            (NSURLErrorTimedOut, 1, false),
+            (NSURLErrorCancelled, 0, false),
+            // A URL assembled from an endpoint a refresh replaced fails to resolve, so DNS failures retry once.
+            (NSURLErrorCannotFindHost, 0, true),
+            (NSURLErrorDNSLookupFailed, 0, true),
+            (NSURLErrorDNSLookupFailed, 1, false),
+        ]
+        for testCase in cases {
+            let error = NSError(domain: NSURLErrorDomain, code: testCase.code)
+            XCTAssertEqual(
+                PlaybackSessionStateMachine.shouldRetryResolution(after: error, attempt: testCase.attempt),
+                testCase.retries,
+                "code \(testCase.code) attempt \(testCase.attempt)"
+            )
+        }
+        // The wider set that classifies terminal failures and schedules prefetch retries is unchanged.
+        XCTAssertFalse(PlaybackSessionStateMachine.isRecoverableNetworkFailure(NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost)))
     }
 
     func testClassifyTerminalFailureDistinguishesTLSConnectionAndGeneric() {

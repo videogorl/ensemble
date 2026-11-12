@@ -880,6 +880,6 @@ is retried once (`Connection refresh superseded by a configuration update — re
 | Same with Wi-Fi off | Downloaded song plays at once; a streaming-only item fails promptly with the existing message; `Offline — skipping server health checks` | Not run |
 | Plex server unreachable, internet up | A downloaded or cached first track plays without waiting; a streaming-only item fails on its own server probe, not after an all-servers pass | Not run |
 | Library hidden by the active Focus | Still refused (`Focus filter not restored` or the item not found), no playback | Not run |
-| Last used on Wi-Fi, then launched a streaming Shortcut on cellular (seeded `.online(.wifi)`, live cellular: a forced interface-switch refresh) | The track plays; the log shows the retry line if a refresh superseded the probe; no `serverUnavailable` | Not run |
+| Last used on Wi-Fi, then launched a streaming Shortcut on cellular (seeded `.online(.wifi)`, live cellular: a forced interface-switch refresh) | The track plays; the log shows the retry line if a refresh superseded the probe (a first-byte DNS failure also gets one refresh-and-reassemble retry); no `serverUnavailable` | Not run |
 | Cold Add to Ensemble Playlist, and a radio or station start, from a Shortcut | `health=awaited` (`No connected servers — running health checks` when none is connected) before the request, as before | Not run |
 | Cold Shortcut play, then open the app within a minute | One startup health pass in the log, not two back to back | Not run |

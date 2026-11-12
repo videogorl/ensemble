@@ -41,11 +41,17 @@ enum PlaybackSessionStateMachine {
         )
     }
 
+    /// The startup retry (after a refresh) also covers DNS failures: a URL assembled from the endpoint a refresh has
+    /// since replaced fails to resolve, while the replacement works. Not added to `retryableNetworkErrorCodes`, which
+    /// also drives terminal-failure classification and prefetch/recovery scheduling.
+    private static let startupRetryNetworkErrorCodes = retryableNetworkErrorCodes
+        .union([NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed])
+
     static func shouldRetryResolution(after error: Error, attempt: Int) -> Bool {
         guard attempt + 1 < maxResolutionAttempts else { return false }
         let nsError = underlyingError(error) as NSError
         guard nsError.domain == NSURLErrorDomain else { return false }
-        return retryableNetworkErrorCodes.contains(nsError.code)
+        return startupRetryNetworkErrorCodes.contains(nsError.code)
     }
 
     static func isSuperseded(requestGeneration: UInt64, currentGeneration: UInt64) -> Bool {
