@@ -866,8 +866,10 @@ Request → `playing`, from session logs (app state, not audible output):
 
 - **Not reproduced:** the code-read hypothesis that Play waits on a whole-file prebuffer for a restored streaming track.
   No `[preBuffer]` line was logged for any restored streaming track, including taps 6–15 s after launch.
-- **Candidate (not approved):** the Siri/Shortcut cold path awaits the all-servers health check before resolving the
-  item, even when the first track is local or cached. The play path already checks the track's own server.
+- **Implemented, awaiting phone checks (branch `fix/siri-play-health-wait`):** the Siri/Shortcut cold path no longer
+  awaits the all-servers health pass before resolving the item; `prepareForBackgroundPlayback` starts it without
+  waiting (skipped offline or when the launch pipeline already runs it). The play path checks the track's own server.
+  Owed rows: `docs/reference/physical-device-backlog.md`, "Shortcut cold play without the health wait".
 - **Unexplained:** one Shortcut run (the first after the shortcut was created) had ~31 s with no app log lines between
   `NetworkMonitor: Started monitoring` and `Server connectivity ready`. Next step: repeat a first-run-after-create and
   capture a sysdiagnose-level log to see whether the wait is in Shortcuts or in `prepareForBackgroundPlayback`.

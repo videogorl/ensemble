@@ -5,15 +5,18 @@ import UIKit
 #endif
 
 /// Brings a process that was started only to play (an App Intent or a Siri hand-off) to the state a launched
-/// scene reaches: accounts loaded, server connectivity known, and sync providers registered for stream resolution.
+/// scene reaches: Focus filter restored, accounts loaded, network state current, and sync providers registered
+/// for stream resolution.
 ///
-/// The connectivity wait is bounded by `timeout` (an intent has about 30 s in all, and a forced health pass can sit
-/// behind a 120 s resource timeout). It is skipped offline, where downloaded tracks and queued mutations need no
-/// server. Running out of time is not an error: providers still register, and a stream that cannot resolve fails
-/// on its own. Missing credentials are an error.
+/// It does not wait for server health. Playback resolves a local or cached file without a server, and otherwise
+/// checks only the track's own server (`SyncCoordinator.ensureServerConnection`); a server whose health is still
+/// unknown counts as available. The all-servers health pass starts here (unless the launch pipeline already has
+/// it running) for the rest of the app, and is skipped offline. Missing credentials are an error.
 @MainActor
-func prepareForBackgroundPlayback(origin: String, timeout: Duration = .seconds(8)) async throws {
+func prepareForBackgroundPlayback(origin: String) async throws {
     let container = AppRoot.container
+    // The network wait is independent of the Focus lookup, so they overlap.
+    async let networkReady = startNetworkMonitorAndAwaitCurrentState(container.networkMonitor)
     guard await restoreFocusFilter() else {
         AppLogger.error("SIRI_APP: [origin=\(origin)] Focus filter not restored; refusing to start")
         throw EnsembleIntentError.failed("Ensemble couldn't confirm which libraries are visible. Open Ensemble and try again.")
@@ -27,34 +30,27 @@ func prepareForBackgroundPlayback(origin: String, timeout: Duration = .seconds(8
         throw EnsembleIntentError.credentialsUnavailable
     }
     container.serverHealthChecker.prepopulateUnknownStates()
-
-    await waitBounded(timeout) {
-        // Offline needs no server, so decide that before joining a health check that cannot succeed.
-        let network = container.networkMonitor
-        await startNetworkMonitorAndAwaitCurrentState(network)
-        guard network.networkState != .offline else {
-            AppLogger.info("SIRI_APP: [origin=\(origin)] Offline — skipping server health checks")
-            return
-        }
-
-        // Join the health checks the launch pipeline already started instead of running a second set.
-        #if os(iOS)
-        if let earlyTask = (UIApplication.shared.delegate as? AppDelegate)?.earlyHealthCheckTask {
-            AppLogger.info("SIRI_APP: [origin=\(origin)] Awaiting early health checks from didFinishLaunching...")
-            await earlyTask.value
-        }
-        #endif
-
-        if !container.serverHealthChecker.serverStates.values.contains(where: \.isAvailable) {
-            AppLogger.info("SIRI_APP: [origin=\(origin)] No connected servers — running health checks")
-            await container.syncCoordinator.refreshServerHealthStates()
-        }
-    }
+    _ = await networkReady
 
     // A cancelled intent must not register providers or start anything.
     try Task.checkCancellation()
     container.syncCoordinator.refreshProviders()
-    AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready")
+    startServerHealthChecksIfNeeded(origin: origin)
+    AppLogger.info("SIRI_APP: [origin=\(origin)] Ready for playback")
+}
+
+/// Starts, without awaiting, the health pass that a foreground launch would have started. Offline needs no server.
+@MainActor
+private func startServerHealthChecksIfNeeded(origin: String) {
+    guard AppRoot.container.networkMonitor.networkState != .offline else {
+        AppLogger.info("SIRI_APP: [origin=\(origin)] Offline — skipping server health checks")
+        return
+    }
+    #if os(iOS)
+    if (UIApplication.shared.delegate as? AppDelegate)?.earlyHealthCheckTask != nil { return }
+    #endif
+    AppLogger.info("SIRI_APP: [origin=\(origin)] Starting server health checks in the background")
+    Task { @MainActor in await AppRoot.container.syncCoordinator.refreshServerHealthStates() }
 }
 
 @MainActor private let focusRestoration = SharedRestoration()
@@ -80,21 +76,4 @@ func startNetworkMonitorAndAwaitCurrentState(_ network: NetworkMonitor, maxWait:
         guard (try? await Task.sleep(for: .milliseconds(100))) != nil else { break }
     }
     return startedMonitor
-}
-
-/// Waits for `work` or `timeout`, whichever comes first. `work` is never cancelled: it may be waiting on a health
-/// refresh other callers share, and it is harmless once the caller has moved on.
-@MainActor
-private func waitBounded(_ timeout: Duration, _ work: @escaping @MainActor () async -> Void) async {
-    let (finished, signal) = AsyncStream.makeStream(of: Void.self)
-    Task { @MainActor in
-        await work()
-        signal.yield()
-    }
-    let deadline = Task {
-        try? await Task.sleep(for: timeout)
-        signal.yield()
-    }
-    await finished.first { _ in true }
-    deadline.cancel()
 }
