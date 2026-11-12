@@ -1,8 +1,7 @@
 # App Intents design (2026-11-11)
 
 Status: approved by Felicity on 2026-11-11, all six phases. Phases 1 to 3 are merged; phase 5 (the Mac) is built on
-`feature/app-intents-mac` and awaits the manual Mac checks in the physical-device backlog; phase 4 (Siri AI audio schemas) is built on
-`feature/app-intents-siri-ai`, see below; phase 6 is deferred. "What exists today" below describes the code before phase 1. Research sources are
+`feature/app-intents-mac` and awaits the manual Mac checks in the physical-device backlog; phase 4 (Siri AI audio schemas) was built and withdrawn, see below; phase 6 is deferred. "What exists today" below describes the code before phase 1. Research sources are
 listed at the end.
 
 ## Built (phases 1 to 3)
@@ -49,12 +48,13 @@ from macOS 14 and `IndexedEntity` from macOS 15; Apple's HIG says nothing firm a
 unchanged and what the Mac surfaces (Shortcuts app, Spotlight) is a manual check. Left for the Mac: the headless
 checks below.
 
-Siri AI audio schemas (phase 4): built, awaiting the phone checks in the physical-device backlog. See
-`docs/investigations/2026-11-12-siri-ai-audio-schemas.md`. `AudioSchemaIntents.swift` adds song, album, artist and playlist
-schema entities (separate types; the existing entities and saved identifiers are unchanged), `IntentValueQuery` over
-`AudioSearch` on each query (existing matcher, visibility rules and Focus restore), and the `playAudio`, `addToPlaylist`
-and `createStation` schema intents, all calling the existing play, enqueue, add and radio code. Not built:
-`updateAudioAffinity` (no dislike), the now-playing entity identifier, `addToLibrary`.
+Siri AI audio schemas (phase 4): built, tested on the iPhone 16 Pro across six builds, and withdrawn on 2026-11-12. Siri
+AI queries one entity kind per request (a different one each run) and in the last round did not reach our add intent in
+0 of 4 tries, creating a same-named playlist in Apple Music instead. The SiriKit extension remains the path on Siri AI
+phones for play; voice add on Siri AI phones is not supported (Siri answers it itself). The code is parked on
+`parked/siri-ai-audio-schemas` (24cc5782). See `docs/investigations/2026-11-12-siri-ai-audio-schemas.md`, "Withdrawn
+2026-11-12". What stayed from the work: the duplicate handling of the Add to Playlist and Add Current Song to Playlist
+Shortcuts actions (live server membership, "already in" dialog).
 
 Left for later: Play Genre (deferred by the owner; the genre loader is not in Core), phases 4 to 6 below.
 
@@ -107,7 +107,7 @@ One set of entities and intents, shared by iPhone, iPad and Mac, with the schema
 3. **More ways to start music.** Shuffle Library, Play Favorites, Play Recently Added, Play Genre, Play Mood, and
    Start Track Radio (the existing feature). App Shortcut tiles stay at about five: Play Playlist, Play Album,
    Play Artist, Shuffle Library, Play Favorites; everything else is an action in the editor.
-4. **Siri AI audio schemas** (iOS and macOS 27 only, behind availability checks). The four entities adopt the
+4. **Siri AI audio schemas** (withdrawn 2026-11-12, see above; the original plan follows) (iOS and macOS 27 only, behind availability checks). The four entities adopt the
    audio entity schemas; `playAudio` plus an `AudioSearch` query reuse the existing Siri index matcher;
    `addToPlaylist`, `updateAudioAffinity` and `createStation` map to phase 2 and 3 actions; the now-playing info
    carries the entity identifier. The SiriKit extension stays for HomePod, older devices and Siri without AI.

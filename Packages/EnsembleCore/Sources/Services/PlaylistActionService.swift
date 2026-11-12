@@ -1,3 +1,4 @@
+import EnsemblePersistence
 import EnsembleDomain
 import Foundation
 
@@ -47,6 +48,24 @@ public struct PlaylistActionService {
     public func tracks(_ tracks: [Track], excluding existingTracks: [Track]) -> [Track] {
         tracks.filter { track in
             !existingTracks.contains { tracksMatch(track, $0) }
+        }
+    }
+
+    /// Preserves order while removing tracks the server reports in the playlist now, on proven identity only: the same
+    /// rating key on the playlist's own server (Plex), or the same Apple Music rating key, catalog ID or library ID.
+    /// A title, artist and duration that merely agree is not proof (a clean and an explicit version differ), so an
+    /// uncertain match stays in the write. `tracksMatch`'s metadata fallback is for other callers.
+    public func tracks(_ tracks: [Track], excludingMembers members: [PlaylistTrackSnapshot]) -> [Track] {
+        tracks.filter { track in
+            !members.contains { member in
+                guard member.ratingKey != track.id else { return true }
+                guard track.isAppleMusic else { return false }
+                let memberTrack = Track(id: member.ratingKey, key: member.key, title: member.title,
+                                        sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey)
+                if let catalog = track.appleMusicCatalogID, catalog == memberTrack.appleMusicCatalogID { return true }
+                if let library = track.appleMusicLibraryID, library == memberTrack.appleMusicLibraryID { return true }
+                return false
+            }
         }
     }
 

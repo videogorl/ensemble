@@ -1071,6 +1071,37 @@ public final class SyncCoordinator {
         return PlaylistMutationResult(addedCount: compatible.count, skippedCount: tracks.count - compatible.count)
     }
 
+    /// The playlist's members as its server reports them now, from the same reads a playlist sync uses (the list, then
+    /// this playlist's body). Nil when offline, when the read fails, is not proven complete or runs past `timeout`:
+    /// the caller must then treat membership as unknown, never fall back to the cache.
+    public func liveMembers(of playlist: Playlist, timeout: Duration = .seconds(4)) async -> [PlaylistTrackSnapshot]? {
+        guard !isOffline,
+              let provider = providerResolver.resolve(sourceKey: playlist.sourceCompositeKey, allowServerScope: true)?.provider
+        else { return nil }
+        let id = playlist.id
+        // Raced through a stream rather than a task group: a group waits for the losing read, so a request that
+        // ignores cancellation would hold the add past the timeout.
+        let (results, continuation) = AsyncStream<[PlaylistTrackSnapshot]?>.makeStream()
+        let read = Task {
+            guard let header = try? await provider.fetchPlaylistHeaders().headers.first(where: { $0.ratingKey == id }),
+                  let entry = try? await provider.fetchPlaylistBodies(for: [header]).first
+            else {
+                continuation.yield(nil)
+                return
+            }
+            continuation.yield(entry.body)
+        }
+        let timer = Task {
+            try? await Task.sleep(for: timeout)
+            continuation.yield(nil)
+        }
+        defer {
+            read.cancel()
+            timer.cancel()
+        }
+        return await results.first { _ in true } ?? nil
+    }
+
     /// Add tracks to an existing playlist and reconcile its provider-owned cache.
     public func addTracksToPlaylist(_ tracks: [Track], playlist: Playlist) async throws -> PlaylistMutationResult {
         guard playlist.supportsPlaylistTrackAdds else {

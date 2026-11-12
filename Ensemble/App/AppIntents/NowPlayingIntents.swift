@@ -49,10 +49,27 @@ func add(_ tracks: [Track], to playlist: SiriMediaIndexItem) async throws -> Int
            PlaylistActionService().tracks(tracks, compatibleWithServerSourceKey: target.sourceCompositeKey).isEmpty {
             throw EnsembleIntentError.differentSources
         }
+        // "Already in the playlist" comes only from what the server reports now: a cached membership can be stale
+        // (the song may have been removed elsewhere). Without a live read (offline, failure, timeout) membership is
+        // unknown, so everything is sent, as an add always was.
+        // Members are removed before the compatibility filter, whose de-duplication also matches on metadata and so
+        // could fold an absent version into a present one.
+        let service = PlaylistActionService()
+        var sending = tracks
+        if let members = await container.syncCoordinator.liveMembers(of: target) {
+            sending = service.tracks(tracks, excludingMembers: members)
+            if service.tracks(sending, compatibleWithServerSourceKey: target.sourceCompositeKey).isEmpty {
+                AppLogger.info("SIRI_SHORTCUT: add playlist='\(playlist.displayName)' outcome=already in playlist tracks=\(tracks.count)")
+                return tracks.count == 1
+                    ? IntentDialog("\(tracks[0].title) is already in \(playlist.displayName).")
+                    : IntentDialog("Those songs are already in \(playlist.displayName).")
+            }
+        }
+        let acceptedCount = service.tracks(sending, compatibleWithServerSourceKey: target.sourceCompositeKey).count
         let outcome = try await nowPlayingViewModel(for: container)
-            .addTracksOptimistically(tracks, to: target)
-        // The optimistic path filters incompatible and duplicate tracks and reports only the outcome, so the
-        // dialog does not claim a count.
+            .addTracksOptimistically(sending, to: target)
+        // "accepted": the write is persisted and sent in the background, so this is not proof the server took it.
+        AppLogger.info("SIRI_SHORTCUT: add playlist='\(playlist.displayName)' outcome=\(outcome == .queued ? "queued" : "accepted") tracks=\(acceptedCount)")
         return outcome == .queued
             ? IntentDialog("Will be added to \(playlist.displayName) when you're back online.")
             : IntentDialog("Added to \(playlist.displayName).")

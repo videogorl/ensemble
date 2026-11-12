@@ -5,6 +5,28 @@ API that would replace custom machinery. Each entry gives evidence, impact and a
 step, and says whether it is suspected or confirmed. Remove an entry when it is fixed.
 An entry does not authorize the work; Felicity picks what gets done.
 
+## Open: Siri AI does not route voice add or create station to the app (2026-11-12)
+
+- Evidence: six phone builds on an iPhone 16 Pro (iOS 27.3, typed Siri); table in the investigation note, "Withdrawn
+  2026-11-12". Siri AI queries one entity kind per request, a different one each run, and on the last build 0 of 4
+  adds reached our intent: Siri created "ZZ Test Siri AI" in Apple Music and added there. Create station was "not
+  supported" without `playAudio`. The schema code is parked on `parked/siri-ai-audio-schemas` (24cc5782).
+- Impact: on Siri AI phones, "add this song to <playlist>" is answered by Siri itself and can write to Apple Music;
+  play still works through the SiriKit extension (4 of 5 on the build without `playAudio`).
+- Next step: retry only on a later iOS 27 build where Siri queries the playlist kind for add destinations reliably, or
+  once Apple documents how Siri AI chooses the entity kind; start from the parked branch.
+
+## Confirmed: the shared matcher strips a trailing kind word for every kind (2026-11-12)
+
+- Evidence: phone session log, Siri AI, "Play my focus playlist": `audio search kind=artist query='focus playlist' found=2`
+  and the artist "Focus On The Family Radio Theatre" played. `SiriPhraseNormalizer.queryVariants` adds
+  `strippingPossessiveAndTrailingMediaType` ("focus") for any search, so a prefix match scores 0.84 against an artist.
+  The shared matcher is unchanged (the schema path that refused another kind's query was withdrawn).
+- Impact: SiriKit and any other `rankCandidates` caller with `requestedKinds` of an artist, album or track can still
+  match a "... playlist" request to those kinds.
+- Next step: make the stripped variant count only when the stripped word's kind is requested (or no kind is);
+  `SiriMatchingTests` and the SiriKit handler tests need a read first, which this change did not undertake.
+
 ## Confirmed: foreground launch work starts about 0.75-1.3 s later than before (2026-11-12)
 
 - Evidence: iPhone SE, build 202611120623.9162, cold icon launch: `didFinishLaunching` 06:25:00.100,
@@ -807,3 +829,13 @@ Report: `$TMPDIR/ensemble-devmcp-checks/group-3d.md`. None of these come from st
   (`SharedRestoration.swift`, `BackgroundPlaybackReadiness.swift` `restoreFocusFilter`).
 - Impact: in that process Play pickers return no entities and background playback throws until the app is relaunched.
 - Next step: bound the underlying run (cancel it after a longer limit) or let `ensure` start a new run after a timeout.
+
+## "Added to <playlist>" can be said before the server takes the write (confirmed by code read)
+
+- **Evidence:** `enqueuePlaylistAddOptimistically` returns `.completed` whenever the network monitor is connected, after
+  persisting the mutation and scheduling the background drain. With internet but the Plex server unreachable, the
+  Add to Playlist Shortcut says "Added to …" while the write is still pending. Found in the Codex review of the Siri AI
+  withdrawal (2026-11-12); the behaviour predates it. The `SIRI_SHORTCUT:` log line says `accepted` for this reason.
+- **Impact:** a spoken confirmation that is early, not wrong: the mutation is stored and replays. Low.
+- **Next step:** decide whether the Shortcut should await the first write attempt (bounded) before choosing between
+  "Added" and "Will be added".
