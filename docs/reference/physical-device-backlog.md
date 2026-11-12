@@ -800,9 +800,9 @@ line, with the retry at the next `.active`). A background intent logs none of th
 | Check | Expect in the log | Result |
 | --- | --- | --- |
 | Cold Shortcuts toggle (shuffle or repeat) from a killed app | `launch: no launch request yet`, `foregroundLaunchWork=deferred`. No `Starting network monitor + early health checks`, `Starting startup sync`, `WebSocket ... Connecting`, `siriIndexRebuild`, `Spotlight indexed`, `deferred healing started` | Not run |
-| Cold Play/Pause, then Next | The same absences, `Ready for playback` from `SIRI_APP: [origin=intent]`, playback starts, queue restored | Not run |
-| Cold play by name (Siri or Shortcut) | `SIRI_APP: [origin=...] Ready for playback`, a background health pass (`Starting server health checks in the background`) that playback does not wait for, playback starts | Not run |
-| Cold add to playlist | The add checks its own server (no all-servers health wait); the add lands or queues offline | Not run |
+| Cold Play/Pause, then Next | The same absences, `Server connectivity ready` from `SIRI_APP: [origin=intent]` (Play/Pause and Next wait for health, `health=awaited`), playback starts, queue restored | Not run |
+| Cold play by name (Siri or Shortcut) | `SIRI_APP: [origin=...] Server connectivity ready (health=deferred)`, playback starts, then `Playback resolved — starting server health checks` | Not run |
+| Cold add to playlist | `health=awaited`: the all-servers health result comes before the add (unchanged); the add lands or queues offline | Not run |
 | Each of the above, then open the app within a minute | One `LAUNCH_WORK: starting foreground launch work` line at the first `.active`, one `Starting startup sync...`, one WebSocket start per server, Home and library show loading then fill, no empty or error flash | Not run |
 | Locked phone: start playback by intent, then turn Wi-Fi off and on | `stateChanged ... transition=disconnect`, then `reconnect`, then `Health refresh complete`; playback recovers or resolves the next track. If not, see the `ON_DECK.md` entry on monitoring | Not run |
 | Overnight background refresh | `Background refresh triggered` and `Background refresh phase=` lines, `foregroundLaunchWork=deferred`, no `starting foreground launch work` until the app is opened | Not run |
@@ -868,10 +868,14 @@ did not confirm the song was the playlist's first. The artist request needed a p
 
 ## Shortcut cold play without the health wait (`fix/siri-play-health-wait`)
 
+Only the plain play entrances (Siri play, and Shortcuts play of a track, album, artist or playlist) defer the pass.
+
 | Check | Expect | Result |
 | --- | --- | --- |
-| Play Playlist Shortcut from a killed app, first track downloaded | Process start to `playing` about 0.5 s or less excluding system time (was 2.3–2.6 s); `Ready for playback` precedes `Starting server health checks in the background` | Not run |
-| Same, first track an uncached Plex stream | Plays; only that track's server is checked; health pass runs in the background | Not run |
+| Play Playlist Shortcut from a killed app, first track downloaded | Process start to `playing` about 0.5 s or less excluding system time (was 2.3–2.6 s); `Server connectivity ready (health=deferred)`, then `Playback resolved — starting server health checks` after the play call returns | Not run |
+| Same, first track an uncached Plex stream | Plays; only that track's server is probed before playback; the health pass starts after it | Not run |
 | Same with Wi-Fi off | Downloaded song plays at once; a streaming-only item fails promptly with the existing message; `Offline — skipping server health checks` | Not run |
-| Plex server unreachable, internet up | A downloaded or cached first track plays without waiting; a streaming-only item fails on its own server check, not after an all-servers pass | Not run |
+| Plex server unreachable, internet up | A downloaded or cached first track plays without waiting; a streaming-only item fails on its own server probe, not after an all-servers pass | Not run |
 | Library hidden by the active Focus | Still refused (`Focus filter not restored` or the item not found), no playback | Not run |
+| Cold Add to Ensemble Playlist, and a radio or station start, from a Shortcut | Still `health=awaited` (`No connected servers — running health checks` when none is connected) before the request, as before | Not run |
+| Cold Shortcut play, then open the app within a minute | One startup health pass in the log, not two back to back | Not run |

@@ -74,8 +74,8 @@ var intentContainer: DependencyContainer { AppRoot.container }
 /// The container for an intent that starts playback or reaches a music source. A process started only for the
 /// intent has no scene to warm it up, so this awaits what a launched scene would have prepared.
 @MainActor
-func readyContainer() async throws -> DependencyContainer {
-    try await prepareForBackgroundPlayback(origin: "intent")
+func readyContainer(serverHealth: BackgroundServerHealth = .awaitAllServers) async throws -> DependencyContainer {
+    try await prepareForBackgroundPlayback(origin: "intent", serverHealth: serverHealth)
     return AppRoot.container
 }
 
@@ -104,7 +104,9 @@ extension IndexItemEntity {
             "SIRI_SHORTCUT: perform \(item.kind.rawValue, privacy: .public) shuffle=\(shuffle, privacy: .public) title='\(item.displayName, privacy: .private)' id='\(id, privacy: .private)'"
         )
         let request = playbackRequest(shuffle: shuffle)
-        let coordinator = try await readyContainer().siriPlaybackCoordinator
+        let coordinator = try await readyContainer(serverHealth: .deferUntilPlaybackStarts).siriPlaybackCoordinator
+        // Started when this returns, success or failure, so the pass cannot race the first track's own probe.
+        defer { startDeferredServerHealthChecks(origin: "intent") }
         try await reportingFailures {
             try await coordinator.execute(payload: SiriPlaybackRequestPayload(
                 kind: item.kind,

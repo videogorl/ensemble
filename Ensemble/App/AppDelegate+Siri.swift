@@ -362,7 +362,7 @@ func executeSiriPlaybackInBackground(
 
         // Siri can launch us without the normal UI lifecycle warmup.
         do {
-            try await prepareForBackgroundPlayback(origin: origin)
+            try await prepareForBackgroundPlayback(origin: origin, serverHealth: .deferUntilPlaybackStarts)
         } catch {
             AppLogger.error("SIRI_APP: [origin=\(origin)] Not ready for playback: \(error.localizedDescription)")
             intentCompletion?(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
@@ -395,7 +395,13 @@ func executeSiriPlaybackInBackground(
             AppLogger.info("SIRI_APP: [origin=\(origin)] Audio session activated; initial route: \(initialRoute)")
 
             AppLogger.info("SIRI_APP: [origin=\(origin)] Calling coordinator.execute()")
-            try await AppRoot.container.siriPlaybackCoordinator.execute(payload: payload)
+            do {
+                try await AppRoot.container.siriPlaybackCoordinator.execute(payload: payload)
+            } catch {
+                startDeferredServerHealthChecks(origin: origin)
+                throw error
+            }
+            startDeferredServerHealthChecks(origin: origin)
 
             let routeAfter = playbackService.currentAudioRouteDescription()
             AppLogger.info("SIRI_APP: [origin=\(origin)] Coordinator execute SUCCESS; route: \(routeAfter)")

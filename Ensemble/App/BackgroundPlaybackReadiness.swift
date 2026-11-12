@@ -4,16 +4,35 @@ import Foundation
 import UIKit
 #endif
 
+/// What `prepareForBackgroundPlayback` does about the all-servers health pass.
+enum BackgroundServerHealth {
+    /// Wait (bounded) until a server is known to be connected. For a caller that talks to a server without
+    /// `SyncCoordinator.ensureServerConnection` (playlist membership and adds, favorites and ratings, radio and
+    /// recommendations), whose first request would otherwise use an unprobed endpoint.
+    case awaitAllServers
+    /// Neither wait for nor start the pass. For the plain play entrances only: playback resolves a local or cached
+    /// file without a server, and otherwise probes the track's own server. The caller then calls
+    /// `startDeferredServerHealthChecks` once its play call has returned, so the pass cannot race that first probe.
+    case deferUntilPlaybackStarts
+}
+
 /// Brings a process that was started only to play (an App Intent or a Siri hand-off) to the state a launched
-/// scene reaches: Focus filter restored, accounts loaded, network state current, and sync providers registered
-/// for stream resolution.
+/// scene reaches: Focus filter restored, accounts loaded, server connectivity known (see `serverHealth`), and sync
+/// providers registered for stream resolution.
 ///
-/// It does not wait for server health. Playback resolves a local or cached file without a server, and otherwise
-/// checks only the track's own server (`SyncCoordinator.ensureServerConnection`); a server whose health is still
-/// unknown counts as available. The all-servers health pass starts here (unless the launch pipeline already has
-/// it running) for the rest of the app, and is skipped offline. Missing credentials are an error.
+/// The connectivity wait is bounded by `timeout` (an intent has about 30 s in all, and a forced health pass can sit
+/// behind a 120 s resource timeout). It is skipped offline, where downloaded tracks and queued mutations need no
+/// server. Running out of time is not an error: providers still register, and a stream that cannot resolve fails
+/// on its own. Missing credentials are an error.
+///
+/// A play tapped during a foreground launch has always overlapped the launch health pass; see the `ON_DECK.md`
+/// entry on health refreshes racing a playback probe.
 @MainActor
-func prepareForBackgroundPlayback(origin: String) async throws {
+func prepareForBackgroundPlayback(
+    origin: String,
+    serverHealth: BackgroundServerHealth = .awaitAllServers,
+    timeout: Duration = .seconds(8)
+) async throws {
     let container = AppRoot.container
     // The network wait is independent of the Focus lookup, so they overlap.
     async let networkReady = startNetworkMonitorAndAwaitCurrentState(container.networkMonitor)
@@ -32,25 +51,48 @@ func prepareForBackgroundPlayback(origin: String) async throws {
     container.serverHealthChecker.prepopulateUnknownStates()
     _ = await networkReady
 
+    if serverHealth == .awaitAllServers {
+        await waitBounded(timeout) {
+            // Offline needs no server, so decide that before joining a health check that cannot succeed.
+            guard container.networkMonitor.networkState != .offline else {
+                AppLogger.info("SIRI_APP: [origin=\(origin)] Offline — skipping server health checks")
+                return
+            }
+
+            // Join the health checks the launch pipeline already started instead of running a second set.
+            #if os(iOS)
+            if let earlyTask = (UIApplication.shared.delegate as? AppDelegate)?.earlyHealthCheckTask {
+                AppLogger.info("SIRI_APP: [origin=\(origin)] Awaiting early health checks from didFinishLaunching...")
+                await earlyTask.value
+            }
+            #endif
+
+            if !container.serverHealthChecker.serverStates.values.contains(where: \.isAvailable) {
+                AppLogger.info("SIRI_APP: [origin=\(origin)] No connected servers — running health checks")
+                await container.syncCoordinator.refreshServerHealthStates()
+            }
+        }
+    }
+
     // A cancelled intent must not register providers or start anything.
     try Task.checkCancellation()
     container.syncCoordinator.refreshProviders()
-    startServerHealthChecksIfNeeded(origin: origin)
-    AppLogger.info("SIRI_APP: [origin=\(origin)] Ready for playback")
+    AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready (health=\(serverHealth == .awaitAllServers ? "awaited" : "deferred"))")
 }
 
-/// Starts, without awaiting, the health pass that a foreground launch would have started. Offline needs no server.
+/// Starts, without awaiting, the health pass that `.deferUntilPlaybackStarts` skipped, once the play call has
+/// returned (success or failure). `performStartupHealthChecks` is the pass a foreground launch runs: it is
+/// once-per-process and joins a pass already in flight, so repeated plays, or a foreground launch before or after,
+/// never queue a second one (unlike `refreshServerHealthStates`, which forces a trailing pass each time). Offline
+/// needs no server and starts nothing.
 @MainActor
-private func startServerHealthChecksIfNeeded(origin: String) {
+func startDeferredServerHealthChecks(origin: String) {
     guard AppRoot.container.networkMonitor.networkState != .offline else {
         AppLogger.info("SIRI_APP: [origin=\(origin)] Offline — skipping server health checks")
         return
     }
-    #if os(iOS)
-    if (UIApplication.shared.delegate as? AppDelegate)?.earlyHealthCheckTask != nil { return }
-    #endif
-    AppLogger.info("SIRI_APP: [origin=\(origin)] Starting server health checks in the background")
-    Task { @MainActor in await AppRoot.container.syncCoordinator.refreshServerHealthStates() }
+    AppLogger.info("SIRI_APP: [origin=\(origin)] Playback resolved — starting server health checks")
+    Task { @MainActor in await AppRoot.container.syncCoordinator.performStartupHealthChecks() }
 }
 
 @MainActor private let focusRestoration = SharedRestoration()
@@ -76,4 +118,21 @@ func startNetworkMonitorAndAwaitCurrentState(_ network: NetworkMonitor, maxWait:
         guard (try? await Task.sleep(for: .milliseconds(100))) != nil else { break }
     }
     return startedMonitor
+}
+
+/// Waits for `work` or `timeout`, whichever comes first. `work` is never cancelled: it may be waiting on a health
+/// refresh other callers share, and it is harmless once the caller has moved on.
+@MainActor
+private func waitBounded(_ timeout: Duration, _ work: @escaping @MainActor () async -> Void) async {
+    let (finished, signal) = AsyncStream.makeStream(of: Void.self)
+    Task { @MainActor in
+        await work()
+        signal.yield()
+    }
+    let deadline = Task {
+        try? await Task.sleep(for: timeout)
+        signal.yield()
+    }
+    await finished.first { _ in true }
+    deadline.cancel()
 }

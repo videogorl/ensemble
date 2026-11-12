@@ -866,10 +866,12 @@ Request → `playing`, from session logs (app state, not audible output):
 
 - **Not reproduced:** the code-read hypothesis that Play waits on a whole-file prebuffer for a restored streaming track.
   No `[preBuffer]` line was logged for any restored streaming track, including taps 6–15 s after launch.
-- **Implemented, awaiting phone checks (branch `fix/siri-play-health-wait`):** the Siri/Shortcut cold path no longer
-  awaits the all-servers health pass before resolving the item; `prepareForBackgroundPlayback` starts it without
-  waiting (skipped offline or when the launch pipeline already runs it). The play path checks the track's own server.
-  Owed rows: `docs/reference/physical-device-backlog.md`, "Shortcut cold play without the health wait".
+- **Implemented, awaiting phone checks (branch `fix/siri-play-health-wait`):** the plain play entrances (Siri
+  `INPlayMediaIntent` execution and the Shortcuts play actions for a track, album, artist or playlist) pass
+  `serverHealth: .deferUntilPlaybackStarts` to `prepareForBackgroundPlayback`, so they no longer wait for the
+  all-servers health pass. They start it once, via `performStartupHealthChecks` (once per process, joins a pass in
+  flight, no forced pass), after the play call returns. Every other caller keeps the awaited default. Owed rows:
+  `docs/reference/physical-device-backlog.md`, "Shortcut cold play without the health wait".
 - **Unexplained:** one Shortcut run (the first after the shortcut was created) had ~31 s with no app log lines between
   `NetworkMonitor: Started monitoring` and `Server connectivity ready`. Next step: repeat a first-run-after-create and
   capture a sysdiagnose-level log to see whether the wait is in Shortcuts or in `prepareForBackgroundPlayback`.
@@ -884,3 +886,16 @@ Request → `playing`, from session logs (app state, not audible output):
 - **Impact:** nothing is deleted, but ~1.4 s of repository work repeats at each launch. Probably disabled library
   sections treated as removed each time rather than once.
 - **Next step:** find the caller that enumerates these keys at launch and why it does not remember a completed cleanup.
+
+## A health refresh can cancel playback's own server probe (suspected)
+
+Codex review of `fix/siri-play-health-wait`, from reading the code, not reproduced. If a health pass fetches
+resources and a connection descriptor changes while `SyncCoordinator.ensureServerConnection(track)` is probing,
+`AccountManager` advances the client revision, `PlexAPIClient` retires the old selector and throws
+`CancellationError`; `ensureServerConnection` rethrows it, and `PlaybackTransportCoordinator.swift:315` turns it into
+`PlaybackError.serverUnavailable`, which is not retryable, so a reachable track fails to start. A play tapped during
+a foreground launch has always overlapped the launch health pass, so this race predates the branch; the branch keeps
+the pass off the first probe on the cold Siri/Shortcut play path only.
+Next step (not implemented): when the target server's probe was cancelled because its revision changed and the
+playback task is still active, retry the probe once instead of failing. First reproduce with a delayed descriptor
+change (debug failure/delay injection) during a foreground-launch play.
