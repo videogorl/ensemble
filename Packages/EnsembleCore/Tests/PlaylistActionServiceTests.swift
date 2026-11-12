@@ -1,4 +1,5 @@
 import EnsembleDomain
+import EnsemblePersistence
 import XCTest
 @testable import EnsembleCore
 
@@ -203,6 +204,24 @@ final class PlaylistActionServiceTests: XCTestCase {
                 in: [apple, plex]
             )
         )
+    }
+
+    /// An add sends only what the server's current membership lacks: all present sends nothing, some present sends
+    /// the missing ones, and the cache is never consulted here.
+    func testLiveMembershipFiltersWhatIsSent() {
+        let key = "plex:account:server:library"
+        let a = makeTrack(id: "A", sourceCompositeKey: key)
+        let b = makeTrack(id: "B", sourceCompositeKey: key)
+        let member = { (id: String) in PlaylistTrackSnapshot(ratingKey: id, title: id) }
+        let cases: [([Track], [PlaylistTrackSnapshot], [String])] = [
+            ([a], [member("A")], []),
+            ([a, b], [member("A")], ["B"]),
+            ([a, b], [], ["A", "B"]),
+            ([a, b], [member("A"), member("B"), member("C")], [])
+        ]
+        for (tracks, members, expected) in cases {
+            XCTAssertEqual(service.tracks(tracks, excludingMembers: members).map(\.id), expected)
+        }
     }
 
     private func makeTrack(id: String, sourceCompositeKey: String?) -> Track {

@@ -315,7 +315,7 @@ struct AddAudioToEnsemblePlaylistIntent: AppIntent {
             }
             if tracks.count == 1, let track = tracks.first { title = track.title }
             let result = try await add(tracks, to: playlist.item)
-            let outcome = result.outcome == .added ? "added \(tracks.count)" : result.outcome.rawValue
+            let outcome = result.outcome == .added ? "added \(result.sent)" : result.outcome.rawValue
             AppLogger.info("SIRI_AI: add-to-playlist song='\(title)' playlist='\(playlist.item.displayName)' outcome=\(outcome)")
             return .result(dialog: result.dialog)
         } catch {

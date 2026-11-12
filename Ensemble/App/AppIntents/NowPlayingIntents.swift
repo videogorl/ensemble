@@ -38,7 +38,7 @@ enum PlaylistAddOutcome: String {
 }
 
 @MainActor
-func add(_ tracks: [Track], to playlist: SiriMediaIndexItem) async throws -> (dialog: IntentDialog, outcome: PlaylistAddOutcome) {
+func add(_ tracks: [Track], to playlist: SiriMediaIndexItem) async throws -> (dialog: IntentDialog, outcome: PlaylistAddOutcome, sent: Int) {
     let container = try await readyContainer()
     return try await reportingFailures {
         guard let stored = try await container.playlistRepository.fetchPlaylist(
@@ -56,28 +56,27 @@ func add(_ tracks: [Track], to playlist: SiriMediaIndexItem) async throws -> (di
            PlaylistActionService().tracks(tracks, compatibleWithServerSourceKey: target.sourceCompositeKey).isEmpty {
             throw EnsembleIntentError.differentSources
         }
-        // The Add to Playlist sheet shows "Already added" from the cached membership; do the same here, so a
-        // duplicate is neither written nor reported as added. Plex stays the authority when nothing is cached.
-        if let cached = try await container.playlistRepository.fetchPlaylist(
-            ratingKey: target.id,
-            sourceCompositeKey: target.sourceCompositeKey
-        ) {
+        // "Already in the playlist" comes only from what the server reports now: a cached membership can be stale
+        // (the song may have been removed elsewhere). Without a live read (offline, failure, timeout) membership is
+        // unknown, so everything is sent, as an add always was.
+        var sending = tracks
+        if let members = await container.syncCoordinator.liveMembers(of: target) {
             let service = PlaylistActionService()
             let compatible = service.tracks(tracks, compatibleWithServerSourceKey: target.sourceCompositeKey)
-            let existing = cached.playlistItemsArray.map { PlaylistItem(from: $0).track }
-            if !compatible.isEmpty, service.tracks(compatible, excluding: existing).isEmpty {
+            sending = service.tracks(compatible, excludingMembers: members)
+            if !compatible.isEmpty, sending.isEmpty {
                 AppLogger.info("SIRI_AI: add skipped, already in playlist='\(playlist.displayName)' tracks=\(tracks.count)")
                 let what = tracks.count == 1 ? tracks[0].title : "Those songs"
-                return (IntentDialog("\(what) is already in \(playlist.displayName)."), .alreadyInPlaylist)
+                return (IntentDialog("\(what) is already in \(playlist.displayName)."), .alreadyInPlaylist, 0)
             }
         }
+        let sentCount = PlaylistActionService().tracks(sending, compatibleWithServerSourceKey: target.sourceCompositeKey).count
         let outcome = try await nowPlayingViewModel(for: container)
-            .addTracksOptimistically(tracks, to: target)
-        // The optimistic path filters incompatible and duplicate tracks and reports only the outcome, so the
-        // dialog does not claim a count.
+            .addTracksOptimistically(sending, to: target)
+        // The dialog does not claim a count; the log does, from what was actually sent.
         return outcome == .queued
-            ? (IntentDialog("Will be added to \(playlist.displayName) when you're back online."), .queued)
-            : (IntentDialog("Added to \(playlist.displayName)."), .added)
+            ? (IntentDialog("Will be added to \(playlist.displayName) when you're back online."), .queued, sentCount)
+            : (IntentDialog("Added to \(playlist.displayName)."), .added, sentCount)
     }
 }
 

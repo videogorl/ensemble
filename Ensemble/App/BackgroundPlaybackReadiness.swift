@@ -14,6 +14,8 @@ import UIKit
 @MainActor
 func prepareForBackgroundPlayback(origin: String, timeout: Duration = .seconds(8)) async throws {
     let container = AppRoot.container
+    // Before anything can throw: whatever plays after this hand-off publishes its entity identifier.
+    installNowPlayingEntityIdentifiers()
     guard await restoreFocusFilter() else {
         AppLogger.error("SIRI_APP: [origin=\(origin)] Focus filter not restored; refusing to start")
         throw EnsembleIntentError.failed("Ensemble couldn't confirm which libraries are visible. Open Ensemble and try again.")

@@ -70,7 +70,7 @@ errors (the compiler does not check them; the extraction step does, and reports 
   `MPAppEntityIdentifier(entityIdentifier: EntityIdentifier(for: entity))` (failable). The app builds it for
   `EnsembleSongAudioEntity` (so the identifier equals the entity's `id` and `entities(for:)` hydrates it) and hands it to
   `PlaybackNowPlayingBridge` through a closure (`PlaybackService.setNowPlayingAppEntityIdentifiers`); Core stays free of
-  app types. Installed in `EnsembleRelevantEntitiesPublisher.start()`, iOS/macOS 27 only.
+  app types. Installed once by `installNowPlayingEntityIdentifiers()`, called from `prepareForBackgroundPlayback` (every intent or Siri hand-off, scene or not) and from the publisher's `start()`; iOS/macOS 27 only.
 - Prompt updates: `updateNowPlayingInfo()` runs on every queue advance, load, play and pause path and publishes whenever
   the state differs, and the state includes the track; a track change therefore republishes at once (read from the call
   sites, not measured on a device). A stale title is not the cause of the symptom.
@@ -80,5 +80,7 @@ errors (the compiler does not check them; the extraction step does, and reports 
   trailing-word-stripped variant for every kind, which is why "focus playlist" scored 0.84 against the artist "Focus On
   The Family Radio Theatre" (see ON_DECK.md).
 - A duplicate add: `add(_:to:)` called the optimistic add, which filters duplicates silently, so the intent reported
-  "Added". It now checks the cached membership as the Add to Playlist sheet does ("Already added") and says the song is
-  already in the playlist, without writing.
+  "Added". It now reads the playlist's current members from its server (`SyncCoordinator.liveMembers`, the playlist list
+  and body reads a sync uses, 4 s timeout), sends only tracks not already members, and says "already in" only when all
+  compatible tracks are. A cached membership is never proof: offline, a failed read or a timeout means unknown, and
+  everything is sent as before.

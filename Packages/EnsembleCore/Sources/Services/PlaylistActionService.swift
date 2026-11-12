@@ -1,3 +1,4 @@
+import EnsemblePersistence
 import EnsembleDomain
 import Foundation
 
@@ -47,6 +48,25 @@ public struct PlaylistActionService {
     public func tracks(_ tracks: [Track], excluding existingTracks: [Track]) -> [Track] {
         tracks.filter { track in
             !existingTracks.contains { tracksMatch(track, $0) }
+        }
+    }
+
+    /// Preserves order while removing tracks the server reports in the playlist now. Plex tracks match by rating key
+    /// (the candidates are already on the playlist's own server); Apple Music tracks by the usual song matching.
+    public func tracks(_ tracks: [Track], excludingMembers members: [PlaylistTrackSnapshot]) -> [Track] {
+        tracks.filter { track in
+            !members.contains { member in
+                guard track.isAppleMusic else { return member.ratingKey == track.id }
+                return tracksMatch(track, Track(
+                    id: member.ratingKey,
+                    key: member.key,
+                    title: member.title,
+                    artistName: member.artistName,
+                    albumName: member.albumName,
+                    duration: member.duration,
+                    sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+                ))
+            }
         }
     }
 
