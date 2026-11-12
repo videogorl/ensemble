@@ -383,9 +383,14 @@ private struct MiniPlayerTrackInfo: View {
 private struct MiniPlayerWaveform: View {
     let playbackProjection: NowPlayingPlaybackProjection
     let waveformColor: Color
+    @Environment(\.scenePhase) private var scenePhase
     @State private var waveformHeights: [Double] = []
     @State private var playbackProgress: Double = 0
     @State private var bufferedProgress: Double = 0
+
+    /// A backgrounded scene draws nothing, so progress ticks (2 Hz) would only invalidate
+    /// the view. The Lock Screen is driven by MPNowPlayingInfoCenter, not by this view.
+    private var isScenePresented: Bool { scenePhase != .background }
 
     var body: some View {
         WaveformView(
@@ -395,19 +400,28 @@ private struct MiniPlayerWaveform: View {
             heights: waveformHeights
         )
         .opacity(EnsembleScaffold.MiniPlayer.waveformOpacity)
-        .onAppear {
-            playbackProgress = playbackProjection.progress
-            bufferedProgress = playbackProjection.bufferedProgress
+        .onAppear(perform: syncFromProjection)
+        .onChange(of: isScenePresented) { _, isPresented in
+            if isPresented { syncFromProjection() }
         }
         .onReceive(playbackProjection.waveformPublisher) { heights in
+            guard isScenePresented else { return }
             waveformHeights = heights
         }
         .onReceive(playbackProjection.progressPublisher) { progress in
+            guard isScenePresented else { return }
             playbackProgress = progress
         }
         .onReceive(playbackProjection.bufferedProgressPublisher) { progress in
+            guard isScenePresented else { return }
             bufferedProgress = progress
         }
+    }
+
+    private func syncFromProjection() {
+        waveformHeights = playbackProjection.waveformHeights
+        playbackProgress = playbackProjection.progress
+        bufferedProgress = playbackProjection.bufferedProgress
     }
 }
 
