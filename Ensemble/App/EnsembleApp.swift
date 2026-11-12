@@ -380,6 +380,8 @@ struct EnsembleApp: App {
                     // shared Siri catalog even after the source handoff clears.
                     await AppRoot.container.systemMediaIntegrationService.refreshSpotlightIndex()
                 }
+                // A refresh skipped while the app was in the background runs now.
+                await AppRoot.container.systemMediaIntegrationService.resumeDeferredSpotlightRefresh()
 
             case .background:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "background"])
@@ -438,6 +440,7 @@ struct EnsembleApp: App {
 
                 // Start periodic sync timer
                 AppRoot.container.syncCoordinator.startPeriodicSync()
+                Task { await AppRoot.container.systemMediaIntegrationService.resumeDeferredSpotlightRefresh() }
 
                 // macOS does not go through UIApplication/AppDelegate startup,
                 // so we need to mirror the iPhone launch sequence here once:

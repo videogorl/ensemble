@@ -85,6 +85,7 @@ extension AppDelegate {
             let foregroundWorkScheduler = AppRoot.container.foregroundWorkScheduler
             guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
                 AppLogger.debug("📱 AppDelegate: Siri media index/context refresh skipped because foreground work is unavailable")
+                AppRoot.container.systemMediaIntegrationService.deferSpotlightRefresh()
                 return
             }
 

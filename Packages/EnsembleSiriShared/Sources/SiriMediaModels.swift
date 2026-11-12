@@ -135,7 +135,7 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
     public let albumTitle: String?
     public let artistName: String?
     public let genre: String?
-    public let duration: TimeInterval?
+    public var duration: TimeInterval?
     public let trackNumber: Int?
     public let discNumber: Int?
     public let isSmartPlaylist: Bool?

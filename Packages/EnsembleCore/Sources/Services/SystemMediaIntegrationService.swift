@@ -285,6 +285,13 @@ public final class SystemMediaIntegrationService {
     private static let spotlightChunkSize = 200
     private static let spotlightFullRefreshInterval: TimeInterval = 24 * 60 * 60
     private static let spotlightLastFullRefreshKey = "SystemMediaIntegrationService.lastSpotlightFullRefresh"
+    /// Bumped when what Spotlight holds for a kind of item changes shape. A device below it is reconciled once: items
+    /// an earlier build indexed that the current projection no longer presents are deleted, whatever the stored
+    /// baseline says. 1: playlists are indexed as the playlist screen shows them.
+    private static let spotlightProjectionVersionKey = "SystemMediaIntegrationService.spotlightProjectionVersion"
+    private static let spotlightProjectionVersion = 1
+    /// A Spotlight refresh that was skipped or paused because the app was not active; it runs on the next activation.
+    private var spotlightRefreshDeferred = false
     private static let siriVocabularyLimit = 750
     nonisolated static let maximumSystemArtworkBytes = 5 * 1024 * 1024
 
@@ -425,6 +432,17 @@ public final class SystemMediaIntegrationService {
         _ = await spotlightRefresher.run()
     }
 
+    /// Notes that a Spotlight refresh could not run now (the app was not active).
+    public func deferSpotlightRefresh() {
+        spotlightRefreshDeferred = true
+    }
+
+    /// Runs the Spotlight refresh that was deferred while the app was not active, if there was one.
+    public func resumeDeferredSpotlightRefresh() async {
+        guard spotlightRefreshDeferred else { return }
+        await refreshSpotlightIndex()
+    }
+
     /// Refreshes the shared local catalog used by Siri and App Shortcuts.
     /// This does not invoke Core Spotlight and is safe in a background refresh.
     @discardableResult
@@ -458,12 +476,14 @@ public final class SystemMediaIntegrationService {
         if let foregroundWorkScheduler {
             guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
                 EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; foreground work is not available")
+                spotlightRefreshDeferred = true
                 // Spotlight waits for the foreground; the shared catalog Shortcuts and Siri read does not.
                 _ = await refreshSiriCatalog()
                 return
             }
         }
 
+        spotlightRefreshDeferred = false
         let hadSpotlightBaseline = await siriMediaIndexStore.loadSpotlightAppliedIndex() != nil
         _ = await refreshSiriCatalog()
         guard let fullIndex = await siriMediaIndexStore.loadIndexUnbounded() else {
@@ -478,7 +498,15 @@ public final class SystemMediaIntegrationService {
         )
 
         let appliedIndex = await siriMediaIndexStore.loadSpotlightAppliedIndex()
-        let staleReferences = Self.staleSystemMediaReferences(previous: appliedIndex, current: index)
+        var staleReferences = Self.staleSystemMediaReferences(previous: appliedIndex, current: index)
+        let needsProjectionReconcile = UserDefaults.standard.integer(forKey: Self.spotlightProjectionVersionKey) < Self.spotlightProjectionVersion
+        if needsProjectionReconcile {
+            // An earlier build may have indexed every source's playlist under a baseline that did not record it.
+            let shown = Set(index.items.map { Self.spotlightIdentifier(for: $0.reference) })
+            staleReferences += fullIndex.items
+                .filter { $0.kind == .playlist && !shown.contains(Self.spotlightIdentifier(for: $0.reference)) }
+                .map(\.reference)
+        }
         do {
             try RefreshExecution.checkCancellation()
         } catch {
@@ -515,6 +543,7 @@ public final class SystemMediaIntegrationService {
                 if let foregroundWorkScheduler,
                    !foregroundWorkScheduler.isIdleForNonessentialWork {
                     EnsembleLogger.debug("[SystemMedia] Spotlight refresh paused after \(indexedCount)/\(indexItems.count) media items; foreground work became active")
+                    spotlightRefreshDeferred = true
                     return
                 }
 
@@ -532,6 +561,9 @@ public final class SystemMediaIntegrationService {
                 return
             }
             try await siriMediaIndexStore.saveSpotlightAppliedIndex(index)
+            if needsProjectionReconcile {
+                UserDefaults.standard.set(Self.spotlightProjectionVersion, forKey: Self.spotlightProjectionVersionKey)
+            }
             if requiresFullRefresh {
                 UserDefaults.standard.set(Date(), forKey: Self.spotlightLastFullRefreshKey)
             }
@@ -622,7 +654,21 @@ public final class SystemMediaIntegrationService {
             )).map { ($0.reference.sourceScopedIdentifier, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let items = index.items.compactMap { $0.kind == .playlist ? presented[$0.reference.sourceScopedIdentifier] : $0 }
+        // A merged group's one result carries the group's total length, as the playlist screen shows it.
+        var totals: [String: Double] = [:]
+        if presentation.preferences.isEnabled, presentation.preferences.mergePlaylists {
+            for playlist in playlists where presentation.isSourceVisible(playlist.sourceCompositeKey) {
+                totals[PlexPlaylistMergeRules.key(title: playlist.displayName, isSmart: playlist.isSmartPlaylist ?? false), default: 0] += playlist.duration ?? 0
+            }
+        }
+        let items = index.items.compactMap { item -> SiriMediaIndexItem? in
+            guard item.kind == .playlist else { return item }
+            guard var shown = presented[item.reference.sourceScopedIdentifier] else { return nil }
+            if let total = totals[PlexPlaylistMergeRules.key(title: shown.displayName, isSmart: shown.isSmartPlaylist ?? false)], total > 0 {
+                shown.duration = total
+            }
+            return shown
+        }
         return SiriMediaIndex(schemaVersion: index.schemaVersion, generatedAt: index.generatedAt, items: items)
     }
 

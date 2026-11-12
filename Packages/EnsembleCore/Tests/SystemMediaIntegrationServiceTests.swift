@@ -10,9 +10,10 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
     /// Spotlight holds one item per displayed playlist: merging collapses same-named playlists to one, switching it
     /// off brings back one per source with the server name, and the per-source items that go away are the stale ones.
     func testSpotlightIndexFollowsPlaylistMergeSetting() {
-        func playlist(_ id: String, _ server: String) -> SiriMediaIndexItem {
+        func playlist(_ id: String, _ server: String, duration: TimeInterval? = nil) -> SiriMediaIndexItem {
             SiriMediaIndexItem(
-                kind: .playlist, id: id, displayName: "focus", sourceCompositeKey: "plex:account:\(server)", sourceName: server
+                kind: .playlist, id: id, displayName: "focus", sourceCompositeKey: "plex:account:\(server)",
+                duration: duration, sourceName: server
             )
         }
         let track = SiriMediaIndexItem(kind: .track, id: "t", displayName: "focus", sourceCompositeKey: "plex:account:one")
@@ -28,6 +29,14 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
         let perSource = SystemMediaIntegrationService.spotlightIndex(from: full, presentation: .init(preferences: off))
 
         XCTAssertEqual(merged.items.map(\.id), ["p1", "a1", "a2", "t"])
+        let timed = SiriMediaIndex(items: [playlist("p1", "one", duration: 100), playlist("p2", "two", duration: 20)])
+        XCTAssertEqual(
+            SystemMediaIntegrationService.spotlightIndex(from: timed, presentation: .init()).items.map(\.duration), [120],
+            "a merged result carries the group's total length"
+        )
+        XCTAssertEqual(
+            SystemMediaIntegrationService.spotlightIndex(from: timed, presentation: .init(preferences: off)).items.map(\.duration), [100, 20]
+        )
         XCTAssertEqual(perSource.items.map(\.id), ["p1", "a1", "p2", "a2", "t"])
         XCTAssertEqual(perSource.items.filter { $0.kind == .playlist }.compactMap(\.secondaryText), ["one", "two"])
         XCTAssertEqual(

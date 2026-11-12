@@ -34,7 +34,8 @@ struct PlaylistOpenLoader: View {
         }
         .task(id: "\(playlistId)|\(playlistSourceKey ?? "")") {
             target = nil
-            if playlistsVM.playlists.isEmpty { await playlistsVM.loadPlaylists() }
+            // Decide from the stored playlists, not whatever the list held when this was pushed.
+            await playlistsVM.loadPlaylists()
             guard let stored = try? await deps.playlistRepository.fetchPlaylistHeader(
                 ratingKey: playlistId,
                 sourceCompositeKey: playlistSourceKey
