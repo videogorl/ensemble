@@ -891,3 +891,14 @@ Request → `playing`, from session logs (app state, not audible output):
   before entering the fence. Keeps the restore-eviction contract. The alternative, not reporting unchanged disabled
   libraries at all, is simpler but drops that eviction.
 - **Open:** whether `.sourceCleanedUp` also triggers the Siri index and library-map rebuilds seen right after each pass.
+
+## Intermittent test: `testCancellationAfterAnAcknowledgedDeleteIsNotAFailureOrAReplay` (suspected timing race, 2026-11-12)
+
+- **Evidence:** 2 failures in about 8 full EnsembleCore runs on branch `fix/skip-empty-disabled-library-cleanup`, always
+  1 of 1321–1322 tests: `SyncCoordinatorPlaylistMutationTests.swift:1082`, `("[]") is not equal to (["playlist-1"])`
+  ("the cancelled cleanup is the accepted limit: the row waits for a later pass"). Passes alone. The branch does not
+  touch the playlist delete path, so it is very likely on `develop` too (not yet run there).
+- **Impact:** a red full-suite run now and then; it also means the "cancelled after acknowledge leaves the row" limit is
+  timing-dependent: sometimes the local cleanup finishes before the cancellation lands.
+- **Next step:** run the test 50 times on `develop` (`swift test --filter … ` in a loop); if it flakes, make the stub
+  cancel deterministically before the local cleanup step, or assert "row kept OR removed, never a replay".
