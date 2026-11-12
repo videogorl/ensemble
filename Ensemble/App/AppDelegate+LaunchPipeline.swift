@@ -39,6 +39,14 @@ extension AppDelegate {
         let dependencies = AppRoot.container
         logLaunchPhase("dependencyContainer.ready")
 
+        // Before any launch work, so a launch with no scene (App Intent, Siri) writes a session log too.
+        AppRoot.startPersistentLogSession(launch: .classify(
+            isBackgroundLaunch: application.applicationState == .background,
+            hasUserActivity: launchOptions?[.userActivityDictionary] != nil,
+            hasURL: launchOptions?[.url] != nil,
+            hasRemoteNotification: launchOptions?[.remoteNotification] != nil
+        ))
+
         // CloudKit profile sync relies on silent push delivery for live updates.
         application.registerForRemoteNotifications()
         logLaunchPhase("remoteNotifications.requested")
