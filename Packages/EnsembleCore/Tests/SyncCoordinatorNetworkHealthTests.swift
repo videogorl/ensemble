@@ -199,6 +199,25 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         }
     }
 
+    /// A background launch cached `.offline` and gets live Wi-Fi: playback must wait for the forced reconnect
+    /// refresh, including the stretch before the observer has scheduled it, and not for anything otherwise.
+    func testAwaitPendingHealthRefreshCoversReconnectBeforeItIsScheduled() async {
+        let (coordinator, monitor) = makeCoordinator(initialState: .offline)
+        var healthRuns = 0
+        coordinator.healthCheckRunnerForTesting = { _, keys in
+            try? await Task.sleep(nanoseconds: 20_000_000)
+            healthRuns += 1
+            return ServerHealthChecker.CheckSummary(checkedCount: keys.count, skippedCount: 0)
+        }
+        let idle = await coordinator.awaitPendingHealthRefresh()
+        XCTAssertFalse(idle)
+
+        monitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        let waited = await coordinator.awaitPendingHealthRefresh()
+        XCTAssertTrue(waited)
+        XCTAssertEqual(healthRuns, 1)
+    }
+
     func testDownloadedPlaylistTimerRefreshesOnlyItsRequestedAccountServer() async throws {
         let (coordinator, _) = makeCoordinator(initialState: .online(.wifi))
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")

@@ -10,9 +10,11 @@ enum BackgroundServerHealth {
     /// `SyncCoordinator.ensureServerConnection` (playlist membership and adds, favorites and ratings, radio and
     /// recommendations), whose first request would otherwise use an unprobed endpoint.
     case awaitAllServers
-    /// Neither wait for nor start the pass. For the plain play entrances only: playback resolves a local or cached
-    /// file without a server, and otherwise probes the track's own server. The caller then calls
-    /// `startDeferredServerHealthChecks` once its play call has returned, so the pass cannot race that first probe.
+    /// Start no pass and wait for none that this call would start. For the plain play entrances only: playback
+    /// resolves a local or cached file without a server, and otherwise probes the track's own server. A pass that is
+    /// already running or queued (the launch pipeline's, or a refresh the network monitor's `.offline` to online
+    /// transition schedules) is still joined, because it can replace the connection descriptors under that probe.
+    /// The caller then calls `startDeferredServerHealthChecks` once its play call has returned.
     case deferUntilPlaybackStarts
 }
 
@@ -21,9 +23,9 @@ enum BackgroundServerHealth {
 /// providers registered for stream resolution.
 ///
 /// The connectivity wait is bounded by `timeout` (an intent has about 30 s in all, and a forced health pass can sit
-/// behind a 120 s resource timeout). It is skipped offline, where downloaded tracks and queued mutations need no
-/// server. Running out of time is not an error: providers still register, and a stream that cannot resolve fails
-/// on its own. Missing credentials are an error.
+/// behind a 120 s resource timeout), network-state wait included. It is skipped offline, where downloaded tracks and
+/// queued mutations need no server. Running out of time is not an error: providers still register, and a stream
+/// that cannot resolve fails on its own. Missing credentials are an error.
 ///
 /// A play tapped during a foreground launch has always overlapped the launch health pass; see the `ON_DECK.md`
 /// entry on health refreshes racing a playback probe.
@@ -34,8 +36,8 @@ func prepareForBackgroundPlayback(
     timeout: Duration = .seconds(8)
 ) async throws {
     let container = AppRoot.container
-    // The network wait is independent of the Focus lookup, so they overlap.
-    async let networkReady = startNetworkMonitorAndAwaitCurrentState(container.networkMonitor)
+    // Deferred mode has no health wait to put the network wait inside, so it overlaps the Focus lookup instead.
+    async let overlappedNetworkWait: Void = awaitNetworkNow(container.networkMonitor, if: serverHealth == .deferUntilPlaybackStarts)
     guard await restoreFocusFilter() else {
         AppLogger.error("SIRI_APP: [origin=\(origin)] Focus filter not restored; refusing to start")
         throw EnsembleIntentError.failed("Ensemble couldn't confirm which libraries are visible. Open Ensemble and try again.")
@@ -49,35 +51,50 @@ func prepareForBackgroundPlayback(
         throw EnsembleIntentError.credentialsUnavailable
     }
     container.serverHealthChecker.prepopulateUnknownStates()
-    _ = await networkReady
+    await overlappedNetworkWait
 
-    if serverHealth == .awaitAllServers {
-        await waitBounded(timeout) {
-            // Offline needs no server, so decide that before joining a health check that cannot succeed.
-            guard container.networkMonitor.networkState != .offline else {
-                AppLogger.info("SIRI_APP: [origin=\(origin)] Offline — skipping server health checks")
-                return
-            }
+    let joinedInFlight = Flag()
+    await waitBounded(timeout) {
+        if serverHealth == .awaitAllServers { await startNetworkMonitorAndAwaitCurrentState(container.networkMonitor) }
+        // Offline needs no server, so decide that before joining a health check that cannot succeed.
+        guard container.networkMonitor.networkState != .offline else {
+            AppLogger.info("SIRI_APP: [origin=\(origin)] Offline — skipping server health checks")
+            return
+        }
 
-            // Join the health checks the launch pipeline already started instead of running a second set.
-            #if os(iOS)
-            if let earlyTask = (UIApplication.shared.delegate as? AppDelegate)?.earlyHealthCheckTask {
-                AppLogger.info("SIRI_APP: [origin=\(origin)] Awaiting early health checks from didFinishLaunching...")
-                await earlyTask.value
-            }
-            #endif
+        // Join the health checks the launch pipeline already started instead of running a second set.
+        #if os(iOS)
+        if let earlyTask = (UIApplication.shared.delegate as? AppDelegate)?.earlyHealthCheckTask {
+            AppLogger.info("SIRI_APP: [origin=\(origin)] Awaiting early health checks from didFinishLaunching...")
+            joinedInFlight.value = true
+            await earlyTask.value
+        }
+        #endif
 
+        switch serverHealth {
+        case .awaitAllServers:
             if !container.serverHealthChecker.serverStates.values.contains(where: \.isAvailable) {
                 AppLogger.info("SIRI_APP: [origin=\(origin)] No connected servers — running health checks")
                 await container.syncCoordinator.refreshServerHealthStates()
             }
+        case .deferUntilPlaybackStarts:
+            if await container.syncCoordinator.awaitPendingHealthRefresh() { joinedInFlight.value = true }
         }
     }
 
     // A cancelled intent must not register providers or start anything.
     try Task.checkCancellation()
     container.syncCoordinator.refreshProviders()
-    AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready (health=\(serverHealth == .awaitAllServers ? "awaited" : "deferred"))")
+    let health = serverHealth == .awaitAllServers ? "awaited" : (joinedInFlight.value ? "joined-in-flight" : "deferred")
+    AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready (health=\(health))")
+}
+
+@MainActor
+private final class Flag { var value = false }
+
+@MainActor
+private func awaitNetworkNow(_ network: NetworkMonitor, if condition: Bool) async {
+    if condition { await startNetworkMonitorAndAwaitCurrentState(network) }
 }
 
 /// Starts, without awaiting, the health pass that `.deferUntilPlaybackStarts` skipped, once the play call has

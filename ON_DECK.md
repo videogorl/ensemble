@@ -869,8 +869,12 @@ Request → `playing`, from session logs (app state, not audible output):
 - **Implemented, awaiting phone checks (branch `fix/siri-play-health-wait`):** the plain play entrances (Siri
   `INPlayMediaIntent` execution and the Shortcuts play actions for a track, album, artist or playlist) pass
   `serverHealth: .deferUntilPlaybackStarts` to `prepareForBackgroundPlayback`, so they no longer wait for the
-  all-servers health pass. They start it once, via `performStartupHealthChecks` (once per process, joins a pass in
-  flight, no forced pass), after the play call returns. Every other caller keeps the awaited default. Owed rows:
+  all-servers health pass this call would start. They still join a pass already running or queued (the launch
+  `earlyHealthCheckTask`, or the forced `.networkReconnect` refresh when the cached state was `.offline`), logged as
+  `health=joined-in-flight`. The explicit startup pass (`performStartupHealthChecks`, once per process, no forced
+  pass) starts after the play call's source resolution or launch returns, not once it is `.playing` (a stream can
+  return `.buffering`, a route or interruption can return paused). Other refreshes, such as a network reconnect or
+  a foreground launch, can still run afterwards. Every other caller keeps the awaited default. Owed rows:
   `docs/reference/physical-device-backlog.md`, "Shortcut cold play without the health wait".
 - **Unexplained:** one Shortcut run (the first after the shortcut was created) had ~31 s with no app log lines between
   `NetworkMonitor: Started monitoring` and `Server connectivity ready`. Next step: repeat a first-run-after-create and
@@ -895,7 +899,9 @@ resources and a connection descriptor changes while `SyncCoordinator.ensureServe
 `CancellationError`; `ensureServerConnection` rethrows it, and `PlaybackTransportCoordinator.swift:315` turns it into
 `PlaybackError.serverUnavailable`, which is not retryable, so a reachable track fails to start. A play tapped during
 a foreground launch has always overlapped the launch health pass, so this race predates the branch; the branch keeps
-the pass off the first probe on the cold Siri/Shortcut play path only.
+its own explicit pass off the first probe on the cold Siri/Shortcut play path, and joins a pass already in flight or
+queued by a network transition before playing. A refresh that starts after the play call returns can still overlap
+the next track's probe.
 Next step (not implemented): when the target server's probe was cancelled because its revision changed and the
 playback task is still active, retry the probe once instead of failing. First reproduce with a delayed descriptor
 change (debug failure/delay injection) during a foreground-launch play.
