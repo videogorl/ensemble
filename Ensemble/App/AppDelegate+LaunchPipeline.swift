@@ -40,18 +40,20 @@ extension AppDelegate {
         logLaunchPhase("dependencyContainer.ready")
 
         // Before any launch work, so a launch with no scene (App Intent, Siri) writes a session log too.
-        let isBackgroundState = application.applicationState == .background
         let launchKind = ProcessLaunchKind.classify(
-            isBackgroundLaunch: isBackgroundState,
             hasUserActivity: launchOptions?[.userActivityDictionary] != nil,
             hasURL: launchOptions?[.url] != nil,
             hasRemoteNotification: launchOptions?[.remoteNotification] != nil
         )
         AppRoot.startPersistentLogSession(launch: launchKind)
 
-        // A process started for an intent, Siri or system work has no scene yet. Say so before any launch task
-        // runs, so the scheduler and download service do not treat it as foreground.
-        let isForegroundLaunch = launchKind.isForegroundLaunch(applicationIsBackground: isBackgroundState)
+        // No scene exists yet, so `applicationState` is `.background` even for a foreground launch and cannot
+        // classify it. Unless the launch options say the user started it, assume background before any launch task
+        // runs, so the scheduler and download service do not treat it as foreground; the first `.active` scene
+        // phase starts the launch work and flips the scheduler.
+        let isForegroundLaunch = launchKind.isForegroundLaunch(
+            applicationIsBackground: application.applicationState == .background
+        )
         if !isForegroundLaunch {
             dependencies.foregroundWorkScheduler.setForegroundActive(false)
             dependencies.offlineDownloadService.beginInBackground()

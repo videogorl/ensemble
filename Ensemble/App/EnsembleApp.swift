@@ -350,6 +350,9 @@ struct EnsembleApp: App {
 
                 // A process launched in the background starts its deferred launch work now; a foreground
                 // launch already did, so this is a no-op for it and for every later activation.
+                if !appDelegate.foregroundLaunchWorkGate.hasStarted {
+                    AppLogger.info("LAUNCH_WORK: kind=\(ProcessLaunchKind.foregroundScene.rawValue) first foreground activation")
+                }
                 appDelegate.startForegroundLaunchWork()
 
                 if isInitialActivation {

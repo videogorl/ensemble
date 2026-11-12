@@ -9,18 +9,22 @@ import Foundation
 /// Refreshes what the system reads about the library once the app is up: App Shortcut parameter suggestions, the
 /// Siri media context and the shared index Shortcuts pickers read, and Core Spotlight. Runs on every launch on
 /// iPhone, iPad and Mac, since a library that has not changed since the last launch never signals a refresh.
+/// Returns whether it ran: false when foreground work was unavailable, so the launch gate can retry it.
 @MainActor
-func refreshSystemMediaSurfaces() async {
+@discardableResult
+func refreshSystemMediaSurfaces() async -> Bool {
     let container = AppRoot.container
     guard await container.foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
         AppLogger.debug("SIRI_SHORTCUT: system media refresh skipped because foreground work is unavailable")
         container.systemMediaIntegrationService.deferSpotlightRefresh()
-        return
+        return false
     }
+    AppLogger.info("LAUNCH_WORK: Siri/Spotlight refresh starting")
     EnsembleAppShortcutsProvider.updateAppShortcutParameters()
     AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
     await container.systemMediaIntegrationService.updateMediaUserContext()
     await container.systemMediaIntegrationService.refreshSpotlightIndex()
+    return true
 }
 
 @available(iOS 18.0, *)

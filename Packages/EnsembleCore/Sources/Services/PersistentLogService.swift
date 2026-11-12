@@ -18,33 +18,39 @@ public struct LogSession: Identifiable, Equatable {
 
 /// How the process was started, recorded on the first line of a session log so a log can be read as a
 /// foreground launch or as the cost of a background request.
+///
+/// `UIApplication.applicationState` is `.background` inside `didFinishLaunching` of a scene-based app even for a
+/// foreground launch (no scene exists yet), so a plain launch cannot be told from an intent or system launch
+/// there. It stays `.noLaunchRequest` until a window scene posts `UIScene.willEnterForegroundNotification`,
+/// which only a process shown to the user receives.
 public enum ProcessLaunchKind: String, Equatable {
+    /// A window scene entered the foreground: the user is launching or opening the app.
     case foregroundScene = "foreground scene"
     case userActivity = "user activity (Spotlight or Handoff)"
     case url = "URL"
     case remoteNotification = "remote notification"
-    /// Launched without a scene: an App Intent, a SiriKit request, a background refresh or other system
-    /// work. UIKit gives no finer signal at launch; the request that follows logs its own origin.
-    case background = "background (intent, Siri, refresh or system work)"
+    /// No launch option and no foreground scene yet: a plain launch, an App Intent, SiriKit, a background
+    /// refresh or other system work. A foreground scene resolves it; otherwise the request that follows logs its origin.
+    case noLaunchRequest = "no launch request yet (a foreground scene or the request that follows resolves it)"
 
-    /// Picks the most specific kind from what UIKit supplies at launch.
+    /// Picks the most specific kind from the launch options UIKit supplies.
     public static func classify(
-        isBackgroundLaunch: Bool, hasUserActivity: Bool, hasURL: Bool, hasRemoteNotification: Bool
+        hasUserActivity: Bool, hasURL: Bool, hasRemoteNotification: Bool
     ) -> ProcessLaunchKind {
         if hasUserActivity { return .userActivity }
         if hasURL { return .url }
         if hasRemoteNotification { return .remoteNotification }
-        return isBackgroundLaunch ? .background : .foregroundScene
+        return .noLaunchRequest
     }
 
-    /// Whether the process starts as a foreground one, so its launch work runs at `didFinishLaunching`.
-    /// A user activity or URL is a user action. A remote notification is foreground only when the user opened it:
-    /// a silent push launches the process in the background with the same launch option.
+    /// Whether launch work may start at `didFinishLaunching`. A user activity or URL is a user action. A remote
+    /// notification is foreground only when the user opened it: a silent push launches the process in the
+    /// background with the same launch option. Anything else waits for a foreground scene.
     public func isForegroundLaunch(applicationIsBackground: Bool) -> Bool {
         switch self {
-        case .foregroundScene, .userActivity, .url: return true
+        case .userActivity, .url: return true
         case .remoteNotification: return !applicationIsBackground
-        case .background: return false
+        case .foregroundScene, .noLaunchRequest: return false
         }
     }
 }
