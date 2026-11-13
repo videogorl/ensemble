@@ -1015,5 +1015,6 @@ Focus filter's five library rows are listed without their server names (Music ×
 
 Each refresh logs `Background refresh disk writes storageBytes=… logicalBytes=… startedInBackground=…` in debug builds.
 Foreground debug route on the SE, build `202611130737.7322`: 3.27 MB storage, 3.17 MB logical (File Activity counted
-0.33 MB of write calls for the same route; the counters differ and launch work may overlap). A refresh delivered by iOS:
-owed on both phones (build installed 2026-11-13; read the line from the next sessions' logs).
+0.33 MB of write calls for the same route; the counters differ and launch work may overlap). A refresh delivered by iOS to
+the suspended app on the SE (07:59, `startedInBackground=true`): 0.36 MB storage, 1.95 MB logical. One sample; a
+refresh that cold-launches the app, and the 16 Pro, are still owed (read the line from later sessions' logs).
