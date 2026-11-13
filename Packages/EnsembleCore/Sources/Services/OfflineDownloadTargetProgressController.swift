@@ -78,8 +78,9 @@ final class OfflineDownloadTargetProgressController {
     func refreshAllTargetProgresses() async -> OfflineDownloadProgressState? {
         do {
             let allTargets = try await dependencies.targetRepository.fetchTargets()
-            for target in allTargets {
-                await refreshTargetProgress(forTargetKey: target.key)
+            var emptyTargetKeys: Set<String> = []
+            for target in allTargets where await refreshedReferenceCount(forTargetKey: target.key) == 0 {
+                emptyTargetKeys.insert(target.key)
             }
 
             var snapshots = try await makeTargetSnapshots()
@@ -87,7 +88,7 @@ final class OfflineDownloadTargetProgressController {
 
             // Self-heal orphaned targets after publishing stale-but-useful counts.
             // This keeps the service free of target membership repair details.
-            if await reconcileOrphanedTargets() {
+            if await reconcileOrphanedTargets(emptyTargetKeys: emptyTargetKeys) {
                 snapshots = try await makeTargetSnapshots()
             }
 
@@ -112,6 +113,12 @@ final class OfflineDownloadTargetProgressController {
 
     @discardableResult
     func refreshTargetProgress(forTargetKey targetKey: String) async -> Int {
+        await refreshedReferenceCount(forTargetKey: targetKey) ?? 0
+    }
+
+    /// Refreshes one target's stored progress and returns its membership count, or nil when the
+    /// memberships could not be read.
+    private func refreshedReferenceCount(forTargetKey targetKey: String) async -> Int? {
         do {
             let references = try await dependencies.targetRepository.fetchTrackReferences(targetKey: targetKey)
             guard !references.isEmpty else {
@@ -135,7 +142,7 @@ final class OfflineDownloadTargetProgressController {
             return references.count
         } catch {
             EnsembleLogger.debug("Failed refreshing target progress for \(targetKey): \(error.localizedDescription)")
-            return 0
+            return nil
         }
     }
 
@@ -272,14 +279,14 @@ final class OfflineDownloadTargetProgressController {
     }
 
     /// Detects targets with zero memberships but non-zero stale total track counts.
-    private func reconcileOrphanedTargets() async -> Bool {
+    /// `emptyTargetKeys` are the targets the preceding refresh found to have no memberships.
+    private func reconcileOrphanedTargets(emptyTargetKeys: Set<String>) async -> Bool {
         do {
             let allTargets = try await dependencies.targetRepository.fetchTargets()
             var reconciledAny = false
 
             for target in allTargets {
-                let memberships = try await dependencies.targetRepository.fetchTrackReferences(targetKey: target.key)
-                guard memberships.isEmpty && target.totalTrackCount > 0 else { continue }
+                guard emptyTargetKeys.contains(target.key) && target.totalTrackCount > 0 else { continue }
 
                 EnsembleLogger.debug("Reconciling orphaned target \(target.key) (stale count: \(target.totalTrackCount))")
                 try? await dependencies.reconcileTarget(target.key)

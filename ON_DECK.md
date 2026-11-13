@@ -124,9 +124,61 @@ An entry does not authorize the work; Felicity picks what gets done.
 - **Open risk (hypothesis):** the launch burst counts against the daily limit; 30 launches (including background
   launches, if they run the same fetches) would spend most of it. Not measured: a background-refresh launch, an offline
   download run, a full sync, lossless originals.
-- **Candidate fixes (not approved):** keep SQLite temp storage in memory for these fetches or give them an index so
-  they do not spill; stop `fetchTrackReferences` running 9–15 times per launch (see the repeated offline target
-  reconciliation entry); turn off `URLCache` on the Plex API, artwork and stream sessions.
+- **Fixed on `fix/launch-sqlite-temp-writes` (awaiting the SE re-measure):** `fetchTrackReferences` no longer sorts in
+  SQL (the plan was `SCAN` plus `USE TEMP B-TREE FOR ORDER BY`; now `SCAN`), sorts the references in Swift with the
+  reconciler's own comparator, and reads two properties as dictionaries. `reconcileOrphanedTargets` no longer re-fetches
+  every target's references: `refreshAllTargetProgresses` already knows which targets came back empty, so each pass
+  makes one call per target instead of two. Expected after-value of `etilqs_*` for `fetchTrackReferences`: its 13.2 MB
+  gone. A global `temp_store=MEMORY` was tried and dropped: it removes
+  SQLite's spill safety valve for unbounded sorts such as `searchTracks` and `fetchTracks`.
+- **Fixed for the Siri index (the only launch, sync and refresh caller of `fetchArtists()` / `fetchAlbums()`):**
+  `SiriMediaIndexStore.rebuildIndex` now reads `fetchSiriArtistRows()` / `fetchSiriAlbumRows()`: the same SQL ORDER BY
+  (shared sort descriptors, so the same collation and order, hiragana before katakana included), but only the columns the
+  index uses as dictionaries, with no `albums` / `artist` prefetch; an album's artist rating key and name come through
+  the `artist` key path. On a disk store of 12,000 artists and 36,000 albums, polling the process's open `etilqs_` files
+  across 5 calls: the full-object `fetchArtists` opened 5 files of 9.0 MB, `fetchAlbums` 5 files of 28.1 MB; the narrow
+  reads opened none. Tests pin the rows against the full-object fetch (order and fields) and the resulting index items and
+  hidden decisions against the old mappers. `fetchArtists()` / `fetchAlbums()` keep their SQL sort for their other callers
+  (detail resolvers, merge grouping, Siri voice lookups, all on navigation or a request), so they can still spill there.
+  An in-memory sort was rejected: it changes the order for names Foundation calls equal but Core Data's collation does
+  not (hiragana against katakana); that attempt is parked at `/tmp/se-disk/item2-in-memory-sort.patch`.
+- **Still open:** `refreshAllTargetProgresses` itself still runs several times per launch (recovery sweep, deferred
+  healing, forced full refresh, `refreshState`) and each run reads every target's memberships with a full table scan
+  (`ZTARGETKEY` has no index; adding one needs model 13). `Cache.db-wal` 1.8 MB, `fsCachedData` 1.3 MB and the
+  `SiriMediaIndexStore.saveToDisk` rewrites are untouched. Not reproduced in a unit test: a `fetchTrackReferences`
+  spill (120,000 narrow rows never spilled on the Mac), so its before/after is the query plan only.
+- **Evaluated, not implemented (2026-11-13):**
+  - *Siri rebuild count.* A pass is `SystemMediaIntegrationService.performSiriCatalogRefresh`
+    (`SystemMediaIntegrationService.swift:455`) through `siriCatalogRefresher`, a `TrailingRefreshRunner` that coalesces
+    only overlapping passes. Triggers: a `.catalogChanged` event (`SystemMediaIntegrationService.swift:392`; sent by sync
+    with `hasMaterialChanges` at `SyncCoordinator.swift:3116/3626/3669`, source enable and disable at
+    `AccountManager.swift:397/890`, `MutationCoordinator.swift:473`) through `refreshSpotlightIndex`; the scene becoming
+    active after launch (`EnsembleApp.swift:391`) and `resumeDeferredSpotlightRefresh` (`:394`, `:453`); the playlist
+    presentation publisher's `onChange` (`DependencyContainer.swift:725`); the committed-refresh hooks
+    (`DependencyContainer.swift:927-944`, only with material changes) and refresh recovery. A background refresh calls it
+    twice: `siriIndexRefresh` and `prepareLocalData` (`BackgroundRefreshCoordinator.swift:60`, `:75`). macOS also calls
+    `rebuildIndex` directly (`RootView.swift:199`).
+  - *Skip rule.* The index reads the artist, album, Siri-eligible track and playlist tables, the enabled source keys
+    (`enabledSourceKeysProvider`), the hidden-media snapshot, source presentation names for playlists, and the schema
+    version. Existing signals: `.catalogChanged` (sync material changes, source enable and disable, mutations), the
+    `HiddenMediaStore` snapshot and the presentation publisher. A skip rule would be a dirty flag set by those and cleared by
+    a completed rebuild, plus a skip when the saved index is newer than the last such event. Risk: a missed signal leaves a
+    stale index (whether hidden-item, playlist-name and source-scope changes all raise a signal was not checked), so the rule needs
+    every input above wired or a time cap. Size: a dirty flag in `SystemMediaIntegrationService` and its three input
+    subscriptions, about 50 lines and one test per input; the `changed=false` pass already costs one narrow read per kind,
+    now without temp files.
+  - *Repeated target progress passes.* `refreshAllTargetProgresses` is called from `refreshState`, the recovery sweep
+    (`OfflineDownloadService.swift:2062`), deferred launch healing 8 s after launch (`:2135`), the forced full refresh the
+    sweep schedules (`:2207`), the trailing scheduled refresh (`:2232`), and after nearly every download completion or
+    failure (`:783`, `:1151`, `:1320`). Each is independent and nothing records that a pass just finished with no
+    membership or download change since. A background refresh's 7–15 `Offline target reconciliation finished` lines are
+    per-target, not per-pass: `reconcileAfterRefresh` (`:819`) runs for every committed library and playlist source
+    (`DependencyContainer.swift:929/939`), even without material changes, and adds the favorites target whenever any library
+    source is passed, so it is reconciled once per source commit. Candidates: reconcile a target only when its source's
+    result had material changes, reconcile favorites once per refresh, and skip a pass when a generation counter bumped by
+    membership and download writes is unchanged. Each touches reconciliation semantics, so each needs its own test.
+- **Remaining candidate fixes (not approved):** a `targetKey` index; turn off `URLCache` on the Plex API, artwork and
+  stream sessions.
 - Evidence: `/tmp/se-disk/` (traces, exports, `S*.agg.json`); `.ips` analysis in the 2026-11-12 research thread.
 
 ## Suspected: EnsembleCore's tests are heavier than they need to be (2026-11-10)
@@ -214,6 +266,16 @@ index and Siri route polling items are scheduled as one batch.
 
 Checked and left alone: the visible AirPlay control, artwork's persistent cache and retry
 rules, the Plex WebSocket polling fallback, and the size of `WatchRootView.swift`.
+
+## Suspected: two racy tests that wait one main-queue hop for a merge (2026-11-13)
+
+- Evidence: `DownloadManagerTests.testReconciliationPreservesExistingQualityAndReplacementIsExplicit` (`DownloadManagerTests.swift:66`,
+  `completed` is not `pending` after `requeueDownload`) failed 12 of 30 isolated runs on `develop` (`3fb77c06`) and 19 of 30
+  on `fix/launch-sqlite-temp-writes`; the same code on both. `MergedArtistDetailViewModelTests.testHidingLoadedAlbumRemovesItFromMergedArtistSnapshots`
+  (`MergedArtistDetailViewModelTests.swift:304`) failed once in a full EnsembleCore run and 2 of 100 isolated runs on the
+  branch against 0 of 100 on `develop`, too few to separate from noise; it waits one `DispatchQueue.main.async` hop for a hide to publish.
+- Impact: red suite runs with no regression. The download test reads a `viewContext` row right after a background write, before the merge lands.
+- Next step: wait on the merge notification or `refresh` the row instead of reading it immediately; give the hide test an awaited condition.
 
 ## Suspected: flaky `NowPlayingArtworkProjectionTests` in the full EnsembleCore run (2026-11-10)
 

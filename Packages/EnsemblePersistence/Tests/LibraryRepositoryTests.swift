@@ -2013,3 +2013,64 @@ private final class MissingArtworkURLProtocol: URLProtocol {
 
     override func stopLoading() {}
 }
+
+
+/// The Siri index reads narrow rows; they must match the full-object fetch in order and content.
+extension LibraryRepositoryTests {
+    func testSiriRowsMatchTheFullObjectFetchesOnADiskStore() async throws {
+        let names: [String?] = [
+            "abba", "ABBA", "The Beatles", "Beatles", "Édith Piaf", "Edith Piaf", "Zoë", "10", "9", "100", "!!!", "#1 Hits",
+            "", "😀 Emoji", "Björk", "ß", "ss", "Ленинград", "你好", "ひかる", "ヒカル", "AC/DC",
+            String(repeating: "Long name ", count: 40), nil
+        ]
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("siri-rows-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stack = CoreDataStack.onDisk(at: directory.appendingPathComponent("Ensemble.sqlite"))
+        let repository = LibraryRepository(coreDataStack: stack)
+        let writer = stack.newBackgroundContext()
+        try await writer.perform {
+            for (index, name) in names.enumerated() {
+                var artist: CDArtist?
+                if let name {
+                    let created = CDArtist(context: writer)
+                    created.ratingKey = "artist-\(index)"
+                    created.key = "/library/metadata/\(index)"
+                    created.name = name
+                    created.sourceCompositeKey = index % 5 == 0 ? nil : "plex:a:s"
+                    created.thumbPath = index % 2 == 0 ? "/library/metadata/\(index)/thumb/1" : nil
+                    artist = created
+                }
+                for (offset, year) in [Int32(2024), 1999, 0, 1999].enumerated() {
+                    let album = CDAlbum(context: writer)
+                    album.ratingKey = "album-\(index)-\(offset)"
+                    album.key = "/library/metadata/\(index)/\(offset)"
+                    album.title = "Album \(offset) \(name ?? "")"
+                    // Cover both fallbacks: no artistName (use the relation) and no albumArtist.
+                    album.artistName = offset == 1 ? nil : name
+                    album.albumArtist = offset == 2 ? "Various" : nil
+                    album.year = year
+                    album.trackCount = Int32(offset + 1)
+                    album.genreNames = offset == 3 ? "Rock, Pop" : nil
+                    album.thumbPath = offset == 0 ? "/library/metadata/\(index)/thumb/9" : nil
+                    album.sourceCompositeKey = "plex:a:s"
+                    album.artist = artist
+                }
+            }
+            try writer.save()
+        }
+
+        let artistRows = try await repository.fetchSiriArtistRows()
+        let albumRows = try await repository.fetchSiriAlbumRows()
+        let artistsFromObjects = try await repository.fetchArtists().map(SiriArtistRow.init(from:))
+        let albumsFromObjects = try await repository.fetchAlbums().map(SiriAlbumRow.init(from:))
+
+        XCTAssertEqual(artistRows, artistsFromObjects)
+        XCTAssertEqual(albumRows, albumsFromObjects)
+        XCTAssertEqual(artistRows.count, names.compactMap { $0 }.count)
+        XCTAssertEqual(albumRows.count, names.count * 4)
+        XCTAssertTrue(albumRows.contains { $0.artistRatingKey != nil && $0.artistName == nil })
+        XCTAssertTrue(albumRows.contains { $0.artistRatingKey == nil })
+    }
+}

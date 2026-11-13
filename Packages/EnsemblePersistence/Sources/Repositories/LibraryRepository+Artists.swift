@@ -1,15 +1,54 @@
 import CoreData
 import Foundation
 
+/// What the Siri index reads from an artist, so the rebuild need not materialise whole objects.
+public struct SiriArtistRow: Sendable, Equatable {
+    public let ratingKey: String
+    public let name: String
+    public let sourceCompositeKey: String?
+    public let thumbPath: String?
+
+    public init(from artist: CDArtist) {
+        ratingKey = artist.ratingKey
+        name = artist.name
+        sourceCompositeKey = artist.sourceCompositeKey
+        thumbPath = artist.thumbPath
+    }
+
+    init?(_ row: NSDictionary) {
+        guard let ratingKey = row["ratingKey"] as? String, let name = row["name"] as? String else { return nil }
+        self.ratingKey = ratingKey
+        self.name = name
+        sourceCompositeKey = row["sourceCompositeKey"] as? String
+        thumbPath = row["thumbPath"] as? String
+    }
+}
+
 extension LibraryRepository {
     // MARK: - Artists
+
+    /// The library's artist order. `fetchArtists` and the Siri rows share it so both sort in SQL identically.
+    static let artistSortDescriptors = [
+        NSSortDescriptor(key: "name", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
+    ]
+
+    /// `fetchArtists()` reduced to the Siri index's columns: same ORDER BY, no relationship prefetch.
+    public func fetchSiriArtistRows() async throws -> [SiriArtistRow] {
+        try await coreDataStack.performViewContext { context in
+            let request = NSFetchRequest<NSDictionary>(entityName: "CDArtist")
+            request.resultType = .dictionaryResultType
+            request.propertiesToFetch = ["ratingKey", "name", "sourceCompositeKey", "thumbPath"]
+            request.sortDescriptors = Self.artistSortDescriptors
+            return try context.fetch(request).compactMap(SiriArtistRow.init)
+        }
+    }
 
     public func fetchArtists() async throws -> [CDArtist] {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDArtist.fetchRequest()
-                request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))]
+                request.sortDescriptors = Self.artistSortDescriptors
                 request.relationshipKeyPathsForPrefetching = ["albums"]
                 do {
                     let artists = try context.fetch(request)
@@ -27,7 +66,7 @@ extension LibraryRepository {
             context.perform {
                 let request = CDArtist.fetchRequest()
                 request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
-                request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))]
+                request.sortDescriptors = Self.artistSortDescriptors
                 request.relationshipKeyPathsForPrefetching = ["albums"]
                 do {
                     let artists = try context.fetch(request)

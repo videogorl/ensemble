@@ -580,6 +580,8 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     // Artists
     func fetchArtists() async throws -> [CDArtist]
+    /// `fetchArtists()` in the same order, reduced to what the Siri index reads.
+    func fetchSiriArtistRows() async throws -> [SiriArtistRow]
     func fetchArtists(forSource sourceCompositeKey: String) async throws -> [CDArtist]
     func countArtists(sourceCompositeKeys: Set<String>?) async throws -> Int
     func fetchArtist(ratingKey: String) async throws -> CDArtist?
@@ -590,6 +592,8 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     // Albums
     func fetchAlbums() async throws -> [CDAlbum]
+    /// `fetchAlbums()` in the same order, reduced to what the Siri index reads.
+    func fetchSiriAlbumRows() async throws -> [SiriAlbumRow]
     func fetchAlbums(forSource sourceCompositeKey: String) async throws -> [CDAlbum]
     func countAlbums(sourceCompositeKeys: Set<String>?) async throws -> Int
     func fetchAlbum(ratingKey: String) async throws -> CDAlbum?
@@ -719,6 +723,14 @@ public protocol LibraryRepositoryProtocol: Sendable {
 }
 
 public extension LibraryRepositoryProtocol {
+    func fetchSiriArtistRows() async throws -> [SiriArtistRow] {
+        try await fetchArtists().map(SiriArtistRow.init(from:))
+    }
+
+    func fetchSiriAlbumRows() async throws -> [SiriAlbumRow] {
+        try await fetchAlbums().map(SiriAlbumRow.init(from:))
+    }
+
     // Conformers without a bounded read (test doubles) trim the unbounded one.
     func findTracksByTitle(_ title: String, sourceCompositeKeys: Set<String>?, limit: Int, normalizedWords: [String], isEligible: @escaping @Sendable (CDTrack) -> Bool) async throws -> [CDTrack] {
         Array(try await findTracksByTitle(title, sourceCompositeKeys: sourceCompositeKeys).filter(isEligible).prefix(limit))

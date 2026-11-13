@@ -962,6 +962,13 @@ that has never been played or prefetched on the phone (an uncached stream over c
 Plex client and re-running the add without a sync; the Apple Music explicit/clean case.
 Logs: `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.XJUNfILpoJ`, `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.a4QMZh6apZ`.
 
+## iPhone SE — launch SQLite temp writes (`fix/launch-sqlite-temp-writes`)
+
+| Check | Owed |
+| --- | --- |
+| Instruments File Activity on a cold launch, app process only: `tmp/etilqs_*` bytes in the first 30 s | Before (build `202611121446.6234`): 22.7 MB (`fetchTrackReferences` 13.2, `fetchArtists` 6.2, `fetchAlbums` 3.3). After: expect the `fetchTrackReferences`, `fetchArtists` and `fetchAlbums` files gone at launch, after a sync and after a background refresh (the Siri index rebuild now reads narrow rows); other sorted fetches (detail resolvers, search, Siri voice lookups) can still spill by design; record the number, the total launch writes (before 25–40 MB) and `Cache.db-wal` / `fsCachedData` / `SiriMediaIndexStore.saveToDisk` for what remains |
+| Library, artist and album lists keep their order and the downloads screen lists the same tracks | Compare against the SE before the change; peak memory at launch has not risen (Instruments Allocations, first 30 s) |
+
 ## Disk writes by scenario (iPhone SE, 2026-11-12 and 13, build `202611121446.6234`, File Activity, app process)
 
 | Event | App bytes written | Mostly |
@@ -977,3 +984,17 @@ Logs: `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.XJUNfILpoJ`, `/var/f
 One process logged 21 background refreshes in about 13 h. At 13–16 MB each (inferred from the debug-route run, not measured
 for a refresh iOS delivered) that is roughly 270–340 MB a day before any launch. Not measured: an iOS-delivered refresh, a
 cold background launch, lossless originals, a large download run. Evidence: `/tmp/se-disk/` and `/tmp/se-disk/round2/`.
+
+## Disk writes after the launch-read fix (iPhone SE, 2026-11-13, build `202611130658.1672`)
+
+| Event | Before | After | `etilqs_*` after |
+| --- | --- | --- | --- |
+| Cold launch, 60 s (3 runs) | 27–30 MB | 2.9–4.4 MB | 0 |
+| Force Full Sync (after t=40 s) | 19.7 MB | 2.65 MB | 0 |
+| Debug background refresh (after t=44 s) | 16.0 MB | 0.33 MB | 0 |
+
+Largest remaining launch writers: `Cache.db*` 1.3–2.3 MB and `fsCachedData` 1.3–1.4 MB. Artists and Albums lists order
+unchanged, a download target lists its tracks, `siriIndexRebuild` counts identical to the earlier build
+(`artists=674 albums=1259 tracks=1000 playlists=51`), reconciliation track counts identical, no error lines. The measured
+build predates `d2a6508f` (hidden snapshot read after each fetch), which does not change what is written. Still owed: a
+refresh iOS delivers on its own and a cold background launch (not capturable with xctrace). Evidence: `/tmp/se-disk/round3/`.
