@@ -996,3 +996,8 @@ Phone check: `docs/reference/physical-device-backlog.md`, "launched on cellular 
 - **Impact:** confusing wording only; the action wrote to the Plex playlist correctly.
 - **Next step:** screenshot the action's detail sheet; check whether the text comes from system metadata cached from the
   withdrawn Siri AI audio schema intents (a reinstall or reboot would clear it) or from the entity's type display.
+
+- **Focus filter library rows have no server names (confirmed, 16 Pro, 2026-11-13).** The Ensemble Focus filter's
+  "Libraries to Show" lists "Music" three times for three servers. Impact: the user cannot tell which library they are
+  hiding. Next step: include the server name in the entity's display representation, as the in-app library filter does.
+

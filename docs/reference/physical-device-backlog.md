@@ -886,7 +886,7 @@ is retried once (`Connection refresh superseded by a configuration update — re
 | Same, first track an uncached Plex stream | Plays; that track's server is probed before the explicit health pass starts | Not run |
 | Same with Wi-Fi off | Downloaded song plays at once; a streaming-only item fails promptly with the existing message; `Offline — skipping server health checks` | Not run |
 | Plex server unreachable, internet up | A downloaded or cached first track plays without waiting; a streaming-only item fails on its own server probe, not after an all-servers pass | Not run |
-| Library hidden by the active Focus | Still refused (`Focus filter not restored` or the item not found), no playback | Not run |
+| Library hidden by the active Focus | Still refused (`Focus filter not restored` or the item not found), no playback | Passed on the 16 Pro, 2026-11-13 (see the section of that date) |
 | Last used on Wi-Fi, then launched a streaming Shortcut on cellular (seeded `.online(.wifi)`, live cellular: a forced interface-switch refresh) | The track plays; the log shows the retry line if a refresh superseded the probe (a first-byte DNS failure also gets one refresh-and-reassemble retry); no `serverUnavailable` | Not run |
 | Cold Add to Ensemble Playlist, and a radio or station start, from a Shortcut | `health=awaited` (`No connected servers — running health checks` when none is connected) before the request, as before | Not run |
 | Cold Shortcut play, then open the app within a minute | One startup health pass in the log, not two back to back | Not run |
@@ -998,3 +998,22 @@ unchanged, a download target lists its tracks, `siriIndexRebuild` counts identic
 (`artists=674 albums=1259 tracks=1000 playlists=51`), reconciliation track counts identical, no error lines. The measured
 build predates `d2a6508f` (hidden snapshot read after each fetch), which does not change what is written. Still owed: a
 refresh iOS delivers on its own and a cold background launch (not capturable with xctrace). Evidence: `/tmp/se-disk/round3/`.
+
+## Cellular uncached Shortcut stream and Focus-hidden library (16 Pro, 2026-11-13, build `202611130729.7322`)
+
+| Check | Result |
+|---|---|
+| Last used on Wi-Fi, app killed, Wi-Fi off (5G), Shortcut "Play Album" for an album never played on the phone | Passed: "Playing DISCOPUP in Ensemble.", `health=deferred`, `kind=directHTTP`, first byte 1244 ms, session start to playing 1.56 s. `interfaceSwitch(Wi-Fi->Cellular)` forced a refresh; `Connection refresh superseded … retrying once` twice; no `cannotFindHost` or `serverUnavailable` |
+| Album only in a library hidden by an active Focus ("Libraries to Show" without it), cold Shortcut | Passed: nothing played and the intent never ran. Shortcuts showed its "Album" picker (the saved album no longer resolves) instead of an error dialog; no `Focus filter` log line. In the app, search found nothing and the Profile menu showed "Filtered by Focus" |
+| Same Shortcut with the Focus off, before and after | Passed: played both times (`directHTTP`, then `cachedFile`) |
+
+An album that also exists in a visible library plays under the Focus (the merged item resolves to the visible copy). The
+Focus filter's five library rows are listed without their server names (Music ×3). Logs:
+`$TMPDIR/tmp.uYXB8da3JG` (Focus), `$TMPDIR/tmp.18HeJ5MOAl` (cellular, `session-2026-11-13-074058.log`).
+
+## Background refresh disk writes (debug log line, `f18b1424`)
+
+Each refresh logs `Background refresh disk writes storageBytes=… logicalBytes=… startedInBackground=…` in debug builds.
+Foreground debug route on the SE, build `202611130737.7322`: 3.27 MB storage, 3.17 MB logical (File Activity counted
+0.33 MB of write calls for the same route; the counters differ and launch work may overlap). A refresh delivered by iOS:
+owed on both phones (build installed 2026-11-13; read the line from the next sessions' logs).
