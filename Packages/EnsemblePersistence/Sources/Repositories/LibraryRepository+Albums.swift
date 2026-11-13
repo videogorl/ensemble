@@ -1,18 +1,90 @@
 import CoreData
 import Foundation
 
+/// What the Siri index reads from an album, so the rebuild need not materialise whole objects.
+public struct SiriAlbumRow: Sendable, Equatable {
+    public let ratingKey: String
+    public let title: String
+    public let sourceCompositeKey: String?
+    public let artistName: String?
+    public let albumArtist: String?
+    public let trackCount: Int32
+    public let genreNames: String?
+    public let thumbPath: String?
+    public let year: Int32
+    /// The related artist's rating key and name, read through the `artist` relationship.
+    public let artistRatingKey: String?
+    public let relatedArtistName: String?
+
+    public init(from album: CDAlbum) {
+        ratingKey = album.ratingKey
+        title = album.title
+        sourceCompositeKey = album.sourceCompositeKey
+        artistName = album.artistName
+        albumArtist = album.albumArtist
+        trackCount = album.trackCount
+        genreNames = album.genreNames
+        thumbPath = album.thumbPath
+        year = album.year
+        artistRatingKey = album.artist?.ratingKey
+        relatedArtistName = album.artist?.name
+    }
+
+    init?(_ row: NSDictionary) {
+        guard let ratingKey = row["ratingKey"] as? String, let title = row["title"] as? String else { return nil }
+        self.ratingKey = ratingKey
+        self.title = title
+        sourceCompositeKey = row["sourceCompositeKey"] as? String
+        artistName = row["artistName"] as? String
+        albumArtist = row["albumArtist"] as? String
+        trackCount = (row["trackCount"] as? NSNumber)?.int32Value ?? 0
+        genreNames = row["genreNames"] as? String
+        thumbPath = row["thumbPath"] as? String
+        year = (row["year"] as? NSNumber)?.int32Value ?? 0
+        artistRatingKey = row["relatedArtistRatingKey"] as? String
+        relatedArtistName = row["relatedArtistName"] as? String
+    }
+}
+
 extension LibraryRepository {
     // MARK: - Albums
+
+    /// The library's album order. `fetchAlbums` and the Siri rows share it so both sort in SQL identically.
+    static let albumSortDescriptors = [
+        NSSortDescriptor(key: "artistName", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
+        NSSortDescriptor(key: "year", ascending: false)
+    ]
+
+    /// `fetchAlbums()` reduced to the Siri index's columns: same ORDER BY, no relationship prefetch.
+    public func fetchSiriAlbumRows() async throws -> [SiriAlbumRow] {
+        try await coreDataStack.performViewContext { context in
+            let request = NSFetchRequest<NSDictionary>(entityName: "CDAlbum")
+            request.resultType = .dictionaryResultType
+            request.propertiesToFetch = [
+                "ratingKey", "title", "sourceCompositeKey", "artistName", "albumArtist", "trackCount",
+                "genreNames", "thumbPath", "year",
+                Self.artistKeyPathColumn(named: "relatedArtistRatingKey", keyPath: "artist.ratingKey"),
+                Self.artistKeyPathColumn(named: "relatedArtistName", keyPath: "artist.name")
+            ]
+            request.sortDescriptors = Self.albumSortDescriptors
+            return try context.fetch(request).compactMap(SiriAlbumRow.init)
+        }
+    }
+
+    private static func artistKeyPathColumn(named name: String, keyPath: String) -> NSExpressionDescription {
+        let column = NSExpressionDescription()
+        column.name = name
+        column.expression = NSExpression(forKeyPath: keyPath)
+        column.expressionResultType = .stringAttributeType
+        return column
+    }
 
     public func fetchAlbums() async throws -> [CDAlbum] {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDAlbum.fetchRequest()
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "artistName", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
-                    NSSortDescriptor(key: "year", ascending: false)
-                ]
+                request.sortDescriptors = Self.albumSortDescriptors
                 request.relationshipKeyPathsForPrefetching = ["artist"]
                 do {
                     let albums = try context.fetch(request)
@@ -30,10 +102,7 @@ extension LibraryRepository {
             context.perform {
                 let request = CDAlbum.fetchRequest()
                 request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "artistName", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
-                    NSSortDescriptor(key: "year", ascending: false)
-                ]
+                request.sortDescriptors = Self.albumSortDescriptors
                 request.relationshipKeyPathsForPrefetching = ["artist"]
                 do {
                     let albums = try context.fetch(request)

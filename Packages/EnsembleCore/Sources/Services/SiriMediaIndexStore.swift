@@ -118,14 +118,15 @@ public final class SiriMediaIndexStore {
             let playlistSourceKeys = enabledLibrarySourceKeys.map {
                 SystemMediaSourceScope.playlistSourceKeys(forEnabledLibraryKeys: $0)
             }
-            let artists = Array(try await libraryRepository.fetchArtists()
+            let hidden = hiddenMediaStore.snapshot
+            let artists = Array(try await libraryRepository.fetchSiriArtistRows()
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
-                .filter { !hiddenMediaStore.snapshot.isHidden(Artist(from: $0)) }
+                .filter { !Self.isHidden($0, in: hidden) }
                 .prefix(1500))
             try RefreshExecution.checkCancellation()
-            let albums = Array(try await libraryRepository.fetchAlbums()
+            let albums = Array(try await libraryRepository.fetchSiriAlbumRows()
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
-                .filter { !hiddenMediaStore.snapshot.isHidden(Album(from: $0)) }
+                .filter { !Self.isHidden($0, in: hidden) }
                 .prefix(1500))
             try RefreshExecution.checkCancellation()
             let tracks = Array(try await libraryRepository.fetchSiriEligibleTracks()
@@ -236,7 +237,28 @@ public final class SiriMediaIndexStore {
             .appendingPathComponent(filename)
     }
 
+    /// The same decisions as `HiddenMediaSnapshot.isHidden(Artist)` and `isHidden(Album)`, from the narrow rows.
+    nonisolated static func isHidden(_ artist: SiriArtistRow, in snapshot: HiddenMediaSnapshot) -> Bool {
+        guard let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty else { return false }
+        return snapshot.contains(.init(kind: .artist, itemID: artist.ratingKey, sourceCompositeKey: sourceKey))
+    }
+
+    nonisolated static func isHidden(_ album: SiriAlbumRow, in snapshot: HiddenMediaSnapshot) -> Bool {
+        guard let sourceKey = album.sourceCompositeKey else { return false }
+        if snapshot.contains(.init(kind: .album, itemID: album.ratingKey, sourceCompositeKey: sourceKey)) { return true }
+        guard let artistID = album.artistRatingKey else { return false }
+        return snapshot.contains(.init(kind: .artist, itemID: artistID, sourceCompositeKey: sourceKey))
+    }
+
     nonisolated static func indexItem(for artist: CDArtist) -> SiriMediaIndexItem {
+        indexItem(for: SiriArtistRow(from: artist))
+    }
+
+    nonisolated static func indexItem(for album: CDAlbum) -> SiriMediaIndexItem {
+        indexItem(for: SiriAlbumRow(from: album))
+    }
+
+    nonisolated static func indexItem(for artist: SiriArtistRow) -> SiriMediaIndexItem {
         let artwork = artistArtworkDescriptor(for: artist)
         return SiriMediaIndexItem(
             kind: .artist,
@@ -275,7 +297,7 @@ public final class SiriMediaIndexStore {
         )
     }
 
-    nonisolated static func indexItem(for album: CDAlbum) -> SiriMediaIndexItem {
+    nonisolated static func indexItem(for album: SiriAlbumRow) -> SiriMediaIndexItem {
         SiriMediaIndexItem(
             kind: .album,
             id: album.ratingKey,
@@ -292,7 +314,7 @@ public final class SiriMediaIndexStore {
             artworkCacheKey: album.ratingKey,
             artworkCacheType: .album,
             year: album.year > 0 ? Int(album.year) : nil,
-            albumArtist: album.albumArtist ?? album.artistName ?? album.artist?.name
+            albumArtist: album.albumArtist ?? album.artistName ?? album.relatedArtistName
         )
     }
 
@@ -326,7 +348,7 @@ public final class SiriMediaIndexStore {
         let cacheType: SiriMediaArtworkCacheType?
     }
 
-    private nonisolated static func artistArtworkDescriptor(for artist: CDArtist) -> ArtworkDescriptor {
+    private nonisolated static func artistArtworkDescriptor(for artist: SiriArtistRow) -> ArtworkDescriptor {
         if let thumbPath = artist.thumbPath, !thumbPath.isEmpty {
             return ArtworkDescriptor(path: thumbPath, cacheKey: artist.ratingKey, cacheType: .artist)
         }
