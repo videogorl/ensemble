@@ -1190,6 +1190,13 @@ extension Scene {
 /// Perform background refresh - lightweight hub sync
 private func performBackgroundRefresh() async {
     AppLogger.debug("🔄 Background refresh triggered")
+    #if DEBUG
+    let writesAtStart = ProcessDiskWrites.current()
+    let startedInBackground = await MainActor.run { UIApplication.shared.applicationState == .background }
+    defer {
+        ProcessDiskWrites.logDelta(since: writesAtStart, label: "Background refresh", inBackground: startedInBackground)
+    }
+    #endif
 
     // Reschedule next refresh immediately for continuity (must be on main thread)
     await MainActor.run {
@@ -1222,6 +1229,33 @@ private func performBackgroundRefresh() async {
 private func stopRefreshNetworkMonitor(startedByRefresh: Bool) {
     guard startedByRefresh, UIApplication.shared.applicationState == .background else { return }
     AppRoot.container.networkMonitor.stopMonitoring()
+}
+#endif
+
+#if DEBUG && os(iOS)
+@_silgen_name("proc_pid_rusage")
+private func ensembleProcPidRusage(_ pid: Int32, _ flavor: Int32, _ buffer: UnsafeMutablePointer<rusage_info_v4>) -> Int32
+
+/// Measures what the process wrote to disk across a unit of work, in the two counters iOS reports:
+/// bytes sent to storage and logical writes, the figure the daily disk-write limit is charged on.
+/// Debug only: `proc_pid_rusage` is not public API on iOS.
+private struct ProcessDiskWrites {
+    let storageBytes: UInt64
+    let logicalBytes: UInt64
+
+    static func current() -> ProcessDiskWrites? {
+        var info = rusage_info_v4()
+        guard ensembleProcPidRusage(getpid(), RUSAGE_INFO_V4, &info) == 0 else { return nil }
+        return ProcessDiskWrites(storageBytes: info.ri_diskio_byteswritten, logicalBytes: info.ri_logical_writes)
+    }
+
+    static func logDelta(since start: ProcessDiskWrites?, label: String, inBackground: Bool) {
+        guard let start, let end = current() else {
+            AppLogger.info("\(label) disk writes unavailable")
+            return
+        }
+        AppLogger.info("\(label) disk writes storageBytes=\(end.storageBytes &- start.storageBytes) logicalBytes=\(end.logicalBytes &- start.logicalBytes) processStorageBytes=\(end.storageBytes) processLogicalBytes=\(end.logicalBytes) startedInBackground=\(inBackground)")
+    }
 }
 #endif
 
