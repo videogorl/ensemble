@@ -2,26 +2,38 @@ import XCTest
 @testable import EnsemblePersistence
 
 final class OfflineDownloadTargetRepositoryTests: XCTestCase {
-    /// The reconciler compares this list with one it sorts by source then rating key.
+    /// The reconciler compares this list with one it sorts by source then rating key. Rows are written
+    /// in an unsorted order straight to a disk store, so only the final sort can produce the order.
     func testFetchTrackReferencesReturnsOneTargetSortedBySourceThenRatingKey() async throws {
-        let repository = OfflineDownloadTargetRepository(coreDataStack: .inMemory())
-        for key in ["offline:a", "offline:b"] {
-            _ = try await repository.upsertTarget(
-                key: key, kind: .playlist, ratingKey: key, sourceCompositeKey: "plex:a:s", displayName: key
-            )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("membership-order-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stack = CoreDataStack.onDisk(at: directory.appendingPathComponent("Ensemble.sqlite"))
+        let repository = OfflineDownloadTargetRepository(coreDataStack: stack)
+        let rows = [
+            ("offline:a", "2", "plex:b"), ("offline:b", "1", "plex:c"), ("offline:a", "9", "plex:a"),
+            ("offline:a", "10", "plex:a"), ("offline:b", "0", "plex:a")
+        ]
+        let context = stack.newBackgroundContext()
+        try await context.perform {
+            for (targetKey, ratingKey, sourceKey) in rows {
+                let membership = CDOfflineDownloadMembership(context: context)
+                membership.id = "\(targetKey)|\(sourceKey)|\(ratingKey)"
+                membership.targetKey = targetKey
+                membership.trackRatingKey = ratingKey
+                membership.trackSourceCompositeKey = sourceKey
+            }
+            try context.save()
         }
-        let b2 = OfflineTrackReference(trackRatingKey: "2", trackSourceCompositeKey: "plex:b")
-        let a10 = OfflineTrackReference(trackRatingKey: "10", trackSourceCompositeKey: "plex:a")
-        let a9 = OfflineTrackReference(trackRatingKey: "9", trackSourceCompositeKey: "plex:a")
-        try await repository.replaceMemberships(targetKey: "offline:a", trackReferences: [b2, a9, a10])
-        try await repository.replaceMemberships(
-            targetKey: "offline:b",
-            trackReferences: [OfflineTrackReference(trackRatingKey: "1", trackSourceCompositeKey: "plex:c")]
-        )
 
         let references = try await repository.fetchTrackReferences(targetKey: "offline:a")
 
-        XCTAssertEqual(references, [a10, a9, b2])
+        XCTAssertEqual(references, [
+            OfflineTrackReference(trackRatingKey: "10", trackSourceCompositeKey: "plex:a"),
+            OfflineTrackReference(trackRatingKey: "9", trackSourceCompositeKey: "plex:a"),
+            OfflineTrackReference(trackRatingKey: "2", trackSourceCompositeKey: "plex:b")
+        ])
     }
 
     func testReplaceMembershipsTracksCountsAndPrunesRemovedEntries() async throws {

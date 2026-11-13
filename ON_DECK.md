@@ -124,13 +124,19 @@ An entry does not authorize the work; Felicity picks what gets done.
 - **Open risk (hypothesis):** the launch burst counts against the daily limit; 30 launches (including background
   launches, if they run the same fetches) would spend most of it. Not measured: a background-refresh launch, an offline
   download run, a full sync, lossless originals.
-- **Fixed on `fix/launch-sqlite-temp-writes` (awaiting the SE re-measure):** the store now sets `temp_store=MEMORY`
-  (`CoreDataStack`), so no fetch spills a sorter to `tmp/etilqs_*`; on a disk store of 12,000 artists and 36,000 albums
-  `fetchArtists` and `fetchAlbums` opened one temp file per call before and none after. `fetchTrackReferences` no longer
-  sorts in SQL (the plan was `SCAN` plus `USE TEMP B-TREE FOR ORDER BY`; now `SCAN`), sorts the references in Swift with
-  the reconciler's own comparator, and reads two properties as dictionaries. `reconcileOrphanedTargets` no longer
-  re-fetches every target's references: `refreshAllTargetProgresses` already knows which targets came back empty, so
-  each pass makes one call per target instead of two.
+- **Fixed on `fix/launch-sqlite-temp-writes` (awaiting the SE re-measure):** `fetchTrackReferences` no longer sorts in
+  SQL (the plan was `SCAN` plus `USE TEMP B-TREE FOR ORDER BY`; now `SCAN`), sorts the references in Swift with the
+  reconciler's own comparator, and reads two properties as dictionaries. `reconcileOrphanedTargets` no longer re-fetches
+  every target's references: `refreshAllTargetProgresses` already knows which targets came back empty, so each pass
+  makes one call per target instead of two. Expected after-value of `etilqs_*` for `fetchTrackReferences`: its 13.2 MB
+  gone; the artist and album sorts below still spill. A global `temp_store=MEMORY` was tried and dropped: it removes
+  SQLite's spill safety valve for unbounded sorts such as `searchTracks` and `fetchTracks`.
+- **Open: `fetchArtists` (6.2 MB) and `fetchAlbums` (3.3 MB) still spill.** Sorting them in memory instead of in SQL
+  (they materialise every row anyway) changes the order for names that Foundation's `localizedCaseInsensitiveCompare`
+  calls equal but Core Data's SQL collation does not: hiragana against katakana (`ひかる` sorts before `ヒカル` in SQL;
+  in memory they tie and interleave by year in the album list). Case, `ß`/`ss` and Cyrillic-case ties behave the same
+  in both. Decide whether that order change is acceptable, or find a comparator that matches the SQL collation. The
+  attempt, with its on-disk order-equivalence test, is saved at `/tmp/se-disk/item2-in-memory-sort.patch`.
 - **Still open:** `refreshAllTargetProgresses` itself still runs several times per launch (recovery sweep, deferred
   healing, forced full refresh, `refreshState`) and each run reads every target's memberships with a full table scan
   (`ZTARGETKEY` has no index; adding one needs model 13). `Cache.db-wal` 1.8 MB, `fsCachedData` 1.3 MB and the
@@ -225,6 +231,16 @@ index and Siri route polling items are scheduled as one batch.
 
 Checked and left alone: the visible AirPlay control, artwork's persistent cache and retry
 rules, the Plex WebSocket polling fallback, and the size of `WatchRootView.swift`.
+
+## Suspected: two racy tests that wait one main-queue hop for a merge (2026-11-13)
+
+- Evidence: `DownloadManagerTests.testReconciliationPreservesExistingQualityAndReplacementIsExplicit` (`DownloadManagerTests.swift:66`,
+  `completed` is not `pending` after `requeueDownload`) failed 12 of 30 isolated runs on `develop` (`3fb77c06`) and 19 of 30
+  on `fix/launch-sqlite-temp-writes`; the same code on both. `MergedArtistDetailViewModelTests.testHidingLoadedAlbumRemovesItFromMergedArtistSnapshots`
+  (`MergedArtistDetailViewModelTests.swift:304`) failed once in a full EnsembleCore run and 2 of 100 isolated runs on the
+  branch against 0 of 100 on `develop`, too few to separate from noise; it waits one `DispatchQueue.main.async` hop for a hide to publish.
+- Impact: red suite runs with no regression. The download test reads a `viewContext` row right after a background write, before the merge lands.
+- Next step: wait on the merge notification or `refresh` the row instead of reading it immediately; give the hide test an awaited condition.
 
 ## Suspected: flaky `NowPlayingArtworkProjectionTests` in the full EnsembleCore run (2026-11-10)
 

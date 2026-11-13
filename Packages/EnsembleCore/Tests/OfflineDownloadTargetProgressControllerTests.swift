@@ -50,6 +50,39 @@ final class OfflineDownloadTargetProgressControllerTests: XCTestCase {
         func totalTrackDurationMs() async throws -> Int64 { 0 }
     }
 
+    /// Forwards to a real repository on a temporary disk store, with hooks for the two cases below.
+    private final class ForwardingTargetRepository: OfflineDownloadTargetRepositoryProtocol, @unchecked Sendable {
+        let base: OfflineDownloadTargetRepository
+        var failingMembershipReads: Set<String> = []
+        var afterEmptyTargetUpdate: (@Sendable (String) async -> Void)?
+        init(base: OfflineDownloadTargetRepository) { self.base = base }
+
+        func fetchTargets() async throws -> [CDOfflineDownloadTarget] { try await base.fetchTargets() }
+        func fetchTarget(key: String) async throws -> CDOfflineDownloadTarget? { try await base.fetchTarget(key: key) }
+        func upsertTarget(key: String, kind: CDOfflineDownloadTarget.Kind, ratingKey: String?, sourceCompositeKey: String?, displayName: String?) async throws -> CDOfflineDownloadTarget {
+            try await base.upsertTarget(key: key, kind: kind, ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey, displayName: displayName)
+        }
+        func updateTarget(key: String, status: CDOfflineDownloadTarget.Status, totalTrackCount: Int, completedTrackCount: Int, progress: Float, lastError: String?) async throws {
+            try await base.updateTarget(key: key, status: status, totalTrackCount: totalTrackCount, completedTrackCount: completedTrackCount, progress: progress, lastError: lastError)
+            if status == .pending { await afterEmptyTargetUpdate?(key) }
+        }
+        func deleteTarget(key: String) async throws { try await base.deleteTarget(key: key) }
+        func deleteTargets(forSourceCompositeKey sourceKey: String) async throws { try await base.deleteTargets(forSourceCompositeKey: sourceKey) }
+        func deleteAllTargets() async throws { try await base.deleteAllTargets() }
+        func fetchMemberships(targetKey: String) async throws -> [CDOfflineDownloadMembership] { [] }
+        func fetchTrackReferences(targetKey: String) async throws -> [OfflineTrackReference] {
+            if failingMembershipReads.contains(targetKey) { throw MockError.unimplemented }
+            return try await base.fetchTrackReferences(targetKey: targetKey)
+        }
+        func replaceMemberships(targetKey: String, trackReferences: [OfflineTrackReference]) async throws {
+            try await base.replaceMemberships(targetKey: targetKey, trackReferences: trackReferences)
+        }
+        func hasAnyMembership(for reference: OfflineTrackReference) async throws -> Bool { try await base.hasAnyMembership(for: reference) }
+        func membershipCount(for reference: OfflineTrackReference) async throws -> Int { try await base.membershipCount(for: reference) }
+        func fetchTargetKeys(containing reference: OfflineTrackReference) async throws -> [String] { try await base.fetchTargetKeys(containing: reference) }
+        func totalTrackDurationMs() async throws -> Int64 { try await base.totalTrackDurationMs() }
+    }
+
     private var context: NSManagedObjectContext {
         CoreDataStack.shared.viewContext
     }
@@ -77,6 +110,72 @@ final class OfflineDownloadTargetProgressControllerTests: XCTestCase {
             "plex:free:server:3||7551",
             "plex:free:test-server:1||147"
         ]))
+    }
+
+    /// A target with a stale count and no memberships, on a temporary disk store.
+    private func makeOrphanedTarget(key: String) async throws -> (ForwardingTargetRepository, URL) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("orphan-reconcile-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let stack = CoreDataStack.onDisk(at: directory.appendingPathComponent("Ensemble.sqlite"))
+        let repository = ForwardingTargetRepository(base: OfflineDownloadTargetRepository(coreDataStack: stack))
+        _ = try await repository.upsertTarget(key: key, kind: .playlist, ratingKey: "p", sourceCompositeKey: "plex:a:s", displayName: "P")
+        try await repository.updateTarget(key: key, status: .pending, totalTrackCount: 5, completedTrackCount: 0, progress: 0, lastError: nil)
+        return (repository, directory)
+    }
+
+    private func makeController(_ repository: ForwardingTargetRepository, reconciled: @escaping @MainActor (String) async throws -> Void) -> OfflineDownloadTargetProgressController {
+        OfflineDownloadTargetProgressController(dependencies: .init(
+            downloadManager: DownloadManagerMock(),
+            targetRepository: repository,
+            canExecuteDownloads: { true },
+            isQueueRunning: { false },
+            reconcileTarget: reconciled
+        ))
+    }
+
+    func testFullRefreshReconcilesATargetWhoseMembershipsAreEmpty() async throws {
+        let (repository, directory) = try await makeOrphanedTarget(key: "offline:orphan")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var reconciled: [String] = []
+        let controller = makeController(repository) { reconciled.append($0) }
+
+        _ = await controller.refreshAllTargetProgresses()
+
+        XCTAssertEqual(reconciled, ["offline:orphan"])
+    }
+
+    func testFullRefreshDoesNotTreatAFailedMembershipReadAsEmpty() async throws {
+        let (repository, directory) = try await makeOrphanedTarget(key: "offline:orphan")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        repository.failingMembershipReads = ["offline:orphan"]
+        var reconciled: [String] = []
+        let controller = makeController(repository) { reconciled.append($0) }
+
+        _ = await controller.refreshAllTargetProgresses()
+
+        XCTAssertEqual(reconciled, [])
+    }
+
+    /// Memberships written after the refresh found a target empty: the controller only hands the key to
+    /// reconciliation, which reads the memberships again, and removes nothing itself.
+    func testMembershipWrittenAfterTheRefreshSurvivesTheOrphanReconcile() async throws {
+        let (repository, directory) = try await makeOrphanedTarget(key: "offline:orphan")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let reference = OfflineTrackReference(trackRatingKey: "1", trackSourceCompositeKey: "plex:a:s")
+        repository.afterEmptyTargetUpdate = { key in
+            try? await repository.replaceMemberships(targetKey: key, trackReferences: [reference])
+        }
+        var seenByReconcile: [OfflineTrackReference] = []
+        let controller = makeController(repository) { key in
+            seenByReconcile = try await repository.fetchTrackReferences(targetKey: key)
+        }
+
+        _ = await controller.refreshAllTargetProgresses()
+
+        XCTAssertEqual(seenByReconcile, [reference])
+        let remaining = try await repository.fetchTrackReferences(targetKey: "offline:orphan")
+        XCTAssertEqual(remaining, [reference])
     }
 
     private func makeDownload(trackRatingKey: String, sourceCompositeKey: String?) -> CDDownload {

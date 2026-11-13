@@ -30,10 +30,6 @@ public final class CoreDataStack: @unchecked Sendable {
         }
         description.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
         description.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
-        // Sorted fetches on unindexed or collated columns (artists, albums) build their sorter in SQLite's
-        // temporary storage. Keep it in memory: on flash it spilled 1-3 MB `etilqs_*` files per fetch at every launch.
-        // The sorter holds at most the rows the fetch then materialises, so the peak is transient.
-        description.setOption(["temp_store": "MEMORY"] as NSDictionary, forKey: NSSQLitePragmasOption)
         persistentContainer.persistentStoreDescriptions = [description]
 
         persistentContainer.loadPersistentStores { description, error in
