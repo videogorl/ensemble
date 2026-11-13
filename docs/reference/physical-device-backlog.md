@@ -961,3 +961,19 @@ probes selected a remote endpoint with every server Connected in 0.35 s. Still o
 that has never been played or prefetched on the phone (an uncached stream over cellular); removing a song in another
 Plex client and re-running the add without a sync; the Apple Music explicit/clean case.
 Logs: `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.XJUNfILpoJ`, `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.a4QMZh6apZ`.
+
+## Disk writes by scenario (iPhone SE, 2026-11-12 and 13, build `202611121446.6234`, File Activity, app process)
+
+| Event | App bytes written | Mostly |
+| --- | --- | --- |
+| Cold foreground launch (3 runs) | 27–30 MB, all within about 26 s | `etilqs_*` 23.95 MB in 16 files: `fetchTrackReferences` 14.43, `fetchArtists` 6.19, `fetchAlbums` 3.34 |
+| Force Full Sync | 19.7 MB in about 7 s | `etilqs_*` 16.7 MB (artists 9.3, albums 5.0, references 2.4); Core Data 0.11 MB |
+| Background refresh through the debug route (foreground process) | 16.0 MB in about 4 s | `etilqs_*` 14.3 MB |
+| Download 9-track album | 4 tracks downloaded, 1.07 bytes written per byte kept; 5 promoted from the stream cache with no write; Core Data about 48 kB per track | audio |
+| Remove that album's downloads | 2.74 MB | `etilqs_*` 2.4 MB |
+| Streamed track | written once (3–7 MB transcodes) | stream cache |
+| Idle or playing steady state | 0.03–0.7 MB/min | `Cache.db-wal`, frequency timeline saves |
+
+One process logged 21 background refreshes in about 13 h. At 13–16 MB each (inferred from the debug-route run, not measured
+for a refresh iOS delivered) that is roughly 270–340 MB a day before any launch. Not measured: an iOS-delivered refresh, a
+cold background launch, lossless originals, a large download run. Evidence: `/tmp/se-disk/` and `/tmp/se-disk/round2/`.
