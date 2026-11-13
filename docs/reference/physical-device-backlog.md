@@ -968,3 +968,19 @@ Logs: `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.XJUNfILpoJ`, `/var/f
 | --- | --- |
 | Instruments File Activity on a cold launch, app process only: `tmp/etilqs_*` bytes in the first 30 s | Before (build `202611121446.6234`): 22.7 MB (`fetchTrackReferences` 13.2, `fetchArtists` 6.2, `fetchAlbums` 3.3). After: expect the `fetchTrackReferences`, `fetchArtists` and `fetchAlbums` files gone at launch, after a sync and after a background refresh (the Siri index rebuild now reads narrow rows); other sorted fetches (detail resolvers, search, Siri voice lookups) can still spill by design; record the number, the total launch writes (before 25–40 MB) and `Cache.db-wal` / `fsCachedData` / `SiriMediaIndexStore.saveToDisk` for what remains |
 | Library, artist and album lists keep their order and the downloads screen lists the same tracks | Compare against the SE before the change; peak memory at launch has not risen (Instruments Allocations, first 30 s) |
+
+## Disk writes by scenario (iPhone SE, 2026-11-12 and 13, build `202611121446.6234`, File Activity, app process)
+
+| Event | App bytes written | Mostly |
+| --- | --- | --- |
+| Cold foreground launch (3 runs) | 27–30 MB, all within about 26 s | `etilqs_*` 23.95 MB in 16 files: `fetchTrackReferences` 14.43, `fetchArtists` 6.19, `fetchAlbums` 3.34 |
+| Force Full Sync | 19.7 MB in about 7 s | `etilqs_*` 16.7 MB (artists 9.3, albums 5.0, references 2.4); Core Data 0.11 MB |
+| Background refresh through the debug route (foreground process) | 16.0 MB in about 4 s | `etilqs_*` 14.3 MB |
+| Download 9-track album | 4 tracks downloaded, 1.07 bytes written per byte kept; 5 promoted from the stream cache with no write; Core Data about 48 kB per track | audio |
+| Remove that album's downloads | 2.74 MB | `etilqs_*` 2.4 MB |
+| Streamed track | written once (3–7 MB transcodes) | stream cache |
+| Idle or playing steady state | 0.03–0.7 MB/min | `Cache.db-wal`, frequency timeline saves |
+
+One process logged 21 background refreshes in about 13 h. At 13–16 MB each (inferred from the debug-route run, not measured
+for a refresh iOS delivered) that is roughly 270–340 MB a day before any launch. Not measured: an iOS-delivered refresh, a
+cold background launch, lossless originals, a large download run. Evidence: `/tmp/se-disk/` and `/tmp/se-disk/round2/`.
