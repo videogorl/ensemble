@@ -124,9 +124,20 @@ An entry does not authorize the work; Felicity picks what gets done.
 - **Open risk (hypothesis):** the launch burst counts against the daily limit; 30 launches (including background
   launches, if they run the same fetches) would spend most of it. Not measured: a background-refresh launch, an offline
   download run, a full sync, lossless originals.
-- **Candidate fixes (not approved):** keep SQLite temp storage in memory for these fetches or give them an index so
-  they do not spill; stop `fetchTrackReferences` running 9–15 times per launch (see the repeated offline target
-  reconciliation entry); turn off `URLCache` on the Plex API, artwork and stream sessions.
+- **Fixed on `fix/launch-sqlite-temp-writes` (awaiting the SE re-measure):** the store now sets `temp_store=MEMORY`
+  (`CoreDataStack`), so no fetch spills a sorter to `tmp/etilqs_*`; on a disk store of 12,000 artists and 36,000 albums
+  `fetchArtists` and `fetchAlbums` opened one temp file per call before and none after. `fetchTrackReferences` no longer
+  sorts in SQL (the plan was `SCAN` plus `USE TEMP B-TREE FOR ORDER BY`; now `SCAN`), sorts the references in Swift with
+  the reconciler's own comparator, and reads two properties as dictionaries. `reconcileOrphanedTargets` no longer
+  re-fetches every target's references: `refreshAllTargetProgresses` already knows which targets came back empty, so
+  each pass makes one call per target instead of two.
+- **Still open:** `refreshAllTargetProgresses` itself still runs several times per launch (recovery sweep, deferred
+  healing, forced full refresh, `refreshState`) and each run reads every target's memberships with a full table scan
+  (`ZTARGETKEY` has no index; adding one needs model 13). `Cache.db-wal` 1.8 MB, `fsCachedData` 1.3 MB and the
+  `SiriMediaIndexStore.saveToDisk` rewrites are untouched. Not reproduced in a unit test: a `fetchTrackReferences`
+  spill (120,000 narrow rows never spilled on the Mac), so its before/after is the query plan only.
+- **Remaining candidate fixes (not approved):** coalesce the launch `refreshAllTargetProgresses` runs; a `targetKey`
+  index; turn off `URLCache` on the Plex API, artwork and stream sessions.
 - Evidence: `/tmp/se-disk/` (traces, exports, `S*.agg.json`); `.ips` analysis in the 2026-11-12 research thread.
 
 ## Suspected: EnsembleCore's tests are heavier than they need to be (2026-11-10)

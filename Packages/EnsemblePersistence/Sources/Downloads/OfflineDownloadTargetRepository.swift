@@ -234,19 +234,25 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
         }
     }
 
+    /// Returns the target's references ordered by source then rating key, the order
+    /// `DownloadTargetReconciler` builds its resolved list in. The order is applied here, not
+    /// with a sort descriptor, because an unindexed ORDER BY made SQLite spill a temp file per call.
     public func fetchTrackReferences(targetKey: String) async throws -> [OfflineTrackReference] {
         try await coreDataStack.performBackgroundContext { context in
-            let request = CDOfflineDownloadMembership.fetchRequest()
+            let request = NSFetchRequest<NSDictionary>(entityName: "CDOfflineDownloadMembership")
+            request.resultType = .dictionaryResultType
             request.predicate = NSPredicate(format: "targetKey == %@", targetKey)
-            request.sortDescriptors = [
-                NSSortDescriptor(key: "trackSourceCompositeKey", ascending: true),
-                NSSortDescriptor(key: "trackRatingKey", ascending: true)
-            ]
-            return try context.fetch(request).map {
-                OfflineTrackReference(
-                    trackRatingKey: $0.trackRatingKey,
-                    trackSourceCompositeKey: $0.trackSourceCompositeKey
-                )
+            request.propertiesToFetch = ["trackRatingKey", "trackSourceCompositeKey"]
+            return try context.fetch(request).compactMap { row -> OfflineTrackReference? in
+                guard let ratingKey = row["trackRatingKey"] as? String,
+                      let sourceCompositeKey = row["trackSourceCompositeKey"] as? String else { return nil }
+                return OfflineTrackReference(trackRatingKey: ratingKey, trackSourceCompositeKey: sourceCompositeKey)
+            }
+            .sorted {
+                if $0.trackSourceCompositeKey != $1.trackSourceCompositeKey {
+                    return $0.trackSourceCompositeKey < $1.trackSourceCompositeKey
+                }
+                return $0.trackRatingKey < $1.trackRatingKey
             }
         }
     }

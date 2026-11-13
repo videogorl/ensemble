@@ -961,3 +961,10 @@ probes selected a remote endpoint with every server Connected in 0.35 s. Still o
 that has never been played or prefetched on the phone (an uncached stream over cellular); removing a song in another
 Plex client and re-running the add without a sync; the Apple Music explicit/clean case.
 Logs: `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.XJUNfILpoJ`, `/var/folders/10/2969pd1j52q59dfxzzd_v3f80000gn/T/tmp.a4QMZh6apZ`.
+
+## iPhone SE — launch SQLite temp writes (`fix/launch-sqlite-temp-writes`)
+
+| Check | Owed |
+| --- | --- |
+| Instruments File Activity on a cold launch, app process only: `tmp/etilqs_*` bytes in the first 30 s | Before (build `202611121446.6234`): 22.7 MB (`fetchTrackReferences` 13.2, `fetchArtists` 6.2, `fetchAlbums` 3.3). After: expect near zero; record the number, the total launch writes (before 25–40 MB) and `Cache.db-wal` / `fsCachedData` / `SiriMediaIndexStore.saveToDisk` for what remains |
+| Library, artist and album lists keep their order and the downloads screen lists the same tracks | Compare against the SE before the change; peak memory at launch has not risen (Instruments Allocations, first 30 s) |

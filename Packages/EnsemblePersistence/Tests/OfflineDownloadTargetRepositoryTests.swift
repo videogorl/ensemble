@@ -2,6 +2,28 @@ import XCTest
 @testable import EnsemblePersistence
 
 final class OfflineDownloadTargetRepositoryTests: XCTestCase {
+    /// The reconciler compares this list with one it sorts by source then rating key.
+    func testFetchTrackReferencesReturnsOneTargetSortedBySourceThenRatingKey() async throws {
+        let repository = OfflineDownloadTargetRepository(coreDataStack: .inMemory())
+        for key in ["offline:a", "offline:b"] {
+            _ = try await repository.upsertTarget(
+                key: key, kind: .playlist, ratingKey: key, sourceCompositeKey: "plex:a:s", displayName: key
+            )
+        }
+        let b2 = OfflineTrackReference(trackRatingKey: "2", trackSourceCompositeKey: "plex:b")
+        let a10 = OfflineTrackReference(trackRatingKey: "10", trackSourceCompositeKey: "plex:a")
+        let a9 = OfflineTrackReference(trackRatingKey: "9", trackSourceCompositeKey: "plex:a")
+        try await repository.replaceMemberships(targetKey: "offline:a", trackReferences: [b2, a9, a10])
+        try await repository.replaceMemberships(
+            targetKey: "offline:b",
+            trackReferences: [OfflineTrackReference(trackRatingKey: "1", trackSourceCompositeKey: "plex:c")]
+        )
+
+        let references = try await repository.fetchTrackReferences(targetKey: "offline:a")
+
+        XCTAssertEqual(references, [a10, a9, b2])
+    }
+
     func testReplaceMembershipsTracksCountsAndPrunesRemovedEntries() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
