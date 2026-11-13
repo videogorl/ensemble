@@ -644,9 +644,20 @@ public struct SearchView: View {
         }
         .dragContainer(for: PinnedReorderTransfer.self) { draggedID -> [PinnedReorderTransfer] in
             guard let pin = pinnedVM.resolvedPins.first(where: { $0.id == draggedID }) else { return [] }
+            // Lifting a pin asks for this payload even when the press ends in the context menu, so the
+            // dragging state starts only once the session is moving and always ends with the session.
             pinDragSource = pin
-            beginPinDrag()
             return [PinnedReorderTransfer(id: draggedID)]
+        }
+        .onDragSessionUpdated { session in
+            switch session.phase {
+            case .active:
+                beginPinDrag()
+            case .ended, .dataTransferCompleted:
+                finishPinDrag(persistsOrder: false)
+            default:
+                break
+            }
         }
         .padding(.horizontal)
     }
