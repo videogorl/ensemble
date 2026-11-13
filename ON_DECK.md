@@ -107,18 +107,27 @@ An entry does not authorize the work; Felicity picks what gets done.
 - Impact: a user-hidden item that is briefly absent from the server returns unhidden. Not new in 3b.
 - Next step: decide whether hiding should survive absence; if so, prune only after a grace period.
 
-## Confirmed: excessive disk writes on the iPhone SE 2 (2026-08-10 report, noted 2026-11-10)
+## Confirmed: excessive disk writes on the iPhone SE 2 (2026-08-10 report; measured 2026-11-12)
 
-- Evidence: a disk-writes resource report, 1,073 MB in 107 minutes. 37 of 66 samples are an
-  Ensemble async task into a Foundation file write (frames unsymbolicated, writer unknown);
-  15 of 66 are Core Data saves. See
-  `docs/investigations/2026-11-10-crash-evidence-and-library-writer.md`, report 6.
-- Impact: battery and storage wear, and iOS can penalize the app. The step 3 shared writer
-  should cut the Core Data share (it skips unchanged rows); the larger file-write share is
-  not explained.
-- Next step: symbolicate the report (needs the dSYM for TestFlight build `…0709`), or
-  measure writes by subsystem on a device with Instruments File Activity during a sync and
-  a streaming session. Suspects: stream cache, offline downloads, the session log file.
+- **The report:** 1,073.74 MB in 107 min against iOS's limit of 1,073.74 MB per 24 h. It was a burst: about 692 MB in the
+  last 7.3 min (58% a whole-file write from a Swift task, about 26% Core Data saves, about 11% CFNetwork SQLite, probably
+  `URLCache`). Build `…0709` (`4988cddd`); no dSYM on this Mac, so the frames are unnamed. Best fit (hypothesis): a bulk
+  offline download run, which that build wrote with `Data.write` per track.
+- **Measured on the SE, build `202611121446.6234`, Instruments File Activity (app process only):**
+  - Every cold launch writes 25–40 MB in its first 30 s. Most of it is SQLite temp files (`tmp/etilqs_*`) for sorted
+    or distinct Core Data fetches: `OfflineDownloadTargetRepository.fetchTrackReferences` 13.2 MB in 11 files,
+    `LibraryRepository.fetchArtists` 6.2 MB, `fetchAlbums` 3.3 MB; then `Cache.db-wal` 1.8 MB and `fsCachedData` 1.3 MB.
+  - Steady state is small: 0.12–0.15 MB/min idle, 0.4–0.7 MB/min while playing (`Cache.db-wal`, a frequency timeline
+    save every 17–28 s, lyrics outcomes). A streamed track is written once (3–7 MB transcodes). Session log negligible.
+  - `SiriMediaIndexStore.saveToDisk` rewrote 1.24 MB two or three times on some launches.
+  - 107 min of locked streaming extrapolates to about 220 MB, so today's playback does not reproduce the report.
+- **Open risk (hypothesis):** the launch burst counts against the daily limit; 30 launches (including background
+  launches, if they run the same fetches) would spend most of it. Not measured: a background-refresh launch, an offline
+  download run, a full sync, lossless originals.
+- **Candidate fixes (not approved):** keep SQLite temp storage in memory for these fetches or give them an index so
+  they do not spill; stop `fetchTrackReferences` running 9–15 times per launch (see the repeated offline target
+  reconciliation entry); turn off `URLCache` on the Plex API, artwork and stream sessions.
+- Evidence: `/tmp/se-disk/` (traces, exports, `S*.agg.json`); `.ips` analysis in the 2026-11-12 research thread.
 
 ## Suspected: EnsembleCore's tests are heavier than they need to be (2026-11-10)
 
