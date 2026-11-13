@@ -1001,13 +1001,7 @@ Phone check: `docs/reference/physical-device-backlog.md`, "launched on cellular 
   "Libraries to Show" lists "Music" three times for three servers. Impact: the user cannot tell which library they are
   hiding. Next step: include the server name in the entity's display representation, as the in-app library filter does.
 
+- **A Search pin dropped on the search field types its id (confirmed, iPhone SE, 2026-11-13).** The pin's drag payload
+  exports its id as plain text, so any text drop target accepts it. Impact: cosmetic, a stray id string in the field.
+  Next step: export a private content type instead of a string from `PinnedReorderTransfer`.
 
-- **Search pins: a pin stays dimmed after a long-press or drag; the 2026-09-29 fix was never merged (confirmed
-  glitch, crash not reproduced; iPhone SE, iOS 27.2, build `202611130737.7322`, 2026-11-13).** After a long-press
-  menu is dismissed or a drag ends, the touched pin can stay at the dragging opacity until the tab is left and
-  reopened (`$TMPDIR/tmp.Uoe66YT8sD/s1-after-menu-dismiss-dimmed.jpg`, `s2-after-drag-dimmed.jpg`). No crash in about
-  eight long-presses and drags. Injected drags never reordered, so real-finger reordering and a drop on the page
-  background are untested. Branch `t3code/fix-ios-search-pin-crash` (local only, two commits) drops the background
-  `.onDrop` on iOS 27 and wraps each pin inside the reorderable loop; develop still has the old code in
-  `SearchView.swift`. Impact: a pin looks disabled; reordering may not work. Next step: re-apply the branch's
-  `SearchView` change on develop with its UI test and re-run this check, plus one reorder by hand.

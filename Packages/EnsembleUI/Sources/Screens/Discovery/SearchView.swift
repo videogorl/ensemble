@@ -280,7 +280,7 @@ public struct SearchView: View {
                 manageSources: { navigationCoordinator.openProfile() }
             )
         } else {
-            ScrollView {
+            let content = ScrollView {
                 VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.exploreSectionSpacing) {
                     // Recent Searches
                     if !viewModel.recentSearches.isEmpty {
@@ -398,14 +398,19 @@ public struct SearchView: View {
             .refreshCommand {
                 await viewModel.loadExploreContent()
             }
-            .onDrop(
-                of: [.text],
-                delegate: PinnedGridBackgroundDropDelegate(
-                    viewModel: pinnedVM,
-                    begin: beginPinDrag,
-                    finish: { finishPinDrag() }
+            // Native reordering owns pin drops on iOS 27; a second drop target here takes them from it.
+            if #available(iOS 27.0, macOS 27.0, *) {
+                content
+            } else {
+                content.onDrop(
+                    of: [.text],
+                    delegate: PinnedGridBackgroundDropDelegate(
+                        viewModel: pinnedVM,
+                        begin: beginPinDrag,
+                        finish: { finishPinDrag() }
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -625,8 +630,10 @@ public struct SearchView: View {
 
         return LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
             ForEach(items) { item in
-                if let pin = pinnedVM.resolvedPins.first(where: { $0.id == item.id }) {
-                    pinnedItemCard(pin, usesNativeReordering: true)
+                VStack(spacing: 0) {
+                    if let pin = pinnedVM.resolvedPins.first(where: { $0.id == item.id }) {
+                        pinnedItemCard(pin, usesNativeReordering: true)
+                    }
                 }
             }
             .reorderable()
@@ -644,9 +651,20 @@ public struct SearchView: View {
         }
         .dragContainer(for: PinnedReorderTransfer.self) { draggedID -> [PinnedReorderTransfer] in
             guard let pin = pinnedVM.resolvedPins.first(where: { $0.id == draggedID }) else { return [] }
+            // Lifting a pin asks for this payload even when the press ends in the context menu, so the
+            // dragging state starts only once the session is moving and always ends with the session.
             pinDragSource = pin
-            beginPinDrag()
             return [PinnedReorderTransfer(id: draggedID)]
+        }
+        .onDragSessionUpdated { session in
+            switch session.phase {
+            case .active:
+                beginPinDrag()
+            case .ended, .dataTransferCompleted:
+                finishPinDrag(persistsOrder: false)
+            default:
+                break
+            }
         }
         .padding(.horizontal)
     }
@@ -768,6 +786,7 @@ public struct SearchView: View {
                 }
             }
             .opacity(pinnedVM.draggingPinId == pin.id ? 0.1 : 1.0)
+            .accessibilityIdentifier("search.pin.\(pin.id)")
 
         if usesNativeReordering {
             label
