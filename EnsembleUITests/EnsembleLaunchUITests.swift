@@ -81,6 +81,49 @@ final class EnsembleLaunchUITests: XCTestCase {
         XCTAssertTrue(rootSurface, "Expected Ensemble to expose a root surface after launch.")
     }
 
+    func testSearchPinReorderPersistsAfterRelaunch() throws {
+        guard #available(iOS 27.0, *) else {
+            throw XCTSkip("Native pin reordering requires iOS 27")
+        }
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-EnsembleAutomationMode", "YES",
+            "-EnsembleAutomationStartSurface", "search"
+        ]
+        app.launch()
+        defer { app.terminate() }
+
+        let pins = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.pin."))
+        XCTAssertTrue(pins.firstMatch.waitForExistence(timeout: 20))
+        let visiblePins = pins.allElementsBoundByIndex.filter(\.isHittable).sorted {
+            if abs($0.frame.minY - $1.frame.minY) > 1 {
+                return $0.frame.minY < $1.frame.minY
+            }
+            return $0.frame.minX < $1.frame.minX
+        }
+        XCTAssertGreaterThanOrEqual(visiblePins.count, 2, "Requires at least two visible pinned items")
+        let firstID = visiblePins[0].identifier
+        let secondID = visiblePins[1].identifier
+        let first = pins.matching(NSPredicate(format: "identifier == %@", firstID)).firstMatch
+        let second = pins.matching(NSPredicate(format: "identifier == %@", secondID)).firstMatch
+        XCTAssertEqual(first.frame.minY, second.frame.minY, accuracy: 1, "Requires two pins in the first row")
+
+        second.press(forDuration: 1, thenDragTo: first)
+        let reordered = NSPredicate { _, _ in second.frame.minX < first.frame.minX }
+        expectation(for: reordered, evaluatedWith: app)
+        waitForExpectations(timeout: 10)
+
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(second.waitForExistence(timeout: 20))
+        XCTAssertLessThan(second.frame.minX, first.frame.minX)
+
+        first.press(forDuration: 1, thenDragTo: second)
+        let restored = NSPredicate { _, _ in first.frame.minX < second.frame.minX }
+        expectation(for: restored, evaluatedWith: app)
+        waitForExpectations(timeout: 10)
+    }
+
     func testNativeBrowseRetainsScrolledItemAcrossSections() throws {
         guard #available(iOS 18.0, *), UIDevice.current.userInterfaceIdiom == .pad else {
             throw XCTSkip("Native browse requires iPadOS 18 or later")

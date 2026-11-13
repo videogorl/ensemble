@@ -1018,3 +1018,17 @@ Foreground debug route on the SE, build `202611130737.7322`: 3.27 MB storage, 3.
 0.33 MB of write calls for the same route; the counters differ and launch work may overlap). A refresh delivered by iOS to
 the suspended app on the SE (07:59, `startedInBackground=true`): 0.36 MB storage, 1.95 MB logical. One sample; a
 refresh that cold-launches the app, and the 16 Pro, are still owed (read the line from later sessions' logs).
+
+## Search pins: dimming and reordering (`fix/search-pin-dimming`, iPhone SE, iOS 27.2, 2026-11-13)
+
+| Check | Result |
+|---|---|
+| Long-press a pin, dismiss the menu (three pins, 1 s and 2 s) | Passed on build `202611131052.8974`: no pin left dimmed (develop left the first one dimmed until the tab was reopened) |
+| Drag ends with or without a reorder, or on empty space | Passed: no pin left dimmed |
+| `testSearchPinReorderPersistsAfterRelaunch`: drag pin 2 onto pin 1, relaunch, order kept, drag back | Failed with only the session change (no reorder in 10 s); passed once the page-level drop target is off on iOS 27 and each pin is wrapped inside the reorderable loop |
+| Long-press crash from September | Not reproduced in about eight tries on develop before the fix |
+
+Owed: the dragged card dims only while moving (not observed mid-drag); a reorder by hand; iPad and Mac. The dimming
+check ran before the drop-target change was added. A pin dropped on the search field types its id there. Evidence:
+`$TMPDIR/tmp.ZgjtsHljFx` (screenshots), `$TMPDIR/tmp.6CWfxnhYZR` (logs).
+

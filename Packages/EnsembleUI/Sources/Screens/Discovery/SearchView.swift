@@ -280,7 +280,7 @@ public struct SearchView: View {
                 manageSources: { navigationCoordinator.openProfile() }
             )
         } else {
-            ScrollView {
+            let content = ScrollView {
                 VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.exploreSectionSpacing) {
                     // Recent Searches
                     if !viewModel.recentSearches.isEmpty {
@@ -398,14 +398,19 @@ public struct SearchView: View {
             .refreshCommand {
                 await viewModel.loadExploreContent()
             }
-            .onDrop(
-                of: [.text],
-                delegate: PinnedGridBackgroundDropDelegate(
-                    viewModel: pinnedVM,
-                    begin: beginPinDrag,
-                    finish: { finishPinDrag() }
+            // Native reordering owns pin drops on iOS 27; a second drop target here takes them from it.
+            if #available(iOS 27.0, macOS 27.0, *) {
+                content
+            } else {
+                content.onDrop(
+                    of: [.text],
+                    delegate: PinnedGridBackgroundDropDelegate(
+                        viewModel: pinnedVM,
+                        begin: beginPinDrag,
+                        finish: { finishPinDrag() }
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -625,8 +630,10 @@ public struct SearchView: View {
 
         return LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
             ForEach(items) { item in
-                if let pin = pinnedVM.resolvedPins.first(where: { $0.id == item.id }) {
-                    pinnedItemCard(pin, usesNativeReordering: true)
+                VStack(spacing: 0) {
+                    if let pin = pinnedVM.resolvedPins.first(where: { $0.id == item.id }) {
+                        pinnedItemCard(pin, usesNativeReordering: true)
+                    }
                 }
             }
             .reorderable()
@@ -779,6 +786,7 @@ public struct SearchView: View {
                 }
             }
             .opacity(pinnedVM.draggingPinId == pin.id ? 0.1 : 1.0)
+            .accessibilityIdentifier("search.pin.\(pin.id)")
 
         if usesNativeReordering {
             label
