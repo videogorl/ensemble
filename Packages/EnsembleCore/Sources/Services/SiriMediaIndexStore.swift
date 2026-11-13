@@ -118,15 +118,20 @@ public final class SiriMediaIndexStore {
             let playlistSourceKeys = enabledLibrarySourceKeys.map {
                 SystemMediaSourceScope.playlistSourceKeys(forEnabledLibraryKeys: $0)
             }
-            let hidden = hiddenMediaStore.snapshot
-            let artists = Array(try await libraryRepository.fetchSiriArtistRows()
+            // The hidden snapshot is read after each fetch returns, so a hide that lands while a fetch is suspended
+            // (cloud sync at launch) is honoured by this pass.
+            let artistRows = try await libraryRepository.fetchSiriArtistRows()
+            let hiddenForArtists = hiddenMediaStore.snapshot
+            let artists = Array(artistRows
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
-                .filter { !Self.isHidden($0, in: hidden) }
+                .filter { !Self.isHidden($0, in: hiddenForArtists) }
                 .prefix(1500))
             try RefreshExecution.checkCancellation()
-            let albums = Array(try await libraryRepository.fetchSiriAlbumRows()
+            let albumRows = try await libraryRepository.fetchSiriAlbumRows()
+            let hiddenForAlbums = hiddenMediaStore.snapshot
+            let albums = Array(albumRows
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
-                .filter { !Self.isHidden($0, in: hidden) }
+                .filter { !Self.isHidden($0, in: hiddenForAlbums) }
                 .prefix(1500))
             try RefreshExecution.checkCancellation()
             let tracks = Array(try await libraryRepository.fetchSiriEligibleTracks()
