@@ -405,6 +405,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// The unified audio engine for all playback (replaces AVQueuePlayer)
     var audioEngine: AudioPlaybackEngine?
+    /// Live output for full-screen visualizers. The engine taps it only while it has readers.
+    public let liveAudioFeed = LiveAudioFeed()
     let maxCachedFileURLs = 10
     /// Combine subscription for engine time updates
     var isHandlingQueueExhaustion = false
@@ -809,6 +811,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // A prefetch deferred behind a direct download is re-evaluated from the queue as it ends.
         transportCoordinator.onDirectDownloadEnded = { [weak self] in
             Task { await self?.prefetchNextItem() }
+        }
+
+        liveAudioFeed.onCaptureChanged = { [weak self] isCapturing in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.audioEngine?.setLiveAudioFeed(isCapturing ? self.liveAudioFeed : nil)
+            }
+        }
+        if liveAudioFeed.isCapturing {
+            engine.setLiveAudioFeed(liveAudioFeed)
         }
 
         audioEngine = engine

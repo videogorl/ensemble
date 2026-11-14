@@ -165,6 +165,7 @@ public enum EnsembleDesign {
         public static let speakerPlaying = "speaker.wave.3.fill"
         public static let unpin = "pin.slash"
         public static let aurora = "sparkles"
+        public static let visualizer = "music.note.tv"
         public static let scrobble = "checkmark.circle"
         public static let waveform = "waveform"
         public static let secureConnection = "lock.shield"

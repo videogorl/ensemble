@@ -53,6 +53,7 @@ public enum TrackSwipeAction: String, CaseIterable, Codable, Sendable, Identifia
 public enum NowPlayingSecondaryAction: String, CaseIterable, Codable, Sendable, Identifiable {
     case airPlay, favorite, addToPlaylist, addToRecentPlaylist, addToLibrary
     case goToAlbum, goToArtist, shareEnsembleLink, shareLink, shareAudioFile
+    case visualizer
 
     public var id: String { rawValue }
 
@@ -68,6 +69,7 @@ public enum NowPlayingSecondaryAction: String, CaseIterable, Codable, Sendable, 
         case .shareEnsembleLink: return "Share Ensemble Link…"
         case .shareLink: return "Share Link…"
         case .shareAudioFile: return "Share Audio File…"
+        case .visualizer: return "Visualizer"
         }
     }
 
@@ -81,6 +83,7 @@ public enum NowPlayingSecondaryAction: String, CaseIterable, Codable, Sendable, 
         case .goToArtist: return "music.mic"
         case .shareEnsembleLink, .shareLink: return "link"
         case .shareAudioFile: return "square.and.arrow.up"
+        case .visualizer: return "music.note.tv"
         }
     }
 
@@ -100,6 +103,8 @@ public enum NowPlayingSecondaryAction: String, CaseIterable, Codable, Sendable, 
         case .goToAlbum: return track.albumRatingKey != nil
         case .goToArtist: return track.artistRatingKey != nil
         case .shareAudioFile: return track.sourceCapabilities.supportsAudioFileSharing
+        // Same gate as the aurora: sources like Apple Music give the app no audio to read.
+        case .visualizer: return track.sourceCapabilities.supportsWaveform
         default: return true
         }
     }
@@ -115,7 +120,7 @@ public struct NowPlayingSecondaryLayout: Codable, Equatable, Sendable {
     }
 
     public static var `default`: Self {
-        Self(slots: [.airPlay, .favorite, .addToPlaylist, nil])
+        Self(slots: [.airPlay, .favorite, .addToPlaylist, .visualizer])
     }
 
     private enum CodingKeys: String, CodingKey { case slots }
@@ -416,6 +421,16 @@ public final class SettingsManager {
         set { settings.auroraVisualizationEnabled = newValue }
     }
 
+    public var visualizerEnabled: Bool {
+        get { settings.visualizerEnabled }
+        set { settings.visualizerEnabled = newValue }
+    }
+
+    public var visualizerStyle: VisualizerStyle {
+        get { settings.visualizerStyle }
+        set { settings.visualizerStyle = newValue }
+    }
+
     public var scrobblingEnabled: Bool {
         get { settings.scrobblingEnabled }
         set { settings.scrobblingEnabled = newValue }
@@ -642,6 +657,8 @@ public struct AppSettings: Equatable, Sendable {
     public var songsTableColumns: [SongsTableColumn]
     public var allowInsecureConnectionsPolicy: AllowInsecureConnectionsPolicy
     public var auroraVisualizationEnabled: Bool
+    public var visualizerEnabled: Bool
+    public var visualizerStyle: VisualizerStyle
     public var scrobblingEnabled: Bool
     public var focusScrobblingOverride: Bool?
     public var mergingPreferences: EnsembleMergingPreferences
@@ -680,6 +697,9 @@ extension SettingsManager {
                 .flatMap(AllowInsecureConnectionsPolicy.init(rawValue:)) ?? .defaultForEnsemble,
             auroraVisualizationEnabled: defaults.object(forKey: AuroraVisualizationPreference.enabledKey) as? Bool
                 ?? AuroraVisualizationPreference.defaultEnabled,
+            visualizerEnabled: defaults.bool(forKey: VisualizerPreference.enabledKey),
+            visualizerStyle: defaults.string(forKey: VisualizerPreference.styleKey)
+                .flatMap(VisualizerStyle.init(rawValue:)) ?? VisualizerPreference.defaultStyle,
             scrobblingEnabled: defaults.object(forKey: scrobblingEnabledKey) as? Bool ?? true,
             focusScrobblingOverride: focusOverride,
             mergingPreferences: storedMergingPreferences(in: defaults),
@@ -704,6 +724,8 @@ extension SettingsManager {
         store(\.songsTableColumns, songsTableColumnsKey)
         set(\.allowInsecureConnectionsPolicy, AllowInsecureConnectionsPolicy.defaultsKey) { $0.rawValue }
         set(\.auroraVisualizationEnabled, AuroraVisualizationPreference.enabledKey) { $0 }
+        set(\.visualizerEnabled, VisualizerPreference.enabledKey) { $0 }
+        set(\.visualizerStyle, VisualizerPreference.styleKey) { $0.rawValue }
         set(\.scrobblingEnabled, scrobblingEnabledKey) { $0 }
         set(\.focusScrobblingOverride, focusScrobblingOverrideKey) { $0.map { $0 ? 1 : 0 } ?? noFocusScrobblingOverride }
         set(\.demoModeEnabled, demoModeKey) { $0 }

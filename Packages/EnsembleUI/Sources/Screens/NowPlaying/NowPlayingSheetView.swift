@@ -48,6 +48,7 @@ public struct NowPlayingSheetView: View {
                 }
             }
         }
+        .modifier(NowPlayingVisualizerColorScheme(playbackProjection: viewModel.playbackProjection))
         .onAppear {
             currentPage = viewModel.currentPage
         }

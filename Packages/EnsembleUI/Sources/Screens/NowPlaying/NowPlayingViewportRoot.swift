@@ -32,30 +32,54 @@ struct NowPlayingBackdrop: View {
 
     var body: some View {
         ZStack {
-            baseBackgroundColor
-                .ignoresSafeArea()
+            if showsVisualizer {
+                Color.black
+                    .ignoresSafeArea()
 
-            BlurredArtworkBackground(
-                image: artworkProjection.artworkImage,
-                preBlurredImage: artworkProjection.blurredArtworkImage,
-                overlayColor: overlayColor
-            )
-
-            readabilityOverlay
-                .allowsHitTesting(false)
-
-            if settingsManager.auroraVisualizationEnabled && playbackProjection.currentTrack?.sourceCapabilities.supportsWaveform != false {
-                AuroraVisualizationView(
-                    playbackService: dependencies.playbackService,
-                    consumer: consumer,
-                    accentColor: settingsManager.accentColor.color,
+                NowPlayingVisualizerView(
+                    style: settingsManager.visualizerStyle,
+                    isPlaying: playbackProjection.playbackState == .playing,
                     isLowPowerMode: powerStateMonitor.isLowPowerMode,
-                    activeContentMaxWidth: activeContentMaxWidth
+                    accentColor: settingsManager.accentColor.color
                 )
-                .allowsHitTesting(false)
+
+                Color.black.opacity(EnsembleScaffold.NowPlaying.visualizerDimOpacity)
+                    .allowsHitTesting(false)
+            } else {
+                artworkBackdrop
             }
         }
         .ignoresSafeArea()
+    }
+
+    private var showsVisualizer: Bool {
+        NowPlayingVisualizer.isShowing(settings: settingsManager, track: playbackProjection.currentTrack)
+    }
+
+    @ViewBuilder
+    private var artworkBackdrop: some View {
+        baseBackgroundColor
+            .ignoresSafeArea()
+
+        BlurredArtworkBackground(
+            image: artworkProjection.artworkImage,
+            preBlurredImage: artworkProjection.blurredArtworkImage,
+            overlayColor: overlayColor
+        )
+
+        readabilityOverlay
+            .allowsHitTesting(false)
+
+        if settingsManager.auroraVisualizationEnabled && playbackProjection.currentTrack?.sourceCapabilities.supportsWaveform != false {
+            AuroraVisualizationView(
+                playbackService: dependencies.playbackService,
+                consumer: consumer,
+                accentColor: settingsManager.accentColor.color,
+                isLowPowerMode: powerStateMonitor.isLowPowerMode,
+                activeContentMaxWidth: activeContentMaxWidth
+            )
+            .allowsHitTesting(false)
+        }
     }
 
     private var usesDarkPresentation: Bool {
@@ -153,6 +177,7 @@ struct NowPlayingViewportRoot: View {
                 }
             }
         }
+        .modifier(NowPlayingVisualizerColorScheme(playbackProjection: viewModel.playbackProjection))
     }
 
     private var header: some View {

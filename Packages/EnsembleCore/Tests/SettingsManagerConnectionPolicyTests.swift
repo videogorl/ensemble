@@ -27,6 +27,7 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
         for key in [
             accentColorKey, auroraVisualizationKey, demoModeKey, defaultsKey, enabledTabsKey,
             mergingPreferencesKey, songsTableColumnsKey, trackSwipeLayoutKey, "focusScrobblingOverride",
+            VisualizerPreference.enabledKey, VisualizerPreference.styleKey,
         ] {
             UserDefaults.standard.removeObject(forKey: key)
         }
@@ -160,6 +161,10 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
             ("same accent color", { $0.setAccentColor($0.accentColor) }, false, { _ in true }),
             ("aurora off", { $0.auroraVisualizationEnabled = false }, true,
              { $0.object(forKey: AuroraVisualizationPreference.enabledKey) as? Bool == false }),
+            ("classic visualizer on", { $0.visualizerEnabled = true }, true,
+             { $0.bool(forKey: VisualizerPreference.enabledKey) }),
+            ("classic visualizer style", { $0.visualizerStyle = .bars }, true,
+             { $0.string(forKey: VisualizerPreference.styleKey) == "bars" }),
             ("tabs", { $0.enabledTabs = [.albums, .playlists] }, true,
              { $0.data(forKey: "enabledTabs") == (try? JSONEncoder().encode([TabItem.albums, .playlists])) }),
             ("connection policy", { $0.allowInsecureConnectionsPolicy = .never }, true,
