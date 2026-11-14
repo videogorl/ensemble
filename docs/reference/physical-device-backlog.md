@@ -1034,6 +1034,18 @@ Foreground debug route on the SE, build `202611130737.7322`: 3.27 MB storage, 3.
 the suspended app on the SE (07:59, `startedInBackground=true`): 0.36 MB storage, 1.95 MB logical. One sample; a
 refresh that cold-launches the app, and the 16 Pro, are still owed (read the line from later sessions' logs).
 
+SE follow-up, read 2026-11-14 12:30 (logs cover 2026-11-13 07:25 to 2026-11-14 12:25, 15 sessions): 77 refreshes that
+iOS delivered in the background. 76 reached the suspended app: storage min 0.34 / median 0.75 / max 2.66 MB, logical
+min 1.86 / median 2.51 / max 4.61 MB. One cold-launched the app (11:25 on 11-13): 2.82 MB storage, 5.49 MB logical
+for the refresh, 6.11 MB logical for the process by the end of it. iOS delivered one about every 15.5 minutes while
+the phone was awake, with a gap from 17:28 to 01:22; the last session ran 25 hours on refreshes alone, 66 of them,
+and its process total reached 181.3 MB logical (72.2 MB storage). A full day at that cadence is about 93 refreshes
+and 245 MB logical, under a quarter of the 1,073.74 MB limit; the day measured was about 175 MB.
+
+The 16 Pro was not read: Bigmac did not answer SSH or ping on 2026-11-14. To unblock, wake Bigmac (or reconnect it to
+Tailscale) and copy the phone's logs; they keep the last 15 sessions, so the build `202611130737.7322` sessions may
+roll off if the app is launched many times first.
+
 ## Search pins: dimming and reordering (`fix/search-pin-dimming`, iPhone SE, iOS 27.2, 2026-11-13)
 
 | Check | Result |
