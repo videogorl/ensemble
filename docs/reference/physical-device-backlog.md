@@ -1042,9 +1042,15 @@ the phone was awake, with a gap from 17:28 to 01:22; the last session ran 25 hou
 and its process total reached 181.3 MB logical (72.2 MB storage). A full day at that cadence is about 93 refreshes
 and 245 MB logical, under a quarter of the 1,073.74 MB limit; the day measured was about 175 MB.
 
-The 16 Pro was not read: Bigmac did not answer SSH or ping on 2026-11-14. To unblock, wake Bigmac (or reconnect it to
-Tailscale) and copy the phone's logs; they keep the last 15 sessions, so the build `202611130737.7322` sessions may
-roll off if the app is launched many times first.
+16 Pro, read 2026-11-15 (logs cover 2026-11-14 10:58 to 2026-11-15 07:30, 15 sessions): 14 measured refreshes, all
+delivered in the background, from 10:59 to 15:23 on 11-14 on build `202611130737.7322`. Four cold-launched the app:
+storage min 1.05 / median 1.64 / max 2.65 MB, logical min 4.13 / median 5.24 / max 6.16 MB. Ten reached the suspended
+app: storage 0.79 / 0.80 / 2.34 MB, logical 2.52 / 3.12 / 4.11 MB. The largest refresh-only process total was 26.4 MB
+logical (8 refreshes in 1 h 46 min). From 15:27 the phone runs a build of `9d84abae` that reports build number
+`202603240726` and does not log the line, so the later 19 refreshes are unmeasured. Over the whole period iOS
+triggered 33 refreshes in 20.5 hours (about 39 a day), and 12 of the 15 sessions were cold-launched by one, so this
+phone drops the app from memory far more often than the SE. At 39 a day that is about 150 to 200 MB logical; the
+ceiling of one every 15 minutes, all cold, is about 500 MB. Both are under the 1,073.74 MB limit.
 
 ## Search pins: dimming and reordering (`fix/search-pin-dimming`, iPhone SE, iOS 27.2, 2026-11-13)
 
