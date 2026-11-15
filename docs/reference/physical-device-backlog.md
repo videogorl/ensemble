@@ -94,7 +94,9 @@ verified until they run there.
 Simulator (iPhone 17 Pro, iOS 26.5) passed: settings row and page, the Now
 Playing button and menu toggle, all three styles animating with a Plex track,
 freeze on pause, tap removal on hide, and recovery across engine route
-changes. Not yet run on hardware:
+changes. Felicity reported on 2026-11-15 that it "works great" on her device after
+the merge into develop (`ea892562`); she did not say which of the items below she
+looked at, so they stay listed:
 
 - Sync: with the phone speaker and with Bluetooth headphones, beats in Bars
   and Battery should land with the audio (expected lag is about one 100 ms tap
