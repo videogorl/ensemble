@@ -207,9 +207,9 @@ this design with no new sync machinery.
 - **Shared or per-profile sign-in.** tvOS 16's user-independent keychain
   (`kSecUseUserIndependentKeychain`) lets one Plex sign-in serve every
   profile on the TV while settings stay per profile. Per-profile sign-in
-  suits Plex Home users with separate accounts. A decision for Felicity;
-  recommendation: shared sign-in by default, since a household TV usually
-  has one Plex owner, with a per-profile override later if wanted.
+  suits Plex Home users with separate accounts. Felicity chose **per
+  profile** on 2026-11-16: each Apple TV profile signs in to its own Plex
+  account, so the user-independent keychain is not used.
 - **Profile switches.** Each profile's library cache is separate and
   rebuilt from Plex, so a first switch to a new profile pays one library
   sync. Settings are eight small records, so they are not a cost. Developers
