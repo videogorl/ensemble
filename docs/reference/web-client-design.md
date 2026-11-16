@@ -165,6 +165,22 @@ Three options were considered.
    reports say CloudKit JS cannot read encrypted fields (Apple's docs are
    ambiguous), so the web app could not use them anyway.
 
+   Felicity asked on 2026-11-16 whether to move credentials from iCloud
+   Keychain to encrypted CloudKit fields so they reach the web. Answer: no.
+   - A browser holding only an Apple Account web session can read a field
+     only if Apple's servers can decrypt it for that session. So any
+     version the web can read is protected less than iCloud Keychain, which
+     is always end-to-end encrypted.
+   - It would trade a working, end-to-end encrypted path that already
+     reaches the watch for a migration of the most sensitive data in the
+     app. A mistake there signs the user out on every device.
+   - The web would hold a copy of the account's main token in browser
+     storage, where one script injection exposes full Plex access. Option 2
+     gives the web its own token that can be revoked separately.
+   - If option 2 fails in its prototype, a 30-minute CloudKit JS test of
+     encrypted fields in the development environment settles whether this
+     is even possible before it is reconsidered.
+
 Apple Music on the web needs MusicKit JS, which needs an Apple Music
 developer token: a JWT signed with a MusicKit private key, valid for up to
 six months. Either embed a token rotated by hand, or mint it from a
