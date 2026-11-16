@@ -187,6 +187,43 @@ six months. Either embed a token rotated by hand, or mint it from a
 Cloudflare Worker (free tier) that keeps the key as a secret. The Worker is
 the only server piece in the design; it is needed only for Apple Music.
 
+### 3.6 Apple TV and its profiles
+
+Felicity asked on 2026-11-16 how a future Apple TV app would fit. It reuses
+this design with no new sync machinery.
+
+- **Settings per profile.** With the User Management capability's
+  "Runs as Current User" option (tvOS 14+), each Apple TV profile gets its
+  own app container and its own iCloud account. The `EnsembleSettings` zone
+  then syncs per profile with no extra code: each person sees their own
+  pins, hidden items, sources and settings. `CKSyncEngine` is available on
+  tvOS 17.
+- **Credentials do not arrive by iCloud Keychain.** tvOS accepts
+  synchronizable keychain items but never syncs them, in either direction
+  (Apple's `kSecAttrSynchronizable` documentation). So Apple TV signs in
+  per device, like the web: the source inventory (3.4) lists what to sign
+  in to, and the approve-from-iPhone Plex PIN link (3.5, option 2) is the
+  flow plex.tv/link was built for, TVs.
+- **Shared or per-profile sign-in.** tvOS 16's user-independent keychain
+  (`kSecUseUserIndependentKeychain`) lets one Plex sign-in serve every
+  profile on the TV while settings stay per profile. Per-profile sign-in
+  suits Plex Home users with separate accounts. A decision for Felicity;
+  recommendation: shared sign-in by default, since a household TV usually
+  has one Plex owner, with a per-profile override later if wanted.
+- **Profile switches.** Each profile's library cache is separate and
+  rebuilt from Plex, so a first switch to a new profile pays one library
+  sync. Settings are eight small records, so they are not a cost. Developers
+  report Core Data stores re-downloading from CloudKit on every switch;
+  Ensemble does not mirror Core Data through CloudKit, so that does not apply.
+- **Notifications.** On a shared TV, a CloudKit push can arrive for another
+  profile. Ignore pushes whose `subscriptionOwnerUserRecordID` is not the
+  current user, if `CKSyncEngine` does not already filter them.
+
+This also settles section 3.5's option 3 further: encrypted CloudKit fields
+would not need to replace iCloud Keychain to serve Apple TV, because every
+device that lacks Keychain sync (web, Apple TV) uses the same per-device
+sign-in.
+
 ## 4. Native migration
 
 ### 4.1 Transport
