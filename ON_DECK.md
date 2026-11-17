@@ -373,6 +373,9 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
   start from the prefetch check is the likely failure.
 - Next step: record cold-ending and fade-out pairs from the Mac build with `scripts/automix-lab` and compare the
   logged plan with what played; then the phone check in `docs/reference/physical-device-backlog.md`.
+- Also unheard: the tempo estimator was replaced on the same branch (matches Apple's tempo 81% of the time at
+  SmartMix's confidence gate, up from 57%). More pairs will now pass the gate and get a speed change, so listen for
+  speed changes that sound wrong, especially 2:3 and 4:3 tempo confusions.
 
 ## Pre-existing, weigh later: streaming tracks have no sample-gapless or file-backed SmartMix handoff (2026-11-10)
 
