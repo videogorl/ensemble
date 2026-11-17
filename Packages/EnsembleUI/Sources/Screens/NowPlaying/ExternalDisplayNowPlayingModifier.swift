@@ -6,6 +6,8 @@ import SwiftUI
 struct ExternalDisplayNowPlayingModifier: ViewModifier {
     let viewModel: NowPlayingViewModel
     @Environment(DependencyContainer.self) private var dependencies
+    @AppStorage(ExternalDisplayPreference.nowPlayingEnabledKey)
+    private var isEnabled = ExternalDisplayPreference.defaultNowPlayingEnabled
 
     #if os(iOS)
     // Each main window owns a model. Keep the timing flag until its last
@@ -16,7 +18,7 @@ struct ExternalDisplayNowPlayingModifier: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         #if os(iOS)
-        if #available(iOS 27.0, *) {
+        if #available(iOS 27.0, *), isEnabled {
             content.sceneAccessory {
                 ExternalNonInteractiveAccessory {
                     ExternalDisplayNowPlayingView(viewModel: viewModel)

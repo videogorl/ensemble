@@ -1067,3 +1067,9 @@ Owed: the dragged card dims only while moving (not observed mid-drag); a reorder
 check ran before the drop-target change was added. A pin dropped on the search field types its id there. Evidence:
 `$TMPDIR/tmp.ZgjtsHljFx` (screenshots), `$TMPDIR/tmp.6CWfxnhYZR` (logs).
 
+
+## Now Playing on Mirrored Display toggle
+
+Owed: with Settings → Playback → "Now Playing on Mirrored Display" off, AirPlay screen mirroring shows the app itself on
+the iPhone 16 Pro (iOS 27 scene accessory removed) and toggling it live swaps the view. On iOS 17–26 the legacy scene
+delegate skips creating a window when off; confirm the display keeps mirroring rather than going black.
