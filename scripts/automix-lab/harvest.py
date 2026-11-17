@@ -6,7 +6,8 @@
 tracks.txt lists library persistent IDs, one per line, in play order; every consecutive pair is
 one transition. Music computes and logs its plan a few seconds after a track starts, so each pair
 takes seconds: start the track, wait for the plan, skip to the next. Transitions must be on.
-Each output line holds the two tracks, the parsed plan if there was one, and the raw log lines.
+Each output line holds the two tracks, the parsed plan if there was one, the raw log lines, and
+the planner's reasoning trace (which strategies it considered and why each was rejected).
 Apple's per-song analysis is copied next to the output as it appears in Music's cache. A track
 that will not load stalls Music's queue; the run restarts after it.
 """
@@ -15,8 +16,9 @@ import json, os, re, subprocess, sys, time
 from collect_analysis import collect
 
 PLAYLIST = "zz AutoMix Lab run"
-PREDICATE = ('process == "Music" AND (subsystem == "com.apple.Sonic" OR eventMessage CONTAINS "TRANSITION:" '
-             'OR eventMessage CONTAINS "CMCrossfadeHandler")')
+PREDICATE = ('process == "Music" AND (subsystem == "com.apple.Sonic" OR subsystem == "com.apple.smarttransitions" '
+             'OR eventMessage CONTAINS "TRANSITION:" OR eventMessage CONTAINS "CMCrossfadeHandler")')
+TRACE = "[com.apple.smarttransitions:core] "
 
 def music(script, timeout=600):
     out = subprocess.run(["osascript", "-e", f'with timeout of {timeout} seconds\ntell application "Music"\n{script}\nend tell\nend timeout'],
@@ -81,8 +83,11 @@ def run_chunk(ids, known, log, out, analysis_dir, done, total):
             print(f"stalled at {known[ids[index]]['name'][:30]!r}", flush=True)
             music("stop")
             return index
-        record = {"a": known[ids[index]], "b": known[ids[index + 1]],
-                  "plan": parse(lines), "log": [re.sub(r"^\S+ \S+ \S+ +\S+ ", "", l)[:1500] for l in lines]}
+        # The planner's own reasoning arrives on its own channel; keep it apart from the plan lines.
+        entries = re.split(r"\n(?=\d{4}-\d\d-\d\d )", "\n".join(lines))
+        record = {"a": known[ids[index]], "b": known[ids[index + 1]], "plan": parse(lines),
+                  "log": [re.sub(r"^\S+ \S+ \S+ +\S+ ", "", e)[:1500] for e in entries if TRACE not in e],
+                  "trace": [e.split(TRACE, 1)[1][:600] for e in entries if TRACE in e]}
         out.write(json.dumps(record) + "\n"); out.flush()
         print(f"{done + index + 1}/{total} {known[ids[index]]['name'][:24]!r} -> {known[ids[index + 1]]['name'][:24]!r}: "
               f"{record['plan'].get('strategy', 'none')} {record['plan'].get('duration', '')}", flush=True)
