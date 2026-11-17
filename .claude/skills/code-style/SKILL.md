@@ -17,6 +17,9 @@ native framework, or installed dependency before adding code.
 - Use package `AppLogger` / `EnsembleLogger` category loggers and intentional
   levels. Never use `print` in production paths or hide `Logger` calls behind
   `#if DEBUG`.
+- Log success only after checking the outcome the line claims. A "completed"
+  line for work that may not have had its effect (a sync that did not return
+  the item just added) hides the failure; log what was observed instead.
 - Treat logs as production data. Route URLs, headers, query strings, auth data,
   filesystem paths, and token-like values through the existing redaction path.
 - Deployment floors are iOS/iPadOS 17, macOS 15, and watchOS 10. Do not add
