@@ -1,7 +1,8 @@
 # Plan: measure Apple Music AutoMix and rebuild SmartMix from the findings (2026-11-17)
 
-Status: plan only. Nothing here is built or measured. Each phase needs Felicity's go-ahead; the redesign in
-Phase 5 needs its own approval after the findings exist.
+Status: Phase 0 (pilot) ran on 2026-11-17; results are at the end. Phases 1 to 4 are approved to proceed on the
+Mac, with an iPhone 16 Pro spot check over USB to Minibar. The redesign in Phase 5 needs its own approval after
+the findings exist.
 
 Constraint from Felicity (2026-11-17): the result must not depend on Plex. Jellyfin may be added later, so
 SmartMix may use only what any source can give it: the decoded audio file and generic track fields (duration,
@@ -175,3 +176,46 @@ Cannot, or not without something more:
 - Sonnet implementers, separate worktrees: capture tool; Music driver; analysis pipeline.
 - Haiku checker with Cua Driver, holding the `mac-gui` lock: Music settings that scripting cannot reach.
 - A lead-tier model from another provider reviews the analysis maths before the findings are trusted.
+
+## Pilot results (2026-11-17)
+
+Mac, macOS 27.2, Music 1.7.2, AutoMix on. Tools in `scripts/automix-lab/`; recordings in
+`~/Developer/automix-lab-data/` (not in the repo). Five pairs, one run each except the first.
+
+What the pilot proved:
+
+- The process tap records Apple Music subscription audio digitally (48 kHz stereo).
+- The same pair gives the same transition: three runs of pair 1 agreed to 0.05 s.
+- Seeking to 50 s before the end changes the result when Apple's mix-out point is earlier than that. Runs now
+  start 150 s before the end.
+- Transitions are switched with `defaults write com.apple.Music TransitionsEnabled` plus a Music relaunch. No
+  GUI driving is needed.
+- Playing one track of a playlist lets Autoplay choose the next song; the driver plays a two-song playlist.
+
+What AutoMix did (positions in seconds of each song; one run each, so treat as first observations):
+
+| Pair | Outgoing song left at | Incoming song entered at | Overlap | Shape |
+|---|---|---|---|---|
+| Dance to dance (Galantis to Zedd remix) | 197 of 227, about 30 s early | about 45 | about 14 s | bass swapped in about 2 s, outgoing highs linger |
+| Dance to hip-hop (Zedd remix to 2Pac) | about 243 of 249 | 0 | about 2 to 4 s | short fade |
+| Hip-hop to electronic (2Pac to The Postal Service) | about 260 of 264 | unclear, between 0 and 18 | about 8 s | outgoing lows drop first |
+| Electronic to rock (The Postal Service to Metric) | about 256 of 267, the fade-out tail is dropped | 0 | under 2 s | near cut |
+| Rock to classical (Metric to Stravinsky) | 212 of 214 | 0 | none seen | plays through |
+
+- Apple does cut into songs, but only on the pair where both are dance tracks with long intros and outros.
+  Everywhere else the incoming song started at or near its beginning.
+- No tempo change was detected on any pair. The speed estimate is only good to about 2%, so a small stretch
+  cannot be ruled out yet.
+- No low-pass "underwater" filter appeared. The one clear filter move was a bass swap.
+
+Not done in the pilot:
+
+- The Crossfade control. `TransitionStyle = 0` produced no visible overlap, so it is not plain Crossfade or its
+  length is very short. The value for Crossfade and its length setting still need to be read from Music's
+  settings window.
+- A full-length play compared against a 150 s lead.
+- Confirmation by ear that the Mac is silent during runs.
+
+Analysis limits found: the position tracker loses a track once it is more than about 25 dB down or when the
+music repeats itself, the speed estimate is coarse, and results print every 2 s. All three need tightening
+before the full run.
