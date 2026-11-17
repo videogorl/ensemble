@@ -1071,7 +1071,7 @@ check ran before the drop-target change was added. A pin dropped on the search f
 
 Not run on any device or simulator yet; planner tests only.
 
-- SmartMix on, a song with a cold ending into any song: the next song starts from its first note, overlap about 2 s.
+- SmartMix on, a song with a cold ending into any song: the next song starts from its first note, overlap about 1 s.
 - SmartMix on, a song that fades out into any song: the next song starts from its first note while the fade is
   still audible; no silence between them.
 - Skip, seek and reorder during the short overlap behave as before.

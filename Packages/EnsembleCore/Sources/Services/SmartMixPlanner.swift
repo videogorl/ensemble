@@ -57,7 +57,8 @@ public struct SmartMixAnalysis: Equatable, Sendable {
     public let leadingSilence: TimeInterval
     public let trailingSilence: TimeInterval
     public let analyzedDuration: TimeInterval
-    /// How long the track has been dying away when it ends: about 0 for a cold stop, several seconds for a fade-out.
+    /// Seconds at the end of the file, silence included, that sit well below the track's usual
+    /// level: under a second for a cold stop, several seconds for a fade-out.
     public let outroDecay: TimeInterval
     public let introTempo: SmartMixTempoAnalysis
     public let outroTempo: SmartMixTempoAnalysis
@@ -143,11 +144,13 @@ public struct SmartMixPlan: Equatable, Sendable {
 }
 
 public enum SmartMixPlanner {
-    /// The overlap covers the outgoing track's own decay, within these bounds.
+    /// The overlap covers the outgoing track's own decay, within these bounds. The bounds and the
+    /// lead-in match what Apple Music's AutoMix plans for the same songs
+    /// (docs/investigations/2026-11-17-automix-findings.md).
     public static let maximumTransitionDuration: TimeInterval = 10
-    public static let minimumTransitionDuration: TimeInterval = 2
+    public static let minimumTransitionDuration: TimeInterval = 1
+    public static let decayLeadIn: TimeInterval = 0.5
     public static let minimumTrackDuration: TimeInterval = 10
-    public static let maximumSilenceTrim: TimeInterval = 10
     public static let minimumTempoTransitionDuration: TimeInterval = 8
     public static let minimumTempoConfidence: Double = 0.65
     public static let minimumStrongTempoConfidence: Double = 0.82
@@ -167,25 +170,17 @@ public enum SmartMixPlanner {
         guard outgoingDuration.isFinite, incomingDuration.isFinite else { return nil }
         guard outgoingDuration >= minimumTrackDuration, incomingDuration >= minimumTrackDuration else { return nil }
 
-        let outgoingTrim = min(max(0, outgoingAnalysis?.trailingSilence ?? 0), maximumSilenceTrim)
-        let incomingTrim = min(max(0, incomingAnalysis?.leadingSilence ?? 0), maximumSilenceTrim)
-
         // Overlap only what the outgoing track is already giving up: a cold ending gets the
-        // shortest blend, a fade-out is covered for as long as it lasts.
+        // shortest blend, a fade-out or trailing silence is covered for as long as it lasts.
         let wantedDuration = min(
             maximumTransitionDuration,
-            max(minimumTransitionDuration, outgoingAnalysis?.outroDecay ?? 0)
+            max(minimumTransitionDuration, (outgoingAnalysis?.outroDecay ?? 0) - decayLeadIn)
         )
-        let transitionDuration = min(
-            wantedDuration,
-            (outgoingDuration - outgoingTrim) / 2,
-            (incomingDuration - incomingTrim) / 2
-        )
-        guard transitionDuration >= minimumTransitionDuration else { return nil }
+        let transitionDuration = min(wantedDuration, outgoingDuration / 2, incomingDuration / 2)
 
-        let outgoingStart = outgoingDuration - outgoingTrim - transitionDuration
-        // The incoming track plays from its first sound; nothing of it is skipped.
-        let baseIncomingStart = incomingTrim
+        let outgoingStart = outgoingDuration - transitionDuration
+        // The incoming track plays from its very start; nothing of it is skipped.
+        let baseIncomingStart: TimeInterval = 0
         let promotionTime = transitionDuration / 2
         let tempoDecision = tempoDecision(
             outgoingStartTime: outgoingStart,
@@ -447,16 +442,17 @@ public enum SmartMixTempoEstimator {
 }
 
 public enum SmartMixEndingEstimator {
-    public static let decayThreshold: Float = 0.316 // -10 dB against the track's usual level
-    public static let frameDuration: TimeInterval = 0.1
+    public static let windowDuration: TimeInterval = 45
+    public static let decayThreshold: Float = 0.158 // -16 dB against the track's usual level
+    public static let frameDuration: TimeInterval = 0.05
 
-    /// Seconds at the end of `monoSamples` spent below the usual level. `monoSamples` should end
-    /// where the track's sound ends and cover enough before it to show the usual level.
+    /// Seconds at the end of `monoSamples` after the last moment at the usual level. `monoSamples`
+    /// should run to the end of the file and cover `windowDuration` where the track is that long.
     public static func decayDuration(monoSamples: [Float], sampleRate: Double) -> TimeInterval {
         let frameLength = Int(sampleRate * frameDuration)
         guard frameLength > 0 else { return 0 }
         let frameCount = monoSamples.count / frameLength
-        guard frameCount >= 80 else { return 0 }
+        guard frameCount >= 160 else { return 0 }
 
         var levels = [Float](repeating: 0, count: frameCount)
         let offset = monoSamples.count - frameCount * frameLength
@@ -467,10 +463,12 @@ public enum SmartMixEndingEstimator {
             }
         }
 
-        let usual = levels[..<(frameCount / 2)].sorted()[frameCount / 4]
+        // The usual level comes from the part of the window before the ending itself.
+        let reference = levels[..<(frameCount * 5 / 9)].sorted()
+        let usual = reference[reference.count / 2]
         guard usual > 0 else { return 0 }
-        let quietFrames = levels.reversed().prefix { $0 < usual * decayThreshold }.count
-        return min(TimeInterval(quietFrames) * frameDuration, TimeInterval(frameCount / 2) * frameDuration)
+        guard let lastLoud = levels.lastIndex(where: { $0 >= usual * decayThreshold }) else { return 0 }
+        return TimeInterval(frameCount - 1 - lastLoud) * frameDuration
     }
 }
 
@@ -571,7 +569,14 @@ public final class SmartMixAnalysisService {
             leadingSilence: leading,
             trailingSilence: trailing,
             analyzedDuration: duration,
-            outroDecay: SmartMixEndingEstimator.decayDuration(monoSamples: outroSamples, sampleRate: sampleRate),
+            outroDecay: SmartMixEndingEstimator.decayDuration(
+                monoSamples: readMono(
+                    file: file,
+                    startTime: max(0, duration - SmartMixEndingEstimator.windowDuration),
+                    duration: SmartMixEndingEstimator.windowDuration
+                ),
+                sampleRate: sampleRate
+            ),
             introTempo: introTempo,
             outroTempo: outroTempo
         )

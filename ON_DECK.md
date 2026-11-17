@@ -365,10 +365,11 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 ## Open: SmartMix overlap change is unverified at runtime (2026-11-17)
 
 - Evidence: `SmartMixPlanner` now starts the incoming song at its first sound and sizes the overlap from the outgoing
-  song's own decay (2 to 10 s) instead of always skipping 10 s and fading 10 s. Planner tests pass; no transition has
+  song's own decay (1 to 10 s, tuned against Apple Music's plans for the same songs) instead of always skipping 10 s
+  and fading 10 s. Planner tests pass and its plans match Apple's on 92% of 420 pairs within 2 s; no transition has
   been played or recorded with the change. Background in
   `docs/investigations/2026-11-17-automix-reverse-engineering-plan.md`.
-- Impact: unknown until heard. The 2 s overlap is much shorter than anything SmartMix scheduled before, so a late
+- Impact: unknown until heard. The 1 s overlap is much shorter than anything SmartMix scheduled before, so a late
   start from the prefetch check is the likely failure.
 - Next step: record cold-ending and fade-out pairs from the Mac build with `scripts/automix-lab` and compare the
   logged plan with what played; then the phone check in `docs/reference/physical-device-backlog.md`.

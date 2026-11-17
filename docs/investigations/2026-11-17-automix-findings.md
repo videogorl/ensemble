@@ -1,6 +1,7 @@
 # What Apple Music AutoMix does: first findings (2026-11-17)
 
-Status: measured on one Mac (macOS 27.2, Music 1.7.2) from 939 song pairs. The strategy-choice rules and the
+Status: measured on one Mac (macOS 27.2, Music 1.7.2). The tables below are from the first 939 song pairs; the
+data set has since grown to 1,448 pairs, 534 of them with both songs also in the Plex library. The strategy-choice rules and the
 level and filter curves are not worked out yet. Plan and method: `2026-11-17-automix-reverse-engineering-plan.md`.
 
 ## How the evidence is collected
@@ -40,7 +41,24 @@ Electric and dancedancedance. 648 have Apple's analysis for both songs.
   the fade-out length less about 1.5 s, held between 1 and 10 s. One in five is capped at 10 s.
 - No speed change.
 
-This is what the 2026-11-17 SmartMix planner change imitates, with a 2 s floor where Apple uses 1 s.
+- The overlap belongs to the outgoing song alone: 131 songs seen before more than one next song got the same
+  overlap each time.
+
+## SmartMix against Apple on the same songs
+
+The real `SmartMixPlanner.swift`, compiled alone, planned 534 pairs from the Plex files of songs Apple had
+planned. This compares plan numbers, not sound.
+
+- First attempt (overlap = time 10 dB down after trimming silence, 2 s floor): 85% of Dead-Air pairs got the 2 s
+  floor, and counting the trimmed silence it ran over 3 s longer than Apple on 105 of 420.
+- Current rule: overlap = time since the song was last within 16 dB of its usual level, to the end of the
+  file, less 0.5 s, held between 1 and 10 s; the incoming song starts at 0. Against Apple's Dead-Air Removal
+  (420 pairs): mean difference 0.67 s, 82% within 1 s, 92% within 2 s, correlation 0.91.
+- Where Apple chose something else, SmartMix still plans this simple overlap. Fallback Cross-Fade: Apple 2 s,
+  SmartMix median 9 s (21 pairs), cause not known. Smart Cross-Fade: Apple median 7 s entering the next song
+  late, SmartMix 5 s from its start. Beat-matched: Apple 8 to 16 s with tempo change, SmartMix 3 to 4 s.
+- SmartMix's tempo estimate agrees with Apple's within 2% (allowing half and double) on 233 of 464 song
+  endings, and on 179 of 266 it reports as confident.
 
 ## Beat-matched strategies (small sample)
 
