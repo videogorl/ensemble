@@ -145,7 +145,7 @@ into this repository; a readable table is generated outside it. Styles seen in h
 | 9 | BM - Filter expansion | from halfway: low-pass closes to 20 Hz, high-pass rises to 200 Hz; cut in last 0.3 s | band-limited around 1 kHz, widening to full range by three quarters |
 | 12 | BM - Long filter high to low | as 8 but only across the middle half; cut at three quarters | as 8, entering at one quarter |
 | 16 | Pop - Delay out | low-pass to 3.5 kHz, a beat-length echo (60% feedback) takes over as the dry signal is cut at one quarter; gone by half | high-pass 5.2 kHz to 20 Hz and fade in between about one fifth and two fifths |
-| 20 | Pop - Reverb | low-pass sweep to 20 Hz and high-pass rise across the middle half with a 6 s reverb send | (see generated table) |
+| 20 | Pop - Reverb | low-pass sweep to 20 Hz and high-pass rise across the middle half with a 6 s reverb send | fades in across the middle half; high-pass falls from 3.3 kHz while a low-pass opens from 20 Hz to 20 kHz |
 
 Catalogue entries never seen here: 2, 22 (splice), 5, 6, 7, 10, 11, 13, 14 ("No vocal clash one"), 15 and 18
 (Hip-Hop delay-out and looping), 17 and 19 (Dance repeater and "Any Key").
@@ -178,7 +178,7 @@ Read from the planner's code (Ghidra, addresses in the lab notes outside the rep
 
 - Which song-structure boundaries the planner keeps (explains the last 13% of Smart Cross-Fade verdicts).
 - Which of the four Smart Cross-Fade styles gets the score, and how beat-matched candidates are scored.
-- The incoming side of style 20 and the unseen styles have not been checked against recordings.
+- None of the catalogue has been checked against recordings yet; one recording per seen style exists.
 - Beat-Matched Dance and Hip-Hop have never fired here: no pair in this library has both songs in those
   genres.
 - Whether the iPhone plans the same transitions as the Mac.
