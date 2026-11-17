@@ -178,7 +178,10 @@ Read from the planner's code (Ghidra, addresses in the lab notes outside the rep
 
 - Which song-structure boundaries the planner keeps (explains the last 13% of Smart Cross-Fade verdicts).
 - Which of the four Smart Cross-Fade styles gets the score, and how beat-matched candidates are scored.
-- None of the catalogue has been checked against recordings yet; one recording per seen style exists.
+- The catalogue against recordings (one pair per seen style recorded, three taken apart at 2 s resolution):
+  style 8 matches in shape (outgoing loses highs first and lows last while speeding up 2 to 4%, incoming
+  arrives highs first), style 1 matches (incoming at -3 dB at the midpoint of a 2 s fade), style 4 was
+  inconclusive because the tool loses a ring-out more than 25 dB down. The other recordings are not analysed.
 - Beat-Matched Dance and Hip-Hop have never fired here: no pair in this library has both songs in those
   genres.
 - Whether the iPhone plans the same transitions as the Mac.
