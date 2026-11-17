@@ -125,9 +125,45 @@ Thresholds, inferred by matching verdicts to each song's analysis values (small 
   giving the 1 s overlap. The incoming song starts at 0 unless its opening is silent (42 pairs started up to
   4.5 s in).
 
-Numbered variants ("styles") are separate effect recipes within a strategy: Smart Cross-Fade 3, 4, 33, 44;
-Beat-Matched Pop 16, 20; Filtered Cross-Fade 8, 9, 12. What each one does to level and tone is being
-measured from recordings.
+## What each style does (Apple's own catalogue)
+
+The planner framework ships its recipes as data:
+`/System/Library/PrivateFrameworks/_SonicKit_MusicKit.framework/Versions/A/Resources/TransitionStyles.json`
+(24 styles) and `DSPGraph.dspg` (the effect chain). Each style lists, per song, which processor is automated,
+over which fraction of the transition, between which values and with which easing. Apple's file is not copied
+into this repository; a readable table is generated outside it. Styles seen in harvests:
+
+| ID | Apple's name | Outgoing song | Incoming song |
+|---|---|---|---|
+| 0 | Gapless (Dead-Air Removal) | gain 1 to 0 over the last 0.3 s | full level from its start |
+| 1 | constant-power cross-fade (Fallback) | gain 1 to 0 over the whole overlap | gain 0 to 1 over the whole overlap |
+| 3 | overlap | untouched | untouched |
+| 33 | overlap + Reverb | reverb send rises to 0.75 over the first 2 s (decay 6 s high, 5 s low) | untouched |
+| 4 | Ease-in Ring-out | untouched, rings out | gain 0 to 1 over the first 2 s |
+| 44 | Ease-in Ring-out + Reverb | reverb as 33 | gain 0 to 1 over the first 2 s |
+| 8 | BM - Filter high to low | low-pass closes 20 kHz to 200 Hz over the blend, cut in the last 0.3 s | in over 0.3 s; high-pass opens 20 kHz to 10 Hz; low-pass opens 1.2 kHz to 20 kHz late |
+| 9 | BM - Filter expansion | from halfway: low-pass closes to 20 Hz, high-pass rises to 200 Hz; cut in last 0.3 s | band-limited around 1 kHz, widening to full range by three quarters |
+| 12 | BM - Long filter high to low | as 8 but only across the middle half; cut at three quarters | as 8, entering at one quarter |
+| 16 | Pop - Delay out | low-pass to 3.5 kHz, a beat-length echo (60% feedback) takes over as the dry signal is cut at one quarter; gone by half | high-pass 5.2 kHz to 20 Hz and fade in between about one fifth and two fifths |
+| 20 | Pop - Reverb | low-pass sweep to 20 Hz and high-pass rise across the middle half with a 6 s reverb send | (see generated table) |
+
+Catalogue entries never seen here: 2, 22 (splice), 5, 6, 7, 10, 11, 13, 14 ("No vocal clash one"), 15 and 18
+(Hip-Hop delay-out and looping), 17 and 19 (Dance repeater and "Any Key").
+
+All beat-matched styles also ramp playback speed linearly across the blend on both songs. Fades use
+constant-power style easing (exponent 0.5); filter sweeps use steeper easing (exponents 2 and 4).
+
+Read from the planner's code (Ghidra, addresses in the lab notes outside the repo):
+
+- Smart Cross-Fade compares the mean loudness either side of a song-structure boundary. Incoming: the first
+  section must be at least 6 louder than what precedes it. Outgoing: what follows the last section must be at
+  least 6 quieter than that section and fall at 1 per second or faster without wobbling. Re-implemented, this
+  reproduces 366 of 421 traced verdicts (incoming 165 of 167); the misses come from not yet knowing which
+  structure boundaries the planner keeps.
+- Acousticness counts as significant from 0.85; danceability passes from 0.3 or when missing; melodicness is
+  insignificant below 0.25; tempo ratio limit 0.75.
+- Smart Cross-Fade always proposes 3, 33, 4 and 44 and scores exactly one above zero; how that one is picked
+  is not decoded.
 
 ## Answers so far to the four questions
 
@@ -140,9 +176,9 @@ measured from recordings.
 
 ## Not known yet
 
-- How the planner cuts a loudness curve into sections and decides one is "fading out" or a "start section".
-  Apple's published fade times do not predict it. Reading the framework's code would settle it.
-- The level and filter curves of each numbered style. Recordings of one pair per style are being fitted.
+- Which song-structure boundaries the planner keeps (explains the last 13% of Smart Cross-Fade verdicts).
+- Which of the four Smart Cross-Fade styles gets the score, and how beat-matched candidates are scored.
+- The incoming side of style 20 and the unseen styles have not been checked against recordings.
 - Beat-Matched Dance and Hip-Hop have never fired here: no pair in this library has both songs in those
   genres.
 - Whether the iPhone plans the same transitions as the Mac.
