@@ -104,8 +104,8 @@ Per strategy:
 | Beat-Matched Dance | both songs' main genre is Dance (Apple genre 17) | genre, all 508 pairs |
 | Beat-Matched Hip-Hop | both main genres in Hip-Hop/Rap or R&B/Soul (18, 15) | genre, all 508 pairs |
 | Beat-Matched Pop | both main genres Pop (14); neither song strongly acoustic; both danceable; same beats per bar; tempos compatible | genre (most), acousticness, danceability, tempo |
-| Beat-Matched Filtered Cross-Fade | both main genres in a list of about 50 (includes Rock, Alternative-adjacent, Electronic, Dance, Hip-Hop, Pop sub-genres) but not both Pop; same acoustic, danceability, time-signature and tempo checks | genre (most), acousticness, danceability, tempo |
-| Smart Cross-Fade | genres in the same broad list; the outgoing song's last loudness section trends downward; the incoming song opens with a distinct start section | no fading ending (285), no start section (121), genre (25) |
+| Beat-Matched Filtered Cross-Fade | both main genres in a list of about 50 (Electronic, Dance, Pop, Hip-Hop, R&B, Country, Reggae, World and sub-genres; Rock 21 and Alternative 20 are not in it) but not both Pop; same acoustic, danceability, time-signature and tempo checks | genre (most), acousticness, danceability, tempo |
+| Smart Cross-Fade | neither song in an excluded genre (every genre rejection involved genre 22; the full list is not logged); the outgoing song's last loudness section trends downward; the incoming song opens with a distinct start section | no fading ending (285), no start section (121), genre (25) |
 | Dead-Air Removal | a usable loudness curve | curve length mismatch (13) |
 | Soft Skip | only when moving early-to-early (a manual skip) | every natural song change |
 | Fallback Cross-Fade | nothing; always produces a 2 s result | never |
