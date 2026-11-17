@@ -362,6 +362,17 @@ identical probes, the health cache lifetimes, and the five-minute sync fallback.
 - Next step: if one appears, fetch only positions with more than one row (grouped fetch with
   a count filter) so memory follows the suspicious rows instead of the playlist.
 
+## Suspected: SmartMix skips the first 10 s of every incoming song (2026-11-17)
+
+- Evidence (from reading the code, not measured): `SmartMixPlanner.plan` sets
+  `introCut = min(maximumIntroCut, max(incomingTrim, transitionDuration))`, so with the default 10 s transition the
+  incoming deck starts 10 s into the song and fades in over the next 10 s. The outgoing song also always loses its
+  last 10 s to the fade, whatever its ending. Details and five related suspicions in
+  `docs/investigations/2026-11-17-automix-reverse-engineering-plan.md`.
+- Impact: openings with vocals or a hook in the first seconds are never heard when SmartMix is on.
+- Next step: record one SmartMix transition on the Mac build and read the incoming start position from the log or
+  the capture. The fix belongs to the SmartMix redesign in that plan. Not authorized to change.
+
 ## Pre-existing, weigh later: streaming tracks have no sample-gapless or file-backed SmartMix handoff (2026-11-10)
 
 - Evidence (reviewer's boundary notes, from reading the code): an uncached streaming track ends through a cached-file reload rather than a sample-gapless handoff (`AudioPlaybackEngine.swift:2392`), and a streaming outgoing track has no file-backed SmartMix crossfade path (`AudioPlaybackEngine.swift:1426`). Serializing direct downloads (one per server) can delay the successor's download further on a short track or a slow link, so more boundaries take this path.
